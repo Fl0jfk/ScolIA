@@ -112,16 +112,13 @@ function withOptionalDevTenantCookie(
 
 async function resolveTenantForProxy(request: NextRequest): Promise<TenantConfig> {
   await warmTenantRegistry();
-
   const host =
     request.headers.get("x-forwarded-host") ||
     request.headers.get("host") ||
     request.nextUrl.hostname;
-
   const devSlug = localDevTenantSlugFromRequest(request);
   const cached = resolveTenantByHostnameSync(host, devSlug);
   if (cached) return cached;
-
   try {
     return await resolveTenantByHostname(host, devSlug);
   } catch {

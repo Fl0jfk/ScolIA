@@ -39,6 +39,9 @@ function buildS3Client(opts: {
     region: opts.region,
     credentials: opts.credentials,
     ...(endpoint ? { endpoint, forcePathStyle: s3ForcePathStyle() } : {}),
+    // Sans ça, getSignedUrl ajoute x-amz-checksum-* : le PUT navigateur (CORS) échoue.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
 }
 

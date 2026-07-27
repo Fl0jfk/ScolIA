@@ -98,8 +98,14 @@ async function putLock(jobId: string): Promise<boolean> {
   } catch (e: unknown) {
     const meta = (e as { $metadata?: { httpStatusCode?: number } }).$metadata;
     const name = (e as { name?: string }).name;
-    if (meta?.httpStatusCode === 412 || name === "PreconditionFailed") {
-      ocrTrace(jobId, "lock", "busy", "lock déjà détenu par un autre worker");
+    const msg = e instanceof Error ? e.message : String(e);
+    // 412 classique, ou course Scaleway (« conflicting conditional operation »)
+    if (
+      meta?.httpStatusCode === 412 ||
+      name === "PreconditionFailed" ||
+      /conflicting conditional operation/i.test(msg)
+    ) {
+      ocrTrace(jobId, "lock", "busy", "lock déjà détenu ou course S3", { message: msg.slice(0, 160) });
       return false;
     }
     throw e;
