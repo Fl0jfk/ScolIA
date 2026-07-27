@@ -132,7 +132,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "travels",
     pathPrefixes: ["/travels", "/api/travels"],
-    excludePrefixes: ["/api/travels/ingest-from-email"],
+    excludePrefixes: ["/api/travels/ingest-from-email", "/api/travels/poll-email"],
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",

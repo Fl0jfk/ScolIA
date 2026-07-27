@@ -136,6 +136,11 @@ export function easytransacReturnUrl(signupId: string, token: string): string {
   return `${base}/api/billing/easytransac/return?signupId=${encodeURIComponent(signupId)}&token=${encodeURIComponent(token)}`;
 }
 
+/** URL à coller dans EasyTransac → Application → URL de notification. */
+export function easytransacNotificationUrl(): string {
+  return `${platformAppOrigin()}/api/billing/easytransac/webhook`;
+}
+
 export function isEasytransacPaymentSuccess(status: string): boolean {
   return status === "captured" || status === "authorized";
 }

@@ -97,6 +97,9 @@ export default function TripDetails() {
     savedTrip: TravelsTrip;
   } | null>(null);
   const [draftMessage, setDraftMessage] = useState("");
+  const [transportReplyTo, setTransportReplyTo] = useState("");
+  const [transportReplyBody, setTransportReplyBody] = useState("");
+  const [transportReplyBusy, setTransportReplyBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [manualDevisName, setManualDevisName] = useState("");
   const [manualDevisEmail, setManualDevisEmail] = useState("");
@@ -1730,11 +1733,13 @@ export default function TripDetails() {
               )}
             </div>
           </div>
-          {Array.isArray(trip.data.transportEmailMessages) && trip.data.transportEmailMessages.length > 0 && (
+          {((Array.isArray(trip.data.transportEmailMessages) && trip.data.transportEmailMessages.length > 0) ||
+            busLogisticsActive(trip)) && (
             <div className="mt-6 pt-6 border-t border-amber-200/80">
               <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800 mb-3">
-                Infos reçues par e-mail (IA)
+                Messagerie transporteur (e-mail)
               </p>
+              {Array.isArray(trip.data.transportEmailMessages) && trip.data.transportEmailMessages.length > 0 && (
               <div className="space-y-3">
                 {trip.data.transportEmailMessages.map((msg: {
                   id: string;
@@ -1742,6 +1747,8 @@ export default function TripDetails() {
                   summary?: string;
                   subject?: string;
                   fromEmail?: string;
+                  toEmail?: string;
+                  direction?: string;
                   driverName?: string | null;
                   driverPhone?: string | null;
                   details?: string | null;
@@ -1750,21 +1757,31 @@ export default function TripDetails() {
                   receivedAt?: string;
                   matchConfidence?: string | null;
                 }) => {
-                  const typeLabel =
-                    msg.messageType === "confirmation_commande"
+                  const isOut = msg.direction === "outbound";
+                  const typeLabel = isOut
+                    ? "Envoyé"
+                    : msg.messageType === "confirmation_commande"
                       ? "Confirmation"
                       : msg.messageType === "info_transport"
                         ? "Info transport"
                         : msg.messageType === "devis_pdf"
                           ? "Devis"
-                          : "Message";
+                          : "Message reçu";
                   return (
                     <div
                       key={msg.id}
-                      className="rounded-xl border border-amber-100 bg-amber-50/40 px-4 py-3 text-sm text-slate-800"
+                      className={`rounded-xl border px-4 py-3 text-sm ${
+                        isOut
+                          ? "border-indigo-100 bg-indigo-50/50 text-slate-800"
+                          : "border-amber-100 bg-amber-50/40 text-slate-800"
+                      }`}
                     >
                       <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${
+                            isOut ? "text-indigo-800 bg-indigo-100" : "text-amber-800 bg-amber-100"
+                          }`}
+                        >
                           {typeLabel}
                         </span>
                         {msg.receivedAt && (
@@ -1772,11 +1789,11 @@ export default function TripDetails() {
                             {new Date(msg.receivedAt).toLocaleString("fr-FR")}
                           </span>
                         )}
-                        {msg.matchConfidence && msg.matchConfidence !== "high" && (
+                        {!isOut && msg.matchConfidence && msg.matchConfidence !== "high" && (
                           <span className="text-[10px] text-amber-700 font-semibold">À vérifier</span>
                         )}
                       </div>
-                      {msg.summary && <p className="leading-snug">{msg.summary}</p>}
+                      {msg.summary && <p className="leading-snug whitespace-pre-wrap">{msg.summary}</p>}
                       {(msg.driverName || msg.driverPhone) && (
                         <p className="mt-2 text-xs text-slate-700">
                           {msg.driverName && <span className="font-semibold">Chauffeur : {msg.driverName}</span>}
@@ -1784,7 +1801,7 @@ export default function TripDetails() {
                           {msg.driverPhone && <span className="font-mono">{msg.driverPhone}</span>}
                         </p>
                       )}
-                      {msg.details && (
+                      {msg.details && msg.details !== msg.summary && (
                         <p className="mt-2 text-xs text-slate-600 whitespace-pre-wrap">{msg.details}</p>
                       )}
                       {msg.pdfUrl && (
@@ -1799,11 +1816,75 @@ export default function TripDetails() {
                         </TripButton>
                       )}
                       <p className="mt-2 text-[10px] text-slate-500 truncate" title={msg.subject}>
-                        {msg.fromEmail} — {msg.subject}
+                        {isOut
+                          ? `À ${msg.toEmail || "—"} — ${msg.subject || ""}`
+                          : `${msg.fromEmail} — ${msg.subject || ""}`}
                       </p>
+                      {!isOut && msg.fromEmail && (
+                        <TripButton
+                          variant="ghost"
+                          size="sm"
+                          type="button"
+                          className="mt-2"
+                          onClick={() => {
+                            setTransportReplyTo(msg.fromEmail || "");
+                            setTransportReplyBody("");
+                          }}
+                        >
+                          Répondre à {msg.fromEmail}
+                        </TripButton>
+                      )}
                     </div>
                   );
                 })}
+              </div>
+              )}
+              <div className="mt-4 rounded-xl border border-slate-200 bg-white/80 p-4 space-y-3">
+                <p className="text-xs font-bold text-slate-800">Répondre au transporteur</p>
+                <TripInput
+                  type="email"
+                  placeholder="Adresse e-mail du transporteur"
+                  value={transportReplyTo}
+                  onChange={(e) => setTransportReplyTo(e.target.value)}
+                />
+                <TripTextarea
+                  rows={4}
+                  placeholder="Votre message…"
+                  value={transportReplyBody}
+                  onChange={(e) => setTransportReplyBody(e.target.value)}
+                />
+                <TripButton
+                  type="button"
+                  disabled={transportReplyBusy || !transportReplyTo.trim() || transportReplyBody.trim().length < 2}
+                  onClick={async () => {
+                    if (!trip?.id) return;
+                    setTransportReplyBusy(true);
+                    try {
+                      const res = await fetch("/api/travels/reply-transport-email", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          tripId: trip.id,
+                          toEmail: transportReplyTo.trim(),
+                          bodyText: transportReplyBody.trim(),
+                        }),
+                      });
+                      const payload = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        alert(payload.error || "Échec de l'envoi");
+                        return;
+                      }
+                      if (payload.trip) setTrip(payload.trip);
+                      setTransportReplyBody("");
+                    } catch {
+                      alert("Erreur réseau");
+                    } finally {
+                      setTransportReplyBusy(false);
+                    }
+                  }}
+                >
+                  {transportReplyBusy ? "Envoi…" : "Envoyer l'e-mail"}
+                </TripButton>
               </div>
             </div>
           )}

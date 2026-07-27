@@ -17,6 +17,7 @@ import {
   createTenantTransporter,
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
+import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
 
 const SIGNED_DEVIS_COPY_TO = "comptabilite@laprovidence-nicolasbarre.fr";
 
@@ -191,9 +192,11 @@ export async function POST(req: Request) {
       logo,
       letterhead,
     });
+    const replyTo = await buildTransportReplyTo();
     const mailOptions = {
       from: `"Gestion Voyages" <${smtp.user}>`,
       to: toEmail,
+      ...(replyTo ? { replyTo } : {}),
       subject: `Confirmation de commande : ${tripTitle}`,
       html: `
         <div style="font-family: sans-serif; line-height: 1.5; color: #333;">

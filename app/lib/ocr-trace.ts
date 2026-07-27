@@ -44,7 +44,7 @@ export function ocrTrace(
   level: OcrTraceLevel = "info",
 ): void {
   const line = `[ocr-batch ${batchJobId}] [${scope}] [${phase}] ${message}${serializeData(data)}`;
-  // stderr est souvent mieux capturé par Amplify / Lambda que stdout.
+  // stderr est souvent mieux capturé par les logs container que stdout.
   if (level === "error") console.error(line);
   else if (level === "warn") console.warn(line);
   else console.error(line);

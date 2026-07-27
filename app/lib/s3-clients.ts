@@ -95,6 +95,16 @@ export async function getTenantDataS3Client(): Promise<S3Client> {
   }
 }
 
+/** Client S3 pour un slug tenant explicite (polling multi-tenant / +slug). */
+export async function getDataS3ClientForTenantSlug(slug: string): Promise<S3Client> {
+  const { resolveTenantBySlug } = await import("@/app/lib/tenant-registry");
+  const tenant = await resolveTenantBySlug(slug);
+  if (!tenant) {
+    throw new Error(`Tenant introuvable pour le slug « ${slug} ».`);
+  }
+  return clientForTenantAws(tenant.slug, tenant.secrets?.aws);
+}
+
 export async function getTenantDataS3Region(): Promise<string> {
   try {
     const tenant = await getTenant();

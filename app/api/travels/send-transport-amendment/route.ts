@@ -12,6 +12,7 @@ import {
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
 import type { TravelsTrip } from "@/app/lib/travels-types";
+import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
 
 type TripRecord = TravelsTrip;
 
@@ -84,6 +85,7 @@ export async function POST(req: Request) {
     }
 
     const destSlug = String(data.destination || "voyage").replace(/\s+/g, "_");
+    const replyTo = await buildTransportReplyTo();
 
     for (const r of recipients) {
       const personalPdf = await buildTransportQuotePdf({
@@ -106,7 +108,8 @@ export async function POST(req: Request) {
       await transporter.sendMail({
         from: `"Plateforme Voyages" <${smtp.user}>`,
         to: r.email,
-        subject: `🚗 AVENANT DEVIS (effectif) - ${String(data.destination).toUpperCase()} - Réf. ${tripId}`,
+        ...(replyTo ? { replyTo } : {}),
+        subject: `AVENANT DEVIS (effectif) - ${String(data.destination).toUpperCase()}`,
         html: `
           <div style="font-family: sans-serif; line-height: 1.5; color: #334155;">
             <h2>Bonjour ${r.name},</h2>
@@ -116,10 +119,7 @@ export async function POST(req: Request) {
                 ? `<p>Ancien effectif : <strong>${previousEffectif.nbEleves + previousEffectif.nbAccompagnateurs} personnes</strong> · Nouvel effectif : <strong>${currentEffectif.nbEleves + currentEffectif.nbAccompagnateurs} personnes</strong>.</p>`
                 : `<p>Nouvel effectif : <strong>${currentEffectif.nbEleves + currentEffectif.nbAccompagnateurs} personnes</strong>.</p>`
             }
-            <p>Veuillez trouver ci-joint notre demande de <strong>devis rectifié</strong>. Merci de nous adresser votre nouvelle proposition en PDF.</p>
-            <div style="margin: 24px 0; padding: 16px; border-radius: 12px; background-color: #fff7ed; border: 1px solid #fdba74;">
-              <p style="margin: 0; font-size: 14px; color: #9a3412;">Indiquez dans l'<strong>objet</strong> de votre réponse : <strong>Réf. ${tripId}</strong></p>
-            </div>
+            <p>Veuillez trouver ci-joint notre demande de <strong>devis rectifié</strong>. Merci de nous adresser votre nouvelle proposition en PDF en répondant à cet e-mail.</p>
             <p>Cordialement,<br/>L'administration.</p>
           </div>
         `,

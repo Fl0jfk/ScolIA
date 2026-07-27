@@ -60,6 +60,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/rh/onboarding/public(.*)',
   '/api/agentIAOCR/batch-job/internal-run',
   '/api/travels/ingest-from-email',
+  '/api/travels/poll-email',
   '/api/requests/create',
   '/api/requests/confirm',
   '/api/supplies/send',
@@ -241,12 +242,12 @@ function platformAppOriginFromEnv(): string {
   const raw =
     process.env.PLATFORM_APP_URL?.trim() ||
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    "https://scola.fr";
+    "https://scolia.fr";
   try {
     const withScheme = raw.startsWith("http") ? raw : `https://${raw}`;
     return new URL(withScheme).origin;
   } catch {
-    return "https://scola.fr";
+    return "https://scolia.fr";
   }
 }
 

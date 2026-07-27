@@ -96,6 +96,7 @@ export type TravelsTripData = {
     id: string;
     gmailMessageId: string;
     fromEmail: string;
+    toEmail?: string;
     subject: string;
     messageType: string;
     summary: string;
@@ -109,6 +110,8 @@ export type TravelsTripData = {
     matchConfidence?: string | null;
     matchMotif?: string | null;
     source?: string;
+    direction?: "inbound" | "outbound";
+    replyToMessageId?: string | null;
   }>;
   /** Dernière confirmation de commande transporteur reçue par e-mail (IA). */
   transportProviderConfirmation?: {

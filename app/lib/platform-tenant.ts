@@ -1,7 +1,7 @@
 import type { TenantConfig } from "@/app/lib/tenant-types";
 import { platformHostnames } from "@/app/lib/platform-hostname";
 
-/** Tenant synthétique pour scola.fr — auth Master + console plateforme (pas de données métier). */
+/** Tenant synthétique pour scolia.fr — auth Master + console plateforme (pas de données métier). */
 export function platformTenantFromEnv(): TenantConfig {
   const clerkPublishableKey =
     process.env.PLATFORM_CLERK_PUBLISHABLE_KEY?.trim() ||
@@ -25,12 +25,12 @@ export function platformTenantFromEnv(): TenantConfig {
   }
 
   const appUrl =
-    process.env.PLATFORM_APP_URL?.trim().replace(/\/$/, "") || "https://scola.fr";
+    process.env.PLATFORM_APP_URL?.trim().replace(/\/$/, "") || "https://scolia.fr";
 
   return {
     slug: "platform",
     kind: "standalone",
-    label: "Scola — Plateforme",
+    label: "ScolIA — Plateforme",
     hostnames: platformHostnames(),
     dataBucket,
     appUrl,

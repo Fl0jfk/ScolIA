@@ -19,6 +19,42 @@ async function verifyWebhookAuth(req: Request): Promise<boolean> {
   return header === secret || header === `Bearer ${secret}`;
 }
 
+function pick(body: Record<string, unknown>, ...keys: string[]): string {
+  for (const k of keys) {
+    const v = body[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "number") return String(v);
+  }
+  return "";
+}
+
+async function parseNotificationBody(req: Request): Promise<Record<string, unknown>> {
+  const contentType = req.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return (await req.json()) as Record<string, unknown>;
+  }
+  if (
+    contentType.includes("application/x-www-form-urlencoded") ||
+    contentType.includes("multipart/form-data")
+  ) {
+    const form = await req.formData();
+    const out: Record<string, unknown> = {};
+    form.forEach((value, key) => {
+      out[key] = typeof value === "string" ? value : value.name;
+    });
+    return out;
+  }
+  // Tentative JSON puis form
+  const raw = await req.text();
+  if (!raw.trim()) return {};
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    const params = new URLSearchParams(raw);
+    return Object.fromEntries(params.entries());
+  }
+}
+
 async function handleSignupPayment(
   signupId: string,
   tid?: string,
@@ -94,36 +130,36 @@ async function handleTenantPayment(
 
 /** Webhook / notification serveur Easytransac (signup ou tenant récurrent). */
 export async function POST(req: Request) {
-  let body: { tid?: string; orderId?: string; signupId?: string; status?: string };
+  let body: Record<string, unknown>;
   try {
-    body = await req.json();
+    body = await parseNotificationBody(req);
   } catch {
-    return NextResponse.json({ error: "JSON invalide." }, { status: 400 });
+    return NextResponse.json({ error: "Corps de notification invalide." }, { status: 400 });
   }
 
   if (!(await verifyWebhookAuth(req))) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
   }
 
-  const orderId = body.orderId?.trim() || "";
-  const tid = body.tid?.trim();
+  const orderId = pick(body, "orderId", "OrderId", "order_id");
+  const tid = pick(body, "tid", "Tid", "TID", "transactionId");
   const parsed = orderId ? parseTenantBillingOrderId(orderId) : null;
 
   try {
     if (parsed?.kind === "tenant") {
-      return await handleTenantPayment(parsed.slug, tid, orderId);
+      return await handleTenantPayment(parsed.slug, tid || undefined, orderId);
     }
 
-    let signupId = body.signupId?.trim();
+    let signupId = pick(body, "signupId", "SignupId");
     if (!signupId && parsed?.kind === "signup") signupId = parsed.signupId;
-    if (!signupId && orderId.startsWith("scola-")) {
+    if (!signupId && (orderId.startsWith("scola-") || orderId.startsWith("scolia-"))) {
       signupId = orderId.split("-")[1];
     }
     if (!signupId) {
       return NextResponse.json({ ok: true, ignored: true });
     }
 
-    return await handleSignupPayment(signupId, tid, orderId);
+    return await handleSignupPayment(signupId, tid || undefined, orderId || undefined);
   } catch (e) {
     console.error("[easytransac/webhook]", e);
     return NextResponse.json({ error: "Traitement impossible." }, { status: 500 });

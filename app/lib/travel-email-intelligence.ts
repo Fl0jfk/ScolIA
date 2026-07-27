@@ -56,9 +56,14 @@ function tripsJsonForMatch(candidates: TripCandidateForMatch[]): string {
       id: c.id,
       titre: c.title,
       destination: c.destination,
+      etablissement: c.etablissement || "",
       dates: [c.startDate, c.endDate].filter(Boolean).join(" → "),
+      horaires: [c.startTime, c.endTime].filter(Boolean).join(" – "),
       statut: c.status || "",
       classes: c.classes || "",
+      besoin_bus: Boolean(c.needsBus),
+      effectif_eleves: c.nbEleves || "",
+      contexte_transport: c.transportContext || "",
     })),
   );
 }
@@ -106,7 +111,7 @@ export async function analyzeTravelEmailWithMistral(input: {
   }
 
   const emailBody = (bodyPlain || snippet || "").slice(0, 6000);
-  const ocrSlice = (ocrText || "").slice(0, 3500);
+  const ocrSlice = (ocrText || "").slice(0, 5000);
   const tripsJson = tripsJsonForMatch(candidates);
 
   try {
@@ -122,29 +127,33 @@ export async function analyzeTravelEmailWithMistral(input: {
           {
             role: "system",
             content:
-              "Tu analyses des e-mails reçus par une école concernant des sorties scolaires (transport bus). " +
-              "On te donne l'objet, le corps du mail, éventuellement le texte OCR d'une pièce jointe PDF, et une liste JSON de voyages en cours (id, titre, destination, dates, statut, classes). " +
+              "Tu analyses des e-mails reçus par une école concernant des sorties / séjours scolaires (souvent transport bus). " +
+              "On te donne l'objet, le corps du mail, éventuellement le texte OCR d'une pièce jointe PDF, et une liste JSON de séjours en cours " +
+              "(id, titre, destination/lieux, dates, horaires, établissement, classes, besoin bus, effectif, contexte transport).\n" +
+              "PRIORITÉ ABSOLUE: déduire à QUEL séjour (trip_id de la liste) rattacher ce mail. " +
+              "Base-toi uniquement sur le contenu (dates, lieux, intitulés, classes, société, montants, contexte). " +
+              "N'exige AUCUNE référence dossier / numéro interne généré par l'école. Les transporteurs n'en mettent pas forcément.\n" +
               "IMPORTANT: une pièce jointe PDF n'est PAS automatiquement un devis. Lis le contenu OCR pour décider.\n" +
               "Types possibles:\n" +
-              "- devis_pdf: proposition commerciale / devis / offre de prix transport (montant, conditions, validité).\n" +
-              "- confirmation_commande: confirmation de réservation ou de commande après accord (bon de commande accepté, convocation confirmée, accusé de réception de commande) — souvent en PDF mais ce n'est PAS un devis.\n" +
-              "- info_transport: coordonnées chauffeur, téléphone, horaires définitifs, consignes pratiques.\n" +
-              "- reponse_generique: réponse utile mais qui ne rentre pas clairement dans les catégories ci-dessus.\n" +
-              "- non_lie: spam ou hors sujet.\n" +
+              "- devis_pdf: proposition commerciale / devis / offre de prix / facture proforma transport.\n" +
+              "- confirmation_commande: confirmation de réservation ou de commande après accord.\n" +
+              "- info_transport: chauffeur, téléphone, horaires définitifs, consignes.\n" +
+              "- reponse_generique: question, demande de détails, réponse utile sans catégorie claire — à rattacher quand même au séjour.\n" +
+              "- non_lie: spam ou hors sujet (trip_id null).\n" +
               "Tu dois:\n" +
-              "1) Classer le message selon le CONTENU (objet, corps, OCR), pas seulement la présence d'un PDF.\n" +
-              "2) Associer UN voyage (trip_id) de la liste, ou null si vraiment impossible.\n" +
+              "1) Associer UN séjour (trip_id) de la liste, ou null seulement si vraiment impossible.\n" +
+              "2) Classer le message (message_type) selon le CONTENU.\n" +
               "3) Résumer en 1-2 phrases (resume).\n" +
               "4) Extraire si présent: nom_chauffeur, telephone_chauffeur, details_confirmation, montant_ttc, societe_emetrice, email_contact.\n" +
-              "confidence: high/medium/low. motif: courte explication en français.\n" +
-              `Pièce jointe PDF détectée: ${hasPdfAttachment ? "oui — analyser l'OCR pour le type réel" : "non"}.\n` +
+              "confidence: high/medium/low. motif: courte explication en français (dates/lieux/titre qui ont convaincu).\n" +
+              `Pièce jointe PDF détectée: ${hasPdfAttachment ? "oui — analyser l'OCR" : "non — s'appuyer sur objet et corps"}.\n` +
               "Réponds UNIQUEMENT en JSON: message_type, trip_id, confidence, motif, resume, nom_chauffeur, telephone_chauffeur, details_confirmation, montant_ttc, societe_emetrice, email_contact.",
           },
           {
             role: "user",
             content: `Expéditeur: ${fromEmail || "—"}\nObjet: ${subject.slice(0, 500)}\n\nCorps du mail:\n${emailBody}\n\n${
               ocrSlice ? `Texte OCR pièce jointe:\n${ocrSlice}\n\n` : ""
-            }Voyages possibles:\n${tripsJson}`,
+            }Séjours possibles:\n${tripsJson}`,
           },
         ],
         temperature: 0.15,

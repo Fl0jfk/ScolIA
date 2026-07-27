@@ -1,36 +1,25 @@
 import "server-only";
 
-import nodemailer from "nodemailer";
 import { MARKETING } from "@/app/lib/marketing-site";
 import { PLATFORM_ASSISTANCE_EMAIL } from "@/app/lib/platform-assistance-email";
 import { platformAppOrigin } from "@/app/lib/platform-portal-url";
 import { BILLING_GRACE_DAYS, type TenantBillingState } from "@/app/lib/tenant-billing-types";
 import type { TenantConfig } from "@/app/lib/tenant-types";
+import { createPlatformTransporter, getPlatformSmtpConfig } from "@/app/lib/tenant-mail";
 
 function readBilling(tenant: TenantConfig): TenantBillingState {
   return tenant.billing || { status: "active" };
 }
 
-function smtpConfig() {
-  const user = process.env.SMTP_USER?.trim();
-  const pass = process.env.SMTP_PASS?.trim();
-  if (!user || !pass) return null;
-  const host = process.env.SMTP_HOST?.trim();
-  if (host) return { user, pass, host };
-  return { user, pass };
-}
-
 async function sendMail(opts: { to: string; subject: string; html: string; text: string }) {
-  const smtp = smtpConfig();
-  if (!smtp) {
+  const smtp = getPlatformSmtpConfig();
+  const transporter = createPlatformTransporter();
+  if (!smtp || !transporter) {
     console.warn("[tenant-billing-email] SMTP non configuré — e-mail non envoyé:", opts.subject);
     return false;
   }
-  const transporter = smtp.host
-    ? nodemailer.createTransport({ host: smtp.host, auth: { user: smtp.user, pass: smtp.pass } })
-    : nodemailer.createTransport({ service: "gmail", auth: { user: smtp.user, pass: smtp.pass } });
   await transporter.sendMail({
-    from: smtp.user,
+    from: `"${MARKETING.productName}" <${smtp.user}>`,
     to: opts.to,
     subject: opts.subject,
     html: opts.html,

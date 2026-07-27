@@ -385,7 +385,7 @@ ${ocrSlice}
 
 const PROCESSING_ACTIVE_MS = 90 * 1000;
 
-/** Évite deux exécutions parallèles ; relance si un traitement semble bloqué (Lambda coupée). */
+/** Évite deux exécutions parallèles ; relance si un traitement semble bloqué. */
 export async function tryClaimIngestJob(jobId: string): Promise<boolean> {
   const job = await readIngestJob(jobId);
   if (!job) return false;

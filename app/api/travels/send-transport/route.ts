@@ -9,6 +9,7 @@ import {
   createTenantTransporter,
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
+import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
 
 export async function POST(req: Request) {
   const session = await resolveSession();
@@ -54,6 +55,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "SMTP non configuré" }, { status: 503 });
     }
 
+    const replyTo = await buildTransportReplyTo();
+
     for (const transporteur of transporteurs) {
       try {
         const personalPdf = await buildDemandePDF(transporteur.name);
@@ -68,7 +71,8 @@ export async function POST(req: Request) {
         await transporter.sendMail({
           from: `"Plateforme Voyages" <${smtp.user}>`,
           to: transporteur.email,
-          subject: `🚗 DEMANDE DE DEVIS - ${data.destination.toUpperCase()} - ${userName}`,
+          ...(replyTo ? { replyTo } : {}),
+          subject: `DEMANDE DE DEVIS - ${data.destination.toUpperCase()} - ${userName}`,
           html: `
           <div style="font-family: sans-serif; line-height: 1.5; color: #334155;">
             <h2>Bonjour ${transporteur.name},</h2>
@@ -76,7 +80,7 @@ export async function POST(req: Request) {
             <p>Le récapitulatif complet ainsi que le programme éventuel sont joints à cet email.</p>
             <div style="margin: 24px 0; padding: 16px; border-radius: 12px; background-color: #f0fdf4; border: 1px solid #86efac;">
               <p style="margin: 0 0 8px; font-weight: bold; color: #166534;">Réponse par e-mail</p>
-              <p style="margin: 0; font-size: 14px; color: #14532d;">Répondez à cet e-mail ou écrivez à la boîte dédiée aux devis de l'établissement en <strong>joignant votre devis en PDF</strong>. Indiquez dans l'<strong>objet</strong> la référence : <strong>Réf. ${tripData.id}</strong> — elle figure aussi sur le PDF joint.</p>
+              <p style="margin: 0; font-size: 14px; color: #14532d;">Répondez directement à cet e-mail en joignant votre devis ou vos questions en PDF si besoin. Votre message sera rattaché automatiquement au dossier de sortie.</p>
             </div>
             <p>Cordialement,<br/>L'administration.</p>
           </div>

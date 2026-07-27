@@ -2,7 +2,7 @@ import { isLocalDevHostname } from "@/app/lib/clerk-tenant-keys";
 import { isPlatformTenantSlug } from "@/app/lib/platform-tenant";
 import { normalizeHostname } from "@/app/lib/tenant-registry";
 
-const DEFAULT_PLATFORM_HOSTS = ["scola.fr", "www.scola.fr"];
+const DEFAULT_PLATFORM_HOSTS = ["scolia.fr", "www.scolia.fr"];
 
 function parseHostnameList(raw: string | undefined): string[] {
   if (!raw?.trim()) return [];
@@ -34,7 +34,7 @@ function hostnamesFromAppUrlEnv(): string[] {
   return out;
 }
 
-/** Hostnames de la vitrine plateforme (scola.fr), distincts des tenants établissements. */
+/** Hostnames de la vitrine plateforme (scolia.fr), distincts des tenants établissements. */
 export function platformHostnames(): string[] {
   const fromEnv = parseHostnameList(process.env.PLATFORM_HOSTNAMES);
   const devHosts = parseHostnameList(process.env.PLATFORM_DEV_HOSTNAMES);

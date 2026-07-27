@@ -96,8 +96,15 @@ export type TripCandidateForMatch = {
   destination: string;
   startDate?: string;
   endDate?: string;
+  startTime?: string;
+  endTime?: string;
   status?: string;
   classes?: string;
+  etablissement?: string;
+  needsBus?: boolean;
+  nbEleves?: string;
+  /** Extraits utiles de la demande transport (lieux, freeText…). */
+  transportContext?: string;
 };
 
 export type DevisOcrAndTripMatch = DevisOcrMetadata & {
@@ -159,10 +166,15 @@ function tripsJsonForMatch(candidates: TripCandidateForMatch[]): string {
       id: c.id,
       titre: c.title,
       destination: c.destination,
+      etablissement: c.etablissement || "",
       dates: [c.startDate, c.endDate].filter(Boolean).join(" → "),
+      horaires: [c.startTime, c.endTime].filter(Boolean).join(" – "),
       statut: c.status || "",
       classes: c.classes || "",
-    }))
+      besoin_bus: Boolean(c.needsBus),
+      effectif_eleves: c.nbEleves || "",
+      contexte_transport: c.transportContext || "",
+    })),
   );
 }
 

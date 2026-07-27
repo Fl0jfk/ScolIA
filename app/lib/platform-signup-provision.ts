@@ -62,7 +62,7 @@ export async function provisionSignupRequest(
     (input.slug || slugifyEstablishmentName(request.establishment.legalName)).trim().toLowerCase();
   if (!slug) throw new Error("Slug invalide.");
 
-  const hostname = input.hostname?.trim() || `${slug}.scola.fr`;
+  const hostname = input.hostname?.trim() || `${slug}.scolia.fr`;
   const appUrl = hostname.startsWith("http") ? hostname.replace(/\/$/, "") : `https://${hostname}`;
   const dataBucket = input.dataBucket?.trim() || process.env.DEFAULT_TENANT_DATA_BUCKET?.trim();
   if (!dataBucket) throw new Error("Bucket données requis (DEFAULT_TENANT_DATA_BUCKET ou saisie manuelle).");

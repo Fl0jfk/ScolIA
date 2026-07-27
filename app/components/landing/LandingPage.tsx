@@ -17,7 +17,6 @@ import {
   KEY_PILLARS,
   MARKETING,
   PLATFORM_CAPABILITIES,
-  POSITIONING,
   REST_CAPABILITIES,
   RGPD_COMPACT,
   SOVEREIGNTY,
@@ -129,16 +128,6 @@ export default function LandingPage() {
                 <p className="text-sm font-black text-[#2F6B4A]">− des heures / semaine</p>
               </motion.div>
             </motion.div>
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-6xl px-6 pb-10">
-          <div className="rounded-2xl border-l-4 border-[#F59E0B] bg-gradient-to-r from-amber-50 to-white px-5 py-4 shadow-sm md:px-8">
-            <p className="text-sm text-stone-700">
-              <span className="font-black text-[#2F6B4A]">{POSITIONING.headline}</span>
-              {" — "}
-              {POSITIONING.text}
-            </p>
           </div>
         </section>
 
