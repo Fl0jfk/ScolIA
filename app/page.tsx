@@ -22,8 +22,7 @@ export default async function HomePage() {
       const user = await safeCurrentUser();
       if (isPlatformMasterFromPublicMetadata(user?.publicMetadata)) { redirect("/plateforme")}
       return <LandingPage />;
-    }
-    redirect("/dashboard");
+    } redirect("/dashboard");
   }
   const { userId } = await auth();
   if (!userId) return <LandingPage />;
@@ -31,6 +30,5 @@ export default async function HomePage() {
     const user = await currentUser();
     if (isPlatformMasterFromPublicMetadata(user?.publicMetadata)) { redirect("/plateforme")}
     return <LandingPage />;
-  }
-  redirect("/dashboard");
+  } redirect("/dashboard");
 }
