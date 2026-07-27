@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import PublicSiteIdentityLayout from "@/app/components/PublicSiteIdentityLayout";
 
 export const metadata: Metadata = {
-  title: "Faire une demande — La Providence Nicolas Barré",
+  title: "Faire une demande",
   description: "Déposez une demande à l'établissement : maintenance, administratif, scolarité…",
 };
 
