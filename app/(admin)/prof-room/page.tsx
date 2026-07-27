@@ -236,6 +236,7 @@ function ProfRoomPageContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(25_000),
       });
       const rawText = await res.text();
       let j: {
@@ -321,6 +322,7 @@ function ProfRoomPageContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(25_000),
       });
       const rawText = await res.text();
       let j: {

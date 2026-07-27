@@ -5,6 +5,7 @@ import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
+  sendMailWithTimeout,
 } from "@/app/lib/tenant-mail";
 
 const RESERVATIONS_KEY = "reservation-rooms/reservations.json";
@@ -89,8 +90,8 @@ export async function POST(req: NextRequest) {
             const hourFormatted = start.includes("T")
               ? start.split("T")[1].substring(0, 5).replace(":", "h")
               : "";
-            console.info("[reservation-rooms/delete] envoi mail →", userEmail);
-            await transporter.sendMail({
+            console.info("[reservation-rooms/delete] envoi mail →", userEmail, smtp.host);
+            await sendMailWithTimeout(transporter, {
               from: `"Gestion Salles" <${smtp.user}>`,
               to: userEmail,
               subject: "⚠️ Annulation de réservation",

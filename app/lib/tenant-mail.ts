@@ -104,13 +104,52 @@ export function getPlatformImapConfig(): PlatformImapConfig | null {
   return { host, port, secure, user, pass };
 }
 
+/** Timeouts courts : un SMTP qui ne répond pas ne doit pas bloquer l’API (Load failed). */
+const SMTP_CONNECT_MS = 8_000;
+const SMTP_SOCKET_MS = 12_000;
+/** Envoi réservations salles : au-delà, on renvoie quand même le succès métier. */
+export const ROOM_MAIL_TIMEOUT_MS = 10_000;
+
 function createTransportFromConfig(smtp: TenantSmtpConfig): MailTransporter {
   return nodemailer.createTransport({
     host: smtp.host,
     port: smtp.port ?? 465,
     secure: smtp.secure ?? true,
     auth: { user: smtp.user, pass: smtp.pass },
+    connectionTimeout: SMTP_CONNECT_MS,
+    greetingTimeout: SMTP_CONNECT_MS,
+    socketTimeout: SMTP_SOCKET_MS,
   });
+}
+
+/**
+ * sendMail avec délai max. En cas de timeout, reject avec un message explicite.
+ */
+export async function sendMailWithTimeout(
+  transporter: MailTransporter,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mail: any,
+  timeoutMs = ROOM_MAIL_TIMEOUT_MS,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      transporter.sendMail(mail).then(() => undefined),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `SMTP timeout après ${timeoutMs}ms (host injoignable ou bloqué depuis le runtime)`,
+              ),
+            ),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**

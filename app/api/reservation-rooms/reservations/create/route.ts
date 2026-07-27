@@ -6,6 +6,7 @@ import { loadAppConfig } from "@/app/lib/app-config";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
+  sendMailWithTimeout,
 } from "@/app/lib/tenant-mail";
 
 const RESERVATIONS_KEY = "reservation-rooms/reservations.json";
@@ -170,7 +171,8 @@ export async function POST(req: NextRequest) {
                 return `<li>Le ${dateFr} à ${hourFr}</li>`;
               })
               .join("");
-            await transporter.sendMail({
+            console.info("[reservation-rooms/create] envoi mail →", to, smtp.host);
+            await sendMailWithTimeout(transporter, {
               from: `"Gestion Salles" <${smtp.user}>`,
               to,
               subject: "✅ Confirmation de réservation - Système de Gestion",
@@ -189,6 +191,7 @@ export async function POST(req: NextRequest) {
         `,
             });
             mailSent = true;
+            console.info("[reservation-rooms/create] mail OK");
           }
         }
       } catch (mailErr) {
