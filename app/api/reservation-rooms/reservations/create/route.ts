@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
         const smtp = await getTenantSmtpConfig();
         if (!smtp) {
           mailSkipReason =
-            "SMTP non résolu (MAILER_EMAIL / MAILER_PASS / MAILER_HOST manquants au runtime)";
+            "SMTP non résolu (MAILER_EMAIL + MAILER_SMTP_HOST/USER/PASS TEM, ou legacy MAILER_HOST/PASS)";
         } else {
           const transporter = await createTenantTransporter();
           if (!transporter) {

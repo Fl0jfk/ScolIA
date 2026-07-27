@@ -111,7 +111,7 @@ export async function pollTravelImapInbox(options?: {
   const cfg = getTravelImapConfig();
   if (!cfg) {
     throw new Error(
-      "IMAP non configuré. Définir MAILER_EMAIL, MAILER_PASS, MAILER_HOST (boîte OVH mailer@…).",
+      "IMAP non configuré. Définir MAILER_EMAIL, MAILER_PASS, MAILER_HOST (boîte OVH — distinct du SMTP TEM).",
     );
   }
 

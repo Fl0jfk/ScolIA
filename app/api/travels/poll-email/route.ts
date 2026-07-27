@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "IMAP non configuré. Définir MAILER_EMAIL, MAILER_PASS, MAILER_HOST (OVH).",
+          "IMAP non configuré. Définir MAILER_EMAIL, MAILER_PASS, MAILER_HOST (OVH — distinct du SMTP TEM).",
       },
       { status: 503 },
     );
