@@ -8,7 +8,7 @@ import { isPlatformMasterFromPublicMetadata, resolveSession, safeCurrentUser } f
 import { isMultiTenantEnabled } from "@/app/lib/tenant-registry";
 
 export const metadata: Metadata = {
-  title: "Scola — Intranet tout-en-un pour établissements scolaires",
+  title: "ScolIA — Intranet tout-en-un pour établissements scolaires",
   description:"Workflows documents élèves, sorties, absences, RH, internat… Un abonnement tout inclus. Hébergement France.",
 };
 
