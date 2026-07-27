@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomUUID } from "crypto";
 import { after } from "next/server";
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import {
@@ -65,7 +66,9 @@ function runLockKey(jobId: string) {
   return `${RUN_LOCK_PREFIX}${jobId}.lock`;
 }
 
-async function readLockAcquiredAt(jobId: string): Promise<number | null> {
+type RunLockPayload = { acquiredAt: string; token: string };
+
+async function readRunLock(jobId: string): Promise<RunLockPayload | null> {
   const s3Client = await getTenantDataS3Client();
   try {
     const res = await s3Client.send(
@@ -73,64 +76,61 @@ async function readLockAcquiredAt(jobId: string): Promise<number | null> {
     );
     const raw = await res.Body?.transformToString();
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { acquiredAt?: string };
-    const t = parsed.acquiredAt ? new Date(parsed.acquiredAt).getTime() : NaN;
-    return Number.isNaN(t) ? null : t;
+    const parsed = JSON.parse(raw) as Partial<RunLockPayload>;
+    if (!parsed.acquiredAt || !parsed.token) return null;
+    return { acquiredAt: parsed.acquiredAt, token: parsed.token };
   } catch {
     return null;
   }
 }
 
-async function putLock(jobId: string): Promise<boolean> {
+/**
+ * Lock S3 sans IfNoneMatch — Scaleway renvoie souvent
+ * « A conflicting conditional operation… » sur les PUT conditionnels.
+ * Stratégie : écriture + relecture du token (optimistic).
+ */
+async function acquireRunLock(jobId: string): Promise<boolean> {
+  const existing = await readRunLock(jobId);
+  if (existing) {
+    const ageMs = Date.now() - new Date(existing.acquiredAt).getTime();
+    if (!Number.isNaN(ageMs) && ageMs < LOCK_TTL_MS) {
+      ocrTrace(jobId, "lock", "wait", "lock actif — attente", { lockAgeMs: ageMs, lockTtlMs: LOCK_TTL_MS });
+      return false;
+    }
+    ocrTrace(jobId, "lock", "steal", "lock orphelin — écrasement", {
+      lockAgeMs: Number.isNaN(ageMs) ? null : ageMs,
+      lockTtlMs: LOCK_TTL_MS,
+    });
+  }
+
+  const token = randomUUID();
   const s3Client = await getTenantDataS3Client();
   try {
     await s3Client.send(
       new PutObjectCommand({
         Bucket: await getBucketName(),
         Key: runLockKey(jobId),
-        Body: JSON.stringify({ acquiredAt: new Date().toISOString() }),
+        Body: JSON.stringify({ acquiredAt: new Date().toISOString(), token }),
         ContentType: "application/json",
-        IfNoneMatch: "*",
       }),
     );
-    ocrTrace(jobId, "lock", "acquire", "lock S3 acquis (nouveau)");
-    return true;
   } catch (e: unknown) {
-    const meta = (e as { $metadata?: { httpStatusCode?: number } }).$metadata;
-    const name = (e as { name?: string }).name;
     const msg = e instanceof Error ? e.message : String(e);
-    // 412 classique, ou course Scaleway (« conflicting conditional operation »)
-    if (
-      meta?.httpStatusCode === 412 ||
-      name === "PreconditionFailed" ||
-      /conflicting conditional operation/i.test(msg)
-    ) {
-      ocrTrace(jobId, "lock", "busy", "lock déjà détenu ou course S3", { message: msg.slice(0, 160) });
-      return false;
-    }
-    throw e;
-  }
-}
-
-/** Acquiert le lock ; vole un lock orphelin (worker précédent tué sans libération). */
-async function acquireRunLock(jobId: string): Promise<boolean> {
-  if (await putLock(jobId)) return true;
-
-  const acquiredAt = await readLockAcquiredAt(jobId);
-  const ageMs = acquiredAt !== null ? Date.now() - acquiredAt : null;
-  if (acquiredAt !== null && ageMs !== null && ageMs < LOCK_TTL_MS) {
-    ocrTrace(jobId, "lock", "wait", "lock actif — attente", { lockAgeMs: ageMs, lockTtlMs: LOCK_TTL_MS });
+    ocrTrace(jobId, "lock", "put-fail", "échec écriture lock", { message: msg.slice(0, 200) }, "warn");
     return false;
   }
 
-  ocrTrace(jobId, "lock", "steal", "lock orphelin — vol et réacquisition", {
-    lockAgeMs: ageMs,
-    lockTtlMs: LOCK_TTL_MS,
+  await sleep(120);
+  const verify = await readRunLock(jobId);
+  if (verify?.token === token) {
+    ocrTrace(jobId, "lock", "acquire", "lock S3 acquis");
+    return true;
+  }
+  ocrTrace(jobId, "lock", "lost-race", "lock perdu (autre worker)", {
+    expected: token.slice(0, 8),
+    got: verify?.token?.slice(0, 8) ?? null,
   });
-  await releaseRunLock(jobId);
-  const stolen = await putLock(jobId);
-  if (stolen) ocrTrace(jobId, "lock", "stolen", "lock volé avec succès");
-  return stolen;
+  return false;
 }
 
 async function releaseRunLock(jobId: string) {
@@ -1282,15 +1282,23 @@ export async function runOcrBatchJob(
       }
     }
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // Ne jamais faire échouer le lot pour une course S3 / lock (retry au prochain chunk).
+    if (/conflicting conditional operation/i.test(msg)) {
+      ocrTrace(jobId, "worker", "lock-race", "course S3 ignorée — le client / worker réessaiera", {
+        error: msg.slice(0, 200),
+      }, "warn");
+      return;
+    }
     ocrTrace(jobId, "worker", "fatal", "erreur fatale worker", {
-      error: error instanceof Error ? error.message : String(error),
+      error: msg,
       stack: error instanceof Error ? error.stack?.slice(0, 500) : undefined,
     }, "error");
     const j = await readBatchJob(jobId);
     if (j && j.status !== "completed") {
       await patchJob(jobId, {
         status: "failed",
-        error: error instanceof Error ? error.message : String(error),
+        error: msg,
         label: "Échec du traitement",
       });
     }
