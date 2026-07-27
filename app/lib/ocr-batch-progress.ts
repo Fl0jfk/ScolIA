@@ -31,7 +31,7 @@ export type OcrBatchProgressView = {
   idleSeconds: number;
 };
 
-/** Nombre de pages connu uniquement après Textract (pas pendant ocr_start / ocr_poll). */
+/** Nombre de pages connu uniquement après lecture OCR (pas pendant ocr_start / ocr_poll). */
 function isPageCountKnown(item: OcrBatchJobItem | null): boolean {
   if (!item?.pageCount || item.pageCount < 1) return false;
   const phase = item.phase ?? "ocr_start";
@@ -90,10 +90,10 @@ function resolveSegmentationEngineForItem(item: OcrBatchJobItem | null): Segment
 
 function segmentingPhaseLabel(item: OcrBatchJobItem | null): string {
   const engine = resolveSegmentationEngineForItem(item);
-  if (engine === "heuristic") return "Découpage automatique (Textract terminé)";
-  if (engine === "mistral_chunked") return "Découpage Mistral par blocs (Textract terminé)";
-  if (engine === "mistral") return "Découpage IA Mistral (Textract terminé)";
-  return "Découpage (Textract terminé)";
+  if (engine === "heuristic") return "Mistral a lu le PDF — découpage automatique";
+  if (engine === "mistral_chunked") return "Mistral en déduit le découpage (par blocs)";
+  if (engine === "mistral") return "Mistral en déduit le découpage";
+  return "Mistral prépare le découpage";
 }
 
 function buildLabel(job: OcrBatchJob, item: OcrBatchJobItem | null, phase: OcrBatchProgressPhase): string {
@@ -112,34 +112,34 @@ function buildLabel(job: OcrBatchJob, item: OcrBatchJobItem | null, phase: OcrBa
     const total = item.pdfPageCount;
     const read = item.ocrPagesRead ?? 0;
     if (total && read > 0) {
-      return `Lecture OCR — ${name} : page ${read} / ${total} (Textract)…`;
+      return `Mistral lit le document — ${name} : page ${read} / ${total}…`;
     }
     if (total) {
-      return `Lecture OCR — ${name} : 0 / ${total} page(s), Textract en cours…`;
+      return `Mistral analyse votre document — ${name} (0 / ${total} page(s))…`;
     }
-    return `Lecture OCR — ${name} (Textract en cours, gros PDF = plusieurs minutes)`;
+    return `Mistral analyse votre document — ${name}…`;
   }
 
   if (phase === "segmenting") {
     const engine = resolveSegmentationEngineForItem(item);
     if (engine === "heuristic") {
       return pages
-        ? `Textract terminé — repérage automatique des documents sur ${pages} page${pages > 1 ? "s" : ""}…`
-        : `Textract terminé — repérage automatique des documents…`;
+        ? `Mistral a terminé la lecture — repérage automatique sur ${pages} page${pages > 1 ? "s" : ""}…`
+        : `Mistral a terminé la lecture — repérage automatique des documents…`;
     }
     if (engine === "mistral_chunked") {
       return pages
-        ? `Textract terminé — Mistral découpe ${pages} pages par blocs (aux frontières de documents)…`
-        : `Textract terminé — Mistral découpe par blocs…`;
+        ? `Mistral en déduit le découpage de ${pages} pages (par blocs, aux frontières)…`
+        : `Mistral en déduit le découpage par blocs…`;
     }
     if (engine === "mistral") {
       return pages
-        ? `Textract terminé — Mistral analyse ${pages} page${pages > 1 ? "s" : ""} pour repérer chaque document…`
-        : `Textract terminé — Mistral repère les documents dans le PDF…`;
+        ? `Mistral en déduit le découpage sur ${pages} page${pages > 1 ? "s" : ""}…`
+        : `Mistral en déduit le découpage du PDF…`;
     }
     return pages
-      ? `Textract terminé — découpage de ${pages} page${pages > 1 ? "s" : ""} en cours…`
-      : `Textract terminé — découpage en cours…`;
+      ? `Mistral prépare le découpage (${pages} page${pages > 1 ? "s" : ""})…`
+      : `Mistral prépare le découpage…`;
   }
 
   if (phase === "segments" && item.segments?.length) {
@@ -147,11 +147,11 @@ function buildLabel(job: OcrBatchJob, item: OcrBatchJobItem | null, phase: OcrBa
     const current = Math.min((item.segmentIndex ?? 0) + 1, total);
     const seg = item.segments[item.segmentIndex ?? 0];
     const pageHint = seg ? ` (pages ${seg.pageStart}–${seg.pageEnd})` : "";
-    return `Classement document ${current}/${total} — ${name}${pageHint} (Mistral + OneDrive)`;
+    return `Mistral déduit le nom et le rangement — document ${current}/${total} — ${name}${pageHint}`;
   }
 
   if (phase === "analyze") {
-    return `Classement — ${name}`;
+    return `Mistral déduit le nom et où ranger — ${name}`;
   }
 
   return job.label || `Traitement — ${name}`;
@@ -188,11 +188,11 @@ export function buildBatchProgressView(job: OcrBatchJob): OcrBatchProgressView {
     phase === "segmenting"
       ? segmentingPhaseLabel(currentItem)
       : phase === "segments"
-        ? "Classement document par document"
+        ? "Mistral déduit le nom et le rangement"
         : phase === "ocr"
-          ? "Lecture OCR (Textract)"
+          ? "Mistral analyse le document (OCR)"
           : phase === "analyze"
-            ? "Classement"
+            ? "Mistral déduit le nom et le rangement"
             : phase === "done"
               ? "Terminé"
               : phase === "pending"

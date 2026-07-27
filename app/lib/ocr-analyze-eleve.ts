@@ -141,13 +141,6 @@ function cleanFieldValue(v: unknown): string {
   return !s || s === "non_trouvé" ? "" : s;
 }
 
-/** Nom du document détecté : première lettre en majuscule, reste inchangé. */
-function formatDocumentType(str: string): string {
-  const s = str.trim();
-  if (!s) return "";
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
 /** Nom de famille : entièrement en majuscules. */
 function formatLastName(str: string): string {
   return str.trim().toUpperCase();
@@ -161,24 +154,70 @@ function formatFirstName(str: string): string {
     .replace(/(^|[\s\-'])(\p{L})/gu, (_m, sep: string, ch: string) => sep + ch.toUpperCase());
 }
 
+function capitalizePhrase(str: string): string {
+  const s = str.trim().replace(/\s+/g, " ");
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function alreadyCovered(haystack: string, needle: string): boolean {
+  if (!needle || needle.length < 3) return false;
+  const h = haystack
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+  const n = needle
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+  return h.includes(n);
+}
+
 /**
- * Nom de fichier final : "Nom du document NOM_DE_FAMILLE Prénom".
- * - type : 1re lettre majuscule
- * - nom de famille : tout en majuscules
- * - prénom : 1re lettre de chaque mot en majuscule
- * Le nom/prénom de l'élève vérifié (matching) prime sur les champs extraits du document.
+ * Titre explicite du document (sans le nom de l'élève) + NOM + Prénom.
+ * Ex. "Bulletin scolaire 2ème semestre 2A BERBEZY Juliette"
+ *     "Relevé de notes Trimestre 1 Maths DUPONT Marie"
+ *     "Carte d'identité MARTIN Paul"
  */
 function buildFinalFileName(opts: {
+  titre?: unknown;
   type?: unknown;
+  detail?: unknown;
+  periode?: unknown;
+  classe?: unknown;
   nom?: unknown;
   prenom?: unknown;
 }): string {
-  const typePart = formatDocumentType(cleanFieldValue(opts.type));
+  const titre = capitalizePhrase(cleanFieldValue(opts.titre));
+  const typePart = capitalizePhrase(cleanFieldValue(opts.type));
+  const detailPart = capitalizePhrase(cleanFieldValue(opts.detail));
+  const periodePart = capitalizePhrase(cleanFieldValue(opts.periode));
+  const classePart = capitalizePhrase(cleanFieldValue(opts.classe));
   const nomPart = formatLastName(cleanFieldValue(opts.nom));
   const prenomPart = formatFirstName(cleanFieldValue(opts.prenom));
-  const raw = [typePart, nomPart, prenomPart].filter(Boolean).join(" ").trim();
+
+  const head: string[] = [];
+  if (titre) {
+    head.push(titre);
+  } else {
+    if (typePart) head.push(typePart);
+    if (detailPart && !alreadyCovered(head.join(" "), detailPart)) head.push(detailPart);
+    if (periodePart && !alreadyCovered(head.join(" "), periodePart)) head.push(periodePart);
+    if (classePart && !alreadyCovered(head.join(" "), classePart)) head.push(classePart);
+  }
+
+  // Si le titre IA est trop vague (un seul mot générique), compléter avec période / classe / détail.
+  if (titre && titre.split(/\s+/).length <= 2) {
+    if (detailPart && !alreadyCovered(head.join(" "), detailPart)) head.push(detailPart);
+    if (periodePart && !alreadyCovered(head.join(" "), periodePart)) head.push(periodePart);
+    if (classePart && !alreadyCovered(head.join(" "), classePart)) head.push(classePart);
+  }
+
+  const raw = [...head, nomPart, prenomPart].filter(Boolean).join(" ").trim();
   if (!raw) return "Document";
-  return raw.replace(/[<>:"/\\|?*]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+  // Limite raisonnable pour OneDrive / explorateurs
+  const clipped = raw.length > 180 ? raw.slice(0, 180).trim() : raw;
+  return clipped.replace(/[<>:"/\\|?*]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
 }
 
 export async function analyzeDocMatchEleve(
@@ -201,25 +240,40 @@ export async function analyzeDocMatchEleve(
   }
 
   const extractionPrompt = `
-      Analyse ce document scolaire et extrais UNIQUEMENT les informations suivantes si elles sont clairement présentes dans le texte :
-      - Type de document (bulletin, relevé de notes, certificat de scolarité, diplôme, bac, etc.)
+      Analyse ce document scolaire (bulletin, relevé de notes, carte d'identité, certificat, attestation, diplôme, courrier, etc.)
+      et extrais UNIQUEMENT les informations clairement présentes dans le texte.
+
+      - titre_document : titre EXPLICITE et autonome pour nommer le fichier, SANS le nom/prénom de l'élève.
+        Doit préciser de quoi il s'agit (pas un mot seul trop vague).
+        Exemples selon le document :
+        · "Bulletin scolaire 2ème semestre 2A"
+        · "Relevé de notes Trimestre 1"
+        · "Carte d'identité"
+        · "Certificat de scolarité 2025-2026"
+        · "Attestation d'assurance scolaire"
+        · "Diplôme brevet 2024"
+        Interdit : un seul mot trop générique du type "Document", "Fichier", "PDF".
+      - type : catégorie courte (Bulletin, Relevé de notes, Carte d'identité, Certificat, Attestation, Diplôme, Courrier, Autre…)
+      - detail : précision utile si pas déjà dans le titre (matière, organisme, année, motif…) sinon "non_trouvé"
       - Nom de famille de l'élève
       - Prénom de l'élève
-      - INE de l'élève (identifiant national élève), si présent
-      - Date de naissance de l'élève (si présente)
-      - Classe ou niveau (si mentionné)
-      - Période (trimestre 1/2/3, semestre 1/2, année scolaire, etc.)
-      Si une information n'est PAS présente dans le document, écris exactement "non_trouvé" pour ce champ.
+      - INE (si présent)
+      - Date de naissance (si présente)
+      - Classe ou niveau tel qu'écrit (ex. "2A", "2GT-EO")
+      - Période (ex. "2ème semestre", "Trimestre 1", "Année 2025-2026") si indiquée
+
+      Si une information n'est PAS présente, écris exactement "non_trouvé" pour ce champ.
       Ne devine JAMAIS, n'invente JAMAIS.
-      IMPORTANT : Réponds UNIQUEMENT avec du JSON valide, sans aucun commentaire, remarque, note explicative, ou texte supplémentaire.
-      Pas de markdown, pas de \`\`\`json, pas de notes entre parenthèses, pas de remarques après les valeurs.
+      IMPORTANT : Réponds UNIQUEMENT avec du JSON valide, sans markdown ni commentaire.
       Texte du document :
       ---
       ${text}
       ---
       Format de réponse (JSON uniquement) :
       {
+        "titre_document": "...",
         "type": "...",
+        "detail": "...",
         "nom": "...",
         "prénom": "...",
         "ine": "...",
@@ -288,7 +342,9 @@ export async function analyzeDocMatchEleve(
   }
 
   ocrTraceCtx(trace, "classify", "extracted", "champs extraits du document", {
+    titre_document: extracted.titre_document,
     type: extracted.type,
+    detail: extracted.detail,
     nom: extracted.nom,
     prenom: extracted.prénom,
     ine: extracted.ine,
@@ -464,16 +520,23 @@ export async function analyzeDocMatchEleve(
 
   ocrTraceCtx(trace, "classify", "match-summary", "résumé matching", matchDebug);
 
-  // Nommage déterministe : "Nom du document NOM_DE_FAMILLE Prénom".
-  // Le nom/prénom de l'élève vérifié (matching INE/identité) prime sur les champs extraits.
+  // Titre explicite (tous types de docs) + NOM + Prénom.
   const fileName = buildFinalFileName({
+    titre: extracted.titre_document,
     type: extracted.type,
+    detail: extracted.detail,
+    periode: extracted.période,
+    classe: extracted.classe,
     nom: matchedEleve?.nom ?? extracted.nom,
     prenom: matchedEleve?.prenom ?? extracted.prénom,
   });
-  ocrTraceCtx(trace, "classify", "naming", "nom de fichier (type + NOM + Prénom)", {
+  ocrTraceCtx(trace, "classify", "naming", "nom de fichier (titre explicite + NOM + Prénom)", {
     fileName,
+    titre: cleanFieldValue(extracted.titre_document) || null,
     type: cleanFieldValue(extracted.type) || null,
+    detail: cleanFieldValue(extracted.detail) || null,
+    periode: cleanFieldValue(extracted.période) || null,
+    classe: cleanFieldValue(extracted.classe) || null,
     nomSource: matchedEleve?.nom ? "eleve" : "extrait",
     prenomSource: matchedEleve?.prenom ? "eleve" : "extrait",
   });

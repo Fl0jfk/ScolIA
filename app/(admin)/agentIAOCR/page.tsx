@@ -1201,7 +1201,7 @@ function OneDriveUpDocsOCRAIContent() {
           ? progressDetail.ocrPagesRead && progressDetail.ocrPagesRead > 0
             ? `Page ${progressDetail.ocrPagesRead} / ${progressDetail.pdfPageCount}`
             : `0 / ${progressDetail.pdfPageCount} page(s)`
-          : "Lecture OCR en cours…"
+          : "Mistral lit le document…"
         : progressDetail.phase === "segmenting"
           ? progressDetail.pageCount
             ? progressDetail.segmentationEngine === "identity"
@@ -1209,11 +1209,11 @@ function OneDriveUpDocsOCRAIContent() {
               : progressDetail.segmentationEngine === "heuristic"
                 ? `Découpage auto · ${progressDetail.pageCount} p.`
                 : progressDetail.segmentationEngine === "mistral_chunked"
-                  ? `Mistral blocs · ${progressDetail.pageCount} p.`
+                  ? `Mistral découpe · ${progressDetail.pageCount} p.`
                   : progressDetail.segmentationEngine === "mistral"
-                    ? `Mistral · ${progressDetail.pageCount} p.`
+                    ? `Mistral découpe · ${progressDetail.pageCount} p.`
                     : `Découpage · ${progressDetail.pageCount} p.`
-            : "Découpage en cours…"
+            : "Mistral en déduit le découpage…"
           : progressDetail.fileTotal > 1
             ? `Fichier ${progressDetail.fileIndex} / ${progressDetail.fileTotal}`
             : progressDetail.pageCount
@@ -1227,16 +1227,16 @@ function OneDriveUpDocsOCRAIContent() {
     if (seconds < 90) return null;
     if (seconds < 3600) {
       const min = Math.floor(seconds / 60);
-      return `Dernière activité il y a ${min} min — sur un gros PDF, l'étape OCR Textract peut prendre 10–20 min sans mise à jour visible.`;
+      return `Dernière activité il y a ${min} min — sur un gros PDF, Mistral peut analyser 10–20 min sans mise à jour visible.`;
     }
     const h = Math.floor(seconds / 3600);
     return `Dernière activité il y a ${h} h — si rien ne bouge, vérifiez les résultats ou relancez.`;
   };
 
   const phaseSteps: { id: string; label: string }[] = [
-    { id: "ocr", label: "1. OCR Textract" },
+    { id: "ocr", label: "1. Lecture Mistral" },
     { id: "segmenting", label: "2. Découpage" },
-    { id: "segments", label: "3. Classement" },
+    { id: "segments", label: "3. Nom & rangement" },
   ];
 
   const activePhaseIndex = progressDetail
@@ -1287,8 +1287,8 @@ function OneDriveUpDocsOCRAIContent() {
     if (err.includes("incomplet") || err.includes("filename")) {
       return { label: "Lecture incomplète", technical: false };
     }
-    if (err.includes("ocr") || err.includes("textract")) {
-      return { label: "OCR échoué", technical: true };
+    if (err.includes("ocr") || err.includes("mistral") || err.includes("textract")) {
+      return { label: "Lecture Mistral échouée", technical: true };
     }
     if (
       err.includes("token") ||
@@ -1406,7 +1406,7 @@ function OneDriveUpDocsOCRAIContent() {
             <div>
               <p className="text-lg font-extrabold text-emerald-950">Vous pouvez quitter cette page</p>
               <p className="text-sm text-emerald-900 mt-1 leading-relaxed">
-                Le reste du traitement tourne sur le <strong>serveur</strong> (OCR, IA, rangement OneDrive).
+                Le reste du traitement tourne sur le <strong>serveur</strong> (Mistral, rangement OneDrive).
                 Revenez sur cette page à tout moment pour voir où en est le lot et consulter les résultats.
               </p>
             </div>
@@ -1643,7 +1643,7 @@ function OneDriveUpDocsOCRAIContent() {
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                       {progressDetail.phase === "ocr" && progressDetail.pdfPageCount ? (
                         <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
-                          <p className="text-[10px] font-bold uppercase text-slate-400">Lecture OCR</p>
+                          <p className="text-[10px] font-bold uppercase text-slate-400">Lecture Mistral</p>
                           <p className="font-black text-slate-800">
                             {progressDetail.ocrPagesRead && progressDetail.ocrPagesRead > 0
                               ? `${progressDetail.ocrPagesRead} / ${progressDetail.pdfPageCount}`
@@ -1672,9 +1672,9 @@ function OneDriveUpDocsOCRAIContent() {
                               : progressDetail.segmentationEngine === "heuristic"
                                 ? "Découpage auto…"
                                 : progressDetail.segmentationEngine === "mistral_chunked"
-                                  ? "Mistral (blocs)…"
+                                  ? "Mistral découpe…"
                                   : progressDetail.segmentationEngine === "mistral"
-                                    ? "Mistral…"
+                                    ? "Mistral découpe…"
                                     : "En cours…"}
                           </p>
                         </div>
@@ -1692,48 +1692,47 @@ function OneDriveUpDocsOCRAIContent() {
                     {progressDetail.phase === "ocr" && progressDetail.pdfPageCount ? (
                       <p className="text-[11px] text-slate-500 leading-relaxed">
                         {progressDetail.ocrPagesRead && progressDetail.ocrPagesRead > 0
-                          ? "Textract publie les pages au fur et à mesure quand AWS les rend disponibles."
-                          : `PDF de ${progressDetail.pdfPageCount} page${progressDetail.pdfPageCount > 1 ? "s" : ""} — le compteur peut rester à 0 plusieurs minutes pendant l'analyse Textract.`}
+                          ? "Mistral lit les pages au fur et à mesure."
+                          : `PDF de ${progressDetail.pdfPageCount} page${progressDetail.pdfPageCount > 1 ? "s" : ""} — le compteur peut rester à 0 quelques minutes pendant que Mistral analyse le document.`}
                       </p>
                     ) : null}
                     {progressDetail.phase === "segmenting" ? (
                       <p className="text-[11px] text-slate-500 leading-relaxed">
                         {progressDetail.segmentationEngine === "identity" ? (
                           <>
-                            <strong className="text-slate-700">Textract a terminé.</strong> Les pages
-                            sont regroupées par élève (INE + noms de votre liste) : chaque bulletin
+                            <strong className="text-slate-700">Mistral a terminé la lecture.</strong> Les
+                            pages sont regroupées par élève (INE + noms de votre liste) : chaque bulletin
                             multi-pages reste entier, aucun découpage page par page.
                           </>
                         ) : progressDetail.segmentationEngine === "heuristic" ? (
                           <>
-                            <strong className="text-slate-700">Textract a terminé.</strong> Repli
+                            <strong className="text-slate-700">Mistral a terminé la lecture.</strong> Repli
                             automatique (règles locales) — utilisé seulement si Mistral échoue.
                           </>
                         ) : progressDetail.segmentationEngine === "mistral_chunked" ? (
                           <>
-                            <strong className="text-slate-700">Textract a terminé.</strong> Mistral
-                            analyse le PDF en plusieurs blocs (~30 pages max), en ne coupant qu&apos;entre
-                            deux documents (pas au milieu d&apos;un bulletin sur 2 pages).
+                            <strong className="text-slate-700">Mistral en déduit le découpage</strong>{" "}
+                            par blocs (~30 pages max), en ne coupant qu&apos;entre deux documents (pas
+                            au milieu d&apos;un bulletin sur 2 pages).
                           </>
                         ) : progressDetail.segmentationEngine === "mistral" ? (
                           <>
-                            <strong className="text-slate-700">Textract a terminé.</strong> Mistral lit
-                            tout le PDF en une fois pour repérer chaque document (environ 15–30 s, sans
-                            progression page par page).
+                            <strong className="text-slate-700">Mistral en déduit le découpage</strong>{" "}
+                            en lisant tout le PDF pour repérer chaque document (environ 15–30 s).
                           </>
                         ) : (
                           <>
-                            <strong className="text-slate-700">Textract a terminé.</strong> Découpage en
-                            cours pour séparer les documents du PDF…
+                            <strong className="text-slate-700">Mistral prépare le découpage</strong> pour
+                            séparer les documents du PDF…
                           </>
                         )}
                       </p>
                     ) : null}
                     {progressDetail.phase === "segments" ? (
                       <p className="text-[11px] text-slate-500 leading-relaxed">
-                        <strong className="text-slate-700">Découpage terminé.</strong> Chaque document est
-                        maintenant analysé un par un par Mistral puis rangé sur OneDrive — c&apos;est
-                        l&apos;étape la plus longue sur un gros lot.
+                        <strong className="text-slate-700">Découpage terminé.</strong> Pour chaque
+                        document, Mistral déduit le nom du fichier et où le ranger sur OneDrive —
+                        c&apos;est l&apos;étape la plus longue sur un gros lot.
                       </p>
                     ) : null}
                     {progressDetail.phase === "segments" && sessionDocTotal ? (

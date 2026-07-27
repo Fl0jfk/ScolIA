@@ -690,8 +690,8 @@ async function stepItem(
       ocrPagesRead: 0,
     });
     const ocrLabel = pdfPageCount
-      ? `Lecture OCR — ${item.fileName} : 0 / ${pdfPageCount} page(s)…`
-      : `OCR — ${item.fileName}`;
+      ? `Mistral analyse votre document — ${item.fileName} : 0 / ${pdfPageCount} page(s)…`
+      : `Mistral analyse votre document — ${item.fileName}`;
     ocrTrace(job.jobId, "textract", "polling", "passage en ocr_poll", {
       textractJobId,
       pdfPageCount: pdfPageCount ?? null,
@@ -720,9 +720,9 @@ async function stepItem(
       });
       const label = pdfTotal
         ? pagesRead > 0
-          ? `Lecture OCR — ${item.fileName} : page ${pagesRead} / ${pdfTotal}…`
-          : `Lecture OCR — ${item.fileName} : 0 / ${pdfTotal} page(s), Textract en cours…`
-        : `Lecture OCR — ${item.fileName}`;
+          ? `Mistral lit le document — ${item.fileName} : page ${pagesRead} / ${pdfTotal}…`
+          : `Mistral analyse votre document — ${item.fileName} : 0 / ${pdfTotal} page(s)…`
+        : `Mistral analyse votre document — ${item.fileName}`;
       return { kind: "wait", delayMs: OCR_POLL_DELAY_MS, label };
     }
     if (poll.status === "FAILED") {
@@ -736,7 +736,7 @@ async function stepItem(
         results: [
           {
             success: false,
-            error: "OCR Textract a échoué sur ce fichier.",
+            error: "La lecture Mistral (OCR) a échoué sur ce fichier.",
             fileName: item.fileName,
             tempOneDrivePath: item.tempPath,
           },
@@ -767,8 +767,8 @@ async function stepItem(
       segmentationEngine: segEngine,
     });
     const ocrLabel = needsSegmentation
-      ? `OCR terminé — ${poll.result.pageCount} page(s), découpage à venir…`
-      : `Classement — ${item.fileName}`;
+      ? `Mistral a terminé la lecture — ${poll.result.pageCount} page(s), découpage à venir…`
+      : `Mistral déduit le nom et le rangement — ${item.fileName}`;
     return { kind: "continue", label: ocrLabel };
   }
 
@@ -812,7 +812,7 @@ async function stepItem(
       engineHint,
     });
     await patchJob(job.jobId, {
-      label: `Textract terminé — ${engineHint} (${ocr.pageCount} page${ocr.pageCount > 1 ? "s" : ""})…`,
+      label: `Mistral en déduit le découpage — ${engineHint} (${ocr.pageCount} page${ocr.pageCount > 1 ? "s" : ""})…`,
       updatedAt: new Date().toISOString(),
     });
     const segData = await runDocumentSegmentation(
