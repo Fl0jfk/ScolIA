@@ -2,12 +2,13 @@ import { createHash } from "crypto";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { ImapFlow } from "imapflow";
 import { simpleParser, type Attachment, type ParsedMail } from "mailparser";
-import { getDataS3ClientForTenantSlug, getTenantDataS3Client } from "@/app/lib/s3-clients";
-import { getTenantBucketName } from "@/app/lib/tenant-config";
+import { getDataS3ClientForTenantSlug } from "@/app/lib/s3-clients";
 import { getPlatformImapConfig } from "@/app/lib/tenant-mail";
 import { resolveTenantBySlug } from "@/app/lib/tenant-registry";
+import { ocrPdfBytes } from "@/app/lib/travel-devis-ocr";
 import { ingestTravelEmail, type TravelEmailIngestResult } from "@/app/lib/travel-email-ingest";
 import { extractTenantSlugFromEmailHeaders } from "@/app/lib/travel-email-routing";
+import { resolveTenantSlugWithMistral } from "@/app/lib/travel-tenant-match";
 
 export type TravelEmailPollSummary = {
   scanned: number;
@@ -89,15 +90,11 @@ async function resolveUploadTarget(slugHint: string | null) {
       return {
         client: await getDataS3ClientForTenantSlug(tenant.slug),
         bucket: tenant.dataBucket,
-        tenantSlugHint: tenant.slug,
+        tenantSlugHint: tenant.slug as string | null,
       };
     }
   }
-  return {
-    client: await getTenantDataS3Client(),
-    bucket: await getTenantBucketName(),
-    tenantSlugHint: slugHint,
-  };
+  return null;
 }
 
 /**
@@ -159,20 +156,70 @@ export async function pollTravelImapInbox(options?: {
 
           const deliveredTo = parsed.headers?.get("delivered-to");
           const xOriginalTo = parsed.headers?.get("x-original-to");
-          const slugHint = extractTenantSlugFromEmailHeaders([
+          let slugHint = extractTenantSlugFromEmailHeaders([
             ...headerList(parsed.to),
             ...headerList(parsed.cc),
             typeof deliveredTo === "string" ? deliveredTo : null,
             typeof xOriginalTo === "string" ? xOriginalTo : null,
           ]);
 
-          const uploadTarget = await resolveUploadTarget(slugHint);
           const pdfAtts = (parsed.attachments || []).filter(isPdfAttachment);
+
+          // Pas de tag mailer+slug → Mistral déduit le tenant (mail ± OCR 1er PDF).
+          if (!slugHint) {
+            let ocrSnippet: string | undefined;
+            const firstPdf = pdfAtts[0];
+            if (firstPdf) {
+              try {
+                const buf = Buffer.isBuffer(firstPdf.content)
+                  ? firstPdf.content
+                  : Buffer.from(firstPdf.content as Uint8Array);
+                if (buf.length > 0) {
+                  ocrSnippet = (await ocrPdfBytes(buf)).slice(0, 8000);
+                }
+              } catch (e) {
+                console.warn("[travel-imap-poller] OCR tenant fallback:", e);
+              }
+            }
+            const tenantMatch = await resolveTenantSlugWithMistral({
+              subject,
+              bodyPlain: emailBodyPlain,
+              snippet,
+              ocrText: ocrSnippet,
+              fromEmail,
+            });
+            slugHint = tenantMatch.slug;
+          }
+
+          const uploadTarget = await resolveUploadTarget(slugHint);
 
           let allOk = true;
           let anyUnmatched = false;
 
-          if (pdfAtts.length === 0) {
+          if (!uploadTarget) {
+            // Tenant non résolu : ingest texte seul → alerte tenant_introuvable_ia (pas d'upload au mauvais bucket).
+            const ingestResult = await ingestTravelEmail({
+              fromEmail,
+              subject,
+              snippet,
+              emailBodyPlain: emailBodyPlain || snippet,
+              gmailMessageId: emailMessageId,
+              tenantSlugHint: null,
+              tenantUnresolved: true,
+            });
+            if (ingestResult.pending) {
+              summary.pending += 1;
+              allOk = false;
+            } else if (!ingestResult.safeToMarkRead && ingestResult.reason !== "tenant_introuvable_ia") {
+              allOk = false;
+              summary.errors.push({
+                messageId: emailMessageId,
+                err: ingestResult.reason || ingestResult.detail || "tenant_non_resolu",
+              });
+            } else if (countAsUnmatched(ingestResult) || ingestResult.reason === "tenant_introuvable_ia") {
+              anyUnmatched = true;
+            }
+          } else if (pdfAtts.length === 0) {
             const ingestResult = await ingestTravelEmail({
               fromEmail,
               subject,

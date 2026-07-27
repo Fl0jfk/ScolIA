@@ -13,6 +13,7 @@ import {
   type TravelEmailAnalysis,
 } from "@/app/lib/travel-email-intelligence";
 import { sendTravelEmailUnmatchedAlert } from "@/app/lib/travel-email-alert";
+import { resolveTenantSlugWithMistral } from "@/app/lib/travel-tenant-match";
 
 const INCOMING_PREFIX = "devis-incoming/";
 export const UNMATCHED_EMAIL_KEY = "travels/email-devis-unmatched.json";
@@ -42,6 +43,11 @@ export type TravelEmailIngestInput = {
   originalFilename?: string;
   /** Slug extrait du Reply-To / To (transport+slug@…). */
   tenantSlugHint?: string | null;
+  /**
+   * Le poller a déjà tenté le matching tenant IA sans succès :
+   * ne pas rappeler Mistral, passer directement en tenant_introuvable_ia.
+   */
+  tenantUnresolved?: boolean;
 };
 
 export type TravelEmailIngestResult = {
@@ -84,7 +90,7 @@ type IngestTarget = {
   tenantSlug: string;
 };
 
-async function resolveIngestTarget(slugHint?: string | null): Promise<IngestTarget> {
+async function resolveIngestTarget(slugHint?: string | null): Promise<IngestTarget | null> {
   const hint = (slugHint || "").trim().toLowerCase();
   if (hint) {
     const tenant = await resolveTenantBySlug(hint);
@@ -95,7 +101,13 @@ async function resolveIngestTarget(slugHint?: string | null): Promise<IngestTarg
         tenantSlug: tenant.slug,
       };
     }
+    return null;
   }
+  return null;
+}
+
+/** Bucket pour markers / alerte quand aucun tenant n'a pu être résolu. */
+async function resolveHoldingTarget(): Promise<IngestTarget> {
   try {
     const tenant = await getTenant();
     return {
@@ -107,7 +119,7 @@ async function resolveIngestTarget(slugHint?: string | null): Promise<IngestTarg
     return {
       client: await getTenantDataS3Client(),
       bucket: await getTenantBucketName(),
-      tenantSlug: "default",
+      tenantSlug: "platform",
     };
   }
 }
@@ -804,6 +816,7 @@ export async function ingestTravelEmail(input: TravelEmailIngestInput): Promise<
     gmailMessageId,
     originalFilename,
     tenantSlugHint,
+    tenantUnresolved,
   } = input;
   if (!fromEmail?.trim() || !gmailMessageId?.trim()) {
     return {
@@ -839,7 +852,77 @@ export async function ingestTravelEmail(input: TravelEmailIngestInput): Promise<
     };
   }
 
-  const target = await resolveIngestTarget(tenantSlugHint);
+  let resolvedSlug = (tenantSlugHint || "").trim().toLowerCase() || null;
+  let tenantResolveMotif: string | null = null;
+
+  if (!resolvedSlug && tenantUnresolved) {
+    tenantResolveMotif = "tenant_introuvable_ia";
+  } else if (!resolvedSlug) {
+    const tenantMatch = await resolveTenantSlugWithMistral({
+      subject: subject ?? "",
+      bodyPlain: emailBodyPlain,
+      snippet: snippet ?? "",
+      fromEmail,
+    });
+    resolvedSlug = tenantMatch.slug;
+    tenantResolveMotif = tenantMatch.motif;
+  }
+
+  if (!resolvedSlug) {
+    const holding = await resolveHoldingTarget();
+    const markerKey = ingestMarkerKey(gmailMessageId, s3Key);
+    const existing = await readIngestMarker(holding.client, holding.bucket, markerKey);
+    if (existing?.completed) return resultFromMarker(existing, "deja_traite");
+
+    const reason = "tenant_introuvable_ia";
+    let marker: IngestMarker = {
+      pending: false,
+      completed: true,
+      matched: false,
+      failed: false,
+      reason,
+      tripId: null,
+      gmailMessageId,
+      s3Key,
+      tenantSlug: null,
+    };
+    await writeIngestMarker(holding.client, holding.bucket, markerKey, marker);
+    await appendUnmatched(holding.client, holding.bucket, {
+      id: `${Date.now()}-${gmailMessageId.slice(-8)}`,
+      s3Key,
+      fromEmail,
+      subject: subject ?? "",
+      gmailMessageId,
+      snippet: snippet ?? "",
+      originalFilename,
+      createdAt: new Date().toISOString(),
+      reason,
+      matchMotif: tenantResolveMotif,
+    });
+    marker = await maybeAlertUnmatched(holding.client, holding.bucket, markerKey, marker, {
+      gmailMessageId,
+      fromEmail,
+      subject: subject ?? "",
+      snippet: snippet ?? "",
+      reason,
+      matchMotif: tenantResolveMotif,
+      tenantSlug: null,
+    });
+    return resultFromMarker(marker, "tenant_non_resolu");
+  }
+
+  const target = await resolveIngestTarget(resolvedSlug);
+  if (!target) {
+    return {
+      ok: false,
+      completed: true,
+      failed: true,
+      matched: false,
+      reason: "tenant_slug_inconnu",
+      safeToMarkRead: false,
+    };
+  }
+
   const { client, bucket, tenantSlug } = target;
   const markerKey = ingestMarkerKey(gmailMessageId, s3Key);
   const existing = await readIngestMarker(client, bucket, markerKey);

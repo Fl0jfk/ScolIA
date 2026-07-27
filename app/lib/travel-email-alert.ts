@@ -47,13 +47,16 @@ export async function sendTravelEmailUnmatchedAlert(
     payload.snippet ? `Extrait : ${payload.snippet.slice(0, 400)}` : "",
     ``,
     `Motif : ${payload.reason || "—"}`,
+    payload.reason === "tenant_introuvable_ia"
+      ? `L'IA n'a pas pu déterminer l'établissement (pas de tag mailer+slug et matching tenant échoué).`
+      : "",
     payload.matchMotif ? `Détail IA : ${payload.matchMotif}` : "",
     payload.messageType ? `Type suggéré : ${payload.messageType}` : "",
     payload.guessedTripId ? `Séjour suggéré (incertain) : ${payload.guessedTripId}` : "",
     payload.tenantSlug ? `Tenant détecté : ${payload.tenantSlug}` : "",
     `Message id : ${payload.gmailMessageId}`,
     ``,
-    `Ouvre la liste des sorties (bandeau unmatched) pour rattacher manuellement :`,
+    `Ouvre la messagerie / le dossier séjour concerné pour rattacher manuellement si besoin.`,
     unmatchedUrl,
     ``,
     `— ScolIA polling`,

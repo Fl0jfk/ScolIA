@@ -35,18 +35,6 @@ function TripDashboardContent() {
   const [reminders, setReminders] = useState<TravelsReminderRow[]>([]);
   const [showRemindersModal, setShowRemindersModal] = useState(false);
   const [tourModalBoost, setTourModalBoost] = useState(false);
-  const [unmatchedEmails, setUnmatchedEmails] = useState<
-    Array<{
-      id: string;
-      fromEmail: string;
-      subject: string;
-      createdAt: string;
-      reason?: string;
-      guessedTripId?: string | null;
-      matchMotif?: string | null;
-    }>
-  >([]);
-  const [showUnmatched, setShowUnmatched] = useState(false);
 
   useEffect(() => {
     const onAction = (e: Event) => {
@@ -107,25 +95,13 @@ function TripDashboardContent() {
     }
   }, []);
 
-  const loadUnmatchedEmails = useCallback(async () => {
-    try {
-      const res = await fetch("/api/travels/email-unmatched");
-      if (!res.ok) return;
-      const data = await res.json();
-      setUnmatchedEmails(Array.isArray(data.items) ? data.items.slice(0, 30) : []);
-    } catch {
-      setUnmatchedEmails([]);
-    }
-  }, []);
-
   useEffect(() => {
     if (isLoaded && isSignedIn) {
       loadTrips();
       loadDirectionDashboard();
       loadReminders();
-      loadUnmatchedEmails();
     }
-  }, [isLoaded, isSignedIn, loadTrips, loadDirectionDashboard, loadReminders, loadUnmatchedEmails]);
+  }, [isLoaded, isSignedIn, loadTrips, loadDirectionDashboard, loadReminders]);
 
   useEffect(() => {
     if (searchParams.get("new") === "1") setShowModal(true);
@@ -201,58 +177,6 @@ function TripDashboardContent() {
       {directionDashboard && (
         <div data-tour="travels-direction">
           <TravelsDirectionDashboardPanel data={directionDashboard} />
-        </div>
-      )}
-      {unmatchedEmails.length > 0 && (
-        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/80 px-5 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-bold text-amber-950">
-                {unmatchedEmails.length} e-mail{unmatchedEmails.length > 1 ? "s" : ""} transport non rattaché
-                {unmatchedEmails.length > 1 ? "s" : ""}
-              </p>
-              <p className="text-xs text-amber-800/90 mt-0.5">
-                L’IA n’a pas pu associer ces messages à un séjour. Ouvre un dossier pour vérifier le fil, ou consulte le détail.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowUnmatched((v) => !v)}
-              className="text-xs font-bold text-amber-900 underline underline-offset-2"
-            >
-              {showUnmatched ? "Masquer" : "Voir le détail"}
-            </button>
-          </div>
-          {showUnmatched && (
-            <ul className="mt-3 space-y-2 max-h-64 overflow-y-auto">
-              {unmatchedEmails.map((item) => (
-                <li
-                  key={item.id}
-                  className="rounded-xl bg-white/70 border border-amber-100 px-3 py-2 text-xs text-slate-700"
-                >
-                  <p className="font-semibold text-slate-900 truncate">{item.subject || "(sans objet)"}</p>
-                  <p className="text-slate-500 truncate">
-                    {item.fromEmail}
-                    {item.createdAt
-                      ? ` · ${new Date(item.createdAt).toLocaleString("fr-FR")}`
-                      : ""}
-                  </p>
-                  {(item.matchMotif || item.reason) && (
-                    <p className="mt-1 text-amber-800/90">{item.matchMotif || item.reason}</p>
-                  )}
-                  {item.guessedTripId && (
-                    <button
-                      type="button"
-                      className="mt-1 font-bold text-indigo-700 hover:underline"
-                      onClick={() => router.push(`/travels/${item.guessedTripId}`)}
-                    >
-                      Ouvrir le séjour suggéré
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       )}
       <div className="flex gap-2 flex-wrap mb-6">
