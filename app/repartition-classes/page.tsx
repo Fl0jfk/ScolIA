@@ -1,11 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  ClassAllocationAlert,
-  ClassAllocationCard,
-  ClassAllocationShell,
-} from "@/app/components/class-allocation/ClassAllocationShell";
+import { ClassAllocationAlert, ClassAllocationCard, ClassAllocationShell} from "@/app/components/class-allocation/ClassAllocationShell";
 
 type Campaign = { id: string; label: string; isOpen: boolean };
 type Child = {
