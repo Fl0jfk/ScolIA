@@ -46,6 +46,8 @@ export default function ParametresPage() {
       directorEmail: string;
       clerkRoleSlugs: string;
       active: boolean;
+      signatureS3Key?: string;
+      signaturePreviewUrl?: string | null;
     }>
   >([]);
   const [notifications, setNotifications] = useState<Record<string, unknown>>({});
@@ -54,6 +56,7 @@ export default function ParametresPage() {
   const [mefEcole, setMefEcole] = useState("");
   const [mefMessage, setMefMessage] = useState<string | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingSignatureId, setUploadingSignatureId] = useState<string | null>(null);
   const [profRoomAdminIds, setProfRoomAdminIds] = useState<string[]>([]);
   const [clerkMembers, setClerkMembers] = useState<ClerkMemberOption[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -100,8 +103,36 @@ export default function ParametresPage() {
             directorEmail: String(e.directorEmail || ""),
             clerkRoleSlugs: Array.isArray(e.clerkRoleSlugs) ? (e.clerkRoleSlugs as string[]).join(", ") : "",
             active: e.active !== false,
+            signatureS3Key: typeof e.signatureS3Key === "string" ? e.signatureS3Key : undefined,
+            signaturePreviewUrl: null,
           })),
         );
+        // Aperçus signatures (URLs signées dataBucket)
+        void (async () => {
+          const list = (j.config?.establishments || []) as Record<string, unknown>[];
+          const withSig = list.filter((e) => e.id && e.signatureS3Key);
+          if (!withSig.length) return;
+          const previews = await Promise.all(
+            withSig.map(async (e) => {
+              const id = String(e.id);
+              try {
+                const pr = await fetch(
+                  `/api/settings/upload-direction-signature?establishmentId=${encodeURIComponent(id)}`,
+                );
+                const pj = await pr.json();
+                return { id, url: pr.ok ? (pj.previewUrl as string | null) : null };
+              } catch {
+                return { id, url: null };
+              }
+            }),
+          );
+          setEstablishments((prev) =>
+            prev.map((est) => {
+              const hit = previews.find((p) => p.id === est.id);
+              return hit ? { ...est, signaturePreviewUrl: hit.url } : est;
+            }),
+          );
+        })();
         setNotifications(j.config?.notifications || {});
         const profRoomCfg = j.config?.profRoom || {};
         const savedIds = Array.isArray(profRoomCfg.adminClerkUserIds) ? profRoomCfg.adminClerkUserIds : [];
@@ -202,6 +233,74 @@ export default function ParametresPage() {
       setError(e instanceof Error ? e.message : "Erreur upload logo");
     } finally {
       setUploadingLogo(false);
+    }
+  };
+
+  const uploadDirectionSignature = async (establishmentId: string, file: File) => {
+    if (!establishmentId.trim()) {
+      setError("Enregistrez d’abord l’établissement (id) avant d’ajouter une signature.");
+      return;
+    }
+    setUploadingSignatureId(establishmentId);
+    setError(null);
+    try {
+      const prep = await fetch("/api/settings/upload-direction-signature", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ establishmentId, fileType: file.type }),
+      });
+      const prepJson = await prep.json();
+      if (!prep.ok) throw new Error(prepJson.error || "Préparation upload impossible");
+
+      const putRes = await fetch(prepJson.uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+      if (!putRes.ok) throw new Error("Envoi de la signature sur S3 impossible.");
+
+      setEstablishments((prev) =>
+        prev.map((e) =>
+          e.id === establishmentId
+            ? {
+                ...e,
+                signatureS3Key: prepJson.fileKey as string,
+                signaturePreviewUrl: (prepJson.previewUrl as string) || null,
+              }
+            : e,
+        ),
+      );
+      alert("Signature direction enregistrée (bucket privé du tenant).");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur upload signature");
+    } finally {
+      setUploadingSignatureId(null);
+    }
+  };
+
+  const removeDirectionSignature = async (establishmentId: string) => {
+    if (!confirm("Supprimer la signature de cet établissement ?")) return;
+    setUploadingSignatureId(establishmentId);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/upload-direction-signature", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ establishmentId }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Suppression impossible");
+      setEstablishments((prev) =>
+        prev.map((e) =>
+          e.id === establishmentId
+            ? { ...e, signatureS3Key: undefined, signaturePreviewUrl: null }
+            : e,
+        ),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur suppression signature");
+    } finally {
+      setUploadingSignatureId(null);
     }
   };
 
@@ -482,6 +581,50 @@ export default function ParametresPage() {
                   setEstablishments(next);
                 }}
               />
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <p className="text-xs font-bold text-slate-700">Signature direction (PDF devis / stages / certificats)</p>
+                <p className="text-[11px] text-slate-500">
+                  Stockée dans le bucket privé du tenant — pas sur scolia-images.
+                </p>
+                {est.signaturePreviewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={est.signaturePreviewUrl}
+                    alt={`Signature ${est.label || est.id}`}
+                    className="h-14 max-w-[220px] object-contain bg-white rounded border"
+                  />
+                ) : est.signatureS3Key ? (
+                  <p className="text-xs text-amber-700">Signature enregistrée (aperçu indisponible).</p>
+                ) : (
+                  <p className="text-xs text-slate-400">Aucune signature.</p>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="cursor-pointer text-xs font-bold text-indigo-600 hover:underline">
+                    {uploadingSignatureId === est.id ? "Envoi…" : "Ajouter / remplacer"}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      disabled={uploadingSignatureId === est.id || !est.id.trim()}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = "";
+                        if (f) void uploadDirectionSignature(est.id, f);
+                      }}
+                    />
+                  </label>
+                  {(est.signatureS3Key || est.signaturePreviewUrl) && (
+                    <button
+                      type="button"
+                      className="text-xs font-bold text-rose-600"
+                      disabled={uploadingSignatureId === est.id}
+                      onClick={() => void removeDirectionSignature(est.id)}
+                    >
+                      Supprimer
+                    </button>
+                  )}
+                </div>
+              </div>
               <input
                 className="w-full border rounded-lg p-2 text-sm"
                 placeholder="Rôles Clerk (séparés par des virgules)"
@@ -512,7 +655,7 @@ export default function ParametresPage() {
             onClick={() =>
               setEstablishments([
                 ...establishments,
-                { id: "", label: "", directorName: "", directorEmail: "", clerkRoleSlugs: "", active: true },
+                { id: "", label: "", directorName: "", directorEmail: "", clerkRoleSlugs: "", active: true, signaturePreviewUrl: null },
               ])
             }
           >
@@ -524,7 +667,13 @@ export default function ParametresPage() {
             onClick={() =>
               saveSection("establishments", {
                 establishments: establishments.map((e) => ({
-                  ...e,
+                  id: e.id,
+                  label: e.label,
+                  kind: e.kind,
+                  directorName: e.directorName,
+                  directorEmail: e.directorEmail,
+                  signatureS3Key: e.signatureS3Key,
+                  active: e.active,
                   clerkRoleSlugs: e.clerkRoleSlugs.split(",").map((s) => s.trim()).filter(Boolean),
                 })),
               })

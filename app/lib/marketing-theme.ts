@@ -28,13 +28,13 @@ export const SCOLA_HEADER_ACCENT =
 
 export const WORKFLOW_IMAGES: Record<string, string> = {
   "Documents élèves":
-    scolaImageUrl("categories/add+Docs.png"),
+    scolaImageUrl("categories/add Docs.png"),
   "Sorties scolaires":
     scolaImageUrl("categories/transport.avif"),
   "Réservation de salles":
     scolaImageUrl("categories/reservationsalle.jpg"),
   Absences:
-    scolaImageUrl("categories/planning+abs.jpg"),
+    scolaImageUrl("categories/planning abs.jpg"),
   "RH & personnel":
     scolaImageUrl("categories/Organigramme.jpg"),
   Internat:
@@ -55,11 +55,11 @@ export const TILE_IMAGES: Record<string, string> = {
   documents:
     scolaImageUrl("categories/classeur.jpg"),
   "docs-eleves":
-    scolaImageUrl("categories/add+Docs.png"),
+    scolaImageUrl("categories/add Docs.png"),
   sorties:
     scolaImageUrl("categories/transport.avif"),
   absences:
-    scolaImageUrl("categories/planning+abs.jpg"),
+    scolaImageUrl("categories/planning abs.jpg"),
   salles:
     scolaImageUrl("categories/reservationsalle.jpg"),
   rh: scolaImageUrl("categories/Organigramme.jpg"),

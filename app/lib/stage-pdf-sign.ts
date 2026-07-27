@@ -1,6 +1,5 @@
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { PDFDocument } from "pdf-lib";
-import { resolveDirectionSignatureImageUrl } from "@/app/lib/stage-config";
 import { loadReferentSignatureBytes, parsePngBase64 } from "@/app/lib/stage-signature-store";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
@@ -135,9 +134,8 @@ export async function resolveSignaturePngForRole(
   if (drawn) return drawn;
 
   if (role === "direction") {
-    const url = await resolveDirectionSignatureImageUrl(convention.student.level);
-    if (!url) return null;
-    return fetchImageFromUrl(url);
+    const { resolveDirectionSignatureBytesForLevel } = await import("@/app/lib/direction-signature");
+    return resolveDirectionSignatureBytesForLevel(convention.student.level);
   }
 
   if (role === "professeur_referent") {
@@ -171,7 +169,7 @@ export async function stampSignatureOnConventionPdf(params: {
     return {
       ok: false,
       error:
-        "Image de signature direction non configurée (Paramètres → Voyages → signatures ecole/college/lycee).",
+        "Image de signature direction non configurée (Paramètres → Établissements → signature).",
     };
   }
 

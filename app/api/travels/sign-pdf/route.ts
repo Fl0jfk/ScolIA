@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { PDFDocument } from "pdf-lib";
-import { DEFAULT_DIRECTION_SIGNATURE_URLS } from "@/app/lib/stage-config";
+import { requireAuth } from "@/app/lib/intranet-auth";
+import { resolveDirectionSignatureBytes } from "@/app/lib/direction-signature";
 import {
   findAllDevisSignatureZones,
   textractSignatureBBoxToPdfLibDrawCoords,
@@ -11,12 +12,19 @@ const SIG_W = 150;
 const SIG_H = 75;
 
 export async function POST(req: Request) {
+  const gate = await requireAuth();
+  if (!gate.ok) return gate.response;
+
   try {
     const { quoteUrl, signatureType } = await req.json();
-    const selectedSigUrl = DEFAULT_DIRECTION_SIGNATURE_URLS[String(signatureType || "").trim()];
-    if (!selectedSigUrl) {
+    const estId = String(signatureType || "").trim();
+    const sigBytes = await resolveDirectionSignatureBytes(estId);
+    if (!sigBytes?.length) {
       return NextResponse.json(
-        { error: "Type de signature invalide ou non configuré" },
+        {
+          error:
+            "Signature direction non configurée. Paramètres → Établissements → ajouter la signature.",
+        },
         { status: 400 },
       );
     }
@@ -24,21 +32,13 @@ export async function POST(req: Request) {
     const pdfBuffer = await fetchTravelsPdfBytes(quoteUrl);
     const pdfDoc = await PDFDocument.load(pdfBuffer);
 
-    const sigImageRes = await fetch(selectedSigUrl);
-    if (!sigImageRes.ok) {
-      throw new Error(`Impossible de récupérer la signature pour : ${signatureType}`);
-    }
-    const sigImageBytes = await sigImageRes.arrayBuffer();
-    const isJpg =
-      selectedSigUrl.toLowerCase().endsWith(".jpg") ||
-      selectedSigUrl.toLowerCase().endsWith(".jpeg");
+    const isJpg = sigBytes[0] === 0xff && sigBytes[1] === 0xd8;
     const sigImage = isJpg
-      ? await pdfDoc.embedJpg(sigImageBytes)
-      : await pdfDoc.embedPng(sigImageBytes);
+      ? await pdfDoc.embedJpg(sigBytes)
+      : await pdfDoc.embedPng(sigBytes);
 
     const pages = pdfDoc.getPages();
 
-    // Détection multi-zones (plusieurs devis / plusieurs pages dans le même PDF)
     const zones = await findAllDevisSignatureZones(pdfBuffer);
 
     let stampedCount = 0;
@@ -48,13 +48,7 @@ export async function POST(req: Request) {
         const pageIndex = Math.min(Math.max(1, bbox.pageNumber), pages.length) - 1;
         const page = pages[pageIndex]!;
         const { width: pw, height: ph } = page.getSize();
-        const { x, y } = textractSignatureBBoxToPdfLibDrawCoords(
-          pw,
-          ph,
-          bbox,
-          SIG_W,
-          SIG_H,
-        );
+        const { x, y } = textractSignatureBBoxToPdfLibDrawCoords(pw, ph, bbox, SIG_W, SIG_H);
         page.drawImage(sigImage, { x, y, width: SIG_W, height: SIG_H });
         stampedCount += 1;
       }
@@ -62,7 +56,6 @@ export async function POST(req: Request) {
         `[sign-pdf] ${stampedCount} signature(s) apposée(s) sur ${zones.length} zone(s) détectée(s)`,
       );
     } else {
-      // Fallback : bas droite de la dernière page (comportement historique)
       const lastPage = pages[pages.length - 1]!;
       const { width } = lastPage.getSize();
       lastPage.drawImage(sigImage, {
@@ -79,7 +72,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       signedPdfData: pdfBase64,
-      fileName: `devis_signe_${signatureType}.pdf`,
+      fileName: `devis_signe_${estId}.pdf`,
       stampedCount,
       zonesDetected: zones.length,
     });

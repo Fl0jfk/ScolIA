@@ -202,60 +202,184 @@ function ProfRoomPageContent() {
       alert("Veuillez remplir tous les champs obligatoires.");
       return;
     }
-    const endpoint = isEditing ? "/api/reservation-rooms/reservations/update" : "/api/reservation-rooms/reservations/create";
+    const endpoint = isEditing
+      ? "/api/reservation-rooms/reservations/update"
+      : "/api/reservation-rooms/reservations/create";
     const userEmail = user?.primaryEmailAddress?.emailAddress || "";
     const body = {
       id: editingRes?.id,
-      roomId: selectedRoom, 
+      roomId: selectedRoom,
       selectedHours,
       newHour: selectedHours[0],
-      date: selectedDate, 
-      subject, 
-      className, 
-      comment, 
-      recurrence, 
-      untilDate, 
+      date: selectedDate,
+      subject,
+      className,
+      comment,
+      recurrence,
+      untilDate,
       updateAllSeries,
-      firstName: isAdmin ? targetFirstName : user?.firstName, 
-      lastName: isAdmin ? targetLastName.toUpperCase() : lastName, 
-      email: userEmail 
+      firstName: isAdmin ? targetFirstName : user?.firstName,
+      lastName: isAdmin ? targetLastName.toUpperCase() : lastName,
+      email: userEmail,
     };
-    const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (res.ok) { 
-      alert("✅ Enregistré !"); 
-      setIsEditing(false);
-      setEditingRes(null);
-      window.location.reload(); 
-    } else { 
-      alert("❌ Erreur lors de l'enregistrement."); 
+
+    console.info("[prof-room] save →", {
+      endpoint,
+      roomId: selectedRoom,
+      date: selectedDate,
+      selectedHours,
+      email: userEmail || "(vide)",
+    });
+
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const rawText = await res.text();
+      let j: {
+        error?: string;
+        mailSent?: boolean;
+        mailSkipReason?: string | null;
+        count?: number;
+        success?: boolean;
+      } = {};
+      try {
+        j = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        console.error("[prof-room] réponse non-JSON", res.status, rawText.slice(0, 300));
+      }
+
+      console.info("[prof-room] save ←", {
+        status: res.status,
+        ok: res.ok,
+        mailSent: j.mailSent,
+        mailSkipReason: j.mailSkipReason,
+        count: j.count,
+        error: j.error,
+      });
+
+      if (res.ok) {
+        let extra = "";
+        if (j.mailSent === true) {
+          extra = "\n📧 Mail de confirmation envoyé.";
+          console.info("[prof-room] mail OK");
+        } else if (endpoint.endsWith("/create")) {
+          extra = `\n⚠️ Mail non envoyé : ${j.mailSkipReason || "raison inconnue (voir console)"}`;
+          console.warn("[prof-room] mail KO:", j.mailSkipReason || j);
+        }
+        alert(`✅ Enregistré !${extra}`);
+        setIsEditing(false);
+        setEditingRes(null);
+        try {
+          const resRes = await fetch("/api/reservation-rooms/reservations");
+          if (resRes.ok) setReservations((await resRes.json()).reservations || []);
+        } catch (reloadErr) {
+          console.warn("[prof-room] refresh liste échoué", reloadErr);
+        }
+      } else {
+        console.error("[prof-room] save erreur", res.status, j);
+        alert(`❌ ${j.error || `Erreur HTTP ${res.status}`}`);
+      }
+    } catch (err) {
+      console.error("[prof-room] save réseau / Load failed", err);
+      alert(
+        `❌ Échec réseau (souvent timeout mail SMTP ou Clerk).\nDétail : ${
+          err instanceof Error ? err.message : String(err)
+        }\nRegarde la console (filtre « prof-room »).`,
+      );
     }
   }
+
   async function handleDelete() {
     if (!editingRes) return;
     const reason = prompt("Motif de suppression :", "Annulation");
     if (reason === null) return;
     let deleteAllSeries = false;
-    if (editingRes.groupId) { deleteAllSeries = confirm("Supprimer TOUTE la série ?");}
+    if (editingRes.groupId) {
+      deleteAllSeries = confirm("Supprimer TOUTE la série ?");
+    }
     const currentUserEmail = user?.primaryEmailAddress?.emailAddress || "";
-    const res = await fetch("/api/reservation-rooms/reservations/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        id: editingRes.id, 
-        groupId: editingRes.groupId, 
-        deleteAllSeries, 
-        reason,
-        userEmail: currentUserEmail,
-        startsAt: editingRes.startsAt
-      }),
+    const payload = {
+      id: editingRes.id,
+      groupId: editingRes.groupId,
+      deleteAllSeries,
+      reason,
+      userEmail: currentUserEmail,
+      startsAt: editingRes.startsAt,
+    };
+
+    console.info("[prof-room] delete →", {
+      id: payload.id,
+      email: currentUserEmail || "(vide)",
+      deleteAllSeries,
     });
-    if (res.ok) { 
-      alert("🗑️ Supprimé !"); 
-      setIsEditing(false);
-      setEditingRes(null);
-      window.location.reload(); 
-    } else {
-      alert("❌ Erreur lors de la suppression.");
+
+    try {
+      const res = await fetch("/api/reservation-rooms/reservations/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const rawText = await res.text();
+      let j: {
+        error?: string;
+        mailSent?: boolean;
+        mailSkipReason?: string | null;
+        cancelled?: number;
+        success?: boolean;
+      } = {};
+      try {
+        j = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        console.error("[prof-room] delete non-JSON", res.status, rawText.slice(0, 300));
+      }
+
+      console.info("[prof-room] delete ←", {
+        status: res.status,
+        ok: res.ok,
+        mailSent: j.mailSent,
+        mailSkipReason: j.mailSkipReason,
+        cancelled: j.cancelled,
+        error: j.error,
+      });
+
+      if (res.ok) {
+        let extra = "";
+        if (j.mailSent === true) {
+          extra = "\n📧 Mail d'annulation envoyé.";
+        } else {
+          extra = `\n⚠️ Mail non envoyé : ${j.mailSkipReason || "raison inconnue"}`;
+          console.warn("[prof-room] mail annulation KO:", j.mailSkipReason || j);
+        }
+        alert(`🗑️ Supprimé !${extra}`);
+        setIsEditing(false);
+        setEditingRes(null);
+        setReservations((prev) =>
+          prev.map((r) =>
+            r.id === editingRes.id || (deleteAllSeries && editingRes.groupId && r.groupId === editingRes.groupId)
+              ? { ...r, status: "CANCELLED" }
+              : r,
+          ),
+        );
+        try {
+          const resRes = await fetch("/api/reservation-rooms/reservations");
+          if (resRes.ok) setReservations((await resRes.json()).reservations || []);
+        } catch (reloadErr) {
+          console.warn("[prof-room] refresh liste échoué", reloadErr);
+        }
+      } else {
+        console.error("[prof-room] delete erreur", res.status, j);
+        alert(`❌ ${j.error || `Erreur HTTP ${res.status}`}`);
+      }
+    } catch (err) {
+      console.error("[prof-room] delete réseau / Load failed", err);
+      alert(
+        `❌ Échec réseau à la suppression.\nDétail : ${
+          err instanceof Error ? err.message : String(err)
+        }\nLa suppression a peut‑être quand même eu lieu — recharge et regarde la console « prof-room ».`,
+      );
     }
   }
   if (!isLoaded || !user) return <div className="p-20 text-center font-bold">Initialisation...</div>;

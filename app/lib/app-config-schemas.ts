@@ -43,6 +43,8 @@ export type Establishment = {
   kind?: EstablishmentKind;
   directorName?: string;
   directorEmail?: string;
+  /** Clé S3 relative dans le dataBucket (ex. settings/signatures/ecole.png) — jamais une URL publique. */
+  signatureS3Key?: string;
   grades?: string;
   clerkRoleSlugs?: string[];
   active?: boolean;
@@ -321,6 +323,7 @@ export function parseEstablishment(raw: unknown): Establishment {
     kind,
     directorName: str(o.directorName) || undefined,
     directorEmail: email || undefined,
+    signatureS3Key: str(o.signatureS3Key).trim() || undefined,
     grades: str(o.grades) || undefined,
     clerkRoleSlugs: strArr(o.clerkRoleSlugs),
     active: o.active !== false,

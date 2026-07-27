@@ -217,7 +217,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 10,
       name: "Ajout de documents IA",
-      img: scolaImageUrl("categories/add+Docs.png"),
+      img: scolaImageUrl("categories/add Docs.png"),
       link: "/agentIAOCR",
       external: false,
       variant: "agent-ia",
@@ -287,7 +287,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 17,
       name: "Brain AI (training engine)",
-      img: scolaImageUrl("categories/Brain+iA.jpg"),
+      img: scolaImageUrl("categories/Brain iA.jpg"),
       link: "/chatbot-knowledge",
       external: false,
     },
@@ -299,7 +299,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 19,
       name: "Photocopies couleur",
-      img: scolaImageUrl("categories/Demande+impression.jpg"),
+      img: scolaImageUrl("categories/Demande impression.jpg"),
       link: "/photocopies-couleur",
       external: false,
       variant: "photocopies-couleur",
@@ -485,7 +485,7 @@ export const INTRANET_EXTERNAL_QUICK_LINKS: ExternalQuickLink[] = [
   {
     id: "ecole-directe",
     name: "École Directe",
-    img: scolaImageUrl("categories/Ecole+direct.png"),
+    img: scolaImageUrl("categories/Ecole direct.png"),
     link: "https://www.ecoledirecte.com/login?cameFrom=%2FAccueil",
     allowedRoles: [
       "direction_college",
