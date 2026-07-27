@@ -1,3 +1,4 @@
+import { scolaImageUrl } from "@/app/lib/scola-image";
 import { SCHOOL } from "@/app/lib/school";
 
 export type OrganigramPerson = {
@@ -29,7 +30,7 @@ export const ORGANIGRAM_DIRECTORS: OrganigramPerson[] = [
     firstName: "Elise",
     lastName: "PLANTEC",
     role: "Directrice de l'école",
-    photoUrl: "https://scola-image.s3.eu-west-3.amazonaws.com/organigram/Plantec-Elise-1.png",
+    photoUrl: scolaImageUrl("organigram/Plantec-Elise-1.png"),
     email: SCHOOL.ecole.emailHref.replace(/^mailto:/, ""),
     missions: [
       "Pilotage pédagogique et éducatif de l'école (maternelle & élémentaire).",
@@ -43,7 +44,7 @@ export const ORGANIGRAM_DIRECTORS: OrganigramPerson[] = [
     firstName: "Anne-Sophie",
     lastName: "DUMOUCHEL",
     role: "Directrice du collège",
-    photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/Direction_5-removebg-preview.png",
+    photoUrl:scolaImageUrl("organigram/Direction_5-removebg-preview.png"),
     email: SCHOOL.college.emailHref.replace(/^mailto:/, ""),
     missions: [
       "Pilotage pédagogique et éducatif du collège. ",
@@ -58,7 +59,7 @@ export const ORGANIGRAM_DIRECTORS: OrganigramPerson[] = [
     firstName: "Anne-Marie",
     lastName: "DONA",
     role: "Directrice du lycée",
-    photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/mme-dona-directrice-lycee-la-providence-nicolas-barre-mesnil-esnard.png",
+    photoUrl:scolaImageUrl("organigram/mme-dona-directrice-lycee-la-providence-nicolas-barre-mesnil-esnard.png"),
     email: SCHOOL.lycee.emailHref.replace(/^mailto:/, ""),
     missions: [
       "Pilotage pédagogique et éducatif du lycée. ",
@@ -83,7 +84,7 @@ export const ORGANIGRAM_ADMIN: OrganigramBlock = {
       id: "admin-1",
       firstName: "Pauline",
       lastName: "LEBLOND",
-      photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/LEBLOND+Pauline.jpg",
+      photoUrl:scolaImageUrl("organigram/LEBLOND+Pauline.jpg"),
       role: "Gestion administrative & secrétariat école",
       missions: [
         "Secrétariat de l'école. ",
@@ -96,7 +97,7 @@ export const ORGANIGRAM_ADMIN: OrganigramBlock = {
       id: "admin-2",
       firstName: "Sarah",
       lastName: "VILLIER",
-      photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/BUNO+SARAH.jpg",
+      photoUrl:scolaImageUrl("organigram/BUNO+SARAH.jpg"),
       role: "Gestion administrative & secrétariat collège",
       missions: [
         "Secrétariat du collège. ",
@@ -108,7 +109,7 @@ export const ORGANIGRAM_ADMIN: OrganigramBlock = {
       id: "admin-3",
       firstName: "Florian",
       lastName: "HACQUEVILLE-MATHI",
-      photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/FHM.jpeg",
+      photoUrl:scolaImageUrl("organigram/FHM.jpeg"),
       role: "Gestion administrative & secrétariat lycée",
       missions: [
         "Secrétariat du lycée. ",
@@ -136,7 +137,7 @@ export const ORGANIGRAM_ACCOUNTING: OrganigramBlock = {
       id: "compta-2",
       firstName: "Anaïs",
       lastName: "BOUTIGNY",
-      photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/BOUTIGNY+Ana%C3%AFs.jpg",
+      photoUrl:scolaImageUrl("organigram/BOUTIGNY+Ana%C3%AFs.jpg"),
       role: "Comptable",
       missions: ["Suivi budgétaire. ", "Tableaux de pilotage pour la direction et l'OGEC."],
     },
@@ -144,7 +145,7 @@ export const ORGANIGRAM_ACCOUNTING: OrganigramBlock = {
       id: "compta-3",
       firstName: "Cécile",
       lastName: "DOUAGLIN",
-      photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/CECILE+DOUAGLIN.jpg",
+      photoUrl:scolaImageUrl("organigram/CECILE+DOUAGLIN.jpg"),
       role: "Comptable",
       missions: ["Déclarations et liens avec les organismes. ", "À préciser selon l'organisation réelle."],
     },
@@ -161,7 +162,7 @@ export const ORGANIGRAM_RECEPTION: OrganigramBlock = {
       id: "standard",
       firstName: "Karine",
       lastName: "PERRIER",
-      photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/PERRIER+Karine.jpg",
+      photoUrl:scolaImageUrl("organigram/PERRIER+Karine.jpg"),
       role: "Standard & accueil",
       missions: [
         "Orientation des appels vers les bons interlocuteurs. ",
@@ -181,7 +182,7 @@ export const ORGANIGRAM_HEALTH: OrganigramBlock = {
       id: "infirmiere",
       firstName: "Ludmila",
       lastName: "BERBRA",
-      photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/Ludmila+BERBRA.jpeg",
+      photoUrl:scolaImageUrl("organigram/Ludmila+BERBRA.jpeg"),
       role: "Infirmière scolaire",
       missions: [
         "Accueil des élèves, soins, prévention et liaison avec les familles. ",
@@ -192,7 +193,7 @@ export const ORGANIGRAM_HEALTH: OrganigramBlock = {
       id: "psychologue",
       firstName: "Thomas",
       lastName: "PEREZ",
-      photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/Thomas+PEREZ.jpg",
+      photoUrl:scolaImageUrl("organigram/Thomas+PEREZ.jpg"),
       role: "Psychologue scolaire",
       missions: [
         "Accompagnement psychologique des élèves et appui aux équipes. ",
@@ -212,7 +213,7 @@ export const ORGANIGRAM_MAINTENANCE: OrganigramBlock = {
       id: "maint-1",
       firstName: "Jérôme",
       lastName: "LAINE",
-      photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/LAINE+JEROME.jpg",
+      photoUrl:scolaImageUrl("organigram/LAINE+JEROME.jpg"),
       role: "Responsable maintenance",
       missions: [
         "Entretien courant des locaux et des espaces communs. ",
@@ -248,7 +249,7 @@ export const ORGANIGRAM_POLES: OrganigramPole[] = [
             id: "cfe-ecole",
             firstName: "Pauline",
             lastName: "LEBLOND",
-            photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/LEBLOND+Pauline.jpg",
+            photoUrl:scolaImageUrl("organigram/LEBLOND+Pauline.jpg"),
             role: "Référente vie scolaire",
             missions: ["Suivi des élèves, liaison familles–école. "],
           }
@@ -268,7 +269,7 @@ export const ORGANIGRAM_POLES: OrganigramPole[] = [
           { id: "cfe-col-1", 
             firstName: "Gaëlle",
             lastName: "CORIOU",
-            photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/CORIOU+Gaelle.jpg",
+            photoUrl:scolaImageUrl("organigram/CORIOU+Gaelle.jpg"),
             role: "CPE 6EME/5EME", 
             missions: ["À compléter. "] },
           { id: "cfe-col-2",
@@ -280,13 +281,13 @@ export const ORGANIGRAM_POLES: OrganigramPole[] = [
           { id: "cfe-col-3", 
             firstName: "Lise",
             lastName: "HAMEL",
-            photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/HAMEL+LISE.jpg",
+            photoUrl:scolaImageUrl("organigram/HAMEL+LISE.jpg"),
             role: "CPE transverse - Responsables des surveillants", 
             missions: ["À compléter. "] },
           { id: "vs-col-assist", 
             firstName: "Constance",
             lastName: "VIERA DA ROSA",
-            photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/VIEIRA+DA+ROSA+Constance.jpg",
+            photoUrl:scolaImageUrl("organigram/VIEIRA+DA+ROSA+Constance.jpg"),
             role: "Assistant·e éducation / équipe vie scolaire", 
             missions: ["À compléter. "] },
         ],
@@ -305,7 +306,7 @@ export const ORGANIGRAM_POLES: OrganigramPole[] = [
             id: "cfe-lycee",
             firstName: "Isabelle",
             lastName: "CONSTANT",
-            photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/I.+CONSTANT.jpg",
+            photoUrl:scolaImageUrl("organigram/I.+CONSTANT.jpg"),
             role: "CPE lycée",
             missions: ["Suivi disciplinaire et éducatif. ", "Accompagnement des élèves et des familles. "],
           },
@@ -313,7 +314,7 @@ export const ORGANIGRAM_POLES: OrganigramPole[] = [
             id: "vs-lycee-2",
             firstName: "Karim",
             lastName: "YAICI",
-            photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/YAICI+Karim.jpg",
+            photoUrl:scolaImageUrl("organigram/YAICI+Karim.jpg"),
             role: "Membre équipe vie scolaire",
             missions: ["À compléter. "],
           }
@@ -331,7 +332,7 @@ export const ORGANIGRAM_PASTORAL: OrganigramBlock = {
     { id: "past-1", 
       firstName: "Céline",
       lastName: "DUBOC",
-      photoUrl:"https://scola-image.s3.eu-west-3.amazonaws.com/organigram/DUBOC+CELINE.jpg",
+      photoUrl:scolaImageUrl("organigram/DUBOC+CELINE.jpg"),
       role: "Référent·e pastorale", missions: ["À compléter. "] },
     { id: "past-2",
       firstName: "Charlotte",

@@ -1,10 +1,11 @@
+import { scolaImageUrl } from "@/app/lib/scola-image";
 import { loadAppConfig, looksLikeLaProvidenceTenant } from "@/app/lib/app-config";
 
 /** Signatures direction La Providence (même source que /api/travels/sign-pdf). */
 export const DEFAULT_DIRECTION_SIGNATURE_URLS: Record<string, string> = {
-  ecole: "https://scola-image.s3.eu-west-3.amazonaws.com/signatures/Sans+titre.jpg",
-  college: "https://scola-image.s3.eu-west-3.amazonaws.com/signatures/signas.png",
-  lycee: "https://scola-image.s3.eu-west-3.amazonaws.com/signatures/signature_AMD.png",
+  ecole: scolaImageUrl("signatures/Sans+titre.jpg"),
+  college: scolaImageUrl("signatures/signas.png"),
+  lycee: scolaImageUrl("signatures/signature_AMD.png"),
 };
 
 /** college | lycee | ecole */

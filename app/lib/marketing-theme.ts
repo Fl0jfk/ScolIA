@@ -1,3 +1,5 @@
+import { scolaImageUrl } from "@/app/lib/scola-image";
+
 /** Tokens visuels du site commercial Scola */
 export const SCOLA = {
   green: "#2F6B4A",
@@ -26,17 +28,17 @@ export const SCOLA_HEADER_ACCENT =
 
 export const WORKFLOW_IMAGES: Record<string, string> = {
   "Documents élèves":
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/add+Docs.png",
+    scolaImageUrl("categories/add+Docs.png"),
   "Sorties scolaires":
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/transport.avif",
+    scolaImageUrl("categories/transport.avif"),
   "Réservation de salles":
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/reservationsalle.jpg",
+    scolaImageUrl("categories/reservationsalle.jpg"),
   Absences:
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/planning+abs.jpg",
+    scolaImageUrl("categories/planning+abs.jpg"),
   "RH & personnel":
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/Organigramme.jpg",
+    scolaImageUrl("categories/Organigramme.jpg"),
   Internat:
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/Internat.jpg",
+    scolaImageUrl("categories/Internat.jpg"),
 };
 
 /** Hauteur fixe des cartes animation — évite le saut de layout entre les phases. */
@@ -51,20 +53,20 @@ export const WORKFLOW_ANIMATION_BODY = "min-h-0 flex-1 overflow-hidden";
 
 export const TILE_IMAGES: Record<string, string> = {
   documents:
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/classeur.jpg",
+    scolaImageUrl("categories/classeur.jpg"),
   "docs-eleves":
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/add+Docs.png",
+    scolaImageUrl("categories/add+Docs.png"),
   sorties:
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/transport.avif",
+    scolaImageUrl("categories/transport.avif"),
   absences:
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/planning+abs.jpg",
+    scolaImageUrl("categories/planning+abs.jpg"),
   salles:
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/reservationsalle.jpg",
-  rh: "https://scola-image.s3.eu-west-3.amazonaws.com/categories/Organigramme.jpg",
+    scolaImageUrl("categories/reservationsalle.jpg"),
+  rh: scolaImageUrl("categories/Organigramme.jpg"),
   internat:
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/Internat.jpg",
+    scolaImageUrl("categories/Internat.jpg"),
   demandes:
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/demandes.jpg",
+    scolaImageUrl("categories/demandes.jpg"),
   familles:
-    "https://scola-image.s3.eu-west-3.amazonaws.com/categories/classeur.jpg",
+    scolaImageUrl("categories/classeur.jpg"),
 };

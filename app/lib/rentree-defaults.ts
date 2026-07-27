@@ -1,3 +1,4 @@
+import { scolaImageUrl } from "@/app/lib/scola-image";
 import type { RentreeEstablishmentPage, RentreeLinksByLevel, RentreeSection } from "@/app/lib/rentree-types";
 
 export const RENTREE_SECTION_CALENDRIER = "Calendrier";
@@ -67,7 +68,7 @@ export const RENTREE_LINKS: RentreeLinksByLevel[] = [
           {
             title: "Librairie Colbert – Commander les fournitures",
             description: "Commande groupée en partenariat avec l'APEL de l'établissement.",
-            href: "https://scola-image.s3.eu-west-3.amazonaws.com/rentree/Colbert.pdf",
+            href: scolaImageUrl("rentree/Colbert.pdf"),
             kind: "pdf",
           },
         ],
@@ -112,7 +113,7 @@ export const RENTREE_LINKS: RentreeLinksByLevel[] = [
           {
             title: "Librairie Colbert – Commander les fournitures",
             description: "Commande groupée en partenariat avec l'APEL de l'établissement.",
-            href: "https://scola-image.s3.eu-west-3.amazonaws.com/rentree/Colbert.pdf",
+            href: scolaImageUrl("rentree/Colbert.pdf"),
             kind: "pdf",
           },
         ],
@@ -157,13 +158,13 @@ export const RENTREE_LINKS: RentreeLinksByLevel[] = [
           {
             title: "ARBS – Location de manuels scolaires",
             description: "Système de location de livres pour les lycéens.",
-            href: "https://scola-image.s3.eu-west-3.amazonaws.com/rentree/Flyer-ARBS.pdf",
+            href: scolaImageUrl("rentree/Flyer-ARBS.pdf"),
             kind: "pdf",
           },
           {
             title: "Atout Normandie – Subvention sur les manuels",
             description: "Dispositif de la Région Normandie.",
-            href: "https://scola-image.s3.eu-west-3.amazonaws.com/rentree/Atouts+normandie.pdf",
+            href: scolaImageUrl("rentree/Atouts+normandie.pdf"),
             kind: "pdf",
           },
         ],

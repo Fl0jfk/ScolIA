@@ -1,14 +1,21 @@
 import "server-only";
 
-import { scolaImageUrl } from "@/app/lib/scola-image";
+import { normalizePublicImageUrl, scolaImageUrl, SCOLA_IMAGE_CDN_HOST } from "@/app/lib/scola-image";
 import { rentreeKeyFromApiHref } from "@/app/lib/rentree-file-serve";
 import { parseTravelsS3KeyFromUrl } from "@/app/lib/travels-s3";
 import type { RentreeEstablishmentPage } from "@/app/lib/rentree-types";
 
-const PUBLIC_S3_HOSTS = new Set(["scola-image.s3.eu-west-3.amazonaws.com"]);
+const PUBLIC_S3_HOSTS = new Set([
+  SCOLA_IMAGE_CDN_HOST,
+  "scolia-images.s3.fr-par.scw.cloud",
+  "scola-image.s3.eu-west-3.amazonaws.com",
+]);
 
-/** Ancien bucket CDN (404) → bucket public scola-image. */
-const LEGACY_RENTREE_CDN_HOSTS = new Set(["docslaproimage.s3.eu-west-3.amazonaws.com"]);
+/** Ancien bucket CDN (404) → bucket public scolia-images. */
+const LEGACY_RENTREE_CDN_HOSTS = new Set([
+  "docslaproimage.s3.eu-west-3.amazonaws.com",
+  "scola-image.s3.eu-west-3.amazonaws.com",
+]);
 
 export function isAllowedRentreeS3Key(key: string): boolean {
   const k = key.replace(/^\/+/, "").replace(/\.\./g, "");
@@ -79,6 +86,8 @@ function isPublicExternalUrl(href: string): boolean {
 }
 
 function normalizeLegacyRentreeCdnUrl(href: string): string | null {
+  const rewritten = normalizePublicImageUrl(href);
+  if (rewritten !== href) return rewritten;
   try {
     const host = new URL(href).hostname;
     if (!LEGACY_RENTREE_CDN_HOSTS.has(host)) return null;

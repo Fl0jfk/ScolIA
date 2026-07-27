@@ -264,7 +264,11 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
 }
 
 export async function saveSiteIdentity(data: SiteIdentity) {
+  const { normalizeHeaderLogoRefForStorage } = await import("@/app/lib/branding-logo");
   const parsed = parseSiteIdentity({ ...data, assistanceEmail: PLATFORM_ASSISTANCE_EMAIL });
+  const logoKey = await normalizeHeaderLogoRefForStorage(parsed.headerLogoUrl);
+  if (logoKey) parsed.headerLogoUrl = logoKey;
+  else delete parsed.headerLogoUrl;
   await putJson("settings/site.json", parsed);
   invalidateAppConfigCache();
 }

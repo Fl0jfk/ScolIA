@@ -1,3 +1,4 @@
+import { scolaImageUrl } from "@/app/lib/scola-image";
 /**
  * Données de seed pour le tenant La Providence (dev / migration uniquement).
  * Ne pas importer ce fichier au runtime applicatif.
@@ -161,7 +162,7 @@ export function laprovidenceExternalLinks(): ExternalQuickLinkConfig[] {
     {
       id: "ecole-directe",
       name: "École Directe",
-      img: "https://scola-image.s3.eu-west-3.amazonaws.com/categories/Ecole+direct.png",
+      img: scolaImageUrl("categories/Ecole+direct.png"),
       link: "https://www.ecoledirecte.com/login?cameFrom=%2FAccueil",
       allowedRoles: [
         "direction_college",
@@ -178,14 +179,14 @@ export function laprovidenceExternalLinks(): ExternalQuickLinkConfig[] {
     {
       id: "zeendoc",
       name: "ZeenDoc",
-      img: "https://scola-image.s3.eu-west-3.amazonaws.com/categories/zeendoc.png",
+      img: scolaImageUrl("categories/zeendoc.png"),
       link: "https://armoires.zeendoc.com/_Login/Login.php",
       allowedRoles: ["administratif", "comptabilite", "direction_college", "direction_ecole", "direction_lycee"],
     },
     {
       id: "arena",
       name: "Arena Ac-Normandie",
-      img: "https://scola-image.s3.eu-west-3.amazonaws.com/categories/MIN_Education_Nationale_et_Jeunesse_RVB.jpg",
+      img: scolaImageUrl("categories/MIN_Education_Nationale_et_Jeunesse_RVB.jpg"),
       link: "https://arena.ac-normandie.fr/arena/",
       allowedRoles: ["administratif", "direction_college", "direction_ecole", "direction_lycee"],
     },

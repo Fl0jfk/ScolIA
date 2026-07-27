@@ -67,6 +67,27 @@ export async function parseTravelsS3KeyFromUrl(fileUrl: string): Promise<string 
     if (host === "s3.amazonaws.com" && pathKey.startsWith(`${bucket}/`)) {
       return pathKey.slice(bucket.length + 1) || null;
     }
+
+    // Bucket AWS / Scaleway d’un autre nom (migration) : extraire la clé objet.
+    // Ex. docslapro.s3.eu-west-3.amazonaws.com/settings/branding/logo.png
+    // → settings/branding/logo.png (à signer sur le dataBucket courant).
+    const isS3Host =
+      host.endsWith(".amazonaws.com") ||
+      host.endsWith(".scw.cloud") ||
+      host === "s3.amazonaws.com";
+    if (isS3Host && pathKey) {
+      const pathStyle =
+        host.startsWith("s3.") || host === "s3.amazonaws.com" || host === "s3.fr-par.scw.cloud";
+      if (pathStyle) {
+        const slash = pathKey.indexOf("/");
+        if (slash > 0) {
+          const afterBucket = pathKey.slice(slash + 1);
+          if (afterBucket) return afterBucket;
+        }
+      } else if (pathKey.includes("/")) {
+        return pathKey;
+      }
+    }
   } catch {
     /* pas une URL absolue */
   }
@@ -79,6 +100,9 @@ export async function parseTravelsS3KeyFromUrl(fileUrl: string): Promise<string 
     `${bucket}.s3.amazonaws.com/`,
     `s3.${region}.amazonaws.com/${bucket}/`,
     `s3.amazonaws.com/${bucket}/`,
+    // Ancien bucket DocsLaPro (contenu déjà sync sur Scaleway)
+    "docslapro.s3.eu-west-3.amazonaws.com/",
+    "docslapro.s3.amazonaws.com/",
   ];
   for (const marker of markers) {
     const idx = raw.indexOf(marker);

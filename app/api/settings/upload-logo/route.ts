@@ -3,9 +3,8 @@ import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireAdmin } from "@/app/lib/intranet-auth";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
-import { getBucketName } from "@/app/lib/s3-storage";
+import { getBucketName, getSignedReadUrl } from "@/app/lib/s3-storage";
 import { s3Key } from "@/app/lib/s3-path";
-import { publicS3UrlForKey } from "@/app/lib/travels-s3";
 
 const ALLOWED_TYPES = new Set([
   "image/png",
@@ -44,9 +43,13 @@ export async function POST(req: Request) {
     });
     const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
 
+    // fileKey = référence stable en JSON (pas d’URL absolue liée à un bucket).
+    // previewUrl = URL signée temporaire pour l’aperçu UI.
     return NextResponse.json({
       uploadUrl,
-      fileUrl: await publicS3UrlForKey(fileKey),
+      fileKey,
+      fileUrl: fileKey,
+      previewUrl: (await getSignedReadUrl(fileKey, 3600)) || null,
     });
   } catch (error) {
     console.error("[settings/upload-logo]", error);

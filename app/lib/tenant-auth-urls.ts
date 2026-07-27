@@ -42,9 +42,14 @@ export function tenantCanonicalOrigin(tenant: TenantConfig): string {
   if (appUrl) {
     try {
       const parsed = new URL(appUrl.startsWith("http") ? appUrl : `https://${appUrl}`);
+      // normalizeHostname enlève www. — un appUrl "https://www.lpnb…" matcherait
+      // hostnames ["lpnb…"] puis renverrait origin AVEC www (DNS/SSL cassés).
       const appHost = normalizeHostname(parsed.hostname);
-      if (tenant.hostnames.some((h) => normalizeHostname(h) === appHost)) {
-        return parsed.origin;
+      const declared = tenant.hostnames.find(
+        (h) => !isLocalDevHostname(h) && normalizeHostname(h) === appHost,
+      );
+      if (declared) {
+        return `https://${normalizeHostname(declared)}`;
       }
     } catch {
       /* appUrl invalide → repli sur le sous-domaine */

@@ -1,3 +1,4 @@
+import { scolaImageUrl } from "@/app/lib/scola-image";
 export const SCHOOL = {
   name: "Groupe Scolaire La Providence Nicolas Barré",
   shortName: "La Providence Nicolas Barré",
@@ -18,7 +19,7 @@ export const SCHOOL = {
     hours: "Lun – Ven · 8h00 – 17h30",
   },
   preinscriptionUrl: "https://preinscriptions.ecoledirecte.com/fr/?RNE=0761713Z",
-  reglementFinancier:"https://scola-image.s3.eu-west-3.amazonaws.com/autres/R%C3%A8glement+financier+2026-2027.pdf",
+  reglementFinancier:scolaImageUrl("autres/R%C3%A8glement+financier+2026-2027.pdf"),
   ecole: {
     label: "École",
     directrice: "Mme Elise PLANTEC",

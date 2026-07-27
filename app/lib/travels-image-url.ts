@@ -1,23 +1,10 @@
-import { scolaImageUrl } from "@/app/lib/scola-image";
-
-/** Ancien CDN voyages (bucket retiré) → scola-image, même chemin objet. */
-const LEGACY_TRAVEL_IMAGE_HOSTS = new Set(["docslaproimage.s3.eu-west-3.amazonaws.com"]);
+import { normalizePublicImageUrl, scolaImageUrl } from "@/app/lib/scola-image";
 
 /** Réécrit les URLs d'illustration voyages vers le CDN public actuel. */
 export function normalizeTravelImageUrl(url: string | undefined | null): string | undefined {
   const trimmed = String(url || "").trim();
   if (!trimmed) return undefined;
-
-  try {
-    const parsed = new URL(trimmed);
-    if (LEGACY_TRAVEL_IMAGE_HOSTS.has(parsed.hostname)) {
-      return scolaImageUrl(decodeURIComponent(parsed.pathname));
-    }
-  } catch {
-    /* URL relative ou invalide — laisser tel quel */
-  }
-
-  return trimmed;
+  return normalizePublicImageUrl(trimmed);
 }
 
 export function normalizeTripImageFields<T extends { imageUrl?: string; data?: { imageUrl?: string } }>(
@@ -40,4 +27,9 @@ export function normalizeTripImageFields<T extends { imageUrl?: string; data?: {
         }
       : {}),
   };
+}
+
+/** @deprecated Utiliser normalizePublicImageUrl / scolaImageUrl. */
+export function travelImageUrl(path: string): string {
+  return scolaImageUrl(path);
 }
