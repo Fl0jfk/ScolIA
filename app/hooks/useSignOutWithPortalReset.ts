@@ -19,7 +19,6 @@ function signOutRedirectUrl(): string {
 /** Déconnexion Clerk + oubli du dernier établissement mémorisé sur cet appareil. */
 export function useSignOutWithPortalReset() {
   const { signOut } = useClerk();
-
   return useCallback(
     (redirectUrl?: string) => {
       clearLastPortalTenant();
