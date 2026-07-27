@@ -15,8 +15,12 @@ export function contentSecurityPolicyHeaderValue(): string {
     https://login.microsoft.com
     https://clerk.scolia.fr
     https://accounts.scolia.fr
+    https://clerk.lpnb.scolia.fr
+    https://accounts.lpnb.scolia.fr
     https://clerk.docslapro.com
-    https://accounts.docslapro.com;
+    https://accounts.docslapro.com
+    https://clerk.lp.docslapro.com
+    https://accounts.lp.docslapro.com;
   object-src 'self' blob: data:;
   connect-src 'self'
     https://*.s3.fr-par.scw.cloud
@@ -28,6 +32,8 @@ export function contentSecurityPolicyHeaderValue(): string {
     https://maps.googleapis.com
     https://clerk.scolia.fr
     https://accounts.scolia.fr
+    https://clerk.lpnb.scolia.fr
+    https://accounts.lpnb.scolia.fr
     https://clerk.docslapro.com
     https://accounts.docslapro.com
     https://clerk.lp.docslapro.com
@@ -38,7 +44,7 @@ export function contentSecurityPolicyHeaderValue(): string {
     https://graph.microsoft.com;
   worker-src 'self' blob:;
   form-action 'self' https://*.s3.fr-par.scw.cloud https://s3.fr-par.scw.cloud;
-  img-src 'self' https://img.clerk.com https://clerk.scolia.fr https://clerk.docslapro.com https://clerk.lp.docslapro.com https: data:;
+  img-src 'self' https://img.clerk.com https://clerk.scolia.fr https://clerk.lpnb.scolia.fr https://clerk.docslapro.com https://clerk.lp.docslapro.com https: data:;
   script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https:;
   style-src 'self' 'unsafe-inline' https:;
   font-src 'self' https: data:;
