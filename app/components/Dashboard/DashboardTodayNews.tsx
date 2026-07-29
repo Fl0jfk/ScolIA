@@ -3,22 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
+import { dash } from "@/app/lib/dashboard-brand";
 import type { DashboardTodayNewsItem } from "@/app/lib/dashboard-signals";
 
 type Props = {
   items: DashboardTodayNewsItem[];
   hasCurrentWeek: boolean;
   loading?: boolean;
-  /** Version compacte pour la barre header (tablette / desktop). */
-  compact?: boolean;
   onWeekSheetUpdated?: () => void;
 };
 
+/** Même forme / taille que `DashboardWeather`. */
 export default function DashboardTodayNews({
   items,
   hasCurrentWeek,
   loading,
-  compact = false,
   onWeekSheetUpdated,
 }: Props) {
   const isOrgAdmin = useIsOrgAdmin();
@@ -82,129 +81,91 @@ export default function DashboardTodayNews({
   );
 
   const current = items[index];
-
-  const body = (
-    <>
-      {loading ? (
-        <p className={`text-[var(--dash-mid)] ${compact ? "text-xs" : "mt-2 text-sm"}`}>Chargement…</p>
-      ) : !hasCurrentWeek || items.length === 0 ? (
-        <p className={`font-medium text-stone-500 ${compact ? "truncate text-sm" : "mt-2 text-[15px]"}`}>
-          Pas d&apos;actualité aujourd&apos;hui
-        </p>
-      ) : (
-        <div className={`relative ${compact ? "min-h-[1.5rem]" : "mt-1.5 min-h-[3rem]"}`}>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={current?.id ?? index}
-              initial={{ opacity: 0, y: compact ? 4 : 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: compact ? -4 : -8 }}
-              transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-            >
-              <p
-                className={`truncate font-semibold tracking-tight text-[var(--dash-ink)] ${
-                  compact ? "text-sm sm:text-[15px]" : "text-lg sm:text-xl"
-                }`}
-              >
-                {current?.title}
-              </p>
-              {!compact ? (
-                <p className="mt-0.5 truncate text-sm text-[var(--dash-mid)]">
-                  {[current?.time, current?.location].filter(Boolean).join(" · ") || "\u00a0"}
-                </p>
-              ) : current?.time || current?.location ? (
-                <p className="truncate text-[11px] text-[var(--dash-mid)]">
-                  {[current?.time, current?.location].filter(Boolean).join(" · ")}
-                </p>
-              ) : null}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-      )}
-    </>
-  );
+  const empty = !loading && (!hasCurrentWeek || items.length === 0);
+  const meta = [current?.time, current?.location].filter(Boolean).join(" · ");
 
   return (
-    <section
-      className={
-        compact
-          ? "relative min-w-0 overflow-hidden rounded-2xl border border-white/60 bg-white/55 px-3.5 py-2 shadow-[0_8px_30px_-22px_rgba(15,23,42,0.3)] backdrop-blur-xl"
-          : "relative overflow-hidden rounded-[1.35rem] border border-white/60 bg-white/55 px-5 py-4 shadow-[0_8px_40px_-24px_rgba(15,23,42,0.35)] backdrop-blur-2xl sm:px-6"
-      }
+    <div
+      className={`flex items-center gap-3 rounded-xl border bg-white/90 px-3 py-2 shadow-sm backdrop-blur-sm ${dash.borderSoft}`}
       aria-label="Actualité du jour"
+      title={current?.title || "Actualité du jour"}
     >
-      <div className={`relative flex items-start justify-between gap-2 ${compact ? "items-center" : ""}`}>
-        <div className="min-w-0 flex-1">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.2em] text-[var(--dash-mid)]">
-            Aujourd&apos;hui
-          </p>
-          {body}
-        </div>
+      <span className="text-2xl leading-none" aria-hidden>
+        📰
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className={`text-[10px] font-bold uppercase tracking-widest ${dash.label}`}>Aujourd&apos;hui</p>
 
-        <div className="flex shrink-0 items-center gap-2">
-          {items.length > 1 ? (
-            <div className={`flex items-center gap-1 ${compact ? "" : "absolute bottom-0 left-0"}`}>
-              {!compact ? null : (
-                <>
-                  {items.map((item, i) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      aria-label={`Actualité ${i + 1}`}
-                      onClick={() => setIndex(i)}
-                      className={`h-1 cursor-pointer rounded-full transition-all ${
-                        i === index ? "w-4 bg-[var(--dash-primary)]" : "w-1.5 bg-[color:var(--dash-border)]"
-                      }`}
-                    />
-                  ))}
-                </>
-              )}
-            </div>
-          ) : null}
-          {isOrgAdmin ? (
-            <>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="application/pdf"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void handleFile(f);
-                }}
-              />
-              <button
-                type="button"
-                disabled={importing}
-                onClick={() => fileRef.current?.click()}
-                className="cursor-pointer rounded-full border border-white/70 bg-white/70 px-2.5 py-1 text-[10px] font-semibold text-[var(--dash-primary)] shadow-sm backdrop-blur transition hover:bg-white disabled:opacity-50"
+        {loading ? (
+          <p className="text-xs font-semibold text-stone-600">Chargement…</p>
+        ) : empty ? (
+          <>
+            <p className={`text-lg font-black leading-tight ${dash.ink}`}>Pas d&apos;actualité</p>
+            <p className="text-[10px] font-medium text-stone-400">aujourd&apos;hui</p>
+          </>
+        ) : (
+          <div className="relative min-h-[2.5rem]">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={current?.id ?? index}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
               >
-                {importing ? "…" : "PDF"}
-              </button>
-            </>
-          ) : null}
-        </div>
+                <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
+                  <span className={`truncate text-lg font-black ${dash.ink}`}>{current?.title}</span>
+                </p>
+                <p className="text-[10px] font-medium text-stone-400">
+                  {meta || (items.length > 1 ? `${index + 1} / ${items.length}` : "\u00a0")}
+                </p>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        )}
+
+        {error ? <p className="text-[10px] font-medium text-rose-600">{error}</p> : null}
       </div>
 
-      {!compact && items.length > 1 ? (
-        <div className="relative mt-3 flex items-center gap-1.5">
-          {items.map((item, i) => (
-            <button
-              key={item.id}
-              type="button"
-              aria-label={`Actualité ${i + 1}`}
-              onClick={() => setIndex(i)}
-              className={`h-1 cursor-pointer rounded-full transition-all duration-500 ${
-                i === index
-                  ? "w-6 bg-[var(--dash-primary)]"
-                  : "w-1.5 bg-[color:var(--dash-border)] hover:bg-[var(--dash-mid)]"
-              }`}
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        {items.length > 1 ? (
+          <div className="flex items-center gap-1">
+            {items.map((item, i) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={`Actualité ${i + 1}`}
+                onClick={() => setIndex(i)}
+                className={`h-1 rounded-full transition-all ${
+                  i === index ? "w-3 bg-[var(--dash-primary)]" : "w-1.5 bg-stone-300"
+                }`}
+              />
+            ))}
+          </div>
+        ) : null}
+        {isOrgAdmin ? (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void handleFile(f);
+              }}
             />
-          ))}
-        </div>
-      ) : null}
-
-      {error ? <p className="relative mt-1 text-[10px] font-medium text-rose-600">{error}</p> : null}
-    </section>
+            <button
+              type="button"
+              disabled={importing}
+              onClick={() => fileRef.current?.click()}
+              className="text-[10px] font-bold text-[var(--dash-primary)] hover:underline disabled:opacity-50"
+            >
+              {importing ? "…" : "PDF"}
+            </button>
+          </>
+        ) : null}
+      </div>
+    </div>
   );
 }

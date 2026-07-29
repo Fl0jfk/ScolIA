@@ -13,6 +13,7 @@ import { WEEK_DAYS, type WeekDayKey } from "@/app/lib/dashboard-week-sheet-types
 import { canAccessHseModule, getHseRoleFlags, type HseRecordLike } from "@/app/lib/demandes-hse-access";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import { hasRole } from "@/app/lib/intranet-role-utils";
+import { canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
 import { resolveDirectionEtab } from "@/app/lib/travels-direction-dashboard";
 import { normalizeRequestEmail } from "@/app/lib/requests-board";
 
@@ -264,7 +265,11 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— Élèves : Internat ——
   if (has("internat")) {
-    if (internatRollCallStatus === "non_demarre" || internatRollCallStatus === "en_cours") {
+    const showAppelSignal =
+      canSeeInternatRollCallSignal(roles) &&
+      (internatRollCallStatus === "non_demarre" || internatRollCallStatus === "en_cours");
+
+    if (showAppelSignal) {
       shortcuts.push({
         id: "internat-appel",
         pillarId: "eleves",

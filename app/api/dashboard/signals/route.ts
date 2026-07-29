@@ -23,7 +23,7 @@ import { getAllBranchStaffEmailsFromRouting } from "@/app/lib/requests-routing-c
 import { isVisibleOnStaffBoard } from "@/app/lib/requests-board";
 import { todayDateParis } from "@/app/lib/internat-stats";
 import { getInternatRollCall } from "@/app/lib/internat-storage";
-import { canAccessInternatModule } from "@/app/lib/internat-rbac";
+import { canAccessInternatModule, canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
 import type { TripIndexRow } from "@/app/lib/dashboard-trips";
 
 async function safeJson<T>(path: string): Promise<T | null> {
@@ -190,7 +190,11 @@ export async function GET() {
     }
 
     let internatRollCallStatus: "validee" | "en_cours" | "non_demarre" | null = null;
-    if (accessibleModuleIds.has("internat") && canAccessInternatModule(roles)) {
+    if (
+      accessibleModuleIds.has("internat") &&
+      canAccessInternatModule(roles) &&
+      canSeeInternatRollCallSignal(roles)
+    ) {
       try {
         const roll = await getInternatRollCall(todayDateParis());
         if (roll.status === "validee") {

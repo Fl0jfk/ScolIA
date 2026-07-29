@@ -11,6 +11,11 @@ export function canAccessInternatModule(roles: string[]) {
   );
 }
 
+/** Signal dashboard « appel du soir » : réservé à la vie scolaire / éducation. */
+export function canSeeInternatRollCallSignal(roles: string[]) {
+  return hasRole(roles, "education");
+}
+
 export function canAccessInternatFromMetadata(meta: unknown) {
   if (isOrgAdminMetadata(meta)) return true;
   return canAccessInternatModule(intranetRolesFromMetadata(meta));

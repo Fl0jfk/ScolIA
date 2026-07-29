@@ -195,7 +195,6 @@ export default function Home() {
               </div>
               <div className="hidden min-w-0 md:block">
                 <DashboardTodayNews
-                  compact
                   items={todayNews}
                   hasCurrentWeek={hasCurrentWeek}
                   loading={signalsLoading}
