@@ -95,7 +95,7 @@ export async function handleCreateRequest(
         at: now,
         by: `${validated.value.firstName} ${validated.value.lastName}`,
         action: "CREATION",
-        note: "Demande créée via Nico (assistant IA)",
+        note: "Demande créée via Scolia AI",
       },
     ],
   };

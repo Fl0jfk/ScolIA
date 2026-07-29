@@ -265,7 +265,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_photocopie_demand",
     description:
-      "Crée une demande de photocopies couleur (sans PDF — CTA pour joindre ensuite). Confirmer avant. Champs: etablissement, motif, classesOuMatiere, nombrePhotocopies.",
+      "Crée une demande de photocopies couleur de A à Z. Si l'utilisateur a joint un PDF via le trombone, passer documentKey/documentFileName/documentContentType. Confirmer avec un récap clair avant création.",
     parameters: {
       type: "object",
       properties: {
@@ -273,6 +273,9 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
         motif: { type: "string" },
         classesOuMatiere: { type: "string" },
         nombrePhotocopies: { type: "number" },
+        documentKey: { type: "string", description: "Clé S3 du PDF joint dans le chat" },
+        documentFileName: { type: "string" },
+        documentContentType: { type: "string" },
       },
       required: ["etablissement", "motif", "classesOuMatiere", "nombrePhotocopies"],
       additionalProperties: false,

@@ -42,3 +42,16 @@ a { cursor: pointer}
 }
 button { cursor: pointer}
 ::-webkit-scrollbar { display: none}
+/* Scolia IA — barres qui montent / descendent dans les lettres I & A */
+@keyframes scolia-ia-bar-y {
+  0% { transform: scaleY(0.25); opacity: 0.7; }
+  100% { transform: scaleY(1); opacity: 1; }
+}
+.scolia-ia-bar {
+  transform-origin: bottom;
+  animation-name: scolia-ia-bar-y;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+  height: 100%;
+}

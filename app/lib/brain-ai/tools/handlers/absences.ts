@@ -136,7 +136,7 @@ export async function handleCreateAbsence(
         at: now,
         by: creatorName,
         action: "CREATION",
-        note: "Déclaration d'absence créée via Nico (assistant IA)",
+        note: "Déclaration d'absence créée via Scolia AI",
       },
     ],
   };

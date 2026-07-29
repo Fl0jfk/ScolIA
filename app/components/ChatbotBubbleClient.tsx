@@ -20,6 +20,9 @@ export default function ChatbotBubbleClient() {
 
   if (isPublicVisitorPath(pathname)) return null;
 
+  const path = (pathname ?? "").toLowerCase();
+  if (path === "/scolia-ai" || path.startsWith("/scolia-ai/")) return null;
+
   if (bienEtreMode) return <ChatbotBubbleBienEtre />;
   return <ChatbotBubble />;
 }

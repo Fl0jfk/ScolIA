@@ -63,6 +63,7 @@ export type IntranetModule = {
 /** Accessible à tout utilisateur connecté (hors contrôle module). */
 export const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/dashboard",
+  "/scolia-ai",
   "/api/app/context",
   "/api/tenant/public",
   "/api/tenant/diagnostics",

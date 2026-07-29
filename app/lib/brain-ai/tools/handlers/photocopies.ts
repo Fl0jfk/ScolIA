@@ -1,4 +1,4 @@
-import { getJson, putJson } from "@/app/lib/s3-storage";
+import { getJson, putJson, getObjectBytes } from "@/app/lib/s3-storage";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
@@ -23,7 +23,15 @@ type PhotoCopieRecord = {
   nombrePhotocopies: number;
   documentKey?: string;
   documentFileName?: string;
+  documentContentType?: string;
 };
+
+function isValidDocumentKey(key: string): boolean {
+  return (
+    (key.startsWith("photocopies-couleur/uploads/") || key.startsWith("brain-ai/uploads/")) &&
+    !key.includes("..")
+  );
+}
 
 const norm = (s: string) =>
   String(s || "")
@@ -151,10 +159,20 @@ export async function handleCreatePhotocopie(
   const motif = String(args.motif || "").trim();
   const classesOuMatiere = String(args.classesOuMatiere || "").trim();
   const nb = Number(args.nombrePhotocopies);
+  const documentKey = String(args.documentKey || "").trim();
+  const documentFileName = String(args.documentFileName || "").trim();
+  const documentContentType = String(args.documentContentType || "application/pdf").trim();
+
   if (!motif) return { ok: false, error: "Le motif est requis." };
   if (!classesOuMatiere) return { ok: false, error: "Classes / matière requis." };
   if (!Number.isFinite(nb) || nb < 1 || nb > 1_000_000) {
     return { ok: false, error: "Nombre de photocopies invalide." };
+  }
+  if (documentKey && !isValidDocumentKey(documentKey)) {
+    return { ok: false, error: "Document joint invalide." };
+  }
+  if (documentKey && !documentFileName) {
+    return { ok: false, error: "Nom du fichier PDF requis avec la pièce jointe." };
   }
 
   if (!ctx.confirmed) {
@@ -162,10 +180,23 @@ export async function handleCreatePhotocopie(
       ok: false,
       needsConfirmation: true,
       tool: "create_photocopie_demand",
-      args: { etablissement, motif, classesOuMatiere, nombrePhotocopies: nb },
+      args: {
+        etablissement,
+        motif,
+        classesOuMatiere,
+        nombrePhotocopies: nb,
+        ...(documentKey
+          ? { documentKey, documentFileName, documentContentType }
+          : {}),
+      },
       summaryFr:
-        `Créer une demande de ${nb} photocopie(s) couleur (${etablissement})` +
-        ` — ${classesOuMatiere} ? Vous pourrez joindre le PDF ensuite sur la page module.`,
+        `Récapitulatif — ${nb} photocopie(s) couleur\n` +
+        `• Établissement : ${etablissement}\n` +
+        `• Classes / matière : ${classesOuMatiere}\n` +
+        `• Motif : ${motif.slice(0, 160)}${motif.length > 160 ? "…" : ""}\n` +
+        (documentFileName
+          ? `• PDF joint : ${documentFileName}`
+          : `• PDF : aucun (vous pouvez encore en joindre un via le trombone avant de confirmer)`),
     };
   }
 
@@ -183,6 +214,13 @@ export async function handleCreatePhotocopie(
     motif,
     classesOuMatiere,
     nombrePhotocopies: nb,
+    ...(documentKey
+      ? {
+          documentKey,
+          documentFileName,
+          documentContentType: documentContentType || "application/pdf",
+        }
+      : {}),
   };
 
   const all = await getIndex();
@@ -198,6 +236,19 @@ export async function handleCreatePhotocopie(
     const transporter = smtp ? await createTenantTransporter() : null;
     if (transporter && smtp && dirEmail) {
       const link = await tenantAbsolutePath("/photocopies-couleur");
+      let attachments: Array<{ filename: string; content: Buffer; contentType: string }> | undefined;
+      if (record.documentKey && record.documentFileName) {
+        const bytes = await getObjectBytes(record.documentKey);
+        if (bytes?.length) {
+          attachments = [
+            {
+              filename: record.documentFileName,
+              content: bytes,
+              contentType: record.documentContentType || "application/pdf",
+            },
+          ];
+        }
+      }
       await transporter.sendMail({
         from: `"Demandes photocopies" <${smtp.user}>`,
         to: dirEmail,
@@ -210,9 +261,13 @@ export async function handleCreatePhotocopie(
           `Motif : ${motif}`,
           `Classes / matière : ${classesOuMatiere}`,
           `Nombre : ${nb}`,
+          attachments?.length ? `Document à imprimer : joint à cet e-mail.` : "",
           ``,
           `Traiter : ${link}`,
-        ].join("\n"),
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        ...(attachments ? { attachments } : {}),
       });
     }
   } catch (err) {
@@ -224,10 +279,10 @@ export async function handleCreatePhotocopie(
     data: {
       id: record.id,
       followUrl: "/photocopies-couleur",
-      ctas: [
-        { label: "Joindre le PDF / suivre", href: "/photocopies-couleur" },
-      ],
+      ctas: [{ label: "Suivre la demande", href: "/photocopies-couleur" }],
     },
-    summaryFr: `Demande photocopies créée (${record.id}). Joignez le document PDF sur /photocopies-couleur si besoin.`,
+    summaryFr:
+      `Demande photocopies créée (${record.id}) — ${nb} ex. pour ${classesOuMatiere}` +
+      (documentFileName ? ` avec PDF « ${documentFileName} ».` : "."),
   };
 }

@@ -181,6 +181,12 @@ export type RunBrainChatInput = {
   /** Confirmation explicite d'une action mutante. */
   confirm?: boolean;
   confirmAction?: { tool: string; args: Record<string, unknown> } | null;
+  /** Pièces jointes déjà uploadées (PDF…). */
+  attachments?: Array<{
+    key: string;
+    fileName: string;
+    contentType?: string;
+  }>;
 };
 
 export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatResponse> {
@@ -191,10 +197,30 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     conversationState = createConversationState();
   }
 
+  if (input.attachments?.length) {
+    const prev = Array.isArray(conversationState.slots.attachments)
+      ? (conversationState.slots.attachments as unknown[])
+      : [];
+    conversationState = {
+      ...conversationState,
+      slots: {
+        ...conversationState.slots,
+        attachments: [
+          ...prev,
+          ...input.attachments.map((a) => ({
+            key: a.key,
+            fileName: a.fileName,
+            contentType: a.contentType || "application/pdf",
+          })),
+        ],
+      },
+    };
+  }
+
   const ctas: BrainCta[] = [];
   let pendingConfirmation: BrainPendingConfirmation | null = null;
 
-  // Confirmation directe (bouton UI)
+  // Confirmation directe (bouton UI) — fusionne éventuelle PJ récente dans les args photocopies
   if (input.confirm && input.confirmAction?.tool) {
     const toolName = input.confirmAction.tool;
     const tool = getBrainTool(toolName);
@@ -205,7 +231,26 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
         pendingConfirmation: null,
       };
     }
-    const result = await executeBrainTool(toolName, input.confirmAction.args || {}, {
+    let confirmArgs = { ...(input.confirmAction.args || {}) };
+    if (toolName === "create_photocopie_demand" && !confirmArgs.documentKey) {
+      const atts = conversationState.slots.attachments;
+      if (Array.isArray(atts) && atts.length > 0) {
+        const last = atts[atts.length - 1] as {
+          key?: string;
+          fileName?: string;
+          contentType?: string;
+        };
+        if (last?.key) {
+          confirmArgs = {
+            ...confirmArgs,
+            documentKey: last.key,
+            documentFileName: last.fileName || "document.pdf",
+            documentContentType: last.contentType || "application/pdf",
+          };
+        }
+      }
+    }
+    const result = await executeBrainTool(toolName, confirmArgs, {
       ...input.toolCtx,
       confirmed: true,
     });
@@ -256,7 +301,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
   const tools = mistralToolsForUser(signedIn);
 
   const systemPrompt =
-    `Tu es Nico, l'assistant institutionnel de l'établissement (Brain AI).\n` +
+    `Tu es ${"Scolia AI"}, l'assistant institutionnel de l'établissement (Brain AI).\n` +
     `Réponds en français, précis, utile et concis.\n` +
     `Tu as deux sources d'information :\n` +
     `1) Dictionnaire (contexte knowledge ci-dessous) — infos stables (FAQ, circulaires…).\n` +
@@ -264,9 +309,25 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `Règles:\n` +
     `- Pas d'accès RH / dossiers personnels / salaires. create_absence = soi uniquement. HSE = soi ou direction établissement.\n` +
     `- Pour une action mutante (réservation, demande, absence, séjour, photocopies, HSE), collecter les champs manquants puis appeler l'outil (il demandera confirmation).\n` +
-    `- Si un outil renvoie needsConfirmation, présente le résumé et demande à l'utilisateur de confirmer (bouton).\n` +
+    `- Si un PDF est joint dans la conversation, passe-le à create_photocopie_demand (documentKey / documentFileName).\n` +
+    `- Si un outil renvoie needsConfirmation, présente le récap et laisse l'utilisateur Confirmer / Modifier / Annuler.\n` +
     `- N'invente pas : si l'info manque, dis-le clairement.\n` +
     `- Liens en URL complète https://…\n`;
+
+  const attachmentNote = (() => {
+    const atts = conversationState.slots.attachments;
+    if (!Array.isArray(atts) || atts.length === 0) return "";
+    return (
+      `\nPièces jointes disponibles dans cette conversation:\n` +
+      atts
+        .map((a, i) => {
+          const row = a as { key?: string; fileName?: string; contentType?: string };
+          return `- [${i + 1}] ${row.fileName || "fichier"} (key=${row.key}, type=${row.contentType || "application/pdf"})`;
+        })
+        .join("\n") +
+      `\n`
+    );
+  })();
 
   const historyText = input.history
     .slice(-12)
@@ -275,8 +336,9 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
 
   const userPayload =
     `Historique récent:\n${historyText || "(aucun)"}\n\n` +
-    `Contexte dictionnaire:\n${knowledge.context}\n\n` +
-    `Question: ${input.message}`;
+    `Contexte dictionnaire:\n${knowledge.context}\n` +
+    attachmentNote +
+    `\nQuestion: ${input.message}`;
 
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
@@ -352,7 +414,25 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
 
     for (const call of toolCalls) {
       const name = call.function?.name || "";
-      const args = parseToolArgs(call.function?.arguments || "{}");
+      let args = parseToolArgs(call.function?.arguments || "{}");
+      if (name === "create_photocopie_demand" && !args.documentKey) {
+        const atts = conversationState.slots.attachments;
+        if (Array.isArray(atts) && atts.length > 0) {
+          const last = atts[atts.length - 1] as {
+            key?: string;
+            fileName?: string;
+            contentType?: string;
+          };
+          if (last?.key) {
+            args = {
+              ...args,
+              documentKey: last.key,
+              documentFileName: last.fileName || "document.pdf",
+              documentContentType: last.contentType || "application/pdf",
+            };
+          }
+        }
+      }
       const result = await executeBrainTool(name, args, {
         ...input.toolCtx,
         confirmed: false,

@@ -15,6 +15,7 @@ type ChatRequest = {
   conversationState?: unknown;
   confirm?: boolean;
   confirmAction?: { tool: string; args: Record<string, unknown> } | null;
+  attachments?: Array<{ key: string; fileName: string; contentType?: string }>;
 };
 
 /** Soft rate-limit en mémoire (best-effort sur instance). */
@@ -87,6 +88,7 @@ export async function POST(req: Request) {
       conversationState: body.conversationState,
       confirm,
       confirmAction: body.confirmAction ?? null,
+      attachments: Array.isArray(body.attachments) ? body.attachments : undefined,
     });
 
     return NextResponse.json(result);
