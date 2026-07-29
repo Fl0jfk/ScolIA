@@ -2,10 +2,12 @@
 
 type Props = {
   size?: "sm" | "md" | "lg";
-  /** Fond sombre (header fenêtre / FAB) */
+  /** Fond sombre (FAB) */
   inverted?: boolean;
   /** Pluie Matrix sur toute la surface du parent (bulle ronde) */
   fill?: boolean;
+  /** Affiche la pluie Matrix (désactiver dans le header fenêtre). */
+  rain?: boolean;
   className?: string;
 };
 
@@ -54,18 +56,20 @@ function MatrixRain({ cols, rainClass }: { cols: number; rainClass: string }) {
 }
 
 /**
- * Marque « IA » — lettres nettes + pluie Matrix en fond (pas d'encadré par lettre).
+ * Marque « IA » — lettres nettes ; pluie Matrix optionnelle (surtout FAB).
  */
 export default function ScoliaAiMark({
   size = "md",
   inverted = false,
   fill = false,
+  rain,
   className = "",
 }: Props) {
+  const showRain = rain ?? fill;
   const letter =
     size === "lg" ? "text-3xl" : size === "sm" ? "text-base" : fill ? "text-xl" : "text-lg";
   const gap = size === "lg" ? "gap-1" : "gap-0.5";
-  const rain =
+  const rainCls =
     size === "lg" ? "text-[7px] leading-[8px]" : size === "sm" ? "text-[4px] leading-[5px]" : "text-[5px] leading-[6px]";
   const cols = fill ? 7 : size === "lg" ? 6 : 5;
   const ink = inverted || fill ? "text-white" : "text-emerald-950";
@@ -77,13 +81,14 @@ export default function ScoliaAiMark({
       } ${className}`}
       aria-label="IA"
     >
-      <MatrixRain cols={cols} rainClass={rain} />
+      {showRain ? <MatrixRain cols={cols} rainClass={rainCls} /> : null}
       <span
         className={`relative z-[1] inline-flex items-baseline font-black tracking-tight ${gap} ${letter} ${ink}`}
         style={{
-          textShadow: inverted || fill
-            ? "0 0 10px rgba(52,211,153,0.55), 0 1px 2px rgba(0,0,0,0.65)"
-            : "0 0 6px rgba(16,185,129,0.25)",
+          textShadow:
+            inverted || fill
+              ? "0 0 10px rgba(52,211,153,0.55), 0 1px 2px rgba(0,0,0,0.65)"
+              : "0 0 6px rgba(16,185,129,0.2)",
         }}
       >
         <span>I</span>

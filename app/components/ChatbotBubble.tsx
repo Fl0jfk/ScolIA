@@ -492,51 +492,58 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       ) : null}
       {/* Header */}
       <div
-        className={`flex items-center justify-between gap-3 border-b ${
+        className={`relative flex items-center gap-3 border-b ${
           isExpanded
-            ? "px-5 py-4 pt-[max(16px,env(safe-area-inset-top))] border-white/10 bg-transparent"
-            : "px-3 py-2.5 pt-[max(10px,env(safe-area-inset-top))] border-white/15 bg-slate-950/80 text-white backdrop-blur-xl"
+            ? "justify-between border-white/10 bg-transparent px-5 py-4 pt-[max(16px,env(safe-area-inset-top))]"
+            : "justify-between border-white/45 bg-white/45 px-3 py-2.5 pt-[max(10px,env(safe-area-inset-top))] text-[var(--dash-ink,#14231A)] backdrop-blur-xl"
         }`}
       >
-        <div className="flex items-center gap-2 min-w-0">
-          {!pageMode && !isExpanded ? (
-            <div className="flex items-center gap-1.5 pr-1" aria-label="Contrôles fenêtre">
-              <button
-                type="button"
-                title="Fermer"
-                onClick={() => setOpen(false)}
-                className="h-3 w-3 rounded-full bg-[#ff5f57] hover:brightness-110 shadow-sm"
-              />
-              <button
-                type="button"
-                title="Réduire"
-                onClick={() => setOpen(false)}
-                className="h-3 w-3 rounded-full bg-[#febc2e] hover:brightness-110 shadow-sm"
-              />
-              <button
-                type="button"
-                title="Agrandir"
-                onClick={openExpanded}
-                className="h-3 w-3 rounded-full bg-[#28c840] hover:brightness-110 shadow-sm"
-              />
-            </div>
-          ) : null}
-          <div className="min-w-0">
-            <ScoliaAiMark
-              size={isExpanded ? "lg" : "sm"}
-              inverted={!isExpanded && !pageMode}
+        {!pageMode && !isExpanded ? (
+          <div className="z-[1] flex w-14 shrink-0 items-center gap-1.5" aria-label="Contrôles fenêtre">
+            <button
+              type="button"
+              title="Fermer"
+              onClick={() => setOpen(false)}
+              className="h-3 w-3 rounded-full bg-[#ff5f57] shadow-sm hover:brightness-110"
             />
-            {isExpanded ? (
-              <p className="text-[11px] text-slate-500 truncate mt-1">Assistant de votre établissement</p>
-            ) : null}
+            <button
+              type="button"
+              title="Réduire"
+              onClick={() => setOpen(false)}
+              className="h-3 w-3 rounded-full bg-[#febc2e] shadow-sm hover:brightness-110"
+            />
+            <button
+              type="button"
+              title="Agrandir"
+              onClick={openExpanded}
+              className="h-3 w-3 rounded-full bg-[#28c840] shadow-sm hover:brightness-110"
+            />
           </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+        ) : (
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="min-w-0">
+              <ScoliaAiMark size={isExpanded ? "lg" : "sm"} rain={false} />
+              {isExpanded ? (
+                <p className="mt-1 truncate text-[11px] text-slate-500">
+                  Assistant de votre établissement
+                </p>
+              ) : null}
+            </div>
+          </div>
+        )}
+
+        {!isExpanded && !pageMode ? (
+          <div className="pointer-events-none absolute inset-x-0 flex justify-center">
+            <ScoliaAiMark size="sm" rain={false} />
+          </div>
+        ) : null}
+
+        <div className={`z-[1] flex shrink-0 items-center gap-2 ${!isExpanded && !pageMode ? "w-14 justify-end" : ""}`}>
           {isExpanded && !pageMode ? (
             <button
               type="button"
               onClick={collapseToWindow}
-              className="text-[11px] rounded-full px-2.5 py-1 border border-slate-200 bg-white/70 text-slate-700 hover:bg-white"
+              className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1 text-[11px] text-slate-700 hover:bg-white"
             >
               Réduire
             </button>
@@ -545,7 +552,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             <button
               type="button"
               onClick={resetConversation}
-              className="text-[11px] rounded-full px-2.5 py-1 border border-slate-200 bg-white/70 text-slate-700 hover:bg-white"
+              className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1 text-[11px] text-slate-700 hover:bg-white"
             >
               Nouvelle conversation
             </button>
@@ -565,7 +572,9 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             >
               Fermer
             </button>
-          ) : null}
+          ) : (
+            <span className="w-3" aria-hidden />
+          )}
         </div>
       </div>
 
@@ -575,7 +584,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         className={`relative flex-1 min-h-0 overflow-y-auto ${
           isExpanded
             ? "px-4 sm:px-8 py-6 space-y-4"
-            : "p-3 space-y-2 bg-gradient-to-b from-white/30 via-white/12 to-slate-100/20"
+            : "space-y-2 bg-gradient-to-b from-white/40 via-emerald-50/15 to-sky-50/20 p-3"
         }`}
       >
         {isExpanded ? (
@@ -611,10 +620,10 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             {messages.map((m, i) => (
               <div
                 key={i}
-                className={`rounded-xl px-3 py-2 text-sm whitespace-pre-wrap ${
+                className={`rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap shadow-sm backdrop-blur-md ${
                   m.role === "user"
-                    ? "bg-sky-200/55 text-sky-950 ml-8 border border-sky-200/65 backdrop-blur-md"
-                    : "bg-white/55 text-slate-800 mr-8 border border-white/60 backdrop-blur-md"
+                    ? "ml-8 border border-emerald-200/50 bg-emerald-100/55 text-emerald-950"
+                    : "mr-8 border border-white/70 bg-white/65 text-[var(--dash-ink,#14231A)]"
                 }`}
               >
                 {renderMessageContent(m.content)}
@@ -630,7 +639,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         className={`border-t ${
           isExpanded
             ? "border-slate-200/70 bg-transparent px-4 sm:px-8 py-3 pb-[max(16px,env(safe-area-inset-bottom))]"
-            : "border-white/35 bg-white/25 p-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-xl"
+            : "border-white/50 bg-white/45 p-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-xl"
         }`}
       >
         <div className={isExpanded ? "mx-auto w-full max-w-2xl" : ""}>
@@ -693,7 +702,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             className={`flex items-end gap-2 ${
               isExpanded
                 ? "rounded-2xl border border-slate-200/80 bg-white px-3 py-2"
-                : "rounded-2xl border border-white/60 bg-white/70 px-2 py-1.5"
+                : "rounded-2xl border border-white/70 bg-white/80 px-2 py-1.5 shadow-sm backdrop-blur-md"
             }`}
           >
             <input
@@ -740,7 +749,11 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
               type="button"
               onClick={() => void send()}
               disabled={loading || (!input.trim() && pendingFiles.length === 0)}
-              className="shrink-0 rounded-xl bg-slate-900 text-white px-3 py-2 text-sm font-semibold disabled:opacity-50 hover:bg-black"
+              className={`shrink-0 rounded-xl px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                isExpanded
+                  ? "bg-slate-900 hover:bg-black"
+                  : "bg-[#064028]/90 shadow-sm hover:bg-[#052e1c]"
+              }`}
             >
               {loading ? "…" : "Envoyer"}
             </button>
@@ -851,18 +864,18 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
 
       <div
         ref={panelRef}
-        className={`absolute inset-0 h-[100dvh] rounded-none border-0 md:inset-auto md:right-4 md:bottom-20 md:w-[min(92vw,400px)] md:h-[580px] md:rounded-[22px] md:border md:border-white/50 bg-white/25 backdrop-blur-3xl md:shadow-[0_30px_80px_rgba(15,23,42,0.30)] overflow-hidden transition-all duration-200 pointer-events-auto ${
+        className={`absolute inset-0 h-[100dvh] rounded-none border-0 md:inset-auto md:right-4 md:bottom-20 md:h-[580px] md:w-[min(92vw,400px)] md:rounded-[1.5rem] md:border md:border-white/55 bg-white/55 backdrop-blur-2xl md:shadow-[0_24px_60px_-28px_rgba(15,23,42,0.4)] overflow-hidden transition-all duration-200 pointer-events-auto ${
           open && mounted && layout === "window"
             ? "opacity-100 scale-100 translate-y-0"
             : "opacity-0 scale-95 translate-y-2 pointer-events-none"
         }`}
       >
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -top-16 left-1/2 -translate-x-1/2 w-[130%] h-44 bg-white/35 blur-2xl" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.34),transparent_48%),radial-gradient(circle_at_100%_100%,rgba(125,211,252,0.20),transparent_35%)]" />
-          <div className="absolute inset-[1px] rounded-[21px] border border-white/35" />
+        <div className="pointer-events-none absolute inset-0" aria-hidden>
+          <div className="absolute -left-10 -top-12 h-40 w-40 rounded-full bg-emerald-200/25 blur-3xl" />
+          <div className="absolute -right-8 bottom-0 h-36 w-36 rounded-full bg-sky-200/20 blur-3xl" />
+          <div className="absolute inset-[1px] rounded-[calc(1.5rem-1px)] border border-white/40" />
         </div>
-        <div className="relative h-full">{renderChatBody()}</div>
+        <div className="relative flex h-full flex-col">{renderChatBody()}</div>
       </div>
 
       <button

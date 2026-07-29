@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { dash } from "@/app/lib/dashboard-brand";
+import { DASH_CHIP_SHELL, DASH_NEWS_WIDTH } from "@/app/lib/dashboard-chip";
 import type { DashboardTodayNewsItem } from "@/app/lib/dashboard-signals";
 
 type Props = {
@@ -11,14 +12,17 @@ type Props = {
   hasCurrentWeek: boolean;
   loading?: boolean;
   onWeekSheetUpdated?: () => void;
+  /** Largeur fixe ≈ 2× météo (défaut true hors mobile full-bleed). */
+  wide?: boolean;
 };
 
-/** Même forme / taille que `DashboardWeather`. */
+/** Même hauteur / forme que `DashboardWeather` ; largeur ≈ 2×. */
 export default function DashboardTodayNews({
   items,
   hasCurrentWeek,
   loading,
   onWeekSheetUpdated,
+  wide = true,
 }: Props) {
   const isOrgAdmin = useIsOrgAdmin();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -86,86 +90,87 @@ export default function DashboardTodayNews({
 
   return (
     <div
-      className={`flex items-center gap-3 rounded-xl border bg-white/90 px-3 py-2 shadow-sm backdrop-blur-sm ${dash.borderSoft}`}
+      className={`${DASH_CHIP_SHELL} ${wide ? DASH_NEWS_WIDTH : "w-full"}`}
       aria-label="Actualité du jour"
       title={current?.title || "Actualité du jour"}
     >
       <span className="text-2xl leading-none" aria-hidden>
         📰
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-hidden">
         <p className={`text-[10px] font-bold uppercase tracking-widest ${dash.label}`}>Aujourd&apos;hui</p>
 
         {loading ? (
-          <p className="text-xs font-semibold text-stone-600">Chargement…</p>
+          <>
+            <p className={`text-lg font-black leading-tight ${dash.ink}`}>…</p>
+            <p className="text-[10px] font-medium leading-tight text-stone-400">chargement</p>
+          </>
         ) : empty ? (
           <>
-            <p className={`text-lg font-black leading-tight ${dash.ink}`}>Pas d&apos;actualité</p>
-            <p className="text-[10px] font-medium text-stone-400">aujourd&apos;hui</p>
+            <p className={`truncate text-lg font-black leading-tight ${dash.ink}`}>Pas d&apos;actualité</p>
+            <p className="text-[10px] font-medium leading-tight text-stone-400">aujourd&apos;hui</p>
           </>
         ) : (
-          <div className="relative min-h-[2.5rem]">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={current?.id ?? index}
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-              >
-                <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
-                  <span className={`truncate text-lg font-black ${dash.ink}`}>{current?.title}</span>
-                </p>
-                <p className="text-[10px] font-medium text-stone-400">
-                  {meta || (items.length > 1 ? `${index + 1} / ${items.length}` : "\u00a0")}
-                </p>
-              </motion.div>
-            </AnimatePresence>
-          </div>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={current?.id ?? index}
+              initial={{ opacity: 0, y: 3 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -3 }}
+              transition={{ duration: 0.28 }}
+            >
+              <p className={`truncate text-lg font-black leading-tight ${dash.ink}`}>{current?.title}</p>
+              <p className="truncate text-[10px] font-medium leading-tight text-stone-400">
+                {meta || (items.length > 1 ? `${index + 1} / ${items.length}` : "\u00a0")}
+              </p>
+            </motion.div>
+          </AnimatePresence>
         )}
 
-        {error ? <p className="text-[10px] font-medium text-rose-600">{error}</p> : null}
+        {error ? <p className="truncate text-[10px] font-medium text-rose-600">{error}</p> : null}
       </div>
 
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        {items.length > 1 ? (
-          <div className="flex items-center gap-1">
-            {items.map((item, i) => (
-              <button
-                key={item.id}
-                type="button"
-                aria-label={`Actualité ${i + 1}`}
-                onClick={() => setIndex(i)}
-                className={`h-1 rounded-full transition-all ${
-                  i === index ? "w-3 bg-[var(--dash-primary)]" : "w-1.5 bg-stone-300"
-                }`}
+      {(items.length > 1 || isOrgAdmin) && (
+        <div className="flex shrink-0 flex-col items-end justify-center gap-1 self-stretch">
+          {items.length > 1 ? (
+            <div className="flex items-center gap-1">
+              {items.map((item, i) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-label={`Actualité ${i + 1}`}
+                  onClick={() => setIndex(i)}
+                  className={`h-1 rounded-full transition-all ${
+                    i === index ? "w-3 bg-[var(--dash-primary)]" : "w-1.5 bg-stone-300"
+                  }`}
+                />
+              ))}
+            </div>
+          ) : null}
+          {isOrgAdmin ? (
+            <>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleFile(f);
+                }}
               />
-            ))}
-          </div>
-        ) : null}
-        {isOrgAdmin ? (
-          <>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="application/pdf"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void handleFile(f);
-              }}
-            />
-            <button
-              type="button"
-              disabled={importing}
-              onClick={() => fileRef.current?.click()}
-              className="text-[10px] font-bold text-[var(--dash-primary)] hover:underline disabled:opacity-50"
-            >
-              {importing ? "…" : "PDF"}
-            </button>
-          </>
-        ) : null}
-      </div>
+              <button
+                type="button"
+                disabled={importing}
+                onClick={() => fileRef.current?.click()}
+                className="text-[10px] font-bold leading-none text-[var(--dash-primary)] hover:underline disabled:opacity-50"
+              >
+                {importing ? "…" : "PDF"}
+              </button>
+            </>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

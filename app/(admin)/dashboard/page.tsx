@@ -167,9 +167,9 @@ export default function Home() {
 
         <main className="relative mx-auto flex min-h-[calc(100dvh-4.5rem)] w-full max-w-[1600px] flex-col px-4 sm:px-6 lg:h-[calc(100dvh-4.5rem)] lg:max-h-[calc(100dvh-4.5rem)] lg:overflow-hidden lg:px-8">
           <div className="flex min-h-0 flex-1 flex-col gap-3 py-3 lg:gap-3.5 lg:overflow-hidden lg:py-4">
-            <header className="grid shrink-0 grid-cols-1 gap-3 md:grid-cols-[minmax(12rem,auto)_minmax(8rem,auto)_minmax(0,1fr)] md:items-center md:gap-x-5">
+            <header className="hidden shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 md:grid">
               <motion.div
-                className="min-w-0"
+                className="min-w-0 justify-self-start"
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.45 }}
@@ -190,10 +190,8 @@ export default function Home() {
                   )}
                 </h1>
               </motion.div>
-              <div className="justify-self-start">
-                <DashboardWeather />
-              </div>
-              <div className="hidden min-w-0 md:block">
+
+              <div className="justify-self-center">
                 <DashboardTodayNews
                   items={todayNews}
                   hasCurrentWeek={hasCurrentWeek}
@@ -201,11 +199,38 @@ export default function Home() {
                   onWeekSheetUpdated={loadSignals}
                 />
               </div>
+
+              <div className="justify-self-end">
+                <DashboardWeather />
+              </div>
             </header>
 
-            {/* Mobile : actualité + accès rapides (header site trop étroit) */}
+            {/* Mobile */}
             <div className="flex shrink-0 flex-col gap-2 md:hidden">
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.45 }}
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--dash-mid)]">
+                  Tableau de bord
+                </p>
+                <h1 className="mt-1 text-[1.75rem] font-semibold tracking-tight text-[var(--dash-ink)]">
+                  {firstName ? (
+                    <>
+                      Bonjour{" "}
+                      <span className="bg-gradient-to-r from-[var(--dash-primary)] via-[var(--dash-mid)] to-[var(--dash-bright)] bg-clip-text text-transparent">
+                        {firstName}
+                      </span>
+                    </>
+                  ) : (
+                    "Bienvenue"
+                  )}
+                </h1>
+              </motion.div>
+              <DashboardWeather />
               <DashboardTodayNews
+                wide={false}
                 items={todayNews}
                 hasCurrentWeek={hasCurrentWeek}
                 loading={signalsLoading}
