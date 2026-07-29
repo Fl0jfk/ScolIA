@@ -63,10 +63,14 @@ export type IntranetModule = {
 /** Accessible à tout utilisateur connecté (hors contrôle module). */
 export const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/dashboard",
+  "/eleves",
+  "/etablissement",
+  "/services",
   "/scolia-ai",
   "/api/app/context",
   "/api/tenant/public",
   "/api/tenant/diagnostics",
+  "/api/dashboard/signals",
   "/calendrierAbsProfs",
   "/faire-une-demande",
   "/demande/merci",
@@ -456,14 +460,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "dashboard-week-sheet",
     pathPrefixes: ["/api/dashboard/week-sheet"],
     allowedRoles: [...ROLES_EXCEPT_PARENT],
-    dashboard: {
-      id: 9001,
-      name: "Feuille de semaine",
-      img: "",
-      link: "#",
-      description: "Planning de la semaine",
-      variant: "week-sheet",
-    },
+    // Plus de tuile dashboard : contenu exposé via le ticker « Actualité du jour ».
   },
 ];
 

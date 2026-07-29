@@ -2,96 +2,124 @@
 
 type Props = {
   size?: "sm" | "md" | "lg";
-  /** Texte clair (header fenêtre sombre) */
+  /** Fond sombre (header fenêtre / FAB) */
   inverted?: boolean;
   className?: string;
 };
 
+const GLYPHS = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎ012345789:;=*+<>";
+
+function columnText(seed: number, len: number) {
+  let out = "";
+  for (let i = 0; i < len; i++) {
+    out += GLYPHS[(seed * 19 + i * 37) % GLYPHS.length]!;
+  }
+  return out;
+}
+
 /**
- * Marque ScolIA — « Scol » collé à « IA »,
- * barres vertes / ambre qui montent et descendent dans I et A.
+ * Marque « IA » — contour lisible + pluie Matrix dans les lettres.
  */
 export default function ScoliaAiMark({ size = "md", inverted = false, className = "" }: Props) {
-  const text =
-    size === "lg" ? "text-2xl sm:text-3xl" : size === "sm" ? "text-sm" : "text-lg";
-  const letterBox = size === "lg" ? "h-7" : size === "sm" ? "h-3.5" : "h-5";
-  const gap = "gap-0";
-  const scoliaColor = inverted ? "text-white" : "text-slate-900";
+  const h = size === "lg" ? "h-9" : size === "sm" ? "h-5" : "h-7";
+  const gap = size === "lg" ? "gap-1.5" : "gap-1";
+  const iW = size === "lg" ? "w-5" : size === "sm" ? "w-2.5" : "w-3.5";
+  const aW = size === "lg" ? "w-8" : size === "sm" ? "w-4" : "w-[1.35rem]";
+  const label =
+    size === "lg" ? "text-xl" : size === "sm" ? "text-[11px]" : "text-sm";
+  const rain =
+    size === "lg" ? "text-[8px] leading-[9px]" : size === "sm" ? "text-[4px] leading-[5px]" : "text-[6px] leading-[7px]";
 
   return (
-    <span
-      className={`inline-flex items-center ${gap} font-semibold tracking-tighter leading-none ${text} ${className}`}
-      aria-label="ScolIA"
-    >
-      <span className={`${scoliaColor}`}>Scol</span>
-      <span className={`inline-flex items-end gap-[0.06em] ${letterBox}`} aria-hidden>
-        <LetterI tall={size === "lg"} />
-        <LetterA tall={size === "lg"} />
-      </span>
+    <span className={`inline-flex items-end ${h} ${gap} ${className}`} aria-label="IA">
+      <Letter
+        char="I"
+        widthClass={iW}
+        labelClass={label}
+        rainClass={rain}
+        inverted={inverted}
+        cols={2}
+        seed={2}
+      />
+      <Letter
+        char="A"
+        widthClass={aW}
+        labelClass={label}
+        rainClass={rain}
+        inverted={inverted}
+        cols={4}
+        seed={9}
+        clipA
+      />
     </span>
   );
 }
 
-function LetterI({ tall }: { tall?: boolean }) {
-  const bars = [
-    { color: "#16a34a", delay: "0s", dur: "1.05s" },
-    { color: "#b45309", delay: "0.18s", dur: "1.28s" },
-    { color: "#4ade80", delay: "0.32s", dur: "0.92s" },
-  ];
+function Letter({
+  char,
+  widthClass,
+  labelClass,
+  rainClass,
+  inverted,
+  cols,
+  seed,
+  clipA,
+}: {
+  char: "I" | "A";
+  widthClass: string;
+  labelClass: string;
+  rainClass: string;
+  inverted: boolean;
+  cols: number;
+  seed: number;
+  clipA?: boolean;
+}) {
   return (
     <span
-      className={`relative inline-flex items-end justify-center overflow-hidden rounded-[2px] ${
-        tall ? "h-7 w-[0.42em]" : "h-full w-[0.38em]"
+      className={`relative inline-flex h-full overflow-hidden rounded-[2px] ${widthClass} ${
+        inverted ? "bg-black/55 ring-1 ring-emerald-400/40" : "bg-slate-950 ring-1 ring-emerald-600/30"
       }`}
-      style={{ minWidth: tall ? 11 : 8 }}
+      style={
+        clipA
+          ? { clipPath: "polygon(50% 0%, 100% 100%, 76% 100%, 66% 70%, 34% 70%, 24% 100%, 0% 100%)" }
+          : undefined
+      }
+      aria-hidden
     >
-      <span className="absolute inset-0 flex items-end justify-center gap-px px-px">
-        {bars.map((b, i) => (
+      <span className="absolute inset-0 flex justify-around px-[1px] overflow-hidden">
+        {Array.from({ length: cols }, (_, i) => (
           <span
             key={i}
-            className="scolia-ia-bar w-[3px] max-w-[3px] flex-1 rounded-[1px]"
+            className={`scolia-matrix-col font-mono font-bold ${rainClass} ${
+              i % 2 === 0 ? "text-emerald-300" : "text-emerald-500"
+            }`}
             style={{
-              background: b.color,
-              animationDuration: b.dur,
-              animationDelay: b.delay,
+              animationDuration: `${1.4 + (i % 3) * 0.55}s`,
+              animationDelay: `-${((seed + i) % 5) * 0.2}s`,
             }}
-          />
+          >
+            {columnText(seed + i * 11, 18)
+              .split("")
+              .map((g, gi) => (
+                <span key={gi} className="block text-center opacity-90">
+                  {g}
+                </span>
+              ))}
+            {columnText(seed + i * 17 + 3, 18)
+              .split("")
+              .map((g, gi) => (
+                <span key={`b${gi}`} className="block text-center opacity-90">
+                  {g}
+                </span>
+              ))}
+          </span>
         ))}
       </span>
-    </span>
-  );
-}
-
-function LetterA({ tall }: { tall?: boolean }) {
-  const bars = [
-    { color: "#15803d", delay: "0.05s", dur: "1.15s" },
-    { color: "#d97706", delay: "0.22s", dur: "1.0s" },
-    { color: "#22c55e", delay: "0.38s", dur: "1.32s" },
-    { color: "#92400e", delay: "0.12s", dur: "0.88s" },
-    { color: "#86efac", delay: "0.28s", dur: "1.2s" },
-  ];
-  return (
-    <span
-      className={`relative inline-flex items-end justify-center overflow-hidden ${
-        tall ? "h-7 w-[0.72em]" : "h-full w-[0.68em]"
-      }`}
-      style={{
-        minWidth: tall ? 16 : 12,
-        clipPath: "polygon(50% 0%, 100% 100%, 72% 100%, 62% 72%, 38% 72%, 28% 100%, 0% 100%)",
-      }}
-    >
-      <span className="absolute inset-0 flex items-end justify-center gap-px px-px">
-        {bars.map((b, i) => (
-          <span
-            key={i}
-            className="scolia-ia-bar w-[3px] max-w-[3px] flex-1 rounded-[1px]"
-            style={{
-              background: b.color,
-              animationDuration: b.dur,
-              animationDelay: b.delay,
-            }}
-          />
-        ))}
+      <span
+        className={`relative z-[1] flex h-full w-full items-center justify-center font-black tracking-tighter ${labelClass} text-white`}
+        style={{ textShadow: "0 0 8px rgba(52,211,153,0.75), 0 1px 2px rgba(0,0,0,0.8)" }}
+      >
+        {char}
       </span>
     </span>
   );

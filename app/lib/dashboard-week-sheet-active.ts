@@ -45,17 +45,28 @@ export function listWeekSheetWeeks(data: WeekSheetData): WeekSheetWeek[] {  cons
   return raw.map(enrichWeekSheetWeek);
 }
 
+/** Semaine PDF qui contient strictement la date (pas de fallback). */
+export function pickExactCurrentWeekSheet(
+  data: WeekSheetData,
+  refDate: Date = new Date(),
+): WeekSheetData | null {
+  const today = calendarDateKeyParis(refDate);
+  const weeks = listWeekSheetWeeks(data).filter((w) => w.events.length > 0);
+  const exact = weeks.find((w) => weekContainsDate(w, today));
+  return exact ? applyWeek(data, exact) : null;
+}
+
 /** Choisit la semaine du PDF qui correspond au jour courant (fuseau Paris). */
 export function pickActiveWeekSheet(
   data: WeekSheetData,
   refDate: Date = new Date(),
 ): WeekSheetData {
+  const exact = pickExactCurrentWeekSheet(data, refDate);
+  if (exact) return exact;
+
   const today = calendarDateKeyParis(refDate);
   const weeks = listWeekSheetWeeks(data).filter((w) => w.events.length > 0);
   if (weeks.length === 0) return stripEventNotesFromData(data);
-
-  const exact = weeks.find((w) => weekContainsDate(w, today));
-  if (exact) return applyWeek(data, exact);
 
   const dated = weeks
     .filter((w): w is WeekSheetWeek & { weekStart: string } => Boolean(w.weekStart))

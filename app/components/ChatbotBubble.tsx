@@ -470,10 +470,6 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     setLayout("window");
   };
 
-  const openDedicatedPage = () => {
-    router.push(SCOLIA_AI_PAGE_PATH);
-  };
-
   if (hidden) return null;
 
   const isExpanded = pageMode || layout === "expanded";
@@ -554,20 +550,11 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
               Nouvelle conversation
             </button>
           ) : null}
-          {!isExpanded ? (
-            <button
-              type="button"
-              onClick={openDedicatedPage}
-              title="Ouvrir en page complète"
-              className="text-[10px] opacity-80 hover:opacity-100"
-            >
-              Page
-            </button>
-          ) : pageMode ? (
+          {pageMode ? (
             <Link href="/dashboard" className="text-[11px] text-slate-600 hover:text-slate-900">
               Fermer
             </Link>
-          ) : (
+          ) : isExpanded ? (
             <button
               type="button"
               onClick={() => {
@@ -578,7 +565,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             >
               Fermer
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -640,10 +627,10 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
 
       {/* Composer */}
       <div
-        className={`border-t backdrop-blur-xl ${
+        className={`border-t ${
           isExpanded
-            ? "border-slate-200/60 bg-white/55 px-4 sm:px-8 py-4 pb-[max(16px,env(safe-area-inset-bottom))]"
-            : "border-white/35 bg-white/25 p-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+            ? "border-slate-200/70 bg-transparent px-4 sm:px-8 py-3 pb-[max(16px,env(safe-area-inset-bottom))]"
+            : "border-white/35 bg-white/25 p-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-xl"
         }`}
       >
         <div className={isExpanded ? "mx-auto w-full max-w-2xl" : ""}>
@@ -703,10 +690,10 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
           ) : null}
 
           <div
-            className={`flex items-end gap-2 rounded-2xl border ${
+            className={`flex items-end gap-2 ${
               isExpanded
-                ? "border-slate-200 bg-white shadow-[0_10px_40px_rgba(15,23,42,0.08)] px-3 py-2"
-                : "border-white/60 bg-white/70 px-2 py-1.5"
+                ? "rounded-2xl border border-slate-200/80 bg-white px-3 py-2"
+                : "rounded-2xl border border-white/60 bg-white/70 px-2 py-1.5"
             }`}
           >
             <input
@@ -727,7 +714,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             </button>
             <textarea
               value={input}
-              rows={isExpanded ? 2 : 1}
+              rows={1}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
@@ -735,14 +722,8 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
                   void send();
                 }
               }}
-              placeholder={
-                listening
-                  ? "Écoute…"
-                  : isSignedIn
-                    ? "Écrivez, dictez, joignez ou glissez un PDF…"
-                    : "Écrivez ou dictez…"
-              }
-              className="flex-1 resize-none bg-transparent px-1 py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none max-h-32"
+              placeholder={listening ? "Écoute…" : "Votre message…"}
+              className="flex-1 resize-none bg-transparent px-1 py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none max-h-32 overflow-y-auto"
             />
             <button
               type="button"
@@ -884,23 +865,30 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         <div className="relative h-full">{renderChatBody()}</div>
       </div>
 
-      {!open ? (
-        <button
-          ref={buttonRef}
-          type="button"
-          onClick={() => {
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => {
+          if (open && layout === "expanded") {
             setLayout("window");
-            setOpen(true);
-          }}
-          className="pointer-events-auto fixed bottom-4 right-4 group h-14 min-w-14 px-4 rounded-full border border-white/50 shadow-[0_14px_30px_rgba(15,23,42,0.38)] hover:scale-[1.03] active:scale-[0.98] transition-all overflow-hidden bg-slate-950 text-white flex items-center justify-center gap-2"
-          aria-label={`Ouvrir ${SCOLIA_AI_NAME}`}
-        >
-          <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(125,211,252,0.35),transparent_55%)]" />
-          <span className="relative scale-90">
-            <ScoliaAiMark size="sm" inverted />
-          </span>
-        </button>
-      ) : null}
+            return;
+          }
+          if (open) {
+            setOpen(false);
+            setLayout("window");
+            return;
+          }
+          setLayout("window");
+          setOpen(true);
+        }}
+        className="pointer-events-auto fixed bottom-4 right-4 z-[130] group h-14 min-w-14 px-4 rounded-full border border-white/50 shadow-[0_14px_30px_rgba(15,23,42,0.38)] hover:scale-[1.03] active:scale-[0.98] transition-all overflow-hidden bg-slate-950 text-white flex items-center justify-center gap-2"
+        aria-label={open ? `Réduire ${SCOLIA_AI_NAME}` : `Ouvrir ${SCOLIA_AI_NAME}`}
+      >
+        <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(52,211,153,0.28),transparent_55%)]" />
+        <span className="relative scale-90">
+          <ScoliaAiMark size="sm" inverted />
+        </span>
+      </button>
     </div>
   );
 }

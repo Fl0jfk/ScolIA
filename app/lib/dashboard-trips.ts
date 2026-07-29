@@ -7,6 +7,7 @@ export type TripIndexRow = {
     date?: string;
     startDate?: string;
     endDate?: string;
+    etablissement?: string;
   };
 };
 

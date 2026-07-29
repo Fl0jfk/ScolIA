@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useUser } from "@clerk/nextjs";
-import WeekSheetHourGrid from "@/app/components/Dashboard/bento/WeekSheetHourGrid";
+import WeekSheetHourGrid from "@/app/components/week-sheet/WeekSheetHourGrid";
 import RhSelfDepositPanel from "@/app/components/personnel/RhSelfDepositPanel";
 import { canAccessHseModule, canCreateHseDemand } from "@/app/lib/demandes-hse-access";
 import type { WeekSheetData } from "@/app/lib/dashboard-week-sheet-types";

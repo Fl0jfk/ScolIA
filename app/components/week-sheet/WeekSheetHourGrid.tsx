@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import {
-  bentoWeekDayColumnClass,
-  bentoWeekDayLabelClass,
-} from "@/app/components/Dashboard/bento/BentoWeekGrid";
-import WeekSheetEventBlock from "@/app/components/Dashboard/bento/WeekSheetEventBlock";
+  weekDayColumnClass,
+  weekDayLabelClass,
+} from "@/app/components/week-sheet/weekDayStyles";
+import WeekSheetEventBlock from "@/app/components/week-sheet/WeekSheetEventBlock";
 import {
   WEEK_DAYS,
   type WeekDayKey,
@@ -62,7 +62,7 @@ export default function WeekSheetHourGrid({
   return (
     <div className="flex w-full min-w-0 gap-1">
       <div
-        className={`${bentoWeekDayColumnClass(false, "shrink-0 overflow-hidden !p-0")}`}
+        className={`${weekDayColumnClass(false, "shrink-0 overflow-hidden !p-0")}`}
         style={{ width: gutterWidth }}
       >
         <div className={DAY_HEADER_CLASS} aria-hidden="true">
@@ -104,9 +104,9 @@ export default function WeekSheetHourGrid({
           return (
             <div
               key={d.key}
-              className={bentoWeekDayColumnClass(isToday, "overflow-hidden !p-0")}
+              className={weekDayColumnClass(isToday, "overflow-hidden !p-0")}
             >
-              <p className={`${bentoWeekDayLabelClass(isToday)} ${DAY_HEADER_CLASS}`}>{d.short}</p>
+              <p className={`${weekDayLabelClass(isToday)} ${DAY_HEADER_CLASS}`}>{d.short}</p>
               <div className="relative bg-white/95" style={{ height: totalHeight }}>
                 {hours.map((hour) => {
                   const top = (hour * 60 - startMin) * pxPerMinute;
