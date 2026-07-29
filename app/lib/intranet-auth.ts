@@ -9,11 +9,6 @@ import {
   resolveSession,
   safeCurrentUser,
 } from "@/app/lib/intranet-session";
-import {
-  canEditAcademicDeadlinesFromRoles,
-  canViewAcademicDeadlinesFromRoles,
-} from "@/app/lib/academic-deadlines-access";
-import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 
 export type AuthContext = {
   userId: string;
@@ -100,54 +95,6 @@ export async function requirePlatformMaster(): Promise<
     ok: false,
     response: NextResponse.json(
       { error: "Réservé au profil Master plateforme.", code: "MASTER_REQUIRED" },
-      { status: 403 },
-    ),
-  };
-}
-
-export async function requireAcademicDeadlinesEditor(): Promise<
-  { ok: true; ctx: AuthContext } | { ok: false; response: NextResponse }
-> {
-  const gate = await requireAuth();
-  if (!gate.ok) return gate;
-
-  const user = await safeCurrentUser();
-  const roles = intranetRolesFromMetadata(user?.publicMetadata);
-  if (canEditAcademicDeadlinesFromRoles(roles)) {
-    return gate;
-  }
-
-  return {
-    ok: false,
-    response: NextResponse.json(
-      {
-        error: "Réservé aux administrateurs de l'organisation.",
-        code: "ACADEMIC_DEADLINES_EDITOR_REQUIRED",
-      },
-      { status: 403 },
-    ),
-  };
-}
-
-export async function requireAcademicDeadlinesViewer(): Promise<
-  { ok: true; ctx: AuthContext } | { ok: false; response: NextResponse }
-> {
-  const gate = await requireAuth();
-  if (!gate.ok) return gate;
-
-  const user = await safeCurrentUser();
-  const roles = intranetRolesFromMetadata(user?.publicMetadata);
-  if (canViewAcademicDeadlinesFromRoles(roles)) {
-    return gate;
-  }
-
-  return {
-    ok: false,
-    response: NextResponse.json(
-      {
-        error: "Réservé à l'administratif et à la direction.",
-        code: "ACADEMIC_DEADLINES_VIEWER_REQUIRED",
-      },
       { status: 403 },
     ),
   };

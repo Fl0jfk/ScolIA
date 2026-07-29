@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { usePathname } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import Image from "next/image";
@@ -20,13 +20,21 @@ type RequestDraft = {
   description: string;
 };
 
+type PendingConfirmation = {
+  tool: string;
+  args: Record<string, unknown>;
+  summaryFr: string;
+};
+
+type BrainCta = { label: string; href: string };
+
 function renderMessageContent(content: string) {
   const markdownLinkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
   const urlRegex = /\bhttps?:\/\/[^\s<>"')\]]+/g;
   const lines = content.split("\n");
 
   return lines.map((line, lineIndex) => {
-    const nodes: Array<string | JSX.Element> = [];
+    const nodes: Array<string | ReactElement> = [];
     let cursor = 0;
     let key = 0;
 
@@ -115,7 +123,10 @@ export default function ChatbotBubble() {
     subject: "",
     description: "",
   });
-  const [messages, setMessages] = useState<BubbleMessage[]>([{ role: "assistant", content: "Bonjour, je suis l'assistant IA. Posez votre question." }]);
+  const [messages, setMessages] = useState<BubbleMessage[]>([{ role: "assistant", content: "Bonjour, je suis Nico. Posez votre question — je peux aussi réserver une salle, créer une demande, déclarer votre absence, ou consulter la feuille de semaine et les séjours." }]);
+  const [conversationState, setConversationState] = useState<Record<string, unknown> | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+  const [ctas, setCtas] = useState<BrainCta[]>([]);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
@@ -205,27 +216,81 @@ export default function ChatbotBubble() {
     recognition.onend = () => setListening(false);
     recognition.start();
   };
-  const send = async () => {
-    const message = input.trim();
-    if (!message || loading) return;
-    setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: message }]);
+  const send = async (opts?: {
+    message?: string;
+    confirm?: boolean;
+    confirmAction?: PendingConfirmation | null;
+  }) => {
+    const message = (opts?.message ?? input).trim();
+    const isConfirm = Boolean(opts?.confirm && opts.confirmAction?.tool);
+    if ((!message && !isConfirm) || loading) return;
+    if (!isConfirm) setInput("");
+    if (message) {
+      setMessages((prev) => [...prev, { role: "user", content: message }]);
+    } else if (isConfirm) {
+      setMessages((prev) => [...prev, { role: "user", content: "Confirmer" }]);
+    }
     setLoading(true);
+    setCtas([]);
     try {
       const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message,
+          message: message || "(confirmation)",
           audience: isSignedIn ? "private" : "public",
           history: messages.slice(-10),
+          conversationState: conversationState || undefined,
+          confirm: isConfirm,
+          confirmAction: isConfirm
+            ? { tool: opts!.confirmAction!.tool, args: opts!.confirmAction!.args }
+            : undefined,
         }),
       });
       const data = await res.json();
-      setMessages((prev) => [ ...prev, { role: "assistant", content: data.answer || data.error || "Je ne peux pas répondre pour le moment." }]);
-    } catch {setMessages((prev) => [...prev, { role: "assistant", content: "Erreur réseau, merci de réessayer." }]);
-    } finally {setLoading(false);
+      if (data.conversationState && typeof data.conversationState === "object") {
+        setConversationState(data.conversationState as Record<string, unknown>);
+      }
+      if (data.pendingConfirmation?.tool) {
+        setPendingConfirmation(data.pendingConfirmation as PendingConfirmation);
+      } else {
+        setPendingConfirmation(null);
+      }
+      if (Array.isArray(data.ctas)) {
+        setCtas(
+          data.ctas.filter(
+            (c: unknown): c is BrainCta =>
+              Boolean(c && typeof c === "object" && typeof (c as BrainCta).href === "string"),
+          ),
+        );
+      }
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: data.answer || data.error || "Je ne peux pas répondre pour le moment.",
+        },
+      ]);
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", content: "Erreur réseau, merci de réessayer." }]);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const confirmPending = () => {
+    if (!pendingConfirmation || loading) return;
+    const action = pendingConfirmation;
+    setPendingConfirmation(null);
+    void send({ confirm: true, confirmAction: action });
+  };
+
+  const cancelPending = () => {
+    setPendingConfirmation(null);
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant", content: "Action annulée. Indiquez ce que vous souhaitez modifier." },
+    ]);
   };
   const submitRequest = async () => {
     if (requestSending) return;
@@ -336,6 +401,46 @@ export default function ChatbotBubble() {
                   {renderMessageContent(m.content)}
                 </div>
               ))}
+              {pendingConfirmation ? (
+                <div className="rounded-xl border border-amber-300/70 bg-amber-50/80 p-2.5 mr-4 space-y-2">
+                  <p className="text-[11px] font-semibold text-amber-950">Confirmation requise</p>
+                  <p className="text-[11px] text-amber-900 leading-relaxed whitespace-pre-wrap">
+                    {pendingConfirmation.summaryFr}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={confirmPending}
+                      className="text-xs rounded-lg bg-emerald-700 text-white px-2.5 py-1.5 font-semibold hover:bg-emerald-800 disabled:opacity-50"
+                    >
+                      Confirmer
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={cancelPending}
+                      className="text-xs rounded-lg border border-slate-300 bg-white/80 px-2.5 py-1.5 font-semibold text-slate-700 disabled:opacity-50"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {ctas.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 mr-4">
+                  {ctas.map((c) => (
+                    <Link
+                      key={`${c.href}_${c.label}`}
+                      href={c.href}
+                      onClick={() => setOpen(false)}
+                      className="text-[11px] rounded-lg bg-slate-900/90 text-white px-2.5 py-1.5 font-semibold hover:bg-black"
+                    >
+                      {c.label}
+                    </Link>
+                  ))}
+                </div>
+              ) : null}
               {loading ? (
                 <div className="rounded-xl px-3 py-2 text-sm bg-white mr-8 border border-slate-200">
                   <div className="inline-flex items-center gap-1">
@@ -351,7 +456,7 @@ export default function ChatbotBubble() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") send();
+                  if (e.key === "Enter") void send();
                 }}
                 placeholder="Écrivez votre question..."
                 className="flex-1 rounded-xl border border-white/60 bg-white/60 px-3 py-2 text-base sm:text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-300/60"
@@ -367,7 +472,7 @@ export default function ChatbotBubble() {
               </button>
               <button
                 type="button"
-                onClick={send}
+                onClick={() => void send()}
                 disabled={loading}
                 className="rounded-xl bg-slate-900/92 text-white px-3 py-2 text-sm font-semibold disabled:opacity-50 hover:bg-black transition-colors"
               >

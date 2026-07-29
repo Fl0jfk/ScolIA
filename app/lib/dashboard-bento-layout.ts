@@ -2,7 +2,6 @@
  * Ordre par défaut des modules (référence pour la disposition initiale en 3 colonnes).
  * La feuille de semaine est hors grille (pied de page fixe).
  */
-import { DASHBOARD_ACADEMIC_DEADLINES_MODULE_ID } from "@/app/lib/dashboard-academic-deadlines-types";
 import {
   DESKTOP_BENTO_COLUMN_COUNT,
   linearOrderToColumns,
@@ -15,7 +14,6 @@ export const BENTO_DEFAULT_ORDER: string[] = [
   "travels",
   "agent-ia-ocr",
   "prof-room",
-  DASHBOARD_ACADEMIC_DEADLINES_MODULE_ID,
   "rh",
   "channels",
   "internat",
@@ -32,18 +30,17 @@ export const BENTO_MODULE_SORT: Record<string, number> = {
   travels: 2,
   "agent-ia-ocr": 3,
   "prof-room": 4,
-  [DASHBOARD_ACADEMIC_DEADLINES_MODULE_ID]: 5,
-  rh: 6,
-  channels: 7,
-  internat: 8,
-  "requests-staff": 9,
-  organigramme: 10,
-  toolbox: 11,
-  "domain-planning": 12,
-  covoiturage: 13,
-  "photocopies-couleur": 14,
-  "chatbot-knowledge": 15,
-  assistance: 16,
+  rh: 5,
+  channels: 6,
+  internat: 7,
+  "requests-staff": 8,
+  organigramme: 9,
+  toolbox: 10,
+  "domain-planning": 11,
+  covoiturage: 12,
+  "photocopies-couleur": 13,
+  "chatbot-knowledge": 14,
+  assistance: 15,
 };
 
 export function getBentoModuleSort(moduleId: string): number {

@@ -167,6 +167,24 @@ export async function POST(req: Request) {
     } else { currentIndex.push(tripSummary);
     }
     await putJson("travels/index.json", currentIndex);
+    try {
+      const { syncTripActualite } = await import("@/app/lib/brain-ai/sync/knowledge-writer");
+      const { TRAVELS_STATUS_LABELS } = await import("@/app/lib/travels-types");
+      const status = String(objectToSave.status || "");
+      const start = innerData.startDate || innerData.date || "";
+      const end = innerData.endDate || innerData.date || start;
+      void syncTripActualite({
+        id: String(tripId),
+        title: String(title || ""),
+        dates: start && end && start !== end ? `${start} → ${end}` : String(start || ""),
+        classes: Array.isArray(innerData.classes)
+          ? innerData.classes.join(", ")
+          : String(innerData.classes || ""),
+        statusLabel: TRAVELS_STATUS_LABELS[status] || status,
+      });
+    } catch (syncErr) {
+      console.warn("[travels/update] sync actualite failed", syncErr);
+    }
     if (newStatus === "EN_ATTENTE_COMPTA" && previousStatus !== "EN_ATTENTE_COMPTA") {
       try {
         await notifyComptaTravelsPhase({ tripId,

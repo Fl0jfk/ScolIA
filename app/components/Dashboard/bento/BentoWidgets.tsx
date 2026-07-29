@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import type { Categories } from "@/app/contexts/data";
 import BentoWidget from "@/app/components/Dashboard/bento/BentoWidget";
 import DashboardModuleIcon from "@/app/components/Dashboard/bento/DashboardModuleIcon";
-import { AcademicDeadlinesBentoWidget } from "@/app/components/Dashboard/bento/AcademicDeadlinesBentoWidget";
 import { WeekSheetBentoWidget } from "@/app/components/Dashboard/bento/WeekSheetBentoWidget";
 import type { BentoWidgetSize } from "@/app/lib/bento-widget-size";
 import BentoWeekGrid from "@/app/components/Dashboard/bento/BentoWeekGrid";
@@ -968,8 +967,6 @@ export function renderBentoWidget(category: Categories, size: BentoWidgetSize) {
   switch (category.variant) {
     case "week-sheet":
       return <WeekSheetBentoWidget {...props} />;
-    case "academic-deadlines":
-      return <AcademicDeadlinesBentoWidget {...props} />;
     case "travels":
       return <TravelsBentoWidget {...props} />;
     case "absences":

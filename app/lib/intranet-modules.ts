@@ -25,7 +25,6 @@ export type DashboardTileVariant =
   | "personnel-ogec"
   | "internat"
   | "week-sheet"
-  | "academic-deadlines"
   | "photocopies-couleur"
   | "toolbox";
 
@@ -451,19 +450,6 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "bien-etre-referent",
     pathPrefixes: ["/bien-etre/referent", "/bien-etre/config", "/api/bien-etre/config", "/api/bien-etre/signalements"],
     allowedRoles: [...DIRECTIONS, "administratif", "education"],
-  },
-  {
-    id: "dashboard-academic-deadlines",
-    pathPrefixes: ["/api/academic-deadlines", "/api/dashboard/academic-deadlines"],
-    allowedRoles: [...DIRECTIONS, "administratif"],
-    dashboard: {
-      id: 9002,
-      name: "Échéances académiques",
-      img: "",
-      link: "#",
-      description: "Mutations, examens, Parcoursup, affectations — Académie de Normandie",
-      variant: "academic-deadlines",
-    },
   },
   {
     id: "dashboard-week-sheet",
