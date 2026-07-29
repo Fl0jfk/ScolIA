@@ -66,56 +66,97 @@ button *,
   will-change: transform;
 }
 
-/* Marque ScolIA — verre animé à l’intérieur des glyphes I / A */
-@keyframes scolia-letter-glass {
-  0%,
+/* Marque ScolIA — lava lamp / bulles à l’intérieur des glyphes I / A */
+@keyframes scolia-letter-lava {
+  0% {
+    background-position:
+      12% 18%,
+      78% 72%,
+      42% 88%,
+      88% 22%,
+      50% 50%;
+  }
+  25% {
+    background-position:
+      68% 28%,
+      22% 58%,
+      78% 42%,
+      18% 78%,
+      45% 55%;
+  }
+  50% {
+    background-position:
+      82% 62%,
+      38% 18%,
+      18% 32%,
+      62% 88%,
+      52% 48%;
+  }
+  75% {
+    background-position:
+      28% 78%,
+      72% 38%,
+      58% 12%,
+      42% 28%,
+      48% 52%;
+  }
   100% {
-    background-position: 0% 35%;
-  }
-  40% {
-    background-position: 55% 0%;
-  }
-  70% {
-    background-position: 100% 70%;
+    background-position:
+      12% 18%,
+      78% 72%,
+      42% 88%,
+      88% 22%,
+      50% 50%;
   }
 }
 
 .scolia-brand-letter {
   display: inline-block;
-  background-image: linear-gradient(
-    125deg,
-    #1e4a32 0%,
-    #2f6b4a 22%,
-    #a7f3d0 38%,
-    #ffffff 48%,
-    #4ade80 58%,
-    #2f6b4a 78%,
-    #3d8a5c 100%
-  );
-  background-size: 220% 220%;
+  /* Bulles soft qui se mélangent (lava lamp) — clipées au glyphe */
+  background-color: #2f6b4a;
+  background-image:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.55) 0%, rgba(167, 243, 208, 0.35) 28%, transparent 58%),
+    radial-gradient(circle at center, rgba(74, 222, 128, 0.95) 0%, rgba(61, 138, 92, 0.55) 35%, transparent 62%),
+    radial-gradient(circle at center, rgba(30, 74, 50, 0.95) 0%, rgba(47, 107, 74, 0.7) 40%, transparent 65%),
+    radial-gradient(circle at center, rgba(209, 250, 229, 0.75) 0%, rgba(74, 222, 128, 0.4) 32%, transparent 60%),
+    radial-gradient(ellipse at center, #1e4a32 0%, #2f6b4a 45%, #3d8a5c 100%);
+  background-size:
+    55% 70%,
+    70% 85%,
+    65% 75%,
+    50% 60%,
+    100% 100%;
+  background-repeat: no-repeat;
   background-clip: text;
   -webkit-background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
-  animation: scolia-letter-glass 2.8s ease-in-out infinite;
+  animation: scolia-letter-lava 7s ease-in-out infinite;
+}
+
+.scolia-brand-letter--delay {
+  animation-delay: -3.2s;
 }
 
 .scolia-brand-letter--invert {
-  background-image: linear-gradient(
-    125deg,
-    #86efac 0%,
-    #4ade80 28%,
-    #ffffff 45%,
-    #bbf7d0 55%,
-    #4ade80 72%,
-    #86efac 100%
-  );
+  background-color: #4ade80;
+  background-image:
+    radial-gradient(circle at center, rgba(255, 255, 255, 0.7) 0%, rgba(187, 247, 208, 0.45) 30%, transparent 58%),
+    radial-gradient(circle at center, rgba(74, 222, 128, 1) 0%, rgba(134, 239, 172, 0.55) 38%, transparent 62%),
+    radial-gradient(circle at center, rgba(22, 101, 52, 0.85) 0%, rgba(52, 211, 153, 0.45) 42%, transparent 65%),
+    radial-gradient(circle at center, rgba(236, 253, 245, 0.8) 0%, rgba(110, 231, 183, 0.45) 32%, transparent 60%),
+    radial-gradient(ellipse at center, #166534 0%, #22c55e 50%, #4ade80 100%);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .scolia-brand-letter {
     animation: none;
-    background-position: 40% 50%;
+    background-position:
+      30% 30%,
+      70% 60%,
+      40% 70%,
+      65% 25%,
+      50% 50%;
   }
 }
 

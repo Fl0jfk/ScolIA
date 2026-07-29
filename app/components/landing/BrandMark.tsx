@@ -11,7 +11,7 @@ const SIZE: Record<Size, string> = {
 
 /**
  * Marque ScolIA — Scol + IA collés.
- * L’effet verre bounce est uniquement dans le remplissage des lettres I et A.
+ * Dans I et A : bulles vertes type lava lamp (verre flottant), clipées au glyphe.
  */
 export default function BrandMark({
   size = "md",
@@ -34,7 +34,9 @@ export default function BrandMark({
         <span className={`scolia-brand-letter ${invert ? "scolia-brand-letter--invert" : ""}`}>
           I
         </span>
-        <span className={`scolia-brand-letter ${invert ? "scolia-brand-letter--invert" : ""}`}>
+        <span
+          className={`scolia-brand-letter scolia-brand-letter--delay ${invert ? "scolia-brand-letter--invert" : ""}`}
+        >
           A
         </span>
       </span>
