@@ -3,10 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useUser } from "@clerk/nextjs";
-import WeekSheetHourGrid from "@/app/components/week-sheet/WeekSheetHourGrid";
 import RhSelfDepositPanel from "@/app/components/personnel/RhSelfDepositPanel";
 import { canAccessHseModule, canCreateHseDemand } from "@/app/lib/demandes-hse-access";
-import type { WeekSheetData } from "@/app/lib/dashboard-week-sheet-types";
 import { formatAbsencePeriod } from "@/app/lib/absence-period";
 
 type MyAbsence = {
@@ -59,7 +57,6 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
 
   const [absences, setAbsences] = useState<MyAbsence[]>([]);
   const [hseItems, setHseItems] = useState<MyHse[]>([]);
-  const [weekSheet, setWeekSheet] = useState<WeekSheetData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -68,9 +65,8 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
     (async () => {
       setLoading(true);
       try {
-        const [absRes, weekRes, hseRes] = await Promise.all([
+        const [absRes, hseRes] = await Promise.all([
           fetch("/api/absences", { cache: "no-store" }),
-          fetch("/api/dashboard/week-sheet", { cache: "no-store" }),
           showHse ? fetch("/api/demandes-hse", { cache: "no-store" }) : Promise.resolve(null),
         ]);
         if (cancelled) return;
@@ -83,15 +79,9 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
           setAbsences(mine);
         }
 
-        if (weekRes.ok) {
-          const j = await weekRes.json();
-          setWeekSheet((j.data as WeekSheetData) || null);
-        }
-
         if (hseRes && hseRes.ok) {
           const j = await hseRes.json();
           const items = Array.isArray(j.items) ? (j.items as MyHse[]) : [];
-          // API filtre déjà : prof = ses demandes ; direction = établissement
           setHseItems(items.slice(0, 6));
         }
       } catch {
@@ -123,8 +113,7 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
         <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600">Espace personnel</p>
         <h2 className="text-2xl font-black text-slate-900 mt-1">Bonjour {firstName}</h2>
         <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-          Votre coin RH : déclarer une absence, suivre vos demandes, déposer un document, consulter le
-          planning de la semaine.
+          Votre coin RH : déclarer une absence, suivre vos demandes et déposer un document.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Link
@@ -310,31 +299,6 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
       </div>
 
       <RhSelfDepositPanel />
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm overflow-hidden">
-        <div className="flex flex-wrap items-end justify-between gap-2 mb-3">
-          <div>
-            <h3 className="font-black text-slate-900">Planning de la semaine</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {weekSheet?.weekLabel
-                ? weekSheet.weekLabel
-                : "Feuille de semaine partagée (profs inclus)"}
-            </p>
-          </div>
-        </div>
-        {loading && !weekSheet ? (
-          <p className="text-sm text-slate-400 py-8 text-center">Chargement du planning…</p>
-        ) : !weekSheet || !(weekSheet.events?.length > 0) ? (
-          <p className="text-sm text-slate-400 italic py-8 text-center">
-            Aucun créneau chargé pour cette semaine. L’admin peut importer la feuille de semaine depuis
-            le dashboard.
-          </p>
-        ) : (
-          <div className="overflow-x-auto -mx-1 px-1">
-            <WeekSheetHourGrid events={weekSheet.events} compact />
-          </div>
-        )}
-      </section>
     </div>
   );
 }

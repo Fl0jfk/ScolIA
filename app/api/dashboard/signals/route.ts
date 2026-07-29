@@ -4,6 +4,7 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { getDashboardSignals } from "@/app/lib/dashboard-signals";
 import {
   canViewCalendar,
+  isAbsencePendingForManager,
   isAbsenceVisibleOnCalendar,
   type AbsenceRecord,
 } from "@/app/lib/absences-types";
@@ -124,7 +125,11 @@ export async function GET() {
     }
 
     const reservations = Array.isArray(reservationsRaw) ? reservationsRaw : [];
-    const absences = absencesRaw.filter((a) => isAbsenceVisibleOnCalendar(a, userId, roles));
+    const absences = absencesRaw.filter(
+      (a) =>
+        isAbsenceVisibleOnCalendar(a, userId, roles) ||
+        isAbsencePendingForManager(a, userId, roles),
+    );
     const hse = Array.isArray(hseRaw)
       ? hseRaw.filter((h) => canViewHseDemand(h, userId, roles))
       : [];

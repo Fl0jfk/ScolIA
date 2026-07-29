@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
+import DashboardGlobalNotifications from "@/app/components/Dashboard/DashboardGlobalNotifications";
 import DashboardPillars from "@/app/components/Dashboard/DashboardPillars";
 import DashboardTodayNews from "@/app/components/Dashboard/DashboardTodayNews";
 import DashboardWeather from "@/app/components/Dashboard/DashboardWeather";
@@ -19,13 +20,22 @@ import {
   pillarHasVisibleModules,
 } from "@/app/lib/dashboard-pillars";
 import { toDashboardQuickLinks } from "@/app/lib/dashboard-quick-links";
-import type { DashboardShortcut, DashboardTodayNewsItem } from "@/app/lib/dashboard-signals";
+import type {
+  DashboardNotification,
+  DashboardShortcut,
+  DashboardTodayNewsItem,
+} from "@/app/lib/dashboard-signals";
 import { hasGlobalAdminRole, intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 
-function fingerprint(shortcuts: DashboardShortcut[], news: DashboardTodayNewsItem[]) {
+function fingerprint(
+  shortcuts: DashboardShortcut[],
+  news: DashboardTodayNewsItem[],
+  notifications: DashboardNotification[],
+) {
   return [
     ...shortcuts.filter((s) => s.rich).map((s) => `${s.id}:${s.badge}:${s.detail}`),
     ...news.map((n) => n.id),
+    ...notifications.map((n) => `${n.id}:${n.count}`),
   ].join("|");
 }
 
@@ -36,6 +46,7 @@ export default function Home() {
 
   const [shortcuts, setShortcuts] = useState<DashboardShortcut[]>([]);
   const [todayNews, setTodayNews] = useState<DashboardTodayNewsItem[]>([]);
+  const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
   const [hasCurrentWeek, setHasCurrentWeek] = useState(false);
   const [signalsLoading, setSignalsLoading] = useState(true);
   const [pulseKey, setPulseKey] = useState("");
@@ -82,10 +93,12 @@ export default function Home() {
       shortcuts?: DashboardShortcut[];
       todayNews?: DashboardTodayNewsItem[];
       hasCurrentWeek?: boolean;
+      notifications?: DashboardNotification[];
     }) => {
       const nextShortcuts = Array.isArray(json.shortcuts) ? json.shortcuts : [];
       const nextNews = Array.isArray(json.todayNews) ? json.todayNews : [];
-      const fp = fingerprint(nextShortcuts, nextNews);
+      const nextNotifications = Array.isArray(json.notifications) ? json.notifications : [];
+      const fp = fingerprint(nextShortcuts, nextNews, nextNotifications);
       if (prevFp.current && prevFp.current !== fp) {
         const changed = nextShortcuts
           .filter((s) => s.rich)
@@ -96,6 +109,7 @@ export default function Home() {
       prevFp.current = fp;
       setShortcuts(nextShortcuts);
       setTodayNews(nextNews);
+      setNotifications(nextNotifications);
       setHasCurrentWeek(Boolean(json.hasCurrentWeek));
     },
     [],
@@ -181,8 +195,11 @@ export default function Home() {
                   {firstName ? (
                     <>
                       Bonjour{" "}
-                      <span className="bg-gradient-to-r from-[var(--dash-primary)] via-[var(--dash-mid)] to-[var(--dash-bright)] bg-clip-text text-transparent">
-                        {firstName}
+                      <span className="relative inline-flex items-start">
+                        <span className="bg-gradient-to-r from-[var(--dash-primary)] via-[var(--dash-mid)] to-[var(--dash-bright)] bg-clip-text text-transparent">
+                          {firstName}
+                        </span>
+                        <DashboardGlobalNotifications items={notifications} />
                       </span>
                     </>
                   ) : (
@@ -219,8 +236,11 @@ export default function Home() {
                   {firstName ? (
                     <>
                       Bonjour{" "}
-                      <span className="bg-gradient-to-r from-[var(--dash-primary)] via-[var(--dash-mid)] to-[var(--dash-bright)] bg-clip-text text-transparent">
-                        {firstName}
+                      <span className="relative inline-flex items-start">
+                        <span className="bg-gradient-to-r from-[var(--dash-primary)] via-[var(--dash-mid)] to-[var(--dash-bright)] bg-clip-text text-transparent">
+                          {firstName}
+                        </span>
+                        <DashboardGlobalNotifications items={notifications} />
                       </span>
                     </>
                   ) : (

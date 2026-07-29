@@ -1,6 +1,7 @@
 import {
   canViewCalendar,
   getRoleFlags,
+  isAbsencePendingForManager,
   resolveAbsenceScope,
   type AbsenceRecord,
 } from "@/app/lib/absences-types";
@@ -38,10 +39,20 @@ export type DashboardTodayNewsItem = {
   location?: string;
 };
 
+/** Notification actionnable (à traiter / attribuée) pour le badge global. */
+export type DashboardNotification = {
+  id: string;
+  label: string;
+  count: number;
+  href: string;
+  detail: string;
+};
+
 export type DashboardSignals = {
   shortcuts: DashboardShortcut[];
   todayNews: DashboardTodayNewsItem[];
   hasCurrentWeek: boolean;
+  notifications: DashboardNotification[];
 };
 
 export type DashboardSignalsInput = {
@@ -179,8 +190,13 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   } = input;
 
   const shortcuts: DashboardShortcut[] = [];
+  const notifications: DashboardNotification[] = [];
   const has = (moduleId: string) => accessibleModuleIds.has(moduleId);
   const emailNorm = normalizeRequestEmail(email || "");
+
+  const pushNotif = (n: DashboardNotification) => {
+    if (n.count > 0) notifications.push(n);
+  };
 
   // —— Élèves : Sorties ——
   if (has("travels")) {
@@ -212,6 +228,13 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           detail: n === 1 ? "1 séjour en attente compta" : `${n} séjours en attente compta`,
           tone: "warn",
         });
+        pushNotif({
+          id: "travels-compta",
+          label: "Sorties scolaires",
+          count: n,
+          href: "/eleves?tab=travels",
+          detail: n === 1 ? "1 séjour en attente compta" : `${n} séjours en attente compta`,
+        });
       } else {
         shortcuts.push({
           id: "travels",
@@ -242,6 +265,16 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
               ? "1 séjour en attente de votre validation"
               : `${pending.length} séjours en attente de votre validation`,
           tone: "warn",
+        });
+        pushNotif({
+          id: "travels-dir",
+          label: "Sorties scolaires",
+          count: pending.length,
+          href: "/eleves?tab=travels",
+          detail:
+            pending.length === 1
+              ? "1 séjour en attente de votre validation"
+              : `${pending.length} séjours en attente de votre validation`,
         });
       } else {
         shortcuts.push({
@@ -284,6 +317,16 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             : "Appel du soir non démarré",
         tone: "action",
       });
+      pushNotif({
+        id: "internat-appel",
+        label: "Appel du soir",
+        count: 1,
+        href: "/eleves?tab=internat",
+        detail:
+          internatRollCallStatus === "en_cours"
+            ? "Appel du soir en cours"
+            : "Appel du soir non démarré",
+      });
     } else {
       shortcuts.push({
         id: "internat",
@@ -311,6 +354,16 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             ? "1 signature stage à faire"
             : `${stagesPendingSignatures} signatures stages à faire`,
         tone: "warn",
+      });
+      pushNotif({
+        id: "stages-sign",
+        label: "Stages & conventions",
+        count: stagesPendingSignatures,
+        href: "/eleves?tab=stages",
+        detail:
+          stagesPendingSignatures === 1
+            ? "1 signature stage à faire"
+            : `${stagesPendingSignatures} signatures stages à faire`,
       });
     } else {
       shortcuts.push({
@@ -345,6 +398,14 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— RH : Absences ——
   if (has("rh")) {
+    shortcuts.push({
+      id: "rh-mon-espace",
+      pillarId: "rh",
+      moduleId: "rh",
+      href: "/rh?tab=dashboard",
+      label: "Mon espace",
+    });
+
     if (canViewCalendar(roles)) {
       const flags = getRoleFlags(roles);
       let scoped = absences;
@@ -362,6 +423,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       }
 
       const count = absencesToday(scoped).length;
+      const pendingManager = absences.filter((a) => isAbsencePendingForManager(a, userId, roles));
+
       if (count > 0) {
         shortcuts.push({
           id: "absences-today",
@@ -374,13 +437,40 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           detail: count === 1 ? `1 ${labelSingular} aujourd'hui` : `${count} ${labelPlural} aujourd'hui`,
           tone: "info",
         });
-      } else {
+      } else if (pendingManager.length === 0) {
         shortcuts.push({
           id: "absences",
           pillarId: "rh",
           moduleId: "absences",
           href: "/rh?tab=absences&view=se-declarer",
           label: "Absences",
+        });
+      }
+
+      if (pendingManager.length > 0) {
+        shortcuts.push({
+          id: "absences-pending",
+          pillarId: "rh",
+          moduleId: "absences",
+          href: "/rh?tab=absences&view=a-traiter",
+          label: "Absences à traiter",
+          rich: true,
+          badge: `${pendingManager.length} à traiter`,
+          detail:
+            pendingManager.length === 1
+              ? "1 absence en attente de votre décision"
+              : `${pendingManager.length} absences en attente de votre décision`,
+          tone: "warn",
+        });
+        pushNotif({
+          id: "absences-pending",
+          label: "Absences à traiter",
+          count: pendingManager.length,
+          href: "/rh?tab=absences&view=a-traiter",
+          detail:
+            pendingManager.length === 1
+              ? "1 absence en attente de votre décision"
+              : `${pendingManager.length} absences en attente de votre décision`,
         });
       }
     } else {
@@ -415,6 +505,16 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
                 : `${pending} demandes HSE à traiter`,
             tone: "warn",
           });
+          pushNotif({
+            id: "hse-pending",
+            label: "Demandes HSE",
+            count: pending,
+            href: "/rh?tab=hse",
+            detail:
+              pending === 1
+                ? "1 demande HSE à traiter"
+                : `${pending} demandes HSE à traiter`,
+          });
         } else {
           shortcuts.push({
             id: "hse",
@@ -435,7 +535,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       }
     }
 
-    // Pas de « Portail RH » : le titre du pilier + Ouvrir suffisent.
+    // Mon espace reste le point d’entrée personnel ; le pilier ouvre aussi /rh.
   }
 
   // —— Services : Salles ——
@@ -510,6 +610,16 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             : `${claimedMine.length} demandes vous ont été attribuées`,
         tone: "action",
       });
+      pushNotif({
+        id: "requests-claimed",
+        label: "Demandes attribuées",
+        count: claimedMine.length,
+        href: "/services?tab=demandes",
+        detail:
+          claimedMine.length === 1
+            ? "1 demande vous a été attribuée"
+            : `${claimedMine.length} demandes vous ont été attribuées`,
+      });
     }
     if (unassigned.length > 0) {
       shortcuts.push({
@@ -525,6 +635,16 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             ? "1 demande non assignée dans votre file"
             : `${unassigned.length} demandes non assignées dans votre file`,
         tone: "warn",
+      });
+      pushNotif({
+        id: "requests-pool",
+        label: "File demandes",
+        count: unassigned.length,
+        href: "/services?tab=demandes",
+        detail:
+          unassigned.length === 1
+            ? "1 demande non assignée dans votre file"
+            : `${unassigned.length} demandes non assignées dans votre file`,
       });
     }
     if (claimedMine.length === 0 && unassigned.length === 0) {
@@ -566,6 +686,16 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
               ? "1 photocopie à traiter"
               : `${pending} photocopies à traiter`,
           tone: "warn",
+        });
+        pushNotif({
+          id: "photo-dir",
+          label: "Photocopies couleur",
+          count: pending,
+          href: "/services?tab=photocopies",
+          detail:
+            pending === 1
+              ? "1 photocopie à traiter"
+              : `${pending} photocopies à traiter`,
         });
       } else {
         shortcuts.push({
@@ -630,6 +760,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     shortcuts,
     todayNews: news.items,
     hasCurrentWeek: news.hasCurrentWeek,
+    notifications,
   };
 }
 
