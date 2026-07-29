@@ -1,6 +1,6 @@
-/** Clés / helpers mémoire Scolia AI (localStorage, côté client). */
+/** Clés / helpers mémoire ScolIA (localStorage, côté client). */
 
-export const SCOLIA_AI_NAME = "Scolia AI";
+export const SCOLIA_AI_NAME = "ScolIA";
 export const SCOLIA_AI_MEMORY_KEY = "scolia-ai-memory-v1";
 export const SCOLIA_AI_PAGE_PATH = "/scolia-ai";
 

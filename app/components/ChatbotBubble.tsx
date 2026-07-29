@@ -440,7 +440,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     if (!isSignedIn) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "Connectez-vous pour déposer un PDF dans Scolia IA." },
+        { role: "assistant", content: "Connectez-vous pour déposer un PDF dans ScolIA." },
       ]);
       return;
     }
@@ -490,7 +490,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-emerald-50/80 backdrop-blur-[2px]">
           <div className="rounded-2xl border-2 border-dashed border-emerald-500 bg-white/90 px-6 py-5 text-center shadow-lg">
             <p className="text-sm font-semibold text-emerald-900">Déposez votre PDF ici</p>
-            <p className="mt-1 text-[11px] text-emerald-800/80">Scolia IA l’ajoutera à la conversation</p>
+            <p className="mt-1 text-[11px] text-emerald-800/80">ScolIA l’ajoutera à la conversation</p>
           </div>
         </div>
       ) : null}

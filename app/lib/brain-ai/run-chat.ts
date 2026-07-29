@@ -301,7 +301,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
   const tools = mistralToolsForUser(signedIn);
 
   const systemPrompt =
-    `Tu es ${"Scolia AI"}, l'assistant institutionnel de l'établissement (Brain AI).\n` +
+    `Tu es ScolIA, l'assistant institutionnel de l'établissement (Brain AI).\n` +
     `Réponds en français, précis, utile et concis.\n` +
     `Tu as deux sources d'information :\n` +
     `1) Dictionnaire (contexte knowledge ci-dessous) — infos stables (FAQ, circulaires…).\n` +

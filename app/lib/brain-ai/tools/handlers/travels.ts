@@ -166,7 +166,7 @@ export async function handleCreateTrip(
         date: now,
         user: [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || "Assistant IA",
         action: "CREE",
-        note: "Créé via Scolia AI",
+        note: "Créé via ScolIA",
       },
     ],
   };

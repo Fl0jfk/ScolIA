@@ -12,7 +12,7 @@ function safeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "document.pdf";
 }
 
-/** Prépare un upload PDF pour Scolia AI (pièce jointe conversation). */
+/** Prépare un upload PDF pour ScolIA (pièce jointe conversation). */
 export async function POST(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;

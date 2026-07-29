@@ -8,7 +8,7 @@ type Props = {
 };
 
 /**
- * Marque ScoliaIA — « Scolia » collé à « IA »,
+ * Marque ScolIA — « Scol » collé à « IA »,
  * barres vertes / ambre qui montent et descendent dans I et A.
  */
 export default function ScoliaAiMark({ size = "md", inverted = false, className = "" }: Props) {
@@ -21,9 +21,9 @@ export default function ScoliaAiMark({ size = "md", inverted = false, className 
   return (
     <span
       className={`inline-flex items-center ${gap} font-semibold tracking-tighter leading-none ${text} ${className}`}
-      aria-label="Scolia IA"
+      aria-label="ScolIA"
     >
-      <span className={`${scoliaColor} pr-[0.02em]`}>Scolia</span>
+      <span className={`${scoliaColor}`}>Scol</span>
       <span className={`inline-flex items-end gap-[0.06em] ${letterBox}`} aria-hidden>
         <LetterI tall={size === "lg"} />
         <LetterA tall={size === "lg"} />
