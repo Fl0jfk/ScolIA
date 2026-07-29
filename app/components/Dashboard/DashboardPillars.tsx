@@ -24,7 +24,77 @@ const PILLAR_ORB: Record<DashboardPillarId, string> = {
   services: "bg-emerald-400/30",
 };
 
-function ShortcutRow({ item, highlight }: { item: DashboardShortcut; highlight?: boolean }) {
+const PILLAR_EMOJI: Record<DashboardPillarId, string> = {
+  eleves: "🎒",
+  rh: "👥",
+  etablissement: "🏫",
+  services: "🛠️",
+};
+
+const MODULE_FALLBACK_EMOJI: Record<string, string> = {
+  travels: "🚌",
+  internat: "🌙",
+  stages: "📝",
+  "agent-ia-ocr": "📄",
+  certificates: "🏅",
+  absences: "📅",
+  "demandes-hse": "⏱️",
+  rh: "👥",
+  "prof-room": "🚪",
+  "requests-staff": "📨",
+  "photocopies-couleur": "🖨️",
+  documents: "☁️",
+  toolbox: "🧰",
+  covoiturage: "🚗",
+  channels: "💬",
+  assistance: "🆘",
+  organigramme: "🗺️",
+  "conformite-rgpd": "🔒",
+  "chatbot-knowledge": "🧠",
+  "domain-planning": "📚",
+};
+
+function ShortcutRow({
+  item,
+  highlight,
+  iconSrc,
+}: {
+  item: DashboardShortcut;
+  highlight?: boolean;
+  iconSrc?: string;
+}) {
+  const emoji = MODULE_FALLBACK_EMOJI[item.moduleId] || "›";
+
+  const inner = (
+    <>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--dash-soft-muted)]/80 ring-1 ring-[color:var(--dash-border)]/70">
+        {iconSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={iconSrc} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <span className="text-base leading-none">{emoji}</span>
+        )}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-semibold tracking-tight text-[var(--dash-ink)]">
+          {item.label}
+        </p>
+        {item.rich && item.detail ? (
+          <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-[var(--dash-mid)]">
+            {item.detail}
+          </p>
+        ) : null}
+      </div>
+      {item.badge ? (
+        <span className="shrink-0 rounded-full bg-[var(--dash-primary)] px-2.5 py-1 text-[10px] font-bold text-white shadow-sm">
+          {item.badge}
+        </span>
+      ) : (
+        <span className="shrink-0 text-[var(--dash-mid)] opacity-50">›</span>
+      )}
+    </>
+  );
+
   if (item.rich) {
     return (
       <motion.div
@@ -35,7 +105,7 @@ function ShortcutRow({ item, highlight }: { item: DashboardShortcut; highlight?:
       >
         <Link
           href={item.href}
-          className="group relative flex items-start justify-between gap-2 overflow-hidden rounded-2xl border border-white/70 bg-white/70 px-3.5 py-3 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] backdrop-blur-md transition hover:-translate-y-0.5 hover:bg-white/90"
+          className="group relative flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-2xl border border-white/70 bg-white/75 px-2.5 py-2.5 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] backdrop-blur-md transition hover:-translate-y-0.5 hover:bg-white/95"
         >
           {highlight ? (
             <motion.span
@@ -45,21 +115,7 @@ function ShortcutRow({ item, highlight }: { item: DashboardShortcut; highlight?:
               transition={{ duration: 1.4 }}
             />
           ) : null}
-          <div className="relative min-w-0">
-            <p className="truncate text-[13px] font-semibold tracking-tight text-[var(--dash-ink)]">
-              {item.label}
-            </p>
-            {item.detail ? (
-              <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-[var(--dash-mid)]">
-                {item.detail}
-              </p>
-            ) : null}
-          </div>
-          {item.badge ? (
-            <span className="relative shrink-0 rounded-full bg-[var(--dash-primary)] px-2.5 py-1 text-[10px] font-bold text-white shadow-sm">
-              {item.badge}
-            </span>
-          ) : null}
+          {inner}
         </Link>
       </motion.div>
     );
@@ -68,10 +124,9 @@ function ShortcutRow({ item, highlight }: { item: DashboardShortcut; highlight?:
   return (
     <Link
       href={item.href}
-      className="flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-[13px] font-medium text-[var(--dash-ink)]/90 transition hover:bg-white/55"
+      className="flex cursor-pointer items-center gap-2.5 rounded-xl px-1.5 py-1.5 transition hover:bg-white/60"
     >
-      <span className="truncate">{item.label}</span>
-      <span className="text-[var(--dash-mid)] opacity-60">›</span>
+      {inner}
     </Link>
   );
 }
@@ -81,15 +136,17 @@ function PillarCard({
   shortcuts,
   index,
   pulseKey,
+  iconByModule,
 }: {
   pillar: DashboardPillarDef;
   shortcuts: DashboardShortcut[];
   index: number;
   pulseKey?: string;
+  iconByModule: Map<string, string>;
 }) {
   const rich = shortcuts.filter((s) => s.rich);
   const plain = shortcuts.filter((s) => !s.rich);
-  const visible = [...rich, ...plain.slice(0, Math.max(0, 4 - rich.length))];
+  const visible = [...rich, ...plain.slice(0, Math.max(0, 5 - rich.length))];
 
   return (
     <motion.article
@@ -105,18 +162,27 @@ function PillarCard({
       />
 
       <div className="relative flex min-h-0 flex-1 flex-col p-4 sm:p-5">
-        <header className="mb-3 shrink-0">
-          <Link href={pillar.href} className="block">
-            <h2 className="text-xl font-semibold tracking-tight text-[var(--dash-ink)] sm:text-[1.35rem]">
-              {pillar.title}
-            </h2>
-            <p className="mt-1 text-[12px] leading-snug text-[var(--dash-mid)]">
-              {pillar.description}
-            </p>
+        <header className="mb-3 flex shrink-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-lg leading-none" aria-hidden>
+                {PILLAR_EMOJI[pillar.id]}
+              </span>
+              <h2 className="truncate text-xl font-semibold tracking-tight text-[var(--dash-ink)] sm:text-[1.35rem]">
+                {pillar.title}
+              </h2>
+            </div>
+            <p className="mt-1 text-[12px] leading-snug text-[var(--dash-mid)]">{pillar.description}</p>
+          </div>
+          <Link
+            href={pillar.href}
+            className="shrink-0 cursor-pointer rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] shadow-sm backdrop-blur transition hover:bg-white"
+          >
+            Ouvrir →
           </Link>
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-0.5">
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-0.5">
           <AnimatePresence mode="popLayout">
             {visible.length === 0 ? (
               <p className="text-xs text-[var(--dash-mid)]">Aucun module accessible.</p>
@@ -125,19 +191,13 @@ function PillarCard({
                 <ShortcutRow
                   key={s.id}
                   item={s}
+                  iconSrc={iconByModule.get(s.moduleId)}
                   highlight={Boolean(pulseKey && s.rich && pulseKey.includes(s.id))}
                 />
               ))
             )}
           </AnimatePresence>
         </div>
-
-        <Link
-          href={pillar.href}
-          className="mt-3 shrink-0 text-center text-[11px] font-semibold text-[var(--dash-primary)] transition hover:opacity-80"
-        >
-          Ouvrir le module →
-        </Link>
       </div>
     </motion.article>
   );
@@ -145,6 +205,13 @@ function PillarCard({
 
 export default function DashboardPillars({ categories, shortcuts, pulseKey }: Props) {
   const pillars = DASHBOARD_PILLARS.filter((p) => pillarHasVisibleModules(p, categories));
+  const iconByModule = new Map(categories.map((c) => [c.moduleId, c.img]));
+  // RH sub-tabs reuse RH image
+  const rhImg = iconByModule.get("rh");
+  if (rhImg) {
+    iconByModule.set("absences", rhImg);
+    iconByModule.set("demandes-hse", rhImg);
+  }
 
   const pruned = (id: DashboardPillarId) => {
     const list = shortcuts.filter((s) => s.pillarId === id);
@@ -180,6 +247,7 @@ export default function DashboardPillars({ categories, shortcuts, pulseKey }: Pr
           shortcuts={pruned(pillar.id)}
           index={i}
           pulseKey={pulseKey}
+          iconByModule={iconByModule}
         />
       ))}
     </div>

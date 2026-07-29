@@ -881,12 +881,16 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
           setLayout("window");
           setOpen(true);
         }}
-        className="pointer-events-auto fixed bottom-4 right-4 z-[130] group h-14 min-w-14 px-4 rounded-full border border-white/50 shadow-[0_14px_30px_rgba(15,23,42,0.38)] hover:scale-[1.03] active:scale-[0.98] transition-all overflow-hidden bg-slate-950 text-white flex items-center justify-center gap-2"
+        className="pointer-events-auto fixed bottom-4 right-4 z-[130] flex h-14 w-14 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-emerald-400/25 bg-[#052e1c]/78 shadow-[0_14px_34px_rgba(5,46,28,0.45)] backdrop-blur-xl transition-all hover:scale-[1.04] hover:border-emerald-300/40 hover:bg-[#064028]/82 active:scale-[0.97]"
         aria-label={open ? `Réduire ${SCOLIA_AI_NAME}` : `Ouvrir ${SCOLIA_AI_NAME}`}
       >
-        <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(52,211,153,0.28),transparent_55%)]" />
-        <span className="relative scale-90">
-          <ScoliaAiMark size="sm" inverted />
+        <span
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_22%,rgba(52,211,153,0.35),transparent_52%),linear-gradient(160deg,rgba(255,255,255,0.12),transparent_42%)]"
+          aria-hidden
+        />
+        <span className="pointer-events-none absolute inset-[1px] rounded-full border border-white/15" aria-hidden />
+        <span className="relative h-full w-full">
+          <ScoliaAiMark size="md" inverted fill />
         </span>
       </button>
     </div>

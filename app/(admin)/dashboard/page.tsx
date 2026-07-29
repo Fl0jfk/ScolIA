@@ -167,7 +167,7 @@ export default function Home() {
 
         <main className="relative mx-auto flex min-h-[calc(100dvh-4.5rem)] w-full max-w-[1600px] flex-col px-4 sm:px-6 lg:h-[calc(100dvh-4.5rem)] lg:max-h-[calc(100dvh-4.5rem)] lg:overflow-hidden lg:px-8">
           <div className="flex min-h-0 flex-1 flex-col gap-3 py-3 lg:gap-3.5 lg:overflow-hidden lg:py-4">
-            <header className="grid shrink-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,auto)_minmax(0,1fr)_minmax(0,auto)] lg:items-end lg:gap-x-8">
+            <header className="grid shrink-0 grid-cols-1 gap-3 md:grid-cols-[minmax(10rem,auto)_minmax(7rem,auto)_minmax(0,1fr)_minmax(7rem,auto)] md:items-center md:gap-x-4 lg:gap-x-5">
               <motion.div
                 className="min-w-0"
                 initial={{ opacity: 0, y: 8 }}
@@ -177,7 +177,7 @@ export default function Home() {
                 <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--dash-mid)]">
                   Tableau de bord
                 </p>
-                <h1 className="mt-1 text-[1.75rem] font-semibold tracking-tight text-[var(--dash-ink)] md:text-[2.15rem]">
+                <h1 className="mt-1 text-[1.75rem] font-semibold tracking-tight text-[var(--dash-ink)] md:text-[2rem] lg:text-[2.15rem]">
                   {firstName ? (
                     <>
                       Bonjour{" "}
@@ -190,15 +190,25 @@ export default function Home() {
                   )}
                 </h1>
               </motion.div>
-              <div className="justify-self-start lg:pl-2">
+              <div className="justify-self-start">
                 <DashboardWeather />
               </div>
-              <div className="justify-self-start lg:justify-self-end">
+              <div className="hidden min-w-0 md:block">
+                <DashboardTodayNews
+                  compact
+                  items={todayNews}
+                  hasCurrentWeek={hasCurrentWeek}
+                  loading={signalsLoading}
+                  onWeekSheetUpdated={loadSignals}
+                />
+              </div>
+              <div className="justify-self-start md:justify-self-end">
                 <ExternalQuickLinksBar links={quickLinks} />
               </div>
             </header>
 
-            <div className="shrink-0">
+            {/* Mobile : actualité sous le header */}
+            <div className="shrink-0 md:hidden">
               <DashboardTodayNews
                 items={todayNews}
                 hasCurrentWeek={hasCurrentWeek}

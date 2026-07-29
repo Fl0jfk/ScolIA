@@ -41,8 +41,9 @@ a { cursor: pointer}
   --dash-ink: #14231A;
 }
 button { cursor: pointer}
+a { cursor: pointer}
 ::-webkit-scrollbar { display: none}
-/* ScolIA — pluie Matrix dans les lettres IA */
+/* ScolIA — pluie Matrix (fond bulle / marque IA) */
 @keyframes scolia-matrix-fall {
   0% { transform: translateY(-50%); }
   100% { transform: translateY(0%); }
