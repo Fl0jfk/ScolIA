@@ -430,13 +430,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       }
     }
 
-    shortcuts.push({
-      id: "rh-home",
-      pillarId: "rh",
-      moduleId: "rh",
-      href: "/rh",
-      label: "Portail RH",
-    });
+    // Pas de « Portail RH » : le titre du pilier + Ouvrir suffisent.
   }
 
   // —— Services : Salles ——

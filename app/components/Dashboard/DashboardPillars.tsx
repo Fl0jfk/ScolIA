@@ -54,80 +54,69 @@ const MODULE_FALLBACK_EMOJI: Record<string, string> = {
   "domain-planning": "📚",
 };
 
-function ShortcutRow({
+function ShortcutTile({
   item,
   highlight,
   iconSrc,
+  fullWidth,
 }: {
   item: DashboardShortcut;
   highlight?: boolean;
   iconSrc?: string;
+  fullWidth?: boolean;
 }) {
   const emoji = MODULE_FALLBACK_EMOJI[item.moduleId] || "›";
 
-  const inner = (
-    <>
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[color:var(--dash-soft-muted)]/80 ring-1 ring-[color:var(--dash-border)]/70">
-        {iconSrc ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={iconSrc} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <span className="text-base leading-none">{emoji}</span>
-        )}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[13px] font-semibold tracking-tight text-[var(--dash-ink)]">
-          {item.label}
-        </p>
-        {item.rich && item.detail ? (
-          <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-[var(--dash-mid)]">
-            {item.detail}
-          </p>
-        ) : null}
-      </div>
-      {item.badge ? (
-        <span className="shrink-0 rounded-full bg-[var(--dash-primary)] px-2.5 py-1 text-[10px] font-bold text-white shadow-sm">
-          {item.badge}
-        </span>
-      ) : (
-        <span className="shrink-0 text-[var(--dash-mid)] opacity-50">›</span>
-      )}
-    </>
-  );
-
-  if (item.rich) {
-    return (
-      <motion.div
-        layout
-        initial={highlight ? { scale: 0.96, opacity: 0.4 } : false}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 380, damping: 28 }}
-      >
-        <Link
-          href={item.href}
-          className="group relative flex cursor-pointer items-center gap-2.5 overflow-hidden rounded-2xl border border-white/70 bg-white/75 px-2.5 py-2.5 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] backdrop-blur-md transition hover:-translate-y-0.5 hover:bg-white/95"
-        >
-          {highlight ? (
-            <motion.span
-              className="pointer-events-none absolute inset-0 bg-[color:var(--dash-bright)]/15"
-              initial={{ opacity: 0.8 }}
-              animate={{ opacity: 0 }}
-              transition={{ duration: 1.4 }}
-            />
-          ) : null}
-          {inner}
-        </Link>
-      </motion.div>
-    );
-  }
-
   return (
-    <Link
-      href={item.href}
-      className="flex cursor-pointer items-center gap-2.5 rounded-xl px-1.5 py-1.5 transition hover:bg-white/60"
+    <motion.div
+      layout
+      className={fullWidth ? "col-span-2" : "col-span-1"}
+      initial={highlight ? { scale: 0.97, opacity: 0.45 } : false}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: "spring", stiffness: 380, damping: 28 }}
     >
-      {inner}
-    </Link>
+      <Link
+        href={item.href}
+        className={`group relative flex !cursor-pointer items-center gap-2 overflow-hidden rounded-xl border transition hover:-translate-y-0.5 ${
+          item.rich
+            ? "border-white/70 bg-white/80 px-2.5 py-2.5 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] backdrop-blur-md hover:bg-white"
+            : "border-transparent bg-white/40 px-2 py-2 hover:border-white/70 hover:bg-white/70"
+        }`}
+        style={{ cursor: "pointer" }}
+      >
+        {highlight ? (
+          <motion.span
+            className="pointer-events-none absolute inset-0 bg-[color:var(--dash-bright)]/15"
+            initial={{ opacity: 0.8 }}
+            animate={{ opacity: 0 }}
+            transition={{ duration: 1.4 }}
+          />
+        ) : null}
+        <span className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[color:var(--dash-soft-muted)]/90 ring-1 ring-[color:var(--dash-border)]/60">
+          {iconSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={iconSrc} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <span className="text-sm leading-none">{emoji}</span>
+          )}
+        </span>
+        <div className="relative min-w-0 flex-1">
+          <p className="truncate text-[12px] font-semibold tracking-tight text-[var(--dash-ink)]">
+            {item.label}
+          </p>
+          {item.rich && item.detail ? (
+            <p className="mt-0.5 line-clamp-1 text-[10px] leading-snug text-[var(--dash-mid)]">
+              {item.detail}
+            </p>
+          ) : null}
+        </div>
+        {item.badge ? (
+          <span className="relative shrink-0 rounded-full bg-[var(--dash-primary)] px-2 py-0.5 text-[9px] font-bold text-white">
+            {item.badge}
+          </span>
+        ) : null}
+      </Link>
+    </motion.div>
   );
 }
 
@@ -144,9 +133,13 @@ function PillarCard({
   pulseKey?: string;
   iconByModule: Map<string, string>;
 }) {
+  // Signaux d'abord (pleine largeur), puis raccourcis classiques
   const rich = shortcuts.filter((s) => s.rich);
   const plain = shortcuts.filter((s) => !s.rich);
-  const visible = [...rich, ...plain.slice(0, Math.max(0, 5 - rich.length))];
+  // Budget viewport : garder assez pour 2 colonnes sans scroll interne
+  const plainBudget = Math.max(0, 6 - rich.length * 2);
+  const visiblePlain = plain.slice(0, plainBudget);
+  const visible = [...rich, ...visiblePlain];
 
   return (
     <motion.article
@@ -161,36 +154,40 @@ function PillarCard({
         aria-hidden
       />
 
-      <div className="relative flex min-h-0 flex-1 flex-col p-4 sm:p-5">
-        <header className="mb-3 flex shrink-0 items-start justify-between gap-3">
+      <div className="relative flex min-h-0 flex-1 flex-col p-3.5 sm:p-4">
+        <header className="mb-2.5 flex shrink-0 items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-lg leading-none" aria-hidden>
                 {PILLAR_EMOJI[pillar.id]}
               </span>
-              <h2 className="truncate text-xl font-semibold tracking-tight text-[var(--dash-ink)] sm:text-[1.35rem]">
+              <h2 className="truncate text-lg font-semibold tracking-tight text-[var(--dash-ink)] sm:text-xl">
                 {pillar.title}
               </h2>
             </div>
-            <p className="mt-1 text-[12px] leading-snug text-[var(--dash-mid)]">{pillar.description}</p>
+            <p className="mt-0.5 text-[11px] leading-snug text-[var(--dash-mid)]">
+              {pillar.description}
+            </p>
           </div>
           <Link
             href={pillar.href}
-            className="shrink-0 cursor-pointer rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] shadow-sm backdrop-blur transition hover:bg-white"
+            className="shrink-0 !cursor-pointer rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] shadow-sm backdrop-blur transition hover:bg-white"
+            style={{ cursor: "pointer" }}
           >
             Ouvrir →
           </Link>
         </header>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-0.5">
+        <div className="grid grid-cols-2 gap-1.5">
           <AnimatePresence mode="popLayout">
             {visible.length === 0 ? (
-              <p className="text-xs text-[var(--dash-mid)]">Aucun module accessible.</p>
+              <p className="col-span-2 text-xs text-[var(--dash-mid)]">Aucun module accessible.</p>
             ) : (
               visible.map((s) => (
-                <ShortcutRow
+                <ShortcutTile
                   key={s.id}
                   item={s}
+                  fullWidth={Boolean(s.rich)}
                   iconSrc={iconByModule.get(s.moduleId)}
                   highlight={Boolean(pulseKey && s.rich && pulseKey.includes(s.id))}
                 />
@@ -206,7 +203,6 @@ function PillarCard({
 export default function DashboardPillars({ categories, shortcuts, pulseKey }: Props) {
   const pillars = DASHBOARD_PILLARS.filter((p) => pillarHasVisibleModules(p, categories));
   const iconByModule = new Map(categories.map((c) => [c.moduleId, c.img]));
-  // RH sub-tabs reuse RH image
   const rhImg = iconByModule.get("rh");
   if (rhImg) {
     iconByModule.set("absences", rhImg);
@@ -214,7 +210,7 @@ export default function DashboardPillars({ categories, shortcuts, pulseKey }: Pr
   }
 
   const pruned = (id: DashboardPillarId) => {
-    const list = shortcuts.filter((s) => s.pillarId === id);
+    const list = shortcuts.filter((s) => s.pillarId === id && s.id !== "rh-home");
     const richModules = new Set(list.filter((s) => s.rich).map((s) => s.moduleId));
     return list.filter((s) => {
       if (s.rich) return true;

@@ -167,7 +167,7 @@ export default function Home() {
 
         <main className="relative mx-auto flex min-h-[calc(100dvh-4.5rem)] w-full max-w-[1600px] flex-col px-4 sm:px-6 lg:h-[calc(100dvh-4.5rem)] lg:max-h-[calc(100dvh-4.5rem)] lg:overflow-hidden lg:px-8">
           <div className="flex min-h-0 flex-1 flex-col gap-3 py-3 lg:gap-3.5 lg:overflow-hidden lg:py-4">
-            <header className="grid shrink-0 grid-cols-1 gap-3 md:grid-cols-[minmax(10rem,auto)_minmax(7rem,auto)_minmax(0,1fr)_minmax(7rem,auto)] md:items-center md:gap-x-4 lg:gap-x-5">
+            <header className="grid shrink-0 grid-cols-1 gap-3 md:grid-cols-[minmax(12rem,auto)_minmax(8rem,auto)_minmax(0,1fr)] md:items-center md:gap-x-5">
               <motion.div
                 className="min-w-0"
                 initial={{ opacity: 0, y: 8 }}
@@ -202,18 +202,19 @@ export default function Home() {
                   onWeekSheetUpdated={loadSignals}
                 />
               </div>
-              <div className="justify-self-start md:justify-self-end">
-                <ExternalQuickLinksBar links={quickLinks} />
-              </div>
             </header>
 
-            {/* Mobile : actualité sous le header */}
-            <div className="shrink-0 md:hidden">
+            {/* Mobile : actualité + accès rapides (header site trop étroit) */}
+            <div className="flex shrink-0 flex-col gap-2 md:hidden">
               <DashboardTodayNews
                 items={todayNews}
                 hasCurrentWeek={hasCurrentWeek}
                 loading={signalsLoading}
                 onWeekSheetUpdated={loadSignals}
+              />
+              <ExternalQuickLinksBar
+                links={quickLinks}
+                manageHref={isOrgAdmin ? "/parametres?tab=dashboard-links" : null}
               />
             </div>
 

@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, type CSSProperties } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useUser, useClerk } from "@clerk/nextjs";
 import { useSignOutWithPortalReset } from "@/app/hooks/useSignOutWithPortalReset";
 import { useAdminBootstrap } from "@/app/contexts/admin-bootstrap";
+import { useData } from "@/app/contexts/data";
+import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
+import { ExternalQuickLinksBar } from "@/app/components/Dashboard/ExternalQuickLinks";
+import { toDashboardQuickLinks } from "@/app/lib/dashboard-quick-links";
 import { dashboardBrandCssVars, parseDashboardAccent } from "@/app/lib/dashboard-brand-presets";
 import { SCOLA_HEADER_ACCENT } from "@/app/lib/marketing-theme";
 import Logo from "../../../public/Logo header.png";
@@ -23,40 +27,54 @@ function UserPopover({ onClose }: { onClose: () => void }) {
   const { openUserProfile } = useClerk();
   const signOutWithPortalReset = useSignOutWithPortalReset();
   return (
-    <div className="absolute top-12 right-0 w-64 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden z-50 animate-in">
-      <div className="px-4 py-4 flex items-center gap-3 border-b border-slate-100">
+    <div className="absolute top-12 right-0 z-50 w-64 animate-in overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-2xl">
+      <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-4">
         {user?.imageUrl ? (
-          <img src={user.imageUrl} alt={user.fullName ?? ""} className="w-10 h-10 rounded-full object-cover flex-shrink-0 ring-2 ring-slate-100" />
+          <img
+            src={user.imageUrl}
+            alt={user.fullName ?? ""}
+            className="h-10 w-10 flex-shrink-0 rounded-full object-cover ring-2 ring-slate-100"
+          />
         ) : (
-          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-blue-600 font-black text-sm">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-black text-blue-600">
             {(user?.firstName?.[0] ?? "?").toUpperCase()}
           </div>
         )}
         <div className="min-w-0">
-          <p className="font-bold text-slate-900 text-sm truncate">{user?.fullName ?? user?.username ?? "—"}</p>
-          <p className="text-xs text-slate-400 truncate">{user?.primaryEmailAddress?.emailAddress ?? user?.username ?? ""}</p>
+          <p className="truncate text-sm font-bold text-slate-900">
+            {user?.fullName ?? user?.username ?? "—"}
+          </p>
+          <p className="truncate text-xs text-slate-400">
+            {user?.primaryEmailAddress?.emailAddress ?? user?.username ?? ""}
+          </p>
         </div>
       </div>
-      <div className="p-2 flex flex-col gap-0.5">
+      <div className="flex flex-col gap-0.5 p-2">
         <button
-          onClick={() => { openUserProfile(); onClose(); }}
-          className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors text-sm text-slate-700 font-medium"
+          onClick={() => {
+            openUserProfile();
+            onClose();
+          }}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
         >
           <span className="text-base">⚙️</span> Modifier mon profil
         </button>
         <Link
           href="/dashboard"
           onClick={onClose}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors text-sm text-slate-700 font-medium"
+          className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
         >
           <span className="text-base">🏠</span> Tableau de bord
         </Link>
-        <div className="h-px bg-slate-100 my-1" />
+        <div className="my-1 h-px bg-slate-100" />
         <button
-          onClick={() => { signOutWithPortalReset("/"); onClose(); }}
-          className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-red-50 transition-colors text-sm text-red-500 font-medium"
+          onClick={() => {
+            signOutWithPortalReset("/");
+            onClose();
+          }}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-500 transition-colors hover:bg-red-50"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="h-4 w-4">
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
           </svg>
           Se déconnecter
@@ -71,16 +89,25 @@ export default function Header() {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
-  const { isSignedIn } = useUser();
+  const { isSignedIn, user, isLoaded } = useUser();
   const { openUserProfile } = useClerk();
   const signOutWithPortalReset = useSignOutWithPortalReset();
   const { appContext, sitePublic: siteIdentity, loading: bootstrapLoading } = useAdminBootstrap();
+  const data = useData();
+  const isOrgAdmin = useIsOrgAdmin();
 
-  useEffect(() => { setMobileOpen(false); setPopoverOpen(false); }, [pathname]);
+  useEffect(() => {
+    setMobileOpen(false);
+    setPopoverOpen(false);
+  }, [pathname]);
+
   useEffect(() => {
     document.body.style.overflow = mobileOpen ? "hidden" : "";
-    return () => { document.body.style.overflow = ""; };
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, [mobileOpen]);
+
   useEffect(() => {
     const handle = (e: MouseEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
@@ -99,17 +126,27 @@ export default function Header() {
   const logoAlt = siteIdentity?.shortName || siteIdentity?.name || "Établissement";
   const customLogoUrl = siteIdentity?.headerLogoUrl?.trim() || "";
 
+  const headerQuickLinks = useMemo(() => {
+    if (!isLoaded || !isSignedIn || !user || !data?.externalQuickLinks) return [];
+    const rawRoles = user.publicMetadata?.role;
+    const roles = Array.isArray(rawRoles) ? rawRoles : typeof rawRoles === "string" ? [rawRoles] : [];
+    return toDashboardQuickLinks(
+      data.externalQuickLinks.filter((l) => (l.allowedRoles ?? []).some((r) => roles.includes(r))),
+    );
+  }, [isLoaded, isSignedIn, user, data]);
+
+  const headerStyle =
+    isDashboard && dashVars
+      ? ({ borderBottomColor: dashVars["--dash-border"], ...dashVars } as CSSProperties)
+      : undefined;
+
   return (
     <>
       <header
         className={`relative sticky top-0 z-50 border-b bg-white/90 backdrop-blur-md print:!hidden ${
-          isDashboard ? "" : "border-emerald-200/50"
+          isDashboard ? "dashboard-themed" : "border-emerald-200/50"
         }`}
-        style={
-          isDashboard && dashVars
-            ? { borderBottomColor: dashVars["--dash-border"] }
-            : undefined
-        }
+        style={headerStyle}
       >
         <div
           className={
@@ -126,9 +163,9 @@ export default function Header() {
           }
           aria-hidden
         />
-        <div className="max-w-[1200px] mx-auto px-6 h-14 flex items-center justify-between gap-4">
+        <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-3 px-4 sm:px-6 lg:px-8">
           <Link href={homeHref} className="group flex shrink-0 items-center transition hover:opacity-90">
-            <div className="flex h-10 shrink-0 items-center justify-center min-w-[56px]">
+            <div className="flex h-10 min-w-[56px] shrink-0 items-center justify-center">
               {!bootstrapLoading &&
                 (customLogoUrl ? (
                   <Image
@@ -137,7 +174,7 @@ export default function Header() {
                     width={180}
                     height={48}
                     unoptimized
-                    className="max-h-12 max-w-[180px] h-auto w-auto object-contain [image-rendering:auto]"
+                    className="h-auto max-h-12 w-auto max-w-[180px] object-contain [image-rendering:auto]"
                   />
                 ) : (
                   <Image
@@ -151,75 +188,94 @@ export default function Header() {
             </div>
           </Link>
 
-          <nav className="hidden md:flex gap-8 text-sm font-medium text-slate-600">
-            {isSignedIn && !isDashboard && (
-              <Link
-                href="/dashboard"
-                className="px-4 py-1.5 rounded-full border text-xs font-bold transition bg-white text-slate-700 border-slate-200 hover:border-slate-400 hover:text-slate-900"
-              >
-                Dashboard
-              </Link>
-            )}
-            {!isSignedIn && (
+          <div className="hidden min-w-0 flex-1 md:flex md:items-center md:justify-center">
+            {isSignedIn ? (
+              <ExternalQuickLinksBar
+                compact
+                links={headerQuickLinks}
+                manageHref={isOrgAdmin ? "/parametres?tab=dashboard-links" : null}
+              />
+            ) : (
               <Link
                 href="/"
-                className="px-4 py-1.5 rounded-full border text-xs font-bold transition bg-white text-slate-700 border-slate-200 hover:border-slate-400 hover:text-slate-900"
+                className="rounded-full border border-slate-200 bg-white px-4 py-1.5 text-xs font-bold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
               >
                 Accueil
               </Link>
             )}
-          </nav>
+          </div>
 
-          <div className="hidden md:flex items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {isSignedIn && !isDashboard ? (
+              <Link
+                href="/dashboard"
+                className="hidden rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:border-slate-400 hover:text-slate-900 md:inline-flex"
+              >
+                Dashboard
+              </Link>
+            ) : null}
+
             {isSignedIn ? (
-              <div ref={popoverRef} className="relative">
+              <div ref={popoverRef} className="relative hidden md:block">
                 <button
                   onClick={() => setPopoverOpen((v) => !v)}
-                  className={`flex items-center justify-center w-9 h-9 rounded-full transition-all shadow-sm ${popoverOpen ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-blue-600 hover:text-white"}`}
+                  className={`flex h-9 w-9 items-center justify-center rounded-full shadow-sm transition-all ${
+                    popoverOpen
+                      ? "bg-blue-600 text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-blue-600 hover:text-white"
+                  }`}
                   title="Mon compte"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-                    <path fillRule="evenodd" d="M7.5 6a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM3.751 20.105a8.25 8.25 0 0 1 16.498 0 .75.75 0 0 1-.437.695A18.683 18.683 0 0 1 12 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 0 1-.437-.695Z" clipRule="evenodd" />
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                    <path
+                      fillRule="evenodd"
+                      d="M7.5 6a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM3.751 20.105a8.25 8.25 0 0 1 16.498 0 .75.75 0 0 1-.437.695A18.683 18.683 0 0 1 12 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 0 1-.437-.695Z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 </button>
-                {popoverOpen && <UserPopover onClose={() => setPopoverOpen(false)} />}
+                {popoverOpen ? <UserPopover onClose={() => setPopoverOpen(false)} /> : null}
               </div>
             ) : (
               <Link
                 href="/sign-in"
-                className="flex items-center justify-center bg-slate-100 text-slate-600 w-9 h-9 rounded-full hover:bg-blue-600 hover:text-white transition-all"
+                className="hidden h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition-all hover:bg-blue-600 hover:text-white md:flex"
                 title="Se connecter"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-                  <path fillRule="evenodd" d="M7.5 6a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM3.751 20.105a8.25 8.25 0 0 1 16.498 0 .75.75 0 0 1-.437.695A18.683 18.683 0 0 1 12 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 0 1-.437-.695Z" clipRule="evenodd" />
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
+                  <path
+                    fillRule="evenodd"
+                    d="M7.5 6a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0ZM3.751 20.105a8.25 8.25 0 0 1 16.498 0 .75.75 0 0 1-.437.695A18.683 18.683 0 0 1 12 22.5c-2.786 0-5.433-.608-7.812-1.7a.75.75 0 0 1-.437-.695Z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               </Link>
             )}
-          </div>
 
-          <button
-            className="md:hidden relative z-50 flex flex-col justify-center items-center w-10 h-10 gap-[5px]"
-            onClick={() => setMobileOpen((v) => !v)}
-            aria-label={mobileOpen ? "Fermer le menu" : "Ouvrir le menu"}
-          >
-            <span
-              className="block h-[1.5px] bg-slate-800 rounded-full transition-all duration-300 origin-center"
-              style={{ width: 24, transform: mobileOpen ? "translateY(6.5px) rotate(45deg)" : "none" }}
-            />
-            <span
-              className="block h-[1.5px] bg-slate-800 rounded-full transition-all duration-300"
-              style={{ width: 16, opacity: mobileOpen ? 0 : 1, transform: mobileOpen ? "scaleX(0)" : "none" }}
-            />
-            <span
-              className="block h-[1.5px] bg-slate-800 rounded-full transition-all duration-300 origin-center"
-              style={{ width: 24, transform: mobileOpen ? "translateY(-6.5px) rotate(-45deg)" : "none" }}
-            />
-          </button>
+            <button
+              className="relative z-50 flex h-10 w-10 flex-col items-center justify-center gap-[5px] md:hidden"
+              onClick={() => setMobileOpen((v) => !v)}
+              aria-label={mobileOpen ? "Fermer le menu" : "Ouvrir le menu"}
+            >
+              <span
+                className="block h-[1.5px] rounded-full bg-slate-800 transition-all duration-300 origin-center"
+                style={{ width: 24, transform: mobileOpen ? "translateY(6.5px) rotate(45deg)" : "none" }}
+              />
+              <span
+                className="block h-[1.5px] rounded-full bg-slate-800 transition-all duration-300"
+                style={{ width: 16, opacity: mobileOpen ? 0 : 1, transform: mobileOpen ? "scaleX(0)" : "none" }}
+              />
+              <span
+                className="block h-[1.5px] rounded-full bg-slate-800 transition-all duration-300 origin-center"
+                style={{ width: 24, transform: mobileOpen ? "translateY(-6.5px) rotate(-45deg)" : "none" }}
+              />
+            </button>
+          </div>
         </div>
       </header>
 
       <div
-        className="fixed inset-0 z-40 md:hidden transition-all duration-500 print:!hidden"
+        className="fixed inset-0 z-40 transition-all duration-500 print:!hidden md:hidden"
         style={{
           background: "rgba(0,0,0,0.18)",
           backdropFilter: "blur(4px)",
@@ -229,7 +285,7 @@ export default function Header() {
         onClick={() => setMobileOpen(false)}
       />
       <div
-        className="fixed top-14 left-0 right-0 z-40 md:hidden bg-white/96 backdrop-blur-2xl border-b border-slate-100 shadow-2xl print:!hidden"
+        className="fixed top-14 right-0 left-0 z-40 border-b border-slate-100 bg-white/96 shadow-2xl backdrop-blur-2xl print:!hidden md:hidden"
         style={{
           transform: mobileOpen ? "translateY(0)" : "translateY(-12px)",
           opacity: mobileOpen ? 1 : 0,
@@ -237,19 +293,21 @@ export default function Header() {
           transition: "transform 0.48s cubic-bezier(0.32,0.72,0,1), opacity 0.3s ease",
         }}
       >
-        <div className="max-w-[1200px] mx-auto px-6 pt-4 pb-8">
+        <div className="mx-auto max-w-[1200px] px-6 pt-4 pb-8">
           <nav className="flex flex-col">
             {isSignedIn ? (
               <>
                 <Link
                   href="/dashboard"
-                  className={`group flex items-center justify-between py-4 border-b border-slate-100 text-[1.35rem] font-black tracking-tight transition-all duration-300 hover:text-slate-600 ${isDashboard ? "text-slate-800" : "text-slate-900"}`}
+                  className={`group flex items-center justify-between border-b border-slate-100 py-4 text-[1.35rem] font-black tracking-tight transition-all duration-300 hover:text-slate-600 ${
+                    isDashboard ? "text-slate-800" : "text-slate-900"
+                  }`}
                 >
                   <span className="flex items-center gap-3">
-                    {isDashboard && <span className="w-2 h-2 rounded-full flex-shrink-0 bg-slate-600" />}
+                    {isDashboard ? <span className="h-2 w-2 flex-shrink-0 rounded-full bg-slate-600" /> : null}
                     Tableau de bord
                   </span>
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4 opacity-30 group-hover:opacity-60 transition">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="h-4 w-4 opacity-30 transition group-hover:opacity-60">
                     <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
                   </svg>
                 </Link>
@@ -260,14 +318,16 @@ export default function Header() {
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`group flex items-center justify-between py-3.5 border-b border-slate-100 text-[1.1rem] font-bold tracking-tight transition-all duration-300 hover:text-slate-600 ${active ? "text-slate-800" : "text-slate-900"}`}
+                      className={`group flex items-center justify-between border-b border-slate-100 py-3.5 text-[1.1rem] font-bold tracking-tight transition-all duration-300 hover:text-slate-600 ${
+                        active ? "text-slate-800" : "text-slate-900"
+                      }`}
                     >
                       <span className="flex items-center gap-3">
-                        {active && <span className="w-2 h-2 rounded-full flex-shrink-0 bg-slate-600" />}
+                        {active ? <span className="h-2 w-2 flex-shrink-0 rounded-full bg-slate-600" /> : null}
                         <span>{item.icon}</span>
                         {item.label}
                       </span>
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4 opacity-30 group-hover:opacity-60 transition">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="h-4 w-4 opacity-30 transition group-hover:opacity-60">
                         <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
                       </svg>
                     </Link>
@@ -277,13 +337,15 @@ export default function Header() {
             ) : (
               <Link
                 href="/"
-                className={`group flex items-center justify-between py-4 border-b border-slate-100 text-[1.35rem] font-black tracking-tight transition-all duration-300 hover:text-slate-600 ${pathname === "/" ? "text-slate-800" : "text-slate-900"}`}
+                className={`group flex items-center justify-between border-b border-slate-100 py-4 text-[1.35rem] font-black tracking-tight transition-all duration-300 hover:text-slate-600 ${
+                  pathname === "/" ? "text-slate-800" : "text-slate-900"
+                }`}
               >
                 <span className="flex items-center gap-3">
-                  {pathname === "/" && <span className="w-2 h-2 rounded-full flex-shrink-0 bg-slate-600" />}
+                  {pathname === "/" ? <span className="h-2 w-2 flex-shrink-0 rounded-full bg-slate-600" /> : null}
                   Accueil
                 </span>
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4 opacity-30 group-hover:opacity-60 transition">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="h-4 w-4 opacity-30 transition group-hover:opacity-60">
                   <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
                 </svg>
               </Link>
@@ -298,20 +360,23 @@ export default function Header() {
                     openUserProfile();
                     setMobileOpen(false);
                   }}
-                  className="w-full bg-slate-100 text-slate-700 font-bold text-center py-3.5 rounded-2xl text-sm hover:bg-slate-200 transition"
+                  className="w-full rounded-2xl bg-slate-100 py-3.5 text-center text-sm font-bold text-slate-700 transition hover:bg-slate-200"
                 >
                   Modifier mon profil
                 </button>
                 <button
                   type="button"
                   onClick={() => signOutWithPortalReset("/")}
-                  className="w-full bg-red-50 text-red-500 font-bold text-center py-3.5 rounded-2xl text-sm hover:bg-red-100 transition"
+                  className="w-full rounded-2xl bg-red-50 py-3.5 text-center text-sm font-bold text-red-500 transition hover:bg-red-100"
                 >
                   Se déconnecter
                 </button>
               </>
             ) : (
-              <Link href="/sign-in" className="bg-slate-100 text-slate-700 font-bold text-center py-3.5 rounded-2xl text-sm hover:bg-slate-200 transition">
+              <Link
+                href="/sign-in"
+                className="rounded-2xl bg-slate-100 py-3.5 text-center text-sm font-bold text-slate-700 transition hover:bg-slate-200"
+              >
                 Se connecter
               </Link>
             )}

@@ -27,7 +27,18 @@
 }
 
 body { font-family: Arial, Helvetica, sans-serif}
-a { cursor: pointer}
+
+/* Liens / boutons : curseur pointer fiable (Next Link + enfants) */
+a,
+a *,
+button,
+button *,
+[role="link"],
+[role="link"] *,
+[role="button"],
+[role="button"] * {
+  cursor: pointer !important;
+}
 
 /* Fallback thème dashboard (surchargé par DashboardThemeRoot) */
 .dashboard-themed {
@@ -40,8 +51,6 @@ a { cursor: pointer}
   --dash-border: #A7F3D0;
   --dash-ink: #14231A;
 }
-button { cursor: pointer}
-a { cursor: pointer}
 ::-webkit-scrollbar { display: none}
 /* ScolIA — pluie Matrix (fond bulle / marque IA) */
 @keyframes scolia-matrix-fall {

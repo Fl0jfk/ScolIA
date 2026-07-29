@@ -87,13 +87,9 @@ export default function DashboardTodayNews({
     <>
       {loading ? (
         <p className={`text-[var(--dash-mid)] ${compact ? "text-xs" : "mt-2 text-sm"}`}>Chargement…</p>
-      ) : !hasCurrentWeek ? (
+      ) : !hasCurrentWeek || items.length === 0 ? (
         <p className={`font-medium text-stone-500 ${compact ? "truncate text-sm" : "mt-2 text-[15px]"}`}>
-          Pas d&apos;actualité pour cette semaine
-        </p>
-      ) : items.length === 0 ? (
-        <p className={`font-medium text-stone-500 ${compact ? "truncate text-sm" : "mt-2 text-[15px]"}`}>
-          Aucun événement prévu aujourd&apos;hui
+          Pas d&apos;actualité aujourd&apos;hui
         </p>
       ) : (
         <div className={`relative ${compact ? "min-h-[1.5rem]" : "mt-1.5 min-h-[3rem]"}`}>
