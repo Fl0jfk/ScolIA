@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { DashboardNotification } from "@/app/lib/dashboard-signals";
 
 type Props = {
@@ -15,19 +15,47 @@ export default function DashboardGlobalNotifications({ items }: Props) {
   const total = items.reduce((sum, item) => sum + item.count, 0);
   const panelId = useId();
   const [open, setOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    };
+  }, []);
 
   if (total <= 0) return null;
 
   const label = total > 99 ? "99+" : String(total);
 
+  const openNow = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+    setOpen(true);
+  };
+
+  const closeSoon = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setOpen(false), 220);
+  };
+
+  const closeNow = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+    setOpen(false);
+  };
+
   return (
     <span
       className="relative ml-1.5 inline-flex align-super"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
+      onMouseEnter={openNow}
+      onMouseLeave={closeSoon}
+      onFocus={openNow}
       onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) closeSoon();
       }}
     >
       <button
@@ -41,11 +69,12 @@ export default function DashboardGlobalNotifications({ items }: Props) {
         {label}
       </button>
 
+      {/* Pont invisible (pt) : pas de trou entre badge et panneau → le hover tient */}
       <div
         id={panelId}
         role="region"
         aria-label="Détail des notifications"
-        className={`absolute left-0 top-[calc(100%+0.5rem)] z-40 w-[min(20rem,calc(100vw-2rem))] origin-top-left transition duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+        className={`absolute left-0 top-full z-40 w-[min(20rem,calc(100vw-2rem))] origin-top-left pt-2 transition duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${
           open
             ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
             : "pointer-events-none -translate-y-1 scale-[0.98] opacity-0"
@@ -66,7 +95,7 @@ export default function DashboardGlobalNotifications({ items }: Props) {
                 <Link
                   href={item.href}
                   className="flex items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-black/[0.04] active:bg-black/[0.06]"
-                  onClick={() => setOpen(false)}
+                  onClick={closeNow}
                 >
                   <span className="inline-flex h-[1.125rem] min-w-[1.125rem] shrink-0 items-center justify-center rounded-full bg-[#FF3B30] px-[5px] text-[11px] font-semibold tabular-nums leading-none text-white">
                     {item.count > 99 ? "99+" : item.count}
