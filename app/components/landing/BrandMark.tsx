@@ -10,7 +10,8 @@ const SIZE: Record<Size, string> = {
 };
 
 /**
- * Marque ScolIA — Scol + IA collés, « IA » en verre animé (bounce).
+ * Marque ScolIA — Scol + IA collés.
+ * L’effet verre bounce est uniquement dans le remplissage des lettres I et A.
  */
 export default function BrandMark({
   size = "md",
@@ -22,7 +23,6 @@ export default function BrandMark({
   invert?: boolean;
 }) {
   const scol = invert ? "text-white" : "text-[#14231A]";
-  const ia = invert ? "text-[#4ADE80]" : "text-[#2F6B4A]";
 
   return (
     <span
@@ -30,12 +30,13 @@ export default function BrandMark({
       aria-label={MARKETING.productName}
     >
       <span className={`font-semibold ${scol}`}>Scol</span>
-      <span className={`scolia-brand-ia relative inline-block font-black tracking-tight ${ia}`}>
-        <span
-          className={`scolia-brand-ia-glass ${invert ? "scolia-brand-ia-glass--invert" : ""}`}
-          aria-hidden
-        />
-        <span className="relative z-[1]">IA</span>
+      <span className="inline-flex font-black tracking-tight" aria-hidden>
+        <span className={`scolia-brand-letter ${invert ? "scolia-brand-letter--invert" : ""}`}>
+          I
+        </span>
+        <span className={`scolia-brand-letter ${invert ? "scolia-brand-letter--invert" : ""}`}>
+          A
+        </span>
       </span>
     </span>
   );
