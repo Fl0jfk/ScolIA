@@ -142,8 +142,9 @@ export default function LandingPage() {
               </h2>
               <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-stone-600">
                 Chaque module suit un parcours concret. Voici ce que fait{" "}
-                <BrandMark size="sm" className="align-baseline" /> au quotidien — l&apos;animation
-                ci-dessous illustre le flux.
+                <BrandMark size="sm" className="align-baseline" />
+                {" "}
+                au quotidien — l&apos;animation ci-dessous illustre le flux.
               </p>
             </div>
 
@@ -280,7 +281,7 @@ export default function LandingPage() {
                 {SOVEREIGNTY.title}
               </p>
               <h2 className="mt-2 text-2xl font-black text-[#14231A] md:text-3xl">
-                Scaleway · Mistral · EasyTransac
+                Scaleway · Mistral · EasyTransac · OVH
               </h2>
               <p className="mx-auto mt-3 max-w-2xl text-sm text-stone-600">{SOVEREIGNTY.intro}</p>
               <ul className="mx-auto mt-4 max-w-xl space-y-1.5 text-left text-sm text-stone-600">

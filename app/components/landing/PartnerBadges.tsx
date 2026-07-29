@@ -10,7 +10,7 @@ import { PARTNERS } from "@/app/lib/marketing-site";
  */
 export default function PartnerBadges() {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {PARTNERS.map((p) => (
         <PartnerCard key={p.id} partner={p} />
       ))}

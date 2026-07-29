@@ -4,13 +4,9 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import PartnerBadges from "@/app/components/landing/PartnerBadges";
 import MicrosoftEducationCard from "@/app/components/landing/MicrosoftEducationCard";
+import PricingSimulator from "@/app/components/landing/PricingSimulator";
 import { SectionReveal } from "@/app/components/landing/SectionReveal";
-import {
-  MARKETING,
-  PRICING_FAQ,
-  PRICING_INCLUDED,
-  PRICING_PLANS,
-} from "@/app/lib/marketing-site";
+import { MARKETING, PRICING_FAQ } from "@/app/lib/marketing-site";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -24,7 +20,7 @@ const fadeUp = {
 export default function TarifsContent() {
   return (
     <main>
-      <section className="mx-auto max-w-6xl px-6 pb-10 pt-10 md:pt-14">
+      <section className="mx-auto max-w-6xl px-6 pb-8 pt-10 md:pt-14">
         <div className="text-center">
           <motion.span
             custom={0}
@@ -33,7 +29,7 @@ export default function TarifsContent() {
             animate="show"
             className="mb-5 inline-flex items-center gap-2 rounded-full border-2 border-[#2F6B4A]/20 bg-emerald-50 px-4 py-1.5 text-xs font-black uppercase tracking-widest text-[#2F6B4A]"
           >
-            Trois forfaits · tout inclus
+            Tarif selon l&apos;effectif · tout inclus
           </motion.span>
 
           <motion.h1
@@ -44,7 +40,7 @@ export default function TarifsContent() {
             className="text-3xl font-black tracking-tight text-[#14231A] md:text-5xl"
           >
             <span className="bg-gradient-to-r from-[#2F6B4A] via-[#3D8A5C] to-[#4ADE80] bg-clip-text text-transparent">
-              Un prix selon votre effectif
+              Entrez votre effectif
             </span>
           </motion.h1>
 
@@ -62,93 +58,7 @@ export default function TarifsContent() {
 
       <section className="mx-auto max-w-6xl px-6 pb-16">
         <SectionReveal>
-          <div className="grid gap-6 lg:grid-cols-3">
-            {PRICING_PLANS.map((plan, i) => (
-              <motion.article
-                key={plan.id}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.08, duration: 0.45 }}
-                whileHover={{ y: -4 }}
-                className={`relative flex flex-col rounded-3xl border-2 p-6 ${
-                  plan.highlighted
-                    ? "border-[#2F6B4A] bg-white shadow-xl shadow-emerald-900/15 ring-2 ring-[#4ADE80]/20"
-                    : "border-emerald-100 bg-white/90 shadow-md shadow-emerald-900/5"
-                }`}
-              >
-                {plan.highlighted ? (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-3 py-0.5 text-[10px] font-black uppercase tracking-wider text-white shadow-md">
-                    Recommandé
-                  </span>
-                ) : null}
-                <span className="text-[10px] font-black uppercase tracking-wider text-[#3D8A5C]">
-                  {plan.audienceLabel}
-                </span>
-                <h3 className="mt-1 text-xl font-black text-[#14231A]">{plan.name}</h3>
-                <p className="mt-2 text-3xl font-black text-[#2F6B4A]">{plan.priceLabel}</p>
-                <p className="mt-1 text-xs font-semibold text-stone-500">{plan.priceHint}</p>
-                <p className="mt-3 text-sm text-stone-600">{plan.description}</p>
-
-                <div className="mt-4 rounded-xl bg-emerald-50 px-3 py-3 text-left text-xs text-[#2F6B4A]">
-                  <p className="font-black uppercase tracking-wide">Microsoft Éducation</p>
-                  <p className="mt-1 font-semibold">
-                    {plan.microsoftA3}× A3 · {plan.microsoftA1}× A1
-                  </p>
-                  <p className="mt-2 text-[11px] font-medium leading-snug text-[#2F6B4A]/80">
-                    Licences A3 supplémentaires sur demande — tarif ajusté.
-                  </p>
-                </div>
-
-                <ul className="mt-4 flex-1 space-y-2">
-                  {plan.features.map((f) => (
-                    <li key={f} className="flex gap-2 text-sm text-stone-700">
-                      <span className="shrink-0 font-bold text-[#4ADE80]">✓</span>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-
-                <a
-                  href={`mailto:${MARKETING.contactEmail}?subject=${encodeURIComponent(`Forfait ${plan.name} — ${MARKETING.productName}`)}`}
-                  className={`mt-6 block rounded-2xl py-3.5 text-center text-sm font-black transition ${
-                    plan.highlighted
-                      ? "bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] text-white shadow-lg shadow-emerald-900/25 hover:brightness-110"
-                      : "border-2 border-[#2F6B4A]/25 text-[#2F6B4A] hover:border-[#2F6B4A] hover:bg-emerald-50"
-                  }`}
-                >
-                  Choisir {plan.name}
-                </a>
-              </motion.article>
-            ))}
-          </div>
-        </SectionReveal>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-6 pb-16">
-        <SectionReveal>
-          <h2 className="text-center text-2xl font-black text-[#14231A] md:text-3xl">
-            Tout est <span className="text-[#2F6B4A]">inclus</span>
-          </h2>
-          <p className="mx-auto mb-8 mt-2 max-w-xl text-center text-sm text-stone-600">
-            Les mêmes briques métier sur les trois forfaits — seul le pack Microsoft change. Des
-            licences A3 Éducation peuvent être ajoutées sur demande, avec un montant mensuel adapté.
-          </p>
-          <div className="rounded-3xl border border-emerald-100 bg-white p-6 shadow-lg shadow-emerald-900/5 md:p-8">
-            <ul className="grid gap-3 sm:grid-cols-2">
-              {PRICING_INCLUDED.map((f) => (
-                <li
-                  key={f}
-                  className="flex gap-3 rounded-2xl border border-emerald-50 bg-emerald-50/30 p-3"
-                >
-                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-xs font-black text-[#2F6B4A]">
-                    ✓
-                  </span>
-                  <span className="text-sm text-stone-700">{f}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <PricingSimulator />
         </SectionReveal>
       </section>
 
@@ -165,11 +75,11 @@ export default function TarifsContent() {
               Souveraineté
             </p>
             <h2 className="mt-2 text-xl font-black text-[#14231A]">
-              Scaleway · Mistral · EasyTransac · Microsoft · Clerk
+              Scaleway · Mistral · EasyTransac · OVH · Microsoft · Clerk
             </h2>
             <p className="mx-auto mt-2 max-w-xl text-sm text-stone-600">
-              Hébergement Scaleway (cloud français), IA Mistral (française), paiements EasyTransac
-              (startup française) — Microsoft Éducation et Clerk en complément.
+              Hébergement Scaleway, IA Mistral, paiements EasyTransac, messagerie OVH — Microsoft
+              Éducation et Clerk en complément.
             </p>
           </div>
           <PartnerBadges />
@@ -205,7 +115,7 @@ export default function TarifsContent() {
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#2F6B4A] via-[#25633F] to-[#1E4A32] px-6 py-10 text-center shadow-2xl shadow-emerald-900/30 md:px-12">
             <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[#4ADE80]/20 blur-2xl" />
             <h2 className="relative text-xl font-black text-white md:text-2xl">
-              Une question sur les forfaits ?
+              Une question sur le tarif ?
             </h2>
             <p className="relative mx-auto mt-2 max-w-md text-sm text-emerald-100/90">
               Indiquez-nous votre effectif : on confirme le palier et le pack Microsoft.
@@ -221,7 +131,7 @@ export default function TarifsContent() {
       </section>
 
       <p className="mx-auto max-w-6xl px-6 pb-16 text-center text-xs text-stone-500">
-        Tarifs mensuels indicatifs TTC — forfait selon l&apos;effectif déclaré.{" "}
+        Tarifs mensuels indicatifs TTC — palier selon l&apos;effectif déclaré.{" "}
         <Link href="/mentions-legales" className="font-semibold text-[#2F6B4A] hover:underline">
           Mentions légales
         </Link>

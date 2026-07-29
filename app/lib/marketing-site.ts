@@ -6,7 +6,7 @@ export const MARKETING = {
   contactEmail: process.env.NEXT_PUBLIC_SCOLA_CONTACT_EMAIL?.trim() || "contact@scolia.fr",
   contactCtaLabel: "Nous contacter",
   pricingPromise:
-    "Trois forfaits selon l'effectif de l'établissement, licences Microsoft Éducation incluses.",
+    "Le tarif se calcule selon l'effectif de votre établissement — même plateforme pour tous, pack Microsoft adapté.",
 
   legal: {
     companyName: process.env.NEXT_PUBLIC_SCOLA_LEGAL_COMPANY?.trim() || "[Raison sociale à compléter]",
@@ -40,7 +40,7 @@ export const BENEFITS = [
   },
   {
     title: "Souveraineté et partenaires",
-    desc: "Hébergement Scaleway (cloud français), IA Mistral (française), paiements EasyTransac (startup française). Microsoft Éducation pour les licences ; Clerk pour l'authentification.",
+    desc: "Hébergement Scaleway, IA Mistral, paiements EasyTransac, messagerie OVH. Microsoft Éducation pour les licences ; Clerk pour l'authentification.",
   },
 ] as const;
 
@@ -190,10 +190,18 @@ export const PARTNERS = [
     sovereign: true,
   },
   {
+    id: "ovh",
+    name: "OVH",
+    role: "Messagerie",
+    detail: "Messagerie professionnelle via OVH — e-mails de l'établissement gérés en France.",
+    logoPath: "/partners/ovh.svg",
+    sovereign: true,
+  },
+  {
     id: "microsoft",
     name: "Microsoft Éducation",
     role: "Licences bureautique",
-    detail: "Membre du Partner Program — packs A1 / A3 selon forfait.",
+    detail: "Membre du Partner Program — packs A1 / A3 selon effectif.",
     logoPath: "/partners/microsoft.svg",
     sovereign: false,
   },
@@ -211,11 +219,12 @@ export const PARTNERS = [
 export const SOVEREIGNTY = {
   title: "Souveraineté numérique",
   intro:
-    "ScolIA s'appuie prioritairement sur des acteurs français : hébergement Scaleway, intelligence artificielle Mistral, paiements EasyTransac. Hors France : Microsoft Éducation (licences) et Clerk (authentification).",
+    "ScolIA s'appuie prioritairement sur des acteurs français : hébergement Scaleway, intelligence artificielle Mistral, paiements EasyTransac, messagerie OVH. Hors France : Microsoft Éducation (licences) et Clerk (authentification).",
   bullets: [
     "Scaleway — cloud français, hébergement à Paris.",
     "Mistral AI — IA française pour l'assistant, l'analyse et l'OCR.",
     "EasyTransac — startup française pour les mensualités.",
+    "OVH — messagerie professionnelle gérée en France.",
     "Licences Microsoft Éducation · authentification Clerk.",
   ],
 } as const;
@@ -223,11 +232,11 @@ export const SOVEREIGNTY = {
 export const RGPD_COMPACT = {
   title: "Données & confiance",
   summary:
-    "ScolIA orchestre les workflows de l'établissement. Hébergement Scaleway en France, IA française Mistral, paiements EasyTransac (startup française), licences Microsoft Éducation dans l'abonnement.",
+    "ScolIA orchestre les workflows de l'établissement. Hébergement Scaleway en France, IA française Mistral, paiements EasyTransac, messagerie OVH, licences Microsoft Éducation dans l'abonnement.",
   bullets: [
     "Les dossiers élèves sensibles sont orientés vers vos espaces Microsoft : l'établissement reste maître de ses données.",
-    "Hébergement France (Scaleway) · IA française (Mistral) · paiement français (EasyTransac).",
-    "Licences Microsoft A1 / A3 Éducation selon forfait · authentification Clerk.",
+    "Hébergement France (Scaleway) · IA française (Mistral) · paiement français (EasyTransac) · mail OVH.",
+    "Licences Microsoft A1 / A3 Éducation selon effectif · authentification Clerk.",
   ],
 } as const;
 
@@ -238,7 +247,7 @@ export const RGPD_HIGHLIGHTS = {
   processingModel:
     "ScolIA fait circuler, valider et tracer les démarches. Pour les dossiers élèves et contenus sensibles, des workflows orientent le dépôt vers Microsoft 365. L'établissement reste responsable de traitement.",
   microsoftPartner:
-    "ScolIA est membre du Microsoft Partner Program : licences A1 et A3 Éducation incluses dans chaque forfait, pour équiper direction, administratif et enseignants sans passer par des licences Business.",
+    "ScolIA est membre du Microsoft Partner Program : licences A1 et A3 Éducation incluses selon l'effectif, pour équiper direction, administratif et enseignants sans passer par des licences Business.",
   points: [
     {
       label: "Traitement, pas archivage",
@@ -257,8 +266,12 @@ export const RGPD_HIGHLIGHTS = {
       detail: "EasyTransac, startup française, pour les mensualités d'abonnement.",
     },
     {
+      label: "Messagerie OVH",
+      detail: "E-mails de l'établissement gérés via OVH, en France.",
+    },
+    {
       label: "Microsoft Éducation",
-      detail: "Licences A1 / A3 incluses selon le forfait.",
+      detail: "Licences A1 / A3 incluses selon l'effectif.",
     },
     {
       label: "Authentification",
@@ -276,8 +289,8 @@ export const TRUST_ITEMS = RGPD_COMPACT.bullets.map((detail, i) => ({
 
 export const STATS = [
   { value: "4", label: "piliers métier" },
-  { value: "3", label: "forfaits clairs" },
-  { value: "FR", label: "Scaleway + Mistral" },
+  { value: "1", label: "tarif selon effectif" },
+  { value: "FR", label: "Scaleway · Mistral · OVH" },
   { value: "MS", label: "licences incluses" },
 ] as const;
 
@@ -290,7 +303,6 @@ export type PricingPlan = {
   priceLabel: string;
   priceHint: string;
   description: string;
-  highlighted?: boolean;
   microsoftA3: number;
   microsoftA1: number;
   features: string[];
@@ -301,13 +313,14 @@ const BASE_FEATURES = [
   "Internat, cloud personnel et système de demandes",
   "Assistant IA Mistral (OCR & aide documentaire)",
   "Hébergement France — Scaleway Paris",
+  "Messagerie professionnelle — OVH",
   "Personnalisation logo & identité",
   "Mises à jour et accompagnement à la prise en main",
 ] as const;
 
 export const PRICING_INCLUDED = [
   ...BASE_FEATURES,
-  "Licences Microsoft Éducation (A1 / A3) selon forfait",
+  "Licences Microsoft Éducation (A1 / A3) selon effectif",
 ] as const;
 
 export const PRICING_PLANS: PricingPlan[] = [
@@ -317,8 +330,9 @@ export const PRICING_PLANS: PricingPlan[] = [
     audienceLabel: "Moins de 500 élèves",
     priceMonthly: 299,
     priceLabel: "299 € / mois",
-    priceHint: "Établissements jusqu'à 499 élèves",
-    description: "Toute la plateforme ScolIA, avec un pack Microsoft adapté aux structures de taille moyenne.",
+    priceHint: "Palier calculé automatiquement selon votre effectif",
+    description:
+      "Même plateforme ScolIA. Moins d'élèves = généralement moins de personnel : le pack de licences Microsoft est dimensionné en conséquence.",
     microsoftA3: 5,
     microsoftA1: 50,
     features: [
@@ -333,9 +347,9 @@ export const PRICING_PLANS: PricingPlan[] = [
     audienceLabel: "500 à 1 000 élèves",
     priceMonthly: 499,
     priceLabel: "499 € / mois",
-    priceHint: "Le forfait le plus choisi",
-    description: "Pour un collège, un lycée ou un campus de taille importante.",
-    highlighted: true,
+    priceHint: "Palier calculé automatiquement selon votre effectif",
+    description:
+      "Même plateforme ScolIA. L'effectif détermine le tarif et le volume de licences Microsoft (direction, administratif, éducation).",
     microsoftA3: 10,
     microsoftA1: 150,
     features: [
@@ -350,8 +364,9 @@ export const PRICING_PLANS: PricingPlan[] = [
     audienceLabel: "Plus de 1 000 élèves",
     priceMonthly: 699,
     priceLabel: "699 € / mois",
-    priceHint: "Grands établissements & groupes scolaires",
-    description: "Capacité étendue et pack Microsoft renforcé pour les plus gros effectifs.",
+    priceHint: "Palier calculé automatiquement selon votre effectif",
+    description:
+      "Même plateforme ScolIA. Grands effectifs : pack Microsoft renforcé, sans modules à « choisir » — tout reste inclus.",
     microsoftA3: 15,
     microsoftA1: 150,
     features: [
@@ -361,6 +376,14 @@ export const PRICING_PLANS: PricingPlan[] = [
     ],
   },
 ];
+
+/** Déduit le palier tarifaire + licences Microsoft à partir de l'effectif. */
+export function resolvePricingPlan(studentCount: number): PricingPlan {
+  const n = Math.max(0, Math.floor(Number(studentCount) || 0));
+  if (n < 500) return PRICING_PLANS[0]!;
+  if (n <= 1000) return PRICING_PLANS[1]!;
+  return PRICING_PLANS[2]!;
+}
 
 export const MICROSOFT_PRICING_NOTE = {
   title: "Licences Microsoft Éducation — inclus",
@@ -375,11 +398,11 @@ export const MICROSOFT_PRICING_NOTE = {
   bullets: [
     "Licences A3 pour les profils administratifs et de direction (Word, Excel, Outlook…).",
     "Licences A1 pour les enseignants (outils Office en ligne).",
-    "Volumes de base définis par forfait.",
-    "Licences A3 Éducation supplémentaires disponibles sur demande : le forfait est alors ajusté selon le volume.",
+    "Volumes de base définis selon l'effectif de l'établissement.",
+    "Licences A3 Éducation supplémentaires disponibles sur demande : le tarif mensuel est alors ajusté selon le volume.",
   ],
   disclaimer:
-    "Les volumes A1 / A3 indiqués sont ceux inclus dans chaque forfait. Besoin de licences A3 supplémentaires ? Contactez-nous pour un devis adapté.",
+    "Les volumes A1 / A3 indiqués correspondent à chaque palier d'effectif. Besoin de licences A3 supplémentaires ? Contactez-nous pour un devis adapté.",
 } as const;
 
 export const PRICING_FAQ = [
@@ -388,12 +411,12 @@ export const PRICING_FAQ = [
     a: "Non. Documents élèves, sorties, salles, RH, internat, cloud personnel, demandes et IA sont inclus dans l'abonnement.",
   },
   {
-    q: "Comment choisir mon forfait ?",
-    a: "Selon l'effectif : moins de 500 élèves → 299 €/mois ; 500 à 1 000 → 499 €/mois ; plus de 1 000 → 699 €/mois. Les licences Microsoft sont incluses à chaque palier.",
+    q: "Comment est calculé mon tarif ?",
+    a: "Vous n'avez pas de formule à choisir : le palier dépend de votre effectif. Moins de 500 élèves → 299 €/mois ; 500 à 1 000 → 499 €/mois ; plus de 1 000 → 699 €/mois. Moins d'élèves = généralement moins de licences éducation / admin à fournir.",
   },
   {
     q: "Que contiennent les licences Microsoft ?",
-    a: "ScolIA est membre du Microsoft Partner Program. Essentielle : 5× A3 + 50× A1. Standard : 10× A3 + 150× A1. Plus : 15× A3 + 150× A1.",
+    a: "ScolIA est membre du Microsoft Partner Program. Moins de 500 élèves : 5× A3 + 50× A1. 500 à 1 000 : 10× A3 + 150× A1. Plus de 1 000 : 15× A3 + 150× A1.",
   },
   {
     q: "Puis-je ajouter des licences A3 si le pack ne suffit pas ?",
@@ -405,7 +428,7 @@ export const PRICING_FAQ = [
   },
   {
     q: "Où sont hébergées les données ?",
-    a: "En France, chez Scaleway (Paris), cloud français. L'IA et l'OCR s'appuient sur Mistral AI, entreprise française. La bureautique repose sur Microsoft Éducation ; l'authentification sur Clerk.",
+    a: "En France, chez Scaleway (Paris), cloud français. L'IA et l'OCR s'appuient sur Mistral AI. La messagerie passe par OVH. La bureautique repose sur Microsoft Éducation ; l'authentification sur Clerk.",
   },
   {
     q: "Comment sont réglées les mensualités ?",
@@ -413,6 +436,6 @@ export const PRICING_FAQ = [
   },
   {
     q: "Comment démarrer ?",
-    a: "Écrivez-nous : nous confirmons le forfait selon votre effectif et planifions la mise en route avec la direction ou l'OGEC.",
+    a: "Indiquez votre effectif : le tarif et le pack de licences se déterminent automatiquement. Nous planifions ensuite la mise en route avec la direction ou l'OGEC.",
   },
 ] as const;

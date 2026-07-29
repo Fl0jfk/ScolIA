@@ -5,8 +5,8 @@ import { MARKETING } from "@/app/lib/marketing-site";
 
 export const metadata: Metadata = {
   title: `Tarifs — ${MARKETING.productName}`,
-  description:
-    "Trois forfaits ScolIA : 299 €, 499 € ou 699 € / mois selon l'effectif. Licences Microsoft Éducation incluses. Hébergement Scaleway France.",
+    description:
+    "Tarif ScolIA selon l'effectif : 299 €, 499 € ou 699 € / mois. Licences Microsoft Éducation incluses. Hébergement Scaleway France.",
 };
 
 export default function TarifsPage() {
