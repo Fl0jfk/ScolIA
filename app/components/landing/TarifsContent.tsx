@@ -6,7 +6,7 @@ import PartnerBadges from "@/app/components/landing/PartnerBadges";
 import MicrosoftEducationCard from "@/app/components/landing/MicrosoftEducationCard";
 import PricingSimulator from "@/app/components/landing/PricingSimulator";
 import { SectionReveal } from "@/app/components/landing/SectionReveal";
-import { MARKETING, PRICING_FAQ } from "@/app/lib/marketing-site";
+import { MARKETING, FOUNDING_PRICING, PRICING_FAQ } from "@/app/lib/marketing-site";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -29,7 +29,7 @@ export default function TarifsContent() {
             animate="show"
             className="mb-5 inline-flex items-center gap-2 rounded-full border-2 border-[#2F6B4A]/20 bg-emerald-50 px-4 py-1.5 text-xs font-black uppercase tracking-widest text-[#2F6B4A]"
           >
-            Tarif selon l&apos;effectif · tout inclus
+            {FOUNDING_PRICING.badge} · gelé 24 mois
           </motion.span>
 
           <motion.h1
@@ -40,7 +40,7 @@ export default function TarifsContent() {
             className="text-3xl font-black tracking-tight text-[#14231A] md:text-5xl"
           >
             <span className="bg-gradient-to-r from-[#2F6B4A] via-[#3D8A5C] to-[#4ADE80] bg-clip-text text-transparent">
-              Entrez votre effectif
+              {FOUNDING_PRICING.title}
             </span>
           </motion.h1>
 
@@ -51,9 +51,25 @@ export default function TarifsContent() {
             animate="show"
             className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-stone-600"
           >
-            {MARKETING.pricingPromise}
+            {FOUNDING_PRICING.lead} {MARKETING.pricingPromise}
           </motion.p>
         </div>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-6 pb-10">
+        <SectionReveal>
+          <div className="grid gap-4 md:grid-cols-3">
+            {FOUNDING_PRICING.promises.map((p) => (
+              <article
+                key={p.title}
+                className="rounded-2xl border border-emerald-100 bg-white/95 p-5 shadow-sm"
+              >
+                <h3 className="text-sm font-black text-[#2F6B4A]">{p.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-stone-600">{p.detail}</p>
+              </article>
+            ))}
+          </div>
+        </SectionReveal>
       </section>
 
       <section className="mx-auto max-w-6xl px-6 pb-16">

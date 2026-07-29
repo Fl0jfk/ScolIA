@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  FOUNDING_PRICING,
   MARKETING,
   PRICING_INCLUDED,
   resolvePricingPlan,
@@ -28,14 +29,15 @@ export default function PricingSimulator() {
     <section className="mx-auto max-w-3xl">
       <div className="overflow-hidden rounded-3xl border-2 border-emerald-200/80 bg-white/95 p-6 shadow-xl shadow-emerald-900/10 md:p-8">
         <p className="text-center text-xs font-black uppercase tracking-[0.2em] text-[#3D8A5C]">
-          Votre tarif
+          {FOUNDING_PRICING.badge}
         </p>
         <h2 className="mt-1 text-center text-xl font-black text-[#14231A] md:text-2xl">
           Indiquez votre nombre d&apos;élèves
         </h2>
         <p className="mx-auto mt-2 max-w-md text-center text-sm text-stone-600">
-          Le prix et le pack de licences Microsoft se calculent automatiquement. Même plateforme pour
-          tous — seul le volume de licences change avec l&apos;effectif.
+          Le prix et le pack Microsoft se calculent automatiquement. Ce palier est un tarif
+          fondateur — <strong className="font-semibold text-[#2F6B4A]">gelé 24 mois</strong>, avec
+          toutes les fonctionnalités à venir incluses.
         </p>
 
         <div className="mt-7">
@@ -111,7 +113,7 @@ export default function PricingSimulator() {
                     <span className="text-lg font-bold text-emerald-100/75"> € / mois</span>
                   </p>
                   <p className="mt-2 text-sm text-emerald-100/90">
-                    Plateforme complète incluse — pas de modules en option
+                    Tarif fondateur · plate-forme complète · évolutions futures incluses
                   </p>
                 </div>
 

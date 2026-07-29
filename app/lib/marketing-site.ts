@@ -6,7 +6,7 @@ export const MARKETING = {
   contactEmail: process.env.NEXT_PUBLIC_SCOLA_CONTACT_EMAIL?.trim() || "contact@scolia.fr",
   contactCtaLabel: "Nous contacter",
   pricingPromise:
-    "Le tarif se calcule selon l'effectif de votre établissement — même plateforme pour tous, pack Microsoft adapté.",
+    "Tarif fondateur pour les premiers établissements : le palier se calcule selon votre effectif, avec le pack Microsoft adapté.",
 
   legal: {
     companyName: process.env.NEXT_PUBLIC_SCOLA_LEGAL_COMPANY?.trim() || "[Raison sociale à compléter]",
@@ -161,6 +161,30 @@ export const AUDIENCES = [
   {
     title: "Enseignants & vie scolaire",
     desc: "Documents, salles, sorties et absences — bureau ou mobile.",
+  },
+] as const;
+
+/** Types d'établissements cibles — page d'accueil. */
+export const ESTABLISHMENT_TARGETS = [
+  {
+    id: "ecole",
+    title: "Écoles",
+    desc: "Primaire : documents élèves, absences, salles et sorties du quotidien.",
+  },
+  {
+    id: "college",
+    title: "Collèges",
+    desc: "Workflows métier pour la vie scolaire, les voyages et le suivi RH.",
+  },
+  {
+    id: "lycee",
+    title: "Lycées",
+    desc: "Stages, conventions, sorties, dossiers élèves et organisation interne.",
+  },
+  {
+    id: "groupe",
+    title: "Groupes scolaires & OGEC",
+    desc: "Un intranet unique pour plusieurs établissements sous la même tutelle.",
   },
 ] as const;
 
@@ -377,6 +401,31 @@ export const PRICING_PLANS: PricingPlan[] = [
   },
 ];
 
+/** Message tarif fondateur — page tarifs (pas d'urgence artificielle). */
+export const FOUNDING_PRICING = {
+  badge: "Tarif fondateur",
+  title: "Pour les premiers établissements",
+  lead:
+    "Vous rejoignez ScolIA parmi les premiers. Le palier calculé selon votre effectif est un tarif fondateur : prévisible, sans modules à débloquer plus tard.",
+  promises: [
+    {
+      title: "Gelé 24 mois",
+      detail:
+        "Le palier d'entrée est maintenu pendant deux ans, quoi qu'il arrive.",
+    },
+    {
+      title: "Tout le futur inclus",
+      detail:
+        "Les fonctionnalités actuelles et à venir sont comprises dans ce prix. Pas de demi-abonnement, pas de modules payants à activer ensuite.",
+    },
+    {
+      title: "Même plateforme pour tous",
+      detail:
+        "Seul le volume de licences Microsoft change avec l'effectif. Le reste de ScolIA est identique pour chaque établissement.",
+    },
+  ],
+} as const;
+
 /** Déduit le palier tarifaire + licences Microsoft à partir de l'effectif. */
 export function resolvePricingPlan(studentCount: number): PricingPlan {
   const n = Math.max(0, Math.floor(Number(studentCount) || 0));
@@ -407,8 +456,16 @@ export const MICROSOFT_PRICING_NOTE = {
 
 export const PRICING_FAQ = [
   {
+    q: "Qu'est-ce que le tarif fondateur ?",
+    a: "C'est le tarif réservé aux premiers établissements qui rejoignent ScolIA. Le palier calculé selon votre effectif est gelé pendant 24 mois.",
+  },
+  {
+    q: "Les nouvelles fonctionnalités seront-elles payantes ?",
+    a: "Non. Tout ce qui est dans ScolIA aujourd'hui, et tout ce qui sera ajouté ensuite, est compris dans le prix. Pas de modules à débloquer, pas de demi-abonnement.",
+  },
+  {
     q: "Y a-t-il des modules en option ?",
-    a: "Non. Documents élèves, sorties, salles, RH, internat, cloud personnel, demandes et IA sont inclus dans l'abonnement.",
+    a: "Non. Documents élèves, sorties, salles, RH, internat, cloud personnel, demandes et IA sont inclus — et les évolutions futures aussi.",
   },
   {
     q: "Comment est calculé mon tarif ?",
@@ -436,6 +493,6 @@ export const PRICING_FAQ = [
   },
   {
     q: "Comment démarrer ?",
-    a: "Indiquez votre effectif : le tarif et le pack de licences se déterminent automatiquement. Nous planifions ensuite la mise en route avec la direction ou l'OGEC.",
+    a: "Indiquez votre effectif : le tarif fondateur et le pack de licences se déterminent automatiquement. Nous planifions ensuite la mise en route avec la direction ou l'OGEC.",
   },
 ] as const;

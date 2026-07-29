@@ -14,6 +14,7 @@ import BrandMark from "@/app/components/landing/BrandMark";
 import {
   AUDIENCES,
   BENEFITS,
+  ESTABLISHMENT_TARGETS,
   KEY_PILLARS,
   MARKETING,
   PLATFORM_CAPABILITIES,
@@ -55,7 +56,7 @@ export default function LandingPage() {
                 className="text-4xl font-black leading-[1.05] tracking-tight text-[#14231A] sm:text-5xl lg:text-[3.25rem]"
               >
                 L&apos;intranet métier{" "}
-                <span className={SCOLA_GRADIENT_TEXT}>des établissements</span>
+                <span className={SCOLA_GRADIENT_TEXT}>des établissements scolaires</span>
               </motion.h1>
 
               <motion.p
@@ -65,10 +66,10 @@ export default function LandingPage() {
                 animate="show"
                 className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-stone-600 lg:mx-0 lg:text-lg"
               >
-                <BrandMark size="sm" className="align-baseline text-base lg:text-lg" /> structure le
-                travail des équipes : dépôt et classement des documents élèves, organisation des
-                sorties, réservation des salles, et gestion RH — dans un environnement unique hébergé
-                en France.
+                <BrandMark size="sm" className="align-baseline text-base lg:text-lg" />
+                {" "}
+                est conçu pour les écoles, collèges, lycées et groupes scolaires : documents
+                élèves, sorties, salles et RH — dans un environnement unique hébergé en France.
               </motion.p>
 
               <motion.div
@@ -99,7 +100,7 @@ export default function LandingPage() {
                 animate="show"
                 className="mt-6 flex flex-wrap justify-center gap-2 lg:justify-start"
               >
-                {["Tout inclus", "Scaleway France", "IA Mistral", "Microsoft inclus"].map((tag) => (
+                {["Écoles", "Collèges", "Lycées", "Groupes scolaires", "OGEC"].map((tag) => (
                   <span
                     key={tag}
                     className="rounded-full bg-white/80 px-3 py-1 text-[11px] font-bold text-stone-600 shadow-sm ring-1 ring-stone-200/80"
@@ -129,6 +130,67 @@ export default function LandingPage() {
               </motion.div>
             </motion.div>
           </div>
+        </section>
+
+        <section id="cible" className="mx-auto max-w-6xl px-6 pb-16">
+          <SectionReveal>
+            <div className="mb-8 text-center">
+              <p className="text-xs font-black uppercase tracking-[0.25em] text-[#3D8A5C]">
+                Cible
+              </p>
+              <h2 className="mt-2 text-2xl font-black text-[#14231A] md:text-3xl">
+                Pour les établissements scolaires
+              </h2>
+              <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-stone-600">
+                <BrandMark size="sm" className="align-baseline" />
+                {" "}
+                s&apos;adresse aux structures de l&apos;enseignement — du primaire au lycée, en
+                établissement isolé ou en groupe sous tutelle OGEC.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {ESTABLISHMENT_TARGETS.map((e, i) => (
+                <motion.article
+                  key={e.id}
+                  initial={{ opacity: 0, y: 12 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.05 }}
+                  className="rounded-2xl border border-emerald-100 bg-white/95 p-5 shadow-sm"
+                >
+                  <h3 className="text-base font-black text-[#2F6B4A]">{e.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-stone-600">{e.desc}</p>
+                </motion.article>
+              ))}
+            </div>
+          </SectionReveal>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-6 pb-16">
+          <SectionReveal>
+            <h2 className="mb-2 text-center text-sm font-black uppercase tracking-[0.2em] text-[#3D8A5C]">
+              Dans l&apos;établissement
+            </h2>
+            <p className="mb-8 text-center text-sm text-stone-600">
+              Les équipes qui utilisent <BrandMark size="sm" className="align-baseline" /> au
+              quotidien
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {AUDIENCES.map((a, i) => (
+                <motion.article
+                  key={a.title}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  whileInView={{ opacity: 1, scale: 1 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.05 }}
+                  className="rounded-2xl bg-gradient-to-br from-[#2F6B4A] to-[#1E4A32] p-5 text-white shadow-lg shadow-emerald-900/20"
+                >
+                  <h3 className="font-black">{a.title}</h3>
+                  <p className="mt-2 text-sm text-emerald-100/90">{a.desc}</p>
+                </motion.article>
+              ))}
+            </div>
+          </SectionReveal>
         </section>
 
         <section id="produit" className="mx-auto max-w-6xl px-6 pb-16">
@@ -218,29 +280,6 @@ export default function LandingPage() {
                   </p>
                   <h3 className="mt-3 text-base font-black text-[#2F6B4A]">{b.title}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-stone-600">{b.desc}</p>
-                </motion.article>
-              ))}
-            </div>
-          </SectionReveal>
-        </section>
-
-        <section className="mx-auto max-w-6xl px-6 pb-16">
-          <SectionReveal>
-            <h2 className="mb-8 text-center text-sm font-black uppercase tracking-[0.2em] text-[#3D8A5C]">
-              Pour qui ?
-            </h2>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {AUDIENCES.map((a, i) => (
-                <motion.article
-                  key={a.title}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.05 }}
-                  className="rounded-2xl bg-gradient-to-br from-[#2F6B4A] to-[#1E4A32] p-5 text-white shadow-lg shadow-emerald-900/20"
-                >
-                  <h3 className="font-black">{a.title}</h3>
-                  <p className="mt-2 text-sm text-emerald-100/90">{a.desc}</p>
                 </motion.article>
               ))}
             </div>

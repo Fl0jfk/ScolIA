@@ -11,6 +11,7 @@ import PlatformMasterNav from "@/app/components/platform/PlatformMasterNav";
 import Logo from "../../../public/Logo header.png";
 
 const NAV = [
+  { href: "/#cible", label: "Pour qui" },
   { href: "/#produit", label: "Produit" },
   { href: "/#benefices", label: "Bénéfices" },
   { href: "/#modules", label: "Tout inclus" },
