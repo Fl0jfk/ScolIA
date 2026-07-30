@@ -26,27 +26,50 @@ type Props = {
   accessibleModuleIds: Set<string>;
 };
 
+type PreviewLine = {
+  id: string;
+  title: string;
+  detail?: string;
+  badge?: string;
+  href: string;
+};
+
 function previewLinesForModule(
   moduleId: string,
   shortcuts: DashboardShortcut[],
-  max = 4,
-): Array<{ id: string; title: string; detail?: string; badge?: string }> {
+  max = 6,
+): PreviewLine[] {
   const related = shortcuts.filter((s) => s.moduleId === moduleId);
-  const rich = related.filter((s) => s.rich);
-  const plain = related.filter((s) => !s.rich);
-  const ordered = [...rich, ...plain];
-  const lines: Array<{ id: string; title: string; detail?: string; badge?: string }> = [];
+  // Priorité : aperçus pillarOnly, puis rich dynamiques — jamais les labels génériques seuls
+  const dynamic = related.filter(
+    (s) => s.pillarOnly || s.rich || Boolean(s.detail) || Boolean(s.badge),
+  );
+  // Sur le sous-dashboard, éviter le doublon agrégé « Cette semaine » si on a déjà les sorties unitaires
+  const hasUnitTrips = dynamic.some((s) => s.id.startsWith("travels-up-"));
+  const ordered = dynamic
+    .filter((s) => !(hasUnitTrips && s.id === "travels-week"))
+    .filter((s) => !(hasUnitTrips && s.id === "travels-today"))
+    .sort((a, b) => {
+      const score = (s: DashboardShortcut) =>
+        (s.pillarOnly ? 4 : 0) + (s.rich ? 2 : 0) + (s.badge ? 1 : 0);
+      return score(b) - score(a);
+    });
+
+  const lines: PreviewLine[] = [];
+  const seen = new Set<string>();
   for (const s of ordered) {
     if (lines.length >= max) break;
-    // Éviter de répéter le titre générique du module comme seule ligne
-    if (!s.rich && !s.detail && s.label === related.find((x) => !x.rich)?.label && rich.length > 0) {
-      continue;
-    }
+    const key = `${s.label}|${s.detail || ""}|${s.badge || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    // Skip pure module title without info
+    if (!s.rich && !s.detail && !s.badge && !s.pillarOnly) continue;
     lines.push({
       id: s.id,
       title: s.label,
       detail: s.detail,
       badge: s.badge,
+      href: s.href,
     });
   }
   return lines;
@@ -59,7 +82,7 @@ function ModuleCard({
   orbClass,
 }: {
   category: DashboardCategory;
-  previews: Array<{ id: string; title: string; detail?: string; badge?: string }>;
+  previews: PreviewLine[];
   index: number;
   orbClass: string;
 }) {
@@ -71,17 +94,17 @@ function ModuleCard({
       layout
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay: 0.05 * index, ease: [0.22, 1, 0.36, 1] }}
-      className="group relative flex min-h-[11.5rem] flex-col overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/45 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
+      transition={{ duration: 0.45, delay: 0.04 * index, ease: [0.22, 1, 0.36, 1] }}
+      className="group relative flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/45 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
     >
       <div
-        className={`pointer-events-none absolute -right-8 -top-10 h-40 w-40 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${orbClass}`}
+        className={`pointer-events-none absolute -right-10 -top-12 h-44 w-44 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${orbClass}`}
         aria-hidden
       />
 
       <div className="relative flex min-h-0 flex-1 flex-col p-4 sm:p-5">
-        <header className="mb-3 flex shrink-0 items-start justify-between gap-3">
-          <div className="min-w-0 flex items-start gap-3">
+        <header className="mb-3 flex shrink-0 items-center justify-between gap-3">
+          <div className="min-w-0 flex items-center gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/70 ring-1 ring-white/80 shadow-sm">
               {category.img ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -90,16 +113,9 @@ function ModuleCard({
                 <span className="text-lg leading-none">{emoji}</span>
               )}
             </span>
-            <div className="min-w-0">
-              <h2 className="truncate text-lg font-semibold tracking-tight text-[var(--dash-ink)] sm:text-xl">
-                {category.name}
-              </h2>
-              {category.description ? (
-                <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-[var(--dash-mid)]">
-                  {category.description}
-                </p>
-              ) : null}
-            </div>
+            <h2 className="truncate text-lg font-semibold tracking-tight text-[var(--dash-ink)] sm:text-xl">
+              {category.name}
+            </h2>
           </div>
           <Link
             href={href}
@@ -110,23 +126,23 @@ function ModuleCard({
           </Link>
         </header>
 
-        <div className="flex flex-1 flex-col gap-1.5">
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
           <AnimatePresence mode="popLayout">
             {previews.length === 0 ? (
-              <p className="text-xs text-[var(--dash-mid)]">Ouvrir le module pour commencer.</p>
+              <p className="text-xs text-[var(--dash-mid)]">Rien à signaler pour le moment.</p>
             ) : (
               previews.map((line) => (
                 <Link
                   key={line.id}
-                  href={href}
-                  className="flex items-start gap-2 rounded-xl border border-white/60 bg-white/55 px-2.5 py-2 transition hover:bg-white/85"
+                  href={line.href || href}
+                  className="flex items-start gap-2 rounded-xl border border-white/60 bg-white/55 px-2.5 py-2.5 transition hover:bg-white/85"
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[12px] font-semibold text-[var(--dash-ink)]">
+                    <p className="truncate text-[13px] font-semibold text-[var(--dash-ink)]">
                       {line.title}
                     </p>
                     {line.detail ? (
-                      <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-[var(--dash-mid)]">
+                      <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-[var(--dash-mid)]">
                         {line.detail}
                       </p>
                     ) : null}
@@ -187,26 +203,32 @@ export default function PillarModuleDashboard({
   );
 
   const orb = PILLAR_ORB[pillarId];
+  const count = modules.length;
+  const gridClass =
+    count <= 2
+      ? "grid-cols-1 sm:grid-cols-2"
+      : count <= 4
+        ? "grid-cols-1 sm:grid-cols-2"
+        : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3";
 
   return (
     <DashboardThemeRoot>
-      <div className="relative min-h-[calc(100dvh-4.5rem)]">
+      <div className="relative flex min-h-[calc(100dvh-4.5rem)] flex-col">
         <div
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,color-mix(in_srgb,var(--dash-soft)_80%,transparent),transparent_55%),radial-gradient(ellipse_at_bottom_right,color-mix(in_srgb,var(--dash-bright)_18%,transparent),transparent_50%)]"
           aria-hidden
         />
-        <main className="relative mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-          <div className="mb-6">
+        <main className="relative mx-auto flex w-full max-w-[90rem] flex-1 flex-col px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
+          <div className="relative mb-4 flex shrink-0 items-center justify-center">
             <Link
               href="/dashboard"
-              className={`text-xs font-bold tracking-wide ${dash.textPrimary} hover:underline`}
+              className={`absolute left-0 text-xs font-bold tracking-wide ${dash.textPrimary} hover:underline`}
             >
               ← Tableau de bord
             </Link>
-            <h1 className={`mt-2 text-3xl font-black tracking-tight sm:text-4xl ${dash.ink}`}>
+            <h1 className={`text-2xl font-black tracking-tight sm:text-3xl ${dash.ink}`}>
               {pillar.title}
             </h1>
-            <p className={`mt-1 max-w-2xl text-sm ${dash.textMid}`}>{pillar.description}</p>
           </div>
 
           {modules.length === 0 ? (
@@ -214,7 +236,7 @@ export default function PillarModuleDashboard({
               Aucun module accessible pour votre profil. Contactez un administrateur si besoin.
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-5">
+            <div className={`grid min-h-0 flex-1 gap-3 sm:gap-4 ${gridClass} auto-rows-fr`}>
               {modules.map((cat, i) => (
                 <ModuleCard
                   key={cat.moduleId}
@@ -224,7 +246,7 @@ export default function PillarModuleDashboard({
                   previews={
                     loadingSignals
                       ? []
-                      : previewLinesForModule(cat.moduleId, pillarShortcuts, 4)
+                      : previewLinesForModule(cat.moduleId, pillarShortcuts, 6)
                   }
                 />
               ))}

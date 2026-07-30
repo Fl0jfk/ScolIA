@@ -210,7 +210,9 @@ export default function DashboardPillars({ categories, shortcuts, pulseKey }: Pr
   }
 
   const pruned = (id: DashboardPillarId) => {
-    const list = shortcuts.filter((s) => s.pillarId === id && s.id !== "rh-home");
+    const list = shortcuts.filter(
+      (s) => s.pillarId === id && s.id !== "rh-home" && !s.pillarOnly,
+    );
     const richModules = new Set(list.filter((s) => s.rich).map((s) => s.moduleId));
     return list.filter((s) => {
       if (s.rich) return true;

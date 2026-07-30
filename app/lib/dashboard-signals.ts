@@ -31,6 +31,8 @@ export type DashboardShortcut = {
   badge?: string;
   detail?: string;
   tone?: DashboardShortcutTone;
+  /** Visible uniquement sur les sous-dashboards piliers (pas la grille home). */
+  pillarOnly?: boolean;
 };
 
 export type DashboardTodayNewsItem = {
@@ -299,7 +301,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       });
     }
 
-    // Aperçu semaine (sous-dashboard Élèves) — toujours utile si des sorties arrivent
+    // Aperçu semaine home (agrégé) + détail sous-dashboard (une ligne par sortie)
     if (weekTrips.length > 0) {
       const titles = weekTrips
         .slice(0, 3)
@@ -315,6 +317,44 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         badge: `${weekTrips.length} sortie${weekTrips.length > 1 ? "s" : ""}`,
         detail: titles + (weekTrips.length > 3 ? ` · +${weekTrips.length - 3}` : ""),
         tone: "info",
+      });
+
+      for (const t of weekTrips.slice(0, 6)) {
+        const rawDate = t.data?.startDate || t.data?.date || "";
+        const when = rawDate
+          ? new Date(rawDate).toLocaleDateString("fr-FR", {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+            })
+          : "À venir";
+        const isToday = todayTrips.some((x) => x.id === t.id);
+        shortcuts.push({
+          id: `travels-up-${t.id}`,
+          pillarId: "eleves",
+          moduleId: "travels",
+          href: `/travels/${t.id}`,
+          label: t.data?.title || "Sortie",
+          rich: true,
+          badge: isToday ? "Aujourd'hui" : when,
+          detail: t.data?.etablissement || undefined,
+          tone: isToday ? "action" : "info",
+          pillarOnly: true,
+        });
+      }
+    } else if (
+      !shortcuts.some((s) => s.moduleId === "travels" && s.rich)
+    ) {
+      shortcuts.push({
+        id: "travels-empty",
+        pillarId: "eleves",
+        moduleId: "travels",
+        href: travelsHome,
+        label: "Aucune sortie à venir",
+        rich: true,
+        detail: "Pas de sortie prévue cette semaine",
+        tone: "neutral",
+        pillarOnly: true,
       });
     }
   }
@@ -359,6 +399,21 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         href: internatHome,
         label: "Internat",
       });
+      shortcuts.push({
+        id: "internat-ok",
+        pillarId: "eleves",
+        moduleId: "internat",
+        href: internatHome,
+        label: "Appel du soir",
+        rich: true,
+        badge: internatRollCallStatus === "validee" ? "Validé" : "OK",
+        detail:
+          internatRollCallStatus === "validee"
+            ? "Appel du soir déjà validé"
+            : "Rien d'urgent côté appel pour le moment",
+        tone: "neutral",
+        pillarOnly: true,
+      });
     }
   }
 
@@ -397,6 +452,17 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         moduleId: "stages",
         href: stagesHome,
         label: "Stages & conventions",
+      });
+      shortcuts.push({
+        id: "stages-ok",
+        pillarId: "eleves",
+        moduleId: "stages",
+        href: stagesHome,
+        label: "Signatures",
+        rich: true,
+        detail: "Aucune signature en attente",
+        tone: "neutral",
+        pillarOnly: true,
       });
     }
   }
@@ -607,6 +673,9 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         moduleId: "prof-room",
         href: roomsHome,
         label: "Aucune salle réservée aujourd'hui",
+        rich: true,
+        detail: "Pas de réservation pour aujourd'hui",
+        tone: "neutral",
       });
     }
   }
