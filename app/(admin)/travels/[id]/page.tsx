@@ -27,7 +27,9 @@ import { TRAVELS_HUB_TABS, TRAVELS_STATUS_LABELS } from "@/app/lib/travels-types
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
 import { TripActionsPanel } from "@/app/components/travels/hub/TripActionsPanel";
 import { TripAmendmentJournal } from "@/app/components/travels/hub/TripAmendmentJournal";
+import { TripElevesListPanel } from "@/app/components/travels/hub/TripElevesListPanel";
 import { TripHubNav } from "@/app/components/travels/hub/TripHubNav";
+import { TripParentComPanel } from "@/app/components/travels/hub/TripParentComPanel";
 import { TripRemindersBanner } from "@/app/components/travels/hub/TripRemindersBanner";
 import TravelsOwnerRepairSection from "@/app/components/travels/TravelsOwnerRepairSection";
 import TravelsComptaSheetForm from "@/app/components/travels/TravelsComptaSheetForm";
@@ -58,10 +60,14 @@ export default function TripDetails() {
   const searchParams = useSearchParams();
   const remindersFocus = searchParams.get("focus") === "reminders";
   const highlightReminderId = searchParams.get("reminder");
+  const tabFromUrl = searchParams.get("tab");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user, isLoaded: isUserLoaded } = useUser();
   const [trip, setTrip] = useState<TravelsTrip | null>(null);
-  const [hubTab, setHubTab] = useState<TravelsHubTab>("overview");
+  const [hubTab, setHubTab] = useState<TravelsHubTab>(() => {
+    const t = tabFromUrl as TravelsHubTab | null;
+    return t && TRAVELS_HUB_TABS.some((x) => x.id === t) ? t : "overview";
+  });
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedData, setEditedData] = useState<any>(null);
@@ -127,14 +133,21 @@ export default function TripDetails() {
     if (!trip) return;
     const withBus = complexNeedsBus(trip);
     const hasCuisine = Boolean(trip.data?.piqueNiqueDetails?.active);
+    const hasEleves = (trip.data?.participantEleves?.length || 0) > 0;
     const allowed = TRAVELS_HUB_TABS.filter((t) => {
       if (t.id === "transport" && !withBus) return false;
       if (t.id === "cuisine" && !hasCuisine) return false;
+      if (t.id === "communication" && !hasEleves) return false;
       if (t.id === "compta" && !canAccessComptaTab) return false;
       return true;
     }).map((t) => t.id);
     if (!allowed.includes(hubTab)) setHubTab("overview");
   }, [trip, hubTab, canAccessComptaTab]);
+
+  useEffect(() => {
+    const t = tabFromUrl as TravelsHubTab | null;
+    if (t && TRAVELS_HUB_TABS.some((x) => x.id === t)) setHubTab(t);
+  }, [tabFromUrl]);
 
   useEffect(() => {
     if (!trip || !isCompta) return;
@@ -1241,9 +1254,11 @@ export default function TripDetails() {
   const cuisineChanged = cuisineEffectifChanged(trip.data);
   const canEditDates = canEditEffectif;
   const hasCuisineOrder = Boolean(trip.data.piqueNiqueDetails?.active);
+  const participantCount = trip.data.participantEleves?.length || 0;
   const visibleHubTabs = TRAVELS_HUB_TABS.filter((t) => {
     if (t.id === "transport" && !withBusLogistics) return false;
     if (t.id === "cuisine" && !hasCuisineOrder) return false;
+    if (t.id === "communication" && participantCount === 0) return false;
     if (t.id === "compta" && !canAccessComptaTab) return false;
     return true;
   });
@@ -1256,6 +1271,8 @@ export default function TripDetails() {
     journal: (trip.data.transportAmendments?.length || 0) + (trip.data.cuisineAmendments?.length || 0),
     transport: withBusLogistics ? trip.receivedDevis?.length || 0 : undefined,
     documents: documentCount,
+    eleves: participantCount || undefined,
+    communication: trip.data.parentComLogs?.length || undefined,
   };
   const currentSteps =
     trip.type === "COMPLEX"
@@ -1422,12 +1439,46 @@ export default function TripDetails() {
       />
 
       <div className="mt-4 mb-2">
-        <TripHubNav active={hubTab} onChange={setHubTab} badges={hubBadges} tabs={visibleHubTabs} />
+        <TripHubNav
+          active={hubTab}
+          onChange={(tab) => {
+            setHubTab(tab);
+            const params = new URLSearchParams(searchParams.toString());
+            if (tab === "overview") params.delete("tab");
+            else params.set("tab", tab);
+            const q = params.toString();
+            router.replace(q ? `/travels/${id}?${q}` : `/travels/${id}`, { scroll: false });
+          }}
+          badges={hubBadges}
+          tabs={visibleHubTabs}
+        />
       </div>
       <TripRemindersBanner
         tripId={trip.id}
         highlightReminderId={highlightReminderId}
       />
+
+      {hubTab === "eleves" && (
+        <TripElevesListPanel
+          trip={trip}
+          canEdit={canEditEffectif}
+          onTripUpdated={(t) => {
+            setTrip(t);
+            setEditedData(t.data);
+          }}
+        />
+      )}
+
+      {hubTab === "communication" && participantCount > 0 && (
+        <TripParentComPanel
+          trip={trip}
+          canEdit={canEditEffectif}
+          onTripUpdated={(t) => {
+            setTrip(t);
+            setEditedData(t.data);
+          }}
+        />
+      )}
 
       {trip.type === "COMPLEX" && !withBusLogistics && hubTab === "overview" && (
         <TripAlert tone="info" icon="ℹ️" title="Sans transport bus">

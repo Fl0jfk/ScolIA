@@ -53,6 +53,26 @@ export type TravelsHistoryEntry = {
   note?: string;
 };
 
+/** Élève inscrit sur une sortie (snapshot depuis eleves.json). */
+export type TravelsParticipantEleve = {
+  ine: string;
+  nom: string;
+  prenom: string;
+  classe?: string;
+  /** Défaut true — responsabilité établissement (rappel UI). */
+  droitImageOk: boolean;
+};
+
+export type TravelsParentComLog = {
+  id: string;
+  sentAt: string;
+  sentBy: { userId: string; name?: string };
+  subject: string;
+  body: string;
+  photoCount: number;
+  recipientCount: number;
+};
+
 export type TravelsTripData = {
   title?: string;
   destination?: string;
@@ -147,6 +167,14 @@ export type TravelsTripData = {
   cancelledAt?: string;
   cancelReason?: string;
   remindersSent?: Record<string, string>;
+  /** Liste nominative d’élèves (sélection classes → élèves). */
+  participantEleves?: TravelsParticipantEleve[];
+  listeElevesStatus?: "draft" | "confirmed";
+  listeElevesConfirmedAt?: string;
+  listeElevesConfirmedBy?: { userId: string; email?: string; name?: string };
+  listeEnvoyeeTransporteurAt?: string;
+  /** Historique des envois com’ parents (métadonnées, pas les photos). */
+  parentComLogs?: TravelsParentComLog[];
   /** Fiche budget compta (OCR devis + saisie manuelle). */
   comptaSheet?: import("@/app/lib/travels-compta-sheet").TravelsComptaSheet;
   [key: string]: unknown;
@@ -170,6 +198,8 @@ export type TravelsTrip = {
 
 export type TravelsHubTab =
   | "overview"
+  | "eleves"
+  | "communication"
   | "transport"
   | "cuisine"
   | "documents"
@@ -180,6 +210,8 @@ export type TravelsHubTab =
 
 export const TRAVELS_HUB_TABS: { id: TravelsHubTab; label: string; icon: string }[] = [
   { id: "overview", label: "Vue d'ensemble", icon: "🏠" },
+  { id: "eleves", label: "Élèves", icon: "👥" },
+  { id: "communication", label: "Communication", icon: "📸" },
   { id: "transport", label: "Transport", icon: "🚌" },
   { id: "cuisine", label: "Cuisine", icon: "🍽️" },
   { id: "documents", label: "Documents", icon: "📁" },

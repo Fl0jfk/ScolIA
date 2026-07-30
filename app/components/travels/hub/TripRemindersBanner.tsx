@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import type { TripReminder } from "@/app/lib/travels-trip-helpers";
 import { TripAlert, TripButton } from "@/app/components/travels/TripDetailUI";
 
@@ -36,7 +37,8 @@ export function TripRemindersBanner({
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error);
-      alert("Rappel envoyé au créateur par e-mail.");
+      if (j.skipped) alert("Ce rappel a déjà été envoyé.");
+      else alert("Rappel envoyé au créateur par e-mail.");
     } catch (e) {
       alert(e instanceof Error ? e.message : "Erreur envoi rappel");
     } finally {
@@ -70,6 +72,14 @@ export function TripRemindersBanner({
             }
           >
             • {r.label}
+            {r.href ? (
+              <>
+                {" "}
+                <Link href={r.href} className="underline font-semibold">
+                  Ouvrir
+                </Link>
+              </>
+            ) : null}
           </li>
         ))}
       </ul>

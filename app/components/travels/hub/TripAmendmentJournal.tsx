@@ -8,7 +8,7 @@ import { TripSection } from "@/app/components/travels/TripDetailUI";
 type JournalEntry = {
   id: string;
   at: string;
-  category: "transport" | "cuisine" | "workflow" | "effectif" | "annulation";
+  category: "transport" | "cuisine" | "workflow" | "effectif" | "annulation" | "communication";
   title: string;
   detail?: string;
   user?: string;
@@ -16,6 +16,30 @@ type JournalEntry = {
 
 function buildJournalEntries(trip: TravelsTrip): JournalEntry[] {
   const entries: JournalEntry[] = [];
+
+  if (trip.data.listeElevesConfirmedAt) {
+    entries.push({
+      id: `liste_${trip.data.listeElevesConfirmedAt}`,
+      at: trip.data.listeElevesConfirmedAt,
+      category: "effectif",
+      title: `Liste élèves confirmée (${trip.data.participantEleves?.length || 0})`,
+      detail: trip.data.listeEnvoyeeTransporteurAt
+        ? `Envoyée au transporteur le ${new Date(trip.data.listeEnvoyeeTransporteurAt).toLocaleString("fr-FR")}`
+        : undefined,
+      user: trip.data.listeElevesConfirmedBy?.name,
+    });
+  }
+
+  for (const log of trip.data.parentComLogs || []) {
+    entries.push({
+      id: log.id,
+      at: log.sentAt,
+      category: "communication",
+      title: `Com’ parents — ${log.subject}`,
+      detail: `${log.recipientCount} destinataire(s) · ${log.photoCount} photo(s)`,
+      user: log.sentBy.name,
+    });
+  }
 
   for (const a of trip.data.transportAmendments || []) {
     const prev = a.previousEffectif;
@@ -75,7 +99,11 @@ function buildJournalEntries(trip: TravelsTrip): JournalEntry[] {
     if (action === "EFFECTIF_MODIFIE") category = "effectif";
     if (action === "ANNULE") category = "annulation";
     if (action.includes("cuisine")) category = "cuisine";
-    if (action.includes("transport") || action.includes("Avenant")) category = "transport";
+    if (action.includes("transport") || action.includes("Avenant") || action.includes("transporteur")) {
+      category = "transport";
+    }
+    if (action.includes("Communication parents") || action.includes("Liste élèves")) category = "effectif";
+    if (action.includes("Communication parents")) category = "communication";
 
     entries.push({
       id: `h_${h.date}_${action}`,
@@ -106,6 +134,7 @@ const CATEGORY_STYLES: Record<JournalEntry["category"], string> = {
   workflow: "bg-slate-50 border-slate-200 text-slate-800",
   effectif: "bg-indigo-50 border-indigo-200 text-indigo-900",
   annulation: "bg-red-50 border-red-200 text-red-900",
+  communication: "bg-violet-50 border-violet-200 text-violet-900",
 };
 
 const CATEGORY_ICONS: Record<JournalEntry["category"], string> = {
@@ -114,6 +143,7 @@ const CATEGORY_ICONS: Record<JournalEntry["category"], string> = {
   workflow: "📋",
   effectif: "👥",
   annulation: "🚫",
+  communication: "📸",
 };
 
 export function TripAmendmentJournal({ trip }: { trip: TravelsTrip }) {

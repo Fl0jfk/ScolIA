@@ -203,16 +203,24 @@ export function compareTripsByTravelDate(
 export type TripReminder = {
   id: string;
   tripId: string;
-  type: "cuisine_j15" | "effectif_j7" | "blocked_status" | "transport_pending";
+  type:
+    | "cuisine_j15"
+    | "effectif_j7"
+    | "blocked_status"
+    | "transport_pending"
+    | "bus_liste_j3"
+    | "com_parents_j0";
   label: string;
   severity: "info" | "warning" | "urgent";
   daysUntil?: number;
+  href?: string;
 };
 
 export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
   const out: TripReminder[] = [];
   const days = daysUntilTrip(trip.data);
   const status = trip.status;
+  const sent = trip.data.remindersSent || {};
 
   if (status === "ANNULE" || status === "REJETE" || status === "SEANCE_ANNULEE") return out;
 
@@ -261,6 +269,45 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
       label: `Dossier encore en « ${status} » — sortie dans ${days} jour(s)`,
       severity: days <= 5 ? "urgent" : "warning",
       daysUntil: days,
+    });
+  }
+
+  const listeConfirmed =
+    trip.data.listeElevesStatus === "confirmed" && (trip.data.participantEleves?.length || 0) > 0;
+
+  if (
+    complexNeedsBus(trip) &&
+    !listeConfirmed &&
+    days != null &&
+    days <= 4 &&
+    days >= 0 &&
+    !sent.bus_liste_j3
+  ) {
+    out.push({
+      id: `${trip.id}_bus_liste_j3`,
+      tripId: trip.id,
+      type: "bus_liste_j3",
+      label: `J-${days} : confirmez la liste des élèves sur la plateforme (envoi au transporteur)`,
+      severity: days <= 1 ? "urgent" : "warning",
+      daysUntil: days,
+      href: `/travels/${trip.id}?tab=eleves`,
+    });
+  }
+
+  if (
+    listeConfirmed &&
+    days != null &&
+    days === 0 &&
+    !sent.com_parents_j0
+  ) {
+    out.push({
+      id: `${trip.id}_com_parents_j0`,
+      tripId: trip.id,
+      type: "com_parents_j0",
+      label: "Jour J : vous pouvez communiquer aux parents (messages + photos)",
+      severity: "info",
+      daysUntil: 0,
+      href: `/travels/${trip.id}?tab=communication`,
     });
   }
 

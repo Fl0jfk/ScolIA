@@ -104,6 +104,19 @@ export async function POST(req: Request) {
       }
       objectToSave.data = saveInner;
     }
+    if (Array.isArray(saveInner.participantEleves)) {
+      const { applyParticipantElevesToTripData } = await import("@/app/lib/travels-eleves-list");
+      const participants = saveInner.participantEleves as import("@/app/lib/travels-types").TravelsParticipantEleve[];
+      const synced = applyParticipantElevesToTripData(
+        saveInner as import("@/app/lib/travels-types").TravelsTripData,
+        participants,
+      );
+      saveInner.participantEleves = synced.participantEleves;
+      saveInner.nbEleves = synced.nbEleves;
+      saveInner.classes = synced.classes;
+      if (!saveInner.listeElevesStatus) saveInner.listeElevesStatus = "draft";
+      objectToSave.data = saveInner;
+    }
     const previousStatus = existingOnS3 && typeof existingOnS3.status === "string" ? existingOnS3.status : null;
     const newStatus = typeof objectToSave.status === "string" ? objectToSave.status : "";
     if (previousStatus === "VALIDE" && newStatus !== "VALIDE" && newStatus !== previousStatus) {

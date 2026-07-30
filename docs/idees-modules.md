@@ -4,7 +4,7 @@ Backlog produit — outils **supplémentaires** qui ne font pas ce qu’ÉcoleDi
 
 > **ÉcoleDirecte informe et gère la scolarité. Scola mobilise, organise et active — une démarche à la fois.**
 
-Dernière mise à jour : 13 juin 2026
+Dernière mise à jour : 30 juillet 2026
 
 ---
 
@@ -105,6 +105,51 @@ Idées citées en discussion — classées honnêtement par ambition.
 
 ---
 
+## Sorties scolaires (Travels) — liste élèves & communication
+
+Socle livré : sélection nominative, flux bus, com’ parents optionnelle.
+
+### 1. Liste d’élèves (socle)
+
+| Idée | Statut | Notes |
+|------|--------|-------|
+| **Sélection depuis `eleves.json`** | `produit` | **Pas d’Excel en V1.** Choisir d’abord une ou plusieurs **classes**, puis cocher les élèves (tout sélectionner / sélection fine). Les mails parents viennent du JSON si disponibles. Onglet hub **Élèves**. |
+| **Rappel droit à l’image** | `produit` | Au moment de composer la liste : rappel que le droit à l’image est géré **en interne** par l’établissement. Case « OK » **cochée par défaut** (responsabilité établissement). Ajustable élève par élève. |
+
+### 2. Transporteur — **obligation** (si bus)
+
+| Idée | Statut | Notes |
+|------|--------|-------|
+| **Rappel J−3 / J−4** | `produit` | Type `bus_liste_j3` + `remindersSent` : mail au créateur « Confirmez la liste » → `/travels/{id}?tab=eleves`. |
+| **Confirmation → envoi auto au transporteur** | `produit` | Liste confirmée → CSV (nom, prénom, classe) au transporteur retenu (`selectedBusQuote`). |
+
+### 3. Communication parents — **option**, pas obligation
+
+| Idée | Statut | Notes |
+|------|--------|-------|
+| **Onglet / flux Communication** | `produit` | Message + photos compressées → mails parents (BCC). Multi-envois ; journal `parentComLogs` (métadonnées). Sens unique. |
+| **Mail du jour J (proposition)** | `produit` | Rappel `com_parents_j0` au créateur le jour du départ → `?tab=communication`. Jamais bloquant. |
+
+### Parcours cible (résumé)
+
+1. Sélection classes → élèves (`eleves.json`) + rappel droit à l’image (défaut OK).  
+2. J−3/4 (bus) → rappel « confirmez la liste ».  
+3. Liste confirmée → **part auto au transporteur**.  
+4. Jour J → proposition « communiquer aux parents » (optionnel, multi-envois).
+
+### Pourquoi c’est intéressant
+- Liste élèves = besoin métier réel (bus) + base pour la com’.
+- WhatsApp / réseaux : numéros exposés, pas universel ; le mail reste le canal le plus égalitaire.
+- Séparation claire : **transporteur = obligatoire** · **com’ parents = possibilité**.
+
+### Points d’attention
+- RGPD photos + mails : rétention courte, pas d’album long terme dans ScolIA ; compression / PJ plutôt que stockage.
+- Droit à l’image : rappel + responsabilité établissement.
+- Qui confirme / envoie : owner + direction (mêmes droits d’édition effectif).
+- Ne pas confondre avec une messagerie parents ↔ profs (hors charte).
+
+---
+
 ## Socle technique réutilisable
 
 | Brique | Statut | Sert pour |
@@ -165,6 +210,7 @@ Idées citées en discussion — classées honnêtement par ambition.
 - **Bot harcèlement** : anonymat, référent, rétention courte — pas dossier disciplinaire ED.
 - **PFMP** : modération, pas d’annuaire familles ouvert, purge fin d’année.
 - **`eleves.json`** : à réduire — pas de second registre.
+- **Travels** : liste via `eleves.json` (classes → élèves) ; rappel droit à l’image (défaut OK, géré en établissement) ; liste bus **obligatoire** (rappel J−3/4 → confirm → envoi transporteur) ; com’ parents **optionnelle** (mail J + multi-envois message/photos).
 
 ---
 
@@ -172,6 +218,8 @@ Idées citées en discussion — classées honnêtement par ambition.
 
 | Date | Ajout |
 |------|-------|
+| 2026-07-30 | **Travels** : liste élèves + com’ parents **livrés** (`produit`) — onglets Élèves / Communication, confirm → CSV transporteur, rappels `bus_liste_j3` / `com_parents_j0`. |
+| 2026-07-30 | **Travels** : sélection classes/élèves (`eleves.json`) ; rappel droit à l’image ; flux bus ; com’ parents optionnelle — backlog puis livraison. |
 | 2026-06-13 | Création du document. |
 | 2026-06-13 | Inscriptions, SNT, diplôme artistique, idées diverses. |
 | 2026-06-13 | **Refonte** : séparation Killers / Boîte à outils saisonnière. Ajout portes ouvertes, Secret Santa, moteur événements. QR code → boîte à outils. Idées niche → réserve. |
