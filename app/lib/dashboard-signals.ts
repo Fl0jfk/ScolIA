@@ -673,9 +673,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         moduleId: "prof-room",
         href: roomsHome,
         label: "Aucune salle réservée aujourd'hui",
-        rich: true,
-        detail: "Pas de réservation pour aujourd'hui",
-        tone: "neutral",
       });
     }
   }

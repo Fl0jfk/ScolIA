@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import { dash } from "@/app/lib/dashboard-brand";
@@ -10,6 +11,7 @@ import {
   categoriesForPillar,
   type DashboardPillarId,
 } from "@/app/lib/dashboard-pillars";
+import { stageDashboardUpload } from "@/app/lib/dashboard-upload-bridge";
 import type { DashboardCategory } from "@/app/lib/intranet-modules";
 import type { DashboardShortcut } from "@/app/lib/dashboard-signals";
 import { MODULE_EMOJI, moduleHref } from "@/app/lib/pillar-module-routes";
@@ -40,18 +42,18 @@ function previewLinesForModule(
   max = 6,
 ): PreviewLine[] {
   const related = shortcuts.filter((s) => s.moduleId === moduleId);
-  // Priorité : aperçus pillarOnly, puis rich dynamiques — jamais les labels génériques seuls
   const dynamic = related.filter(
     (s) => s.pillarOnly || s.rich || Boolean(s.detail) || Boolean(s.badge),
   );
-  // Sur le sous-dashboard, éviter le doublon agrégé « Cette semaine » si on a déjà les sorties unitaires
   const hasUnitTrips = dynamic.some((s) => s.id.startsWith("travels-up-"));
   const ordered = dynamic
-    .filter((s) => !(hasUnitTrips && s.id === "travels-week"))
-    .filter((s) => !(hasUnitTrips && s.id === "travels-today"))
+    .filter((s) => !(hasUnitTrips && (s.id === "travels-week" || s.id === "travels-today")))
     .sort((a, b) => {
-      const score = (s: DashboardShortcut) =>
-        (s.pillarOnly ? 4 : 0) + (s.rich ? 2 : 0) + (s.badge ? 1 : 0);
+      const score = (s: DashboardShortcut) => {
+        const tone =
+          s.tone === "warn" ? 6 : s.tone === "action" ? 5 : s.tone === "info" ? 3 : 1;
+        return (s.pillarOnly ? 2 : 0) + (s.rich ? 2 : 0) + tone;
+      };
       return score(b) - score(a);
     });
 
@@ -62,7 +64,6 @@ function previewLinesForModule(
     const key = `${s.label}|${s.detail || ""}|${s.badge || ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    // Skip pure module title without info
     if (!s.rich && !s.detail && !s.badge && !s.pillarOnly) continue;
     lines.push({
       id: s.id,
@@ -73,6 +74,159 @@ function previewLinesForModule(
     });
   }
   return lines;
+}
+
+function OcrQuickDrop() {
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
+
+  const goWithFiles = useCallback(
+    (files: FileList | File[] | null) => {
+      if (!files || (Array.isArray(files) ? files.length === 0 : files.length === 0)) return;
+      const ok = stageDashboardUpload("standard", files);
+      if (!ok) {
+        setHint("PDF uniquement");
+        return;
+      }
+      setHint(null);
+      router.push("/agentIAOCR?upload=1");
+    },
+    [router],
+  );
+
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    goWithFiles(e.dataTransfer.files);
+  };
+
+  return (
+    <div className="mt-auto space-y-2 pt-2">
+      <button
+        type="button"
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        onClick={() => inputRef.current?.click()}
+        className={`w-full rounded-xl border-2 border-dashed px-3 py-4 text-center transition ${
+          dragging
+            ? "border-[var(--dash-primary)] bg-white/90"
+            : "border-white/70 bg-white/50 hover:bg-white/75"
+        }`}
+      >
+        <p className="text-xs font-semibold text-[var(--dash-ink)]">Déposer un PDF ici</p>
+        <p className="mt-0.5 text-[10px] text-[var(--dash-mid)]">ou cliquer pour choisir</p>
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          goWithFiles(e.target.files);
+          e.target.value = "";
+        }}
+      />
+      {hint ? <p className="text-[10px] text-amber-700">{hint}</p> : null}
+    </div>
+  );
+}
+
+function ModuleQuickActions({ moduleId }: { moduleId: string }) {
+  if (moduleId === "travels") {
+    return (
+      <div className="mt-auto flex flex-wrap gap-2 pt-3">
+        <Link
+          href="/travels/simple"
+          className="rounded-full bg-[var(--dash-primary)] px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:brightness-110"
+        >
+          + Sortie simple
+        </Link>
+        <Link
+          href="/travels/complex"
+          className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
+        >
+          + Voyage / bus
+        </Link>
+      </div>
+    );
+  }
+  if (moduleId === "internat") {
+    return (
+      <div className="mt-auto flex flex-wrap gap-2 pt-3">
+        <Link
+          href="/gestion-internat"
+          className="rounded-full bg-[var(--dash-primary)] px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:brightness-110"
+        >
+          Ouvrir l’appel
+        </Link>
+      </div>
+    );
+  }
+  if (moduleId === "stages") {
+    return (
+      <div className="mt-auto flex flex-wrap gap-2 pt-3">
+        <Link
+          href="/stages"
+          className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
+        >
+          Voir les conventions
+        </Link>
+      </div>
+    );
+  }
+  if (moduleId === "agent-ia-ocr") {
+    return <OcrQuickDrop />;
+  }
+  if (moduleId === "requests-staff") {
+    return (
+      <div className="mt-auto flex flex-wrap gap-2 pt-3">
+        <Link
+          href="/faire-une-demande"
+          className="rounded-full bg-[var(--dash-primary)] px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:brightness-110"
+        >
+          + Nouvelle demande
+        </Link>
+        <Link
+          href="/requests"
+          className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
+        >
+          File
+        </Link>
+      </div>
+    );
+  }
+  if (moduleId === "prof-room") {
+    return (
+      <div className="mt-auto flex flex-wrap gap-2 pt-3">
+        <Link
+          href="/prof-room"
+          className="rounded-full bg-[var(--dash-primary)] px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:brightness-110"
+        >
+          Réserver une salle
+        </Link>
+      </div>
+    );
+  }
+  if (moduleId === "photocopies-couleur") {
+    return (
+      <div className="mt-auto flex flex-wrap gap-2 pt-3">
+        <Link
+          href="/photocopies-couleur"
+          className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
+        >
+          Nouvelle demande
+        </Link>
+      </div>
+    );
+  }
+  return null;
 }
 
 function ModuleCard({
@@ -157,6 +311,8 @@ function ModuleCard({
             )}
           </AnimatePresence>
         </div>
+
+        <ModuleQuickActions moduleId={category.moduleId} />
       </div>
     </motion.article>
   );
@@ -202,8 +358,24 @@ export default function PillarModuleDashboard({
     [shortcuts, pillarId],
   );
 
+  /** Modules avec activité en premier (warn / action / info). */
+  const orderedModules = useMemo(() => {
+    const score = (moduleId: string) => {
+      const related = pillarShortcuts.filter((s) => s.moduleId === moduleId && s.rich);
+      let best = 10;
+      for (const s of related) {
+        if (s.tone === "warn") best = Math.min(best, 0);
+        else if (s.tone === "action") best = Math.min(best, 1);
+        else if (s.tone === "info") best = Math.min(best, 2);
+        else if (s.tone !== "neutral") best = Math.min(best, 3);
+      }
+      return best;
+    };
+    return [...modules].sort((a, b) => score(a.moduleId) - score(b.moduleId));
+  }, [modules, pillarShortcuts]);
+
   const orb = PILLAR_ORB[pillarId];
-  const count = modules.length;
+  const count = orderedModules.length;
   const gridClass =
     count <= 2
       ? "grid-cols-1 sm:grid-cols-2"
@@ -231,13 +403,13 @@ export default function PillarModuleDashboard({
             </h1>
           </div>
 
-          {modules.length === 0 ? (
+          {orderedModules.length === 0 ? (
             <p className="rounded-2xl border border-white/60 bg-white/50 px-5 py-8 text-center text-sm text-[var(--dash-mid)] backdrop-blur">
               Aucun module accessible pour votre profil. Contactez un administrateur si besoin.
             </p>
           ) : (
             <div className={`grid min-h-0 flex-1 gap-3 sm:gap-4 ${gridClass} auto-rows-fr`}>
-              {modules.map((cat, i) => (
+              {orderedModules.map((cat, i) => (
                 <ModuleCard
                   key={cat.moduleId}
                   category={cat}

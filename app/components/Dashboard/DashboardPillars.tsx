@@ -133,9 +133,18 @@ function PillarCard({
   pulseKey?: string;
   iconByModule: Map<string, string>;
 }) {
-  // Signaux d'abord (pleine largeur), puis raccourcis classiques
-  const rich = shortcuts.filter((s) => s.rich);
-  const plain = shortcuts.filter((s) => !s.rich);
+  const toneRank = (s: DashboardShortcut) => {
+    if (s.tone === "warn") return 0;
+    if (s.tone === "action") return 1;
+    if (s.tone === "info") return 2;
+    return 3;
+  };
+
+  // Signaux actifs d'abord (pleine largeur), vides / neutres en tuiles normales
+  const rich = shortcuts
+    .filter((s) => s.rich && s.tone !== "neutral")
+    .sort((a, b) => toneRank(a) - toneRank(b));
+  const plain = shortcuts.filter((s) => !s.rich || s.tone === "neutral");
   // Budget viewport : garder assez pour 2 colonnes sans scroll interne
   const plainBudget = Math.max(0, 6 - rich.length * 2);
   const visiblePlain = plain.slice(0, plainBudget);
@@ -186,10 +195,16 @@ function PillarCard({
               visible.map((s) => (
                 <ShortcutTile
                   key={s.id}
-                  item={s}
-                  fullWidth={Boolean(s.rich)}
+                  item={{
+                    ...s,
+                    // Affichage tuile compacte si signal « vide / neutre »
+                    rich: Boolean(s.rich && s.tone !== "neutral"),
+                  }}
+                  fullWidth={Boolean(s.rich && s.tone !== "neutral")}
                   iconSrc={iconByModule.get(s.moduleId)}
-                  highlight={Boolean(pulseKey && s.rich && pulseKey.includes(s.id))}
+                  highlight={Boolean(
+                    pulseKey && s.rich && s.tone !== "neutral" && pulseKey.includes(s.id),
+                  )}
                 />
               ))
             )}
