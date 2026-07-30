@@ -132,13 +132,9 @@ export default function ConnexionPage() {
             Connexion à votre <span className={SCOLA_GRADIENT_TEXT}>intranet</span>
           </h1>
           <p className="mx-auto mt-3 max-w-md text-sm text-stone-600">
-            Choisissez votre établissement pour accéder à son intranet dédié
-            {isLocalDev ? (
-              <> sur <span className="font-mono text-xs">localhost</span> en développement</>
-            ) : (
-              <> (ex. <span className="font-mono text-xs">lp.docslapro.com</span>)</>
-            )}
-            .
+            {isLocalDev
+              ? "Retrouvez la liste des établissements pour accéder à l’intranet (localhost en développement)."
+              : "Retrouvez la liste des établissements pour accéder à l’intranet."}
           </p>
         </div>
 

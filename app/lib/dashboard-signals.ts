@@ -7,7 +7,8 @@ import {
 } from "@/app/lib/absences-types";
 import { absencesToday } from "@/app/lib/dashboard-absences";
 import type { DashboardPillarId } from "@/app/lib/dashboard-pillars";
-import { tripsToday, type TripIndexRow } from "@/app/lib/dashboard-trips";
+import { tripsThisWeek, tripsToday, type TripIndexRow } from "@/app/lib/dashboard-trips";
+import { moduleHref } from "@/app/lib/pillar-module-routes";
 import { pickExactCurrentWeekSheet } from "@/app/lib/dashboard-week-sheet-active";
 import type { WeekSheetData, WeekSheetEvent } from "@/app/lib/dashboard-week-sheet-types";
 import { WEEK_DAYS, type WeekDayKey } from "@/app/lib/dashboard-week-sheet-types";
@@ -200,7 +201,10 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— Élèves : Sorties ——
   if (has("travels")) {
+    const travelsHome = moduleHref("travels");
     const todayTrips = tripsToday(trips);
+    const weekTrips = tripsThisWeek(trips);
+
     if (canSeeTodayTripHighlight(roles) && todayTrips.length > 0) {
       const first = todayTrips[0]!;
       shortcuts.push({
@@ -211,7 +215,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         label: first.data?.title || "Sortie scolaire",
         rich: true,
         badge: todayTrips.length > 1 ? `${todayTrips.length} sorties` : "Aujourd'hui",
-        detail: todayTrips.length > 1 ? `+ ${todayTrips.length - 1} autre(s)` : "En cours aujourd'hui",
+        detail: todayTrips.length > 1 ? `+ ${todayTrips.length - 1} autre(s) aujourd'hui` : "En cours aujourd'hui",
         tone: "action",
       });
     } else if (isCompta(roles)) {
@@ -221,7 +225,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "travels-compta",
           pillarId: "eleves",
           moduleId: "travels",
-          href: "/eleves?tab=travels",
+          href: travelsHome,
           label: "Sorties scolaires",
           rich: true,
           badge: `${n} à traiter`,
@@ -232,7 +236,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "travels-compta",
           label: "Sorties scolaires",
           count: n,
-          href: "/eleves?tab=travels",
+          href: travelsHome,
           detail: n === 1 ? "1 séjour en attente compta" : `${n} séjours en attente compta`,
         });
       } else {
@@ -240,7 +244,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "travels",
           pillarId: "eleves",
           moduleId: "travels",
-          href: "/eleves?tab=travels",
+          href: travelsHome,
           label: "Sorties scolaires",
         });
       }
@@ -256,7 +260,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "travels-dir",
           pillarId: "eleves",
           moduleId: "travels",
-          href: "/eleves?tab=travels",
+          href: travelsHome,
           label: "Sorties scolaires",
           rich: true,
           badge: `${pending.length} à valider`,
@@ -270,7 +274,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "travels-dir",
           label: "Sorties scolaires",
           count: pending.length,
-          href: "/eleves?tab=travels",
+          href: travelsHome,
           detail:
             pending.length === 1
               ? "1 séjour en attente de votre validation"
@@ -281,7 +285,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "travels",
           pillarId: "eleves",
           moduleId: "travels",
-          href: "/eleves?tab=travels",
+          href: travelsHome,
           label: "Sorties scolaires",
         });
       }
@@ -290,14 +294,34 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "travels",
         pillarId: "eleves",
         moduleId: "travels",
-        href: "/eleves?tab=travels",
+        href: travelsHome,
         label: "Sorties scolaires",
+      });
+    }
+
+    // Aperçu semaine (sous-dashboard Élèves) — toujours utile si des sorties arrivent
+    if (weekTrips.length > 0) {
+      const titles = weekTrips
+        .slice(0, 3)
+        .map((t) => t.data?.title || "Sortie")
+        .join(" · ");
+      shortcuts.push({
+        id: "travels-week",
+        pillarId: "eleves",
+        moduleId: "travels",
+        href: travelsHome,
+        label: "Cette semaine",
+        rich: true,
+        badge: `${weekTrips.length} sortie${weekTrips.length > 1 ? "s" : ""}`,
+        detail: titles + (weekTrips.length > 3 ? ` · +${weekTrips.length - 3}` : ""),
+        tone: "info",
       });
     }
   }
 
   // —— Élèves : Internat ——
   if (has("internat")) {
+    const internatHome = moduleHref("internat");
     const showAppelSignal =
       canSeeInternatRollCallSignal(roles) &&
       (internatRollCallStatus === "non_demarre" || internatRollCallStatus === "en_cours");
@@ -307,7 +331,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "internat-appel",
         pillarId: "eleves",
         moduleId: "internat",
-        href: "/eleves?tab=internat",
+        href: internatHome,
         label: "Appel du soir",
         rich: true,
         badge: internatRollCallStatus === "en_cours" ? "En cours" : "À faire",
@@ -321,7 +345,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "internat-appel",
         label: "Appel du soir",
         count: 1,
-        href: "/eleves?tab=internat",
+        href: internatHome,
         detail:
           internatRollCallStatus === "en_cours"
             ? "Appel du soir en cours"
@@ -332,7 +356,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "internat",
         pillarId: "eleves",
         moduleId: "internat",
-        href: "/eleves?tab=internat",
+        href: internatHome,
         label: "Internat",
       });
     }
@@ -340,12 +364,13 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— Élèves : Stages ——
   if (has("stages")) {
+    const stagesHome = moduleHref("stages");
     if (stagesPendingSignatures > 0) {
       shortcuts.push({
         id: "stages-sign",
         pillarId: "eleves",
         moduleId: "stages",
-        href: "/eleves?tab=stages",
+        href: stagesHome,
         label: "Stages & conventions",
         rich: true,
         badge: `${stagesPendingSignatures} signature${stagesPendingSignatures > 1 ? "s" : ""}`,
@@ -359,7 +384,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "stages-sign",
         label: "Stages & conventions",
         count: stagesPendingSignatures,
-        href: "/eleves?tab=stages",
+        href: stagesHome,
         detail:
           stagesPendingSignatures === 1
             ? "1 signature stage à faire"
@@ -370,7 +395,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "stages",
         pillarId: "eleves",
         moduleId: "stages",
-        href: "/eleves?tab=stages",
+        href: stagesHome,
         label: "Stages & conventions",
       });
     }
@@ -382,7 +407,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       id: "ocr",
       pillarId: "eleves",
       moduleId: "agent-ia-ocr",
-      href: "/eleves?tab=ocr",
+      href: moduleHref("agent-ia-ocr"),
       label: "Ajout de documents IA",
     });
   }
@@ -391,7 +416,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       id: "certificates",
       pillarId: "eleves",
       moduleId: "certificates",
-      href: "/eleves?tab=certificates",
+      href: moduleHref("certificates"),
       label: "Parcours & certificats",
     });
   }
@@ -540,6 +565,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— Services : Salles ——
   if (has("prof-room")) {
+    const roomsHome = moduleHref("prof-room");
     const todayKey = calendarDateKeyParis();
     const roomNameById = new Map(rooms.map((r) => [r.id, r.name]));
     const todayRes = reservations
@@ -553,7 +579,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "rooms-today-one",
         pillarId: "services",
         moduleId: "prof-room",
-        href: "/services?tab=salles",
+        href: roomsHome,
         label: name,
         rich: true,
         badge: slotTimeLabel(r.startsAt),
@@ -567,7 +593,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "rooms-today-many",
         pillarId: "services",
         moduleId: "prof-room",
-        href: "/services?tab=salles",
+        href: roomsHome,
         label: "Réservation de salle",
         rich: true,
         badge: `${todayRes.length} salles`,
@@ -579,7 +605,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "rooms-empty",
         pillarId: "services",
         moduleId: "prof-room",
-        href: "/services?tab=salles",
+        href: roomsHome,
         label: "Aucune salle réservée aujourd'hui",
       });
     }
@@ -587,6 +613,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— Services : Demandes ——
   if (has("requests-staff")) {
+    const requestsHome = moduleHref("requests-staff");
     const claimedMine = requestsBoard.filter((r) => {
       const c = r.assignedTo?.claimedBy;
       if (!c) return false;
@@ -600,7 +627,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "requests-claimed",
         pillarId: "services",
         moduleId: "requests-staff",
-        href: "/services?tab=demandes",
+        href: requestsHome,
         label: "Demandes",
         rich: true,
         badge: claimedMine.length === 1 ? "1 attribuée" : `${claimedMine.length} attribuées`,
@@ -614,7 +641,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "requests-claimed",
         label: "Demandes attribuées",
         count: claimedMine.length,
-        href: "/services?tab=demandes",
+        href: requestsHome,
         detail:
           claimedMine.length === 1
             ? "1 demande vous a été attribuée"
@@ -626,7 +653,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "requests-pool",
         pillarId: "services",
         moduleId: "requests-staff",
-        href: "/services?tab=demandes",
+        href: requestsHome,
         label: "File demandes",
         rich: true,
         badge: `${unassigned.length} non assignée${unassigned.length > 1 ? "s" : ""}`,
@@ -640,7 +667,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "requests-pool",
         label: "File demandes",
         count: unassigned.length,
-        href: "/services?tab=demandes",
+        href: requestsHome,
         detail:
           unassigned.length === 1
             ? "1 demande non assignée dans votre file"
@@ -667,6 +694,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— Services : Photocopies ——
   if (has("photocopies-couleur")) {
+    const photoHome = moduleHref("photocopies-couleur");
     const etab = photocopieEtabForDirection(roles);
     if (etab) {
       const pending = photocopies.filter(
@@ -677,7 +705,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "photo-dir",
           pillarId: "services",
           moduleId: "photocopies-couleur",
-          href: "/services?tab=photocopies",
+          href: photoHome,
           label: "Photocopies couleur",
           rich: true,
           badge: `${pending} à traiter`,
@@ -691,7 +719,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "photo-dir",
           label: "Photocopies couleur",
           count: pending,
-          href: "/services?tab=photocopies",
+          href: photoHome,
           detail:
             pending === 1
               ? "1 photocopie à traiter"
@@ -702,7 +730,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "photo",
           pillarId: "services",
           moduleId: "photocopies-couleur",
-          href: "/services?tab=photocopies",
+          href: photoHome,
           label: "Photocopies couleur",
         });
       }
@@ -711,19 +739,19 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "photo",
         pillarId: "services",
         moduleId: "photocopies-couleur",
-        href: "/services?tab=photocopies",
+        href: photoHome,
         label: "Photocopies couleur",
       });
     }
   }
 
   // —— Services : stables ——
-  const stableServices: Array<{ moduleId: string; href: string; label: string }> = [
-    { moduleId: "documents", href: "/services?tab=cloud", label: "Cloud personnel" },
-    { moduleId: "toolbox", href: "/services?tab=toolbox", label: "Boîte à outils" },
-    { moduleId: "covoiturage", href: "/services?tab=covoiturage", label: "Covoiturage" },
-    { moduleId: "channels", href: "/services?tab=salons", label: "Salons" },
-    { moduleId: "assistance", href: "/services?tab=assistance", label: "Assistance" },
+  const stableServices: Array<{ moduleId: string; label: string }> = [
+    { moduleId: "documents", label: "Cloud personnel" },
+    { moduleId: "toolbox", label: "Boîte à outils" },
+    { moduleId: "covoiturage", label: "Covoiturage" },
+    { moduleId: "channels", label: "Salons" },
+    { moduleId: "assistance", label: "Assistance" },
   ];
   for (const s of stableServices) {
     if (!has(s.moduleId)) continue;
@@ -731,17 +759,17 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       id: s.moduleId,
       pillarId: "services",
       moduleId: s.moduleId,
-      href: s.href,
+      href: moduleHref(s.moduleId),
       label: s.label,
     });
   }
 
   // —— Établissement : stables ——
-  const stableEtab: Array<{ moduleId: string; href: string; label: string }> = [
-    { moduleId: "organigramme", href: "/etablissement?tab=organigramme", label: "Organigramme" },
-    { moduleId: "conformite-rgpd", href: "/etablissement?tab=rgpd", label: "Conformité RGPD" },
-    { moduleId: "chatbot-knowledge", href: "/etablissement?tab=brain", label: "Brain AI" },
-    { moduleId: "domain-planning", href: "/etablissement?tab=transversal", label: "Enseignements transversaux" },
+  const stableEtab: Array<{ moduleId: string; label: string }> = [
+    { moduleId: "organigramme", label: "Organigramme" },
+    { moduleId: "conformite-rgpd", label: "Conformité RGPD" },
+    { moduleId: "chatbot-knowledge", label: "Brain AI" },
+    { moduleId: "domain-planning", label: "Enseignements transversaux" },
   ];
   for (const s of stableEtab) {
     if (!has(s.moduleId)) continue;
@@ -749,7 +777,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       id: s.moduleId,
       pillarId: "etablissement",
       moduleId: s.moduleId,
-      href: s.href,
+      href: moduleHref(s.moduleId),
       label: s.label,
     });
   }

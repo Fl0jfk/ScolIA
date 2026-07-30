@@ -14,8 +14,7 @@ export default function ConnexionPlatformSessionBanner() {
     <div className="mt-8 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-sm text-violet-950">
       <p className="font-bold">Session administration Scola active sur docslapro.com</p>
       <p className="mt-1 text-violet-900/90">
-        Pour accéder à l&apos;intranet de votre établissement (ex.{" "}
-        <span className="font-mono text-xs">lp.docslapro.com</span>), cliquez sur la carte
+        Pour accéder à l&apos;intranet de votre établissement, choisissez-le dans la liste
         ci-dessous — c&apos;est une connexion séparée.
       </p>
       <div className="mt-3 flex flex-wrap gap-3">
