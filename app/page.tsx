@@ -9,7 +9,8 @@ import { isMultiTenantEnabled } from "@/app/lib/tenant-registry";
 
 export const metadata: Metadata = {
   title: "ScolIA — Intranet tout-en-un pour établissements scolaires",
-  description:"Workflows documents élèves, sorties, absences, RH, internat… Un abonnement tout inclus. Hébergement France.",
+  description:
+    "Moins de papier grâce à l’IA, sorties mieux communiquées, salles et RH au même endroit. Intranet tout inclus, hébergé en France.",
 };
 
 export default async function HomePage() {

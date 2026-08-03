@@ -31,33 +31,39 @@ export const POSITIONING = {
 
 export const BENEFITS = [
   {
-    title: "Une plateforme unifiée",
-    desc: "Documents élèves, sorties, salles, RH, internat, cloud personnel et demandes — un abonnement unique, sans modules optionnels.",
+    title: "Moins de papier, plus de temps",
+    desc: "L’IA trie et range les documents élèves : fini les piles à classer. Les équipes gagnent des heures chaque semaine.",
   },
   {
-    title: "Processus structurés",
-    desc: "Classement documentaire assisté, parcours de sorties, suivi RH et demandes : des circuits clairs pour les équipes.",
+    title: "Des parcours qui parlent entre eux",
+    desc: "Sorties, salles, RH : validations, communications et statuts au même endroit — moins d’e-mails, moins d’oublis.",
   },
   {
     title: "Souveraineté et partenaires",
-    desc: "Hébergement Scaleway, IA Mistral, paiements EasyTransac, messagerie OVH. Microsoft Éducation pour les licences ; Clerk pour l'authentification.",
+    desc: "Hébergement Scaleway, IA Mistral, paiements EasyTransac, messagerie OVH. Microsoft Éducation pour les licences ; Clerk pour l’authentification.",
   },
 ] as const;
 
-/** Quatre piliers produit — détail du parcours métier. */
+/** Quatre piliers produit — parcours + bénéfices concrets. */
 export const KEY_PILLARS = [
   {
     id: "docs",
     title: "Documents élèves",
     accent: "#2F6B4A",
     lead:
-      "Les pièces reçues (bulletins, attestations, conventions, justificatifs…) sont déposées une fois, puis classées dans le bon dossier élève.",
+      "Grâce à l’IA, fini le tri manuel : les pièces arrivent, sont lues et rangées au bon endroit — moins de papier, moins de temps perdu.",
+    outcomes: [
+      "Moins de papier grâce à l’IA (OCR + classement)",
+      "Gros gain de temps pour l’administratif",
+      "Plus de documents à ranger à la main dans les dossiers",
+      "Dossiers élèves à jour, accessibles sans chasse au classeur",
+    ],
     steps: [
-      "Dépôt d'un PDF ou d'un lot de documents (scan, e-mail, espace dédié).",
-      "Lecture OCR via Mistral : le texte et la structure du document sont extraits.",
-      "Identification de l'élève et de la classe (matching assisté par IA).",
-      "Rangement automatique dans l'arborescence OneDrive / Microsoft 365 de l'établissement.",
-      "Les équipes consultent et complètent le dossier sans ressaisir ni trier à la main.",
+      "Dépôt d’un PDF ou d’un lot (scan, e-mail, espace dédié).",
+      "Lecture OCR via Mistral : texte et structure extraits.",
+      "Identification de l’élève et de la classe (matching assisté).",
+      "Rangement automatique dans OneDrive / Microsoft 365.",
+      "Les équipes consultent le dossier sans ressaisir ni trier.",
     ],
   },
   {
@@ -65,12 +71,18 @@ export const KEY_PILLARS = [
     title: "Sorties scolaires",
     accent: "#234B73",
     lead:
-      "Une sortie n'est plus un fil d'e-mails : chaque étape (projet, validations, transport, suivi) est gérée dans un parcours unique.",
+      "Une communication claire entre profs, direction, compta, transporteurs et familles — sans fil d’e-mails ni Excel éparpillés.",
+    outcomes: [
+      "Meilleure communication entre tous les acteurs",
+      "Validations et devis au même endroit",
+      "Moins d’oublis, plus de visibilité sur le statut",
+      "Liste élèves et messages parents quand il le faut",
+    ],
     steps: [
       "Création de la sortie (dates, niveau, effectif, interlocuteurs).",
       "Circuit de validation direction / comptabilité.",
       "Gestion des devis (bus, etc.), comparaison et signature.",
-      "Suivi jusqu'au retour : statut, pièces jointes et historique au même endroit.",
+      "Suivi jusqu’au retour : statut, pièces et historique centralisés.",
     ],
   },
   {
@@ -78,12 +90,18 @@ export const KEY_PILLARS = [
     title: "Réservation de salles",
     accent: "#4C3D7A",
     lead:
-      "Le planning des salles et équipements se partage en temps réel, sans tableur ni double saisie.",
+      "Tout le monde voit la même grille en temps réel : plus de double réservation, plus de tableur qui diverge.",
+    outcomes: [
+      "Planning partagé, sans Excel concurrent",
+      "Moins de conflits de salles",
+      "Réservations ponctuelles ou récurrentes en quelques clics",
+      "Traçabilité des modifications et annulations",
+    ],
     steps: [
-      "Consultation de la grille (salles, créneaux, matières ou usages en couleurs).",
-      "Réservation ponctuelle ou récurrente (cours, réunions, examens).",
-      "Visibilité des conflits et disponibilités pour toute l'équipe.",
-      "Modification ou annulation tracée, sans version Excel concurrente.",
+      "Consultation de la grille (salles, créneaux, usages).",
+      "Réservation ponctuelle ou récurrente.",
+      "Visibilité des conflits et disponibilités pour l’équipe.",
+      "Modification ou annulation tracée.",
     ],
   },
   {
@@ -91,13 +109,19 @@ export const KEY_PILLARS = [
     title: "RH",
     accent: "#6B3A4A",
     lead:
-      "Le volet ressources humaines centralise dossiers, absences et arrivées pour l'administratif et la direction.",
+      "Absences, dossiers et arrivées au même endroit : la direction et l’administratif gagnent en clarté et en réactivité.",
+    outcomes: [
+      "Déclarations d’absence sans paperasse dispersée",
+      "Dossiers collaborateurs accessibles selon les droits",
+      "Arrivées et signatures mieux suivies",
+      "Vue d’ensemble RH sans multiplier les outils",
+    ],
     steps: [
-      "Dossier collaborateur (identité, contrats, pièces) accessible selon les droits.",
-      "Déclaration et suivi des absences (arrêt, congés, justifications).",
-      "Parcours d'arrivée : invitation, informations, documents à fournir.",
-      "Signatures et validations RH / direction sur les actes concernés.",
-      "Vue d'ensemble pour le service RH sans multiplier les outils.",
+      "Dossier collaborateur accessible selon les droits.",
+      "Déclaration et suivi des absences.",
+      "Parcours d’arrivée : invitation, infos, documents.",
+      "Signatures et validations RH / direction.",
+      "Vue d’ensemble pour le service RH.",
     ],
   },
 ] as const;
@@ -106,38 +130,38 @@ export const KEY_PILLARS = [
 export const REST_CAPABILITIES = [
   {
     title: "Cloud personnel",
-    desc: "Espace documents pour le personnel : fichiers de travail et dossiers partagés utiles au quotidien.",
+    desc: "Fichiers de travail et partages au quotidien — sans USB ni boîtes mail saturées.",
   },
   {
     title: "Demandes & corbeilles",
-    desc: "Ouverture, routage et suivi des demandes par service (administratif, maintenance, comptabilité…).",
+    desc: "Une demande, un destinataire, un suivi : moins de relances orales et de mails perdus.",
   },
   {
     title: "Internat",
-    desc: "Module complémentaire pour le suivi de la vie d'internat, disponible dans le même abonnement.",
+    desc: "Appels, sorties et suivi de vie d’internat dans le même abonnement.",
   },
 ] as const;
 
 export const PLATFORM_CAPABILITIES = [
   {
     title: "Documents élèves",
-    desc: "Dépôt → OCR → matching élève → rangement OneDrive.",
+    desc: "IA + OCR : moins de papier, classement auto, gros gain de temps.",
   },
   {
     title: "Sorties scolaires",
-    desc: "Validations direction / comptabilité, devis et suivi de bout en bout.",
+    desc: "Meilleure communication, validations et suivi de bout en bout.",
   },
   {
     title: "Réservation de salles",
-    desc: "Planning partagé, récurrence, sans tableur.",
+    desc: "Planning partagé en temps réel, sans tableur ni conflits.",
   },
   {
     title: "RH",
-    desc: "Dossiers, absences, arrivées et signatures.",
+    desc: "Absences, dossiers et arrivées centralisés pour l’équipe.",
   },
   {
     title: "Cloud & demandes",
-    desc: "Documents personnel et tickets par service.",
+    desc: "Documents personnel et tickets par service, sans dispersion.",
   },
   {
     title: "Licences Microsoft",

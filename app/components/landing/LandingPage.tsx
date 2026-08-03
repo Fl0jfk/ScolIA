@@ -68,8 +68,9 @@ export default function LandingPage() {
               >
                 <BrandMark size="sm" className="align-baseline text-base lg:text-lg" />
                 {" "}
-                est conçu pour les écoles, collèges, lycées et groupes scolaires : documents
-                élèves, sorties, salles et RH — dans un environnement unique hébergé en France.
+                est conçu pour les écoles, collèges, lycées et groupes scolaires : moins de
+                papier grâce à l&apos;IA, des sorties mieux communiquées, salles et RH au même
+                endroit — hébergé en France.
               </motion.p>
 
               <motion.div
@@ -203,10 +204,9 @@ export default function LandingPage() {
                 Quatre piliers métier
               </h2>
               <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-stone-600">
-                Chaque module suit un parcours concret. Voici ce que fait{" "}
-                <BrandMark size="sm" className="align-baseline" />
-                {" "}
-                au quotidien — l&apos;animation ci-dessous illustre le flux.
+                Pas seulement « ce que fait » le module : ce qu&apos;il{" "}
+                <strong className="font-bold text-[#14231A]">change concrètement</strong> pour
+                vos équipes — moins de papier, plus de clarté, mieux communiquer.
               </p>
             </div>
 
@@ -222,6 +222,19 @@ export default function LandingPage() {
                       {pillar.title}
                     </h3>
                     <p className="mt-2 text-sm leading-relaxed text-stone-600">{pillar.lead}</p>
+                    <ul className="mt-4 space-y-2 rounded-2xl border border-emerald-100/80 bg-emerald-50/40 p-4">
+                      {pillar.outcomes.map((o) => (
+                        <li key={o} className="flex gap-2 text-sm leading-snug text-stone-700">
+                          <span
+                            className="mt-0.5 shrink-0 font-black"
+                            style={{ color: pillar.accent }}
+                          >
+                            →
+                          </span>
+                          <span>{o}</span>
+                        </li>
+                      ))}
+                    </ul>
                     <ol className="mt-4 space-y-2.5 border-l-2 border-emerald-100 pl-4">
                       {pillar.steps.map((step, i) => (
                         <li key={step} className="text-sm leading-relaxed text-stone-600">
