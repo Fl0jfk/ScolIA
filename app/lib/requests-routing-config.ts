@@ -14,7 +14,12 @@ const MANUAL_ONLY_DIRECTION_IDS = new Set(["direction_ecole", "direction_college
 
 const ROUTING_KEY = "settings/requests-routing.json";
 const CACHE_MS = 45_000;
-const ROUTING_CONFIDENCE_MIN = 0.52;
+/** Sous ce seuil → corbeille globale (doute). */
+const ROUTING_CONFIDENCE_MIN = 0.55;
+/** Score tag minimum pour sortir de la corbeille (fallback local). */
+const TAG_MATCH_MIN_SCORE = 3;
+/** Si le 2e score est trop proche du 1er → ambiguïté → corbeille. */
+const AMBIGUITY_RATIO = 0.85;
 const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
 
 let cache: { at: number; config: RequestsRoutingConfig } | null = null;
@@ -94,10 +99,23 @@ function buildCatalogPayload(config: RequestsRoutingConfig) {
   const activeAssignments = getActiveAssignments(config);
   const taskById = new Map(config.tasks.map((t) => [t.id, t]));
   const serviceById = new Map(config.services.map((s) => [s.id, s]));
+  const tagsByEmail = new Map(
+    (config.personnelTags || []).map((p) => [p.email.toLowerCase(), p.tags]),
+  );
+
+  /** Tags agrégés par service (union des tags des personnes du service). */
+  const serviceTagsById = new Map<string, string[]>();
+  for (const a of activeAssignments) {
+    const personTags = tagsByEmail.get(a.email.toLowerCase()) || [];
+    if (personTags.length === 0) continue;
+    const prev = serviceTagsById.get(a.serviceId) || [];
+    serviceTagsById.set(a.serviceId, [...new Set([...prev, ...personTags])]);
+  }
 
   const catalog = activeAssignments.map((a) => {
     const task = taskById.get(a.taskId);
     const service = serviceById.get(a.serviceId);
+    const personTags = tagsByEmail.get(a.email.toLowerCase()) || [];
     return {
       assignmentId: a.id,
       taskId: a.taskId,
@@ -106,9 +124,12 @@ function buildCatalogPayload(config: RequestsRoutingConfig) {
       taskKeywords: task?.keywords || [],
       personName: a.personName,
       email: a.email,
+      personTags,
       serviceId: a.serviceId,
       serviceLabel: service?.label || a.serviceId,
       serviceCategory: service?.category || "",
+      serviceTags: serviceTagsById.get(a.serviceId) || [],
+      isGlobalInbox: a.taskId === "corbeille",
     };
   });
 
@@ -116,46 +137,157 @@ function buildCatalogPayload(config: RequestsRoutingConfig) {
     .filter((q) => q.active)
     .map((q) => ({ id: q.id, label: q.label, email: q.email }));
 
-  return { catalog, directionHints };
+  const corbeilleAssignmentId =
+    activeAssignments.find((a) => a.taskId === "corbeille")?.id || null;
+
+  return { catalog, directionHints, corbeilleAssignmentId };
 }
 
+function normalizeMatchText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Compte combien de tags/mots-clés apparaissent clairement dans le texte. */
+function countTagHits(textNorm: string, tags: string[]): { hits: number; matched: string[] } {
+  const matched: string[] = [];
+  for (const raw of tags) {
+    const tag = normalizeMatchText(raw);
+    if (!tag || tag.length < 2) continue;
+    // Mot entier ou expression multi-mots
+    const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`);
+    if (re.test(` ${textNorm} `) || textNorm.includes(tag)) {
+      matched.push(raw);
+    }
+  }
+  return { hits: matched.length, matched };
+}
+
+type MatchScore = {
+  assignment: RoutingAssignment;
+  score: number;
+  personHits: number;
+  taskHits: number;
+  matchedPersonTags: string[];
+  matchedTaskKeywords: string[];
+};
+
+function scoreAssignments(
+  config: RequestsRoutingConfig,
+  subject: string,
+  description: string,
+): MatchScore[] {
+  const textNorm = normalizeMatchText(`${subject} ${description}`);
+  const activeAssignments = getActiveAssignments(config);
+  const taskById = new Map(config.tasks.map((t) => [t.id, t]));
+  const tagsByEmail = new Map(
+    (config.personnelTags || []).map((p) => [p.email.toLowerCase(), p.tags]),
+  );
+
+  const scored: MatchScore[] = [];
+  for (const a of activeAssignments) {
+    if (a.taskId === "corbeille") continue;
+    const task = taskById.get(a.taskId);
+    if (!task) continue;
+    const person = countTagHits(textNorm, tagsByEmail.get(a.email.toLowerCase()) || []);
+    const taskKw = countTagHits(textNorm, task.keywords || []);
+    // Priorité nette aux tags personne (matching max) ; mots-clés tâche en appui service
+    const score = person.hits * 4 + taskKw.hits * 2;
+    if (score <= 0) continue;
+    scored.push({
+      assignment: a,
+      score,
+      personHits: person.hits,
+      taskHits: taskKw.hits,
+      matchedPersonTags: person.matched,
+      matchedTaskKeywords: taskKw.matched,
+    });
+  }
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.personHits !== a.personHits) return b.personHits - a.personHits;
+    return b.taskHits - a.taskHits;
+  });
+  return scored;
+}
+
+/**
+ * Matching local : maximise les tags → personne ; sinon service clair ;
+ * doute / égalité → corbeille globale.
+ */
 function keywordFallback(
   config: RequestsRoutingConfig,
   subject: string,
   description: string,
 ): AiRoutingPick | null {
-  const text = `${subject} ${description}`.toLowerCase();
-  const activeAssignments = getActiveAssignments(config);
-  const taskById = new Map(config.tasks.map((t) => [t.id, t]));
+  const corbeille = getActiveAssignments(config).find((a) => a.taskId === "corbeille");
+  const toCorbeille = (reason: string, confidence = 0.32): AiRoutingPick | null => {
+    if (!corbeille) return null;
+    return { assignmentId: corbeille.id, confidence, reason };
+  };
 
-  let best: { assignment: RoutingAssignment; score: number } | null = null;
-
-  for (const a of activeAssignments) {
-    const task = taskById.get(a.taskId);
-    if (!task) continue;
-    let score = 0;
-    for (const kw of task.keywords) {
-      if (kw && text.includes(kw.toLowerCase())) score += +2;
-    }
-    if (score > 0 && (!best || score > best.score)) best = { assignment: a, score };
+  const scored = scoreAssignments(config, subject, description);
+  if (scored.length === 0) {
+    return toCorbeille("Aucun tag / mot-clé clair — corbeille établissement.");
   }
 
-  if (!best) {
-    const corbeille = activeAssignments.find((a) => a.taskId === "corbeille");
-    if (corbeille) {
+  const best = scored[0]!;
+  if (best.score < TAG_MATCH_MIN_SCORE) {
+    return toCorbeille(
+      `Signal trop faible (score ${best.score}) — corbeille. Indices : ${(
+        best.matchedPersonTags.concat(best.matchedTaskKeywords) || []
+      ).join(", ") || "aucun"}.`,
+    );
+  }
+
+  const second = scored[1];
+  if (second && second.score >= best.score * AMBIGUITY_RATIO) {
+    const sameService = second.assignment.serviceId === best.assignment.serviceId;
+    const sameTask = second.assignment.taskId === best.assignment.taskId;
+
+    // Même service / même tâche : on peut router vers ce service (pool)
+    if (sameService || sameTask) {
+      const confidence = Math.min(0.72, 0.48 + best.personHits * 0.08 + best.taskHits * 0.04);
       return {
-        assignmentId: corbeille.id,
-        confidence: 0.35,
-        reason: "Aucun mot-clé correspondant — corbeille établissement.",
+        assignmentId: best.assignment.id,
+        confidence,
+        reason: `Service/tâche clair via tags (${best.personHits} tag(s) personne, ${best.taskHits} mot(s)-clé tâche) : ${[
+          ...best.matchedPersonTags,
+          ...best.matchedTaskKeywords,
+        ].join(", ")}. Plusieurs personnes possibles dans le même service.`,
       };
     }
-    return null;
+
+    // Personnes / services différents avec scores proches → doute
+    return toCorbeille(
+      `Ambiguïté entre ${best.assignment.personName} (score ${best.score}) et ${second.assignment.personName} (score ${second.score}) — corbeille globale.`,
+      0.38,
+    );
   }
 
+  // Gagnant net : personne (surtout si tags personne) ou service
+  const confidence = Math.min(
+    0.88,
+    0.5 + best.personHits * 0.1 + best.taskHits * 0.05,
+  );
+  const focus =
+    best.personHits > 0
+      ? `personne ${best.assignment.personName}`
+      : `service / tâche ${best.assignment.taskId}`;
   return {
     assignmentId: best.assignment.id,
-    confidence: Math.min(0.75, 0.4 + best.score * 0.05),
-    reason: `Correspondance mots-clés (${best.score} points).`,
+    confidence,
+    reason: `Matching max tags → ${focus} (score ${best.score} : ${[
+      ...best.matchedPersonTags,
+      ...best.matchedTaskKeywords,
+    ].join(", ")}).`,
   };
 }
 
@@ -167,13 +299,24 @@ async function callMistralRouting(
   const apiKey = await getMistralApiKey();
   if (!apiKey) return null;
 
-  const { catalog, directionHints } = buildCatalogPayload(config);
+  const { catalog, directionHints, corbeilleAssignmentId } = buildCatalogPayload(config);
   if (catalog.length === 0) return null;
 
   const system = `Tu es le routeur de demandes internes d'un établissement scolaire.
-On te donne un catalogue JSON d'affectations (chaque entrée = une tâche + une personne).
-Choisis UNE SEULE affectation (assignmentId) la plus pertinente pour traiter la demande.
-Les files direction (direction_ecole, direction_college, direction_lycee) ne sont PAS dans le catalogue : si la demande concerne clairement la direction, renvoie directionHint avec l'id approprié mais choisis quand même une affectation non-direction du catalogue pour le traitement initial.
+Catalogue JSON : chaque entrée = une tâche + une personne.
+- personTags : compétences / domaines de LA personne (ex. plomberie, factures, transport)
+- serviceTags : union des tags des personnes du même service
+- taskKeywords : mots-clés de la tâche
+- isGlobalInbox=true : corbeille établissement (file globale)
+
+Règles de décision STRICTES (dans l'ordre) :
+1. Maximiser le nombre de personTags qui matchent clairement le texte → choisis CETTE personne (assignmentId).
+2. Si aucune personne ne se détache mais un service est clair (serviceTags / taskKeywords) → choisis une affectation de ce service.
+3. Si plusieurs personnes ou services DIFFÉRENTS restent crédibles → DOUTE : choisis la corbeille globale (assignmentId=${corbeilleAssignmentId || "corbeille"}), confidence <= 0.4.
+4. Si aucun tag / mot-clé clair → corbeille globale, confidence <= 0.35.
+5. Ne choisis une personne hors corbeille que si tu es relativement sûr (confidence >= 0.55).
+
+Les files direction (direction_ecole, direction_college, direction_lycee) ne sont PAS dans le catalogue : si la demande concerne clairement la direction, renvoie directionHint avec l'id approprié mais choisis quand même une affectation non-direction (souvent corbeille ou admin) pour le traitement initial.
 Réponds UNIQUEMENT en JSON valide : {"assignmentId":"...","confidence":0.0-1.0,"reason":"...","directionHint":null ou "direction_..."}`;
 
   const appConfig = await loadAppConfig();
@@ -186,6 +329,8 @@ Réponds UNIQUEMENT en JSON valide : {"assignmentId":"...","confidence":0.0-1.0,
     description,
     catalog,
     directionHints,
+    corbeilleAssignmentId,
+    rule: "max_tags_then_person_or_service_else_global_inbox",
     establishments: establishmentLabels,
   });
 
@@ -267,8 +412,8 @@ function pickToResolved(
   ) {
     suggestedRouteId = suggestedRouteId || assignment.taskId;
     chosenAssignment = corbeilleAssignment;
-    reason = `Confiance ${Math.round(confidence * 100)}% < seuil : corbeille. Hypothèse : ${assignment.taskId}. ${pick.reason}`.trim();
-    confidence = Math.min(confidence, 0.45);
+    reason = `Doute (confiance ${Math.round(confidence * 100)}% < ${Math.round(ROUTING_CONFIDENCE_MIN * 100)}%) → corbeille globale. Hypothèse : ${assignment.personName} / ${assignment.taskId}. ${pick.reason}`.trim();
+    confidence = Math.min(confidence, 0.42);
   }
 
   const chosenTask = taskById.get(chosenAssignment.taskId);

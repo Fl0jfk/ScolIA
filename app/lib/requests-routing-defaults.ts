@@ -103,6 +103,8 @@ export function defaultRequestsRouting(): RequestsRoutingConfig {
     assignments: [] as RoutingAssignment[],
     directionQueues: [],
     parentPortal: { enabled: false },
+    tagCatalog: [],
+    personnelTags: [],
   };
 }
 

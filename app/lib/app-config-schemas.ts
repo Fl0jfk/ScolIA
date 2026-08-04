@@ -214,6 +214,13 @@ export type RoutingDirectionQueue = {
   active: boolean;
 };
 
+/** Tags métier d’une personne (personnel OGEC) pour le routage IA. */
+export type RoutingPersonnelTags = {
+  email: string;
+  personName: string;
+  tags: string[];
+};
+
 export type RequestsRoutingConfig = {
   version: 1;
   services: RoutingService[];
@@ -224,6 +231,10 @@ export type RequestsRoutingConfig = {
   parentPortal?: {
     enabled: boolean;
   };
+  /** Catalogue de tags créés par l’admin (réutilisables). */
+  tagCatalog?: string[];
+  /** Tags par e-mail — l’IA s’en sert pour choisir à qui donner la demande. */
+  personnelTags?: RoutingPersonnelTags[];
 };
 
 export type AppConfigBundle = {
@@ -660,18 +671,53 @@ export function parseRequestsRouting(raw: unknown): RequestsRoutingConfig {
     };
   });
 
+  const parentPortal = {
+    enabled:
+      o.parentPortal && typeof o.parentPortal === "object"
+        ? (o.parentPortal as Record<string, unknown>).enabled === true
+        : false,
+  };
+
+  const personnelTagsRaw = Array.isArray(o.personnelTags) ? o.personnelTags : [];
+  const personnelTags: RoutingPersonnelTags[] = [];
+  const seenEmails = new Set<string>();
+  const usedTags = new Set<string>();
+  for (const row of personnelTagsRaw) {
+    const x = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
+    const email = str(x.email).trim().toLowerCase();
+    if (!email || !isEmail(email) || seenEmails.has(email)) continue;
+    seenEmails.add(email);
+    const tags = [
+      ...new Set(
+        strArr(x.tags)
+          .map((t) => t.trim())
+          .filter(Boolean),
+      ),
+    ];
+    for (const t of tags) usedTags.add(t);
+    personnelTags.push({
+      email,
+      personName: str(x.personName).trim() || email.split("@")[0] || email,
+      tags,
+    });
+  }
+
+  const catalogFromConfig = strArr(o.tagCatalog)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const tagCatalog = [...new Set([...catalogFromConfig, ...usedTags])].sort((a, b) =>
+    a.localeCompare(b, "fr", { sensitivity: "base" }),
+  );
+
   return {
     version: 1,
     services: parsedServices,
     tasks: parsedTasks,
     assignments: parsedAssignments,
     directionQueues: parsedDirection,
-    parentPortal: {
-      enabled:
-        o.parentPortal && typeof o.parentPortal === "object"
-          ? (o.parentPortal as Record<string, unknown>).enabled === true
-          : false,
-    },
+    parentPortal,
+    tagCatalog,
+    personnelTags,
   };
 }
 

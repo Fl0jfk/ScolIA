@@ -134,6 +134,13 @@ export default function RequestsRoutingEditor({ config, onChange, members, membe
             Désactivé par défaut. Activez puis enregistrez le routage pour publier le lien.
           </p>
         )}
+        <p className="text-xs text-slate-500 border-t border-amber-200/60 pt-3">
+          Tags métier du personnel (pour l&apos;IA) : onglet{" "}
+          <a href="/requests" className="font-bold text-indigo-700 underline">
+            Demandes → Tags équipe
+          </a>
+          .
+        </p>
       </section>
 
       <section className="bg-white rounded-2xl border p-6 space-y-4">

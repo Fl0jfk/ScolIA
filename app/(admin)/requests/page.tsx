@@ -12,6 +12,8 @@ import { useMobileBoardUi } from "@/app/hooks/useMobileBoardUi";
 import type { VisualColumnKey } from "@/app/lib/request-board-move";
 import { getViewerServiceLabel } from "@/app/lib/requests-view-utils";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
+import RequestPersonnelTagsPanel from "@/app/components/requests/RequestPersonnelTagsPanel";
+import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 
 type RequestStatus = "NOUVELLE" | "EN_COURS" | "EN_ATTENTE" | "TERMINEE";
 
@@ -189,6 +191,8 @@ function RequestAttachmentLinks({
 
 export default function RequestsPage() {
   const { isLoaded, user } = useUser();
+  const isOrgAdmin = useIsOrgAdmin();
+  const [mainTab, setMainTab] = useState<"board" | "tags">("board");
   const [items, setItems] = useState<RequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [internalNoteById, setInternalNoteById] = useState<Record<string, string>>({});
@@ -569,19 +573,58 @@ export default function RequestsPage() {
         <div>
           <h1 className="text-4xl font-black text-slate-900">Demandes</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Tableau de traitement — {serviceLabel}
+            {mainTab === "tags"
+              ? "Paramétrage des tags pour le routage IA"
+              : `Tableau de traitement — ${serviceLabel}`}
           </p>
         </div>
-        <button
-          data-tour="requests-new"
-          type="button"
-          onClick={() => setCreateModalOpen(true)}
-          className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-blue-600 text-white text-sm font-black shadow-lg shadow-blue-200/40 hover:bg-blue-700 transition"
-        >
-          <span className="text-lg leading-none">+</span>
-          Faire une demande
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {isOrgAdmin ? (
+            <div className="flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setMainTab("board")}
+                className={`rounded-xl px-3.5 py-2 text-xs font-black transition ${
+                  mainTab === "board"
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Tableau
+              </button>
+              <button
+                type="button"
+                onClick={() => setMainTab("tags")}
+                className={`rounded-xl px-3.5 py-2 text-xs font-black transition ${
+                  mainTab === "tags"
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Tags équipe
+              </button>
+            </div>
+          ) : null}
+          {mainTab === "board" ? (
+            <button
+              data-tour="requests-new"
+              type="button"
+              onClick={() => setCreateModalOpen(true)}
+              className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-blue-600 text-white text-sm font-black shadow-lg shadow-blue-200/40 hover:bg-blue-700 transition"
+            >
+              <span className="text-lg leading-none">+</span>
+              Faire une demande
+            </button>
+          ) : null}
+        </div>
       </div>
+
+      {mainTab === "tags" && isOrgAdmin ? (
+        <div className="mt-6 max-w-5xl">
+          <RequestPersonnelTagsPanel />
+        </div>
+      ) : (
+        <>
       <CreateRequestModal
         open={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
@@ -1129,6 +1172,8 @@ export default function RequestsPage() {
         />
       </div>
       <ReplayModuleTourButton moduleId="requests-staff" />
+        </>
+      )}
     </main>
   );
 }
