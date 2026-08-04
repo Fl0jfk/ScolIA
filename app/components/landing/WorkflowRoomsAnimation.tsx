@@ -44,7 +44,7 @@ export default function WorkflowRoomsAnimation() {
           <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
           <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
           <span className="h-2.5 w-2.5 rounded-full bg-violet-400/80" />
-          <span className="ml-2 text-xs font-semibold text-violet-100/80">
+                      <span className="ml-2 text-xs font-semibold text-violet-100/80">
             Réservation de salles
           </span>
           <motion.span
@@ -53,7 +53,7 @@ export default function WorkflowRoomsAnimation() {
             animate={{ opacity: 1, scale: 1 }}
             className="ml-auto rounded-full bg-violet-400/20 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-violet-200"
           >
-            Salle 102
+            {phase === "confirme" ? "Confirmé" : "Temps réel"}
           </motion.span>
         </div>
 

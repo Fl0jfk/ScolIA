@@ -12,16 +12,15 @@ import WorkflowAbsencesAnimation from "@/app/components/landing/WorkflowAbsences
 import { SectionReveal } from "@/app/components/landing/SectionReveal";
 import BrandMark from "@/app/components/landing/BrandMark";
 import {
-  AUDIENCES,
   BENEFITS,
   ESTABLISHMENT_TARGETS,
   KEY_PILLARS,
   MARKETING,
   PLATFORM_CAPABILITIES,
-  REST_CAPABILITIES,
   RGPD_COMPACT,
   SOVEREIGNTY,
   STATS,
+  TRUST_STRIP,
 } from "@/app/lib/marketing-site";
 import { SCOLA_GRADIENT_TEXT } from "@/app/lib/marketing-theme";
 
@@ -33,11 +32,11 @@ const PILLAR_ANIMATIONS = {
 } as const;
 
 const fadeUp = {
-  hidden: { opacity: 0, y: 24 },
+  hidden: { opacity: 0, y: 20 },
   show: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { delay: i * 0.07, duration: 0.55, ease: [0.22, 1, 0.36, 1] as const },
+    transition: { delay: i * 0.06, duration: 0.5, ease: [0.22, 1, 0.36, 1] as const },
   }),
 };
 
@@ -45,339 +44,227 @@ export default function LandingPage() {
   return (
     <MarketingShell>
       <main>
-        <section className="mx-auto max-w-6xl px-6 pb-8 pt-10 md:pt-14">
-          <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
-            <div className="text-center lg:text-left">
-              <motion.h1
-                custom={0}
-                variants={fadeUp}
-                initial="hidden"
-                animate="show"
-                className="text-4xl font-black leading-[1.05] tracking-tight text-[#14231A] sm:text-5xl lg:text-[3.25rem]"
-              >
-                L&apos;intranet métier{" "}
-                <span className={SCOLA_GRADIENT_TEXT}>des établissements scolaires</span>
-              </motion.h1>
-
-              <motion.p
-                custom={1}
-                variants={fadeUp}
-                initial="hidden"
-                animate="show"
-                className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-stone-600 lg:mx-0 lg:text-lg"
-              >
-                <BrandMark size="sm" className="align-baseline text-base lg:text-lg" />
-                {" "}
-                est conçu pour les écoles, collèges, lycées et groupes scolaires : moins de
-                papier grâce à l&apos;IA, des sorties mieux communiquées, salles et RH au même
-                endroit — hébergé en France.
-              </motion.p>
-
-              <motion.div
-                custom={2}
-                variants={fadeUp}
-                initial="hidden"
-                animate="show"
-                className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start"
-              >
-                <a
-                  href={`mailto:${MARKETING.contactEmail}?subject=Contact%20${encodeURIComponent(MARKETING.productName)}`}
-                  className="rounded-2xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-8 py-3.5 text-sm font-black text-white shadow-xl shadow-emerald-900/30 transition hover:scale-[1.02] hover:brightness-110"
-                >
-                  {MARKETING.contactCtaLabel}
-                </a>
-                <Link
-                  href="/tarifs"
-                  className="rounded-2xl border-2 border-[#2F6B4A]/30 bg-white px-8 py-3.5 text-sm font-bold text-[#2F6B4A] shadow-sm transition hover:border-[#2F6B4A] hover:bg-emerald-50"
-                >
-                  Voir les tarifs
-                </Link>
-              </motion.div>
-
-              <motion.div
-                custom={3}
-                variants={fadeUp}
-                initial="hidden"
-                animate="show"
-                className="mt-6 flex flex-wrap justify-center gap-2 lg:justify-start"
-              >
-                {["Écoles", "Collèges", "Lycées", "Groupes scolaires", "OGEC"].map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full bg-white/80 px-3 py-1 text-[11px] font-bold text-stone-600 shadow-sm ring-1 ring-stone-200/80"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </motion.div>
-            </div>
-
-            <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
-              className="relative"
+        {/* Hero */}
+        <section className="mx-auto max-w-5xl px-6 pb-10 pt-12 text-center md:pt-16">
+          <motion.p
+            custom={0}
+            variants={fadeUp}
+            initial="hidden"
+            animate="show"
+            className="text-xs font-black uppercase tracking-[0.28em] text-[#3D8A5C]"
+          >
+            Intranet scolaire · IA · France
+          </motion.p>
+          <motion.h1
+            custom={1}
+            variants={fadeUp}
+            initial="hidden"
+            animate="show"
+            className="mt-4 text-4xl font-black leading-[1.08] tracking-tight text-[#14231A] sm:text-5xl md:text-[3.4rem]"
+          >
+            Moins de papier.
+            <br />
+            <span className={SCOLA_GRADIENT_TEXT}>Plus de temps.</span>
+            <br />
+            Mieux communiquer.
+          </motion.h1>
+          <motion.p
+            custom={2}
+            variants={fadeUp}
+            initial="hidden"
+            animate="show"
+            className="mx-auto mt-5 max-w-2xl text-base text-stone-600 md:text-lg"
+          >
+            <BrandMark size="sm" className="align-baseline" /> range vos documents élèves avec
+            l&apos;IA, pilote sorties, salles et RH — hébergé en France, sur vos habitudes Microsoft.
+          </motion.p>
+          <motion.div
+            custom={3}
+            variants={fadeUp}
+            initial="hidden"
+            animate="show"
+            className="mt-8 flex flex-wrap items-center justify-center gap-3"
+          >
+            <a
+              href={`mailto:${MARKETING.contactEmail}?subject=Contact%20${encodeURIComponent(MARKETING.productName)}`}
+              className="rounded-2xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-8 py-3.5 text-sm font-black text-white shadow-xl shadow-emerald-900/30 transition hover:brightness-110"
             >
-              <WorkflowDocsAnimation />
-              <motion.div
-                animate={{ y: [0, -6, 0] }}
-                transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
-                className="absolute -bottom-3 -left-3 rounded-2xl border border-emerald-200 bg-white px-3 py-2 shadow-lg sm:-left-5"
-              >
-                <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">
-                  Gain de temps
-                </p>
-                <p className="text-sm font-black text-[#2F6B4A]">− des heures / semaine</p>
-              </motion.div>
-            </motion.div>
+              {MARKETING.contactCtaLabel}
+            </a>
+            <Link
+              href="/tarifs"
+              className="rounded-2xl border-2 border-[#2F6B4A]/30 bg-white px-8 py-3.5 text-sm font-bold text-[#2F6B4A] transition hover:bg-emerald-50"
+            >
+              Voir les tarifs
+            </Link>
+          </motion.div>
+          <motion.div
+            custom={4}
+            variants={fadeUp}
+            initial="hidden"
+            animate="show"
+            className="mx-auto mt-10 max-w-3xl"
+          >
+            <WorkflowDocsAnimation />
+          </motion.div>
+        </section>
+
+        {/* Trust strip */}
+        <section className="border-y border-emerald-100/80 bg-white/70">
+          <div className="mx-auto grid max-w-5xl grid-cols-2 gap-4 px-6 py-6 md:grid-cols-4">
+            {TRUST_STRIP.map((t) => (
+              <div key={t.label} className="text-center">
+                <p className="text-sm font-black text-[#2F6B4A]">{t.label}</p>
+                <p className="mt-0.5 text-xs text-stone-500">{t.detail}</p>
+              </div>
+            ))}
           </div>
         </section>
 
-        <section id="cible" className="mx-auto max-w-6xl px-6 pb-16">
+        {/* Cible compacte */}
+        <section className="mx-auto max-w-5xl px-6 py-12">
           <SectionReveal>
-            <div className="mb-8 text-center">
-              <p className="text-xs font-black uppercase tracking-[0.25em] text-[#3D8A5C]">
-                Cible
-              </p>
-              <h2 className="mt-2 text-2xl font-black text-[#14231A] md:text-3xl">
-                Pour les établissements scolaires
-              </h2>
-              <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-stone-600">
-                <BrandMark size="sm" className="align-baseline" />
-                {" "}
-                s&apos;adresse aux structures de l&apos;enseignement — du primaire au lycée, en
-                établissement isolé ou en groupe sous tutelle OGEC.
-              </p>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {ESTABLISHMENT_TARGETS.map((e, i) => (
-                <motion.article
+            <div className="flex flex-wrap justify-center gap-2">
+              {ESTABLISHMENT_TARGETS.map((e) => (
+                <span
                   key={e.id}
-                  initial={{ opacity: 0, y: 12 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.05 }}
-                  className="rounded-2xl border border-emerald-100 bg-white/95 p-5 shadow-sm"
+                  className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-bold text-[#2F6B4A] ring-1 ring-emerald-100"
                 >
-                  <h3 className="text-base font-black text-[#2F6B4A]">{e.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-stone-600">{e.desc}</p>
-                </motion.article>
+                  {e.title}
+                </span>
               ))}
             </div>
           </SectionReveal>
         </section>
 
-        <section className="mx-auto max-w-6xl px-6 pb-16">
+        {/* Bénéfices */}
+        <section className="mx-auto max-w-5xl px-6 pb-14">
           <SectionReveal>
-            <h2 className="mb-2 text-center text-sm font-black uppercase tracking-[0.2em] text-[#3D8A5C]">
-              Dans l&apos;établissement
-            </h2>
-            <p className="mb-8 text-center text-sm text-stone-600">
-              Les équipes qui utilisent <BrandMark size="sm" className="align-baseline" /> au
-              quotidien
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {AUDIENCES.map((a, i) => (
-                <motion.article
-                  key={a.title}
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  whileInView={{ opacity: 1, scale: 1 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: i * 0.05 }}
-                  className="rounded-2xl bg-gradient-to-br from-[#2F6B4A] to-[#1E4A32] p-5 text-white shadow-lg shadow-emerald-900/20"
-                >
-                  <h3 className="font-black">{a.title}</h3>
-                  <p className="mt-2 text-sm text-emerald-100/90">{a.desc}</p>
-                </motion.article>
-              ))}
-            </div>
-          </SectionReveal>
-        </section>
-
-        <section id="produit" className="mx-auto max-w-6xl px-6 pb-16">
-          <SectionReveal>
-            <div className="mb-10 text-center">
-              <p className="text-xs font-black uppercase tracking-[0.25em] text-[#3D8A5C]">
-                Fonctionnalités principales
-              </p>
-              <h2 className="mt-2 text-2xl font-black text-[#14231A] md:text-3xl">
-                Quatre piliers métier
-              </h2>
-              <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-stone-600">
-                Pas seulement « ce que fait » le module : ce qu&apos;il{" "}
-                <strong className="font-bold text-[#14231A]">change concrètement</strong> pour
-                vos équipes — moins de papier, plus de clarté, mieux communiquer.
-              </p>
-            </div>
-
-            <div className="grid gap-10 sm:grid-cols-2 lg:gap-12">
-              {KEY_PILLARS.map((pillar) => {
-                const Animation = PILLAR_ANIMATIONS[pillar.id];
-                return (
-                  <article key={pillar.id} className="flex flex-col">
-                    <h3
-                      className="text-base font-black md:text-lg"
-                      style={{ color: pillar.accent }}
-                    >
-                      {pillar.title}
-                    </h3>
-                    <p className="mt-2 text-sm leading-relaxed text-stone-600">{pillar.lead}</p>
-                    <ul className="mt-4 space-y-2 rounded-2xl border border-emerald-100/80 bg-emerald-50/40 p-4">
-                      {pillar.outcomes.map((o) => (
-                        <li key={o} className="flex gap-2 text-sm leading-snug text-stone-700">
-                          <span
-                            className="mt-0.5 shrink-0 font-black"
-                            style={{ color: pillar.accent }}
-                          >
-                            →
-                          </span>
-                          <span>{o}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <ol className="mt-4 space-y-2.5 border-l-2 border-emerald-100 pl-4">
-                      {pillar.steps.map((step, i) => (
-                        <li key={step} className="text-sm leading-relaxed text-stone-600">
-                          <span
-                            className="mr-1.5 font-bold tabular-nums"
-                            style={{ color: pillar.accent }}
-                          >
-                            {i + 1}.
-                          </span>
-                          {step}
-                        </li>
-                      ))}
-                    </ol>
-                    <div className="mt-5">
-                      <Animation />
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-
-            <div className="mt-12">
-              <p className="mb-6 text-center text-xs font-bold uppercase tracking-wider text-stone-400">
-                Également inclus
-              </p>
-              <div className="grid gap-4 sm:grid-cols-3">
-                {REST_CAPABILITIES.map((c) => (
-                  <article
-                    key={c.title}
-                    className="rounded-2xl border border-emerald-100 bg-white/90 p-5 shadow-sm"
-                  >
-                    <h3 className="text-sm font-black text-[#2F6B4A]">{c.title}</h3>
-                    <p className="mt-2 text-sm text-stone-600">{c.desc}</p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </SectionReveal>
-        </section>
-
-        <section id="benefices" className="mx-auto max-w-6xl px-6 pb-16">
-          <SectionReveal>
-            <h2 className="mb-8 text-center text-2xl font-black text-[#14231A] md:text-3xl">
-              Pourquoi <BrandMark size="lg" className="align-baseline" /> ?
-            </h2>
-            <div className="grid gap-5 md:grid-cols-3">
-              {BENEFITS.map((b, i) => (
-                <motion.article
-                  key={b.title}
-                  whileHover={{ y: -2 }}
-                  transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                  className="rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm"
-                >
-                  <p className="text-xs font-bold uppercase tracking-widest text-[#3D8A5C]">
-                    {String(i + 1).padStart(2, "0")}
-                  </p>
-                  <h3 className="mt-3 text-base font-black text-[#2F6B4A]">{b.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-stone-600">{b.desc}</p>
-                </motion.article>
-              ))}
-            </div>
-          </SectionReveal>
-        </section>
-
-        <section id="modules" className="mx-auto max-w-6xl px-6 pb-16">
-          <SectionReveal>
-            <h2 className="text-center text-2xl font-black text-[#14231A] md:text-3xl">
-              Tout est <span className="text-[#2F6B4A]">inclus</span>
-            </h2>
-            <p className="mx-auto mb-8 mt-2 max-w-xl text-center text-sm text-stone-600">
-              Un abonnement, l&apos;ensemble de la plateforme — pas de module en option.
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {PLATFORM_CAPABILITIES.map((f) => (
+            <div className="grid gap-4 md:grid-cols-3">
+              {BENEFITS.map((b) => (
                 <article
-                  key={f.title}
-                  className="flex gap-3 rounded-2xl border border-emerald-100 bg-white/90 p-4 shadow-sm transition hover:border-[#4ADE80]/50 hover:shadow-md"
+                  key={b.title}
+                  className="rounded-2xl border border-emerald-100 bg-white p-5 text-center shadow-sm"
                 >
-                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-sm font-black text-[#2F6B4A]">
-                    ✓
-                  </span>
-                  <div>
-                    <h3 className="text-sm font-black text-[#14231A]">{f.title}</h3>
-                    <p className="mt-1 text-sm text-stone-600">{f.desc}</p>
-                  </div>
+                  <h3 className="text-base font-black text-[#2F6B4A]">{b.title}</h3>
+                  <p className="mt-2 text-sm text-stone-600">{b.desc}</p>
                 </article>
               ))}
             </div>
           </SectionReveal>
         </section>
 
-        <section className="mx-auto max-w-6xl px-6 pb-16">
+        {/* Piliers — bandes verticales, pas de grille 2×2 */}
+        <section id="produit" className="mx-auto max-w-5xl space-y-16 px-6 pb-16">
+          {KEY_PILLARS.map((pillar, index) => {
+            const Animation = PILLAR_ANIMATIONS[pillar.id];
+            const reverse = index % 2 === 1;
+            return (
+              <SectionReveal key={pillar.id}>
+                <article
+                  className={`flex flex-col gap-8 lg:items-center ${
+                    reverse ? "lg:flex-row-reverse" : "lg:flex-row"
+                  }`}
+                >
+                  <div className="flex-1 lg:max-w-sm">
+                    <p
+                      className="text-xs font-black uppercase tracking-[0.2em]"
+                      style={{ color: pillar.accent }}
+                    >
+                      {pillar.title}
+                    </p>
+                    <h2 className="mt-2 text-2xl font-black tracking-tight text-[#14231A] md:text-3xl">
+                      {pillar.hook}
+                    </h2>
+                    <p className="mt-3 text-sm leading-relaxed text-stone-600">{pillar.lead}</p>
+                    <ul className="mt-5 space-y-2">
+                      {pillar.outcomes.map((o) => (
+                        <li key={o} className="flex gap-2 text-sm font-medium text-stone-700">
+                          <span style={{ color: pillar.accent }}>→</span>
+                          {o}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <Animation />
+                  </div>
+                </article>
+              </SectionReveal>
+            );
+          })}
+        </section>
+
+        {/* Inclus */}
+        <section id="modules" className="mx-auto max-w-5xl px-6 pb-16">
           <SectionReveal>
-            <div className="mb-8 text-center">
-              <p className="text-xs font-black uppercase tracking-[0.25em] text-[#3D8A5C]">
-                {SOVEREIGNTY.title}
-              </p>
-              <h2 className="mt-2 text-2xl font-black text-[#14231A] md:text-3xl">
-                Scaleway · Mistral · EasyTransac · OVH
-              </h2>
-              <p className="mx-auto mt-3 max-w-2xl text-sm text-stone-600">{SOVEREIGNTY.intro}</p>
-              <ul className="mx-auto mt-4 max-w-xl space-y-1.5 text-left text-sm text-stone-600">
-                {SOVEREIGNTY.bullets.map((b) => (
-                  <li key={b} className="flex gap-2">
-                    <span className="font-bold text-[#3D8A5C]">·</span>
-                    {b}
-                  </li>
-                ))}
-              </ul>
+            <h2 className="text-center text-2xl font-black text-[#14231A]">
+              Tout est <span className="text-[#2F6B4A]">inclus</span>
+            </h2>
+            <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {PLATFORM_CAPABILITIES.map((f) => (
+                <article
+                  key={f.title}
+                  className="rounded-2xl border border-emerald-100 bg-white/90 p-4 shadow-sm"
+                >
+                  <h3 className="text-sm font-black text-[#14231A]">{f.title}</h3>
+                  <p className="mt-1 text-sm text-stone-600">{f.desc}</p>
+                </article>
+              ))}
             </div>
-            <PartnerBadges />
           </SectionReveal>
         </section>
 
-        <section className="mx-auto max-w-6xl px-6 pb-16">
+        {/* Souveraineté */}
+        <section className="mx-auto max-w-5xl px-6 pb-16">
+          <SectionReveal>
+            <div className="rounded-3xl bg-gradient-to-br from-[#14231A] to-[#1E4A32] px-6 py-10 text-center text-white md:px-10">
+              <p className="text-xs font-black uppercase tracking-[0.25em] text-[#4ADE80]">
+                {SOVEREIGNTY.title}
+              </p>
+              <h2 className="mt-3 text-2xl font-black md:text-3xl">
+                Services français. Serveurs en France.
+              </h2>
+              <p className="mx-auto mt-3 max-w-2xl text-sm text-emerald-100/85">
+                Scaleway, Mistral, EasyTransac, OVH — et Microsoft Éducation pour ne pas casser vos
+                habitudes de travail. RGPD by design.
+              </p>
+              <div className="mt-8">
+                <PartnerBadges />
+              </div>
+            </div>
+          </SectionReveal>
+        </section>
+
+        <section className="mx-auto max-w-5xl px-6 pb-16">
           <SectionReveal>
             <MicrosoftEducationCard />
           </SectionReveal>
         </section>
 
-        <section id="donnees" className="mx-auto max-w-6xl px-6 pb-16">
+        <section id="donnees" className="mx-auto max-w-5xl px-6 pb-16">
           <SectionReveal>
             <div className="rounded-2xl border border-emerald-100 bg-white px-5 py-6 shadow-sm md:px-8">
               <h2 className="text-base font-black text-[#2F6B4A]">{RGPD_COMPACT.title}</h2>
-              <p className="mt-2 text-sm leading-relaxed text-stone-600">{RGPD_COMPACT.summary}</p>
+              <p className="mt-2 text-sm text-stone-600">{RGPD_COMPACT.summary}</p>
               <ul className="mt-4 space-y-2">
                 {RGPD_COMPACT.bullets.map((b) => (
-                  <li key={b} className="flex gap-2 text-xs leading-relaxed text-stone-600 md:text-sm">
-                    <span className="mt-0.5 font-bold text-[#4ADE80]">✓</span>
+                  <li key={b} className="flex gap-2 text-sm text-stone-600">
+                    <span className="font-bold text-[#4ADE80]">✓</span>
                     {b}
                   </li>
                 ))}
               </ul>
               <p className="mt-4 text-xs text-stone-500">
                 <Link href="/mentions-legales" className="font-semibold text-[#2F6B4A] hover:underline">
-                  Détails dans les mentions légales
+                  Mentions légales
                 </Link>
               </p>
             </div>
           </SectionReveal>
         </section>
 
-        <section className="mx-auto max-w-6xl px-6 pb-16">
+        <section className="mx-auto max-w-5xl px-6 pb-16">
           <SectionReveal>
             <div className="grid grid-cols-2 gap-4 rounded-3xl bg-gradient-to-br from-[#2F6B4A] to-[#1A3D2B] p-6 text-center text-white md:grid-cols-4 md:p-8">
               {STATS.map((s) => (
@@ -392,18 +279,14 @@ export default function LandingPage() {
           </SectionReveal>
         </section>
 
-        <section className="mx-auto max-w-6xl px-6 pb-20">
+        <section className="mx-auto max-w-5xl px-6 pb-20">
           <SectionReveal>
-            <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#2F6B4A] via-[#25633F] to-[#1E4A32] px-6 py-12 text-center shadow-2xl shadow-emerald-900/30 md:px-12">
-              <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-[#4ADE80]/20 blur-2xl" />
-              <h2 className="relative text-2xl font-black text-white md:text-3xl">
-                Échanger sur votre projet
-              </h2>
-              <p className="relative mx-auto mt-3 max-w-xl text-sm text-emerald-100/90 md:text-base">
-                Contactez-nous pour un devis, ou connectez-vous si votre établissement est déjà
-                équipé.
+            <div className="rounded-3xl bg-gradient-to-br from-[#2F6B4A] via-[#25633F] to-[#1E4A32] px-6 py-12 text-center shadow-2xl md:px-12">
+              <h2 className="text-2xl font-black text-white md:text-3xl">Prêts à gagner du temps ?</h2>
+              <p className="mx-auto mt-3 max-w-lg text-sm text-emerald-100/90">
+                Devis selon votre effectif — tarif fondateur, tout inclus.
               </p>
-              <div className="relative mt-8 flex flex-wrap items-center justify-center gap-3">
+              <div className="mt-8 flex flex-wrap justify-center gap-3">
                 <a
                   href={`mailto:${MARKETING.contactEmail}?subject=Contact%20${encodeURIComponent(MARKETING.productName)}`}
                   className="rounded-2xl bg-white px-8 py-3.5 text-sm font-black text-[#2F6B4A] shadow-lg transition hover:scale-[1.02]"

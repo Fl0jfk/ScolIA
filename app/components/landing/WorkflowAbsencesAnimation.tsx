@@ -8,13 +8,12 @@ import {
   WORKFLOW_ANIMATION_SHELL,
 } from "@/app/lib/marketing-theme";
 
-const PHASES = ["declarer", "calendrier", "valider", "ok"] as const;
+const PHASES = ["absence", "calendrier", "onboarding", "ok"] as const;
 type Phase = (typeof PHASES)[number];
-
-const PHASE_MS = 2200;
+const PHASE_MS = 2400;
 
 export default function WorkflowAbsencesAnimation() {
-  const [phase, setPhase] = useState<Phase>("declarer");
+  const [phase, setPhase] = useState<Phase>("absence");
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -24,10 +23,6 @@ export default function WorkflowAbsencesAnimation() {
     }, PHASE_MS);
     return () => clearInterval(id);
   }, []);
-
-  const onCalendar = phase !== "declarer";
-  const pending = phase === "valider";
-  const validated = phase === "ok";
 
   return (
     <div
@@ -39,27 +34,27 @@ export default function WorkflowAbsencesAnimation() {
           <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
           <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
           <span className="h-2.5 w-2.5 rounded-full bg-rose-400/80" />
-          <span className="ml-2 text-xs font-semibold text-rose-100/80">Absences</span>
+          <span className="ml-2 text-xs font-semibold text-rose-100/80">Ressources humaines</span>
           <motion.span
             key={tick}
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             className="ml-auto rounded-full bg-rose-400/20 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-rose-200"
           >
-            Mobile OK
+            {phase === "onboarding" || phase === "ok" ? "Nouveau salarié" : "Absences"}
           </motion.span>
         </div>
 
         <div className={`${WORKFLOW_ANIMATION_BODY} grid gap-3 sm:grid-cols-2`}>
           <div className="flex flex-col rounded-2xl border border-white/10 bg-white/5 p-3">
-            <p className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-rose-200/60">
-              Se déclarer
+            <p className="text-[10px] font-bold uppercase tracking-wider text-rose-200/60">
+              {phase === "onboarding" || phase === "ok" ? "Arrivée" : "Se déclarer"}
             </p>
-            <div className="relative mt-2 min-h-0 flex-1">
+            <div className="relative mt-2 min-h-[7rem] flex-1">
               <AnimatePresence mode="wait">
-                {phase === "declarer" ? (
+                {phase === "absence" || phase === "calendrier" ? (
                   <motion.div
-                    key="form"
+                    key="abs"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -73,82 +68,92 @@ export default function WorkflowAbsencesAnimation() {
                       <p className="text-[10px] text-rose-200/50">Motif</p>
                       <p className="text-xs text-white/90">Rendez-vous médical</p>
                     </div>
-                    <div className="rounded-lg bg-rose-500/30 py-2 text-center text-[11px] font-black text-white">
-                      Envoyer la déclaration
-                    </div>
+                    {phase === "absence" ? (
+                      <div className="rounded-lg bg-rose-500/30 py-2 text-center text-[11px] font-black text-white">
+                        Envoyer
+                      </div>
+                    ) : (
+                      <p className="text-center text-xs font-bold text-[#4ADE80]">✓ Sur le calendrier</p>
+                    )}
                   </motion.div>
                 ) : (
-                  <motion.p
-                    key="sent"
+                  <motion.div
+                    key="onb"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="py-6 text-center text-xs font-bold text-[#4ADE80]"
+                    className="space-y-2"
                   >
-                    ✓ Déclaration envoyée
-                  </motion.p>
+                    <div className="flex items-center gap-2 rounded-lg bg-white/10 px-2.5 py-2">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-400/30 text-xs font-black text-white">
+                        CM
+                      </span>
+                      <div>
+                        <p className="text-xs font-bold text-white">Camille Moreau</p>
+                        <p className="text-[10px] text-rose-200/55">Professeure · Collège</p>
+                      </div>
+                    </div>
+                    <ul className="space-y-1 text-[10px] text-rose-100/80">
+                      <li className="flex justify-between rounded bg-white/5 px-2 py-1">
+                        <span>Invitation envoyée</span>
+                        <span className="text-[#4ADE80]">✓</span>
+                      </li>
+                      <li className="flex justify-between rounded bg-white/5 px-2 py-1">
+                        <span>Documents à fournir</span>
+                        <span className={phase === "ok" ? "text-[#4ADE80]" : "text-amber-200"}>
+                          {phase === "ok" ? "✓" : "…"}
+                        </span>
+                      </li>
+                      <li className="flex justify-between rounded bg-white/5 px-2 py-1">
+                        <span>Compte créé</span>
+                        <span className={phase === "ok" ? "text-[#4ADE80]" : "text-white/30"}>
+                          {phase === "ok" ? "✓" : "—"}
+                        </span>
+                      </li>
+                    </ul>
+                  </motion.div>
                 )}
               </AnimatePresence>
             </div>
           </div>
 
           <div className="flex flex-col rounded-2xl border border-white/10 bg-white/5 p-3">
-            <p className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-rose-200/60">
-              {pending ? "À traiter" : validated ? "Validée" : "Calendrier"}
+            <p className="text-[10px] font-bold uppercase tracking-wider text-rose-200/60">
+              Pilotage RH
             </p>
-            <div className="mt-2 grid shrink-0 grid-cols-5 gap-1">
-              {["L", "M", "M", "J", "V"].map((d, i) => (
-                <div key={`${d}-${i}`} className="text-center text-[9px] font-bold text-white/30">
-                  {d}
-                </div>
+            <ul className="mt-2 flex-1 space-y-1.5">
+              {[
+                { label: "Absences du jour", value: phase === "calendrier" ? "3" : "2", show: true },
+                { label: "À valider", value: phase === "absence" ? "1" : "0", show: true },
+                {
+                  label: "Onboardings ouverts",
+                  value: phase === "onboarding" || phase === "ok" ? "1" : "0",
+                  show: true,
+                },
+                {
+                  label: "Dossiers à jour",
+                  value: phase === "ok" ? "Oui" : "—",
+                  show: phase === "ok" || phase === "onboarding",
+                },
+              ].map((row) => (
+                <li
+                  key={row.label}
+                  className="flex items-center justify-between rounded-lg bg-white/5 px-2.5 py-1.5"
+                >
+                  <span className="text-[11px] text-rose-100/80">{row.label}</span>
+                  <span className="text-xs font-black text-white">{row.value}</span>
+                </li>
               ))}
-              {Array.from({ length: 10 }).map((_, i) => {
-                const isEvent = i === 6 && onCalendar;
-                const color = validated
-                  ? "bg-[#4ADE80]/70"
-                  : pending
-                    ? "bg-amber-400/70"
-                    : "bg-rose-400/70";
-                return (
-                  <div
-                    key={i}
-                    className={`h-6 rounded-md ${i >= 5 ? "" : "opacity-0"}`}
-                  >
-                    {isEvent ? (
-                      <div className={`h-full w-full rounded-md transition-colors duration-300 ${color}`} />
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="mt-auto min-h-[2.75rem] pt-2">
-              {pending ? (
-                <div className="flex items-center justify-between rounded-lg bg-amber-500/20 px-2.5 py-2">
-                  <span className="text-[11px] font-semibold text-amber-100">
-                    Direction — 1 à valider
-                  </span>
-                  <span className="rounded bg-amber-400/30 px-1.5 py-0.5 text-[10px] font-black text-amber-200">
-                    À traiter
-                  </span>
-                </div>
-              ) : null}
-              <p
-                className={`text-center text-xs font-black transition-opacity duration-300 ${
-                  validated ? "mt-2 text-[#4ADE80] opacity-100" : "text-transparent opacity-0"
-                }`}
-              >
-                Validée par la direction ✓
-              </p>
-            </div>
+            </ul>
           </div>
         </div>
 
-        <div className="mt-3 flex shrink-0 justify-center gap-1.5">
+        <div className="mt-3 flex justify-center gap-1.5">
           {PHASES.map((p) => (
             <span
               key={p}
-              className={`h-1.5 rounded-full transition-all duration-500 ${
-                phase === p ? "w-6 bg-rose-400" : "w-1.5 bg-white/20"
+              className={`h-1.5 rounded-full transition-all ${
+                phase === p ? "w-6 bg-rose-300" : "w-1.5 bg-white/20"
               }`}
             />
           ))}

@@ -24,104 +24,76 @@ export const MARKETING = {
   },
 } as const;
 
-export const POSITIONING = {
-  headline: "Au-delà de la communication scolaire",
-  text: "Les ENT couvrent la relation familles et la vie scolaire. ScolIA complète ce périmètre avec les workflows métier de l'établissement : documents élèves, sorties, salles et RH, dans un environnement unique hébergé en France.",
-} as const;
+export const TRUST_STRIP = [
+  { label: "IA française", detail: "Mistral — OCR & aide" },
+  { label: "Serveurs France", detail: "Scaleway Paris · RGPD" },
+  { label: "Stack FR", detail: "OVH · EasyTransac" },
+  { label: "Microsoft 365", detail: "Vos habitudes, intactes" },
+] as const;
 
 export const BENEFITS = [
   {
-    title: "Moins de papier, plus de temps",
-    desc: "L’IA trie et range les documents élèves : fini les piles à classer. Les équipes gagnent des heures chaque semaine.",
+    title: "Gain de temps",
+    desc: "L’IA classe, les parcours valident : moins de double saisie, moins de relances.",
   },
   {
-    title: "Des parcours qui parlent entre eux",
-    desc: "Sorties, salles, RH : validations, communications et statuts au même endroit — moins d’e-mails, moins d’oublis.",
+    title: "Économie de papier",
+    desc: "Dossiers numériques, moins de classeurs, moins d’archives à manipuler.",
   },
   {
-    title: "Souveraineté et partenaires",
-    desc: "Hébergement Scaleway, IA Mistral, paiements EasyTransac, messagerie OVH. Microsoft Éducation pour les licences ; Clerk pour l’authentification.",
+    title: "Meilleure communication",
+    desc: "Profs, direction, compta, familles : tout le monde voit le même statut.",
   },
 ] as const;
 
-/** Quatre piliers produit — parcours + bénéfices concrets. */
+/** Quatre piliers — hooks courts + bénéfices. */
 export const KEY_PILLARS = [
   {
     id: "docs",
     title: "Documents élèves",
+    hook: "L’IA range. Vous respirez.",
     accent: "#2F6B4A",
-    lead:
-      "Grâce à l’IA, fini le tri manuel : les pièces arrivent, sont lues et rangées au bon endroit — moins de papier, moins de temps perdu.",
+    lead: "Un lot de bulletins ou un relevé du bac : dépôt, OCR Mistral, classement OneDrive.",
     outcomes: [
-      "Moins de papier grâce à l’IA (OCR + classement)",
+      "Moins de papier, plus de dossiers à jour",
       "Gros gain de temps pour l’administratif",
-      "Plus de documents à ranger à la main dans les dossiers",
-      "Dossiers élèves à jour, accessibles sans chasse au classeur",
-    ],
-    steps: [
-      "Dépôt d’un PDF ou d’un lot (scan, e-mail, espace dédié).",
-      "Lecture OCR via Mistral : texte et structure extraits.",
-      "Identification de l’élève et de la classe (matching assisté).",
-      "Rangement automatique dans OneDrive / Microsoft 365.",
-      "Les équipes consultent le dossier sans ressaisir ni trier.",
+      "Plus de tri manuel dans les classeurs",
     ],
   },
   {
     id: "travels",
     title: "Sorties scolaires",
+    hook: "Tout le monde sur la même page.",
     accent: "#234B73",
-    lead:
-      "Une communication claire entre profs, direction, compta, transporteurs et familles — sans fil d’e-mails ni Excel éparpillés.",
+    lead: "Devis signés, onglet compta, validations direction — sans fil d’e-mails.",
     outcomes: [
-      "Meilleure communication entre tous les acteurs",
-      "Validations et devis au même endroit",
-      "Moins d’oublis, plus de visibilité sur le statut",
-      "Liste élèves et messages parents quand il le faut",
-    ],
-    steps: [
-      "Création de la sortie (dates, niveau, effectif, interlocuteurs).",
-      "Circuit de validation direction / comptabilité.",
-      "Gestion des devis (bus, etc.), comparaison et signature.",
-      "Suivi jusqu’au retour : statut, pièces et historique centralisés.",
+      "Meilleure communication école ↔ familles ↔ bus",
+      "Signature de devis et suivi compta intégrés",
+      "Statut clair pour chaque sortie",
     ],
   },
   {
     id: "rooms",
     title: "Réservation de salles",
+    hook: "Une grille. Zéro conflit.",
     accent: "#4C3D7A",
-    lead:
-      "Tout le monde voit la même grille en temps réel : plus de double réservation, plus de tableur qui diverge.",
+    lead: "Planning partagé en temps réel — fini le tableur qui diverge.",
     outcomes: [
-      "Planning partagé, sans Excel concurrent",
-      "Moins de conflits de salles",
-      "Réservations ponctuelles ou récurrentes en quelques clics",
-      "Traçabilité des modifications et annulations",
-    ],
-    steps: [
-      "Consultation de la grille (salles, créneaux, usages).",
-      "Réservation ponctuelle ou récurrente.",
-      "Visibilité des conflits et disponibilités pour l’équipe.",
-      "Modification ou annulation tracée.",
+      "Disponibilités visibles pour toute l’équipe",
+      "Réservation en quelques clics",
+      "Moins de doubles bookings",
     ],
   },
   {
     id: "rh",
-    title: "RH",
+    title: "Ressources humaines",
+    hook: "Absences et arrivées, au même endroit.",
     accent: "#6B3A4A",
-    lead:
-      "Absences, dossiers et arrivées au même endroit : la direction et l’administratif gagnent en clarté et en réactivité.",
+    lead: "Se déclarer absent, et aussi accueillir un nouveau salarié — vrai module RH.",
     outcomes: [
-      "Déclarations d’absence sans paperasse dispersée",
-      "Dossiers collaborateurs accessibles selon les droits",
-      "Arrivées et signatures mieux suivies",
-      "Vue d’ensemble RH sans multiplier les outils",
-    ],
-    steps: [
-      "Dossier collaborateur accessible selon les droits.",
-      "Déclaration et suivi des absences.",
-      "Parcours d’arrivée : invitation, infos, documents.",
-      "Signatures et validations RH / direction.",
-      "Vue d’ensemble pour le service RH.",
+      "Déclaration d’absence simple",
+      "Onboarding nouveaux collaborateurs",
+      "Dossiers et validations selon les droits",
     ],
   },
 ] as const;
@@ -145,27 +117,27 @@ export const REST_CAPABILITIES = [
 export const PLATFORM_CAPABILITIES = [
   {
     title: "Documents élèves",
-    desc: "IA + OCR : moins de papier, classement auto, gros gain de temps.",
+    desc: "IA : dépôt → classement auto. Moins de papier.",
   },
   {
     title: "Sorties scolaires",
-    desc: "Meilleure communication, validations et suivi de bout en bout.",
+    desc: "Devis signés, compta, communication unifiée.",
   },
   {
     title: "Réservation de salles",
-    desc: "Planning partagé en temps réel, sans tableur ni conflits.",
+    desc: "Planning live, sans Excel.",
   },
   {
-    title: "RH",
-    desc: "Absences, dossiers et arrivées centralisés pour l’équipe.",
+    title: "Ressources humaines",
+    desc: "Absences + onboarding nouveaux salariés.",
   },
   {
     title: "Cloud & demandes",
-    desc: "Documents personnel et tickets par service, sans dispersion.",
+    desc: "Fichiers et tickets, sans dispersion.",
   },
   {
     title: "Licences Microsoft",
-    desc: "A1 / A3 Éducation incluses selon le forfait.",
+    desc: "A1 / A3 Éducation selon l’effectif.",
   },
 ] as const;
 
@@ -399,11 +371,11 @@ export const PRICING_PLANS: PricingPlan[] = [
     description:
       "Même plateforme ScolIA. L'effectif détermine le tarif et le volume de licences Microsoft (direction, administratif, éducation).",
     microsoftA3: 10,
-    microsoftA1: 150,
+    microsoftA1: 100,
     features: [
       ...BASE_FEATURES,
       "10 licences Microsoft A3 Éducation",
-      "150 licences Microsoft A1 Éducation",
+      "100 licences Microsoft A1 Éducation",
     ],
   },
   {
@@ -497,7 +469,7 @@ export const PRICING_FAQ = [
   },
   {
     q: "Que contiennent les licences Microsoft ?",
-    a: "ScolIA est membre du Microsoft Partner Program. Moins de 500 élèves : 5× A3 + 50× A1. 500 à 1 000 : 10× A3 + 150× A1. Plus de 1 000 : 15× A3 + 150× A1.",
+    a: "ScolIA est membre du Microsoft Partner Program. Moins de 500 élèves : 5× A3 + 50× A1. 500 à 1 000 : 10× A3 + 100× A1. Plus de 1 000 : 15× A3 + 150× A1.",
   },
   {
     q: "Puis-je ajouter des licences A3 si le pack ne suffit pas ?",
