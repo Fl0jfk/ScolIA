@@ -9,6 +9,7 @@ import WorkflowDocsAnimation from "@/app/components/landing/WorkflowDocsAnimatio
 import WorkflowTravelsAnimation from "@/app/components/landing/WorkflowTravelsAnimation";
 import WorkflowRoomsAnimation from "@/app/components/landing/WorkflowRoomsAnimation";
 import WorkflowAbsencesAnimation from "@/app/components/landing/WorkflowAbsencesAnimation";
+import HeroPillarMosaic from "@/app/components/landing/HeroPillarMosaic";
 import { SectionReveal } from "@/app/components/landing/SectionReveal";
 import BrandMark from "@/app/components/landing/BrandMark";
 import {
@@ -103,9 +104,9 @@ export default function LandingPage() {
             variants={fadeUp}
             initial="hidden"
             animate="show"
-            className="mx-auto mt-10 max-w-3xl"
+            className="mx-auto mt-10 max-w-2xl"
           >
-            <WorkflowDocsAnimation />
+            <HeroPillarMosaic />
           </motion.div>
         </section>
 

@@ -43,7 +43,7 @@ export const WORKFLOW_IMAGES: Record<string, string> = {
 
 /** Hauteur fixe des cartes animation — évite le saut de layout entre les phases. */
 export const WORKFLOW_ANIMATION_SHELL =
-  "relative flex h-[24rem] flex-col overflow-hidden rounded-3xl p-1 shadow-2xl sm:h-[25rem]";
+  "relative flex h-[27rem] flex-col overflow-hidden rounded-3xl p-1 shadow-2xl sm:h-[28rem]";
 
 export const WORKFLOW_ANIMATION_INNER =
   "relative flex min-h-0 flex-1 flex-col rounded-[1.35rem] p-4 backdrop-blur-sm sm:p-5";
