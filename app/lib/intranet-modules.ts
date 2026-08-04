@@ -73,6 +73,7 @@ export const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/api/dashboard/signals",
   "/calendrierAbsProfs",
   "/faire-une-demande",
+  "/demande-parents",
   "/demande/merci",
   "/api/onboarding/status",
   "/onboarding",
@@ -124,7 +125,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "faire-demande",
-    pathPrefixes: ["/faire-une-demande", "/demande/merci"],
+    pathPrefixes: ["/faire-une-demande", "/demande-parents", "/demande/merci"],
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",

@@ -46,7 +46,7 @@ export const BENEFITS = [
   },
 ] as const;
 
-/** Quatre piliers — hooks courts + bénéfices. */
+/** Cinq piliers — hooks courts + bénéfices. */
 export const KEY_PILLARS = [
   {
     id: "docs",
@@ -96,17 +96,25 @@ export const KEY_PILLARS = [
       "Dossiers et validations selon les droits",
     ],
   },
+  {
+    id: "tickets",
+    title: "Ticketing",
+    hook: "Une demande. Le bon service. Un suivi.",
+    accent: "#8B5E34",
+    lead: "Maintenance, admin, vie scolaire : ticket créé, routé, traité en Kanban — fini les mails perdus.",
+    outcomes: [
+      "Routage vers la bonne corbeille",
+      "Suivi visible pour le demandeur",
+      "Moins de relances orales et de doublons",
+    ],
+  },
 ] as const;
 
-/** Compléments (hors les 4 piliers principaux). */
+/** Compléments (hors les piliers principaux). */
 export const REST_CAPABILITIES = [
   {
     title: "Cloud personnel",
     desc: "Fichiers de travail et partages au quotidien — sans USB ni boîtes mail saturées.",
-  },
-  {
-    title: "Demandes & corbeilles",
-    desc: "Une demande, un destinataire, un suivi : moins de relances orales et de mails perdus.",
   },
   {
     title: "Internat",
@@ -132,8 +140,8 @@ export const PLATFORM_CAPABILITIES = [
     desc: "Absences + onboarding nouveaux salariés.",
   },
   {
-    title: "Cloud & demandes",
-    desc: "Fichiers et tickets, sans dispersion.",
+    title: "Ticketing",
+    desc: "Demandes, corbeilles et suivi Kanban.",
   },
   {
     title: "Licences Microsoft",

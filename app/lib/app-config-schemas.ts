@@ -220,6 +220,10 @@ export type RequestsRoutingConfig = {
   tasks: RoutingTask[];
   assignments: RoutingAssignment[];
   directionQueues: RoutingDirectionQueue[];
+  /** Page publique parents pour déposer une demande. */
+  parentPortal?: {
+    enabled: boolean;
+  };
 };
 
 export type AppConfigBundle = {
@@ -662,6 +666,12 @@ export function parseRequestsRouting(raw: unknown): RequestsRoutingConfig {
     tasks: parsedTasks,
     assignments: parsedAssignments,
     directionQueues: parsedDirection,
+    parentPortal: {
+      enabled:
+        o.parentPortal && typeof o.parentPortal === "object"
+          ? (o.parentPortal as Record<string, unknown>).enabled === true
+          : false,
+    },
   };
 }
 

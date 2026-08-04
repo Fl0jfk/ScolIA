@@ -55,6 +55,7 @@ export async function GET(req: NextRequest) {
         ...(routing.routingMeta?.assignmentId ? { assignmentId: routing.routingMeta.assignmentId } : {}),
         ...(routing.routingMeta?.taskId ? { taskId: routing.routingMeta.taskId } : {}),
       },
+      ...(meta.parentContext ? { parentContext: meta.parentContext } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
       comments: [],
       history: [
@@ -62,7 +63,17 @@ export async function GET(req: NextRequest) {
           at: now,
           by: `${meta.firstName} ${meta.lastName}`,
           action: "CREATION",
-          note: `Demande créée après confirmation e-mail — route ${routing.assignedTo.routeId ?? routing.assignedTo.unit} (${routing.assignedTo.roleLabel}).${attachments.length ? ` ${attachments.length} pièce(s) jointe(s).` : ""}`,
+          note: [
+            `Demande créée après confirmation e-mail — route ${routing.assignedTo.routeId ?? routing.assignedTo.unit} (${routing.assignedTo.roleLabel}).`,
+            attachments.length ? `${attachments.length} pièce(s) jointe(s).` : "",
+            meta.parentContext
+              ? meta.parentContext.matched
+                ? `Parent reconnu (${meta.parentContext.children.length} enfant(s) lié(s)).`
+                : "Parent non reconnu dans la liste élèves."
+              : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
         },
       ],
     };

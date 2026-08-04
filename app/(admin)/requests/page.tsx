@@ -46,6 +46,11 @@ type RequestRecord = {
     suggestedRouteId?: string;
     directionHint?: { suggestedQueueId: string; label: string; confidence?: number; reason?: string };
   };
+  parentContext?: {
+    source?: string;
+    matched?: boolean;
+    children?: Array<{ ine: string; nom: string; prenom: string; classe?: string }>;
+  };
   attachments?: Array<{ id: string; fileName: string; size: number }>;
   comments: Array<{
     id: string;
@@ -773,6 +778,39 @@ export default function RequestsPage() {
                       <span className="text-slate-400"> · </span>
                       <span className="break-all">{r.requester.email}</span>
                     </p>
+                    {r.parentContext?.source === "parent_portal" ? (
+                      <div
+                        className={`rounded-lg px-1.5 py-1 text-[9px] leading-snug ${
+                          r.parentContext.matched
+                            ? "bg-emerald-50 text-emerald-900"
+                            : "bg-amber-50 text-amber-950"
+                        }`}
+                      >
+                        {r.parentContext.matched ? (
+                          <>
+                            <span className="font-black uppercase tracking-wide">
+                              Parent reconnu
+                            </span>
+                            {r.parentContext.children && r.parentContext.children.length > 0 ? (
+                              <span>
+                                {" "}
+                                —{" "}
+                                {r.parentContext.children
+                                  .map(
+                                    (c) =>
+                                      `${c.prenom} ${c.nom}${c.classe ? ` (${c.classe})` : ""}`,
+                                  )
+                                  .join(", ")}
+                              </span>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="font-black uppercase tracking-wide">
+                            Parent non reconnu
+                          </span>
+                        )}
+                      </div>
+                    ) : null}
                     <p className="text-[10px] text-slate-700">
                       <span className="font-semibold text-slate-800">Service :</span> {r.assignedTo.roleLabel}
                     </p>

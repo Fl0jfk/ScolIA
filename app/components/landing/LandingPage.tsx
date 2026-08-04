@@ -9,7 +9,7 @@ import WorkflowDocsAnimation from "@/app/components/landing/WorkflowDocsAnimatio
 import WorkflowTravelsAnimation from "@/app/components/landing/WorkflowTravelsAnimation";
 import WorkflowRoomsAnimation from "@/app/components/landing/WorkflowRoomsAnimation";
 import WorkflowAbsencesAnimation from "@/app/components/landing/WorkflowAbsencesAnimation";
-import HeroPillarMosaic from "@/app/components/landing/HeroPillarMosaic";
+import WorkflowTicketsAnimation from "@/app/components/landing/WorkflowTicketsAnimation";
 import { SectionReveal } from "@/app/components/landing/SectionReveal";
 import BrandMark from "@/app/components/landing/BrandMark";
 import {
@@ -30,6 +30,7 @@ const PILLAR_ANIMATIONS = {
   travels: WorkflowTravelsAnimation,
   rooms: WorkflowRoomsAnimation,
   rh: WorkflowAbsencesAnimation,
+  tickets: WorkflowTicketsAnimation,
 } as const;
 
 const fadeUp = {
@@ -77,7 +78,8 @@ export default function LandingPage() {
             className="mx-auto mt-5 max-w-2xl text-base text-stone-600 md:text-lg"
           >
             <BrandMark size="sm" className="align-baseline" /> range vos documents élèves avec
-            l&apos;IA, pilote sorties, salles et RH — hébergé en France, sur vos habitudes Microsoft.
+            l&apos;IA, pilote sorties, salles, RH et tickets — hébergé en France, sur vos
+            habitudes Microsoft.
           </motion.p>
           <motion.div
             custom={3}
@@ -98,15 +100,6 @@ export default function LandingPage() {
             >
               Voir les tarifs
             </Link>
-          </motion.div>
-          <motion.div
-            custom={4}
-            variants={fadeUp}
-            initial="hidden"
-            animate="show"
-            className="mx-auto mt-10 max-w-2xl"
-          >
-            <HeroPillarMosaic />
           </motion.div>
         </section>
 

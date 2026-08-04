@@ -102,6 +102,7 @@ export function defaultRequestsRouting(): RequestsRoutingConfig {
     tasks: DEFAULT_TASKS,
     assignments: [] as RoutingAssignment[],
     directionQueues: [],
+    parentPortal: { enabled: false },
   };
 }
 

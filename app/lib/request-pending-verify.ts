@@ -24,6 +24,16 @@ export type PendingRequestMeta = {
     size: number;
     uploadedAt: string;
   }>;
+  parentContext?: {
+    source: "parent_portal";
+    matched: boolean;
+    children: Array<{
+      ine: string;
+      nom: string;
+      prenom: string;
+      classe?: string;
+    }>;
+  };
 };
 
 function pendingPrefix(token: string) { return `requests/pending/${token}/`}
@@ -41,6 +51,7 @@ export async function savePendingRequestWithFiles(
     phone: string;
     subject: string;
     description: string;
+    parentContext?: PendingRequestMeta["parentContext"];
   },
   files: { buffer: Buffer; fileName: string; contentType: string }[],
 ): Promise<void> {
@@ -74,13 +85,15 @@ export async function savePendingRequestWithFiles(
       uploadedAt: now,
     });
   }
+  const { parentContext, ...rest } = fields;
   const meta: PendingRequestMeta = {
     version: 1,
-    ...fields,
+    ...rest,
     createdAt: now,
     expiresAt,
     attachmentKeys,
     attachmentMeta,
+    ...(parentContext ? { parentContext } : {}),
   };
   await s3Client.send(
     new PutObjectCommand({

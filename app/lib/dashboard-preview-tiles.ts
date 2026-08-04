@@ -246,6 +246,7 @@ export const DASHBOARD_PILLAR_TILE_IDS = new Set([
   "sorties",
   "salles",
   "absences",
+  "demandes",
 ]);
 
 export const DASHBOARD_BONUS_TILES = DASHBOARD_PREVIEW_TILES.filter(

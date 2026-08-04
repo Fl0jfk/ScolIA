@@ -104,6 +104,18 @@ export type RequestHistoryItem = {
   note?: string;
 };
 
+/** Contexte dépôt parent (page publique). */
+export type RequestParentContext = {
+  source: "parent_portal";
+  matched: boolean;
+  children: Array<{
+    ine: string;
+    nom: string;
+    prenom: string;
+    classe?: string;
+  }>;
+};
+
 export type RequestRecord = {
   id: string;
   createdAt: string;
@@ -148,6 +160,7 @@ export type RequestRecord = {
       reason: string;
     };
   };
+  parentContext?: RequestParentContext;
   attachments?: RequestAttachment[];
   comments: RequestComment[];
   history: RequestHistoryItem[];
@@ -276,6 +289,47 @@ export function validateRequestInput(input: Partial<RequestCreateInput>) {
   return {
     ok: true as const,
     value: { firstName, lastName, email, phone, subject, description, userId },
+  };
+}
+
+/** Validation dépôt page parents — téléphone optionnel. */
+export function validateParentPortalInput(input: {
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  description?: string;
+}) {
+  const fullName = compact(String(input.fullName || ""));
+  const email = compact(String(input.email || "")).toLowerCase();
+  const phone = compact(String(input.phone || ""));
+  const description = compact(String(input.description || ""));
+  if (!fullName || !email || !description) {
+    return { ok: false as const, error: "Nom, e-mail et description sont obligatoires." };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false as const, error: "Email invalide." };
+  }
+  if (phone && phone.length < 8) {
+    return { ok: false as const, error: "Téléphone invalide." };
+  }
+  if (description.length < 15) {
+    return { ok: false as const, error: "Merci de détailler un peu plus votre demande." };
+  }
+  const parts = fullName.split(/\s+/).filter(Boolean);
+  const firstName = parts[0] || fullName;
+  const lastName = parts.slice(1).join(" ") || "—";
+  const subject = deriveRequestSubject(description);
+  return {
+    ok: true as const,
+    value: {
+      firstName,
+      lastName,
+      email,
+      phone: phone || "Non renseigné",
+      subject,
+      description,
+      fullName,
+    },
   };
 }
 

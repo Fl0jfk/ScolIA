@@ -94,6 +94,48 @@ export default function RequestsRoutingEditor({ config, onChange, members, membe
 
   return (
     <div className="space-y-8">
+      <section className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/40 p-6">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Page publique parents</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Ouvre une page simple pour que les familles déposent une demande. Confirmation par
+            e-mail anti-spam ; reconnaissance automatique si l&apos;e-mail figure dans la liste
+            élèves.
+          </p>
+        </div>
+        <label className="flex items-center gap-3 text-sm font-bold text-slate-800">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-slate-300"
+            checked={config.parentPortal?.enabled === true}
+            onChange={(e) =>
+              onChange({
+                ...config,
+                parentPortal: { enabled: e.target.checked },
+              })
+            }
+          />
+          Ouvrir la page de demandes parents
+        </label>
+        {config.parentPortal?.enabled ? (
+          <div className="rounded-xl border border-amber-200/80 bg-white px-4 py-3 text-sm">
+            <p className="font-bold text-slate-800">Lien à partager</p>
+            <p className="mt-1 break-all font-mono text-xs text-amber-900">
+              {typeof window !== "undefined"
+                ? `${window.location.origin}/demande-parents`
+                : "/demande-parents"}
+            </p>
+            <p className="mt-2 text-xs text-slate-500">
+              Formulaire : nom, e-mail, téléphone facultatif, texte, pièce jointe facultative.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">
+            Désactivé par défaut. Activez puis enregistrez le routage pour publier le lien.
+          </p>
+        )}
+      </section>
+
       <section className="bg-white rounded-2xl border p-6 space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
