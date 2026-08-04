@@ -223,10 +223,32 @@ export default function RequestPersonnelTagsPanel() {
       <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5">
         <h2 className="text-lg font-black text-slate-900">Tags du personnel</h2>
         <p className="mt-1 text-sm leading-relaxed text-slate-600">
-          Créez vos tags, puis cochez-les sur chaque personne. Liste = tout le personnel Clerk
-          sauf les professeurs. L&apos;IA maximise les tags pour une personne ou un service ;
-          en cas de doute → corbeille globale.
+          Créez vos tags, puis cochez-les sur chaque personne. Pour un groupe scolaire, ajoutez
+          des tags de cycle (<em>lycée</em>, <em>collège</em>, <em>école</em>,{" "}
+          <em>secrétariat lycée</em>…) : l&apos;IA croise ça avec eleves.json (nom d&apos;élève
+          ou e-mail parent) pour rattacher la demande au bon établissement.
         </p>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {["lycée", "collège", "école", "secrétariat lycée", "secrétariat collège"].map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => {
+                const label = normalizeTagLabel(s);
+                setCatalog((prev) => {
+                  if (prev.some((t) => t.toLowerCase() === label.toLowerCase())) return prev;
+                  return [...prev, label].sort((a, b) =>
+                    a.localeCompare(b, "fr", { sensitivity: "base" }),
+                  );
+                });
+                setOk(null);
+              }}
+              className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-amber-900 ring-1 ring-amber-200 hover:bg-amber-100"
+            >
+              + {s}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Catalogue */}

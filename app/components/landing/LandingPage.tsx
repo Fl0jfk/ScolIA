@@ -77,7 +77,7 @@ export default function LandingPage() {
             animate="show"
             className="mx-auto mt-5 max-w-2xl text-base text-stone-600 md:text-lg"
           >
-            <BrandMark size="sm" className="align-baseline" />  range vos documents élèves avec
+            <BrandMark size="sm" className="align-baseline mr-1" />  range vos documents élèves avec
             l&apos;IA, pilote sorties, salles, RH et tickets — hébergé en France, sur vos
             habitudes Microsoft.
           </motion.p>
@@ -114,8 +114,6 @@ export default function LandingPage() {
             ))}
           </div>
         </section>
-
-        {/* Cible compacte */}
         <section className="mx-auto max-w-5xl px-6 py-12">
           <SectionReveal>
             <div className="flex flex-wrap justify-center gap-2">

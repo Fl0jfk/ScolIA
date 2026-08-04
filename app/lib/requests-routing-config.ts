@@ -9,6 +9,11 @@ import { saveStaffDirectory, loadAppConfig } from "@/app/lib/app-config";
 import { defaultRequestsRouting } from "@/app/lib/requests-routing-defaults";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import type { ResolvedRequestRouting } from "@/app/lib/requests";
+import {
+  buildRequestEleveContext,
+  tagsMatchSecteur,
+  type RequestEleveContext,
+} from "@/app/lib/requests-eleve-context";
 
 const MANUAL_ONLY_DIRECTION_IDS = new Set(["direction_ecole", "direction_college", "direction_lycee"]);
 
@@ -174,14 +179,17 @@ type MatchScore = {
   score: number;
   personHits: number;
   taskHits: number;
+  secteurHits: number;
   matchedPersonTags: string[];
   matchedTaskKeywords: string[];
+  matchedSecteurTags: string[];
 };
 
 function scoreAssignments(
   config: RequestsRoutingConfig,
   subject: string,
   description: string,
+  eleveCtx?: RequestEleveContext | null,
 ): MatchScore[] {
   const textNorm = normalizeMatchText(`${subject} ${description}`);
   const activeAssignments = getActiveAssignments(config);
@@ -195,23 +203,36 @@ function scoreAssignments(
     if (a.taskId === "corbeille") continue;
     const task = taskById.get(a.taskId);
     if (!task) continue;
-    const person = countTagHits(textNorm, tagsByEmail.get(a.email.toLowerCase()) || []);
+    const personTags = tagsByEmail.get(a.email.toLowerCase()) || [];
+    const person = countTagHits(textNorm, personTags);
     const taskKw = countTagHits(textNorm, task.keywords || []);
-    // Priorité nette aux tags personne (matching max) ; mots-clés tâche en appui service
-    const score = person.hits * 4 + taskKw.hits * 2;
+
+    let secteurHits = 0;
+    const matchedSecteurTags: string[] = [];
+    if (eleveCtx?.suggestedSecteur) {
+      const secteurMatched = tagsMatchSecteur(personTags, eleveCtx.suggestedSecteur);
+      secteurHits = secteurMatched.length;
+      matchedSecteurTags.push(...secteurMatched);
+    }
+
+    // Tags personne + cycle (élève) + mots-clés tâche
+    const score = person.hits * 4 + secteurHits * 5 + taskKw.hits * 2;
     if (score <= 0) continue;
     scored.push({
       assignment: a,
       score,
       personHits: person.hits,
       taskHits: taskKw.hits,
+      secteurHits,
       matchedPersonTags: person.matched,
       matchedTaskKeywords: taskKw.matched,
+      matchedSecteurTags,
     });
   }
 
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
+    if (b.secteurHits !== a.secteurHits) return b.secteurHits - a.secteurHits;
     if (b.personHits !== a.personHits) return b.personHits - a.personHits;
     return b.taskHits - a.taskHits;
   });
@@ -220,12 +241,14 @@ function scoreAssignments(
 
 /**
  * Matching local : maximise les tags → personne ; sinon service clair ;
+ * cycle élève (eleves.json) pour départager lycée/collège/école ;
  * doute / égalité → corbeille globale.
  */
 function keywordFallback(
   config: RequestsRoutingConfig,
   subject: string,
   description: string,
+  eleveCtx?: RequestEleveContext | null,
 ): AiRoutingPick | null {
   const corbeille = getActiveAssignments(config).find((a) => a.taskId === "corbeille");
   const toCorbeille = (reason: string, confidence = 0.32): AiRoutingPick | null => {
@@ -233,17 +256,16 @@ function keywordFallback(
     return { assignmentId: corbeille.id, confidence, reason };
   };
 
-  const scored = scoreAssignments(config, subject, description);
+  const scored = scoreAssignments(config, subject, description, eleveCtx);
   if (scored.length === 0) {
-    return toCorbeille("Aucun tag / mot-clé clair — corbeille établissement.");
+    const base = "Aucun tag / mot-clé clair — corbeille établissement.";
+    return toCorbeille(eleveCtx?.summary ? `${base} ${eleveCtx.summary}` : base);
   }
 
   const best = scored[0]!;
   if (best.score < TAG_MATCH_MIN_SCORE) {
     return toCorbeille(
-      `Signal trop faible (score ${best.score}) — corbeille. Indices : ${(
-        best.matchedPersonTags.concat(best.matchedTaskKeywords) || []
-      ).join(", ") || "aucun"}.`,
+      `Signal trop faible (score ${best.score}) — corbeille. ${eleveCtx?.summary || ""}`.trim(),
     );
   }
 
@@ -252,42 +274,52 @@ function keywordFallback(
     const sameService = second.assignment.serviceId === best.assignment.serviceId;
     const sameTask = second.assignment.taskId === best.assignment.taskId;
 
-    // Même service / même tâche : on peut router vers ce service (pool)
-    if (sameService || sameTask) {
-      const confidence = Math.min(0.72, 0.48 + best.personHits * 0.08 + best.taskHits * 0.04);
+    // Si le cycle élève départage clairement → garder le meilleur secteur
+    if (
+      !sameService &&
+      !sameTask &&
+      best.secteurHits > 0 &&
+      best.secteurHits > second.secteurHits
+    ) {
+      // continue with best below
+    } else if (sameService || sameTask) {
+      const confidence = Math.min(
+        0.74,
+        0.48 + best.personHits * 0.08 + best.secteurHits * 0.1 + best.taskHits * 0.04,
+      );
       return {
         assignmentId: best.assignment.id,
         confidence,
-        reason: `Service/tâche clair via tags (${best.personHits} tag(s) personne, ${best.taskHits} mot(s)-clé tâche) : ${[
-          ...best.matchedPersonTags,
-          ...best.matchedTaskKeywords,
-        ].join(", ")}. Plusieurs personnes possibles dans le même service.`,
+        reason: `Service/tâche clair via tags${
+          eleveCtx?.suggestedSecteur ? ` + cycle ${eleveCtx.suggestedSecteur}` : ""
+        } (${best.personHits} tag(s), ${best.secteurHits} cycle). ${eleveCtx?.summary || ""}`.trim(),
       };
+    } else {
+      return toCorbeille(
+        `Ambiguïté entre ${best.assignment.personName} (score ${best.score}) et ${second.assignment.personName} (score ${second.score}) — corbeille globale. ${eleveCtx?.summary || ""}`.trim(),
+        0.38,
+      );
     }
-
-    // Personnes / services différents avec scores proches → doute
-    return toCorbeille(
-      `Ambiguïté entre ${best.assignment.personName} (score ${best.score}) et ${second.assignment.personName} (score ${second.score}) — corbeille globale.`,
-      0.38,
-    );
   }
 
-  // Gagnant net : personne (surtout si tags personne) ou service
   const confidence = Math.min(
-    0.88,
-    0.5 + best.personHits * 0.1 + best.taskHits * 0.05,
+    0.9,
+    0.5 + best.personHits * 0.1 + best.secteurHits * 0.12 + best.taskHits * 0.05,
   );
   const focus =
-    best.personHits > 0
-      ? `personne ${best.assignment.personName}`
-      : `service / tâche ${best.assignment.taskId}`;
+    best.secteurHits > 0
+      ? `cycle ${eleveCtx?.suggestedSecteur} → ${best.assignment.personName}`
+      : best.personHits > 0
+        ? `personne ${best.assignment.personName}`
+        : `service / tâche ${best.assignment.taskId}`;
   return {
     assignmentId: best.assignment.id,
     confidence,
     reason: `Matching max tags → ${focus} (score ${best.score} : ${[
+      ...best.matchedSecteurTags,
       ...best.matchedPersonTags,
       ...best.matchedTaskKeywords,
-    ].join(", ")}).`,
+    ].join(", ")}). ${eleveCtx?.summary || ""}`.trim(),
   };
 }
 
@@ -295,6 +327,7 @@ async function callMistralRouting(
   subject: string,
   description: string,
   config: RequestsRoutingConfig,
+  eleveCtx?: RequestEleveContext | null,
 ): Promise<AiRoutingPick | null> {
   const apiKey = await getMistralApiKey();
   if (!apiKey) return null;
@@ -302,21 +335,26 @@ async function callMistralRouting(
   const { catalog, directionHints, corbeilleAssignmentId } = buildCatalogPayload(config);
   if (catalog.length === 0) return null;
 
-  const system = `Tu es le routeur de demandes internes d'un établissement scolaire.
+  const system = `Tu es le routeur de demandes internes d'un groupe scolaire (école / collège / lycée possibles).
 Catalogue JSON : chaque entrée = une tâche + une personne.
-- personTags : compétences / domaines de LA personne (ex. plomberie, factures, transport)
-- serviceTags : union des tags des personnes du même service
+- personTags : compétences ET rattachement d'établissement (ex. "lycée", "collège", "école", "secrétariat lycée", plomberie…)
+- serviceTags : union des tags du service
 - taskKeywords : mots-clés de la tâche
 - isGlobalInbox=true : corbeille établissement (file globale)
 
-Règles de décision STRICTES (dans l'ordre) :
-1. Maximiser le nombre de personTags qui matchent clairement le texte → choisis CETTE personne (assignmentId).
-2. Si aucune personne ne se détache mais un service est clair (serviceTags / taskKeywords) → choisis une affectation de ce service.
-3. Si plusieurs personnes ou services DIFFÉRENTS restent crédibles → DOUTE : choisis la corbeille globale (assignmentId=${corbeilleAssignmentId || "corbeille"}), confidence <= 0.4.
-4. Si aucun tag / mot-clé clair → corbeille globale, confidence <= 0.35.
-5. Ne choisis une personne hors corbeille que si tu es relativement sûr (confidence >= 0.55).
+Contexte élèves (eleves.json) fourni à part :
+- hits : élèves / e-mails parents reconnus dans la demande, avec secteur (ecole|college|lycee)
+- suggestedSecteur : cycle à privilégier si cohérent
 
-Les files direction (direction_ecole, direction_college, direction_lycee) ne sont PAS dans le catalogue : si la demande concerne clairement la direction, renvoie directionHint avec l'id approprié mais choisis quand même une affectation non-direction (souvent corbeille ou admin) pour le traitement initial.
+Règles de décision STRICTES (dans l'ordre) :
+1. Si suggestedSecteur est connu, privilégie fortement les personnes dont les personTags mentionnent ce cycle (lycée / collège / école) — ex. secrétariat lycée vs secrétariat collège.
+2. Maximiser ensuite les personTags métier qui matchent le texte → choisis CETTE personne.
+3. Si aucune personne ne se détache mais un service/cycle est clair → affectation de ce service.
+4. Si plusieurs personnes/services DIFFÉRENTS restent crédibles → DOUTE : corbeille globale (assignmentId=${corbeilleAssignmentId || "corbeille"}), confidence <= 0.4.
+5. Si aucun tag / cycle clair → corbeille globale, confidence <= 0.35.
+6. Ne choisis une personne hors corbeille que si confidence >= 0.55.
+
+Les files direction (direction_ecole, direction_college, direction_lycee) ne sont PAS dans le catalogue : si la demande concerne clairement la direction, renvoie directionHint avec l'id approprié mais choisis une affectation non-direction pour le traitement initial.
 Réponds UNIQUEMENT en JSON valide : {"assignmentId":"...","confidence":0.0-1.0,"reason":"...","directionHint":null ou "direction_..."}`;
 
   const appConfig = await loadAppConfig();
@@ -330,7 +368,15 @@ Réponds UNIQUEMENT en JSON valide : {"assignmentId":"...","confidence":0.0-1.0,
     catalog,
     directionHints,
     corbeilleAssignmentId,
-    rule: "max_tags_then_person_or_service_else_global_inbox",
+    eleveContext: eleveCtx
+      ? {
+          hits: eleveCtx.hits,
+          suggestedSecteur: eleveCtx.suggestedSecteur,
+          textSecteurHints: eleveCtx.textSecteurHints,
+          summary: eleveCtx.summary,
+        }
+      : null,
+    rule: "max_tags_then_person_or_service_with_eleve_secteur_else_global_inbox",
     establishments: establishmentLabels,
   });
 
@@ -473,14 +519,19 @@ export async function resolveRoutingFromCatalog(
   description: string,
 ): Promise<ResolvedRequestRouting> {
   const config = await getRequestsRoutingConfig();
+  const eleveCtx = await buildRequestEleveContext(subject, description);
 
-  const aiPick = await callMistralRouting(subject, description, config);
+  const aiPick = await callMistralRouting(subject, description, config, eleveCtx);
   if (aiPick) return pickToResolved(config, aiPick, "ai");
 
-  const kwPick = keywordFallback(config, subject, description);
+  const kwPick = keywordFallback(config, subject, description, eleveCtx);
   if (kwPick) return pickToResolved(config, kwPick, "fallback");
 
-  return corbeilleFallback(config, "Catalogue vide ou sans correspondance — corbeille par défaut.", "fallback");
+  return corbeilleFallback(
+    config,
+    `Catalogue vide ou sans correspondance — corbeille. ${eleveCtx.summary}`.trim(),
+    "fallback",
+  );
 }
 
 export async function getAllBranchStaffEmailsFromRouting(): Promise<string[]> {
