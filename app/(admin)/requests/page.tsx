@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import MesDemandesSuivi from "@/app/(admin)/requests/MesDemandesSuivi";
+import CompleteRequestModal, {
+  type CompleteRequestTarget,
+} from "@/app/components/requests/CompleteRequestModal";
 import CreateRequestModal from "@/app/components/requests/CreateRequestModal";
 import FaireUneDemandeForm from "@/app/components/requests/FaireUneDemandeForm";
 import CorbeilleInbox, { type PileKey } from "@/app/components/requests/CorbeilleInbox";
@@ -121,7 +124,7 @@ function buildVisualColumns(serviceLabel: string) {
     {
       key: "TERMINEE" as const,
       title: "Terminée",
-      hint: "Glisser ici pour clôturer la demande.",
+      hint: "Glisser ici pour clôturer — un message au demandeur (avec PJ) vous sera proposé.",
       acceptDrop: true,
       boardKeys: ["TERMINEE"] as BoardColumnKey[],
       shell: "border-emerald-200/60 bg-gradient-to-b from-emerald-50 to-green-50/50",
@@ -206,6 +209,7 @@ export default function RequestsPage() {
   const [commentFilesRequesterById, setCommentFilesRequesterById] = useState<Record<string, File[]>>({});
   const [pinnedCardId, setPinnedCardId] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [completeTarget, setCompleteTarget] = useState<CompleteRequestTarget | null>(null);
   const [activePile, setActivePile] = useState<PileKey | null>(null);
   const [dropPileTarget, setDropPileTarget] = useState<PileKey | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -343,6 +347,54 @@ export default function RequestsPage() {
       setSubmittingId(null);
     }
   };
+
+  const promptComplete = (requestId: string) => {
+    const item = items.find((i) => i.id === requestId);
+    if (!item) return;
+    if (item.status === "TERMINEE" || item.boardColumn === "TERMINEE") {
+      void moveStatus(requestId, "TERMINEE");
+      return;
+    }
+    setCompleteTarget({
+      id: item.id,
+      subject: item.subject,
+      requester: { fullName: item.requester.fullName, email: item.requester.email },
+    });
+  };
+
+  const completeWithoutMessage = async (requestId: string) => {
+    setCompleteTarget(null);
+    await moveStatus(requestId, "TERMINEE");
+  };
+
+  const completeWithMessage = async (requestId: string, message: string, files: File[]) => {
+    const t0 = Date.now();
+    setSubmittingId(requestId);
+    try {
+      if (files.length > 0) {
+        const fd = new FormData();
+        fd.append("id", requestId);
+        fd.append("status", "TERMINEE");
+        fd.append("comment", message);
+        fd.append("toRequester", "true");
+        files.forEach((f) => fd.append("files", f));
+        await patchRequest(requestId, fd, true);
+      } else {
+        await patchRequest(requestId, {
+          id: requestId,
+          status: "TERMINEE",
+          comment: message,
+          toRequester: true,
+        });
+      }
+      setCompleteTarget(null);
+    } catch {
+      await refreshBoard();
+    } finally {
+      await waitBoardMutationMinVisible(t0);
+      setSubmittingId(null);
+    }
+  };
   const reassign = async (id: string, assignRouteId: string) => {
     if (!assignRouteId) return;
     setSubmittingId(id);
@@ -473,7 +525,7 @@ export default function RequestsPage() {
         await claimSelf(requestId, "EN_COURS");
         return;
       }
-      if (targetCol === "TERMINEE") await moveStatus(requestId, "TERMINEE");
+      if (targetCol === "TERMINEE") promptComplete(requestId);
     })();
   };
 
@@ -632,6 +684,16 @@ export default function RequestsPage() {
           setCreateModalOpen(false);
           void refreshBoard();
         }}
+      />
+      <CompleteRequestModal
+        target={completeTarget}
+        busy={Boolean(completeTarget && submittingId === completeTarget.id)}
+        onClose={() => {
+          if (submittingId) return;
+          setCompleteTarget(null);
+        }}
+        onCompleteWithoutMessage={(id) => void completeWithoutMessage(id)}
+        onCompleteWithMessage={(id, message, files) => void completeWithMessage(id, message, files)}
       />
       <div data-tour="requests-inbox">
       <CorbeilleInbox
