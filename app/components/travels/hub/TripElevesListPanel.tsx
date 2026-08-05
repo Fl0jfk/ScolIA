@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import {
   applyParticipantElevesToTripData,
+  eleveParticipantKey,
   parentEmailCoverage,
   toParticipantEleve,
 } from "@/app/lib/travels-eleves-list";
@@ -22,8 +23,8 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
-  const [selectedInes, setSelectedInes] = useState<Set<string>>(new Set());
-  const [droitByIne, setDroitByIne] = useState<Record<string, boolean>>({});
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [droitByKey, setDroitByKey] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<"save" | "confirm" | null>(null);
   const [classFilter, setClassFilter] = useState("");
 
@@ -52,16 +53,20 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
 
   useEffect(() => {
     const existing = trip.data.participantEleves || [];
-    const ines = new Set(existing.map((p) => p.ine));
-    setSelectedInes(ines);
+    const keys = new Set(existing.map((p) => eleveParticipantKey(p)));
+    setSelectedKeys(keys);
     const droits: Record<string, boolean> = {};
-    for (const p of existing) droits[p.ine] = p.droitImageOk !== false;
-    setDroitByIne(droits);
+    for (const p of existing) droits[eleveParticipantKey(p)] = p.droitImageOk !== false;
+    setDroitByKey(droits);
     const classes = [...new Set(existing.map((p) => p.classe).filter(Boolean) as string[])];
     if (classes.length) setSelectedClasses(classes);
   }, [trip.id, trip.data.participantEleves, trip.data.listeElevesStatus]);
 
-  const elevesByIne = useMemo(() => new Map(eleves.map((e) => [e.ine, e])), [eleves]);
+  const elevesByKey = useMemo(() => {
+    const map = new Map<string, EleveConfig>();
+    for (const e of eleves) map.set(eleveParticipantKey(e), e);
+    return map;
+  }, [eleves]);
 
   const allClasses = useMemo(() => {
     const set = new Set<string>();
@@ -89,58 +94,93 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
 
   const buildParticipants = useCallback((): TravelsParticipantEleve[] => {
     const list: TravelsParticipantEleve[] = [];
-    for (const ine of selectedInes) {
-      const full = elevesByIne.get(ine);
+    for (const key of selectedKeys) {
+      const full = elevesByKey.get(key);
       if (full) {
-        list.push(toParticipantEleve(full, droitByIne[ine] !== false));
+        list.push(toParticipantEleve(full, droitByKey[key] !== false));
       } else {
-        const snap = (trip.data.participantEleves || []).find((p) => p.ine === ine);
-        if (snap) list.push({ ...snap, droitImageOk: droitByIne[ine] !== false });
+        const snap = (trip.data.participantEleves || []).find(
+          (p) => eleveParticipantKey(p) === key,
+        );
+        if (snap) {
+          list.push({
+            ...snap,
+            ine: eleveParticipantKey(snap),
+            droitImageOk: droitByKey[key] !== false,
+          });
+        }
       }
     }
     return list.sort((a, b) =>
       `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
     );
-  }, [selectedInes, elevesByIne, droitByIne, trip.data.participantEleves]);
+  }, [selectedKeys, elevesByKey, droitByKey, trip.data.participantEleves]);
 
   const coverage = useMemo(() => {
     const participants = buildParticipants();
-    return parentEmailCoverage(participants, elevesByIne);
-  }, [buildParticipants, elevesByIne]);
+    return parentEmailCoverage(participants, elevesByKey);
+  }, [buildParticipants, elevesByKey]);
 
   const toggleClass = (classe: string) => {
-    setSelectedClasses((prev) =>
-      prev.includes(classe) ? prev.filter((c) => c !== classe) : [...prev, classe],
-    );
+    if (!canEdit) return;
+    const inClass = eleves.filter((e) => e.classe === classe);
+    setSelectedClasses((prev) => {
+      const wasOn = prev.includes(classe);
+      const nextClasses = wasOn ? prev.filter((c) => c !== classe) : [...prev, classe];
+
+      setSelectedKeys((keys) => {
+        const next = new Set(keys);
+        const droits: Record<string, boolean> = {};
+        for (const e of inClass) {
+          const key = eleveParticipantKey(e);
+          if (wasOn) next.delete(key);
+          else {
+            next.add(key);
+            droits[key] = true;
+          }
+        }
+        if (!wasOn) {
+          setDroitByKey((d) => ({ ...d, ...droits }));
+        }
+        return next;
+      });
+
+      return nextClasses;
+    });
   };
 
   const selectAllInClasses = () => {
-    const next = new Set(selectedInes);
-    const droits = { ...droitByIne };
+    if (!canEdit) return;
+    const next = new Set(selectedKeys);
+    const droits = { ...droitByKey };
     for (const e of elevesInSelectedClasses) {
-      next.add(e.ine);
-      if (droits[e.ine] === undefined) droits[e.ine] = true;
+      const key = eleveParticipantKey(e);
+      next.add(key);
+      if (droits[key] === undefined) droits[key] = true;
     }
-    setSelectedInes(next);
-    setDroitByIne(droits);
+    setSelectedKeys(next);
+    setDroitByKey(droits);
   };
 
   const clearSelectionInClasses = () => {
+    if (!canEdit) return;
     const classSet = new Set(selectedClasses);
-    const next = new Set(selectedInes);
+    const next = new Set(selectedKeys);
     for (const e of eleves) {
-      if (e.classe && classSet.has(e.classe)) next.delete(e.ine);
+      if (e.classe && classSet.has(e.classe)) next.delete(eleveParticipantKey(e));
     }
-    setSelectedInes(next);
+    setSelectedKeys(next);
   };
 
-  const toggleEleve = (ine: string) => {
-    setSelectedInes((prev) => {
+  const toggleEleve = (e: EleveConfig) => {
+    if (!canEdit) return;
+    const key = eleveParticipantKey(e);
+    setSelectedKeys((prev) => {
       const next = new Set(prev);
-      if (next.has(ine)) next.delete(ine);
+      if (next.has(key)) next.delete(key);
       else {
-        next.add(ine);
-        setDroitByIne((d) => (d[ine] === undefined ? { ...d, [ine]: true } : d));
+        next.add(key);
+        setDroitByKey((d) => (d[key] === undefined ? { ...d, [key]: true } : d));
       }
       return next;
     });
@@ -204,9 +244,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Confirmation impossible");
-      onTripUpdated(j.trip as TravelsTrip);
-      if (j.transportSkippedReason) alert(`Liste confirmée. ${j.transportSkippedReason}`);
-      else if (j.sentTo?.length) alert(`Liste confirmée et envoyée à : ${j.sentTo.join(", ")}`);
+      if (j.trip) onTripUpdated(j.trip as TravelsTrip);
       else alert("Liste confirmée.");
     } catch (e) {
       alert(e instanceof Error ? e.message : "Erreur");
@@ -234,6 +272,13 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
       }
     >
       <div className="px-6 py-5 space-y-5">
+        {!canEdit && (
+          <TripAlert tone="warning" icon="🔒" title="Lecture seule">
+            Vous ne pouvez pas modifier cette liste (réservé au créateur de la sortie, à la
+            direction ou à l&apos;administratif).
+          </TripAlert>
+        )}
+
         <TripAlert tone="info" icon="📷" title="Droit à l’image">
           Le droit à l’image est géré en interne par l’établissement. Par défaut, chaque élève
           sélectionné est marqué « OK » pour cette sortie (responsabilité établissement). Vous
@@ -284,7 +329,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                         on
                           ? "bg-indigo-600 text-white ring-indigo-600"
                           : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
-                      } disabled:opacity-50`}
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
                     >
                       {c}
                     </button>
@@ -294,13 +339,18 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                   <p className="text-sm text-slate-500">Aucune classe dans le fichier élèves.</p>
                 )}
               </div>
+              {canEdit && (
+                <p className="mt-2 text-[11px] text-slate-400">
+                  Cliquez une classe pour sélectionner automatiquement tous ses élèves.
+                </p>
+              )}
             </div>
 
             {selectedClasses.length > 0 && (
               <div>
                 <div className="flex flex-wrap items-center gap-2 mb-3">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mr-auto">
-                    Élèves ({selectedInes.size} sélectionné{selectedInes.size > 1 ? "s" : ""})
+                    Élèves ({selectedKeys.size} sélectionné{selectedKeys.size > 1 ? "s" : ""})
                   </p>
                   {canEdit && (
                     <>
@@ -315,14 +365,15 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                 </div>
                 <ul className="divide-y divide-slate-100 border border-slate-100 rounded-xl max-h-80 overflow-y-auto">
                   {elevesInSelectedClasses.map((e) => {
-                    const checked = selectedInes.has(e.ine);
+                    const key = eleveParticipantKey(e);
+                    const checked = selectedKeys.has(key);
                     return (
-                      <li key={e.ine} className="flex items-center gap-3 px-3 py-2 text-sm">
+                      <li key={key} className="flex items-center gap-3 px-3 py-2 text-sm">
                         <input
                           type="checkbox"
                           checked={checked}
                           disabled={!canEdit}
-                          onChange={() => toggleEleve(e.ine)}
+                          onChange={() => toggleEleve(e)}
                           className="rounded border-slate-300"
                         />
                         <span className="flex-1 min-w-0">
@@ -335,10 +386,10 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                           <label className="flex items-center gap-1.5 text-xs text-slate-600 shrink-0">
                             <input
                               type="checkbox"
-                              checked={droitByIne[e.ine] !== false}
+                              checked={droitByKey[key] !== false}
                               disabled={!canEdit}
                               onChange={(ev) =>
-                                setDroitByIne((d) => ({ ...d, [e.ine]: ev.target.checked }))
+                                setDroitByKey((d) => ({ ...d, [key]: ev.target.checked }))
                               }
                             />
                             Droit image OK
@@ -373,8 +424,16 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                 <TripButton variant="secondary" disabled={!!busy} onClick={saveDraft}>
                   {busy === "save" ? "…" : "Enregistrer brouillon"}
                 </TripButton>
-                <TripButton variant="primary" disabled={!!busy || selectedInes.size === 0} onClick={confirmList}>
-                  {busy === "confirm" ? "…" : needsBus ? "Confirmer et envoyer au transporteur" : "Confirmer la liste"}
+                <TripButton
+                  variant="primary"
+                  disabled={!!busy || selectedKeys.size === 0}
+                  onClick={confirmList}
+                >
+                  {busy === "confirm"
+                    ? "…"
+                    : needsBus
+                      ? "Confirmer et envoyer au transporteur"
+                      : "Confirmer la liste"}
                 </TripButton>
               </div>
             )}

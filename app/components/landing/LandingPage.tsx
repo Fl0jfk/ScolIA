@@ -46,7 +46,6 @@ export default function LandingPage() {
   return (
     <MarketingShell>
       <main>
-        {/* Hero */}
         <section className="mx-auto max-w-5xl px-6 pb-10 pt-12 text-center md:pt-16">
           <motion.p
             custom={0}

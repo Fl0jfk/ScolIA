@@ -35,7 +35,7 @@ export function useTravelsPermissions(trip: TravelsTrip | null) {
     const canUseInternalThread = isOwner || isDirection || isCompta;
     const canSeeTravelDocHoverActions = isDirection || isAdministratif || isCompta;
     const canEditEffectif =
-      (isOwner || isDirection) &&
+      (isOwner || isDirection || isAdministratif || isGlobalAdmin) &&
       trip != null &&
       !["SEANCE_ANNULEE", "REJETE", "ANNULE"].includes(trip.status);
     const canAccessComptaTab = isCompta || isAdministratif || isDirection;

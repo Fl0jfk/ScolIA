@@ -3,6 +3,21 @@ import type { TravelsParticipantEleve, TravelsTripData } from "@/app/lib/travels
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Clé stable pour sélection (INE, ou empreinte locale si INE absent). */
+export function eleveParticipantKey(e: {
+  ine?: string;
+  nom: string;
+  prenom: string;
+  classe?: string;
+}): string {
+  const ine = String(e.ine || "").trim();
+  if (ine) return ine;
+  const nom = String(e.nom || "").trim().toUpperCase();
+  const prenom = String(e.prenom || "").trim().toUpperCase();
+  const classe = String(e.classe || "").trim();
+  return `local:${nom}|${prenom}|${classe}`;
+}
+
 export function collectParticipantParentEmails(eleve: {
   parentEmail?: string;
   parent1Email?: string;
@@ -23,7 +38,7 @@ export function toParticipantEleve(
   droitImageOk = true,
 ): TravelsParticipantEleve {
   return {
-    ine: e.ine,
+    ine: eleveParticipantKey(e),
     nom: e.nom,
     prenom: e.prenom,
     classe: e.classe,
