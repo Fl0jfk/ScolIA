@@ -4,8 +4,11 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   applyParticipantElevesToTripData,
-  buildElevesListCsv,
+  buildElevesListCsvForTransporter,
+  eleveParticipantKey,
 } from "@/app/lib/travels-eleves-list";
+import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import type { EleveConfig } from "@/app/lib/eleves-config";
 import { assertTravelsTripAccess } from "@/app/lib/travels-rbac-server";
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
 import type { TravelsParticipantEleve, TravelsTrip } from "@/app/lib/travels-types";
@@ -105,7 +108,10 @@ export async function POST(req: Request) {
           return NextResponse.json({ error: "SMTP non configuré — impossible d'envoyer au transporteur." }, { status: 503 });
         }
 
-        const csv = buildElevesListCsv(participants);
+        const eleves = await loadElevesRegistry().catch(() => [] as EleveConfig[]);
+        const elevesByKey = new Map<string, EleveConfig>();
+        for (const e of eleves) elevesByKey.set(eleveParticipantKey(e), e);
+        const csv = buildElevesListCsvForTransporter(participants, elevesByKey);
         const destSlug = String(data.destination || data.title || "sortie").replace(/\s+/g, "_");
         const replyTo = await buildTransportReplyTo();
         const dates =
@@ -128,6 +134,8 @@ export async function POST(req: Request) {
               `Dates : ${dates}`,
               `Effectif élèves : ${participants.length}`,
               `Accompagnateurs : ${data.nbAccompagnateurs || "—"}`,
+              "",
+              "Le fichier CSV contient : Nom, Prénom, Classe, Email parent, Tél. parent.",
               "",
               "Cordialement,",
               "Plateforme Voyages",

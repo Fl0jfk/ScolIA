@@ -38,6 +38,10 @@ export type EleveConfig = {
   parentEmail?: string;
   parent1Email?: string;
   parent2Email?: string;
+  /** Téléphone(s) parent / responsable (optionnel). */
+  parentPhone?: string;
+  parent1Phone?: string;
+  parent2Phone?: string;
   /** Code ou libellé MEF / formation (export Pronote) — rattachement Lycée / Collège / École. */
   mef?: string;
   /** Alias de mef si l'export nomme la colonne « formation ». */
@@ -74,6 +78,9 @@ export function validateElevesJson(
     const parentEmail = String(o.parentEmail ?? "").trim();
     const parent1Email = String(o.parent1Email ?? "").trim();
     const parent2Email = String(o.parent2Email ?? "").trim();
+    const parentPhone = String(o.parentPhone ?? "").trim();
+    const parent1Phone = String(o.parent1Phone ?? "").trim();
+    const parent2Phone = String(o.parent2Phone ?? "").trim();
     if (!nom || !prenom || !folderName) {
       return {
         ok: false,
@@ -97,6 +104,9 @@ export function validateElevesJson(
       ...(parentEmail ? { parentEmail } : {}),
       ...(parent1Email ? { parent1Email } : {}),
       ...(parent2Email ? { parent2Email } : {}),
+      ...(parentPhone ? { parentPhone } : {}),
+      ...(parent1Phone ? { parent1Phone } : {}),
+      ...(parent2Phone ? { parent2Phone } : {}),
       ...(mef ? { mef } : {}),
       ...(secteur ? { secteur } : {}),
     });

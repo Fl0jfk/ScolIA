@@ -33,6 +33,19 @@ export function collectParticipantParentEmails(eleve: {
   return [...set];
 }
 
+export function collectParticipantParentPhones(eleve: {
+  parentPhone?: string;
+  parent1Phone?: string;
+  parent2Phone?: string;
+}): string[] {
+  const set = new Set<string>();
+  for (const raw of [eleve.parentPhone, eleve.parent1Phone, eleve.parent2Phone]) {
+    const t = String(raw || "").trim();
+    if (t.length >= 6) set.add(t);
+  }
+  return [...set];
+}
+
 export function toParticipantEleve(
   e: Pick<EleveConfig, "ine" | "nom" | "prenom" | "classe">,
   droitImageOk = true,
@@ -70,6 +83,11 @@ export function applyParticipantElevesToTripData(
   return next;
 }
 
+function csvCell(value: string): string {
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+
+/** CSV interne simple (sans contacts). */
 export function buildElevesListCsv(participants: TravelsParticipantEleve[]): string {
   const header = "Nom;Prénom;Classe;INE";
   const rows = participants
@@ -78,10 +96,38 @@ export function buildElevesListCsv(participants: TravelsParticipantEleve[]): str
       `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
     )
     .map((p) =>
-      [p.nom, p.prenom, p.classe || "", p.ine]
-        .map((c) => `"${String(c).replace(/"/g, '""')}"`)
+      [p.nom, p.prenom, p.classe || "", p.ine.startsWith("local:") ? "" : p.ine]
+        .map((c) => csvCell(String(c)))
         .join(";"),
     );
+  return [header, ...rows].join("\n");
+}
+
+/** CSV pour le transporteur : nom, prénom, classe, e-mail(s) et tél. parent(s). */
+export function buildElevesListCsvForTransporter(
+  participants: TravelsParticipantEleve[],
+  elevesByKey: Map<string, EleveConfig>,
+): string {
+  const header = "Nom;Prénom;Classe;Email parent;Tél. parent";
+  const rows = participants
+    .slice()
+    .sort((a, b) =>
+      `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
+    )
+    .map((p) => {
+      const full = elevesByKey.get(eleveParticipantKey(p)) || elevesByKey.get(p.ine);
+      const emails = full ? collectParticipantParentEmails(full) : [];
+      const phones = full ? collectParticipantParentPhones(full) : [];
+      return [
+        p.nom,
+        p.prenom,
+        p.classe || "",
+        emails.join(" / "),
+        phones.join(" / "),
+      ]
+        .map((c) => csvCell(String(c)))
+        .join(";");
+    });
   return [header, ...rows].join("\n");
 }
 

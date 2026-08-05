@@ -22,7 +22,8 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   const [eleves, setEleves] = useState<EleveConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
+  /** Classe en cours de parcours (pour ajouter des élèves). */
+  const [browseClass, setBrowseClass] = useState<string | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [droitByKey, setDroitByKey] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<"save" | "confirm" | null>(null);
@@ -59,7 +60,8 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     for (const p of existing) droits[eleveParticipantKey(p)] = p.droitImageOk !== false;
     setDroitByKey(droits);
     const classes = [...new Set(existing.map((p) => p.classe).filter(Boolean) as string[])];
-    if (classes.length) setSelectedClasses(classes);
+    if (classes.length && !browseClass) setBrowseClass(classes[0]!);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync from trip only
   }, [trip.id, trip.data.participantEleves, trip.data.listeElevesStatus]);
 
   const elevesByKey = useMemo(() => {
@@ -82,15 +84,43 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     return allClasses.filter((c) => c.toLowerCase().includes(q));
   }, [allClasses, classFilter]);
 
-  const elevesInSelectedClasses = useMemo(() => {
-    if (selectedClasses.length === 0) return [];
-    const classSet = new Set(selectedClasses);
+  const elevesInBrowseClass = useMemo(() => {
+    if (!browseClass) return [];
     return eleves
-      .filter((e) => e.classe && classSet.has(e.classe))
+      .filter((e) => e.classe === browseClass)
       .sort((a, b) =>
         `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
       );
-  }, [eleves, selectedClasses]);
+  }, [eleves, browseClass]);
+
+  const selectedParticipants = useMemo(() => {
+    const list: Array<{ key: string; eleve: EleveConfig | TravelsParticipantEleve }> = [];
+    for (const key of selectedKeys) {
+      const full = elevesByKey.get(key);
+      if (full) list.push({ key, eleve: full });
+      else {
+        const snap = (trip.data.participantEleves || []).find(
+          (p) => eleveParticipantKey(p) === key,
+        );
+        if (snap) list.push({ key, eleve: snap });
+      }
+    }
+    return list.sort((a, b) =>
+      `${a.eleve.nom} ${a.eleve.prenom}`.localeCompare(
+        `${b.eleve.nom} ${b.eleve.prenom}`,
+        "fr",
+        { sensitivity: "base" },
+      ),
+    );
+  }, [selectedKeys, elevesByKey, trip.data.participantEleves]);
+
+  const classesInList = useMemo(() => {
+    const set = new Set<string>();
+    for (const { eleve } of selectedParticipants) {
+      if (eleve.classe?.trim()) set.add(eleve.classe.trim());
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+  }, [selectedParticipants]);
 
   const buildParticipants = useCallback((): TravelsParticipantEleve[] => {
     const list: TravelsParticipantEleve[] = [];
@@ -121,39 +151,42 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     return parentEmailCoverage(participants, elevesByKey);
   }, [buildParticipants, elevesByKey]);
 
-  const toggleClass = (classe: string) => {
+  const countSelectedInClass = (classe: string) => {
+    let n = 0;
+    for (const e of eleves) {
+      if (e.classe === classe && selectedKeys.has(eleveParticipantKey(e))) n += 1;
+    }
+    return n;
+  };
+
+  const addEleveToList = (e: EleveConfig) => {
     if (!canEdit) return;
-    const inClass = eleves.filter((e) => e.classe === classe);
-    setSelectedClasses((prev) => {
-      const wasOn = prev.includes(classe);
-      const nextClasses = wasOn ? prev.filter((c) => c !== classe) : [...prev, classe];
+    const key = eleveParticipantKey(e);
+    setSelectedKeys((prev) => new Set(prev).add(key));
+    setDroitByKey((d) => (d[key] === undefined ? { ...d, [key]: true } : d));
+  };
 
-      setSelectedKeys((keys) => {
-        const next = new Set(keys);
-        const droits: Record<string, boolean> = {};
-        for (const e of inClass) {
-          const key = eleveParticipantKey(e);
-          if (wasOn) next.delete(key);
-          else {
-            next.add(key);
-            droits[key] = true;
-          }
-        }
-        if (!wasOn) {
-          setDroitByKey((d) => ({ ...d, ...droits }));
-        }
-        return next;
-      });
-
-      return nextClasses;
+  const removeEleveFromList = (key: string) => {
+    if (!canEdit) return;
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
     });
   };
 
-  const selectAllInClasses = () => {
+  const toggleEleveInList = (e: EleveConfig) => {
+    const key = eleveParticipantKey(e);
+    if (selectedKeys.has(key)) removeEleveFromList(key);
+    else addEleveToList(e);
+  };
+
+  const addWholeClassToList = (classe: string) => {
     if (!canEdit) return;
     const next = new Set(selectedKeys);
     const droits = { ...droitByKey };
-    for (const e of elevesInSelectedClasses) {
+    for (const e of eleves) {
+      if (e.classe !== classe) continue;
       const key = eleveParticipantKey(e);
       next.add(key);
       if (droits[key] === undefined) droits[key] = true;
@@ -162,28 +195,13 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     setDroitByKey(droits);
   };
 
-  const clearSelectionInClasses = () => {
+  const removeWholeClassFromList = (classe: string) => {
     if (!canEdit) return;
-    const classSet = new Set(selectedClasses);
     const next = new Set(selectedKeys);
     for (const e of eleves) {
-      if (e.classe && classSet.has(e.classe)) next.delete(eleveParticipantKey(e));
+      if (e.classe === classe) next.delete(eleveParticipantKey(e));
     }
     setSelectedKeys(next);
-  };
-
-  const toggleEleve = (e: EleveConfig) => {
-    if (!canEdit) return;
-    const key = eleveParticipantKey(e);
-    setSelectedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else {
-        next.add(key);
-        setDroitByKey((d) => (d[key] === undefined ? { ...d, [key]: true } : d));
-      }
-      return next;
-    });
   };
 
   const saveDraft = async () => {
@@ -229,10 +247,10 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     if (!canEdit) return;
     const participants = buildParticipants();
     if (participants.length === 0) {
-      return alert("Sélectionnez au moins un élève.");
+      return alert("Ajoutez au moins un élève à la liste.");
     }
     const msg = needsBus
-      ? `Confirmer la liste de ${participants.length} élève(s) et l'envoyer au transporteur ?`
+      ? `Confirmer la liste de ${participants.length} élève(s) et l'envoyer au transporteur (CSV : nom, prénom, classe, mail et tél. parents) ?`
       : `Confirmer la liste de ${participants.length} élève(s) ?`;
     if (!confirm(msg)) return;
     setBusy("confirm");
@@ -256,7 +274,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   return (
     <TripSection
       title="Liste des élèves"
-      subtitle="Sélection par classes depuis le fichier élèves de l'établissement"
+      subtitle="Ajoutez des élèves de plusieurs classes — la liste s’accumule"
       icon="👥"
       accent="indigo"
       action={
@@ -266,7 +284,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
           </span>
         ) : (
           <span className="text-xs font-bold uppercase tracking-wide text-amber-800 bg-amber-50 px-3 py-1.5 rounded-full ring-1 ring-amber-200">
-            Brouillon
+            Brouillon · {selectedKeys.size} élève{selectedKeys.size > 1 ? "s" : ""}
           </span>
         )
       }
@@ -280,15 +298,14 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
         )}
 
         <TripAlert tone="info" icon="📷" title="Droit à l’image">
-          Le droit à l’image est géré en interne par l’établissement. Par défaut, chaque élève
-          sélectionné est marqué « OK » pour cette sortie (responsabilité établissement). Vous
-          pouvez décocher élève par élève si besoin.
+          Par défaut, chaque élève ajouté est marqué « OK » pour le droit à l’image. Vous pouvez
+          décocher élève par élève dans la liste.
         </TripAlert>
 
         {needsBus && !confirmed && (
           <TripAlert tone="warning" icon="🚌" title="Transport bus">
-            La confirmation de la liste est obligatoire pour le bus : elle déclenche l’envoi
-            automatique au transporteur.
+            À la confirmation, le transporteur reçoit un CSV : Nom, Prénom, Classe, Email parent,
+            Tél. parent.
           </TripAlert>
         )}
 
@@ -304,9 +321,10 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
 
         {!loading && !loadError && (
           <>
+            {/* Parcourir / ajouter par classe */}
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                Classes
+              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                1 — Choisir une classe pour ajouter des élèves
               </label>
               <input
                 type="search"
@@ -314,24 +332,26 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                 onChange={(e) => setClassFilter(e.target.value)}
                 placeholder="Filtrer une classe…"
                 className="mb-2 w-full max-w-xs rounded-lg border border-slate-200 px-3 py-2 text-sm"
-                disabled={!canEdit}
               />
-              <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto">
+              <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto">
                 {filteredClasses.map((c) => {
-                  const on = selectedClasses.includes(c);
+                  const active = browseClass === c;
+                  const n = countSelectedInClass(c);
                   return (
                     <button
                       key={c}
                       type="button"
-                      disabled={!canEdit}
-                      onClick={() => toggleClass(c)}
-                      className={`text-xs px-3 py-1.5 rounded-full ring-1 transition ${
-                        on
+                      onClick={() => setBrowseClass(c)}
+                      className={`rounded-full px-3 py-1.5 text-xs ring-1 transition ${
+                        active
                           ? "bg-indigo-600 text-white ring-indigo-600"
-                          : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
-                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                          : n > 0
+                            ? "bg-indigo-50 text-indigo-900 ring-indigo-200"
+                            : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+                      }`}
                     >
                       {c}
+                      {n > 0 ? ` · ${n}` : ""}
                     </button>
                   );
                 })}
@@ -339,62 +359,56 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                   <p className="text-sm text-slate-500">Aucune classe dans le fichier élèves.</p>
                 )}
               </div>
-              {canEdit && (
-                <p className="mt-2 text-[11px] text-slate-400">
-                  Cliquez une classe pour sélectionner automatiquement tous ses élèves.
-                </p>
-              )}
             </div>
 
-            {selectedClasses.length > 0 && (
-              <div>
-                <div className="flex flex-wrap items-center gap-2 mb-3">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mr-auto">
-                    Élèves ({selectedKeys.size} sélectionné{selectedKeys.size > 1 ? "s" : ""})
+            {browseClass && (
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <p className="mr-auto text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Classe {browseClass}
                   </p>
                   {canEdit && (
                     <>
-                      <TripButton variant="secondary" size="sm" onClick={selectAllInClasses}>
-                        Tout sélectionner
+                      <TripButton
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => addWholeClassToList(browseClass)}
+                      >
+                        + Ajouter toute la classe
                       </TripButton>
-                      <TripButton variant="secondary" size="sm" onClick={clearSelectionInClasses}>
-                        Tout désélectionner
-                      </TripButton>
+                      {countSelectedInClass(browseClass) > 0 && (
+                        <TripButton
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => removeWholeClassFromList(browseClass)}
+                        >
+                          Retirer cette classe
+                        </TripButton>
+                      )}
                     </>
                   )}
                 </div>
-                <ul className="divide-y divide-slate-100 border border-slate-100 rounded-xl max-h-80 overflow-y-auto">
-                  {elevesInSelectedClasses.map((e) => {
+                <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-100">
+                  {elevesInBrowseClass.map((e) => {
                     const key = eleveParticipantKey(e);
-                    const checked = selectedKeys.has(key);
+                    const inList = selectedKeys.has(key);
                     return (
                       <li key={key} className="flex items-center gap-3 px-3 py-2 text-sm">
                         <input
                           type="checkbox"
-                          checked={checked}
+                          checked={inList}
                           disabled={!canEdit}
-                          onChange={() => toggleEleve(e)}
+                          onChange={() => toggleEleveInList(e)}
                           className="rounded border-slate-300"
                         />
-                        <span className="flex-1 min-w-0">
-                          <span className="font-medium text-slate-800">
-                            {e.nom} {e.prenom}
-                          </span>
-                          <span className="text-slate-400 ml-2 text-xs">{e.classe}</span>
+                        <span className="min-w-0 flex-1 font-medium text-slate-800">
+                          {e.nom} {e.prenom}
                         </span>
-                        {checked && (
-                          <label className="flex items-center gap-1.5 text-xs text-slate-600 shrink-0">
-                            <input
-                              type="checkbox"
-                              checked={droitByKey[key] !== false}
-                              disabled={!canEdit}
-                              onChange={(ev) =>
-                                setDroitByKey((d) => ({ ...d, [key]: ev.target.checked }))
-                              }
-                            />
-                            Droit image OK
-                          </label>
-                        )}
+                        {inList ? (
+                          <span className="text-[10px] font-bold uppercase text-emerald-700">
+                            Dans la liste
+                          </span>
+                        ) : null}
                       </li>
                     );
                   })}
@@ -402,7 +416,61 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
               </div>
             )}
 
-            <div className="rounded-xl bg-slate-50 border border-slate-100 px-4 py-3 text-sm text-slate-600">
+            {/* Liste accumulée */}
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-black text-indigo-950">
+                  2 — Liste pour la sortie ({selectedKeys.size})
+                </h3>
+                {classesInList.length > 0 && (
+                  <p className="text-[11px] text-indigo-800/80">
+                    Classes : {classesInList.join(", ")}
+                  </p>
+                )}
+              </div>
+
+              {selectedParticipants.length === 0 ? (
+                <p className="text-sm text-indigo-900/60">
+                  Aucun élève pour l’instant. Ouvrez une classe ci-dessus et ajoutez des élèves —
+                  vous pouvez enchaîner plusieurs classes.
+                </p>
+              ) : (
+                <ul className="max-h-72 divide-y divide-indigo-100 overflow-y-auto rounded-xl border border-indigo-100 bg-white">
+                  {selectedParticipants.map(({ key, eleve }) => (
+                    <li key={key} className="flex items-center gap-3 px-3 py-2 text-sm">
+                      <span className="min-w-0 flex-1">
+                        <span className="font-medium text-slate-800">
+                          {eleve.nom} {eleve.prenom}
+                        </span>
+                        <span className="ml-2 text-xs text-slate-400">{eleve.classe}</span>
+                      </span>
+                      <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={droitByKey[key] !== false}
+                          disabled={!canEdit}
+                          onChange={(ev) =>
+                            setDroitByKey((d) => ({ ...d, [key]: ev.target.checked }))
+                          }
+                        />
+                        Droit image OK
+                      </label>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => removeEleveFromList(key)}
+                          className="text-xs font-bold text-rose-600 hover:underline"
+                        >
+                          Retirer
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600">
               <p>
                 Couverture mails parents :{" "}
                 <strong className="text-slate-800">{coverage.withMail}</strong> avec e-mail ·{" "}
@@ -412,9 +480,9 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                 {coverage.emails.length > 1 ? "s" : ""}.
               </p>
               {coverage.withoutMail > 0 && (
-                <p className="text-xs text-amber-700 mt-1">
-                  Certains élèves n’ont pas d’e-mail parent renseigné — la communication ne les
-                  atteindra pas.
+                <p className="mt-1 text-xs text-amber-700">
+                  Certains élèves n’ont pas d’e-mail parent — le CSV transporteur aura la case
+                  vide pour eux.
                 </p>
               )}
             </div>

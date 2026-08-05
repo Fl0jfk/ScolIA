@@ -18,6 +18,9 @@ type FieldKey =
   | "parentEmail"
   | "parent1Email"
   | "parent2Email"
+  | "parentPhone"
+  | "parent1Phone"
+  | "parent2Phone"
   | "folderName";
 
 const COLUMN_ALIASES: Record<FieldKey, string[]> = {
@@ -79,6 +82,34 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "parent2",
     "parent 2 email",
     "email tuteur 2",
+  ],
+  parentPhone: [
+    "tel parent",
+    "téléphone parent",
+    "telephone parent",
+    "portable parent",
+    "mobile parent",
+    "tel responsable",
+    "téléphone responsable",
+    "telephone responsable",
+  ],
+  parent1Phone: [
+    "tel parent 1",
+    "téléphone parent 1",
+    "telephone parent 1",
+    "portable parent 1",
+    "mobile parent 1",
+    "parent1 tel",
+    "parent 1 telephone",
+  ],
+  parent2Phone: [
+    "tel parent 2",
+    "téléphone parent 2",
+    "telephone parent 2",
+    "portable parent 2",
+    "mobile parent 2",
+    "parent2 tel",
+    "parent 2 telephone",
   ],
   folderName: ["foldername", "dossier", "nom dossier", "nom du dossier"],
 };
@@ -227,6 +258,9 @@ function mergeEleveFields(existing: EleveConfig, incoming: EleveConfig): EleveCo
   if (incoming.parentEmail?.trim()) merged.parentEmail = incoming.parentEmail.trim();
   if (incoming.parent1Email?.trim()) merged.parent1Email = incoming.parent1Email.trim();
   if (incoming.parent2Email?.trim()) merged.parent2Email = incoming.parent2Email.trim();
+  if (incoming.parentPhone?.trim()) merged.parentPhone = incoming.parentPhone.trim();
+  if (incoming.parent1Phone?.trim()) merged.parent1Phone = incoming.parent1Phone.trim();
+  if (incoming.parent2Phone?.trim()) merged.parent2Phone = incoming.parent2Phone.trim();
 
   return merged;
 }
@@ -310,6 +344,12 @@ function parseRowsToEleves(
     if (p1) entry.parent1Email = p1;
     const p2 = cellStr(row, colMap.parent2Email);
     if (p2) entry.parent2Email = p2;
+    const parentPhone = cellStr(row, colMap.parentPhone);
+    if (parentPhone) entry.parentPhone = parentPhone;
+    const p1Tel = cellStr(row, colMap.parent1Phone);
+    if (p1Tel) entry.parent1Phone = p1Tel;
+    const p2Tel = cellStr(row, colMap.parent2Phone);
+    if (p2Tel) entry.parent2Phone = p2Tel;
 
     eleves.push(entry);
   }
