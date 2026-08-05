@@ -174,9 +174,6 @@ function PillarCard({
                 {pillar.title}
               </h2>
             </div>
-            <p className="mt-0.5 text-[11px] leading-snug text-[var(--dash-mid)]">
-              {pillar.description}
-            </p>
           </div>
           <Link
             href={pillar.href}
