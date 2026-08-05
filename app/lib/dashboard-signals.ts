@@ -681,6 +681,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   if (has("requests-staff")) {
     const requestsHome = moduleHref("requests-staff");
     const claimedMine = requestsBoard.filter((r) => {
+      if (r.status === "TERMINEE") return false;
       const c = r.assignedTo?.claimedBy;
       if (!c) return false;
       if (c.userId && c.userId === userId) return true;
