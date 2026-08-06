@@ -933,6 +933,20 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
                   Valider ({choiceMulti.length})
                 </button>
               </div>
+            ) : pendingChoices.options.length > 0 && pendingChoices.options.length <= 12 ? (
+              <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
+                {pendingChoices.options.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => submitChoice(o.value)}
+                    className="text-[11px] rounded-lg px-2.5 py-1.5 font-semibold border border-indigo-200 bg-white text-slate-700 hover:bg-indigo-700 hover:text-white hover:border-indigo-700 transition disabled:opacity-50"
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
                 <select

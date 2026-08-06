@@ -13,6 +13,7 @@ import {
 } from "@/app/lib/brain-ai/conversation-state";
 import { executeBrainTool } from "@/app/lib/brain-ai/tools/execute";
 import { getBrainTool, mistralToolsForUser } from "@/app/lib/brain-ai/tools/registry";
+import { detectWizardStartTool } from "@/app/lib/brain-ai/wizard-intent";
 import {
   TRAVELS_CLASSES_AUTRES_LABEL,
   TRAVELS_CLASSES_AUTRES_VALUE,
@@ -534,6 +535,20 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     };
   }
 
+  const signedIn = Boolean(input.toolCtx.userId) && input.audience === "private";
+
+  // Bypass LLM : intention d'action → wizard UI tout de suite (select / boutons).
+  if (signedIn) {
+    const wizardTool = detectWizardStartTool(input.message);
+    if (wizardTool && getBrainTool(wizardTool)) {
+      const result = await executeBrainTool(wizardTool, {}, {
+        ...input.toolCtx,
+        confirmed: false,
+      });
+      return materializeToolTurn(conversationState, result, ctas);
+    }
+  }
+
   if (!input.apiKey) {
     return {
       answer: "Le service IA n'est pas configuré (MISTRAL_API_KEY).",
@@ -556,7 +571,6 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     };
   }
 
-  const signedIn = Boolean(input.toolCtx.userId) && input.audience === "private";
   const tools = mistralToolsForUser(signedIn);
 
   const systemPrompt =
@@ -566,18 +580,15 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `Tu as deux sources d'information :\n` +
     `1) Dictionnaire (contexte knowledge ci-dessous) — infos stables (FAQ, circulaires…).\n` +
     `2) Actualité live via outils (feuille de semaine, voyages, salles, photocopies, HSE, stages, internat…) — toujours préférer un outil pour l'actualité.\n` +
-    `Règles:\n` +
-    `- Pas d'accès RH / dossiers personnels / salaires. create_absence = soi uniquement. HSE = soi ou direction établissement.\n` +
-    `- Pour une action mutante (réservation, demande, absence, séjour, photocopies, HSE), appelle l'outil dès que possible même sans paramètres : l'UI guide en wizard (listes / dates / texte).\n` +
-    `- Réservation de salle : create_reservation immédiatement. Wizard salle → date → créneaux libres → matière → classe.\n` +
-    `- Sortie / séjour : create_trip immédiatement (même sans args). Wizard type → titre → lieu → dates → établissement → classes → effectif.\n` +
-    `- Demande interne : create_request immédiatement. Wizard sujet → description.\n` +
-    `- Absence : create_absence immédiatement. Wizard date → durée → motif → établissement si besoin.\n` +
-    `- Photocopies couleur : create_photocopie_demand immédiatement. Wizard établissement → motif → classes → nombre.\n` +
-    `- HSE : create_hse_demand immédiatement. Wizard établissement → demande → heures → classe.\n` +
-    `- Si un PDF est joint dans la conversation, passe-le à create_photocopie_demand (documentKey / documentFileName).\n` +
-    `- Si un outil renvoie needsConfirmation, présente le récap et laisse l'utilisateur Confirmer / Modifier / Annuler.\n` +
-    `- N'invente pas : si l'info manque, dis-le clairement.\n` +
+    `Règles STRICTES (actions) :\n` +
+    `- INTERDIT de demander en texte libre la salle, la date, les créneaux, le motif, etc.\n` +
+    `- INTERDIT d'écrire « dites-moi… », « pour commencer… », « liste-moi les salles… ».\n` +
+    `- Dès que l'utilisateur veut réserver / créer / déclarer : appelle IMMÉDIATEMENT l'outil correspondant AVEC {} (sans args). L'UI affiche listes déroulantes, dates et boutons.\n` +
+    `- create_reservation = réservation salle | create_trip = sortie/voyage | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
+    `- Pas d'accès RH / dossiers personnels / salaires. create_absence = soi uniquement.\n` +
+    `- Si un PDF est joint, passe-le à create_photocopie_demand (documentKey / documentFileName).\n` +
+    `- Si needsConfirmation : présente uniquement le récap (l'UI a Confirmer / Modifier / Annuler).\n` +
+    `- N'invente pas : si l'info manque après les outils, dis-le clairement.\n` +
     `- Liens en URL complète https://…\n`;
 
   const attachmentNote = (() => {
