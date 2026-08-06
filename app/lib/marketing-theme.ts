@@ -53,7 +53,7 @@ export const WORKFLOW_ANIMATION_BODY = "min-h-0 flex-1 overflow-hidden";
 
 export const TILE_IMAGES: Record<string, string> = {
   documents:
-    scolaImageUrl("categories/classeur.jpg"),
+    scolaImageUrl("categories/Cloud.jpg"),
   "docs-eleves":
     scolaImageUrl("categories/add Docs.png"),
   sorties:
@@ -69,4 +69,10 @@ export const TILE_IMAGES: Record<string, string> = {
     scolaImageUrl("categories/demandes.jpg"),
   familles:
     scolaImageUrl("categories/classeur.jpg"),
+  rgpd:
+    scolaImageUrl("categories/RGPD.jpg"),
+  toolbox:
+    scolaImageUrl("categories/Toolbox.jpg"),
+  certificates:
+    scolaImageUrl("categories/Calendrier.jpg"),
 };

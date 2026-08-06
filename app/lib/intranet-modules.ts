@@ -118,7 +118,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 1,
       name: "Cloud personnel",
-      img: scolaImageUrl("categories/classeur.jpg"),
+      img: scolaImageUrl("categories/Cloud.jpg"),
       link: "/documents",
       external: false,
     },
@@ -168,7 +168,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 5,
       name: "Boîte à outils",
-      img: scolaImageUrl("categories/classeur.jpg"),
+      img: scolaImageUrl("categories/Toolbox.jpg"),
       link: "/toolbox",
       external: false,
       variant: "toolbox",
@@ -324,7 +324,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 29,
       name: "Conformité RGPD",
-      img: scolaImageUrl("categories/classeur.jpg"),
+      img: scolaImageUrl("categories/RGPD.jpg"),
       link: "/conformite-rgpd",
       external: false,
     },
@@ -420,7 +420,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 29,
       name: "Parcours & certificats",
-      img: scolaImageUrl("categories/classeur.jpg"),
+      img: scolaImageUrl("categories/Calendrier.jpg"),
       link: "/certificates",
       external: false,
       description: "Certificats de parcours, lignes personnalisées, signatures et PDF",
