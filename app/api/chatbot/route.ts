@@ -15,6 +15,13 @@ type ChatRequest = {
   conversationState?: unknown;
   confirm?: boolean;
   confirmAction?: { tool: string; args: Record<string, unknown> } | null;
+  choiceApply?: {
+    tool: string;
+    field: string;
+    value?: string;
+    values?: string[];
+    draftArgs: Record<string, unknown>;
+  } | null;
   attachments?: Array<{ key: string; fileName: string; contentType?: string }>;
 };
 
@@ -51,10 +58,11 @@ export async function POST(req: Request) {
     const body = (await req.json()) as ChatRequest;
     const message = (body.message ?? "").trim();
     const confirm = Boolean(body.confirm);
+    const choiceApply = body.choiceApply?.tool ? body.choiceApply : null;
     const audience = body.audience === "private" ? "private" : "public";
     const history = Array.isArray(body.history) ? body.history.slice(-12) : [];
 
-    if (!message && !(confirm && body.confirmAction?.tool)) {
+    if (!message && !(confirm && body.confirmAction?.tool) && !choiceApply) {
       return NextResponse.json({ error: "message requis" }, { status: 400 });
     }
 
@@ -80,7 +88,7 @@ export async function POST(req: Request) {
 
     const mistralKey = (await getMistralApiKey()) ?? null;
     const result = await runBrainChat({
-      message: message || "(confirmation)",
+      message: message || (confirm ? "(confirmation)" : choiceApply ? "(choix)" : "(confirmation)"),
       audience: toolCtx.audience,
       history,
       apiKey: mistralKey,
@@ -88,6 +96,7 @@ export async function POST(req: Request) {
       conversationState: body.conversationState,
       confirm,
       confirmAction: body.confirmAction ?? null,
+      choiceApply,
       attachments: Array.isArray(body.attachments) ? body.attachments : undefined,
     });
 

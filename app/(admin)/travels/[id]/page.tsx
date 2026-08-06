@@ -1,9 +1,12 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useTravelsPermissions } from "@/app/hooks/useTravelsPermissions";
+import { useAppContext } from "@/app/hooks/useAppContext";
+import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
+import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSelect";
 import {
   CUISINE_DAYS_UI,
   CUISINE_ROWS_UI,
@@ -63,6 +66,15 @@ export default function TripDetails() {
   const tabFromUrl = searchParams.get("tab");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { user, isLoaded: isUserLoaded } = useUser();
+  const { data: appCtx } = useAppContext();
+  const classOptions = useMemo(
+    () =>
+      mergeTripClassCatalogs(
+        appCtx?.profRoom?.classesByPole,
+        appCtx?.domainPlanning?.classesByPole,
+      ),
+    [appCtx?.profRoom?.classesByPole, appCtx?.domainPlanning?.classesByPole],
+  );
   const [trip, setTrip] = useState<TravelsTrip | null>(null);
   const [hubTab, setHubTab] = useState<TravelsHubTab>(() => {
     const t = tabFromUrl as TravelsHubTab | null;
@@ -1949,7 +1961,11 @@ export default function TripDetails() {
           </TripField>
           <TripField label="Classes concernées">
             {isEditing ? (
-              <TripInput value={editedData.classes} onChange={(e) => setEditedData({ ...editedData, classes: e.target.value })} />
+              <TripClassesMultiSelect
+                value={String(editedData.classes || "")}
+                options={classOptions}
+                onChange={(classes) => setEditedData({ ...editedData, classes })}
+              />
             ) : (
               <TripFieldValue value={trip.data.classes} />
             )}

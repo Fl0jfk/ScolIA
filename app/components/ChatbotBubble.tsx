@@ -30,6 +30,15 @@ type PendingConfirmation = {
   summaryFr: string;
 };
 
+type PendingChoices = {
+  tool: string;
+  field: string;
+  promptFr: string;
+  options: Array<{ value: string; label: string }>;
+  draftArgs: Record<string, unknown>;
+  selectionType?: "single" | "multi" | "date" | "text";
+};
+
 type BrainCta = { label: string; href: string };
 
 type PendingFile = {
@@ -145,6 +154,9 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
   const [messages, setMessages] = useState<ScoliaMemoryMessage[]>([defaultWelcomeMessage()]);
   const [conversationState, setConversationState] = useState<Record<string, unknown> | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+  const [pendingChoices, setPendingChoices] = useState<PendingChoices | null>(null);
+  const [choiceDraft, setChoiceDraft] = useState("");
+  const [choiceMulti, setChoiceMulti] = useState<string[]>([]);
   const [ctas, setCtas] = useState<BrainCta[]>([]);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -173,6 +185,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       setMessages(mem.messages);
       setConversationState(mem.conversationState);
       setPendingConfirmation(mem.pendingConfirmation);
+      setPendingChoices(mem.pendingChoices ?? null);
     }
     setMemoryReady(true);
   }, []);
@@ -183,8 +196,9 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       messages,
       conversationState,
       pendingConfirmation,
+      pendingChoices,
     });
-  }, [messages, conversationState, pendingConfirmation, memoryReady]);
+  }, [messages, conversationState, pendingConfirmation, pendingChoices, memoryReady]);
 
   useEffect(() => {
     if (!open || pageMode || layout !== "expanded") return;
@@ -206,7 +220,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     const el = messagesRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages, loading, open, listening, pendingConfirmation]);
+  }, [messages, loading, open, listening, pendingConfirmation, pendingChoices]);
 
   useEffect(() => {
     if (!open || pageMode || layout === "expanded") return;
@@ -277,18 +291,31 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     message?: string;
     confirm?: boolean;
     confirmAction?: PendingConfirmation | null;
+    choiceApply?: {
+      tool: string;
+      field: string;
+      value?: string;
+      values?: string[];
+      draftArgs: Record<string, unknown>;
+    } | null;
     files?: PendingFile[];
   }) => {
     const message = (opts?.message ?? input).trim();
     const isConfirm = Boolean(opts?.confirm && opts.confirmAction?.tool);
+    const isChoice = Boolean(opts?.choiceApply?.tool);
     const filesToSend = opts?.files ?? pendingFiles;
-    if ((!message && !isConfirm && filesToSend.length === 0) || loading) return;
-    if (!isConfirm) {
+    if ((!message && !isConfirm && !isChoice && filesToSend.length === 0) || loading) return;
+    if (!isConfirm && !isChoice) {
       setInput("");
       setPendingFiles([]);
     }
     const userLabel = message
       || (isConfirm ? "Confirmer" : "")
+      || (isChoice
+        ? (opts!.choiceApply!.values?.length
+            ? opts!.choiceApply!.values.join(", ")
+            : opts!.choiceApply!.value || "Choix")
+        : "")
       || (filesToSend.length ? `(fichier : ${filesToSend.map((f) => f.name).join(", ")})` : "");
     if (userLabel) {
       setMessages((prev) => [...prev, { role: "user", content: userLabel }]);
@@ -309,7 +336,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: message || (isConfirm ? "(confirmation)" : "Voici un document joint."),
+          message: message || (isConfirm ? "(confirmation)" : isChoice ? "(choix)" : "Voici un document joint."),
           audience: isSignedIn ? "private" : "public",
           history: messages.slice(-10),
           conversationState: conversationState || undefined,
@@ -317,6 +344,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
           confirmAction: isConfirm
             ? { tool: opts!.confirmAction!.tool, args: opts!.confirmAction!.args }
             : undefined,
+          choiceApply: isChoice ? opts!.choiceApply : undefined,
           attachments,
         }),
       });
@@ -329,6 +357,15 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       } else {
         setPendingConfirmation(null);
       }
+      if (data.pendingChoices?.tool && data.pendingChoices?.field) {
+        setPendingChoices(data.pendingChoices as PendingChoices);
+        setChoiceDraft("");
+        setChoiceMulti([]);
+      } else {
+        setPendingChoices(null);
+        setChoiceDraft("");
+        setChoiceMulti([]);
+      }
       if (Array.isArray(data.ctas)) {
         setCtas(
           data.ctas.filter(
@@ -336,6 +373,8 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
               Boolean(c && typeof c === "object" && typeof (c as BrainCta).href === "string"),
           ),
         );
+      } else {
+        setCtas([]);
       }
       setMessages((prev) => [
         ...prev,
@@ -364,6 +403,9 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
 
   const cancelPending = () => {
     setPendingConfirmation(null);
+    setPendingChoices(null);
+    setChoiceDraft("");
+    setChoiceMulti([]);
     setMessages((prev) => [
       ...prev,
       { role: "assistant", content: "Action annulée. Dites-moi ce que vous voulez faire ensuite." },
@@ -381,8 +423,10 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         pendingEditTool: pendingConfirmation.tool,
       },
       pendingConfirmation: null,
+      pendingChoices: null,
     }));
     setPendingConfirmation(null);
+    setPendingChoices(null);
     setMessages((prev) => [
       ...prev,
       {
@@ -391,6 +435,27 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
           "Que souhaitez-vous modifier dans votre demande ? (ex. le nombre, la classe, l’établissement, le PDF…)",
       },
     ]);
+  };
+
+  const submitChoice = (value?: string, values?: string[]) => {
+    if (!pendingChoices || loading) return;
+    const label =
+      values?.length
+        ? values
+            .map((v) => pendingChoices.options.find((o) => o.value === v)?.label || v)
+            .join(", ")
+        : pendingChoices.options.find((o) => o.value === value)?.label || value || "";
+    const payload = {
+      tool: pendingChoices.tool,
+      field: pendingChoices.field,
+      value,
+      values,
+      draftArgs: pendingChoices.draftArgs,
+    };
+    setPendingChoices(null);
+    setChoiceDraft("");
+    setChoiceMulti([]);
+    void send({ message: label, choiceApply: payload });
   };
 
   const onPickFiles = (list: FileList | null) => {
@@ -452,6 +517,9 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     setMessages([defaultWelcomeMessage()]);
     setConversationState(null);
     setPendingConfirmation(null);
+    setPendingChoices(null);
+    setChoiceDraft("");
+    setChoiceMulti([]);
     setCtas([]);
     setPendingFiles([]);
     setInput("");
@@ -766,6 +834,119 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
   function renderExtras() {
     return (
       <>
+        {pendingChoices ? (
+          <div
+            className={`rounded-2xl border border-indigo-300/70 bg-indigo-50/90 p-3 space-y-2 ${
+              isExpanded ? "" : "mr-4"
+            }`}
+          >
+            <p className="text-[11px] font-semibold text-indigo-950">{pendingChoices.promptFr}</p>
+            {pendingChoices.selectionType === "date" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="date"
+                  value={choiceDraft}
+                  disabled={loading}
+                  onChange={(e) => setChoiceDraft(e.target.value)}
+                  className="rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-sm text-slate-800"
+                />
+                <button
+                  type="button"
+                  disabled={loading || !choiceDraft}
+                  onClick={() => submitChoice(choiceDraft)}
+                  className="text-xs rounded-lg bg-indigo-700 text-white px-2.5 py-1.5 font-semibold hover:bg-indigo-800 disabled:opacity-50"
+                >
+                  Valider
+                </button>
+              </div>
+            ) : pendingChoices.selectionType === "text" ? (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  type="text"
+                  value={choiceDraft}
+                  disabled={loading}
+                  placeholder="Saisir le texte…"
+                  onChange={(e) => setChoiceDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && choiceDraft.trim()) submitChoice(choiceDraft.trim());
+                  }}
+                  className="min-w-0 flex-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-sm text-slate-800"
+                />
+                <button
+                  type="button"
+                  disabled={loading || !choiceDraft.trim()}
+                  onClick={() => submitChoice(choiceDraft.trim())}
+                  className="text-xs rounded-lg bg-indigo-700 text-white px-2.5 py-1.5 font-semibold hover:bg-indigo-800 disabled:opacity-50"
+                >
+                  Valider
+                </button>
+              </div>
+            ) : pendingChoices.selectionType === "multi" ? (
+              <div className="space-y-2">
+                <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                  {pendingChoices.options.map((o) => {
+                    const on = choiceMulti.includes(o.value);
+                    return (
+                      <button
+                        key={o.value}
+                        type="button"
+                        disabled={loading}
+                        onClick={() =>
+                          setChoiceMulti((prev) =>
+                            on ? prev.filter((v) => v !== o.value) : [...prev, o.value],
+                          )
+                        }
+                        className={`text-[11px] rounded-lg px-2.5 py-1.5 font-semibold border transition ${
+                          on
+                            ? "bg-indigo-700 text-white border-indigo-700"
+                            : "bg-white text-slate-700 border-indigo-200 hover:bg-indigo-100"
+                        }`}
+                      >
+                        {o.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  disabled={loading || choiceMulti.length === 0}
+                  onClick={() => submitChoice(undefined, choiceMulti)}
+                  className="text-xs rounded-lg bg-indigo-700 text-white px-2.5 py-1.5 font-semibold hover:bg-indigo-800 disabled:opacity-50"
+                >
+                  Valider ({choiceMulti.length})
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={choiceDraft}
+                  disabled={loading}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setChoiceDraft(v);
+                    if (v) submitChoice(v);
+                  }}
+                  className="min-w-[12rem] flex-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-sm text-slate-800"
+                >
+                  <option value="">— Choisir —</option>
+                  {pendingChoices.options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <button
+              type="button"
+              disabled={loading}
+              onClick={cancelPending}
+              className="text-[11px] text-slate-600 underline disabled:opacity-50"
+            >
+              Annuler
+            </button>
+          </div>
+        ) : null}
         {pendingConfirmation ? (
           <div
             className={`rounded-2xl border border-amber-300/70 bg-amber-50/90 p-3 space-y-2 ${

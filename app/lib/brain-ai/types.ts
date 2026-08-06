@@ -1,5 +1,20 @@
 export type BrainAudience = "public" | "private";
 
+export type BrainChoiceOption = {
+  value: string;
+  label: string;
+};
+
+export type BrainPendingChoices = {
+  tool: string;
+  field: string;
+  promptFr: string;
+  options: BrainChoiceOption[];
+  draftArgs: Record<string, unknown>;
+  /** single = liste déroulante ; multi = cases à cocher ; date = sélecteur de date ; text = saisie libre */
+  selectionType?: "single" | "multi" | "date" | "text";
+};
+
 export type BrainToolResult =
   | { ok: true; data: unknown; summaryFr?: string }
   | { ok: false; error: string; code?: string }
@@ -9,6 +24,16 @@ export type BrainToolResult =
       tool: string;
       args: Record<string, unknown>;
       summaryFr: string;
+    }
+  | {
+      ok: false;
+      needsChoices: true;
+      tool: string;
+      field: string;
+      promptFr: string;
+      options: BrainChoiceOption[];
+      draftArgs: Record<string, unknown>;
+      selectionType?: "single" | "multi" | "date" | "text";
     };
 
 export type BrainToolCtx = {
@@ -34,6 +59,7 @@ export type BrainConversationState = {
   intent?: string;
   slots: Record<string, unknown>;
   pendingConfirmation?: BrainPendingConfirmation | null;
+  pendingChoices?: BrainPendingChoices | null;
 };
 
 export type BrainCta = {
@@ -49,6 +75,7 @@ export type BrainChatResponse = {
   fallbackFrom?: string;
   conversationState?: BrainConversationState;
   pendingConfirmation?: BrainPendingConfirmation | null;
+  pendingChoices?: BrainPendingChoices | null;
   ctas?: BrainCta[];
 };
 

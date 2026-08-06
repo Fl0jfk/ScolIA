@@ -13,6 +13,8 @@ import TravelsOwnerAssignSection, {
   resolveTripOwnerFields,
   type TravelsOwnerFields,
 } from "@/app/components/travels/TravelsOwnerAssignSection";
+import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSelect";
+import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
 
 const CUISINE_DAYS = [
   { key: "lundi",    label: "Lun." },
@@ -38,6 +40,14 @@ const CUISINE_ROWS = [
 function SimpleTripFormContent() {
   const { user, isLoaded } = useUser();
   const { data: appCtx } = useAppContext();
+  const classOptions = useMemo(
+    () =>
+      mergeTripClassCatalogs(
+        appCtx?.profRoom?.classesByPole,
+        appCtx?.domainPlanning?.classesByPole,
+      ),
+    [appCtx?.profRoom?.classesByPole, appCtx?.domainPlanning?.classesByPole],
+  );
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("edit");
@@ -446,7 +456,11 @@ function SimpleTripFormContent() {
         </div>
         <div>
           <label className="block text-sm font-semibold mb-2">Classes concernées</label>
-          <input value={formData.classes} className="w-full p-3 bg-slate-50 border rounded-xl outline-indigo-500" placeholder="Ex: 3A, 4B" onChange={e => setFormData({...formData, classes: e.target.value})} />
+          <TripClassesMultiSelect
+            value={formData.classes}
+            options={classOptions}
+            onChange={(classes) => setFormData({ ...formData, classes })}
+          />
         </div>
         <div>
           <label className="block text-sm font-semibold mb-2">Nombre d&apos;élèves total</label>

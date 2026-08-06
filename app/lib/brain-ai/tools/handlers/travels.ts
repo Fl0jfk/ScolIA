@@ -5,6 +5,14 @@ import {
 } from "@/app/lib/travels-types";
 import { putJson } from "@/app/lib/s3-storage";
 import { syncTripActualite } from "@/app/lib/brain-ai/sync/knowledge-writer";
+import { choicesResult, loadTripChoiceCatalog, matchCatalogValue } from "@/app/lib/brain-ai/choice-options";
+import {
+  parseClassesSelection,
+  serializeClassesSelection,
+  splitClassesValue,
+  TRAVELS_CLASSES_AUTRES_LABEL,
+  TRAVELS_CLASSES_AUTRES_VALUE,
+} from "@/app/lib/travels-classes";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 
 function tripDates(t: TravelsTrip): string {
@@ -104,15 +112,135 @@ export async function handleCreateTrip(
   const destination = String(args.destination || "").trim();
   const date = String(args.date || args.startDate || "").trim();
   const startDate = String(args.startDate || date || "").trim();
-  const endDate = String(args.endDate || startDate || "").trim();
-  const classes = String(args.classes || "").trim();
-  const etablissement = String(args.etablissement || "").trim();
+  let endDate = String(args.endDate || startDate || "").trim();
+  let classes = String(args.classes || "").trim();
+  let etablissement = String(args.etablissement || "").trim();
   const nbEleves = args.nbEleves != null ? Number(args.nbEleves) : undefined;
-  const type = String(args.type || "SIMPLE").toUpperCase() === "COMPLEX" ? "COMPLEX" : "SIMPLE";
+  const typeRaw = String(args.type || "").trim();
+  let type: "SIMPLE" | "COMPLEX" | "" =
+    typeRaw.toUpperCase() === "COMPLEX" ? "COMPLEX" : typeRaw ? "SIMPLE" : "";
 
   if (!title) return { ok: false, error: "Le titre du séjour est obligatoire." };
   if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
     return { ok: false, error: "Une date de départ (YYYY-MM-DD) est obligatoire." };
+  }
+  if (!endDate || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) endDate = startDate;
+
+  const catalog = await loadTripChoiceCatalog();
+  const draft = (): Record<string, unknown> => ({
+    title,
+    destination,
+    date: startDate,
+    startDate,
+    endDate,
+    classes,
+    etablissement,
+    nbEleves,
+    ...(type ? { type } : {}),
+    ...(args.classesResolved ? { classesResolved: true } : {}),
+  });
+
+  if (catalog.establishments.length > 0) {
+    if (!etablissement) {
+      return choicesResult(
+        "create_trip",
+        "etablissement",
+        "Choisissez l'établissement concerné :",
+        catalog.establishments.map((e) => ({ value: e, label: e })),
+        draft(),
+      );
+    }
+    const matchedEtab = matchCatalogValue(etablissement, catalog.establishments);
+    if (!matchedEtab) {
+      return choicesResult(
+        "create_trip",
+        "etablissement",
+        `Établissement « ${etablissement} » non reconnu. Choisissez dans la liste :`,
+        catalog.establishments.map((e) => ({ value: e, label: e })),
+        draft(),
+      );
+    }
+    etablissement = matchedEtab;
+  }
+
+  if (catalog.allClasses.length > 0) {
+    const tokens = splitClassesValue(classes);
+    const wantsAutres = tokens.some(
+      (t) => t === TRAVELS_CLASSES_AUTRES_VALUE || t === TRAVELS_CLASSES_AUTRES_LABEL,
+    );
+    const classesResolved = Boolean(args.classesResolved);
+
+    if (!classes && !classesResolved) {
+      return choicesResult(
+        "create_trip",
+        "classes",
+        "Cochez la ou les classes concernées (plusieurs possibles) :",
+        [
+          ...catalog.allClasses.map((c) => ({ value: c, label: c })),
+          { value: TRAVELS_CLASSES_AUTRES_VALUE, label: TRAVELS_CLASSES_AUTRES_LABEL },
+        ],
+        draft(),
+        "multi",
+      );
+    }
+
+    if (wantsAutres) {
+      const known = tokens.filter(
+        (t) => t !== TRAVELS_CLASSES_AUTRES_VALUE && t !== TRAVELS_CLASSES_AUTRES_LABEL,
+      );
+      const otherDraft = String(args.classesOther || "").trim();
+      if (!otherDraft) {
+        return choicesResult(
+          "create_trip",
+          "classesOther",
+          "Précisez les autres classes (texte libre) :",
+          [],
+          { ...draft(), classes: known.join(", "), classesOtherPending: true },
+          "text",
+        );
+      }
+      classes = serializeClassesSelection(
+        known
+          .map((c) => matchCatalogValue(c, catalog.allClasses) || c)
+          .filter(Boolean),
+        otherDraft,
+      );
+    } else if (!classesResolved) {
+      const parsed = parseClassesSelection(classes, catalog.allClasses);
+      const unresolved = splitClassesValue(classes).filter(
+        (c) =>
+          c !== TRAVELS_CLASSES_AUTRES_VALUE &&
+          c !== TRAVELS_CLASSES_AUTRES_LABEL &&
+          !matchCatalogValue(c, catalog.allClasses),
+      );
+      if (unresolved.length > 0 && !parsed.otherText) {
+        return choicesResult(
+          "create_trip",
+          "classes",
+          "Certaines classes ne sont pas dans le catalogue. Recochez ou choisissez Autres :",
+          [
+            ...catalog.allClasses.map((c) => ({ value: c, label: c })),
+            { value: TRAVELS_CLASSES_AUTRES_VALUE, label: TRAVELS_CLASSES_AUTRES_LABEL },
+          ],
+          draft(),
+          "multi",
+        );
+      }
+      classes = serializeClassesSelection(parsed.selected, parsed.otherText);
+    }
+  }
+
+  if (!type) {
+    return choicesResult(
+      "create_trip",
+      "type",
+      "Quel type de sortie ?",
+      [
+        { value: "SIMPLE", label: "Sortie simple" },
+        { value: "COMPLEX", label: "Séjour / sortie complexe" },
+      ],
+      draft(),
+    );
   }
 
   if (!ctx.confirmed) {
@@ -135,6 +263,7 @@ export async function handleCreateTrip(
         `Créer le séjour « ${title} »` +
         (destination ? ` à ${destination}` : "") +
         ` le ${startDate}` +
+        (etablissement ? ` — ${etablissement}` : "") +
         (classes ? ` (${classes})` : "") +
         ` ?`,
     };
@@ -216,3 +345,4 @@ export async function handleCreateTrip(
     summaryFr: `Séjour « ${title} » créé. Complétez le dossier sur /travels/${id}.`,
   };
 }
+

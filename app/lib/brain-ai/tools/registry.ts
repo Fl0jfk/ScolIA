@@ -96,7 +96,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_trip",
     description:
-      "Crée un brouillon de séjour (SIMPLE ou COMPLEX) après avoir collecté titre et date. Demander confirmation.",
+      "Crée un brouillon de séjour (SIMPLE ou COMPLEX) après titre et date. Établissement / classes (multi + Autres) / type via listes UI. Demander confirmation.",
     parameters: {
       type: "object",
       properties: {
@@ -131,12 +131,16 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
   },
   {
     name: "check_availability",
-    description: "Vérifie la disponibilité d'une salle pour une date et des créneaux horaires (heures entières, créneau H:30→H+1:30).",
+    description:
+      "Vérifie la disponibilité d'une salle pour une date et des créneaux horaires (heures entières, créneau H:30→H+1:30). La date DOIT être YYYY-MM-DD calculée depuis l'horloge Europe/Paris du system prompt (jamais une année inventée).",
     parameters: {
       type: "object",
       properties: {
         roomId: { type: "string" },
-        date: { type: "string", description: "YYYY-MM-DD" },
+        date: {
+          type: "string",
+          description: "YYYY-MM-DD (ex. demain = date « Demain = » du system prompt)",
+        },
         selectedHours: {
           type: "array",
           items: { type: "number" },
@@ -155,12 +159,15 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_reservation",
     description:
-      "Réserve une salle. Collecter salle, date, créneaux, matière, classe, récurrence. Toujours confirmer avant.",
+      "Réserve une salle. Appeler même si salle/date/créneaux/matière/classe manquent : l'UI propose des listes. Date YYYY-MM-DD via horloge Europe/Paris. Toujours confirmer avant.",
     parameters: {
       type: "object",
       properties: {
         roomId: { type: "string" },
-        date: { type: "string" },
+        date: {
+          type: "string",
+          description: "YYYY-MM-DD depuis l'horloge institutionnelle (pas d'année fantaisiste)",
+        },
         selectedHours: { type: "array", items: { type: "number" } },
         subject: { type: "string" },
         className: { type: "string" },

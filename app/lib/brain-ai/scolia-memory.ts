@@ -19,6 +19,14 @@ export type ScoliaMemorySnapshot = {
     args: Record<string, unknown>;
     summaryFr: string;
   } | null;
+  pendingChoices?: {
+    tool: string;
+    field: string;
+    promptFr: string;
+    options: Array<{ value: string; label: string }>;
+    draftArgs: Record<string, unknown>;
+    selectionType?: "single" | "multi" | "date" | "text";
+  } | null;
 };
 
 export function defaultWelcomeMessage(): ScoliaMemoryMessage {
@@ -51,6 +59,7 @@ export function saveScoliaMemory(snapshot: Omit<ScoliaMemorySnapshot, "version" 
       messages: snapshot.messages.slice(-80),
       conversationState: snapshot.conversationState,
       pendingConfirmation: snapshot.pendingConfirmation,
+      pendingChoices: snapshot.pendingChoices ?? null,
     };
     localStorage.setItem(SCOLIA_AI_MEMORY_KEY, JSON.stringify(payload));
   } catch {

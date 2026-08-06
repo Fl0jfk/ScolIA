@@ -1,20 +1,30 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { useState, Suspense, useRef } from "react";
+import { useState, Suspense, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
+import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
 
 import { CUISINE_DAYS_UI as CUISINE_DAYS, CUISINE_ROWS_UI as CUISINE_ROWS } from "@/app/lib/travels-cuisine-form";
 import TravelsOwnerAssignSection, {
   resolveTripOwnerFields,
   type TravelsOwnerFields,
 } from "@/app/components/travels/TravelsOwnerAssignSection";
+import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSelect";
 
 function ComplexTripFormContent() {
   const { user, isLoaded } = useUser();
   const { data: appCtx } = useAppContext();
+  const classOptions = useMemo(
+    () =>
+      mergeTripClassCatalogs(
+        appCtx?.profRoom?.classesByPole,
+        appCtx?.domainPlanning?.classesByPole,
+      ),
+    [appCtx?.profRoom?.classesByPole, appCtx?.domainPlanning?.classesByPole],
+  );
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const busProgramRef = useRef<HTMLInputElement>(null);
@@ -213,7 +223,12 @@ function ComplexTripFormContent() {
             </div>
             <div>
               <label className="block text-sm font-semibold mb-2">Classes concernées</label>
-              <input required value={formData.classes} className="w-full p-3 bg-slate-50 border rounded-xl" placeholder="Ex: 3ème A, B, C" onChange={e => setFormData({...formData, classes: e.target.value})} />
+              <TripClassesMultiSelect
+                required
+                value={formData.classes}
+                options={classOptions}
+                onChange={(classes) => setFormData({ ...formData, classes })}
+              />
             </div>
             <div>
               <label className="block text-sm font-semibold mb-2">Nb accompagnateurs</label>

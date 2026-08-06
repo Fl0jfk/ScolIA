@@ -4,19 +4,27 @@ import {
   readKnowledgeIndex,
   selectDomainByMessage,
 } from "@/app/lib/knowledge";
+import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import {
   createConversationState,
   normalizeConversationState,
+  withPendingChoices,
   withPendingConfirmation,
 } from "@/app/lib/brain-ai/conversation-state";
 import { executeBrainTool } from "@/app/lib/brain-ai/tools/execute";
 import { getBrainTool, mistralToolsForUser } from "@/app/lib/brain-ai/tools/registry";
+import {
+  TRAVELS_CLASSES_AUTRES_LABEL,
+  TRAVELS_CLASSES_AUTRES_VALUE,
+} from "@/app/lib/travels-classes";
 import type {
   BrainChatResponse,
   BrainCta,
   BrainConversationState,
+  BrainPendingChoices,
   BrainPendingConfirmation,
   BrainToolCtx,
+  BrainToolResult,
 } from "@/app/lib/brain-ai/types";
 
 const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
@@ -33,6 +41,45 @@ type ChatMessage = {
   tool_call_id?: string;
   name?: string;
 };
+
+function addDaysToDateKey(dateKey: string, days: number): string {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const next = new Date(Date.UTC(y!, m! - 1, d! + days, 12, 0, 0));
+  return next.toISOString().slice(0, 10);
+}
+
+function weekdayLongFr(dateKey: string): string {
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "UTC",
+    weekday: "long",
+  }).format(new Date(`${dateKey}T12:00:00Z`));
+}
+
+/** Ancre calendaire pour éviter les dates hallucinées (ex. « demain = juin 2024 »). */
+function buildBrainAiClockContext(now = new Date()): string {
+  const today = calendarDateKeyParis(now);
+  const tomorrow = addDaysToDateKey(today, 1);
+  const timeFr = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(now);
+  const todayLong = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(now);
+  return (
+    `Horloge institutionnelle (fuseau Europe/Paris, source de vérité) :\n` +
+    `- Maintenant : ${todayLong}, ${timeFr}.\n` +
+    `- Aujourd'hui = ${today} (${weekdayLongFr(today)}).\n` +
+    `- Demain = ${tomorrow} (${weekdayLongFr(tomorrow)}).\n` +
+    `- Pour « lundi prochain », « dans 3 jours », etc., calcule TOUJOURS à partir de cette date — n'invente jamais une année ancienne (ex. 2024).\n` +
+    `- Les outils qui demandent une date exigent le format YYYY-MM-DD basé sur cette horloge.\n`
+  );
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -171,6 +218,131 @@ function extractCtas(data: unknown): BrainCta[] {
     .map((c) => ({ label: String((c as BrainCta).label || "Ouvrir"), href: (c as BrainCta).href }));
 }
 
+function applyChoiceToArgs(
+  draftArgs: Record<string, unknown>,
+  field: string,
+  value?: string,
+  values?: string[],
+): Record<string, unknown> {
+  const next = { ...draftArgs };
+  if (field === "selectedHours") {
+    const raw = values?.length ? values : value ? [value] : [];
+    next.selectedHours = raw.map((h) => Number(h)).filter((h) => Number.isFinite(h));
+    return next;
+  }
+  if (field === "classes") {
+    const raw = values?.length ? values : value ? [value] : [];
+    const wantsAutres = raw.some(
+      (c) => c === TRAVELS_CLASSES_AUTRES_VALUE || c === TRAVELS_CLASSES_AUTRES_LABEL,
+    );
+    next.classes = raw.join(", ");
+    if (!wantsAutres) next.classesResolved = true;
+    else delete next.classesResolved;
+    return next;
+  }
+  if (field === "classesOther") {
+    const other = String(value || "").trim();
+    const base = splitDraftClasses(String(next.classes || ""));
+    const withoutAutres = base.filter(
+      (c) => c !== TRAVELS_CLASSES_AUTRES_VALUE && c !== TRAVELS_CLASSES_AUTRES_LABEL,
+    );
+    next.classes = [...withoutAutres, ...(other ? [other] : [])].join(", ");
+    next.classesResolved = true;
+    delete next.classesOther;
+    delete next.classesOtherPending;
+    return next;
+  }
+  next[field] = value ?? (values?.length ? values.join(", ") : "");
+  return next;
+}
+
+function splitDraftClasses(raw: string): string[] {
+  return raw
+    .split(/[,;/]+/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+}
+
+function materializeToolTurn(
+  conversationState: BrainConversationState,
+  result: BrainToolResult,
+  ctas: BrainCta[],
+  knowledgeMeta?: { domainId?: string; file?: string },
+): BrainChatResponse {
+  if (!result.ok && "needsChoices" in result && result.needsChoices) {
+    const pendingChoices: BrainPendingChoices = {
+      tool: result.tool,
+      field: result.field,
+      promptFr: result.promptFr,
+      options: result.options,
+      draftArgs: result.draftArgs,
+      selectionType: result.selectionType || "single",
+    };
+    const state = withPendingChoices(conversationState, pendingChoices);
+    return {
+      answer: result.promptFr,
+      domain: knowledgeMeta?.domainId,
+      usedFile: knowledgeMeta?.file,
+      conversationState: state,
+      pendingConfirmation: null,
+      pendingChoices,
+      ctas: ctas.length ? ctas : undefined,
+    };
+  }
+
+  if (!result.ok && "needsConfirmation" in result && result.needsConfirmation) {
+    const pendingConfirmation: BrainPendingConfirmation = {
+      tool: result.tool,
+      args: result.args,
+      summaryFr: result.summaryFr,
+    };
+    const state = withPendingConfirmation(conversationState, pendingConfirmation);
+    return {
+      answer: `${result.summaryFr}\n\nCliquez sur Confirmer pour valider, ou annulez pour modifier.`,
+      domain: knowledgeMeta?.domainId,
+      usedFile: knowledgeMeta?.file,
+      conversationState: state,
+      pendingConfirmation,
+      pendingChoices: null,
+      ctas: ctas.length ? ctas : undefined,
+    };
+  }
+
+  if (!result.ok) {
+    return {
+      answer: "error" in result ? result.error : "Échec de l'action.",
+      conversationState: withPendingChoices(
+        withPendingConfirmation(conversationState, null),
+        null,
+      ),
+      pendingConfirmation: null,
+      pendingChoices: null,
+      ctas: ctas.length ? ctas : undefined,
+    };
+  }
+
+  const nextCtas = [...ctas, ...extractCtas(result.data)];
+  const follow =
+    result.data && typeof result.data === "object" && "followUrl" in (result.data as object)
+      ? String((result.data as { followUrl?: string }).followUrl || "")
+      : "";
+  if (follow && !nextCtas.some((c) => c.href === follow)) {
+    nextCtas.push({ label: "Ouvrir", href: follow });
+  }
+  return {
+    answer: result.summaryFr || "Action effectuée.",
+    domain: knowledgeMeta?.domainId,
+    usedFile: knowledgeMeta?.file,
+    conversationState: withPendingChoices(
+      withPendingConfirmation(conversationState, null),
+      null,
+    ),
+    pendingConfirmation: null,
+    pendingChoices: null,
+    ctas: nextCtas.length ? nextCtas : undefined,
+  };
+}
+
 export type RunBrainChatInput = {
   message: string;
   audience: "public" | "private";
@@ -181,6 +353,14 @@ export type RunBrainChatInput = {
   /** Confirmation explicite d'une action mutante. */
   confirm?: boolean;
   confirmAction?: { tool: string; args: Record<string, unknown> } | null;
+  /** Réponse à une liste déroulante / choix structuré. */
+  choiceApply?: {
+    tool: string;
+    field: string;
+    value?: string;
+    values?: string[];
+    draftArgs: Record<string, unknown>;
+  } | null;
   /** Pièces jointes déjà uploadées (PDF…). */
   attachments?: Array<{
     key: string;
@@ -219,6 +399,32 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
 
   const ctas: BrainCta[] = [];
   let pendingConfirmation: BrainPendingConfirmation | null = null;
+  let pendingChoices: BrainPendingChoices | null = null;
+
+  // Choix UI (liste déroulante / multi / date) — rejoue l'outil sans passer par le LLM
+  if (input.choiceApply?.tool && input.choiceApply.field) {
+    const toolName = input.choiceApply.tool;
+    const tool = getBrainTool(toolName);
+    if (!tool) {
+      return {
+        answer: "Action inconnue, impossible d'appliquer ce choix.",
+        conversationState,
+        pendingConfirmation: null,
+        pendingChoices: null,
+      };
+    }
+    const mergedArgs = applyChoiceToArgs(
+      input.choiceApply.draftArgs || {},
+      input.choiceApply.field,
+      input.choiceApply.value,
+      input.choiceApply.values,
+    );
+    const result = await executeBrainTool(toolName, mergedArgs, {
+      ...input.toolCtx,
+      confirmed: false,
+    });
+    return materializeToolTurn(conversationState, result, ctas);
+  }
 
   // Confirmation directe (bouton UI) — fusionne éventuelle PJ récente dans les args photocopies
   if (input.confirm && input.confirmAction?.tool) {
@@ -255,11 +461,13 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       confirmed: true,
     });
     conversationState = withPendingConfirmation(conversationState, null);
+    conversationState = withPendingChoices(conversationState, null);
     if (!result.ok) {
       return {
         answer: "error" in result ? result.error : "Échec de l'action.",
         conversationState,
         pendingConfirmation: null,
+        pendingChoices: null,
       };
     }
     ctas.push(...extractCtas(result.data));
@@ -272,6 +480,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       answer: result.summaryFr || "Action effectuée.",
       conversationState,
       pendingConfirmation: null,
+      pendingChoices: null,
       ctas: ctas.length ? ctas : undefined,
     };
   }
@@ -281,6 +490,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       answer: "Le service IA n'est pas configuré (MISTRAL_API_KEY).",
       conversationState,
       pendingConfirmation: null,
+      pendingChoices: null,
     };
   }
 
@@ -303,12 +513,13 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
   const systemPrompt =
     `Tu es ScolIA, l'assistant institutionnel de l'établissement (Brain AI).\n` +
     `Réponds en français, précis, utile et concis.\n` +
+    buildBrainAiClockContext() +
     `Tu as deux sources d'information :\n` +
     `1) Dictionnaire (contexte knowledge ci-dessous) — infos stables (FAQ, circulaires…).\n` +
     `2) Actualité live via outils (feuille de semaine, voyages, salles, photocopies, HSE, stages, internat…) — toujours préférer un outil pour l'actualité.\n` +
     `Règles:\n` +
     `- Pas d'accès RH / dossiers personnels / salaires. create_absence = soi uniquement. HSE = soi ou direction établissement.\n` +
-    `- Pour une action mutante (réservation, demande, absence, séjour, photocopies, HSE), collecter les champs manquants puis appeler l'outil (il demandera confirmation).\n` +
+    `- Pour une action mutante (réservation, demande, absence, séjour, photocopies, HSE), appelle l'outil dès que possible même si matière/classe/salle/établissement manquent : l'interface proposera des listes déroulantes.\n` +
     `- Si un PDF est joint dans la conversation, passe-le à create_photocopie_demand (documentKey / documentFileName).\n` +
     `- Si un outil renvoie needsConfirmation, présente le récap et laisse l'utilisateur Confirmer / Modifier / Annuler.\n` +
     `- N'invente pas : si l'info manque, dis-le clairement.\n` +
@@ -387,6 +598,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     if (!toolCalls?.length) {
       const answer = normalizeLinks(msg?.content?.trim() || "");
       conversationState = withPendingConfirmation(conversationState, pendingConfirmation);
+      conversationState = withPendingChoices(conversationState, pendingChoices);
       return {
         answer: answer || "Je n'ai pas pu formuler de réponse pour le moment.",
         domain: knowledge.domain.id,
@@ -402,6 +614,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
             : undefined,
         conversationState,
         pendingConfirmation,
+        pendingChoices,
         ctas: ctas.length ? ctas : undefined,
       };
     }
@@ -438,21 +651,22 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
         confirmed: false,
       });
 
-      if (!result.ok && "needsConfirmation" in result && result.needsConfirmation) {
-        pendingConfirmation = {
-          tool: result.tool,
-          args: result.args,
-          summaryFr: result.summaryFr,
-        };
-        conversationState = withPendingConfirmation(conversationState, pendingConfirmation);
-        return {
-          answer: `${result.summaryFr}\n\nCliquez sur Confirmer pour valider, ou annulez pour modifier.`,
-          domain: knowledge.domain.id,
-          usedFile: knowledge.domain.file,
+      if (!result.ok && "needsChoices" in result && result.needsChoices) {
+        return materializeToolTurn(
           conversationState,
-          pendingConfirmation,
-          ctas: ctas.length ? ctas : undefined,
-        };
+          result,
+          ctas,
+          { domainId: knowledge.domain.id, file: knowledge.domain.file },
+        );
+      }
+
+      if (!result.ok && "needsConfirmation" in result && result.needsConfirmation) {
+        return materializeToolTurn(
+          conversationState,
+          result,
+          ctas,
+          { domainId: knowledge.domain.id, file: knowledge.domain.file },
+        );
       }
 
       if (result.ok) {
@@ -476,11 +690,13 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
   }
 
   conversationState = withPendingConfirmation(conversationState, pendingConfirmation);
+  conversationState = withPendingChoices(conversationState, pendingChoices);
   return {
     answer:
       "J'ai atteint la limite d'actions pour ce tour. Reformulez ou confirmez l'action proposée.",
     conversationState,
     pendingConfirmation,
+    pendingChoices,
     ctas: ctas.length ? ctas : undefined,
   };
 }
