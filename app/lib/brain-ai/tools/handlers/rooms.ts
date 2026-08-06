@@ -7,6 +7,12 @@ import {
   loadRoomCatalog,
   matchCatalogValue,
 } from "@/app/lib/brain-ai/choice-options";
+import {
+  buildDateQuickOptions,
+  weekdayLabelFr,
+  wizardStep,
+  WIZARD_DATE_OTHER,
+} from "@/app/lib/brain-ai/wizard";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 
 const ROOMS_KEY = "reservation-rooms/rooms.json";
@@ -91,6 +97,38 @@ function resolveRoomId(
   return null;
 }
 
+const DATE_OTHER = WIZARD_DATE_OTHER;
+
+function slotConflict(
+  existing: ReservationRow[],
+  roomId: string,
+  date: string,
+  hour: number,
+): ReservationRow | undefined {
+  const startsAt = `${date}T${hour.toString().padStart(2, "0")}:30:00`;
+  const endsAt = `${date}T${(hour + 1).toString().padStart(2, "0")}:30:00`;
+  return existing.find(
+    (r) =>
+      r.roomId === roomId &&
+      r.status !== "CANCELLED" &&
+      String(r.startsAt).substring(0, 19) < endsAt &&
+      String(r.endsAt).substring(0, 19) > startsAt,
+  );
+}
+
+async function freeHoursForRoomDate(
+  roomId: string,
+  date: string,
+  catalogHours: number[],
+): Promise<number[]> {
+  const existing = await loadReservations();
+  return catalogHours.filter((h) => !slotConflict(existing, roomId, date, h));
+}
+
+function roomLabel(roomId: string, rooms: Array<{ id: string; name: string }>): string {
+  return rooms.find((r) => r.id === roomId)?.name || roomId;
+}
+
 export async function handleListRooms(_ctx: BrainToolCtx): Promise<BrainToolResult> {
   const rooms = await loadRooms();
   const items = rooms
@@ -172,9 +210,16 @@ export async function handleCreateReservation(
   const lastName = String(args.lastName || ctx.lastName || "").trim() || undefined;
   const email = String(args.email || ctx.email || "").trim() || undefined;
 
+  const hasSubjects = catalog.subjects.length > 0;
+  const hasPoles = catalog.poles.length > 0;
+  const hasClasses = catalog.allClasses.length > 0;
+  const totalSteps =
+    3 + (hasSubjects ? 1 : 0) + (hasPoles ? 2 : hasClasses ? 1 : 0);
+  let step = 1;
+
   const draft = (): Record<string, unknown> => ({
     roomId,
-    date,
+    date: date === DATE_OTHER ? "" : date,
     selectedHours: hours,
     subject,
     className,
@@ -187,6 +232,7 @@ export async function handleCreateReservation(
     email,
   });
 
+  // —— 1. Salle ——
   if (roomId) {
     const resolved = resolveRoomId(roomId, catalog.rooms);
     if (resolved) roomId = resolved;
@@ -194,7 +240,11 @@ export async function handleCreateReservation(
       return choicesResult(
         "create_reservation",
         "roomId",
-        `Salle « ${roomId} » inconnue. Choisissez une salle :`,
+        wizardStep(
+          step,
+          totalSteps,
+          `Salle « ${roomId} » inconnue. Voici les salles disponibles :`,
+        ),
         catalog.rooms.map((r) => ({ value: r.id, label: r.name })),
         draft(),
       );
@@ -207,42 +257,93 @@ export async function handleCreateReservation(
     return choicesResult(
       "create_reservation",
       "roomId",
-      "Quelle salle souhaitez-vous réserver ?",
+      wizardStep(step, totalSteps, "Vous réservez une salle. Choisissez parmi les salles disponibles :"),
       catalog.rooms.map((r) => ({ value: r.id, label: r.name })),
       draft(),
     );
   }
+  step += 1;
+  const salleName = roomLabel(roomId, catalog.rooms);
 
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  // —— 2. Date ——
+  if (date === DATE_OTHER) {
     return choicesResult(
       "create_reservation",
       "date",
-      "Choisissez la date de réservation :",
+      wizardStep(step, totalSteps, `Salle ${salleName} — choisissez une date dans le calendrier :`),
       [],
-      draft(),
+      { ...draft(), date: "" },
       "date",
+    );
+  }
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const today = calendarDateKeyParis();
+    return choicesResult(
+      "create_reservation",
+      "date",
+      wizardStep(step, totalSteps, `Salle ${salleName} — pour quel jour souhaitez-vous réserver ?`),
+      buildDateQuickOptions(today),
+      draft(),
     );
   }
   const past = assertFutureOrTodayDate(date);
   if (past) return past;
+  step += 1;
 
+  // —— 3. Créneaux libres uniquement ——
+  const free = await freeHoursForRoomDate(roomId, date, catalog.hours);
   if (hours.length === 0) {
+    if (free.length === 0) {
+      return choicesResult(
+        "create_reservation",
+        "date",
+        wizardStep(
+          step - 1,
+          totalSteps,
+          `Salle ${salleName} : aucun créneau libre le ${weekdayLabelFr(date)}. Choisissez un autre jour :`,
+        ),
+        buildDateQuickOptions(calendarDateKeyParis()),
+        { ...draft(), date: "", selectedHours: [] },
+      );
+    }
     return choicesResult(
       "create_reservation",
       "selectedHours",
-      "Choisissez le(s) créneau(x) (début à H:30) :",
-      catalog.hours.map((h) => ({ value: String(h), label: `${h}h30` })),
+      wizardStep(
+        step,
+        totalSteps,
+        `Salle ${salleName} le ${weekdayLabelFr(date)} — créneaux disponibles (vous pouvez en cocher plusieurs) :`,
+      ),
+      free.map((h) => ({ value: String(h), label: `${h}h30` })),
       draft(),
       "multi",
     );
   }
+  const stillFree = hours.filter((h) => free.includes(h));
+  if (stillFree.length === 0) {
+    return choicesResult(
+      "create_reservation",
+      "selectedHours",
+      wizardStep(
+        step,
+        totalSteps,
+        `Ces créneaux ne sont plus libres pour ${salleName} le ${weekdayLabelFr(date)}. Recochez parmi les dispos :`,
+      ),
+      free.map((h) => ({ value: String(h), label: `${h}h30` })),
+      { ...draft(), selectedHours: [] },
+      "multi",
+    );
+  }
+  hours = stillFree;
+  step += 1;
 
-  if (catalog.subjects.length > 0) {
+  // —— 4. Matière ——
+  if (hasSubjects) {
     if (!subject) {
       return choicesResult(
         "create_reservation",
         "subject",
-        "Choisissez la matière :",
+        wizardStep(step, totalSteps, "Choisissez la matière :"),
         catalog.subjects.map((s) => ({ value: s, label: s })),
         draft(),
       );
@@ -252,15 +353,17 @@ export async function handleCreateReservation(
       return choicesResult(
         "create_reservation",
         "subject",
-        `Matière « ${subject} » non reconnue. Choisissez dans la liste :`,
+        wizardStep(step, totalSteps, `Matière « ${subject} » non reconnue. Choisissez dans la liste :`),
         catalog.subjects.map((s) => ({ value: s, label: s })),
         draft(),
       );
     }
     subject = matchedSubject;
+    step += 1;
   }
 
-  if (catalog.poles.length > 0 || catalog.allClasses.length > 0) {
+  // —— 5. Niveau / classe ——
+  if (hasPoles || hasClasses) {
     if (className) {
       const matchedClass = matchCatalogValue(className, catalog.allClasses);
       if (matchedClass) {
@@ -268,11 +371,11 @@ export async function handleCreateReservation(
         if (!pole) {
           pole = catalog.poles.find((p) => (catalog.classesByPole[p] || []).includes(matchedClass));
         }
-      } else if (catalog.poles.length > 0 && !pole) {
+      } else if (hasPoles && !pole) {
         return choicesResult(
           "create_reservation",
           "pole",
-          `Classe « ${className} » non reconnue. Choisissez d'abord le niveau :`,
+          wizardStep(step, totalSteps, `Classe « ${className} » non reconnue. Choisissez d'abord le niveau :`),
           catalog.poles.map((p) => ({ value: p, label: p })),
           { ...draft(), className: undefined },
         );
@@ -280,16 +383,16 @@ export async function handleCreateReservation(
         return choicesResult(
           "create_reservation",
           "className",
-          `Classe « ${className} » non reconnue. Choisissez la classe (${pole}) :`,
+          wizardStep(step + 1, totalSteps, `Choisissez la classe (${pole}) :`),
           (catalog.classesByPole[pole] || []).map((c) => ({ value: c, label: c })),
           draft(),
         );
       }
-    } else if (!pole && catalog.poles.length > 0) {
+    } else if (!pole && hasPoles) {
       return choicesResult(
         "create_reservation",
         "pole",
-        "Choisissez le niveau / pôle :",
+        wizardStep(step, totalSteps, "Choisissez le niveau / pôle :"),
         catalog.poles.map((p) => ({ value: p, label: p })),
         draft(),
       );
@@ -301,15 +404,15 @@ export async function handleCreateReservation(
       return choicesResult(
         "create_reservation",
         "className",
-        `Choisissez la classe (${pole}) :`,
+        wizardStep(step + 1, totalSteps, `Choisissez la classe (${pole}) :`),
         list.map((c) => ({ value: c, label: c })),
         draft(),
       );
-    } else if (catalog.allClasses.length > 0) {
+    } else if (hasClasses) {
       return choicesResult(
         "create_reservation",
         "className",
-        "Choisissez la classe :",
+        wizardStep(step, totalSteps, "Choisissez la classe :"),
         catalog.allClasses.map((c) => ({ value: c, label: c })),
         draft(),
       );
@@ -336,7 +439,7 @@ export async function handleCreateReservation(
         email,
       },
       summaryFr:
-        `Réserver ${roomId} le ${date} (${hours.map((h) => `${h}h30`).join(", ")})` +
+        `Récap — Réserver ${salleName} le ${weekdayLabelFr(date)} (${hours.map((h) => `${h}h30`).join(", ")})` +
         (subject ? ` — ${subject}` : "") +
         (className ? ` (${className})` : "") +
         (recurrence !== "none" ? ` — récurrence ${recurrence}` : "") +
@@ -428,6 +531,6 @@ export async function handleCreateReservation(
       followUrl: "/prof-room",
       conflictsSkipped: conflictLabels,
     },
-    summaryFr: `${newReservationsAdded.length} créneau(x) réservé(s) pour ${roomId}.`,
+    summaryFr: `${newReservationsAdded.length} créneau(x) réservé(s) pour ${salleName}.`,
   };
 }

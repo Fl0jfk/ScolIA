@@ -96,7 +96,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_trip",
     description:
-      "Crée un brouillon de séjour (SIMPLE ou COMPLEX) après titre et date. Établissement / classes (multi + Autres) / type via listes UI. Demander confirmation.",
+      "Démarre / poursuit un wizard de sortie scolaire. Appeler immédiatement (même sans args) : type → titre → lieu → dates → établissement → classes → effectif → confirmation.",
     parameters: {
       type: "object",
       properties: {
@@ -110,7 +110,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
         nbEleves: { type: "number" },
         type: { type: "string", enum: ["SIMPLE", "COMPLEX"] },
       },
-      required: ["title"],
+      required: [],
       additionalProperties: false,
     },
     pathPrefix: "/travels",
@@ -159,7 +159,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_reservation",
     description:
-      "Réserve une salle. Appeler même si salle/date/créneaux/matière/classe manquent : l'UI propose des listes. Date YYYY-MM-DD via horloge Europe/Paris. Toujours confirmer avant.",
+      "Démarre / poursuit un wizard de réservation de salle. Appeler immédiatement (même sans args) : l'UI propose salle → date → créneaux libres → matière → classe, puis confirmation.",
     parameters: {
       type: "object",
       properties: {
@@ -178,7 +178,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
         lastName: { type: "string" },
         email: { type: "string" },
       },
-      required: ["roomId", "date", "selectedHours"],
+      required: [],
       additionalProperties: false,
     },
     pathPrefix: "/prof-room",
@@ -190,7 +190,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_request",
     description:
-      "Crée une demande / ticket interne (sujet + description détaillée ≥ 15 caractères). Confirmer avant création.",
+      "Démarre / poursuit un wizard de demande interne. Appeler immédiatement (même sans args) : sujet → description → confirmation.",
     parameters: {
       type: "object",
       properties: {
@@ -206,7 +206,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
           },
         },
       },
-      required: ["description"],
+      required: [],
       additionalProperties: false,
     },
     requiresAuth: true,
@@ -216,7 +216,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_absence",
     description:
-      "Déclare l'absence de l'utilisateur connecté uniquement (pas de lecture RH). Collecter date, motif, établissement si professeur. Confirmer avant.",
+      "Démarre / poursuit un wizard d'absence (soi uniquement). Appeler immédiatement (même sans args) : date → durée → motif → établissement si prof → confirmation.",
     parameters: {
       type: "object",
       properties: {
@@ -231,7 +231,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
         scope: { type: "string", enum: ["professeur", "ogec"] },
         etablissement: { type: "string", enum: ["École", "Collège", "Lycée"] },
       },
-      required: ["reason"],
+      required: [],
       additionalProperties: false,
     },
     pathPrefix: "/absences",
@@ -272,7 +272,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_photocopie_demand",
     description:
-      "Crée une demande de photocopies couleur de A à Z. Si l'utilisateur a joint un PDF via le trombone, passer documentKey/documentFileName/documentContentType. Confirmer avec un récap clair avant création.",
+      "Démarre / poursuit un wizard de photocopies couleur. Appeler immédiatement (même sans args) : établissement → motif → classes/matière → nombre → confirmation. Si PDF joint via trombone, passer documentKey/documentFileName/documentContentType.",
     parameters: {
       type: "object",
       properties: {
@@ -284,7 +284,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
         documentFileName: { type: "string" },
         documentContentType: { type: "string" },
       },
-      required: ["etablissement", "motif", "classesOuMatiere", "nombrePhotocopies"],
+      required: [],
       additionalProperties: false,
     },
     pathPrefix: "/photocopies-couleur",
@@ -314,7 +314,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_hse_demand",
     description:
-      "Crée une demande HSE (enseignants uniquement). Collecter etablissement, resumeDemande, nombreHeures (multiple de 0,25), classe. Confirmer avant.",
+      "Démarre / poursuit un wizard HSE (enseignants). Appeler immédiatement (même sans args) : établissement → résumé → heures (multiple 0,25) → classe → précisions optionnelles → confirmation.",
     parameters: {
       type: "object",
       properties: {
@@ -324,7 +324,7 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
         classe: { type: "string" },
         details: { type: "string" },
       },
-      required: ["etablissement", "resumeDemande", "nombreHeures", "classe"],
+      required: [],
       additionalProperties: false,
     },
     pathPrefix: "/demandes-hse",

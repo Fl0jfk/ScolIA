@@ -11,6 +11,8 @@ import {
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
+import { choicesResult } from "@/app/lib/brain-ai/choice-options";
+import { wizardStep } from "@/app/lib/brain-ai/wizard";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 
 const INDEX_KEY = "demandes-hse/index.json";
@@ -122,18 +124,110 @@ export async function handleCreateHseDemand(
     return { ok: false, error: "Votre compte doit avoir une adresse e-mail." };
   }
 
-  const etablissement = String(args.etablissement || "").trim();
-  if (!isValidEtab(etablissement)) {
-    return { ok: false, error: "Établissement invalide (École, Collège ou Lycée)." };
-  }
-  const resumeDemande = String(args.resumeDemande || "").trim();
-  const classe = String(args.classe || "").trim();
-  const details = String(args.details || "").trim();
-  const heuresParsed = parseNombreHeures(args.nombreHeures);
+  let etablissement = String(args.etablissement || "").trim();
+  let resumeDemande = String(args.resumeDemande || "").trim();
+  let classe = String(args.classe || "").trim();
+  let details = String(args.details || "").trim();
+  const detailsResolved = Boolean(args.detailsResolved);
+  const heuresParsed = args.nombreHeures != null && String(args.nombreHeures).trim() !== ""
+    ? parseNombreHeures(args.nombreHeures)
+    : null;
 
-  if (!resumeDemande) return { ok: false, error: "Décrivez votre demande (resumeDemande)." };
-  if (!heuresParsed.ok) return { ok: false, error: heuresParsed.error };
-  if (!classe) return { ok: false, error: "Précisez la classe ou le contexte pédagogique." };
+  const total = 4;
+  let step = 1;
+  const draft = (): Record<string, unknown> => ({
+    etablissement,
+    resumeDemande,
+    classe,
+    details,
+    ...(heuresParsed?.ok ? { nombreHeures: heuresParsed.value } : {}),
+    ...(detailsResolved ? { detailsResolved: true } : {}),
+  });
+
+  if (!isValidEtab(etablissement)) {
+    return choicesResult(
+      "create_hse_demand",
+      "etablissement",
+      wizardStep(step, total, "Demande HSE — pour quel établissement ?"),
+      [
+        { value: "École", label: "École" },
+        { value: "Collège", label: "Collège" },
+        { value: "Lycée", label: "Lycée" },
+      ],
+      draft(),
+    );
+  }
+  step += 1;
+
+  if (!resumeDemande) {
+    return choicesResult(
+      "create_hse_demand",
+      "resumeDemande",
+      wizardStep(step, total, "Décrivez brièvement votre demande HSE :"),
+      [],
+      draft(),
+      "text",
+    );
+  }
+  step += 1;
+
+  if (!heuresParsed || !heuresParsed.ok) {
+    return choicesResult(
+      "create_hse_demand",
+      "nombreHeures",
+      wizardStep(
+        step,
+        total,
+        heuresParsed && !heuresParsed.ok
+          ? heuresParsed.error
+          : "Combien d'heures ? (ex. 2 ou 1,5 — multiple de 0,25)",
+      ),
+      [],
+      draft(),
+      "text",
+    );
+  }
+  step += 1;
+
+  if (!classe) {
+    return choicesResult(
+      "create_hse_demand",
+      "classe",
+      wizardStep(step, total, "Classe ou contexte pédagogique ?"),
+      [],
+      draft(),
+      "text",
+    );
+  }
+
+  if (!detailsResolved && !details) {
+    return choicesResult(
+      "create_hse_demand",
+      "details",
+      wizardStep(4, 4, "Précisions complémentaires ?"),
+      [
+        { value: "Non", label: "Non" },
+        { value: "__CUSTOM__", label: "Oui, saisir…" },
+      ],
+      draft(),
+    );
+  }
+  if (details === "__CUSTOM__") {
+    const custom = String(args.detailsCustom || "").trim();
+    if (!custom) {
+      return choicesResult(
+        "create_hse_demand",
+        "detailsCustom",
+        wizardStep(4, 4, "Vos précisions :"),
+        [],
+        { ...draft(), details: "__CUSTOM__" },
+        "text",
+      );
+    }
+    details = custom;
+  } else if (details === "Non") {
+    details = "";
+  }
 
   const nombreHeures = heuresParsed.value;
 
@@ -142,10 +236,21 @@ export async function handleCreateHseDemand(
       ok: false,
       needsConfirmation: true,
       tool: "create_hse_demand",
-      args: { etablissement, resumeDemande, nombreHeures, classe, details },
+      args: {
+        etablissement,
+        resumeDemande,
+        nombreHeures,
+        classe,
+        details,
+        detailsResolved: true,
+      },
       summaryFr:
-        `Créer une demande HSE de ${formatNombreHeures(nombreHeures)} (${etablissement})` +
-        ` — ${classe} ?`,
+        `Récapitulatif — Demande HSE\n` +
+        `• Établissement : ${etablissement}\n` +
+        `• Heures : ${formatNombreHeures(nombreHeures)}\n` +
+        `• Classe : ${classe}\n` +
+        `• Demande : ${resumeDemande.slice(0, 160)}${resumeDemande.length > 160 ? "…" : ""}` +
+        (details ? `\n• Précisions : ${details.slice(0, 120)}${details.length > 120 ? "…" : ""}` : ""),
     };
   }
 

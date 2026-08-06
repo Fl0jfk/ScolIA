@@ -5,6 +5,8 @@ import {
 } from "@/app/lib/tenant-mail";
 import { loadAppConfig, getEstablishmentByLabel } from "@/app/lib/app-config";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
+import { choicesResult } from "@/app/lib/brain-ai/choice-options";
+import { wizardStep } from "@/app/lib/brain-ai/wizard";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 
 const INDEX_KEY = "photocopies-couleur/index.json";
@@ -152,22 +154,75 @@ export async function handleCreatePhotocopie(
     return { ok: false, error: "Votre compte doit avoir une adresse e-mail." };
   }
 
-  const etablissement = String(args.etablissement || "").trim();
-  if (!isValidEtab(etablissement)) {
-    return { ok: false, error: "Établissement invalide (École, Collège ou Lycée)." };
-  }
-  const motif = String(args.motif || "").trim();
-  const classesOuMatiere = String(args.classesOuMatiere || "").trim();
-  const nb = Number(args.nombrePhotocopies);
+  let etablissement = String(args.etablissement || "").trim();
+  let motif = String(args.motif || "").trim();
+  let classesOuMatiere = String(args.classesOuMatiere || "").trim();
+  const nbRaw = args.nombrePhotocopies;
+  const nb = Number(nbRaw);
   const documentKey = String(args.documentKey || "").trim();
   const documentFileName = String(args.documentFileName || "").trim();
   const documentContentType = String(args.documentContentType || "application/pdf").trim();
 
-  if (!motif) return { ok: false, error: "Le motif est requis." };
-  if (!classesOuMatiere) return { ok: false, error: "Classes / matière requis." };
-  if (!Number.isFinite(nb) || nb < 1 || nb > 1_000_000) {
-    return { ok: false, error: "Nombre de photocopies invalide." };
+  const total = 4;
+  let step = 1;
+  const draft = (): Record<string, unknown> => ({
+    etablissement,
+    motif,
+    classesOuMatiere,
+    ...(Number.isFinite(nb) && nb >= 1 ? { nombrePhotocopies: nb } : {}),
+    ...(documentKey ? { documentKey, documentFileName, documentContentType } : {}),
+  });
+
+  if (!isValidEtab(etablissement)) {
+    return choicesResult(
+      "create_photocopie_demand",
+      "etablissement",
+      wizardStep(step, total, "Demande de photocopies couleur — pour quel établissement ?"),
+      [
+        { value: "École", label: "École" },
+        { value: "Collège", label: "Collège" },
+        { value: "Lycée", label: "Lycée" },
+      ],
+      draft(),
+    );
   }
+  step += 1;
+
+  if (!motif) {
+    return choicesResult(
+      "create_photocopie_demand",
+      "motif",
+      wizardStep(step, total, "Quel est le motif de la demande ?"),
+      [],
+      draft(),
+      "text",
+    );
+  }
+  step += 1;
+
+  if (!classesOuMatiere) {
+    return choicesResult(
+      "create_photocopie_demand",
+      "classesOuMatiere",
+      wizardStep(step, total, "Classes / matière concernées ?"),
+      [],
+      draft(),
+      "text",
+    );
+  }
+  step += 1;
+
+  if (!Number.isFinite(nb) || nb < 1 || nb > 1_000_000) {
+    return choicesResult(
+      "create_photocopie_demand",
+      "nombrePhotocopies",
+      wizardStep(step, total, "Combien d'exemplaires ? (nombre entier)"),
+      [],
+      draft(),
+      "text",
+    );
+  }
+
   if (documentKey && !isValidDocumentKey(documentKey)) {
     return { ok: false, error: "Document joint invalide." };
   }

@@ -74,5 +74,5 @@ export const TILE_IMAGES: Record<string, string> = {
   toolbox:
     scolaImageUrl("categories/Toolbox.jpg"),
   certificates:
-    scolaImageUrl("categories/Calendrier.jpg"),
+    scolaImageUrl("categories/Certificat.jpg"),
 };

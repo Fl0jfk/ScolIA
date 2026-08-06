@@ -840,7 +840,24 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
               isExpanded ? "" : "mr-4"
             }`}
           >
-            <p className="text-[11px] font-semibold text-indigo-950">{pendingChoices.promptFr}</p>
+            {(() => {
+              const stepMatch = pendingChoices.promptFr.match(/^Étape\s+(\d+)\s*\/\s*(\d+)\s*[—–-]\s*(.*)$/s);
+              if (stepMatch) {
+                const [, cur, total, rest] = stepMatch;
+                return (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center rounded-full bg-indigo-700 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                        Étape {cur}/{total}
+                      </span>
+                      <span className="text-[10px] font-semibold text-indigo-800/70">Assistant guidé</span>
+                    </div>
+                    <p className="text-[12px] font-semibold text-indigo-950 leading-snug">{rest}</p>
+                  </div>
+                );
+              }
+              return <p className="text-[11px] font-semibold text-indigo-950">{pendingChoices.promptFr}</p>;
+            })()}
             {pendingChoices.selectionType === "date" ? (
               <div className="flex flex-wrap items-center gap-2">
                 <input

@@ -1,9 +1,8 @@
-import { getJson } from "@/app/lib/s3-storage";
+import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   TRAVELS_STATUS_LABELS,
   type TravelsTrip,
 } from "@/app/lib/travels-types";
-import { putJson } from "@/app/lib/s3-storage";
 import { syncTripActualite } from "@/app/lib/brain-ai/sync/knowledge-writer";
 import { choicesResult, loadTripChoiceCatalog, matchCatalogValue } from "@/app/lib/brain-ai/choice-options";
 import {
@@ -13,6 +12,13 @@ import {
   TRAVELS_CLASSES_AUTRES_LABEL,
   TRAVELS_CLASSES_AUTRES_VALUE,
 } from "@/app/lib/travels-classes";
+import {
+  buildDateQuickOptions,
+  weekdayLabelFr,
+  wizardStep,
+  WIZARD_DATE_OTHER,
+} from "@/app/lib/brain-ai/wizard";
+import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 
 function tripDates(t: TravelsTrip): string {
@@ -104,48 +110,173 @@ export async function handleGetTripStatus(
   };
 }
 
+/**
+ * Wizard sortie / séjour :
+ * type → titre → destination → date départ → (date retour si COMPLEX)
+ * → établissement → classes → nb élèves → confirmation
+ */
 export async function handleCreateTrip(
   ctx: BrainToolCtx,
   args: Record<string, unknown>,
 ): Promise<BrainToolResult> {
-  const title = String(args.title || "").trim();
-  const destination = String(args.destination || "").trim();
-  const date = String(args.date || args.startDate || "").trim();
-  const startDate = String(args.startDate || date || "").trim();
-  let endDate = String(args.endDate || startDate || "").trim();
+  let title = String(args.title || "").trim();
+  let destination = String(args.destination || "").trim();
+  let startDate = String(args.startDate || args.date || "").trim();
+  let endDate = String(args.endDate || "").trim();
   let classes = String(args.classes || "").trim();
   let etablissement = String(args.etablissement || "").trim();
-  const nbEleves = args.nbEleves != null ? Number(args.nbEleves) : undefined;
+  const nbElevesRaw = args.nbEleves;
+  const nbEleves =
+    nbElevesRaw != null && String(nbElevesRaw).trim() !== ""
+      ? Number(nbElevesRaw)
+      : undefined;
+  const nbElevesResolved = Boolean(args.nbElevesResolved);
   const typeRaw = String(args.type || "").trim();
   let type: "SIMPLE" | "COMPLEX" | "" =
     typeRaw.toUpperCase() === "COMPLEX" ? "COMPLEX" : typeRaw ? "SIMPLE" : "";
 
-  if (!title) return { ok: false, error: "Le titre du séjour est obligatoire." };
-  if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
-    return { ok: false, error: "Une date de départ (YYYY-MM-DD) est obligatoire." };
-  }
-  if (!endDate || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) endDate = startDate;
-
   const catalog = await loadTripChoiceCatalog();
+  const hasEtab = catalog.establishments.length > 0;
+  const hasClasses = catalog.allClasses.length > 0;
+
+  const totalSteps =
+    4 + // type, title, destination, startDate
+    (type === "COMPLEX" || !type ? 1 : 0) + // endDate (count as potential; adjust dynamically)
+    (hasEtab ? 1 : 0) +
+    (hasClasses ? 1 : 0) +
+    1; // nbEleves
+
+  let step = 1;
+  const label = (body: string) => wizardStep(step, Math.max(totalSteps, step), body);
+
   const draft = (): Record<string, unknown> => ({
     title,
     destination,
-    date: startDate,
-    startDate,
-    endDate,
+    date: startDate === WIZARD_DATE_OTHER ? "" : startDate,
+    startDate: startDate === WIZARD_DATE_OTHER ? "" : startDate,
+    endDate: endDate === WIZARD_DATE_OTHER ? "" : endDate,
     classes,
     etablissement,
-    nbEleves,
+    ...(Number.isFinite(nbEleves) ? { nbEleves } : {}),
+    ...(nbElevesResolved ? { nbElevesResolved: true } : {}),
     ...(type ? { type } : {}),
     ...(args.classesResolved ? { classesResolved: true } : {}),
   });
 
-  if (catalog.establishments.length > 0) {
+  // 1 — Type
+  if (!type) {
+    return choicesResult(
+      "create_trip",
+      "type",
+      label("Créons une sortie scolaire. Quel type de dossier ?"),
+      [
+        { value: "SIMPLE", label: "Sortie simple (journée / proximité)" },
+        { value: "COMPLEX", label: "Séjour / sortie complexe (plusieurs jours)" },
+      ],
+      draft(),
+    );
+  }
+  step += 1;
+
+  // 2 — Titre
+  if (!title) {
+    return choicesResult(
+      "create_trip",
+      "title",
+      label("Quel est l'intitulé de la sortie ? (ex. Musée des Beaux-Arts, Laser Game…)"),
+      [],
+      draft(),
+      "text",
+    );
+  }
+  step += 1;
+
+  // 3 — Destination
+  if (!destination) {
+    return choicesResult(
+      "create_trip",
+      "destination",
+      label(`« ${title} » — où se déroule la sortie ? (lieu / adresse)`),
+      [],
+      draft(),
+      "text",
+    );
+  }
+  step += 1;
+
+  // 4 — Date de départ
+  if (startDate === WIZARD_DATE_OTHER) {
+    return choicesResult(
+      "create_trip",
+      "startDate",
+      label("Choisissez la date de départ dans le calendrier :"),
+      [],
+      { ...draft(), startDate: "", date: "" },
+      "date",
+    );
+  }
+  if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+    return choicesResult(
+      "create_trip",
+      "startDate",
+      label("Quelle est la date de départ ?"),
+      buildDateQuickOptions(calendarDateKeyParis()),
+      draft(),
+    );
+  }
+  if (startDate < calendarDateKeyParis()) {
+    return choicesResult(
+      "create_trip",
+      "startDate",
+      label(`La date ${startDate} est déjà passée. Choisissez une date à venir :`),
+      buildDateQuickOptions(calendarDateKeyParis()),
+      { ...draft(), startDate: "", date: "" },
+    );
+  }
+  step += 1;
+
+  // 5 — Date de retour (COMPLEX) ou = départ (SIMPLE)
+  if (type === "COMPLEX") {
+    if (endDate === WIZARD_DATE_OTHER) {
+      return choicesResult(
+        "create_trip",
+        "endDate",
+        label("Choisissez la date de retour :"),
+        [],
+        { ...draft(), endDate: "" },
+        "date",
+      );
+    }
+    if (!endDate || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return choicesResult(
+        "create_trip",
+        "endDate",
+        label(`Départ le ${weekdayLabelFr(startDate)} — quelle date de retour ?`),
+        buildDateQuickOptions(startDate),
+        draft(),
+      );
+    }
+    if (endDate < startDate) {
+      return choicesResult(
+        "create_trip",
+        "endDate",
+        label("La date de retour doit être après le départ. Choisissez à nouveau :"),
+        buildDateQuickOptions(startDate),
+        { ...draft(), endDate: "" },
+      );
+    }
+    step += 1;
+  } else {
+    endDate = startDate;
+  }
+
+  // 6 — Établissement
+  if (hasEtab) {
     if (!etablissement) {
       return choicesResult(
         "create_trip",
         "etablissement",
-        "Choisissez l'établissement concerné :",
+        label("Quel établissement est concerné ?"),
         catalog.establishments.map((e) => ({ value: e, label: e })),
         draft(),
       );
@@ -155,15 +286,17 @@ export async function handleCreateTrip(
       return choicesResult(
         "create_trip",
         "etablissement",
-        `Établissement « ${etablissement} » non reconnu. Choisissez dans la liste :`,
+        label(`Établissement « ${etablissement} » non reconnu. Choisissez dans la liste :`),
         catalog.establishments.map((e) => ({ value: e, label: e })),
         draft(),
       );
     }
     etablissement = matchedEtab;
+    step += 1;
   }
 
-  if (catalog.allClasses.length > 0) {
+  // 7 — Classes
+  if (hasClasses) {
     const tokens = splitClassesValue(classes);
     const wantsAutres = tokens.some(
       (t) => t === TRAVELS_CLASSES_AUTRES_VALUE || t === TRAVELS_CLASSES_AUTRES_LABEL,
@@ -174,7 +307,7 @@ export async function handleCreateTrip(
       return choicesResult(
         "create_trip",
         "classes",
-        "Cochez la ou les classes concernées (plusieurs possibles) :",
+        label("Quelles classes participent ? (plusieurs possibles, ou Autres)"),
         [
           ...catalog.allClasses.map((c) => ({ value: c, label: c })),
           { value: TRAVELS_CLASSES_AUTRES_VALUE, label: TRAVELS_CLASSES_AUTRES_LABEL },
@@ -193,16 +326,14 @@ export async function handleCreateTrip(
         return choicesResult(
           "create_trip",
           "classesOther",
-          "Précisez les autres classes (texte libre) :",
+          label("Précisez les autres classes :"),
           [],
           { ...draft(), classes: known.join(", "), classesOtherPending: true },
           "text",
         );
       }
       classes = serializeClassesSelection(
-        known
-          .map((c) => matchCatalogValue(c, catalog.allClasses) || c)
-          .filter(Boolean),
+        known.map((c) => matchCatalogValue(c, catalog.allClasses) || c).filter(Boolean),
         otherDraft,
       );
     } else if (!classesResolved) {
@@ -217,7 +348,7 @@ export async function handleCreateTrip(
         return choicesResult(
           "create_trip",
           "classes",
-          "Certaines classes ne sont pas dans le catalogue. Recochez ou choisissez Autres :",
+          label("Certaines classes ne sont pas reconnues. Recochez ou choisissez Autres :"),
           [
             ...catalog.allClasses.map((c) => ({ value: c, label: c })),
             { value: TRAVELS_CLASSES_AUTRES_VALUE, label: TRAVELS_CLASSES_AUTRES_LABEL },
@@ -228,20 +359,22 @@ export async function handleCreateTrip(
       }
       classes = serializeClassesSelection(parsed.selected, parsed.otherText);
     }
+    step += 1;
   }
 
-  if (!type) {
+  // 8 — Nombre d'élèves (optionnel mais guidé)
+  if (!nbElevesResolved && !(Number.isFinite(nbEleves) && (nbEleves as number) > 0)) {
     return choicesResult(
       "create_trip",
-      "type",
-      "Quel type de sortie ?",
-      [
-        { value: "SIMPLE", label: "Sortie simple" },
-        { value: "COMPLEX", label: "Séjour / sortie complexe" },
-      ],
+      "nbEleves",
+      label("Combien d'élèves environ ? (nombre entier, ex. 28)"),
+      [],
       draft(),
+      "text",
     );
   }
+  const elevesCount =
+    Number.isFinite(nbEleves) && (nbEleves as number) > 0 ? Math.round(nbEleves as number) : undefined;
 
   if (!ctx.confirmed) {
     return {
@@ -256,16 +389,21 @@ export async function handleCreateTrip(
         endDate: endDate || startDate,
         classes,
         etablissement,
-        nbEleves,
+        nbEleves: elevesCount,
+        nbElevesResolved: true,
+        classesResolved: true,
         type,
       },
       summaryFr:
-        `Créer le séjour « ${title} »` +
-        (destination ? ` à ${destination}` : "") +
-        ` le ${startDate}` +
+        `Récap — Créer le ${type === "COMPLEX" ? "séjour" : "sortie"} « ${title} »` +
+        ` à ${destination}` +
+        (startDate === endDate
+          ? ` le ${weekdayLabelFr(startDate)}`
+          : ` du ${weekdayLabelFr(startDate)} au ${weekdayLabelFr(endDate)}`) +
         (etablissement ? ` — ${etablissement}` : "") +
         (classes ? ` (${classes})` : "") +
-        ` ?`,
+        (elevesCount ? ` — ${elevesCount} élèves` : "") +
+        " ?",
     };
   }
 
@@ -288,14 +426,14 @@ export async function handleCreateTrip(
       endDate: endDate || startDate,
       classes: classes || undefined,
       etablissement: etablissement || undefined,
-      nbEleves: Number.isFinite(nbEleves) ? nbEleves : undefined,
+      nbEleves: elevesCount,
     },
     history: [
       {
         date: now,
         user: [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || "Assistant IA",
         action: "CREE",
-        note: "Créé via ScolIA",
+        note: "Créé via ScolIA (wizard)",
       },
     ],
   };
@@ -303,7 +441,7 @@ export async function handleCreateTrip(
   await putJson(`travels/${id}.json`, trip);
   const indexHit = await getJson<unknown[]>("travels/index.json");
   const currentIndex = Array.isArray(indexHit?.data) ? [...indexHit.data] : [];
-  const summary = {
+  currentIndex.unshift({
     id: trip.id,
     type: trip.type,
     status: trip.status,
@@ -322,8 +460,7 @@ export async function handleCreateTrip(
       etablissement: trip.data.etablissement,
       nbEleves: trip.data.nbEleves,
     },
-  };
-  currentIndex.unshift(summary);
+  });
   await putJson("travels/index.json", currentIndex);
 
   void syncTripActualite({
@@ -345,4 +482,3 @@ export async function handleCreateTrip(
     summaryFr: `Séjour « ${title} » créé. Complétez le dossier sur /travels/${id}.`,
   };
 }
-

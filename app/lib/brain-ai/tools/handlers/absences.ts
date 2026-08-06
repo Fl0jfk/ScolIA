@@ -12,8 +12,28 @@ import {
   saveAbsenceIndex,
   saveOrMergeAbsenceRecord,
 } from "@/app/lib/absences-storage";
+import { choicesResult } from "@/app/lib/brain-ai/choice-options";
+import {
+  buildDateQuickOptions,
+  weekdayLabelFr,
+  wizardStep,
+  WIZARD_DATE_OTHER,
+} from "@/app/lib/brain-ai/wizard";
+import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 
+const COMMON_REASONS = [
+  "Maladie",
+  "Rendez-vous médical",
+  "Formation",
+  "Congé",
+  "Convocation",
+  "Autre",
+];
+
+/**
+ * Wizard absence : date → durée → (fin si multi) → motif → établissement? → détails? → confirmation
+ */
 export async function handleCreateAbsence(
   ctx: BrainToolCtx,
   args: Record<string, unknown>,
@@ -25,34 +45,188 @@ export async function handleCreateAbsence(
   const scopeHint = typeof args.scope === "string" ? args.scope : undefined;
   const scope: AbsenceScope = resolveSelfDeclarationScope(ctx.roles, scopeHint);
   const etablissementRaw = typeof args.etablissement === "string" ? args.etablissement : null;
-  const etablissement = (
+  let etablissement = (
     ["École", "Collège", "Lycée"].includes(String(etablissementRaw))
       ? etablissementRaw
       : null
   ) as Etablissement | null;
 
-  const startDate = String(args.date || args.startDate || "").trim();
-  const endDate = String(args.endDate || startDate || "").trim();
-  const periodType =
-    String(args.periodType || "").trim() === "multi_day" || (endDate && endDate !== startDate)
+  let startDate = String(args.date || args.startDate || "").trim();
+  let endDate = String(args.endDate || "").trim();
+  const periodTypeRaw = String(args.periodType || "").trim();
+  let periodType: "single_day" | "multi_day" | "" =
+    periodTypeRaw === "multi_day"
       ? "multi_day"
-      : "single_day";
-  const reason = String(args.reason || "").trim();
+      : periodTypeRaw === "single_day"
+        ? "single_day"
+        : "";
+  let reason = String(args.reason || "").trim();
   const details = String(args.details || "").trim();
+  const detailsResolved = Boolean(args.detailsResolved);
   const startTime = typeof args.startTime === "string" ? args.startTime : undefined;
   const endTime = typeof args.endTime === "string" ? args.endTime : undefined;
+  const needsEtab = scope === "professeur";
 
+  const total = 3 + (needsEtab ? 1 : 0) + 1; // date, durée, motif, [etab], details
+  let step = 1;
+  const label = (body: string) => wizardStep(step, Math.max(total, step), body);
+
+  const draft = (): Record<string, unknown> => ({
+    scope,
+    etablissement,
+    periodType: periodType || undefined,
+    startDate: startDate === WIZARD_DATE_OTHER ? "" : startDate,
+    date: startDate === WIZARD_DATE_OTHER ? "" : startDate,
+    endDate: endDate === WIZARD_DATE_OTHER ? "" : endDate,
+    startTime,
+    endTime,
+    reason,
+    details,
+    ...(detailsResolved ? { detailsResolved: true } : {}),
+  });
+
+  // 1 — Date début
+  if (startDate === WIZARD_DATE_OTHER) {
+    return choicesResult(
+      "create_absence",
+      "startDate",
+      label("Choisissez la date d'absence dans le calendrier :"),
+      [],
+      { ...draft(), startDate: "", date: "" },
+      "date",
+    );
+  }
   if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
-    return { ok: false, error: "Une date d'absence (YYYY-MM-DD) est obligatoire." };
+    return choicesResult(
+      "create_absence",
+      "startDate",
+      label("Déclarons votre absence. Quel jour ?"),
+      buildDateQuickOptions(calendarDateKeyParis()),
+      draft(),
+    );
   }
+  step += 1;
+
+  // 2 — Une journée / plusieurs
+  if (!periodType) {
+    return choicesResult(
+      "create_absence",
+      "periodType",
+      label(`Absence le ${weekdayLabelFr(startDate)} — durée ?`),
+      [
+        { value: "single_day", label: "Une seule journée" },
+        { value: "multi_day", label: "Plusieurs jours" },
+      ],
+      draft(),
+    );
+  }
+  step += 1;
+
+  if (periodType === "multi_day") {
+    if (endDate === WIZARD_DATE_OTHER) {
+      return choicesResult(
+        "create_absence",
+        "endDate",
+        label("Choisissez la date de fin :"),
+        [],
+        { ...draft(), endDate: "" },
+        "date",
+      );
+    }
+    if (!endDate || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return choicesResult(
+        "create_absence",
+        "endDate",
+        label("Jusqu'à quelle date êtes-vous absent(e) ?"),
+        buildDateQuickOptions(startDate),
+        draft(),
+      );
+    }
+    if (endDate < startDate) {
+      return choicesResult(
+        "create_absence",
+        "endDate",
+        label("La date de fin doit être après le début. Choisissez à nouveau :"),
+        buildDateQuickOptions(startDate),
+        { ...draft(), endDate: "" },
+      );
+    }
+    step += 1;
+  } else {
+    endDate = startDate;
+  }
+
+  // 3 — Motif
   if (!reason) {
-    return { ok: false, error: "Le motif (reason) est obligatoire." };
+    return choicesResult(
+      "create_absence",
+      "reason",
+      label("Quel est le motif ?"),
+      COMMON_REASONS.map((r) => ({ value: r, label: r })),
+      draft(),
+    );
   }
-  if (scope === "professeur" && !etablissement) {
-    return {
-      ok: false,
-      error: "Précisez l'établissement (École, Collège ou Lycée) pour une absence professeur.",
-    };
+  if (reason === "Autre") {
+    const custom = String(args.reasonOther || details || "").trim();
+    if (!custom) {
+      return choicesResult(
+        "create_absence",
+        "reasonOther",
+        label("Précisez le motif :"),
+        [],
+        draft(),
+        "text",
+      );
+    }
+    reason = custom;
+  }
+  step += 1;
+
+  // 4 — Établissement (prof)
+  if (needsEtab && !etablissement) {
+    return choicesResult(
+      "create_absence",
+      "etablissement",
+      label("Pour quel établissement (votre service) ?"),
+      [
+        { value: "École", label: "École" },
+        { value: "Collège", label: "Collège" },
+        { value: "Lycée", label: "Lycée" },
+      ],
+      draft(),
+    );
+  }
+  if (needsEtab) step += 1;
+
+  // 5 — Détails optionnels
+  if (!detailsResolved && !details) {
+    return choicesResult(
+      "create_absence",
+      "details",
+      label("Un détail à ajouter ? (facultatif — laissez « Non » si rien)"),
+      [
+        { value: "Non", label: "Non, rien à ajouter" },
+        { value: "__CUSTOM__", label: "Oui, saisir un commentaire…" },
+      ],
+      draft(),
+    );
+  }
+  let finalDetails = details;
+  if (details === "__CUSTOM__") {
+    const custom = String(args.detailsCustom || "").trim();
+    if (!custom) {
+      return choicesResult(
+        "create_absence",
+        "detailsCustom",
+        label("Votre commentaire :"),
+        [],
+        { ...draft(), details: "__CUSTOM__" },
+        "text",
+      );
+    }
+    finalDetails = custom;
+  } else if (details === "Non") {
+    finalDetails = "";
   }
 
   if (!ctx.confirmed) {
@@ -69,12 +243,15 @@ export async function handleCreateAbsence(
         startTime,
         endTime,
         reason,
-        details,
+        details: finalDetails,
+        detailsResolved: true,
       },
       summaryFr:
-        `Déclarer mon absence le ${startDate}` +
-        (endDate !== startDate ? ` → ${endDate}` : "") +
-        ` — motif : ${reason} ?`,
+        `Récap — Déclarer mon absence le ${weekdayLabelFr(startDate)}` +
+        (endDate !== startDate ? ` → ${weekdayLabelFr(endDate)}` : "") +
+        ` — motif : ${reason}` +
+        (etablissement ? ` (${etablissement})` : "") +
+        " ?",
     };
   }
 
@@ -124,7 +301,7 @@ export async function handleCreateAbsence(
       startAt,
       endAt,
       reason,
-      details,
+      details: finalDetails,
     },
     workflowStatus: "OUVERTE",
     managerDecision: "EN_ATTENTE",
@@ -136,7 +313,7 @@ export async function handleCreateAbsence(
         at: now,
         by: creatorName,
         action: "CREATION",
-        note: "Déclaration d'absence créée via ScolIA",
+        note: "Déclaration d'absence créée via ScolIA (wizard)",
       },
     ],
   };

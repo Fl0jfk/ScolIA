@@ -420,7 +420,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 29,
       name: "Parcours & certificats",
-      img: scolaImageUrl("categories/Calendrier.jpg"),
+      img: scolaImageUrl("categories/Certificat.jpg"),
       link: "/certificates",
       external: false,
       description: "Certificats de parcours, lignes personnalisées, signatures et PDF",

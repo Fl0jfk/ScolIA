@@ -7,8 +7,14 @@ import {
   validateRequestInput,
   type RequestRecord,
 } from "@/app/lib/requests";
+import { choicesResult } from "@/app/lib/brain-ai/choice-options";
+import { wizardStep } from "@/app/lib/brain-ai/wizard";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 
+/**
+ * Wizard demande interne : sujet → description → confirmation.
+ * Appelable sans args pour démarrer le parcours guidé.
+ */
 export async function handleCreateRequest(
   ctx: BrainToolCtx,
   args: Record<string, unknown>,
@@ -25,8 +31,41 @@ export async function handleCreateRequest(
   const email = String(contact.email || args.email || ctx.email || "").trim();
   const phone = String(contact.phone || args.phone || ctx.phone || "").trim();
 
-  if (!subject && !description) {
-    return { ok: false, error: "Sujet ou description de la demande requis." };
+  const total = 2;
+  let step = 1;
+  const draft = (): Record<string, unknown> => ({
+    subject,
+    description,
+    contact: { firstName, lastName, email, phone },
+  });
+
+  if (!subject) {
+    return choicesResult(
+      "create_request",
+      "subject",
+      wizardStep(step, total, "Créons une demande. Quel est le sujet en une phrase ?"),
+      [],
+      draft(),
+      "text",
+    );
+  }
+  step += 1;
+
+  if (!description || description.length < 15) {
+    return choicesResult(
+      "create_request",
+      "description",
+      wizardStep(
+        step,
+        total,
+        description
+          ? "Ajoutez un peu plus de détail (au moins 15 caractères) pour que le service puisse traiter :"
+          : `Sujet « ${subject} » — décrivez votre besoin (détails utiles, délai, contexte) :`,
+      ),
+      [],
+      draft(),
+      "text",
+    );
   }
 
   if (!ctx.confirmed) {
@@ -39,7 +78,7 @@ export async function handleCreateRequest(
         description,
         contact: { firstName, lastName, email, phone },
       },
-      summaryFr: `Créer la demande « ${subject || description.slice(0, 60)} » ?`,
+      summaryFr: `Récap — Créer la demande « ${subject} » ?\n\n${description.slice(0, 280)}${description.length > 280 ? "…" : ""}`,
     };
   }
 
@@ -95,7 +134,7 @@ export async function handleCreateRequest(
         at: now,
         by: `${validated.value.firstName} ${validated.value.lastName}`,
         action: "CREATION",
-        note: "Demande créée via ScolIA",
+        note: "Demande créée via ScolIA (wizard)",
       },
     ],
   };
@@ -118,6 +157,6 @@ export async function handleCreateRequest(
       assignedTo: record.assignedTo,
       followUrl: "/mes-demandes",
     },
-    summaryFr: `Demande ${id} créée (destinataire : ${record.assignedTo?.roleLabel || "à confirmer"}).`,
+    summaryFr: `Demande « ${subject} » enregistrée (n° ${id}).`,
   };
 }

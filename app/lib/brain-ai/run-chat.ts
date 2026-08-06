@@ -230,6 +230,55 @@ function applyChoiceToArgs(
     next.selectedHours = raw.map((h) => Number(h)).filter((h) => Number.isFinite(h));
     return next;
   }
+  if (field === "roomId") {
+    next.roomId = value ?? "";
+    delete next.date;
+    delete next.selectedHours;
+    return next;
+  }
+  if (field === "date" || field === "startDate" || field === "endDate") {
+    next[field] = value ?? "";
+    if (field === "date" || field === "startDate") {
+      next.date = value ?? "";
+      next.startDate = value ?? "";
+      delete next.selectedHours;
+    }
+    return next;
+  }
+  if (field === "nbEleves") {
+    const n = Number(String(value || "").trim().replace(",", "."));
+    if (Number.isFinite(n) && n > 0) next.nbEleves = Math.round(n);
+    next.nbElevesResolved = true;
+    return next;
+  }
+  if (field === "nombrePhotocopies" || field === "nombreHeures") {
+    const n = Number(String(value || "").trim().replace(",", "."));
+    if (Number.isFinite(n)) next[field] = n;
+    return next;
+  }
+  if (field === "reasonOther") {
+    next.reason = value ?? "";
+    return next;
+  }
+  if (field === "detailsCustom") {
+    next.details = value ?? "";
+    next.detailsResolved = true;
+    return next;
+  }
+  if (field === "details") {
+    if (value === "Non") {
+      next.details = "";
+      next.detailsResolved = true;
+    } else {
+      next.details = value ?? "";
+    }
+    return next;
+  }
+  if (field === "pole") {
+    next.pole = value ?? "";
+    delete next.className;
+    return next;
+  }
   if (field === "classes") {
     const raw = values?.length ? values : value ? [value] : [];
     const wantsAutres = raw.some(
@@ -519,7 +568,13 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `2) Actualité live via outils (feuille de semaine, voyages, salles, photocopies, HSE, stages, internat…) — toujours préférer un outil pour l'actualité.\n` +
     `Règles:\n` +
     `- Pas d'accès RH / dossiers personnels / salaires. create_absence = soi uniquement. HSE = soi ou direction établissement.\n` +
-    `- Pour une action mutante (réservation, demande, absence, séjour, photocopies, HSE), appelle l'outil dès que possible même si matière/classe/salle/établissement manquent : l'interface proposera des listes déroulantes.\n` +
+    `- Pour une action mutante (réservation, demande, absence, séjour, photocopies, HSE), appelle l'outil dès que possible même sans paramètres : l'UI guide en wizard (listes / dates / texte).\n` +
+    `- Réservation de salle : create_reservation immédiatement. Wizard salle → date → créneaux libres → matière → classe.\n` +
+    `- Sortie / séjour : create_trip immédiatement (même sans args). Wizard type → titre → lieu → dates → établissement → classes → effectif.\n` +
+    `- Demande interne : create_request immédiatement. Wizard sujet → description.\n` +
+    `- Absence : create_absence immédiatement. Wizard date → durée → motif → établissement si besoin.\n` +
+    `- Photocopies couleur : create_photocopie_demand immédiatement. Wizard établissement → motif → classes → nombre.\n` +
+    `- HSE : create_hse_demand immédiatement. Wizard établissement → demande → heures → classe.\n` +
     `- Si un PDF est joint dans la conversation, passe-le à create_photocopie_demand (documentKey / documentFileName).\n` +
     `- Si un outil renvoie needsConfirmation, présente le récap et laisse l'utilisateur Confirmer / Modifier / Annuler.\n` +
     `- N'invente pas : si l'info manque, dis-le clairement.\n` +
