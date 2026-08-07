@@ -85,4 +85,10 @@ export const MODULE_EMOJI: Record<string, string> = {
   covoiturage: "🚗",
   channels: "💬",
   assistance: "🆘",
+  rh: "👥",
+  absences: "📅",
+  "demandes-hse": "⏱️",
+  "admin-settings": "⚙️",
+  "admin-members": "👤",
+  "week-sheet": "📰",
 };

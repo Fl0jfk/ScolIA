@@ -1,14 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   DASHBOARD_BONUS_TILES,
   type DashboardPreviewTile,
 } from "@/app/lib/dashboard-preview-tiles";
 import { MARKETING } from "@/app/lib/marketing-site";
-import { TILE_IMAGES } from "@/app/lib/marketing-theme";
+import { TILE_EMOJI } from "@/app/lib/marketing-theme";
 
 function TilePopover({ tile }: { tile: DashboardPreviewTile }) {
   return (
@@ -36,7 +35,7 @@ function TilePopover({ tile }: { tile: DashboardPreviewTile }) {
 }
 
 function TileModal({ tile, onClose }: { tile: DashboardPreviewTile; onClose: () => void }) {
-  const img = TILE_IMAGES[tile.id];
+  const emoji = TILE_EMOJI[tile.id];
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -54,27 +53,19 @@ function TileModal({ tile, onClose }: { tile: DashboardPreviewTile; onClose: () 
         className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl border border-emerald-100 bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {img ? (
-          <div className="relative h-32 w-full">
-            <Image src={img} alt="" fill className="object-cover" sizes="400px" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#14231A]/70 to-transparent" />
-            <h3 className="absolute bottom-3 left-4 text-lg font-black text-white">{tile.title}</h3>
-          </div>
-        ) : null}
         <div className="p-5">
           <div className="flex items-start justify-between gap-3">
-            {!img ? (
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-xl">
+                {emoji || tile.label.charAt(0)}
+              </span>
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-[#3D8A5C]">
                   {tile.label}
                 </p>
                 <h3 className="mt-0.5 text-lg font-black text-[#2F6B4A]">{tile.title}</h3>
               </div>
-            ) : (
-              <p className="text-xs font-bold uppercase tracking-wider text-[#3D8A5C]">
-                {tile.label}
-              </p>
-            )}
+            </div>
             <button
               type="button"
               onClick={onClose}
@@ -131,7 +122,7 @@ export default function DashboardPreview() {
         <div className="grid grid-cols-2 gap-2.5 p-4 sm:grid-cols-3 sm:gap-3 sm:p-6">
           {DASHBOARD_BONUS_TILES.map((tile) => {
             const isHovered = hoverId === tile.id;
-            const img = TILE_IMAGES[tile.id];
+            const emoji = TILE_EMOJI[tile.id];
             return (
               <motion.button
                 key={tile.id}
@@ -150,15 +141,9 @@ export default function DashboardPreview() {
                 onClick={() => setModalTile(tile)}
               >
                 {isHovered ? <TilePopover tile={tile} /> : null}
-                {img ? (
-                  <div className="relative mx-auto mb-2 h-12 w-12 overflow-hidden rounded-xl ring-2 ring-emerald-100">
-                    <Image src={img} alt="" fill className="object-cover" sizes="48px" />
-                  </div>
-                ) : (
-                  <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-lg font-black text-[#2F6B4A]">
-                    {tile.label.charAt(0)}
-                  </div>
-                )}
+                <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-100 text-xl">
+                  {emoji || tile.label.charAt(0)}
+                </div>
                 <p className="text-xs font-black text-[#14231A]">{tile.label}</p>
               </motion.button>
             );

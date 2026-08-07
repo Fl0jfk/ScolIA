@@ -9,7 +9,6 @@
  */
 
 import { hasGlobalAdminRole, hasMasterRole, hasRole, isEleveOnlyRoleSet } from "./intranet-role-utils";
-import { scolaImageUrl } from "./scola-image";
 import { INTRANET_DIRECTION_SLUGS, intranetRolesExceptParent } from "./intranet-roles";
 import { RGPD_MODULE_ROLES } from "./rgpd-access";
 
@@ -118,7 +117,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 1,
       name: "Cloud personnel",
-      img: scolaImageUrl("categories/Cloud.jpg"),
+      img: "",
       link: "/documents",
       external: false,
     },
@@ -149,7 +148,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 4,
       name: "Sortie scolaire",
-      img: scolaImageUrl("categories/transport.avif"),
+      img: "",
       link: "/travels",
       external: false,
       variant: "travels",
@@ -168,7 +167,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 5,
       name: "Boîte à outils",
-      img: scolaImageUrl("categories/Toolbox.jpg"),
+      img: "",
       link: "/toolbox",
       external: false,
       variant: "toolbox",
@@ -188,7 +187,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 8,
       name: "Réservation de salle",
-      img: scolaImageUrl("categories/reservationsalle.jpg"),
+      img: "",
       link: "/prof-room",
       external: false,
       variant: "prof-room",
@@ -209,7 +208,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 25,
       name: "Enseignements transversaux",
-      img: scolaImageUrl("categories/reservationsalle.jpg"),
+      img: "",
       link: "/domain-planning",
       external: false,
       description: "Positionnements EVARS, séances et validation des intervenants",
@@ -222,7 +221,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 10,
       name: "Ajout de documents IA",
-      img: scolaImageUrl("categories/add Docs.png"),
+      img: "",
       link: "/agentIAOCR",
       external: false,
       variant: "agent-ia",
@@ -235,7 +234,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 11,
       name: "Salons",
-      img: scolaImageUrl("categories/channels.jpg"),
+      img: "",
       link: "/channels",
       external: false,
     },
@@ -260,7 +259,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 14,
       name: "Organigramme interne",
-      img: scolaImageUrl("categories/Organigramme.jpg"),
+      img: "",
       link: "/organigramme",
       external: false,
     },
@@ -280,7 +279,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 3,
       name: "Demandes",
-      img: scolaImageUrl("categories/demandes.jpg"),
+      img: "",
       link: "/requests",
       external: false,
     },
@@ -292,7 +291,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 17,
       name: "Brain AI (training engine)",
-      img: scolaImageUrl("categories/Brain iA.jpg"),
+      img: "",
       link: "/chatbot-knowledge",
       external: false,
     },
@@ -304,7 +303,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 19,
       name: "Photocopies couleur",
-      img: scolaImageUrl("categories/Demande impression.jpg"),
+      img: "",
       link: "/photocopies-couleur",
       external: false,
       variant: "photocopies-couleur",
@@ -324,7 +323,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 29,
       name: "Conformité RGPD",
-      img: scolaImageUrl("categories/RGPD.jpg"),
+      img: "",
       link: "/conformite-rgpd",
       external: false,
     },
@@ -337,7 +336,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 21,
       name: "Paramètres généraux",
-      img: scolaImageUrl("categories/classeur.jpg"),
+      img: "",
       link: "/parametres",
       external: false,
     },
@@ -350,7 +349,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 22,
       name: "Utilisateurs",
-      img: scolaImageUrl("categories/classeur.jpg"),
+      img: "",
       link: "/membres",
       external: false,
     },
@@ -369,7 +368,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 23,
       name: "Module RH",
-      img: scolaImageUrl("categories/Organigramme.jpg"),
+      img: "",
       link: "/rh",
       external: false,
       variant: "personnel-ogec",
@@ -382,7 +381,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 24,
       name: "Internat",
-      img: scolaImageUrl("categories/Internat.jpg"),
+      img: "",
       link: "/gestion-internat",
       external: false,
       variant: "internat",
@@ -402,7 +401,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 28,
       name: "Stages & conventions",
-      img: scolaImageUrl("categories/Stage.jpg"),
+      img: "",
       link: "/stages",
       external: false,
       description: "Offres parents, préconventions, signatures PFMP et jobs d'été",
@@ -420,7 +419,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 29,
       name: "Parcours & certificats",
-      img: scolaImageUrl("categories/Certificat.jpg"),
+      img: "",
       link: "/certificates",
       external: false,
       description: "Certificats de parcours, lignes personnalisées, signatures et PDF",
@@ -433,7 +432,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 26,
       name: "Covoiturage",
-      img: scolaImageUrl("categories/Covoiturage.jpg"),
+      img: "",
       link: "/covoiturage",
       external: false,
       variant: "default",
@@ -446,7 +445,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     dashboard: {
       id: 27,
       name: "Assistance",
-      img: scolaImageUrl("categories/demandes.jpg"),
+      img: "",
       link: "/assistance",
       external: false,
       description: "Signaler un problème technique",
@@ -470,7 +469,7 @@ export const INTRANET_EXTERNAL_QUICK_LINKS: ExternalQuickLink[] = [
   {
     id: "ecole-directe",
     name: "École Directe",
-    img: scolaImageUrl("categories/Ecole direct.png"),
+    img: "",
     link: "https://www.ecoledirecte.com/login?cameFrom=%2FAccueil",
     allowedRoles: [
       "direction_college",
@@ -487,7 +486,7 @@ export const INTRANET_EXTERNAL_QUICK_LINKS: ExternalQuickLink[] = [
   {
     id: "zeendoc",
     name: "ZeenDoc",
-    img: scolaImageUrl("categories/zeendoc.png"),
+    img: "",
     link: "https://armoires.zeendoc.com/_Login/Login.php",
     allowedRoles: [
       "administratif",
@@ -500,7 +499,7 @@ export const INTRANET_EXTERNAL_QUICK_LINKS: ExternalQuickLink[] = [
   {
     id: "arena",
     name: "Arena Ac-Normandie",
-    img: scolaImageUrl("categories/MIN_Education_Nationale_et_Jeunesse_RVB.jpg"),
+    img: "",
     link: "https://arena.ac-normandie.fr/arena/",
     allowedRoles: ["administratif", "direction_college", "direction_ecole", "direction_lycee"],
   },

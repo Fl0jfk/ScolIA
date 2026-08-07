@@ -260,12 +260,9 @@ function ModuleCard({
         <header className="mb-3 flex shrink-0 items-center justify-between gap-3">
           <div className="min-w-0 flex items-center gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/70 ring-1 ring-white/80 shadow-sm">
-              {category.img ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={category.img} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <span className="text-lg leading-none">{emoji}</span>
-              )}
+              <span className="text-lg leading-none" aria-hidden>
+                {emoji}
+              </span>
             </span>
             <h2 className="truncate text-lg font-semibold tracking-tight text-[var(--dash-ink)] sm:text-xl">
               {category.name}

@@ -1,5 +1,3 @@
-import { scolaImageUrl } from "@/app/lib/scola-image";
-
 /** Tokens visuels du site commercial Scola */
 export const SCOLA = {
   green: "#2F6B4A",
@@ -26,21 +24,6 @@ export const SCOLA_HEADER_SHELL =
 export const SCOLA_HEADER_ACCENT =
   "pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#4ADE80]/50 to-transparent";
 
-export const WORKFLOW_IMAGES: Record<string, string> = {
-  "Documents élèves":
-    scolaImageUrl("categories/add Docs.png"),
-  "Sorties scolaires":
-    scolaImageUrl("categories/transport.avif"),
-  "Réservation de salles":
-    scolaImageUrl("categories/reservationsalle.jpg"),
-  Absences:
-    scolaImageUrl("categories/planning abs.jpg"),
-  "RH & personnel":
-    scolaImageUrl("categories/Organigramme.jpg"),
-  Internat:
-    scolaImageUrl("categories/Internat.jpg"),
-};
-
 /** Hauteur fixe des cartes animation — évite le saut de layout entre les phases. */
 export const WORKFLOW_ANIMATION_SHELL =
   "relative flex h-[27rem] flex-col overflow-hidden rounded-3xl p-1 shadow-2xl sm:h-[28rem]";
@@ -51,28 +34,24 @@ export const WORKFLOW_ANIMATION_INNER =
 /** Zone de contenu variable (phases) — hauteur réservée */
 export const WORKFLOW_ANIMATION_BODY = "min-h-0 flex-1 overflow-hidden";
 
-export const TILE_IMAGES: Record<string, string> = {
-  documents:
-    scolaImageUrl("categories/Cloud.jpg"),
-  "docs-eleves":
-    scolaImageUrl("categories/add Docs.png"),
-  sorties:
-    scolaImageUrl("categories/transport.avif"),
-  absences:
-    scolaImageUrl("categories/planning abs.jpg"),
-  salles:
-    scolaImageUrl("categories/reservationsalle.jpg"),
-  rh: scolaImageUrl("categories/Organigramme.jpg"),
-  internat:
-    scolaImageUrl("categories/Internat.jpg"),
-  demandes:
-    scolaImageUrl("categories/demandes.jpg"),
-  familles:
-    scolaImageUrl("categories/classeur.jpg"),
-  rgpd:
-    scolaImageUrl("categories/RGPD.jpg"),
-  toolbox:
-    scolaImageUrl("categories/Toolbox.jpg"),
-  certificates:
-    scolaImageUrl("categories/Certificat.jpg"),
+/** Icônes légères pour l’aperçu dashboard marketing (remplace les anciennes images categories/). */
+export const TILE_EMOJI: Record<string, string> = {
+  documents: "☁️",
+  "docs-eleves": "📁",
+  sorties: "🚌",
+  absences: "📅",
+  salles: "🚪",
+  rh: "👥",
+  internat: "🌙",
+  demandes: "📨",
+  familles: "👨‍👩‍👧",
+  rgpd: "🔒",
+  toolbox: "🧰",
+  certificates: "🏅",
 };
+
+/** @deprecated Assets categories/ retirés — laisser vide. */
+export const TILE_IMAGES: Record<string, string> = {};
+
+/** @deprecated Assets categories/ retirés — laisser vide. */
+export const WORKFLOW_IMAGES: Record<string, string> = {};

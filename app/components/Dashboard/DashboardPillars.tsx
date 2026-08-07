@@ -10,6 +10,7 @@ import {
   type DashboardPillarId,
 } from "@/app/lib/dashboard-pillars";
 import type { DashboardShortcut } from "@/app/lib/dashboard-signals";
+import { MODULE_EMOJI } from "@/app/lib/pillar-module-routes";
 
 type Props = {
   categories: DashboardCategory[];
@@ -31,41 +32,16 @@ const PILLAR_EMOJI: Record<DashboardPillarId, string> = {
   services: "🛠️",
 };
 
-const MODULE_FALLBACK_EMOJI: Record<string, string> = {
-  travels: "🚌",
-  internat: "🌙",
-  stages: "📝",
-  "agent-ia-ocr": "📄",
-  certificates: "🏅",
-  absences: "📅",
-  "demandes-hse": "⏱️",
-  rh: "👥",
-  "prof-room": "🚪",
-  "requests-staff": "📨",
-  "photocopies-couleur": "🖨️",
-  documents: "☁️",
-  toolbox: "🧰",
-  covoiturage: "🚗",
-  channels: "💬",
-  assistance: "🆘",
-  organigramme: "🗺️",
-  "conformite-rgpd": "🔒",
-  "chatbot-knowledge": "🧠",
-  "domain-planning": "📚",
-};
-
 function ShortcutTile({
   item,
   highlight,
-  iconSrc,
   fullWidth,
 }: {
   item: DashboardShortcut;
   highlight?: boolean;
-  iconSrc?: string;
   fullWidth?: boolean;
 }) {
-  const emoji = MODULE_FALLBACK_EMOJI[item.moduleId] || "›";
+  const emoji = MODULE_EMOJI[item.moduleId] || "›";
 
   return (
     <motion.div
@@ -93,12 +69,9 @@ function ShortcutTile({
           />
         ) : null}
         <span className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[color:var(--dash-soft-muted)]/90 ring-1 ring-[color:var(--dash-border)]/60">
-          {iconSrc ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={iconSrc} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <span className="text-sm leading-none">{emoji}</span>
-          )}
+          <span className="text-sm leading-none" aria-hidden>
+            {emoji}
+          </span>
         </span>
         <div className="relative min-w-0 flex-1">
           <p className="truncate text-[12px] font-semibold tracking-tight text-[var(--dash-ink)]">
@@ -125,13 +98,11 @@ function PillarCard({
   shortcuts,
   index,
   pulseKey,
-  iconByModule,
 }: {
   pillar: DashboardPillarDef;
   shortcuts: DashboardShortcut[];
   index: number;
   pulseKey?: string;
-  iconByModule: Map<string, string>;
 }) {
   const toneRank = (s: DashboardShortcut) => {
     if (s.tone === "warn") return 0;
@@ -198,7 +169,6 @@ function PillarCard({
                     rich: Boolean(s.rich && s.tone !== "neutral"),
                   }}
                   fullWidth={Boolean(s.rich && s.tone !== "neutral")}
-                  iconSrc={iconByModule.get(s.moduleId)}
                   highlight={Boolean(
                     pulseKey && s.rich && s.tone !== "neutral" && pulseKey.includes(s.id),
                   )}
@@ -214,12 +184,6 @@ function PillarCard({
 
 export default function DashboardPillars({ categories, shortcuts, pulseKey }: Props) {
   const pillars = DASHBOARD_PILLARS.filter((p) => pillarHasVisibleModules(p, categories));
-  const iconByModule = new Map(categories.map((c) => [c.moduleId, c.img]));
-  const rhImg = iconByModule.get("rh");
-  if (rhImg) {
-    iconByModule.set("absences", rhImg);
-    iconByModule.set("demandes-hse", rhImg);
-  }
 
   const pruned = (id: DashboardPillarId) => {
     const list = shortcuts.filter(
@@ -257,7 +221,6 @@ export default function DashboardPillars({ categories, shortcuts, pulseKey }: Pr
           shortcuts={pruned(pillar.id)}
           index={i}
           pulseKey={pulseKey}
-          iconByModule={iconByModule}
         />
       ))}
     </div>
