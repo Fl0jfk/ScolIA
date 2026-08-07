@@ -149,6 +149,8 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
   const [interimSpeech, setInterimSpeech] = useState("");
   const [input, setInput] = useState("");
   const [mounted, setMounted] = useState(false);
+  /** ≥1024px : bulle flottante + boutons Mac. En dessous : plein écran + croix. */
+  const [isDesktopChat, setIsDesktopChat] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [memoryReady, setMemoryReady] = useState(false);
   const [messages, setMessages] = useState<ScoliaMemoryMessage[]>([defaultWelcomeMessage()]);
@@ -178,6 +180,10 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
 
   useEffect(() => {
     setMounted(true);
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const syncDesktop = () => setIsDesktopChat(mq.matches);
+    syncDesktop();
+    mq.addEventListener("change", syncDesktop);
     const supported = "webkitSpeechRecognition" in window || "SpeechRecognition" in window;
     setSpeechSupported(supported);
     const mem = loadScoliaMemory();
@@ -188,6 +194,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       setPendingChoices(mem.pendingChoices ?? null);
     }
     setMemoryReady(true);
+    return () => mq.removeEventListener("change", syncDesktop);
   }, []);
 
   useEffect(() => {
@@ -567,26 +574,41 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         }`}
       >
         {!pageMode && !isExpanded ? (
-          <div className="z-[1] flex w-14 shrink-0 items-center gap-1.5" aria-label="Contrôles fenêtre">
+          <>
+            {/* Desktop : boutons type Mac */}
+            <div className="z-[1] hidden w-14 shrink-0 items-center gap-1.5 lg:flex" aria-label="Contrôles fenêtre">
+              <button
+                type="button"
+                title="Fermer"
+                onClick={() => setOpen(false)}
+                className="h-3 w-3 rounded-full bg-[#ff5f57] shadow-sm hover:brightness-110"
+              />
+              <button
+                type="button"
+                title="Réduire"
+                onClick={() => setOpen(false)}
+                className="h-3 w-3 rounded-full bg-[#febc2e] shadow-sm hover:brightness-110"
+              />
+              <button
+                type="button"
+                title="Agrandir"
+                onClick={openExpanded}
+                className="h-3 w-3 rounded-full bg-[#28c840] shadow-sm hover:brightness-110"
+              />
+            </div>
+            {/* Mobile / tablette : croix de fermeture */}
             <button
               type="button"
               title="Fermer"
+              aria-label={`Fermer ${SCOLIA_AI_NAME}`}
               onClick={() => setOpen(false)}
-              className="h-3 w-3 rounded-full bg-[#ff5f57] shadow-sm hover:brightness-110"
-            />
-            <button
-              type="button"
-              title="Réduire"
-              onClick={() => setOpen(false)}
-              className="h-3 w-3 rounded-full bg-[#febc2e] shadow-sm hover:brightness-110"
-            />
-            <button
-              type="button"
-              title="Agrandir"
-              onClick={openExpanded}
-              className="h-3 w-3 rounded-full bg-[#28c840] shadow-sm hover:brightness-110"
-            />
-          </div>
+              className="z-[1] flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200/80 bg-white/80 text-slate-600 hover:bg-white hover:text-slate-900 lg:hidden"
+            >
+              <span className="text-lg leading-none" aria-hidden>
+                ×
+              </span>
+            </button>
+          </>
         ) : (
           <div className="flex min-w-0 items-center gap-2">
             <div className="min-w-0">
@@ -606,7 +628,11 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
           </div>
         ) : null}
 
-        <div className={`z-[1] flex shrink-0 items-center gap-2 ${!isExpanded && !pageMode ? "w-14 justify-end" : ""}`}>
+        <div
+          className={`z-[1] flex shrink-0 items-center gap-2 ${
+            !isExpanded && !pageMode ? "w-9 justify-end lg:w-14" : ""
+          }`}
+        >
           {isExpanded && !pageMode ? (
             <button
               type="button"
@@ -641,7 +667,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
               Fermer
             </button>
           ) : (
-            <span className="w-3" aria-hidden />
+            <span className="hidden w-3 lg:inline" aria-hidden />
           )}
         </div>
       </div>
@@ -1071,12 +1097,16 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       ) : null}
 
       {open && layout === "window" ? (
-        <div className="absolute inset-0 bg-slate-900/20 pointer-events-auto md:hidden" onClick={() => setOpen(false)} aria-hidden />
+        <div
+          className="absolute inset-0 bg-slate-900/20 pointer-events-auto lg:hidden"
+          onClick={() => setOpen(false)}
+          aria-hidden
+        />
       ) : null}
 
       <div
         ref={panelRef}
-        className={`absolute inset-0 h-[100dvh] rounded-none border-0 md:inset-auto md:right-4 md:bottom-20 md:h-[580px] md:w-[min(92vw,400px)] md:rounded-[1.5rem] md:border md:border-white/55 bg-white/55 backdrop-blur-2xl md:shadow-[0_24px_60px_-28px_rgba(15,23,42,0.4)] overflow-hidden transition-all duration-200 pointer-events-auto ${
+        className={`absolute inset-0 h-[100dvh] rounded-none border-0 lg:inset-auto lg:right-4 lg:bottom-20 lg:h-[580px] lg:w-[min(92vw,400px)] lg:rounded-[1.5rem] lg:border lg:border-white/55 bg-white/55 backdrop-blur-2xl lg:shadow-[0_24px_60px_-28px_rgba(15,23,42,0.4)] overflow-hidden transition-all duration-200 pointer-events-auto ${
           open && mounted && layout === "window"
             ? "opacity-100 scale-100 translate-y-0"
             : "opacity-0 scale-95 translate-y-2 pointer-events-none"
@@ -1085,39 +1115,42 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
         <div className="pointer-events-none absolute inset-0" aria-hidden>
           <div className="absolute -left-10 -top-12 h-40 w-40 rounded-full bg-emerald-200/25 blur-3xl" />
           <div className="absolute -right-8 bottom-0 h-36 w-36 rounded-full bg-sky-200/20 blur-3xl" />
-          <div className="absolute inset-[1px] rounded-[calc(1.5rem-1px)] border border-white/40" />
+          <div className="absolute inset-[1px] rounded-none border border-white/40 lg:rounded-[calc(1.5rem-1px)]" />
         </div>
         <div className="relative flex h-full flex-col">{renderChatBody()}</div>
       </div>
 
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={() => {
-          if (open && layout === "expanded") {
+      {/* Mobile/tablette : on ne monte pas l’icône si le chat est ouvert (sinon elle masque Envoyer). */}
+      {!open || isDesktopChat ? (
+        <button
+          ref={buttonRef}
+          type="button"
+          onClick={() => {
+            if (open && layout === "expanded") {
+              setLayout("window");
+              return;
+            }
+            if (open) {
+              setOpen(false);
+              setLayout("window");
+              return;
+            }
             setLayout("window");
-            return;
-          }
-          if (open) {
-            setOpen(false);
-            setLayout("window");
-            return;
-          }
-          setLayout("window");
-          setOpen(true);
-        }}
-        className="pointer-events-auto fixed bottom-4 right-4 z-[130] flex h-14 w-14 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-emerald-400/25 bg-[#052e1c]/78 shadow-[0_14px_34px_rgba(5,46,28,0.45)] backdrop-blur-xl transition-all hover:scale-[1.04] hover:border-emerald-300/40 hover:bg-[#064028]/82 active:scale-[0.97]"
-        aria-label={open ? `Réduire ${SCOLIA_AI_NAME}` : `Ouvrir ${SCOLIA_AI_NAME}`}
-      >
-        <span
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_22%,rgba(52,211,153,0.35),transparent_52%),linear-gradient(160deg,rgba(255,255,255,0.12),transparent_42%)]"
-          aria-hidden
-        />
-        <span className="pointer-events-none absolute inset-[1px] rounded-full border border-white/15" aria-hidden />
-        <span className="relative h-full w-full">
-          <ScoliaAiMark size="md" inverted fill />
-        </span>
-      </button>
+            setOpen(true);
+          }}
+          className="pointer-events-auto fixed bottom-4 right-4 z-[130] flex h-14 w-14 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-emerald-400/25 bg-[#052e1c]/78 shadow-[0_14px_34px_rgba(5,46,28,0.45)] backdrop-blur-xl transition-all hover:scale-[1.04] hover:border-emerald-300/40 hover:bg-[#064028]/82 active:scale-[0.97]"
+          aria-label={open ? `Réduire ${SCOLIA_AI_NAME}` : `Ouvrir ${SCOLIA_AI_NAME}`}
+        >
+          <span
+            className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_22%,rgba(52,211,153,0.35),transparent_52%),linear-gradient(160deg,rgba(255,255,255,0.12),transparent_42%)]"
+            aria-hidden
+          />
+          <span className="pointer-events-none absolute inset-[1px] rounded-full border border-white/15" aria-hidden />
+          <span className="relative h-full w-full">
+            <ScoliaAiMark size="md" inverted fill />
+          </span>
+        </button>
+      ) : null}
     </div>
   );
 }

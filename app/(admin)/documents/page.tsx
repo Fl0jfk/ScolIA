@@ -22,6 +22,11 @@ type DocumentItem = {
 const INCOMING_SHARED_FILES_FOLDER = "Fichiers partagés";
 const FILE_SHARE_REL_PREFIX = "__fileshare__/";
 
+/** Mac Ctrl+clic = menu contextuel : ne pas traiter comme un clic d'ouverture. */
+function isMacContextClick(e: { ctrlKey: boolean; button: number; metaKey?: boolean }) {
+  return e.ctrlKey || e.button === 2;
+}
+
 function isVirtualFileSharePath(relPath: string) {
   return relPath.startsWith(FILE_SHARE_REL_PREFIX);
 }
@@ -1028,9 +1033,13 @@ export default function DocumentsPage() {
                 <button
                   key={share.id}
                   type="button"
-                  onClick={() => openShare(share)}
+                  onClick={(e) => {
+                    if (isMacContextClick(e)) return;
+                    openShare(share);
+                  }}
                   onContextMenu={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     setSidebarShareMenu({ share, x: e.clientX, y: e.clientY });
                   }}
                   className={`w-full text-left px-3 py-2 rounded-xl text-sm mb-0.5 truncate ${
@@ -1474,8 +1483,33 @@ function DocumentContextMenu({
   onShowAccess?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [armed, setArmed] = useState(false);
 
   useEffect(() => {
+    // Mac Ctrl+clic : un `click` suit juste après et atterrirait sur « Ouvrir ».
+    let done = false;
+    const arm = () => {
+      if (done) return;
+      done = true;
+      setArmed(true);
+    };
+    const swallowGhostClick = (e: MouseEvent) => {
+      if (done) return;
+      e.preventDefault();
+      e.stopPropagation();
+      arm();
+    };
+    window.addEventListener("click", swallowGhostClick, true);
+    // Clic droit Windows / trackpad : souvent pas de click fantôme
+    const t = window.setTimeout(arm, 50);
+    return () => {
+      window.removeEventListener("click", swallowGhostClick, true);
+      window.clearTimeout(t);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!armed) return;
     const onPointer = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
@@ -1490,7 +1524,7 @@ function DocumentContextMenu({
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("scroll", onClose, true);
     };
-  }, [onClose]);
+  }, [armed, onClose]);
 
   useEffect(() => {
     const el = ref.current;
@@ -1517,11 +1551,13 @@ function DocumentContextMenu({
     <div
       ref={ref}
       className="fixed z-[200] min-w-[11.5rem] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-2xl shadow-slate-900/15"
-      style={{ left: x, top: y }}
+      style={{ left: x, top: y, pointerEvents: armed ? "auto" : "none" }}
       role="menu"
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* Zone morte : le click fantôme Mac (Ctrl+clic) atterrit ici, pas sur « Ouvrir ». */}
+      <div className="h-1.5 w-full" aria-hidden />
       <button type="button" className={itemClass} role="menuitem" onClick={() => run(onOpen)}>
         <span className="text-base leading-none" aria-hidden>↗</span>
         Ouvrir
@@ -1584,8 +1620,31 @@ function ShareSidebarContextMenu({
   onManageAccess?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [armed, setArmed] = useState(false);
 
   useEffect(() => {
+    let done = false;
+    const arm = () => {
+      if (done) return;
+      done = true;
+      setArmed(true);
+    };
+    const swallowGhostClick = (e: MouseEvent) => {
+      if (done) return;
+      e.preventDefault();
+      e.stopPropagation();
+      arm();
+    };
+    window.addEventListener("click", swallowGhostClick, true);
+    const t = window.setTimeout(arm, 50);
+    return () => {
+      window.removeEventListener("click", swallowGhostClick, true);
+      window.clearTimeout(t);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!armed) return;
     const onPointer = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
@@ -1600,7 +1659,7 @@ function ShareSidebarContextMenu({
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("scroll", onClose, true);
     };
-  }, [onClose]);
+  }, [armed, onClose]);
 
   useEffect(() => {
     const el = ref.current;
@@ -1627,11 +1686,12 @@ function ShareSidebarContextMenu({
     <div
       ref={ref}
       className="fixed z-[200] min-w-[12rem] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-2xl shadow-slate-900/15"
-      style={{ left: x, top: y }}
+      style={{ left: x, top: y, pointerEvents: armed ? "auto" : "none" }}
       role="menu"
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
+      <div className="h-1.5 w-full" aria-hidden />
       <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-400 truncate">
         {share.name}
       </p>
@@ -1732,16 +1792,26 @@ function DocumentItemCard({
   const metaLine = documentMetaLine(item);
   const hoverBorder = documentAccent(item, folderVariant);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  /** Ignore le `click` qui suit un Ctrl+clic / clic droit (comportement Mac). */
+  const suppressOpenClickRef = useRef(false);
 
   return (
     <>
       <div
         role="button"
         tabIndex={0}
-        onClick={onOpen}
+        onClick={(e) => {
+          if (suppressOpenClickRef.current) {
+            suppressOpenClickRef.current = false;
+            return;
+          }
+          if (isMacContextClick(e)) return;
+          onOpen();
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          suppressOpenClickRef.current = true;
           setContextMenu({ x: e.clientX, y: e.clientY });
         }}
         onKeyDown={(e) => {
