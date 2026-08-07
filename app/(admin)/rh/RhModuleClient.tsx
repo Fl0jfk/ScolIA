@@ -10,11 +10,14 @@ import PersonnelStaffCard from "@/app/components/personnel/PersonnelStaffCard";
 import RhAdminOverviewPanel from "@/app/components/personnel/RhAdminOverviewPanel";
 import RhHubNav, { type RhHubTab } from "@/app/components/personnel/RhHubNav";
 import RhNewStaffModal from "@/app/components/personnel/RhNewStaffModal";
+import RhDemandePanel from "@/app/components/personnel/RhDemandePanel";
+import RhMoodPulseAdminPanel from "@/app/components/personnel/RhMoodPulseAdminPanel";
 import RhOnboardingPanel from "@/app/components/personnel/RhOnboardingPanel";
 import RhBulkDepositPanel from "@/app/components/personnel/RhBulkDepositPanel";
 import RhOrganigramPanel from "@/app/components/personnel/RhOrganigramPanel";
 import RhPersonnelHome from "@/app/components/personnel/RhPersonnelHome";
 import RhRegistrePanel from "@/app/components/personnel/RhRegistrePanel";
+
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import { canAccessHseModule } from "@/app/lib/demandes-hse-access";
 import type { PersonnelDashboardData } from "@/app/lib/personnel-dashboard";
@@ -28,6 +31,7 @@ const TAB_IDS: RhHubTab[] = [
   "registre",
   "absences",
   "hse",
+  "demande",
   "organigramme",
   "deposit",
 ];
@@ -137,6 +141,8 @@ export default function RhModuleClient() {
         </Suspense>
       ) : activeTab === "hse" && canAccessHse ? (
         <DemandesHsePanel embeddedInRh />
+      ) : activeTab === "demande" ? (
+        <RhDemandePanel />
       ) : activeTab === "organigramme" ? (
         <RhOrganigramPanel index={index} />
       ) : activeTab === "annuaire" ? (
@@ -166,6 +172,7 @@ export default function RhModuleClient() {
           {canManage && (
             <div className="pt-2 border-t border-slate-100 space-y-4">
               <h2 className="text-lg font-black text-slate-800">Pilotage RH</h2>
+              <RhMoodPulseAdminPanel />
               <PersonnelDashboard data={dashboard} onNewStaff={() => setShowNew(true)} />
               <SharedDocsBlock sharedDocs={sharedDocs} canManage={canManage} onRefresh={load} />
             </div>

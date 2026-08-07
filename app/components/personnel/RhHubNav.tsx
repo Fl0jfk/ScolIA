@@ -8,6 +8,7 @@ export type RhHubTab =
   | "registre"
   | "absences"
   | "hse"
+  | "demande"
   | "organigramme"
   | "deposit";
 
@@ -15,6 +16,7 @@ const TABS: { id: RhHubTab; label: string; manageOnly?: boolean; hseOnly?: boole
   { id: "dashboard", label: "Tableau de bord" },
   { id: "absences", label: "Absences" },
   { id: "hse", label: "Demandes HSE", hseOnly: true },
+  { id: "demande", label: "Demande RH" },
   { id: "annuaire", label: "Annuaire" },
   { id: "admin", label: "Entrées / sorties", manageOnly: true },
   { id: "onboarding", label: "Nouveaux arrivants", manageOnly: true },

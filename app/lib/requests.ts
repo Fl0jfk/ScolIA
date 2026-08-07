@@ -147,7 +147,7 @@ export type RequestRecord = {
     } | null;
   };
   routing: {
-    source: "ai" | "fallback";
+    source: "ai" | "fallback" | "forced";
     confidence: number;
     reason: string;
     suggestedRouteId?: string;
@@ -422,7 +422,7 @@ function materializeAssigned(def: RequestRouteDef): RequestRecord["assignedTo"] 
     };
   }
   const effectivePool = [...new Set(def.poolEmails().map(normalizeRequestEmail).filter(Boolean))];
-  const email = effectivePool[0]!;
+  const email = effectivePool[0] || "";
   const poolEmails = effectivePool.length > 1 ? effectivePool : undefined;
   return {
     routeId: def.id,
@@ -647,7 +647,7 @@ Demande: ${description}`;
 export type ResolvedRequestRouting = {
   category: string;
   assignedTo: RequestRecord["assignedTo"];
-  source: "ai" | "fallback";
+  source: "ai" | "fallback" | "forced";
   confidence: number;
   reason: string;
   suggestedRouteId?: string;
@@ -678,6 +678,45 @@ export async function resolveRequestRouteById(routeId: string): Promise<Resolved
     source: "fallback",
     confidence: 1,
     reason: `Réassignation manuelle vers ${canonical}.`,
+    routingMeta: { assignmentId: "", taskId: canonical },
+  };
+}
+
+/**
+ * Routage forcé (ex. formulaire Demande RH).
+ * Si la file n’a pas de destinataire, bascule corbeille en gardant la catégorie RH.
+ */
+export async function resolveForcedRequestRouting(routeId: string): Promise<ResolvedRequestRouting | null> {
+  const forced = await resolveRequestRouteById(routeId);
+  if (!forced) return null;
+  const hasAssignee = Boolean(forced.assignedTo.email?.trim());
+  if (hasAssignee) {
+    return {
+      ...forced,
+      source: "forced",
+      reason: `Demande orientée vers ${routeId} (module RH).`,
+      routingMeta: { assignmentId: "", taskId: routeId },
+    };
+  }
+  const corbeille = await resolveRequestRouteById("corbeille");
+  if (!corbeille) {
+    return {
+      ...forced,
+      source: "forced",
+      reason: `Demande RH — file ${routeId} sans destinataire.`,
+      routingMeta: { assignmentId: "", taskId: routeId },
+    };
+  }
+  return {
+    ...corbeille,
+    category: forced.category || "RH",
+    source: "forced",
+    reason: `Demande RH — file ${routeId} sans destinataire, bascule corbeille.`,
+    assignedTo: {
+      ...corbeille.assignedTo,
+      roleLabel: forced.assignedTo.roleLabel || corbeille.assignedTo.roleLabel,
+    },
+    routingMeta: { assignmentId: "", taskId: routeId },
   };
 }
 

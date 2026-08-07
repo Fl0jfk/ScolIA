@@ -22,12 +22,26 @@ type Props = {
   variant?: "page" | "modal" | "inline";
   onSuccess?: (result: FaireUneDemandeSuccess) => void;
   mesDemandesHref?: string;
+  /** Préfixe sujet (ex. [Demande RH]). */
+  subjectPrefix?: string;
+  /** Force le routage ticketing (whitelist serveur). */
+  forceRouteId?: string;
+  heading?: string;
+  intro?: string;
+  placeholder?: string;
+  hideIdentityCard?: boolean;
 };
 
 export default function FaireUneDemandeForm({
   variant = "page",
   onSuccess,
   mesDemandesHref = "/requests#mes-demandes",
+  subjectPrefix,
+  forceRouteId,
+  heading,
+  intro,
+  placeholder = "Expliquez ce dont vous avez besoin : réparation, document, information…",
+  hideIdentityCard = false,
 }: Props) {
   const { isLoaded, isSignedIn, user } = useUser();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -72,7 +86,10 @@ export default function FaireUneDemandeForm({
     setError(null);
     setSuccess(null);
     try {
-      const subject = deriveSubject(description);
+      const rawSubject = deriveSubject(description);
+      const subject = subjectPrefix
+        ? `${subjectPrefix} ${rawSubject}`.trim().slice(0, 120)
+        : rawSubject;
       const fd = new FormData();
       fd.append("firstName", firstName.trim());
       fd.append("lastName", lastName.trim());
@@ -80,6 +97,7 @@ export default function FaireUneDemandeForm({
       fd.append("phone", isSignedIn && !phone.trim() ? "Non renseigné" : phone.trim());
       fd.append("subject", subject);
       fd.append("description", description.trim());
+      if (forceRouteId) fd.append("forceRouteId", forceRouteId);
       for (const f of files) fd.append("files", f);
       const res = await fetch("/api/requests/create", { method: "POST", body: fd });
       const data = await res.json();
@@ -157,6 +175,13 @@ export default function FaireUneDemandeForm({
         <p className="text-sm text-slate-500 animate-pulse">Chargement…</p>
       ) : (
         <>
+          {heading || intro ? (
+            <div className="space-y-1">
+              {heading ? <h3 className="text-lg font-black text-slate-900">{heading}</h3> : null}
+              {intro ? <p className="text-sm text-slate-600 leading-relaxed">{intro}</p> : null}
+            </div>
+          ) : null}
+
           {!isSignedIn ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -197,7 +222,7 @@ export default function FaireUneDemandeForm({
                 />
               </div>
             </div>
-          ) : (
+          ) : hideIdentityCard ? null : (
             <div className="rounded-2xl bg-slate-50 border border-slate-100 px-4 py-3 text-sm">
               <p className="font-bold text-slate-800">{user?.fullName || `${firstName} ${lastName}`.trim()}</p>
               <p className="text-slate-500 mt-0.5">{email}</p>
@@ -210,7 +235,7 @@ export default function FaireUneDemandeForm({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={variant === "modal" ? 5 : 6}
-              placeholder="Expliquez ce dont vous avez besoin : réparation, document, information…"
+              placeholder={placeholder}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-medium resize-y min-h-[120px]"
               required
             />

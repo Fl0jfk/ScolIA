@@ -1,4 +1,5 @@
 import { getRequestsRoutingConfig } from "@/app/lib/requests-routing-config";
+import { BRANCH_TO_SERVICE } from "@/app/lib/requests-routing-defaults";
 import { normalizeRequestEmail } from "@/app/lib/requests-board";
 import {
   getStaffExecutorsForBranchFromRows,
@@ -33,7 +34,7 @@ export async function ensureRequestRoutes(): Promise<{
     const execs = getStaffExecutorsForBranchFromRows(staffRows, id);
     const pool = [...new Set([...leaders, ...execs].map((e) => normalizeRequestEmail(String(e))).filter(Boolean))];
     const primary = pool[0] || leaders[0] || "";
-    const serviceId = taskService.get(id) || "administratif";
+    const serviceId = taskService.get(id) || BRANCH_TO_SERVICE[id] || "administratif";
     const category = serviceById.get(serviceId)?.category || "Général";
     return {
       id,

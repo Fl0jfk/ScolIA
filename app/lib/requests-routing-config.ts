@@ -6,7 +6,7 @@ import {
   type RoutingTask,
 } from "@/app/lib/app-config-schemas";
 import { saveStaffDirectory, loadAppConfig } from "@/app/lib/app-config";
-import { defaultRequestsRouting } from "@/app/lib/requests-routing-defaults";
+import { defaultRequestsRouting, RH_REQUEST_ROUTE_ID } from "@/app/lib/requests-routing-defaults";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import type { ResolvedRequestRouting } from "@/app/lib/requests";
 import {
@@ -33,10 +33,33 @@ export function invalidateRequestsRoutingCache() {
   cache = null;
 }
 
+/** Assure la présence de la file RH même sur une config tenant plus ancienne. */
+export function ensureBuiltinRhRouting(config: RequestsRoutingConfig): RequestsRoutingConfig {
+  const defaults = defaultRequestsRouting();
+  const rhService = defaults.services.find((s) => s.id === "rh");
+  const rhTask = defaults.tasks.find((t) => t.id === RH_REQUEST_ROUTE_ID);
+  let services = config.services;
+  let tasks = config.tasks;
+  let changed = false;
+
+  if (rhService && !services.some((s) => s.id === "rh")) {
+    services = [...services, rhService];
+    changed = true;
+  }
+  if (rhTask && !tasks.some((t) => t.id === RH_REQUEST_ROUTE_ID)) {
+    tasks = [...tasks, rhTask];
+    changed = true;
+  }
+  if (!changed) return config;
+  return { ...config, services, tasks };
+}
+
 export async function getRequestsRoutingConfig(): Promise<RequestsRoutingConfig> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.config;
   const raw = await getJson<{ data?: unknown }>(ROUTING_KEY);
-  const config = raw?.data ? parseRequestsRouting(raw.data) : defaultRequestsRouting();
+  const config = ensureBuiltinRhRouting(
+    raw?.data ? parseRequestsRouting(raw.data) : defaultRequestsRouting(),
+  );
   cache = { at: Date.now(), config };
   return config;
 }

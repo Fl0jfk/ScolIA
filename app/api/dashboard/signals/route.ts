@@ -23,6 +23,11 @@ import { getRequestsIndex, isLeaderForRequestBranch } from "@/app/lib/requests";
 import { getAllBranchStaffEmailsFromRouting } from "@/app/lib/requests-routing-config";
 import { isVisibleOnStaffBoard } from "@/app/lib/requests-board";
 import { todayDateParis } from "@/app/lib/internat-stats";
+import {
+  hasVotedMoodPulse,
+  moodPulseTodayKey,
+  readMoodPulseDay,
+} from "@/app/lib/rh/mood-pulse-storage";
 import { getInternatRollCall } from "@/app/lib/internat-storage";
 import { canAccessInternatModule, canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
 import type { TripIndexRow } from "@/app/lib/dashboard-trips";
@@ -228,6 +233,16 @@ export async function GET() {
       }
     }
 
+    let moodPulseSubmittedToday = false;
+    if (accessibleModuleIds.has("rh")) {
+      try {
+        const dayDoc = await readMoodPulseDay(moodPulseTodayKey());
+        moodPulseSubmittedToday = hasVotedMoodPulse(dayDoc, userId);
+      } catch {
+        moodPulseSubmittedToday = false;
+      }
+    }
+
     const signals = getDashboardSignals({
       roles,
       userId,
@@ -244,6 +259,7 @@ export async function GET() {
       stagesPendingSignatures,
       internatRollCallStatus,
       weekSheet,
+      moodPulseSubmittedToday,
     });
 
     return NextResponse.json(signals);

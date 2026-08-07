@@ -112,6 +112,8 @@ export type DashboardSignalsInput = {
   stagesPendingSignatures?: number;
   internatRollCallStatus?: "validee" | "en_cours" | "non_demarre" | null;
   weekSheet?: WeekSheetData | null;
+  /** true si l’utilisateur a déjà soumis le pulse RH du jour. */
+  moodPulseSubmittedToday?: boolean;
 };
 
 function weekDayFromDateKey(dateKey: string): WeekDayKey | null {
@@ -575,6 +577,19 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       href: "/rh?tab=dashboard",
       label: "Mon espace",
     });
+
+    if (!input.moodPulseSubmittedToday) {
+      shortcuts.push({
+        id: "rh-mood-pulse",
+        pillarId: "rh",
+        moduleId: "rh",
+        href: "/rh?tab=dashboard",
+        label: "Comment je me sens",
+        rich: true,
+        detail: "Note anonyme du jour — 30 secondes",
+        tone: "action",
+      });
+    }
 
     if (canViewCalendar(roles)) {
       const flags = getRoleFlags(roles);

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useUser } from "@clerk/nextjs";
+import RhMoodPulseCard from "@/app/components/personnel/RhMoodPulseCard";
 import RhSelfDepositPanel from "@/app/components/personnel/RhSelfDepositPanel";
 import { canAccessHseModule, canCreateHseDemand } from "@/app/lib/demandes-hse-access";
 import { formatAbsencePeriod } from "@/app/lib/absence-period";
@@ -109,6 +110,8 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
 
   return (
     <div className="space-y-6">
+      <RhMoodPulseCard />
+
       <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-indigo-50/40 p-5 sm:p-6">
         <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600">Espace personnel</p>
         <h2 className="text-2xl font-black text-slate-900 mt-1">Bonjour {firstName}</h2>
@@ -130,6 +133,12 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
               Demande HSE
             </Link>
           )}
+          <Link
+            href="/rh?tab=demande"
+            className="px-4 py-2.5 rounded-xl bg-white border border-violet-200 text-violet-800 text-xs font-bold hover:bg-violet-50"
+          >
+            Demande RH
+          </Link>
           <Link
             href="/rh?tab=absences&view=se-declarer"
             className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50"

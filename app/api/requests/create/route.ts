@@ -2,11 +2,29 @@ import { NextResponse } from "next/server";
 import { resolveSession } from "@/app/lib/intranet-session";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { RequestRecord, getPublicAppBaseUrl, notifyRequestCreated, notifyRequestPendingVerification, resolveRequestRouting, saveRequestFile, saveRequestsIndex, getRequestsIndex, validateRequestInput, uploadBuffersAsRequestAttachments, assertEligibleRequestAttachment, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD} from "@/app/lib/requests";
-import { deletePendingRequestPrefix, generatePendingRequestToken, savePendingRequestWithFiles} from "@/app/lib/request-pending-verify";
+import {
+  RequestRecord,
+  getPublicAppBaseUrl,
+  notifyRequestCreated,
+  notifyRequestPendingVerification,
+  resolveForcedRequestRouting,
+  resolveRequestRouting,
+  saveRequestFile,
+  saveRequestsIndex,
+  getRequestsIndex,
+  validateRequestInput,
+  uploadBuffersAsRequestAttachments,
+  assertEligibleRequestAttachment,
+  MAX_REQUEST_ATTACHMENTS_PER_UPLOAD,
+} from "@/app/lib/requests";
+import { deletePendingRequestPrefix, generatePendingRequestToken, savePendingRequestWithFiles } from "@/app/lib/request-pending-verify";
+import { RH_REQUEST_ROUTE_ID } from "@/app/lib/requests-routing-defaults";
 import { getTenantSmtpConfig } from "@/app/lib/tenant-mail";
 
 export const runtime = "nodejs";
+
+/** Routes que le client peut forcer (formulaire module RH). */
+const ALLOWED_FORCE_ROUTE_IDS = new Set([RH_REQUEST_ROUTE_ID]);
 
 function parseCreatePayload(
   contentType: string,
@@ -20,6 +38,7 @@ function parseCreatePayload(
   subject: string;
   description: string;
   userId: string | null;
+  forceRouteId: string | null;
   files: File[];
 } {
   if (form) {
@@ -28,6 +47,7 @@ function parseCreatePayload(
       return typeof v === "string" ? v : "";
     };
     const rawFiles = form.getAll("files").filter((x): x is File => x instanceof File && x.size > 0);
+    const forceRouteId = g("forceRouteId").trim() || null;
     return {
       firstName: g("firstName"),
       lastName: g("lastName"),
@@ -36,10 +56,13 @@ function parseCreatePayload(
       subject: g("subject"),
       description: g("description"),
       userId: null,
+      forceRouteId,
       files: rawFiles.slice(0, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD),
     };
   }
   const b = bodyJson as Record<string, unknown>;
+  const forceRouteId =
+    typeof b?.forceRouteId === "string" && b.forceRouteId.trim() ? b.forceRouteId.trim() : null;
   return {
     firstName: String(b?.firstName ?? ""),
     lastName: String(b?.lastName ?? ""),
@@ -48,6 +71,7 @@ function parseCreatePayload(
     subject: String(b?.subject ?? ""),
     description: String(b?.description ?? ""),
     userId: typeof b?.userId === "string" ? b.userId : null,
+    forceRouteId,
     files: [],
   };
 }
@@ -55,7 +79,7 @@ function parseCreatePayload(
 export async function POST(req: Request) {
   try {
     const session = await resolveSession();
-  const userId = session?.userId;
+    const userId = session?.userId;
     const contentType = req.headers.get("content-type") || "";
     let payload: ReturnType<typeof parseCreatePayload>;
     if (contentType.includes("multipart/form-data")) {
@@ -77,7 +101,10 @@ export async function POST(req: Request) {
     });
     if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
     if (payload.files.length > MAX_REQUEST_ATTACHMENTS_PER_UPLOAD) {
-      return NextResponse.json({ error: `Maximum ${MAX_REQUEST_ATTACHMENTS_PER_UPLOAD} fichiers par envoi.` },{ status: 400 });
+      return NextResponse.json(
+        { error: `Maximum ${MAX_REQUEST_ATTACHMENTS_PER_UPLOAD} fichiers par envoi.` },
+        { status: 400 },
+      );
     }
     for (const f of payload.files) {
       const check = assertEligibleRequestAttachment(f.name, f.type, f.size);
@@ -95,7 +122,13 @@ export async function POST(req: Request) {
       }
       const base = await getPublicAppBaseUrl();
       if (!base) {
-        return NextResponse.json({error:"Configuration incomplète (NEXT_PUBLIC_APP_URL). Les demandes anonymes ne peuvent pas être confirmées par e-mail pour le moment.",},{ status: 503 });
+        return NextResponse.json(
+          {
+            error:
+              "Configuration incomplète (NEXT_PUBLIC_APP_URL). Les demandes anonymes ne peuvent pas être confirmées par e-mail pour le moment.",
+          },
+          { status: 503 },
+        );
       }
       const { firstName, lastName, email, phone, subject, description } = validated.value;
       let token: string | undefined;
@@ -125,7 +158,10 @@ export async function POST(req: Request) {
           }
         }
         return NextResponse.json(
-          { error: "Impossible d’envoyer l’e-mail de confirmation. Vérifiez l’adresse ou réessayez plus tard." },
+          {
+            error:
+              "Impossible d’envoyer l’e-mail de confirmation. Vérifiez l’adresse ou réessayez plus tard.",
+          },
           { status: 500 },
         );
       }
@@ -138,11 +174,24 @@ export async function POST(req: Request) {
     }
     const orgGate = await requireAuth();
     if (!orgGate.ok) return orgGate.response;
-    
+
     const now = new Date().toISOString();
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const { firstName, lastName, email, phone, subject, description } = validated.value;
-    const routing = await resolveRequestRouting(subject, description);
+
+    let routing = await resolveRequestRouting(subject, description);
+    const forceRouteId = payload.forceRouteId;
+    if (forceRouteId) {
+      if (!ALLOWED_FORCE_ROUTE_IDS.has(forceRouteId)) {
+        return NextResponse.json({ error: "Orientation de demande non autorisée." }, { status: 400 });
+      }
+      const forced = await resolveForcedRequestRouting(forceRouteId);
+      if (!forced) {
+        return NextResponse.json({ error: "File RH introuvable." }, { status: 400 });
+      }
+      routing = forced;
+    }
+
     let attachments: RequestRecord["attachments"];
     if (payload.files.length > 0) {
       const bufs = await Promise.all(
@@ -152,7 +201,7 @@ export async function POST(req: Request) {
           contentType: f.type || "application/octet-stream",
         })),
       );
-      attachments = await uploadBuffersAsRequestAttachments( id, bufs);
+      attachments = await uploadBuffersAsRequestAttachments(id, bufs);
     }
     const record: RequestRecord = {
       id,
@@ -191,13 +240,15 @@ export async function POST(req: Request) {
         },
       ],
     };
-    await saveRequestFile( record);
+    await saveRequestFile(record);
     const index = await getRequestsIndex();
     index.push(record);
-    await saveRequestsIndex( index);
+    await saveRequestsIndex(index);
     try {
       await notifyRequestCreated(record);
-    } catch (mailError) { console.error("Request create notification error:", mailError)}
+    } catch (mailError) {
+      console.error("Request create notification error:", mailError);
+    }
     return NextResponse.json({
       success: true,
       id: record.id,

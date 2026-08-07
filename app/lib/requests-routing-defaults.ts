@@ -15,7 +15,13 @@ const BRANCH_TO_SERVICE: Record<string, string> = {
   direction_ecole: "direction",
   direction_college: "direction",
   direction_lycee: "direction",
+  rh_personnel: "rh",
 };
+
+/** File ticketing dédiée aux demandes ouvertes depuis le module RH. */
+export const RH_REQUEST_ROUTE_ID = "rh_personnel";
+export const RH_REQUEST_SUBJECT_PREFIX = "[Demande RH]";
+
 
 function uid(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -85,6 +91,13 @@ const DEFAULT_TASKS: RoutingTask[] = [
     keywords: ["direction lycée"],
     active: false,
   },
+  {
+    id: "rh_personnel",
+    label: "RH / Personnel",
+    hint: "Demandes RH ouvertes depuis le module RH (contrat, dossier, attestation…)",
+    keywords: ["rh", "ressources humaines", "personnel", "attestation", "contrat de travail"],
+    active: true,
+  },
 ];
 
 export function defaultRequestsRouting(): RequestsRoutingConfig {
@@ -98,6 +111,7 @@ export function defaultRequestsRouting(): RequestsRoutingConfig {
       { id: "accueil", label: "Accueil", category: "Établissement" },
       { id: "comptabilite", label: "Comptabilité", category: "Finances" },
       { id: "direction", label: "Direction", category: "Direction", manualOnly: true },
+      { id: "rh", label: "RH / Personnel", category: "RH" },
     ],
     tasks: DEFAULT_TASKS,
     assignments: [] as RoutingAssignment[],
