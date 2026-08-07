@@ -255,8 +255,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "organigramme",
-    pathPrefixes: ["/organigramme"],
-    allowedRoles: ["administratif"],
+    pathPrefixes: ["/organigramme", "/api/organigramme"],
+    allowedRoles: [...ROLES_EXCEPT_PARENT].filter((r) => r !== "eleve"),
     dashboard: {
       id: 14,
       name: "Organigramme interne",

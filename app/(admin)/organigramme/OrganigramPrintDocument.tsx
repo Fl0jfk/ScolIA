@@ -4,12 +4,8 @@ import Image from "next/image";
 import type { ReactNode } from "react";
 import { useMemo } from "react";
 import { SCHOOL } from "@/app/lib/school";
-import { ORGANIGRAM_DIRECTORS, ORGANIGRAM_ADMIN, ORGANIGRAM_ACCOUNTING, ORGANIGRAM_RECEPTION, ORGANIGRAM_HEALTH, ORGANIGRAM_MAINTENANCE, ORGANIGRAM_POLES, ORGANIGRAM_PASTORAL, ORGANIGRAM_OGEC,  ORGANIGRAM_TUTELLE, type OrganigramPerson} from "@/app/lib/organigramme";
-
-const DIRECTION_TITLE = "Direction du groupe scolaire";
-const DIRECTION_DESC ="Les trois directions de l'école, du collège et du lycée pilotent chacune leur cycle et coordonnent les projets communs.";
-const POLES_TITLE = "Pôles éducatifs & vie scolaire";
-const POLES_DESC ="Équipes par cycle — CPE et accompagnement, distincts du seul pôle administratif.";
+import type { OrganigramPerson } from "@/app/lib/organigramme";
+import type { OrganigramView } from "@/app/lib/organigramme-resolve";
 
 type PrintTone = | "direction" | "admin" | "accounting" | "reception" | "health" | "maintenance" | "poles" | "poleEcole" | "poleCollege" | "poleLycee" | "pastoral" | "ogec" | "tutelle";
 
@@ -194,7 +190,7 @@ function poleTone(id: string): PrintTone {
   return "poleLycee";
 }
 
-export function OrganigramPrintDocument() {
+export function OrganigramPrintDocument({ view }: { view: OrganigramView }) {
   const printedAt = useMemo(
     () =>
       new Intl.DateTimeFormat("fr-FR", {
@@ -218,14 +214,14 @@ export function OrganigramPrintDocument() {
       </header>
 
       <div className="flex flex-col text-[7pt] leading-[1.25]">
-        <PrintTile tone="direction" title={DIRECTION_TITLE} description={DIRECTION_DESC}>
+        <PrintTile tone="direction" title={view.sections.find(s => s.id === "direction")?.title || "Direction du groupe scolaire"} description={view.sections.find(s => s.id === "direction")?.description}>
           <div className="grid grid-cols-2 gap-4">
-            {ORGANIGRAM_DIRECTORS.map((p, index) => (
+            {view.directors.map((p, index) => (
               <PrintPerson
                 key={p.id}
                 person={p}
                 missionBarClass={dirT.missionBar}
-                className={ORGANIGRAM_DIRECTORS.length % 2 === 1 && index === ORGANIGRAM_DIRECTORS.length - 1 ? "col-span-2 w-full" : halfWidthPerson}
+                className={view.directors.length % 2 === 1 && index === view.directors.length - 1 ? "col-span-2 w-full" : halfWidthPerson}
               />
             ))}
           </div>
@@ -233,21 +229,21 @@ export function OrganigramPrintDocument() {
 
         <PrintBlockTile
           tone="admin"
-          title={ORGANIGRAM_ADMIN.title}
-          description={ORGANIGRAM_ADMIN.description}
-          people={ORGANIGRAM_ADMIN.people}
+          title={view.admin.title}
+          description={view.admin.description}
+          people={view.admin.people}
           personClassName={halfWidthPerson}
         />
         <PrintBlockTile
           tone="accounting"
-          title={ORGANIGRAM_ACCOUNTING.title}
-          description={ORGANIGRAM_ACCOUNTING.description}
-          people={ORGANIGRAM_ACCOUNTING.people}
+          title={view.accounting.title}
+          description={view.accounting.description}
+          people={view.accounting.people}
           personClassName={halfWidthPerson}
         />
-        <PrintTile tone="poles" title={POLES_TITLE} description={POLES_DESC}>
+        <PrintTile tone="poles" title={view.sections.find(s => s.id === "poles")?.title || "Pôles éducatifs & vie scolaire"} description={view.sections.find(s => s.id === "poles")?.description}>
           <div className="flex flex-col gap-4">
-            {ORGANIGRAM_POLES.map((pole) => {
+            {view.poles.map((pole) => {
               const pt = TILE[poleTone(pole.id)];
               return (
                 <div key={pole.id} className={`rounded-2xl border p-4 print:break-inside-avoid ${pt.shell}`}>
@@ -278,44 +274,44 @@ export function OrganigramPrintDocument() {
         </PrintTile>
         <PrintBlockTile
           tone="reception"
-          title={ORGANIGRAM_RECEPTION.title}
-          description={ORGANIGRAM_RECEPTION.description}
-          people={ORGANIGRAM_RECEPTION.people}
+          title={view.reception.title}
+          description={view.reception.description}
+          people={view.reception.people}
           personClassName={halfWidthPerson}
         />
         <PrintBlockTile
           tone="health"
-          title={ORGANIGRAM_HEALTH.title}
-          description={ORGANIGRAM_HEALTH.description}
-          people={ORGANIGRAM_HEALTH.people}
+          title={view.health.title}
+          description={view.health.description}
+          people={view.health.people}
           personClassName={halfWidthPerson}
         />
         <PrintBlockTile
           tone="maintenance"
-          title={ORGANIGRAM_MAINTENANCE.title}
-          description={ORGANIGRAM_MAINTENANCE.description}
-          people={ORGANIGRAM_MAINTENANCE.people}
+          title={view.maintenance.title}
+          description={view.maintenance.description}
+          people={view.maintenance.people}
           personClassName={halfWidthPerson}
         />
         <PrintBlockTile
           tone="pastoral"
-          title={ORGANIGRAM_PASTORAL.title}
-          description={ORGANIGRAM_PASTORAL.description}
-          people={ORGANIGRAM_PASTORAL.people}
+          title={view.pastoral.title}
+          description={view.pastoral.description}
+          people={view.pastoral.people}
           personClassName={halfWidthPerson}
         />
         <PrintBlockTile
           tone="ogec"
-          title={ORGANIGRAM_OGEC.title}
-          description={ORGANIGRAM_OGEC.description}
-          people={ORGANIGRAM_OGEC.people}
+          title={view.ogec.title}
+          description={view.ogec.description}
+          people={view.ogec.people}
           personClassName={halfWidthPerson}
         />
         <PrintBlockTile
           tone="tutelle"
-          title={ORGANIGRAM_TUTELLE.title}
-          description={ORGANIGRAM_TUTELLE.description}
-          people={ORGANIGRAM_TUTELLE.people}
+          title={view.tutelle.title}
+          description={view.tutelle.description}
+          people={view.tutelle.people}
           personClassName={halfWidthPerson}
         />
       </div>
