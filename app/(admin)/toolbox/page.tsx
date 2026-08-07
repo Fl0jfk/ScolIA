@@ -145,7 +145,7 @@ export default function ToolboxAdminPage() {
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Administration</p>
             <h1 className="text-3xl font-black text-slate-900">Boîte à outils</h1>
             <p className="mt-2 text-sm text-slate-600 max-w-xl">
-              Activez les modules saisonniers par établissement. Paramètres généraux et utilisateurs sont accessibles depuis la même boîte à outils.
+              Activez les modules saisonniers par établissement. Les paramètres généraux (dont les utilisateurs) sont dans le module Établissement.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

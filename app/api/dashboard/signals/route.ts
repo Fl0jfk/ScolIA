@@ -26,6 +26,9 @@ import { todayDateParis } from "@/app/lib/internat-stats";
 import { getInternatRollCall } from "@/app/lib/internat-storage";
 import { canAccessInternatModule, canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
 import type { TripIndexRow } from "@/app/lib/dashboard-trips";
+import { defaultProfRoomModule } from "@/app/lib/app-config-defaults";
+import { parseProfRoomModule } from "@/app/lib/app-config-schemas";
+import { withDefaultProfRoomSubjects } from "@/app/lib/prof-room-defaults";
 
 async function safeJson<T>(path: string): Promise<T | null> {
   try {
@@ -78,9 +81,14 @@ export async function GET() {
             startsAt: string;
             endsAt?: string;
             subject?: string;
+            className?: string;
             status?: string;
           }>
         >("reservation-rooms/reservations.json")
+      : Promise.resolve(null);
+
+    const profRoomConfigPromise = accessibleModuleIds.has("prof-room")
+      ? safeJson<unknown>("settings/modules/prof-room.json")
       : Promise.resolve(null);
 
     const photocopiesPromise = accessibleModuleIds.has("photocopies-couleur")
@@ -106,7 +114,7 @@ export async function GET() {
           >("demandes-hse/index.json")
         : Promise.resolve(null);
 
-    const [tripsRaw, absencesRaw, roomsRaw, reservationsRaw, photocopiesRaw, hseRaw, weekSheet] =
+    const [tripsRaw, absencesRaw, roomsRaw, reservationsRaw, photocopiesRaw, hseRaw, weekSheet, profRoomRaw] =
       await Promise.all([
         tripsPromise,
         absencesPromise,
@@ -115,6 +123,7 @@ export async function GET() {
         photocopiesPromise,
         hsePromise,
         loadWeekSheetData().catch(() => null),
+        profRoomConfigPromise,
       ]);
 
     let rooms: { id: string; name: string }[] = [];
@@ -125,6 +134,9 @@ export async function GET() {
     }
 
     const reservations = Array.isArray(reservationsRaw) ? reservationsRaw : [];
+    const roomSubjectColors = withDefaultProfRoomSubjects(
+      profRoomRaw ? parseProfRoomModule(profRoomRaw) : defaultProfRoomModule(),
+    ).subjectColors;
     const absences = absencesRaw.filter(
       (a) =>
         isAbsenceVisibleOnCalendar(a, userId, roles) ||
@@ -225,6 +237,7 @@ export async function GET() {
       absences,
       reservations,
       rooms,
+      roomSubjectColors,
       requestsBoard,
       photocopies,
       hse,

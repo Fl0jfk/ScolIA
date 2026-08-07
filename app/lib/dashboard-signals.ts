@@ -18,8 +18,21 @@ import { hasRole } from "@/app/lib/intranet-role-utils";
 import { canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
 import { resolveDirectionEtab } from "@/app/lib/travels-direction-dashboard";
 import { normalizeRequestEmail } from "@/app/lib/requests-board";
+import { subjectColorToHex } from "@/app/lib/prof-room-subject-colors";
 
 export type DashboardShortcutTone = "neutral" | "info" | "action" | "warn";
+
+/** Slide d’un carrousel (salles en cours, sorties du jour, …). */
+export type DashboardShortcutSlide = {
+  id: string;
+  label: string;
+  detail?: string;
+  badge?: string;
+  /** Couleur d’accent (hex). */
+  colorHex?: string;
+  /** Lien spécifique à la slide (sinon href du shortcut). */
+  href?: string;
+};
 
 export type DashboardShortcut = {
   id: string;
@@ -33,6 +46,8 @@ export type DashboardShortcut = {
   tone?: DashboardShortcutTone;
   /** Visible uniquement sur les sous-dashboards piliers (pas la grille home). */
   pillarOnly?: boolean;
+  /** Si présent, la tuile fait défiler ces slides (~3 s). */
+  slides?: DashboardShortcutSlide[];
 };
 
 export type DashboardTodayNewsItem = {
@@ -72,9 +87,12 @@ export type DashboardSignalsInput = {
     startsAt: string;
     endsAt?: string;
     subject?: string;
+    className?: string;
     status?: string;
   }>;
   rooms?: Array<{ id: string; name: string }>;
+  /** Couleurs matières (valeur Tailwind ou hex) pour le carrousel salles. */
+  roomSubjectColors?: Record<string, string>;
   requestsBoard?: Array<{
     id: string;
     status: string;
@@ -145,7 +163,52 @@ function photocopieEtabForDirection(roles: string[]): string | null {
 
 function slotTimeLabel(startsAt: string): string {
   const t = startsAt.slice(11, 16);
-  return t || startsAt;
+  return t ? t.replace(":", "h") : startsAt;
+}
+
+/** Horodatage local Europe/Paris `YYYY-MM-DDTHH:mm:ss` (aligné sur les créneaux salles). */
+function parisNowLocalIso(d: Date = new Date()): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Paris",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    })
+      .formatToParts(d)
+      .filter((p) => p.type !== "literal")
+      .map((p) => [p.type, p.value]),
+  ) as Record<string, string>;
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}:${parts.second}`;
+}
+
+function reservationComparable(iso: string): string {
+  return String(iso || "").substring(0, 19);
+}
+
+function reservationEndsAt(r: { startsAt: string; endsAt?: string }): string {
+  if (r.endsAt) return reservationComparable(r.endsAt);
+  const start = reservationComparable(r.startsAt);
+  // Créneaux module = 1 h (ex. 08h30 → 09h30), sans passer par Date (TZ serveur).
+  const m = start.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+  if (!m) return start;
+  const hour = String(Math.min(23, parseInt(m[2]!, 10) + 1)).padStart(2, "0");
+  return `${m[1]}T${hour}:${m[3]}:${m[4]}`;
+}
+
+function isReservationLiveNow(
+  r: { startsAt: string; endsAt?: string; status?: string },
+  nowLocal: string,
+): boolean {
+  if (r.status === "CANCELLED") return false;
+  const start = reservationComparable(r.startsAt);
+  const end = reservationEndsAt(r);
+  return start <= nowLocal && nowLocal < end;
 }
 
 export function buildTodayNewsFromWeekSheet(
@@ -184,6 +247,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     absences = [],
     reservations = [],
     rooms = [],
+    roomSubjectColors = {},
     requestsBoard = [],
     photocopies = [],
     hse = [],
@@ -209,16 +273,31 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
     if (canSeeTodayTripHighlight(roles) && todayTrips.length > 0) {
       const first = todayTrips[0]!;
+      const travelColors = ["#0284c7", "#0369a1", "#0ea5e9", "#1d4ed8", "#075985"];
       shortcuts.push({
         id: "travels-today",
         pillarId: "eleves",
         moduleId: "travels",
-        href: `/travels/${first.id}`,
+        href: todayTrips.length === 1 ? `/travels/${first.id}` : travelsHome,
         label: first.data?.title || "Sortie scolaire",
         rich: true,
         badge: todayTrips.length > 1 ? `${todayTrips.length} sorties` : "Aujourd'hui",
-        detail: todayTrips.length > 1 ? `+ ${todayTrips.length - 1} autre(s) aujourd'hui` : "En cours aujourd'hui",
+        detail:
+          todayTrips.length > 1
+            ? `${todayTrips.length} sorties aujourd'hui`
+            : first.data?.etablissement || "En cours aujourd'hui",
         tone: "action",
+        slides:
+          todayTrips.length > 1
+            ? todayTrips.map((t, i) => ({
+                id: t.id,
+                label: t.data?.title || "Sortie scolaire",
+                detail: t.data?.etablissement || undefined,
+                badge: "Aujourd'hui",
+                colorHex: travelColors[i % travelColors.length],
+                href: `/travels/${t.id}`,
+              }))
+            : undefined,
       });
     } else if (isCompta(roles)) {
       const n = trips.filter((t) => t.status === "EN_ATTENTE_COMPTA").length;
@@ -633,12 +712,48 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   if (has("prof-room")) {
     const roomsHome = moduleHref("prof-room");
     const todayKey = calendarDateKeyParis();
+    const nowLocal = parisNowLocalIso();
     const roomNameById = new Map(rooms.map((r) => [r.id, r.name]));
     const todayRes = reservations
       .filter((r) => r.status !== "CANCELLED" && r.startsAt.startsWith(todayKey))
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    const liveNow = todayRes.filter((r) => isReservationLiveNow(r, nowLocal));
 
-    if (todayRes.length === 1) {
+    if (liveNow.length > 0) {
+      shortcuts.push({
+        id: "rooms-live",
+        pillarId: "services",
+        moduleId: "prof-room",
+        href: roomsHome,
+        label: "Réservation de salle",
+        rich: true,
+        badge: liveNow.length === 1 ? "En cours" : `${liveNow.length} en cours`,
+        detail:
+          liveNow.length === 1
+            ? `${liveNow[0]!.roomName || roomNameById.get(liveNow[0]!.roomId) || "Salle"} · ${liveNow[0]!.subject || "Réservée"}`
+            : `${liveNow.length} salles occupées maintenant`,
+        tone: "info",
+        slides: liveNow.map((r) => {
+          const name = r.roomName || roomNameById.get(r.roomId) || "Salle";
+          const subject = (r.subject || "").trim();
+          const klass = (r.className || "").trim();
+          const colorRaw = subject
+            ? roomSubjectColors[subject] ||
+              roomSubjectColors[subject.toUpperCase()] ||
+              Object.entries(roomSubjectColors).find(
+                ([k]) => k.toLowerCase() === subject.toLowerCase(),
+              )?.[1]
+            : undefined;
+          return {
+            id: r.id,
+            label: name,
+            detail: [subject || "Réservée", klass ? `· ${klass}` : ""].filter(Boolean).join(" "),
+            badge: slotTimeLabel(r.startsAt),
+            colorHex: subjectColorToHex(colorRaw || "bg-slate-600 text-white"),
+          };
+        }),
+      });
+    } else if (todayRes.length === 1) {
       const r = todayRes[0]!;
       const name = r.roomName || roomNameById.get(r.roomId) || "Salle";
       shortcuts.push({
@@ -675,7 +790,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         label: "Réservation de salle",
         rich: true,
         detail: "Aucune salle réservée aujourd'hui",
-        tone: "info",
+        // Neutre = demi-tuile (pas pleine largeur) tout en gardant le détail.
+        tone: "neutral",
       });
     }
   }

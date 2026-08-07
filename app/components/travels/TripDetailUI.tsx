@@ -333,7 +333,7 @@ export function TripAlert({
   children,
   action,
 }: {
-  tone: "warning" | "info" | "muted";
+  tone: "warning" | "info" | "muted" | "success";
   icon?: string;
   title: string;
   children?: ReactNode;
@@ -343,6 +343,7 @@ export function TripAlert({
     warning: "bg-orange-50 border-orange-200 text-orange-900",
     info: "bg-blue-50 border-blue-200 text-blue-900",
     muted: "bg-slate-100 border-slate-200 text-slate-800",
+    success: "bg-emerald-50 border-emerald-200 text-emerald-900",
   };
   return (
     <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border p-5 ${tones[tone]}`}>
@@ -439,7 +440,7 @@ export function TripBusQuoteCard({
 
 export function TripDecisionPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 text-white shadow-xl overflow-hidden">
+    <div id="trip-decision-panel" className="rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 text-white shadow-xl overflow-hidden">
       <div className="px-6 py-4 border-b border-white/10">
         <p className="text-xs font-bold uppercase tracking-widest text-indigo-300">Circuit de validation</p>
         <p className="text-lg font-bold mt-0.5">{title}</p>

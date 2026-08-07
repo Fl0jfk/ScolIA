@@ -11,9 +11,10 @@ import { DASHBOARD_ACCENT_OPTIONS } from "@/app/lib/dashboard-brand-presets";
 import { PLATFORM_ASSISTANCE_EMAIL } from "@/app/lib/platform-assistance-email";
 import SchoolRosterPanel from "@/app/components/settings/SchoolRosterPanel";
 import DashboardQuickLinksPanel from "@/app/components/settings/DashboardQuickLinksPanel";
+import MembresPanel from "@/app/components/settings/MembresPanel";
 import { useSearchParams } from "next/navigation";
 
-type Tab = "site" | "establishments" | "notifications" | "mef" | "prof-room" | "requests-routing" | "travels" | "integrations" | "toolbox" | "referentiel" | "dashboard-links";
+type Tab = "site" | "establishments" | "notifications" | "mef" | "prof-room" | "requests-routing" | "travels" | "integrations" | "toolbox" | "referentiel" | "dashboard-links" | "utilisateurs";
 
 type MefSecteursConfig = { lycee: string[]; college: string[]; ecole: string[] };
 
@@ -77,9 +78,11 @@ export default function ParametresPage() {
       t === "travels" ||
       t === "integrations" ||
       t === "toolbox" ||
-      t === "dashboard-links"
+      t === "dashboard-links" ||
+      t === "utilisateurs" ||
+      t === "membres"
     ) {
-      setTab(t);
+      setTab(t === "membres" ? "utilisateurs" : t);
     }
   }, [searchParams]);
 
@@ -353,6 +356,7 @@ export default function ParametresPage() {
           [
             ["site", "Identité"],
             ["establishments", "Établissements"],
+            ["utilisateurs", "Utilisateurs"],
             ["notifications", "Notifications"],
             ["travels", "Sorties scolaires"],
             ["integrations", "Intégrations"],
@@ -1347,6 +1351,8 @@ export default function ParametresPage() {
       )}
 
       {tab === "dashboard-links" && <DashboardQuickLinksPanel />}
+
+      {tab === "utilisateurs" && <MembresPanel />}
 
       {tab === "toolbox" && (
         <div className="bg-white rounded-2xl border p-6 space-y-4">

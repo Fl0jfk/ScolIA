@@ -23,6 +23,7 @@ import {
   SCOLIA_AI_PAGE_PATH,
   type ScoliaMemoryMessage,
 } from "@/app/lib/brain-ai/scolia-memory";
+import { SCOLIA_ASK_EVENT, type ScoliaAskDetail } from "@/app/lib/brain-ai/scolia-ask";
 
 type PendingConfirmation = {
   tool: string;
@@ -399,6 +400,27 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
       setLoading(false);
     }
   };
+
+  const sendRef = useRef(send);
+  sendRef.current = send;
+
+  useEffect(() => {
+    const onAsk = (ev: Event) => {
+      const detail = (ev as CustomEvent<ScoliaAskDetail>).detail;
+      const prompt = detail?.prompt?.trim();
+      if (!prompt) return;
+      setOpen(true);
+      if (detail.autoSend === false) {
+        setInput(prompt);
+        return;
+      }
+      window.setTimeout(() => {
+        void sendRef.current({ message: prompt });
+      }, 50);
+    };
+    window.addEventListener(SCOLIA_ASK_EVENT, onAsk as EventListener);
+    return () => window.removeEventListener(SCOLIA_ASK_EVENT, onAsk as EventListener);
+  }, []);
 
   const confirmPending = () => {
     if (!pendingConfirmation || loading) return;

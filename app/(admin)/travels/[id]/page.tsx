@@ -27,6 +27,7 @@ import {
 } from "@/app/lib/travels-trip-helpers";
 import type { TravelsHubTab, TravelsTrip } from "@/app/lib/travels-types";
 import { TRAVELS_HUB_TABS, TRAVELS_STATUS_LABELS } from "@/app/lib/travels-types";
+import { getTripNextGuidance } from "@/app/lib/travels-next-guidance";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
 import { TripActionsPanel } from "@/app/components/travels/hub/TripActionsPanel";
 import { TripAmendmentJournal } from "@/app/components/travels/hub/TripAmendmentJournal";
@@ -34,6 +35,7 @@ import { TripElevesListPanel } from "@/app/components/travels/hub/TripElevesList
 import { TripHubNav } from "@/app/components/travels/hub/TripHubNav";
 import { TripParentComPanel } from "@/app/components/travels/hub/TripParentComPanel";
 import { TripRemindersBanner } from "@/app/components/travels/hub/TripRemindersBanner";
+import { TripNextStepBanner } from "@/app/components/travels/hub/TripNextStepBanner";
 import TravelsOwnerRepairSection from "@/app/components/travels/TravelsOwnerRepairSection";
 import TravelsComptaSheetForm from "@/app/components/travels/TravelsComptaSheetForm";
 import type { TravelsComptaSheet } from "@/app/lib/travels-compta-sheet";
@@ -138,6 +140,7 @@ export default function TripDetails() {
     canEditEffectif,
     isAdministratif,
     canReassignTripOwner,
+    isGlobalAdmin,
   } = perms;
   const CUISINE_DAYS = CUISINE_DAYS_UI;
   const CUISINE_ROWS = CUISINE_ROWS_UI;
@@ -1248,6 +1251,10 @@ export default function TripDetails() {
     }
   };
   const withBusLogistics = complexNeedsBus(trip);
+  const nextGuidance = useMemo(
+    () => getTripNextGuidance(trip, { isOwner, canSign, isCompta }),
+    [trip, isOwner, canSign, isCompta],
+  );
   const etabForSign = trip.data?.etablissement || "";
   const transportSnapshot = trip.data?.transportQuoteSnapshot;
   const currentEffectifTotal =
@@ -1449,6 +1456,28 @@ export default function TripDetails() {
         currentStatus={trip.status}
         busSignatureOnLogistics={withBusLogistics}
       />
+
+      {nextGuidance ? (
+        <TripNextStepBanner
+          guidance={nextGuidance}
+          onOpenTab={(tab) => {
+            setHubTab(tab);
+            const params = new URLSearchParams(searchParams.toString());
+            if (tab === "overview") params.delete("tab");
+            else params.set("tab", tab);
+            const q = params.toString();
+            router.replace(q ? `/travels/${id}?${q}` : `/travels/${id}`, { scroll: false });
+            if (tab === "overview") {
+              window.setTimeout(() => {
+                document.getElementById("trip-decision-panel")?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+              }, 80);
+            }
+          }}
+        />
+      ) : null}
 
       <div className="mt-4 mb-2">
         <TripHubNav
@@ -2401,6 +2430,7 @@ export default function TripDetails() {
         <TripActionsPanel
           trip={trip}
           canManage={isOwner || canSign}
+          isGlobalAdmin={isGlobalAdmin}
           onTripUpdated={(t) => {
             setTrip(t);
             setEditedData(t.data);

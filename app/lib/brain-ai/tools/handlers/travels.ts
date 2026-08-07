@@ -1,3 +1,8 @@
+import { describeTripWorkflowForAi } from "@/app/lib/travels-next-guidance";
+import {
+  buildTripWorkflowAudit,
+  formatTripAuditForAiPrompt,
+} from "@/app/lib/travels-workflow-audit";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   TRAVELS_STATUS_LABELS,
@@ -88,12 +93,20 @@ export async function handleGetTripStatus(
     if (!trip) {
       const full = await getJson<TravelsTrip>(`travels/${tripId}.json`);
       trip = full?.data;
+    } else {
+      // Index = résumé : recharger le JSON complet pour l’audit (devis, compta…).
+      const full = await getJson<TravelsTrip>(`travels/${tripId}.json`);
+      if (full?.data) trip = full.data;
     }
   } else if (query) {
-    trip = trips.find((t) => {
+    const hit = trips.find((t) => {
       const hay = `${t.data?.title || ""} ${t.data?.destination || ""} ${t.data?.classes || ""}`.toLowerCase();
       return hay.includes(query);
     });
+    if (hit) {
+      const full = await getJson<TravelsTrip>(`travels/${hit.id}.json`);
+      trip = full?.data || hit;
+    }
   } else {
     return { ok: false, error: "Indiquez tripId ou query (titre / destination)." };
   }
@@ -103,10 +116,19 @@ export async function handleGetTripStatus(
   }
 
   const brief = tripBrief(trip);
+  const audit = buildTripWorkflowAudit(trip);
+  const workflowHelp = describeTripWorkflowForAi(trip);
   return {
     ok: true,
-    data: brief,
-    summaryFr: `« ${brief.title} » — ${brief.dates || "dates non renseignées"} — statut : ${brief.statusLabel}.`,
+    data: {
+      ...brief,
+      workflowHelp,
+      audit,
+      auditText: formatTripAuditForAiPrompt(audit),
+    },
+    summaryFr:
+      `« ${brief.title} » — ${brief.dates || "dates non renseignées"} — statut : ${brief.statusLabel}. ` +
+      workflowHelp,
   };
 }
 

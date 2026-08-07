@@ -589,7 +589,12 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- Si un PDF est joint, passe-le à create_photocopie_demand (documentKey / documentFileName).\n` +
     `- Si needsConfirmation : présente uniquement le récap (l'UI a Confirmer / Modifier / Annuler).\n` +
     `- N'invente pas : si l'info manque après les outils, dis-le clairement.\n` +
-    `- Liens en URL complète https://…\n`;
+    `- Liens en URL complète https://…\n` +
+    `Séjours scolaires (travels) :\n` +
+    `- SIMPLE ≠ COMPLEX : SIMPLE n'a pas d'étape devis bus ; COMPLEX avec needsBus=true a Logistique puis Signature.\n` +
+    `- À PROF_LOGISTICS : créateur peut « Choisir » un devis ; direction peut « Choisir et signer ».\n` +
+    `- Si l'utilisateur demande où en est un séjour / quoi faire / ce qui bloque : appelle get_trip_status (tripId) et base-toi sur audit / auditText / projectSnapshot.\n` +
+    `- Conseille concrètement (attendre vs choisir des devis, montants manquants en compta, etc.) sans inventer des champs absents.\n`;
 
   const attachmentNote = (() => {
     const atts = conversationState.slots.attachments;

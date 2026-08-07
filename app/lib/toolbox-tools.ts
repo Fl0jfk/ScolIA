@@ -97,7 +97,7 @@ export function toolboxMetaById(id: ToolboxToolId): ToolboxToolMeta {
 }
 
 /** Liens admin permanents (pas de toggle on/off dans la config). */
-export type ToolboxAdminLinkId = "parametres" | "utilisateurs";
+export type ToolboxAdminLinkId = "parametres";
 
 export type ToolboxAdminLinkMeta = {
   id: ToolboxAdminLinkId;
@@ -114,18 +114,9 @@ export const TOOLBOX_ADMIN_LINKS: ToolboxAdminLinkMeta[] = [
     id: "parametres",
     label: "Paramètres généraux",
     shortLabel: "Param.",
-    description: "Établissements, identité, intégrations et référentiel scolaire.",
+    description: "Établissements, utilisateurs, identité, intégrations et référentiel scolaire.",
     adminPath: "/parametres",
     color: "text-slate-800",
     bg: "bg-slate-100",
-  },
-  {
-    id: "utilisateurs",
-    label: "Utilisateurs",
-    shortLabel: "Users",
-    description: "Comptes Clerk, rôles et accès à l'intranet.",
-    adminPath: "/membres",
-    color: "text-sky-800",
-    bg: "bg-sky-50",
   },
 ];

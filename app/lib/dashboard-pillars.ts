@@ -31,7 +31,13 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     title: "Établissement",
     href: "/etablissement",
     description: "",
-    moduleIds: ["organigramme", "conformite-rgpd", "chatbot-knowledge", "domain-planning"],
+    moduleIds: [
+      "organigramme",
+      "conformite-rgpd",
+      "chatbot-knowledge",
+      "domain-planning",
+      "admin-settings",
+    ],
   },
   {
     id: "services",
@@ -50,8 +56,6 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     ],
   },
 ];
-
-export const DASHBOARD_FOOTER_ADMIN_MODULE_IDS = ["admin-settings", "admin-members"] as const;
 
 export function categoriesForPillar(
   pillar: DashboardPillarDef,

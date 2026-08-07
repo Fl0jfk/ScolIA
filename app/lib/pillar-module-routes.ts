@@ -19,6 +19,7 @@ export const PILLAR_MODULE_HREF: Record<string, string> = {
   covoiturage: "/covoiturage",
   channels: "/channels",
   assistance: "/assistance",
+  "admin-settings": "/parametres",
 };
 
 /** Anciens onglets hub → moduleId (compat `?tab=`). */
@@ -89,6 +90,5 @@ export const MODULE_EMOJI: Record<string, string> = {
   absences: "📅",
   "demandes-hse": "⏱️",
   "admin-settings": "⚙️",
-  "admin-members": "👤",
   "week-sheet": "📰",
 };

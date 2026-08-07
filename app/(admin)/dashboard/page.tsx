@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { motion } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
 import DashboardGlobalNotifications from "@/app/components/Dashboard/DashboardGlobalNotifications";
@@ -15,7 +14,6 @@ import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { hasRole } from "@/app/lib/absences-types";
 import { isEleveBienEtreProfile } from "@/app/lib/bien-etre-profile";
 import {
-  DASHBOARD_FOOTER_ADMIN_MODULE_IDS,
   DASHBOARD_PILLARS,
   pillarHasVisibleModules,
 } from "@/app/lib/dashboard-pillars";
@@ -150,14 +148,6 @@ export default function Home() {
     };
   }, [isLoaded, user, loadSignals]);
 
-  const adminCats = useMemo(
-    () =>
-      dashboardCategories.filter((c) =>
-        (DASHBOARD_FOOTER_ADMIN_MODULE_IDS as readonly string[]).includes(c.moduleId),
-      ),
-    [dashboardCategories],
-  );
-
   const hasPillars = DASHBOARD_PILLARS.some((p) =>
     pillarHasVisibleModules(p, dashboardCategories),
   );
@@ -287,20 +277,6 @@ export default function Home() {
                   </div>
                 )
               )}
-
-              {adminCats.length > 0 ? (
-                <footer className="flex shrink-0 flex-wrap items-center justify-center gap-2 pt-1">
-                  {adminCats.map((c) => (
-                    <Link
-                      key={c.moduleId}
-                      href={c.link}
-                      className="rounded-full border border-white/70 bg-white/55 px-4 py-2 text-xs font-semibold text-[var(--dash-ink)] backdrop-blur transition hover:bg-white/80"
-                    >
-                      {c.name}
-                    </Link>
-                  ))}
-                </footer>
-              ) : null}
             </div>
           </div>
         </main>
@@ -320,7 +296,7 @@ export default function Home() {
                 onClick={() => {
                   window.location.href = "/sign-in";
                 }}
-                className="w-full rounded-2xl bg-gradient-to-r from-[var(--dash-primary)] to-[var(--dash-dark)] px-8 py-4 font-semibold text-white shadow-lg transition hover:brightness-110"
+                className="w-full cursor-pointer rounded-2xl bg-gradient-to-r from-[var(--dash-primary)] to-[var(--dash-dark)] px-8 py-4 font-semibold text-white shadow-lg transition hover:brightness-110"
               >
                 Se connecter
               </button>

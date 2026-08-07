@@ -27,7 +27,10 @@ export default function ElevesHubClient() {
     const roles = intranetRolesFromMetadata(user.publicMetadata);
     const ids = new Set<string>();
     for (const category of data.categories) {
-      if (category.orgAdminOnly && !isOrgAdmin) continue;
+      if (category.orgAdminOnly) {
+        if (isOrgAdmin) ids.add(category.moduleId);
+        continue;
+      }
       if (
         hasGlobalAdminRole(roles) ||
         (category.allowedRoles ?? []).some((r) => hasRole(roles, r))

@@ -2,12 +2,11 @@ import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { NextResponse } from 'next/server';
 
 import { isValidTravelsReopenFromValideStatus } from "@/app/lib/travels-direction-permissions";
-import { getMistralApiKey } from "@/app/lib/tenant-config";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
-import IMAGE_CATALOG from "./image-catalog.json";
+import { selectTravelCoverImage } from "@/app/lib/travels-select-cover-image";
 import { notifyComptaTravelsPhase, type TravelsTripForNotify } from "@/app/lib/travels-notify";
 import { applyTravelsOwnerAssignment } from "@/app/lib/travels-owner-server";
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -33,39 +32,12 @@ export async function POST(req: Request) {
     const objectToSave = body.data; 
     if (!objectToSave.imageUrl) {
       try {
-        const mistralKey = await getMistralApiKey();
-        if (mistralKey) {
-        const catalogSummary = IMAGE_CATALOG.map(i => `${i.id} (${i.label})`).join(", ");
-        const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${mistralKey}`
-          },
-          body: JSON.stringify({
-            model: "mistral-small-latest",
-            messages: [
-              { 
-                role: "system", 
-                content: `Choisis l'ID exact parmis : ${catalogSummary}. Réponds uniquement par l'ID. Sinon "img_default".` 
-              },
-              { 
-                role: "user", 
-                content: `DONNÉES À ANALYSER : - TITRE : "${title}" - LIEU : "${destination}"` 
-              }
-            ],
-            temperature: 0
-          })
-        });
-        const resData = await response.json();
-        const mistralChoice = resData.choices?.[0]?.message?.content?.trim();
-        const matchedImage = IMAGE_CATALOG.find(img => 
-          img.id.toLowerCase().replace(/[^a-z0-9]/g, '') === mistralChoice?.toLowerCase().replace(/[^a-z0-9]/g, '')
-        ) || IMAGE_CATALOG.find(img => img.id === "img_default") || IMAGE_CATALOG[0];
+        const matchedImage = await selectTravelCoverImage({ title, destination });
         objectToSave.imageUrl = matchedImage.url;
         objectToSave.imageConfigId = matchedImage.id;
-        }
-      } catch (err) { console.error("Erreur IA:", err)}
+      } catch (err) {
+        console.error("Erreur IA:", err);
+      }
     }
     const tripRel = `travels/${tripId}.json`;
     const existingHit = await getJson<Record<string, unknown>>(tripRel);

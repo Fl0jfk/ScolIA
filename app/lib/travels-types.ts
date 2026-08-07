@@ -190,6 +190,7 @@ export type TravelsTrip = {
   createdAt?: string;
   updatedAt?: string;
   imageUrl?: string;
+  imageConfigId?: string;
   data: TravelsTripData;
   receivedDevis?: Record<string, unknown>[];
   history?: TravelsHistoryEntry[];

@@ -78,7 +78,10 @@ export const BRAIN_TOOLS: BrainToolDefinition[] = [
   },
   {
     name: "get_trip_status",
-    description: "Statut d'un séjour par id ou recherche texte (titre/destination).",
+    description:
+      "Analyse complète d’un séjour scolaire (JSON + étape workflow + manques + conseils). " +
+      "À appeler dès qu’on parle d’un dossier travels : qui doit agir, devis reçus, blocage compta, SIMPLE vs COMPLEX. " +
+      "Paramètres : tripId (préféré) ou query (titre/destination).",
     parameters: {
       type: "object",
       properties: {

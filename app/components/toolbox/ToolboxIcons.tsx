@@ -153,8 +153,6 @@ export function renderToolboxAdminIcon(id: ToolboxAdminLinkId, className?: strin
   switch (id) {
     case "parametres":
       return <ParametresToolboxIcon className={className} />;
-    case "utilisateurs":
-      return <UtilisateursToolboxIcon className={className} />;
     default:
       return <ToolboxFolderIcon className={className} />;
   }

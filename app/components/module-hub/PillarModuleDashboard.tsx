@@ -270,8 +270,7 @@ function ModuleCard({
           </div>
           <Link
             href={href}
-            className="shrink-0 !cursor-pointer rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] shadow-sm backdrop-blur transition hover:bg-white"
-            style={{ cursor: "pointer" }}
+            className="shrink-0 cursor-pointer rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] shadow-sm backdrop-blur transition hover:bg-white"
           >
             Ouvrir →
           </Link>
@@ -286,7 +285,7 @@ function ModuleCard({
                 <Link
                   key={line.id}
                   href={line.href || href}
-                  className="flex items-start gap-2 rounded-xl border border-white/60 bg-white/55 px-2.5 py-2.5 transition hover:bg-white/85"
+                  className="flex cursor-pointer items-start gap-2 rounded-xl border border-white/60 bg-white/55 px-2.5 py-2.5 transition hover:bg-white/85"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[13px] font-semibold text-[var(--dash-ink)]">

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { DashboardCategory } from "@/app/lib/intranet-modules";
 import {
@@ -9,7 +10,7 @@ import {
   type DashboardPillarDef,
   type DashboardPillarId,
 } from "@/app/lib/dashboard-pillars";
-import type { DashboardShortcut } from "@/app/lib/dashboard-signals";
+import type { DashboardShortcut, DashboardShortcutSlide } from "@/app/lib/dashboard-signals";
 import { MODULE_EMOJI } from "@/app/lib/pillar-module-routes";
 
 type Props = {
@@ -32,6 +33,137 @@ const PILLAR_EMOJI: Record<DashboardPillarId, string> = {
   services: "🛠️",
 };
 
+function slideTextColor(hex: string): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return "#ffffff";
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  return lum > 0.45 ? "#0f172a" : "#ffffff";
+}
+
+function ShortcutSlidesCarousel({
+  slides,
+  href,
+  highlight,
+  chip = "En cours",
+  emoji = "🚪",
+  fallbackColor = "#475569",
+}: {
+  slides: DashboardShortcutSlide[];
+  href: string;
+  highlight?: boolean;
+  chip?: string;
+  emoji?: string;
+  fallbackColor?: string;
+}) {
+  const [index, setIndex] = useState(0);
+
+  const slideKey = slides.map((s) => s.id).join("|");
+
+  useEffect(() => {
+    setIndex(0);
+  }, [slideKey]);
+
+  useEffect(() => {
+    if (slides.length <= 1) return;
+    const id = window.setInterval(() => {
+      setIndex((i) => (i + 1) % slides.length);
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [slides.length, slideKey]);
+
+  const slide = slides[index] ?? slides[0]!;
+  const bg = slide.colorHex || fallbackColor;
+  const fg = slideTextColor(bg);
+  const linkHref = slide.href || href;
+
+  return (
+    <motion.div
+      layout
+      className="col-span-2"
+      initial={highlight ? { scale: 0.97, opacity: 0.45 } : false}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: "spring", stiffness: 380, damping: 28 }}
+    >
+      <Link
+        href={linkHref}
+        className="group relative block cursor-pointer overflow-hidden rounded-xl border border-white/70 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5"
+      >
+        {highlight ? (
+          <motion.span
+            className="pointer-events-none absolute inset-0 bg-white/25 z-10"
+            initial={{ opacity: 0.8 }}
+            animate={{ opacity: 0 }}
+            transition={{ duration: 1.4 }}
+          />
+        ) : null}
+        <div className="relative min-h-[3.25rem] px-2.5 py-2" style={{ backgroundColor: bg, color: fg }}>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={slide.id}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.28 }}
+              className="flex items-center gap-2"
+            >
+              <span
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm leading-none"
+                style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+                aria-hidden
+              >
+                {emoji}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <p className="truncate text-[12px] font-black uppercase tracking-tight">{slide.label}</p>
+                  <span
+                    className="shrink-0 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide"
+                    style={{ backgroundColor: "rgba(255,255,255,0.22)" }}
+                  >
+                    {chip}
+                  </span>
+                </div>
+                {slide.detail ? (
+                  <p className="mt-0.5 truncate text-[10px] font-semibold leading-snug opacity-90">
+                    {slide.detail}
+                  </p>
+                ) : null}
+              </div>
+              {slide.badge ? (
+                <span
+                  className="relative shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold"
+                  style={{ backgroundColor: "rgba(255,255,255,0.22)" }}
+                >
+                  {slide.badge}
+                </span>
+              ) : null}
+            </motion.div>
+          </AnimatePresence>
+          {slides.length > 1 ? (
+            <div className="mt-1.5 flex items-center justify-center gap-1">
+              {slides.map((s, i) => (
+                <span
+                  key={s.id}
+                  className="h-1 rounded-full transition-all"
+                  style={{
+                    width: i === index ? 10 : 4,
+                    backgroundColor: fg,
+                    opacity: i === index ? 0.95 : 0.35,
+                  }}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </Link>
+    </motion.div>
+  );
+}
+
 function ShortcutTile({
   item,
   highlight,
@@ -41,6 +173,20 @@ function ShortcutTile({
   highlight?: boolean;
   fullWidth?: boolean;
 }) {
+  if (item.slides && item.slides.length > 0) {
+    const isTravels = item.moduleId === "travels";
+    return (
+      <ShortcutSlidesCarousel
+        slides={item.slides}
+        href={item.href}
+        highlight={highlight}
+        chip={isTravels ? "Aujourd'hui" : "En cours"}
+        emoji={MODULE_EMOJI[item.moduleId] || (isTravels ? "🚌" : "🚪")}
+        fallbackColor={isTravels ? "#0284c7" : "#475569"}
+      />
+    );
+  }
+
   const emoji = MODULE_EMOJI[item.moduleId] || "›";
 
   return (
@@ -53,12 +199,11 @@ function ShortcutTile({
     >
       <Link
         href={item.href}
-        className={`group relative flex !cursor-pointer items-center gap-2 overflow-hidden rounded-xl border transition hover:-translate-y-0.5 ${
+        className={`group relative flex cursor-pointer items-center gap-2 overflow-hidden rounded-xl border transition hover:-translate-y-0.5 ${
           item.rich
             ? "border-white/70 bg-white/80 px-2.5 py-2.5 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] backdrop-blur-md hover:bg-white"
             : "border-transparent bg-white/40 px-2 py-2 hover:border-white/70 hover:bg-white/70"
         }`}
-        style={{ cursor: "pointer" }}
       >
         {highlight ? (
           <motion.span
@@ -77,7 +222,7 @@ function ShortcutTile({
           <p className="truncate text-[12px] font-semibold tracking-tight text-[var(--dash-ink)]">
             {item.label}
           </p>
-          {item.rich && item.detail ? (
+          {item.detail ? (
             <p className="mt-0.5 line-clamp-1 text-[10px] leading-snug text-[var(--dash-mid)]">
               {item.detail}
             </p>
@@ -148,8 +293,7 @@ function PillarCard({
           </div>
           <Link
             href={pillar.href}
-            className="shrink-0 !cursor-pointer rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] shadow-sm backdrop-blur transition hover:bg-white"
-            style={{ cursor: "pointer" }}
+            className="shrink-0 cursor-pointer rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] shadow-sm backdrop-blur transition hover:bg-white"
           >
             Ouvrir →
           </Link>

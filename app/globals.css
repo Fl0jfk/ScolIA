@@ -28,16 +28,30 @@
 
 body { font-family: Arial, Helvetica, sans-serif}
 
-/* Liens / boutons : curseur pointer fiable (Next Link + enfants) */
-a,
-a *,
-button,
-button *,
-[role="link"],
-[role="link"] *,
-[role="button"],
-[role="button"] * {
-  cursor: pointer !important;
+/*
+  Tailwind v4 retire cursor:pointer des boutons (preflight).
+  On le restaure en @layer base (priorité !important > utilities),
+  y compris pour les Next <Link> (= <a>) et leurs enfants.
+*/
+@layer base {
+  a[href],
+  a[href] *,
+  button:not(:disabled),
+  button:not(:disabled) *,
+  [role="link"],
+  [role="link"] *,
+  [role="button"]:not([aria-disabled="true"]),
+  [role="button"]:not([aria-disabled="true"]) *,
+  summary {
+    cursor: pointer !important;
+  }
+
+  button:disabled,
+  button:disabled *,
+  [role="button"][aria-disabled="true"],
+  [role="button"][aria-disabled="true"] * {
+    cursor: default !important;
+  }
 }
 
 /* Fallback thème dashboard (surchargé par DashboardThemeRoot) */
