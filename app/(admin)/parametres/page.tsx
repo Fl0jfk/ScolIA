@@ -57,6 +57,8 @@ export default function ParametresPage() {
   const [mefEcole, setMefEcole] = useState("");
   const [mefMessage, setMefMessage] = useState<string | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  /** URL signée pour l’aperçu (headerLogoUrl en config = clé S3, non affichable telle quelle). */
+  const [headerLogoPreviewUrl, setHeaderLogoPreviewUrl] = useState<string | null>(null);
   const [uploadingSignatureId, setUploadingSignatureId] = useState<string | null>(null);
   const [profRoomAdminIds, setProfRoomAdminIds] = useState<string[]>([]);
   const [clerkMembers, setClerkMembers] = useState<ClerkMemberOption[]>([]);
@@ -97,6 +99,11 @@ export default function ParametresPage() {
         const j = await res.json();
         if (!res.ok) throw new Error(j.error || "Chargement impossible");
         setIdentity(j.config?.identity || {});
+        setHeaderLogoPreviewUrl(
+          typeof j.headerLogoPreviewUrl === "string" && j.headerLogoPreviewUrl
+            ? j.headerLogoPreviewUrl
+            : null,
+        );
         setEstablishments(
           (j.config?.establishments || []).map((e: Record<string, unknown>) => ({
             id: String(e.id || ""),
@@ -222,6 +229,11 @@ export default function ParametresPage() {
 
       const nextIdentity = { ...identity, headerLogoUrl: prepJson.fileUrl as string };
       setIdentity(nextIdentity);
+      setHeaderLogoPreviewUrl(
+        typeof prepJson.previewUrl === "string" && prepJson.previewUrl
+          ? prepJson.previewUrl
+          : null,
+      );
 
       const saveRes = await fetch("/api/settings/site", {
         method: "PUT",
@@ -312,6 +324,7 @@ export default function ParametresPage() {
     const nextIdentity = { ...identity };
     delete nextIdentity.headerLogoUrl;
     setIdentity(nextIdentity);
+    setHeaderLogoPreviewUrl(null);
     await saveSection("site", nextIdentity);
   };
 
@@ -585,12 +598,16 @@ export default function ParametresPage() {
             </p>
             {identity.headerLogoUrl ? (
               <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl border">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={String(identity.headerLogoUrl)}
-                  alt="Aperçu logo"
-                  className="max-h-16 w-auto object-contain"
-                />
+                {headerLogoPreviewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={headerLogoPreviewUrl}
+                    alt="Aperçu logo"
+                    className="max-h-16 w-auto object-contain"
+                  />
+                ) : (
+                  <p className="text-xs text-amber-700">Aperçu indisponible (clé S3 enregistrée).</p>
+                )}
                 <button
                   type="button"
                   onClick={removeHeaderLogo}

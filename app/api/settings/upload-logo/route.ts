@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireAdmin } from "@/app/lib/intranet-auth";
+import { loadAppConfig } from "@/app/lib/app-config";
+import { resolveHeaderLogoDisplayUrl } from "@/app/lib/branding-logo";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName, getSignedReadUrl } from "@/app/lib/s3-storage";
 import { s3Key } from "@/app/lib/s3-path";
@@ -15,6 +17,15 @@ const ALLOWED_TYPES = new Set([
 
 function safeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80) || "logo";
+}
+
+/** Aperçu signé du logo header actuel. */
+export async function GET() {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
+  const config = await loadAppConfig();
+  const previewUrl = await resolveHeaderLogoDisplayUrl(config.identity.headerLogoUrl);
+  return NextResponse.json({ previewUrl });
 }
 
 export async function POST(req: Request) {
