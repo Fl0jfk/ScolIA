@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     const canCreate =
       norm.some((r) => r.includes("professeur")) ||
       norm.some((r) => r.includes("administratif")) ||
-      norm.some((r) => r.includes("education"));
+      norm.some((r) => r.includes("education") || r === "cpe");
     if (!canCreate) {
       return NextResponse.json({ error: "Accès réservé aux demandeurs." }, { status: 403 });
     }

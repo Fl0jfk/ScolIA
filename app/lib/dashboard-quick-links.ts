@@ -10,6 +10,7 @@ export const DEFAULT_QUICK_LINK_ROLES = [
   "direction_lycee",
   "comptabilite",
   "education",
+  "cpe",
   "maintenance",
   "infirmerie",
 ] as const;

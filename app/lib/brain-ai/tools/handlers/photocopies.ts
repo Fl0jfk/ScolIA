@@ -50,7 +50,7 @@ function getRoleFlags(roles: string[]) {
     isDirectionLycee: n.some((r) => r.includes("direction") && r.includes("lycee")),
     isAdministratif: n.some((r) => r.includes("administratif")),
     isProfesseur: n.some((r) => r.includes("professeur")),
-    isEducation: n.some((r) => r.includes("education")),
+    isEducation: n.some((r) => r.includes("education") || r === "cpe"),
   };
 }
 

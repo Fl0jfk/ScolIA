@@ -6,7 +6,12 @@ export const PERSONNEL_OPEN_ACCESS = true;
 
 export type { PersonnelProfile };
 
-export type PersonnelCategory = "administratif" | "maintenance" | "education" | "comptabilite";
+export type PersonnelCategory =
+  | "administratif"
+  | "maintenance"
+  | "education"
+  | "cpe"
+  | "comptabilite";
 
 export type DocumentVisibility = "personnel" | "establishment" | "restricted";
 
@@ -200,12 +205,19 @@ export const PERSONNEL_SHARED_DOCS_KEY = "personnel-ogec/shared-documents.json";
 export const PERSONNEL_LEAVES_KEY = "personnel-ogec/leave-requests.json";
 export const PERSONNEL_SIGNATURE_TOKEN_PREFIX = "personnel-ogec/signature-tokens/";
 
-export const OGEC_STAFF_ROLES = ["administratif", "maintenance", "education", "comptabilite"] as const;
+export const OGEC_STAFF_ROLES = [
+  "administratif",
+  "maintenance",
+  "education",
+  "cpe",
+  "comptabilite",
+] as const;
 
 export const PERSONNEL_CATEGORY_LABELS: Record<PersonnelCategory, string> = {
   administratif: "Administratif",
   maintenance: "Maintenance",
-  education: "Éducation",
+  education: "Éducation / surveillance",
+  cpe: "CPE",
   comptabilite: "Comptabilité",
 };
 
@@ -223,6 +235,7 @@ export function getPersonnelRoleFlags(roles: string[]) {
     isAdministratif: hasRole(roles, "administratif"),
     isMaintenance: hasRole(roles, "maintenance"),
     isEducation: hasRole(roles, "education"),
+    isCpe: hasRole(roles, "cpe"),
     isDirectionEcole: hasRole(roles, "direction_ecole"),
     isDirectionCollege: hasRole(roles, "direction_college"),
     isDirectionLycee: hasRole(roles, "direction_lycee"),
@@ -263,6 +276,7 @@ export function canAccessPersonnelModule(_roles: string[]) {
 export function inferCategoryFromRoles(roles: string[]): PersonnelCategory | null {
   if (hasRole(roles, "comptabilite")) return "comptabilite";
   if (hasRole(roles, "maintenance")) return "maintenance";
+  if (hasRole(roles, "cpe")) return "cpe";
   if (hasRole(roles, "education")) return "education";
   if (hasRole(roles, "administratif")) return "administratif";
   if (
@@ -379,9 +393,9 @@ export function normalizePersonnelRecord(raw: unknown): PersonnelRecord {
   const id = str(o.id).trim() || uid("p");
   const firstName = str(o.firstName).trim();
   const lastName = str(o.lastName).trim();
-  const category = (["administratif", "maintenance", "education", "comptabilite"] as const).includes(
-    o.category as PersonnelCategory,
-  )
+  const category = (
+    ["administratif", "maintenance", "education", "cpe", "comptabilite"] as const
+  ).includes(o.category as PersonnelCategory)
     ? (o.category as PersonnelCategory)
     : "administratif";
 
@@ -422,7 +436,8 @@ export function normalizePersonnelRecord(raw: unknown): PersonnelRecord {
 
 export const PERSONNEL_CATEGORY_OPTIONS: { value: PersonnelCategory; label: string }[] = [
   { value: "administratif", label: "Administratif" },
-  { value: "education", label: "Éducation" },
+  { value: "cpe", label: "CPE" },
+  { value: "education", label: "Éducation / surveillance" },
   { value: "comptabilite", label: "Comptabilité" },
   { value: "maintenance", label: "Maintenance" },
 ];

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { loadAppConfig } from "@/app/lib/app-config";
 import { listClerkMembers } from "@/app/lib/clerk-users";
 import { normalizeIntranetRoles } from "@/app/lib/intranet-roles";
 import { hasRole } from "@/app/lib/intranet-role-utils";
@@ -163,6 +164,14 @@ export async function GET(req: Request) {
       ? estimateAnnualBalance(planning)
       : null;
 
+  let schoolHolidayZone: "A" | "B" | "C" | null = null;
+  try {
+    const cfg = await loadAppConfig();
+    schoolHolidayZone = cfg.identity.schoolHolidayZone ?? null;
+  } catch {
+    schoolHolidayZone = null;
+  }
+
   return NextResponse.json({
     kind,
     personnelId: subjectId,
@@ -172,6 +181,7 @@ export async function GET(req: Request) {
     balance,
     canEdit,
     canManage,
+    schoolHolidayZone,
   });
 }
 

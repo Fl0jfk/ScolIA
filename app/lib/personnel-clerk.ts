@@ -11,6 +11,7 @@ import {
 export const RH_OGEC_CLERK_ROLES = [
   "administratif",
   "education",
+  "cpe",
   "comptabilite",
   "maintenance",
   "direction_ecole",

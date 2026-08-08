@@ -17,6 +17,7 @@ export function resolveStageViewerRole(roles: string[]): StageViewerRole | null 
   if (roles.includes("professeur")) return "professeur";
   if (
     roles.includes("education") ||
+    roles.includes("cpe") ||
     roles.includes("comptabilite") ||
     roles.includes("maintenance")
   ) {
@@ -34,7 +35,7 @@ export function canReviewPreconvention(roles: string[]) {
 }
 
 export function canViewAllConventions(roles: string[]) {
-  return canReviewPreconvention(roles) || roles.includes("education");
+  return canReviewPreconvention(roles) || roles.includes("education") || roles.includes("cpe");
 }
 
 export function canViewReferentConventions(roles: string[]) {
@@ -46,7 +47,12 @@ export function canCreateOffer(roles: string[]) {
 }
 
 export function canCreateConventionAsStaff(roles: string[]) {
-  return canReviewPreconvention(roles) || roles.includes("professeur") || roles.includes("education");
+  return (
+    canReviewPreconvention(roles) ||
+    roles.includes("professeur") ||
+    roles.includes("education") ||
+    roles.includes("cpe")
+  );
 }
 
 /** Envoi convention signée vers dossier élève OneDrive (flux OCR). */

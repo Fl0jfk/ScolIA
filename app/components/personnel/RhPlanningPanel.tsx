@@ -440,13 +440,14 @@ export default function RhPlanningPanel() {
         ) : null}
         {!loading && kind === "staff" && staff?.mode === "fixed" ? (
           <p className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-            Semaine type annuelle — adaptez vos horaires jour par jour si besoin (avance sur le quota).
+            Semaine type annuelle (admin, compta, CPE…) — exceptions jour / avance sur le quota
+            possible. Pas le même modèle que la surveillance (missions liées aux élèves).
           </p>
         ) : null}
         {!loading && kind === "staff" && staff?.mode === "rotation" ? (
           <p className="text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
-            Missions & lieux dans l’établissement (entrée, cour, étude…) — rechargeable souvent via
-            PDF.
+            Missions & lieux (entrée, cour, étude…) pour l’éducation / surveillance — engagés sur
+            le temps de présence des élèves ; rechargeable souvent via PDF.
           </p>
         ) : null}
 
@@ -586,7 +587,7 @@ export default function RhPlanningPanel() {
                       onClick={() => setEditMode(true)}
                       className="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700"
                     >
-                      Éditer
+                      Éditer mon horaire type
                     </button>
                   ) : (
                     <>

@@ -130,7 +130,8 @@ export function StaffExceptionsPanel({
       <div>
         <p className="text-xs font-black uppercase tracking-wide text-amber-800">Ajuster un jour</p>
         <p className="text-[11px] text-amber-900/80 mt-0.5">
-          Ex. arriver / partir plus tôt (avance sur le quota annuel) — pas forcément des heures payées.
+          Admin, compta, CPE : arriver / partir plus tôt (avance sur le quota annuel) — pas forcément
+          des heures payées. Pas applicable au modèle missions / surveillance.
         </p>
       </div>
       {canEdit ? (

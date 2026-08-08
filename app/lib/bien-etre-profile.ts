@@ -11,6 +11,7 @@ const STAFF_ROLE_SLUGS = new Set([
   "maintenance",
   "infirmerie",
   "education",
+  "cpe",
   "parent",
   "master",
 ]);

@@ -114,6 +114,13 @@ export type DashboardSignalsInput = {
   weekSheet?: WeekSheetData | null;
   /** true si l’utilisateur a déjà soumis le pulse RH du jour. */
   moodPulseSubmittedToday?: boolean;
+  /** Activité en cours d’après le planning RH. */
+  planningNow?: {
+    title: string;
+    detail: string;
+    start: string;
+    end: string;
+  } | null;
 };
 
 function weekDayFromDateKey(dateKey: string): WeekDayKey | null {
@@ -151,6 +158,7 @@ function canSeeTodayTripHighlight(roles: string[]): boolean {
   return (
     hasRole(roles, "administratif") ||
     hasRole(roles, "education") ||
+    hasRole(roles, "cpe") ||
     hasRole(roles, "professeur")
   );
 }
@@ -569,29 +577,55 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   }
 
   // —— RH : Absences ——
-  if (has("rh")) {
-    shortcuts.push({
-      id: "rh-mon-espace",
-      pillarId: "rh",
-      moduleId: "rh",
-      href: "/rh?tab=dashboard",
-      label: "Mon espace",
-    });
-
-    if (!input.moodPulseSubmittedToday) {
+  if (has("rh") || has("mon-planning")) {
+    if (has("mon-planning")) {
       shortcuts.push({
-        id: "rh-mood-pulse",
+        id: "mon-planning",
         pillarId: "rh",
-        moduleId: "rh",
-        href: "/rh?tab=dashboard",
-        label: "Comment je me sens",
-        rich: true,
-        detail: "Note anonyme du jour — 30 secondes",
-        tone: "action",
+        moduleId: "mon-planning",
+        href: "/mon-planning",
+        label: "Mon planning",
       });
     }
 
-    if (canViewCalendar(roles)) {
+    if (input.planningNow) {
+      shortcuts.push({
+        id: "planning-now",
+        pillarId: "rh",
+        moduleId: "mon-planning",
+        href: "/mon-planning",
+        label: input.planningNow.title,
+        rich: true,
+        detail: input.planningNow.detail,
+        badge: `${input.planningNow.start}–${input.planningNow.end}`,
+        tone: "info",
+      });
+    }
+
+    if (has("rh")) {
+      shortcuts.push({
+        id: "rh-mon-espace",
+        pillarId: "rh",
+        moduleId: "rh",
+        href: "/rh?tab=dashboard",
+        label: "Mon espace",
+      });
+
+      if (!input.moodPulseSubmittedToday) {
+        shortcuts.push({
+          id: "rh-mood-pulse",
+          pillarId: "rh",
+          moduleId: "rh",
+          href: "/rh?tab=dashboard",
+          label: "Comment je me sens",
+          rich: true,
+          detail: "Note anonyme du jour — 30 secondes",
+          tone: "action",
+        });
+      }
+    }
+
+    if (has("rh") && canViewCalendar(roles)) {
       const flags = getRoleFlags(roles);
       let scoped = absences;
       let labelSingular = "personne absente";
@@ -658,7 +692,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
               : `${pendingManager.length} absences en attente de votre décision`,
         });
       }
-    } else {
+    } else if (has("rh")) {
       shortcuts.push({
         id: "absences",
         pillarId: "rh",
@@ -669,7 +703,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
 
     // HSE
-    if (canAccessHseModule(roles)) {
+    if (has("rh") && canAccessHseModule(roles)) {
       const hseFlags = getHseRoleFlags(roles);
       const isDir =
         hseFlags.isDirectionEcole || hseFlags.isDirectionCollege || hseFlags.isDirectionLycee;
@@ -968,6 +1002,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   // —— Établissement : stables ——
   const stableEtab: Array<{ moduleId: string; label: string }> = [
     { moduleId: "organigramme", label: "Annuaire de l'établissement" },
+    { moduleId: "evenements", label: "Événements" },
+    { moduleId: "identite", label: "Identité" },
     { moduleId: "conformite-rgpd", label: "Conformité RGPD" },
     { moduleId: "chatbot-knowledge", label: "Brain AI" },
     { moduleId: "domain-planning", label: "Enseignements transversaux" },

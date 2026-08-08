@@ -126,7 +126,7 @@ export function getRoleFlags(roles: string[]) {
     isDirectionLycee: hasToken("direction lycee") || hasRole(roles, "directionlycee"),
     isCompta: hasToken("compta") || hasToken("comptabilite") || hasRole(roles, "comptabilite"),
     isAdministratif: hasToken("administratif"),
-    isEducation: hasToken("education"),
+    isEducation: hasToken("education") || hasRole(roles, "cpe"),
   };
 }
 
@@ -136,7 +136,7 @@ export function canViewCalendar(roles: string[]) {
   if (flags.isCompta) return true;
   const normalized = roles.map((r) => normRoleSpaced(r));
   return normalized.some((r) =>
-    ["administratif", "direction ecole", "direction college", "direction lycee", "education"].some((allowed) =>
+    ["administratif", "direction ecole", "direction college", "direction lycee", "education", "cpe"].some((allowed) =>
       r.includes(allowed),
     ),
   );

@@ -1,4 +1,5 @@
 import { parseDashboardAccent } from "@/app/lib/dashboard-brand-presets";
+import type { SchoolHolidayZone } from "@/app/lib/fr-school-holidays";
 
 export type OrganizationKind = "standalone" | "groupe";
 
@@ -15,6 +16,11 @@ export type SiteIdentity = {
   /** Dernière étape validée dans l'assistant (1–12). */
   onboardingStep?: number;
   assistanceEmail?: string;
+  /**
+   * Zone de vacances scolaires (MEN). Non présélectionnée :
+   * à configurer dans Paramètres → Identité.
+   */
+  schoolHolidayZone?: SchoolHolidayZone;
   address?: {
     street?: string;
     city?: string;
@@ -317,6 +323,10 @@ export function parseSiteIdentity(raw: unknown, opts?: { allowEmptyName?: boolea
     reglementFinancier: str(o.reglementFinancier) || undefined,
     headerLogoUrl: str(o.headerLogoUrl).trim() || undefined,
     dashboardAccent: parseDashboardAccent(o.dashboardAccent),
+    schoolHolidayZone: (() => {
+      const z = str(o.schoolHolidayZone).trim().toUpperCase();
+      return z === "A" || z === "B" || z === "C" ? (z as SchoolHolidayZone) : undefined;
+    })(),
   };
 }
 

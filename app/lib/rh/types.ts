@@ -14,6 +14,7 @@ export type RhCategory =
   | "administratif"
   | "maintenance"
   | "education"
+  | "cpe"
   | "comptabilite"
   | "professeur"
   | "direction";
@@ -200,7 +201,8 @@ export type MetaRhDocument = {
 export const RH_CATEGORY_LABELS: Record<RhCategory, string> = {
   administratif: "Administratif",
   maintenance: "Maintenance",
-  education: "Éducation",
+  education: "Éducation / surveillance",
+  cpe: "CPE",
   comptabilite: "Comptabilité",
   professeur: "Professeur",
   direction: "Direction",

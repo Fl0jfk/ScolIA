@@ -64,6 +64,7 @@ export function laprovidenceSiteIdentity(): SiteIdentity {
     preinscriptionUrl: SCHOOL.preinscriptionUrl,
     reglementFinancier: SCHOOL.reglementFinancier,
     assistanceEmail: PLATFORM_ASSISTANCE_EMAIL,
+    schoolHolidayZone: "B",
   };
 }
 

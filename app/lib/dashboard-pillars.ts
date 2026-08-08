@@ -24,7 +24,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     title: "RH",
     href: "/rh",
     description: "",
-    moduleIds: ["rh"],
+    moduleIds: ["rh", "mon-planning"],
   },
   {
     id: "etablissement",
@@ -74,7 +74,7 @@ export function pillarHasVisibleModules(
   categories: DashboardCategory[],
 ): boolean {
   if (pillar.id === "rh") {
-    return categories.some((c) => c.moduleId === "rh");
+    return categories.some((c) => c.moduleId === "rh" || c.moduleId === "mon-planning");
   }
   return categoriesForPillar(pillar, categories).length > 0;
 }

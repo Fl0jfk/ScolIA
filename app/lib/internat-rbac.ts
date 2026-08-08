@@ -5,6 +5,7 @@ export function canAccessInternatModule(roles: string[]) {
   if (hasGlobalAdminRole(roles)) return true;
   return (
     hasRole(roles, "education") ||
+    hasRole(roles, "cpe") ||
     hasRole(roles, "administratif") ||
     hasRole(roles, "directioncollege") ||
     hasRole(roles, "directionlycee")
@@ -13,7 +14,7 @@ export function canAccessInternatModule(roles: string[]) {
 
 /** Signal dashboard « appel du soir » : réservé à la vie scolaire / éducation. */
 export function canSeeInternatRollCallSignal(roles: string[]) {
-  return hasRole(roles, "education");
+  return hasRole(roles, "education") || hasRole(roles, "cpe");
 }
 
 export function canAccessInternatFromMetadata(meta: unknown) {
@@ -25,6 +26,7 @@ export function canManageInternatConfig(roles: string[]) {
   if (hasGlobalAdminRole(roles)) return true;
   return (
     hasRole(roles, "education") ||
+    hasRole(roles, "cpe") ||
     hasRole(roles, "administratif") ||
     hasRole(roles, "directioncollege") ||
     hasRole(roles, "directionlycee")

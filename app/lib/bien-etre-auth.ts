@@ -7,7 +7,7 @@ import { hasEleveRole, hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-ro
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 
-const REFERENT_ROLES = [...INTRANET_DIRECTION_SLUGS, "administratif", "education"];
+const REFERENT_ROLES = [...INTRANET_DIRECTION_SLUGS, "administratif", "education", "cpe"];
 
 export async function requireEleveAuth(): Promise<
   { ok: true; ctx: AuthContext } | { ok: false; response: NextResponse }

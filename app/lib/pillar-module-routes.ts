@@ -10,6 +10,7 @@ export const PILLAR_MODULE_HREF: Record<string, string> = {
   organigramme: "/organigramme",
   evenements: "/etablissement/evenements",
   identite: "/parametres?tab=site",
+  "mon-planning": "/mon-planning",
   "conformite-rgpd": "/conformite-rgpd",
   "chatbot-knowledge": "/chatbot-knowledge",
   "domain-planning": "/domain-planning",
@@ -54,7 +55,9 @@ export const PILLAR_TAB_TO_MODULE: Record<
     salons: "channels",
     assistance: "assistance",
   },
-  rh: {},
+  rh: {
+    planning: "mon-planning",
+  },
 };
 
 export function moduleHref(moduleId: string, fallback = "/dashboard"): string {
@@ -81,6 +84,7 @@ export const MODULE_EMOJI: Record<string, string> = {
   organigramme: "🗺️",
   evenements: "🎉",
   identite: "🏫",
+  "mon-planning": "📅",
   "conformite-rgpd": "🔒",
   "chatbot-knowledge": "🧠",
   "domain-planning": "📚",

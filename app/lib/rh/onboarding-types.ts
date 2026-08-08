@@ -170,6 +170,7 @@ export function normalizeRhOnboardingForm(raw: unknown): RhOnboardingFormData | 
     category:
       o.category === "administratif" ||
       o.category === "education" ||
+      o.category === "cpe" ||
       o.category === "comptabilite" ||
       o.category === "maintenance" ||
       o.category === "professeur" ||

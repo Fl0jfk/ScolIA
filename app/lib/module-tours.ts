@@ -309,7 +309,7 @@ export const MODULE_TOURS: ModuleTourDefinition[] = [
   {
     moduleId: "internat",
     title: "Internat",
-    audienceRoles: ["administratif", "direction_ecole", "direction_college", "direction_lycee", "education", "admin"],
+    audienceRoles: ["administratif", "direction_ecole", "direction_college", "direction_lycee", "education", "cpe", "admin"],
     steps: [
       {
         title: "Gestion internat",

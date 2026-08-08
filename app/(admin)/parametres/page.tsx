@@ -399,6 +399,35 @@ export default function ParametresPage() {
             value={String(identity.shortName || "")}
             onChange={(e) => setIdentity({ ...identity, shortName: e.target.value })}
           />
+          <label className="block text-sm font-bold text-slate-600">
+            Zone de vacances scolaires
+          </label>
+          <p className="text-xs text-slate-500 -mt-2">
+            Calendrier officiel MEN (zones A, B ou C). Exemple : Normandie = zone B. Requis pour
+            afficher les vacances sur les plannings.
+          </p>
+          <select
+            className="w-full border rounded-xl p-3 bg-white"
+            value={String(identity.schoolHolidayZone || "")}
+            onChange={(e) => {
+              const v = e.target.value;
+              setIdentity({
+                ...identity,
+                schoolHolidayZone: v === "A" || v === "B" || v === "C" ? v : undefined,
+              });
+            }}
+          >
+            <option value="">— Choisir la zone —</option>
+            <option value="A">Zone A (ex. Lyon, Clermont, Montpellier…)</option>
+            <option value="B">Zone B (ex. Normandie, Lille, Nantes, Rennes…)</option>
+            <option value="C">Zone C (ex. Paris, Versailles, Créteil…)</option>
+          </select>
+          {!identity.schoolHolidayZone ? (
+            <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Zone non configurée — les vacances scolaires ne s&apos;afficheront pas sur les
+              plannings tant qu&apos;une zone n&apos;est pas enregistrée.
+            </p>
+          ) : null}
           <label className="block text-sm font-bold text-slate-600">E-mail assistance technique</label>
           <input
             className="w-full border rounded-xl p-3 bg-slate-50 text-slate-600"

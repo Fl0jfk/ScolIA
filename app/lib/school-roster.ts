@@ -127,7 +127,12 @@ export async function listTeacherClerkOptions() {
   const members = await listClerkMembers();
   return members
     .filter((m) => m.clerkUserId && !m.pending)
-    .filter((m) => m.roles.includes("professeur") || m.roles.includes("education"))
+    .filter(
+      (m) =>
+        m.roles.includes("professeur") ||
+        m.roles.includes("education") ||
+        m.roles.includes("cpe"),
+    )
     .map((m) => ({
       clerkUserId: m.clerkUserId,
       email: m.email,

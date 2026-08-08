@@ -34,6 +34,18 @@ import type { TripIndexRow } from "@/app/lib/dashboard-trips";
 import { defaultProfRoomModule } from "@/app/lib/app-config-defaults";
 import { parseProfRoomModule } from "@/app/lib/app-config-schemas";
 import { withDefaultProfRoomSubjects } from "@/app/lib/prof-room-defaults";
+import { getPersonnelIndex } from "@/app/lib/personnel-storage";
+import { getPersonnelLeaveRequests } from "@/app/lib/personnel-leave-storage";
+import { PERSONNEL_LEAVE_TYPE_LABELS } from "@/app/lib/personnel-types";
+import {
+  findCurrentActivity,
+  schoolWeekParity,
+  type LeaveSpan,
+} from "@/app/lib/rh/planning-calendar";
+import { readRhPlanning } from "@/app/lib/rh/planning-storage";
+import { loadAppConfig } from "@/app/lib/app-config";
+import { hasRole } from "@/app/lib/intranet-role-utils";
+import type { RhPlanningDoc } from "@/app/lib/rh/planning-types";
 
 async function safeJson<T>(path: string): Promise<T | null> {
   try {
@@ -243,6 +255,86 @@ export async function GET() {
       }
     }
 
+    let planningNow: {
+      title: string;
+      detail: string;
+      start: string;
+      end: string;
+    } | null = null;
+    if (accessibleModuleIds.has("mon-planning") || accessibleModuleIds.has("rh")) {
+      try {
+        let doc: RhPlanningDoc | null = null;
+        let leavePersonnelId: string | undefined;
+        const index = await getPersonnelIndex();
+        const self = index.find((e) => e.clerkUserId === userId && e.active !== false);
+        if (self) leavePersonnelId = self.id;
+
+        if (hasRole(roles, "professeur")) {
+          doc = await readRhPlanning("teacher", userId);
+        } else if (self) {
+          doc = await readRhPlanning("staff", self.id);
+        }
+        // Si pas de dossier OGEC mais compte prof-like déjà géré ; sinon tente teacher id
+        let needsTeacherFallback = !doc;
+        if (doc?.kind === "teacher") {
+          needsTeacherFallback =
+            doc.weekA.length === 0 &&
+            doc.weekB.length === 0 &&
+            !(doc.replacements?.length ?? 0);
+        }
+        if (needsTeacherFallback) {
+          const teacherTry = await readRhPlanning("teacher", userId);
+          if (teacherTry.kind === "teacher") {
+            if (
+              teacherTry.weekA.length > 0 ||
+              teacherTry.weekB.length > 0 ||
+              (teacherTry.replacements?.length ?? 0) > 0
+            ) {
+              doc = teacherTry;
+            }
+          }
+        }
+        if (doc) {
+          let leaves: LeaveSpan[] = [];
+          if (leavePersonnelId) {
+            const allLeaves = await getPersonnelLeaveRequests();
+            leaves = allLeaves
+              .filter((r) => r.status === "validee" && r.personnelId === leavePersonnelId)
+              .map((r) => ({
+                startDate: r.startDate,
+                endDate: r.endDate,
+                type: r.type,
+                label: PERSONNEL_LEAVE_TYPE_LABELS[r.type] || r.type,
+              }));
+          }
+          let zone: "A" | "B" | "C" | null = null;
+          try {
+            const cfg = await loadAppConfig();
+            zone = cfg.identity.schoolHolidayZone ?? null;
+          } catch {
+            zone = null;
+          }
+          const act = findCurrentActivity(
+            doc,
+            new Date(),
+            schoolWeekParity(new Date()),
+            leaves,
+            zone,
+          );
+          if (act) {
+            planningNow = {
+              title: act.title,
+              detail: act.detail,
+              start: act.start,
+              end: act.end,
+            };
+          }
+        }
+      } catch {
+        planningNow = null;
+      }
+    }
+
     const signals = getDashboardSignals({
       roles,
       userId,
@@ -260,6 +352,7 @@ export async function GET() {
       internatRollCallStatus,
       weekSheet,
       moodPulseSubmittedToday,
+      planningNow,
     });
 
     return NextResponse.json(signals);

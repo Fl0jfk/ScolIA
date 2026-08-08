@@ -467,6 +467,10 @@ export function planningKindForCategory(category: string): RhPlanningKind {
   return category === "professeur" ? "teacher" : "staff";
 }
 
+/**
+ * Surveillants / éducation : missions & rotations liées à la présence élèves.
+ * CPE, admin, compta, maintenance : semaine type fixe + exceptions / quota.
+ */
 export function defaultStaffModeForCategory(category: string): "fixed" | "rotation" {
   return category === "education" ? "rotation" : "fixed";
 }
