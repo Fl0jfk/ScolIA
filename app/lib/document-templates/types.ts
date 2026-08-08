@@ -4,20 +4,21 @@ export type DocumentTemplateId =
   | "autorisation-sortie"
   | "courrier-families";
 
-export type DocumentOutputFormat = "pdf" | "docx" | "fillable-pdf";
+/** Formats de sortie V2 : modèles vierges uniquement. */
+export type DocumentOutputFormat = "docx" | "fillable-pdf";
 
 export type DocumentFieldType = "text" | "date" | "textarea" | "checkbox";
 
+/** Champ du modèle = zone à trous (PDF) ou placeholder `$$key$$` (Word). */
 export type DocumentFieldDef = {
   key: string;
   label: string;
   type: DocumentFieldType;
-  required?: boolean;
-  placeholder?: string;
-  /** Prérempli depuis l’élève si clé connue. */
-  fromEleve?: "nom" | "prenom" | "classe" | "nomComplet";
-  /** Bouton assistant IA (reformulation) dans l’UI. */
-  aiAssist?: boolean;
+};
+
+export type DocumentPlaceholderDef = {
+  token: string;
+  label: string;
 };
 
 export type DocumentTemplateMeta = {
@@ -38,7 +39,7 @@ export type GeneratedDocument = {
   /** @deprecated garder pour docs déjà générés — préférer fileKey */
   pdfKey?: string;
   fileKey: string;
-  format: DocumentOutputFormat;
+  format: DocumentOutputFormat | "pdf";
   title: string;
 };
 
@@ -49,5 +50,5 @@ export type GeneratedDocumentIndexEntry = {
   title: string;
   createdAt: string;
   eleveIne?: string;
-  format?: DocumentOutputFormat;
+  format?: DocumentOutputFormat | "pdf";
 };

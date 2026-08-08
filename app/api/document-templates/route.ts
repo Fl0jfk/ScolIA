@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/app/lib/intranet-auth";
-import { DOCUMENT_TEMPLATES, defaultAnneeScolaire } from "@/app/lib/document-templates";
+import {
+  DOCUMENT_OUTPUT_FORMATS,
+  DOCUMENT_PLACEHOLDERS,
+  DOCUMENT_TEMPLATES,
+  defaultAnneeScolaire,
+} from "@/app/lib/document-templates";
 import { getSchoolLetterhead } from "@/app/lib/pdf-branding";
 
 export const runtime = "nodejs";
@@ -12,6 +17,8 @@ export async function GET() {
   const letterhead = await getSchoolLetterhead();
   return NextResponse.json({
     templates: DOCUMENT_TEMPLATES,
+    formats: DOCUMENT_OUTPUT_FORMATS,
+    placeholders: DOCUMENT_PLACEHOLDERS,
     defaults: {
       anneeScolaire: defaultAnneeScolaire(),
       dateDocument: new Date().toISOString().slice(0, 10),

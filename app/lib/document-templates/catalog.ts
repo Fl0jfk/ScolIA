@@ -1,326 +1,106 @@
-import type { DocumentTemplateId, DocumentTemplateMeta } from "@/app/lib/document-templates/types";
+import type {
+  DocumentOutputFormat,
+  DocumentPlaceholderDef,
+  DocumentTemplateId,
+  DocumentTemplateMeta,
+} from "@/app/lib/document-templates/types";
+
+/** Token Word visible : remplacé ensuite dans Charlemagne / Pronote / Word. */
+export function placeholderToken(key: string): string {
+  return `$$${key}$$`;
+}
+
+/** Légende globale affichée dans l’UI Documents. */
+export const DOCUMENT_PLACEHOLDERS: DocumentPlaceholderDef[] = [
+  { token: "$$prenom$$", label: "Prénom de l’élève" },
+  { token: "$$nom$$", label: "Nom de l’élève" },
+  { token: "$$classe$$", label: "Classe" },
+  { token: "$$annee$$", label: "Année scolaire" },
+  { token: "$$date$$", label: "Date du document" },
+  { token: "$$ville$$", label: "Ville" },
+  { token: "$$responsable$$", label: "Responsable légal" },
+  { token: "$$adresse$$", label: "Adresse familiale" },
+  { token: "$$sortie$$", label: "Intitulé de la sortie" },
+  { token: "$$objet$$", label: "Objet du courrier" },
+  { token: "$$corps$$", label: "Corps du courrier" },
+];
+
+export const DOCUMENT_OUTPUT_FORMATS: DocumentOutputFormat[] = ["fillable-pdf", "docx"];
 
 export const DOCUMENT_TEMPLATES: DocumentTemplateMeta[] = [
   {
     id: "certificat-scolarite",
     label: "Certificat de scolarité",
     description:
-      "Attestation moderne brandée établissement — à remettre aux familles (PDF déjà rempli).",
+      "Modèle vierge brandé — PDF à trous ou Word avec $$prenom$$, $$nom$$, $$classe$$… pour publipostage.",
     fields: [
-      {
-        key: "prenom",
-        label: "Prénom de l’élève",
-        type: "text",
-        required: true,
-        fromEleve: "prenom",
-      },
-      {
-        key: "nom",
-        label: "Nom de l’élève",
-        type: "text",
-        required: true,
-        fromEleve: "nom",
-      },
-      {
-        key: "classe",
-        label: "Classe",
-        type: "text",
-        required: true,
-        fromEleve: "classe",
-      },
-      {
-        key: "anneeScolaire",
-        label: "Année scolaire",
-        type: "text",
-        required: true,
-        placeholder: "2025-2026",
-      },
-      {
-        key: "dateDocument",
-        label: "Date du document",
-        type: "date",
-        required: true,
-      },
-      {
-        key: "ville",
-        label: "Fait à (ville)",
-        type: "text",
-        required: true,
-      },
-      {
-        key: "signataire",
-        label: "Nom du signataire",
-        type: "text",
-        required: true,
-        placeholder: "Le / La directeur·rice",
-      },
-      {
-        key: "qualite",
-        label: "Qualité du signataire",
-        type: "text",
-        required: true,
-        placeholder: "Directeur / Directrice",
-      },
+      { key: "prenom", label: "Prénom de l’élève", type: "text" },
+      { key: "nom", label: "Nom de l’élève", type: "text" },
+      { key: "classe", label: "Classe", type: "text" },
+      { key: "annee", label: "Année scolaire", type: "text" },
+      { key: "date", label: "Date du document", type: "date" },
+      { key: "ville", label: "Fait à (ville)", type: "text" },
+      { key: "signataire", label: "Nom du signataire", type: "text" },
+      { key: "qualite", label: "Qualité du signataire", type: "text" },
     ],
   },
   {
     id: "fiche-inscription",
     label: "Fiche d’inscription",
     description:
-      "Dossier d’inscription rempli depuis Scola — PDF prêt à archiver ou joindre (zéro papier secrétariat).",
+      "Dossier d’inscription à trous — à déposer sur ED ou à fusionner via Word / votre logiciel.",
     fields: [
-      {
-        key: "prenom",
-        label: "Prénom de l’enfant",
-        type: "text",
-        required: true,
-        fromEleve: "prenom",
-      },
-      {
-        key: "nom",
-        label: "Nom de l’enfant",
-        type: "text",
-        required: true,
-        fromEleve: "nom",
-      },
-      {
-        key: "dateNaissance",
-        label: "Date de naissance",
-        type: "date",
-        required: true,
-      },
-      {
-        key: "classeDemandee",
-        label: "Classe demandée",
-        type: "text",
-        required: true,
-        fromEleve: "classe",
-      },
-      {
-        key: "anneeScolaire",
-        label: "Année scolaire",
-        type: "text",
-        required: true,
-        placeholder: "2025-2026",
-      },
-      {
-        key: "resp1Nom",
-        label: "Responsable 1 — nom",
-        type: "text",
-        required: true,
-      },
-      {
-        key: "resp1Email",
-        label: "Responsable 1 — e-mail",
-        type: "text",
-        required: true,
-      },
-      {
-        key: "resp1Tel",
-        label: "Responsable 1 — téléphone",
-        type: "text",
-        required: true,
-      },
-      {
-        key: "resp2Nom",
-        label: "Responsable 2 — nom",
-        type: "text",
-      },
-      {
-        key: "resp2Email",
-        label: "Responsable 2 — e-mail",
-        type: "text",
-      },
-      {
-        key: "resp2Tel",
-        label: "Responsable 2 — téléphone",
-        type: "text",
-      },
-      {
-        key: "adresse",
-        label: "Adresse familiale",
-        type: "textarea",
-        required: true,
-      },
-      {
-        key: "allergies",
-        label: "Allergies / précautions",
-        type: "textarea",
-        placeholder: "Néant si aucune",
-        aiAssist: true,
-      },
-      {
-        key: "droitImage",
-        label: "Droit à l’image accepté",
-        type: "checkbox",
-      },
-      {
-        key: "notes",
-        label: "Notes secrétariat",
-        type: "textarea",
-        aiAssist: true,
-      },
+      { key: "prenom", label: "Prénom de l’enfant", type: "text" },
+      { key: "nom", label: "Nom de l’enfant", type: "text" },
+      { key: "dateNaissance", label: "Date de naissance", type: "date" },
+      { key: "classe", label: "Classe demandée", type: "text" },
+      { key: "annee", label: "Année scolaire", type: "text" },
+      { key: "responsable", label: "Responsable 1 — nom", type: "text" },
+      { key: "resp1Email", label: "Responsable 1 — e-mail", type: "text" },
+      { key: "resp1Tel", label: "Responsable 1 — téléphone", type: "text" },
+      { key: "adresse", label: "Adresse familiale", type: "textarea" },
+      { key: "allergies", label: "Allergies / précautions", type: "textarea" },
+      { key: "droitImage", label: "Droit à l’image", type: "checkbox" },
+      { key: "notes", label: "Notes secrétariat", type: "textarea" },
     ],
   },
   {
     id: "autorisation-sortie",
     label: "Autorisation de sortie",
     description:
-      "Autorisation parentale pour une sortie / voyage — PDF rempli, DOCX ou PDF à trous pour ÉcoleDirecte.",
+      "Autorisation parentale vierge — PDF remplissable ou Word avec $$sortie$$, $$prenom$$…",
     fields: [
-      {
-        key: "prenom",
-        label: "Prénom de l’élève",
-        type: "text",
-        required: true,
-        fromEleve: "prenom",
-      },
-      {
-        key: "nom",
-        label: "Nom de l’élève",
-        type: "text",
-        required: true,
-        fromEleve: "nom",
-      },
-      {
-        key: "classe",
-        label: "Classe",
-        type: "text",
-        required: true,
-        fromEleve: "classe",
-      },
-      {
-        key: "sortieTitre",
-        label: "Intitulé de la sortie",
-        type: "text",
-        required: true,
-        placeholder: "Visite musée / séjour ski…",
-      },
-      {
-        key: "lieu",
-        label: "Lieu",
-        type: "text",
-        required: true,
-      },
-      {
-        key: "dateDebut",
-        label: "Date de début",
-        type: "date",
-        required: true,
-      },
-      {
-        key: "dateFin",
-        label: "Date de fin",
-        type: "date",
-        required: true,
-      },
-      {
-        key: "horaireDepart",
-        label: "Horaire de départ",
-        type: "text",
-        placeholder: "08:00",
-      },
-      {
-        key: "horaireRetour",
-        label: "Horaire de retour",
-        type: "text",
-        placeholder: "17:30",
-      },
-      {
-        key: "respNom",
-        label: "Responsable légal — nom",
-        type: "text",
-        required: true,
-      },
-      {
-        key: "respTel",
-        label: "Responsable légal — téléphone",
-        type: "text",
-        required: true,
-      },
-      {
-        key: "urgenceTel",
-        label: "Téléphone d’urgence",
-        type: "text",
-      },
-      {
-        key: "autorise",
-        label: "J’autorise mon enfant à participer",
-        type: "checkbox",
-      },
-      {
-        key: "soins",
-        label: "J’autorise les soins d’urgence",
-        type: "checkbox",
-      },
-      {
-        key: "notes",
-        label: "Informations utiles (santé, précautions…)",
-        type: "textarea",
-        aiAssist: true,
-      },
-      {
-        key: "dateDocument",
-        label: "Date de signature",
-        type: "date",
-        required: true,
-      },
+      { key: "prenom", label: "Prénom de l’élève", type: "text" },
+      { key: "nom", label: "Nom de l’élève", type: "text" },
+      { key: "classe", label: "Classe", type: "text" },
+      { key: "sortie", label: "Intitulé de la sortie", type: "text" },
+      { key: "lieu", label: "Lieu", type: "text" },
+      { key: "dateDebut", label: "Date de début", type: "date" },
+      { key: "dateFin", label: "Date de fin", type: "date" },
+      { key: "horaireDepart", label: "Horaire de départ", type: "text" },
+      { key: "horaireRetour", label: "Horaire de retour", type: "text" },
+      { key: "responsable", label: "Responsable légal — nom", type: "text" },
+      { key: "respTel", label: "Responsable légal — téléphone", type: "text" },
+      { key: "urgenceTel", label: "Téléphone d’urgence", type: "text" },
+      { key: "autorise", label: "Autorisation de participation", type: "checkbox" },
+      { key: "soins", label: "Autorisation de soins", type: "checkbox" },
+      { key: "notes", label: "Informations utiles", type: "textarea" },
+      { key: "date", label: "Date de signature", type: "date" },
     ],
   },
   {
     id: "courrier-families",
     label: "Courrier aux familles",
     description:
-      "Courrier administratif générique — retouche en Word ou envoi PDF brandé.",
+      "Courrier type brandé — Word avec $$objet$$, $$corps$$, $$destinataire$$ pour publipostage.",
     fields: [
-      {
-        key: "objet",
-        label: "Objet",
-        type: "text",
-        required: true,
-        placeholder: "Information aux familles",
-        aiAssist: true,
-      },
-      {
-        key: "destinataire",
-        label: "Destinataire",
-        type: "text",
-        required: true,
-        placeholder: "Aux familles des élèves de…",
-      },
-      {
-        key: "corps",
-        label: "Corps du courrier",
-        type: "textarea",
-        required: true,
-        aiAssist: true,
-        placeholder: "Madame, Monsieur,\n\n…",
-      },
-      {
-        key: "dateDocument",
-        label: "Date du courrier",
-        type: "date",
-        required: true,
-      },
-      {
-        key: "ville",
-        label: "Fait à (ville)",
-        type: "text",
-        required: true,
-      },
-      {
-        key: "signataire",
-        label: "Nom du signataire",
-        type: "text",
-        required: true,
-      },
-      {
-        key: "qualite",
-        label: "Qualité du signataire",
-        type: "text",
-        required: true,
-        placeholder: "Directeur / Directrice",
-      },
+      { key: "objet", label: "Objet", type: "text" },
+      { key: "destinataire", label: "Destinataire", type: "text" },
+      { key: "corps", label: "Corps du courrier", type: "textarea" },
+      { key: "date", label: "Date du courrier", type: "date" },
+      { key: "ville", label: "Fait à (ville)", type: "text" },
+      { key: "signataire", label: "Nom du signataire", type: "text" },
+      { key: "qualite", label: "Qualité du signataire", type: "text" },
     ],
   },
 ];
@@ -333,13 +113,13 @@ export function isDocumentTemplateId(id: string): id is DocumentTemplateId {
   return DOCUMENT_TEMPLATES.some((t) => t.id === id);
 }
 
-/** Année scolaire FR courante (sept. → août). */
-export function defaultAnneeScolaire(now = new Date()): string {
-  const y = now.getFullYear();
-  const m = now.getMonth(); // 0 = jan
-  return m >= 8 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
+export function isDocumentOutputFormat(v: string): v is DocumentOutputFormat {
+  return v === "docx" || v === "fillable-pdf";
 }
 
-export function isDocumentOutputFormat(v: string): v is import("./types").DocumentOutputFormat {
-  return v === "pdf" || v === "docx" || v === "fillable-pdf";
+/** Année scolaire FR courante (sept. → août) — info UI uniquement. */
+export function defaultAnneeScolaire(now = new Date()): string {
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  return m >= 8 ? `${y}-${y + 1}` : `${y - 1}-${y}`;
 }

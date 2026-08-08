@@ -14,12 +14,10 @@ function sanitize(input: string): string {
 }
 
 /**
- * PDF AcroForm « à trous » — prérempli avec les valeurs Scola quand présentes,
- * champs éditables pour dépôt ÉcoleDirecte / Adobe / impression.
+ * PDF AcroForm vierge (champs vides) brandé établissement — dépôt ED / Adobe / impression.
  */
 export async function renderDocumentTemplateFillablePdf(
   templateId: DocumentTemplateId,
-  values: Record<string, string | boolean>,
 ): Promise<Uint8Array> {
   const meta = getTemplateMeta(templateId);
   if (!meta) throw new Error("Modèle inconnu");
@@ -75,7 +73,7 @@ export async function renderDocumentTemplateFillablePdf(
   });
   y -= 28;
 
-  ensure(24);
+  ensure(36);
   page.drawText(sanitize(meta.label.toUpperCase()), {
     x: margin,
     y,
@@ -84,7 +82,7 @@ export async function renderDocumentTemplateFillablePdf(
     color: rgb(0.1, 0.12, 0.16),
   });
   y -= 14;
-  page.drawText(sanitize("Formulaire remplissable — à compléter à l'écran ou imprimer."), {
+  page.drawText(sanitize("Formulaire vierge remplissable — a completer a l'ecran ou imprimer."), {
     x: margin,
     y,
     size: 8,
@@ -95,9 +93,6 @@ export async function renderDocumentTemplateFillablePdf(
 
   for (const field of meta.fields) {
     const label = sanitize(field.label);
-    const raw = values[field.key];
-    const textVal =
-      typeof raw === "boolean" ? (raw ? "Oui" : "") : String(raw ?? "").trim();
 
     if (field.type === "checkbox") {
       ensure(28);
@@ -115,7 +110,6 @@ export async function renderDocumentTemplateFillablePdf(
         width: 14,
         height: 14,
       });
-      if (raw === true) cb.check();
       y -= 26;
       continue;
     }
@@ -133,7 +127,6 @@ export async function renderDocumentTemplateFillablePdf(
     y -= 14;
     const tf = form.createTextField(`f_${field.key}`);
     tf.setFontSize(10);
-    if (textVal) tf.setText(sanitize(textVal));
     if (isArea) tf.enableMultiline();
     tf.addToPage(page, {
       x: margin,

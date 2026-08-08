@@ -18,20 +18,20 @@ export function generatedPdfKey(id: string) {
   return `documents/generated/${id}.pdf`;
 }
 
-export function generatedFileKey(id: string, format: DocumentOutputFormat) {
+export function generatedFileKey(id: string, format: DocumentOutputFormat | "pdf") {
   if (format === "docx") return `documents/generated/${id}.docx`;
   if (format === "fillable-pdf") return `documents/generated/${id}-fillable.pdf`;
   return generatedPdfKey(id);
 }
 
-export function contentTypeForFormat(format: DocumentOutputFormat): string {
+export function contentTypeForFormat(format: DocumentOutputFormat | "pdf"): string {
   if (format === "docx") {
     return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   }
   return "application/pdf";
 }
 
-export function extensionForFormat(format: DocumentOutputFormat): string {
+export function extensionForFormat(format: DocumentOutputFormat | "pdf"): string {
   if (format === "docx") return "docx";
   return "pdf";
 }

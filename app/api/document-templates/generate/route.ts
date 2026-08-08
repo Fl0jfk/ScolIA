@@ -7,15 +7,12 @@ import {
   getTemplateMeta,
   isDocumentOutputFormat,
   isDocumentTemplateId,
-  mergeTemplateValues,
   renderDocumentTemplateDocx,
   renderDocumentTemplateFillablePdf,
-  renderDocumentTemplatePdf,
   saveGeneratedDocument,
   type DocumentOutputFormat,
   type GeneratedDocument,
 } from "@/app/lib/document-templates";
-import { findEleveByIne } from "@/app/lib/eleves-registry";
 
 export const runtime = "nodejs";
 
@@ -29,31 +26,22 @@ export async function POST(req: Request) {
     if (!isDocumentTemplateId(templateId)) {
       return NextResponse.json({ error: "Modèle inconnu" }, { status: 400 });
     }
-    const formatRaw = String(body.format || "pdf");
-    const format: DocumentOutputFormat = isDocumentOutputFormat(formatRaw) ? formatRaw : "pdf";
+    const formatRaw = String(body.format || "fillable-pdf");
+    if (!isDocumentOutputFormat(formatRaw)) {
+      return NextResponse.json(
+        { error: "Format invalide (docx ou fillable-pdf)" },
+        { status: 400 },
+      );
+    }
+    const format: DocumentOutputFormat = formatRaw;
 
     const meta = getTemplateMeta(templateId)!;
-    const eleveIne = body.eleveIne ? String(body.eleveIne).trim() : "";
-    const eleve = eleveIne ? await findEleveByIne(eleveIne) : null;
-    if (eleveIne && !eleve) {
-      return NextResponse.json({ error: "Élève introuvable" }, { status: 404 });
-    }
-
-    const values = mergeTemplateValues(
-      templateId,
-      (body.values && typeof body.values === "object" ? body.values : {}) as Record<string, unknown>,
-      eleve,
-      // PDF à trous : champs peuvent rester vides pour dépôt ED / préinscription
-      { skipRequired: format === "fillable-pdf" },
-    );
 
     let bytes: Uint8Array | Buffer;
     if (format === "docx") {
-      bytes = await renderDocumentTemplateDocx(templateId, values);
-    } else if (format === "fillable-pdf") {
-      bytes = await renderDocumentTemplateFillablePdf(templateId, values);
+      bytes = await renderDocumentTemplateDocx(templateId);
     } else {
-      bytes = await renderDocumentTemplatePdf(templateId, values);
+      bytes = await renderDocumentTemplateFillablePdf(templateId);
     }
 
     const user = await safeCurrentUser();
@@ -70,12 +58,11 @@ export async function POST(req: Request) {
         name: user?.fullName || undefined,
         email: user?.primaryEmailAddress?.emailAddress || undefined,
       },
-      values,
-      eleveIne: eleve?.ine || eleveIne || undefined,
+      values: {},
       fileKey,
       pdfKey: format === "docx" ? undefined : fileKey,
       format,
-      title: documentTitle(templateId, values),
+      title: documentTitle(templateId),
     };
 
     await saveGeneratedDocument(doc, bytes);

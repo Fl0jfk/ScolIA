@@ -12,11 +12,6 @@ export {
   contentTypeForFormat,
   extensionForFormat,
 } from "@/app/lib/document-templates/storage";
-export { renderDocumentTemplatePdf } from "@/app/lib/document-templates/render-pdf";
 export { renderDocumentTemplateDocx } from "@/app/lib/document-templates/render-docx";
 export { renderDocumentTemplateFillablePdf } from "@/app/lib/document-templates/render-fillable-pdf";
-export {
-  valuesFromEleve,
-  mergeTemplateValues,
-  documentTitle,
-} from "@/app/lib/document-templates/fill";
+export { documentTitle } from "@/app/lib/document-templates/fill";
