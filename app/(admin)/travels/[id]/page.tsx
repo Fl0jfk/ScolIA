@@ -1177,6 +1177,11 @@ export default function TripDetails() {
     const d = new Date(dateStr);
     return isNaN(d.getTime()) ? "Date à préciser" : d.toLocaleDateString('fr-FR');
   };
+  // Hooks avant tout early-return (sinon React #310 au passage loading → dossier chargé)
+  const nextGuidance = useMemo(
+    () => (trip ? getTripNextGuidance(trip, { isOwner, canSign, isCompta }) : null),
+    [trip, isOwner, canSign, isCompta],
+  );
   if (!isUserLoaded || !trip) {
     return (
       <TripPageShell>
@@ -1251,10 +1256,6 @@ export default function TripDetails() {
     }
   };
   const withBusLogistics = complexNeedsBus(trip);
-  const nextGuidance = useMemo(
-    () => getTripNextGuidance(trip, { isOwner, canSign, isCompta }),
-    [trip, isOwner, canSign, isCompta],
-  );
   const etabForSign = trip.data?.etablissement || "";
   const transportSnapshot = trip.data?.transportQuoteSnapshot;
   const currentEffectifTotal =
