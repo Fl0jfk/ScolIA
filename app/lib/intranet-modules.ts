@@ -295,7 +295,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/etablissement/communication",
       external: false,
-      description: "Simulateur de tarifs et outils diffusables pour les familles.",
+      description: "Documents familles, simulateur de tarifs et actus site (option vitrine).",
     },
   },
   {

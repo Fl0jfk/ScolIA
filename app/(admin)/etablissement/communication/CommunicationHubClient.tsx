@@ -3,9 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import RequireOrgAdmin from "@/app/components/RequireOrgAdmin";
+import CommunicationDocumentsPanel from "@/app/components/communication/CommunicationDocumentsPanel";
+import CommunicationSitePostsPanel from "@/app/components/communication/CommunicationSitePostsPanel";
 import type { ToolboxConfig, TarifsNiveau } from "@/app/lib/toolbox-types";
 
 const NIVEAUX: TarifsNiveau[] = ["maternelle", "elementaire", "college", "lycee"];
+
+type Tab = "documents" | "tarifs" | "actus";
 
 function Toggle({
   checked,
@@ -25,8 +29,10 @@ function Toggle({
 }
 
 export default function CommunicationHubClient() {
+  const [tab, setTab] = useState<Tab>("documents");
   const [config, setConfig] = useState<ToolboxConfig | null>(null);
   const [publicOrigin, setPublicOrigin] = useState("");
+  const [customWebsiteEnabled, setCustomWebsiteEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -36,11 +42,19 @@ export default function CommunicationHubClient() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/toolbox/config", { cache: "no-store" });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Erreur");
-      setConfig(j.config);
-      setPublicOrigin(typeof j.publicOrigin === "string" ? j.publicOrigin.replace(/\/$/, "") : "");
+      const [tbRes, setRes] = await Promise.all([
+        fetch("/api/toolbox/config", { cache: "no-store" }),
+        fetch("/api/settings", { cache: "no-store" }),
+      ]);
+      const tj = await tbRes.json();
+      if (!tbRes.ok) throw new Error(tj.error || "Erreur toolbox");
+      setConfig(tj.config);
+      setPublicOrigin(typeof tj.publicOrigin === "string" ? tj.publicOrigin.replace(/\/$/, "") : "");
+
+      if (setRes.ok) {
+        const sj = await setRes.json();
+        setCustomWebsiteEnabled(Boolean(sj.config?.identity?.customWebsite?.enabled));
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -86,15 +100,15 @@ export default function CommunicationHubClient() {
     });
   }
 
-  if (loading || !config) {
+  if (loading) {
     return (
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
-        <p className="text-slate-500">{loading ? "Chargement…" : "Configuration indisponible."}</p>
+        <p className="text-slate-500">Chargement…</p>
       </main>
     );
   }
 
-  const tarifs = config.tools["simulateur-tarifs"];
+  const tarifs = config?.tools["simulateur-tarifs"];
 
   return (
     <RequireOrgAdmin>
@@ -108,19 +122,45 @@ export default function CommunicationHubClient() {
               Communication
             </h1>
             <p className="text-sm text-slate-500 mt-2 max-w-2xl">
-              Outils diffusables en ligne pour informer les familles et soutenir le recrutement —
-              à commencer par le simulateur de tarifs.
+              Documents familles (PDF zéro papier), simulateur de tarifs, et actus site si vitrine
+              Scola activée.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={saving}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-          >
-            {saving ? "Enregistrement…" : "Enregistrer"}
-          </button>
+          {tab === "tarifs" ? (
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={saving || !config}
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+            >
+              {saving ? "Enregistrement…" : "Enregistrer"}
+            </button>
+          ) : null}
         </header>
+
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ["documents", "Documents"],
+              ["tarifs", "Tarifs"],
+              ["actus", "Actus site"],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              className={`rounded-xl px-4 py-2 text-sm font-bold ${
+                tab === id ? "bg-sky-700 text-white" : "bg-slate-100 text-slate-700"
+              }`}
+            >
+              {label}
+              {id === "actus" && !customWebsiteEnabled ? (
+                <span className="ml-1 text-[10px] font-semibold opacity-80">option</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
 
         {error ? (
           <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -133,91 +173,102 @@ export default function CommunicationHubClient() {
           </p>
         ) : null}
 
-        <section className="rounded-2xl border border-sky-200 bg-sky-50/40 p-6 space-y-6">
-          <div>
-            <h2 className="text-lg font-black text-sky-950">Simulateur de tarifs</h2>
-            <p className="text-sm text-sky-900/80 mt-1">
-              Page publique partageable (site, réseaux, mails) pour que les familles estiment le
-              coût de scolarité — levier de communication et de recrutement.
-            </p>
-          </div>
+        {tab === "documents" ? <CommunicationDocumentsPanel /> : null}
 
-          <Toggle
-            checked={tarifs.enabled}
-            onChange={(v) => patchTarifs({ enabled: v })}
-            label="Publier le simulateur (/simulateurTarifs)"
-          />
+        {tab === "actus" ? (
+          <CommunicationSitePostsPanel enabled={customWebsiteEnabled} onRefreshFlag={() => void load()} />
+        ) : null}
 
-          <label className="block max-w-xs">
-            <span className="text-xs font-bold text-slate-500 uppercase">Année affichée</span>
-            <input
-              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-              value={tarifs.schoolYear}
-              onChange={(e) => patchTarifs({ schoolYear: e.target.value })}
-            />
-          </label>
-
-          {NIVEAUX.map((niveau) => (
-            <div key={niveau}>
-              <p className="text-sm font-bold text-slate-800 capitalize mb-2">
-                Enseignement — {niveau}
+        {tab === "tarifs" && tarifs ? (
+          <section className="rounded-2xl border border-sky-200 bg-sky-50/40 p-6 space-y-6">
+            <div>
+              <h2 className="text-lg font-black text-sky-950">Simulateur de tarifs</h2>
+              <p className="text-sm text-sky-900/80 mt-1">
+                Page publique partageable pour que les familles estiment le coût de scolarité.
               </p>
-              <p className="text-xs text-slate-500 mb-2">5 tranches QF (du plus élevé au plus bas)</p>
-              <div className="flex flex-wrap gap-2">
-                {tarifs.enseignement[niveau].map((val, i) => (
-                  <input
-                    key={i}
-                    type="number"
-                    className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm"
-                    value={val}
-                    onChange={(e) => {
-                      const next = [...tarifs.enseignement[niveau]];
-                      next[i] = Number(e.target.value);
-                      patchTarifs({
-                        enseignement: {
-                          ...tarifs.enseignement,
-                          [niveau]: next,
-                        },
-                      });
-                    }}
-                  />
-                ))}
-              </div>
             </div>
-          ))}
 
-          <label className="block max-w-xs">
-            <span className="text-xs font-bold text-slate-500 uppercase">Pension annuelle (€)</span>
-            <input
-              type="number"
-              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-              value={tarifs.pensionAnnuel}
-              onChange={(e) => patchTarifs({ pensionAnnuel: Number(e.target.value) })}
+            <Toggle
+              checked={tarifs.enabled}
+              onChange={(v) => patchTarifs({ enabled: v })}
+              label="Publier le simulateur (/simulateurTarifs)"
             />
-          </label>
 
-          {tarifs.enabled ? (
-            <a
-              href={`${publicOrigin}/simulateurTarifs`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block text-sm font-bold text-sky-800 underline break-all"
-            >
-              Voir la page publique → {publicOrigin}/simulateurTarifs
-            </a>
-          ) : null}
+            <label className="block max-w-xs">
+              <span className="text-xs font-bold text-slate-500 uppercase">Année affichée</span>
+              <input
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                value={tarifs.schoolYear}
+                onChange={(e) => patchTarifs({ schoolYear: e.target.value })}
+              />
+            </label>
 
-          <p className="text-xs text-slate-500">
-            Optionnel : afficher aussi un lien depuis la{" "}
-            <Link
-              href="/etablissement/evenements?tab=rentree"
-              className="font-semibold underline"
-            >
-              rentrée digitale
-            </Link>
-            .
-          </p>
-        </section>
+            {NIVEAUX.map((niveau) => (
+              <div key={niveau}>
+                <p className="text-sm font-bold text-slate-800 capitalize mb-2">
+                  Enseignement — {niveau}
+                </p>
+                <p className="text-xs text-slate-500 mb-2">5 tranches QF (du plus élevé au plus bas)</p>
+                <div className="flex flex-wrap gap-2">
+                  {tarifs.enseignement[niveau].map((val, i) => (
+                    <input
+                      key={i}
+                      type="number"
+                      className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm"
+                      value={val}
+                      onChange={(e) => {
+                        const next = [...tarifs.enseignement[niveau]];
+                        next[i] = Number(e.target.value);
+                        patchTarifs({
+                          enseignement: {
+                            ...tarifs.enseignement,
+                            [niveau]: next,
+                          },
+                        });
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            <label className="block max-w-xs">
+              <span className="text-xs font-bold text-slate-500 uppercase">Pension annuelle (€)</span>
+              <input
+                type="number"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                value={tarifs.pensionAnnuel}
+                onChange={(e) => patchTarifs({ pensionAnnuel: Number(e.target.value) })}
+              />
+            </label>
+
+            {tarifs.enabled ? (
+              <a
+                href={`${publicOrigin}/simulateurTarifs`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block text-sm font-bold text-sky-800 underline break-all"
+              >
+                Voir la page publique → {publicOrigin}/simulateurTarifs
+              </a>
+            ) : null}
+
+            <p className="text-xs text-slate-500">
+              Optionnel : lien depuis la{" "}
+              <Link
+                href="/etablissement/evenements?tab=rentree"
+                className="font-semibold underline"
+              >
+                rentrée digitale
+              </Link>
+              .
+            </p>
+          </section>
+        ) : null}
+
+        {tab === "tarifs" && !tarifs ? (
+          <p className="text-sm text-slate-500">Configuration tarifs indisponible.</p>
+        ) : null}
       </main>
     </RequireOrgAdmin>
   );

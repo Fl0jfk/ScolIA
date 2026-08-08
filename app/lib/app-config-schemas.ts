@@ -39,6 +39,13 @@ export type SiteIdentity = {
   };
   preinscriptionUrl?: string;
   reglementFinancier?: string;
+  /**
+   * Site vitrine Scola (Next.js packagé) — active le CMS Actus dans Communication.
+   */
+  customWebsite?: {
+    enabled: boolean;
+    primaryDomain?: string;
+  };
 };
 
 export type EstablishmentKind = "ecole" | "college" | "lycee" | "custom";
@@ -321,6 +328,17 @@ export function parseSiteIdentity(raw: unknown, opts?: { allowEmptyName?: boolea
     },
     preinscriptionUrl: str(o.preinscriptionUrl) || undefined,
     reglementFinancier: str(o.reglementFinancier) || undefined,
+    customWebsite: (() => {
+      const cw = o.customWebsite && typeof o.customWebsite === "object"
+        ? (o.customWebsite as Record<string, unknown>)
+        : null;
+      if (!cw) return undefined;
+      const domain = str(cw.primaryDomain).trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+      return {
+        enabled: cw.enabled === true,
+        primaryDomain: domain || undefined,
+      };
+    })(),
     headerLogoUrl: str(o.headerLogoUrl).trim() || undefined,
     dashboardAccent: parseDashboardAccent(o.dashboardAccent),
     schoolHolidayZone: (() => {

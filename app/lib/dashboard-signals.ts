@@ -998,7 +998,11 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   const stableEtab: Array<{ moduleId: string; label: string; detail?: string }> = [
     { moduleId: "organigramme", label: "Annuaire de l'établissement" },
     { moduleId: "evenements", label: "Événements" },
-    { moduleId: "communication", label: "Communication" },
+    {
+      moduleId: "communication",
+      label: "Communication",
+      detail: "Documents familles · Simulateur tarifs",
+    },
     {
       moduleId: "admin-settings",
       label: "Paramètres",

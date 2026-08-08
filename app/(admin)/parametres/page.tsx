@@ -461,6 +461,59 @@ export default function ParametresPage() {
               plannings tant qu&apos;une zone n&apos;est pas enregistrée.
             </p>
           ) : null}
+
+          <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-4 space-y-3">
+            <div>
+              <p className="text-sm font-black text-sky-950">Site vitrine Scola</p>
+              <p className="text-xs text-sky-900/80 mt-1">
+                Activez uniquement si un site Next.js packagé a été livré pour cet établissement.
+                Cela débloque l&apos;onglet Actus dans Communication.
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-sm font-semibold text-slate-800 cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={Boolean((identity.customWebsite as { enabled?: boolean } | undefined)?.enabled)}
+                onChange={(e) =>
+                  setIdentity({
+                    ...identity,
+                    customWebsite: {
+                      ...((identity.customWebsite as object) || {}),
+                      enabled: e.target.checked,
+                      primaryDomain:
+                        (identity.customWebsite as { primaryDomain?: string } | undefined)
+                          ?.primaryDomain || "",
+                    },
+                  })
+                }
+              />
+              Site vitrine Scola activé
+            </label>
+            <label className="block text-sm font-bold text-slate-600">
+              Domaine principal (optionnel)
+              <input
+                className="mt-1 w-full border rounded-xl p-3 bg-white font-normal"
+                placeholder="www.ecole.fr"
+                value={String(
+                  (identity.customWebsite as { primaryDomain?: string } | undefined)
+                    ?.primaryDomain || "",
+                )}
+                onChange={(e) =>
+                  setIdentity({
+                    ...identity,
+                    customWebsite: {
+                      enabled: Boolean(
+                        (identity.customWebsite as { enabled?: boolean } | undefined)?.enabled,
+                      ),
+                      primaryDomain: e.target.value,
+                    },
+                  })
+                }
+              />
+            </label>
+          </div>
+
           <label className="block text-sm font-bold text-slate-600">E-mail assistance technique</label>
           <input
             className="w-full border rounded-xl p-3 bg-slate-50 text-slate-600"
