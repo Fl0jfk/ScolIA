@@ -469,7 +469,9 @@ export default isMultiTenantEnabled() ? multiTenantMiddleware : clerkMw;
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|eot|otf|mp4|mp3|pdf)).*)',
+    // Exclure les assets statiques (dont .css) pour qu’ils ne passent pas par Clerk
+    // — sinon /ds-font.css (et tout .css public) finit en redirect sign-in / faux 404.
+    '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:css|map|png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|eot|otf|mp4|mp3|pdf)).*)',
     '/documents/rentree/:path*',
     '/',
     '/(api|trpc)(.*)',
