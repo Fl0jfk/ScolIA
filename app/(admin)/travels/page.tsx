@@ -16,6 +16,8 @@ import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
+import TravelsTransportSettingsPanel from "@/app/components/travels/TravelsTransportSettingsPanel";
+import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import {
   MODULE_TOUR_ACTION_EVENT,
   MODULE_TOUR_STEP_EVENT,
@@ -24,6 +26,7 @@ import {
 function TripDashboardContent() {
   const { isLoaded, isSignedIn } = useUser();
   const { data: appCtx } = useAppContext();
+  const isOrgAdmin = useIsOrgAdmin();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [showModal, setShowModal] = useState(false);
@@ -35,6 +38,13 @@ function TripDashboardContent() {
   const [reminders, setReminders] = useState<TravelsReminderRow[]>([]);
   const [showRemindersModal, setShowRemindersModal] = useState(false);
   const [tourModalBoost, setTourModalBoost] = useState(false);
+  const [mainTab, setMainTab] = useState<"dossiers" | "settings">("dossiers");
+
+  useEffect(() => {
+    if (searchParams.get("tab") === "settings" && isOrgAdmin) {
+      setMainTab("settings");
+    }
+  }, [searchParams, isOrgAdmin]);
 
   useEffect(() => {
     const onAction = (e: Event) => {
@@ -149,7 +159,7 @@ function TripDashboardContent() {
   };
   return (
     <div className="max-w-7xl mx-auto p-6 min-h-screen mt-[1vh]">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
           <h1 className="text-4xl font-black text-slate-900 tracking-tight">Module Voyage</h1>
           <p className="text-slate-500 font-medium" data-tour="travels-reminders">
@@ -166,14 +176,49 @@ function TripDashboardContent() {
             )}
           </p>
         </div>
-        <button
-          data-tour="travels-create"
-          onClick={() => setShowModal(true)}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl font-bold shadow-lg transition-all"
-        >
-          + Nouvelle demande
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {isOrgAdmin ? (
+            <div className="flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setMainTab("dossiers")}
+                className={`rounded-xl px-3.5 py-2 text-xs font-black transition ${
+                  mainTab === "dossiers"
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Dossiers
+              </button>
+              <button
+                type="button"
+                onClick={() => setMainTab("settings")}
+                className={`rounded-xl px-3.5 py-2 text-xs font-black transition ${
+                  mainTab === "settings"
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Paramétrage
+              </button>
+            </div>
+          ) : null}
+          {mainTab === "dossiers" ? (
+            <button
+              data-tour="travels-create"
+              onClick={() => setShowModal(true)}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl font-bold shadow-lg transition-all"
+            >
+              + Nouvelle demande
+            </button>
+          ) : null}
+        </div>
       </div>
+
+      {mainTab === "settings" && isOrgAdmin ? (
+        <TravelsTransportSettingsPanel />
+      ) : (
+        <>
       {directionDashboard && (
         <div data-tour="travels-direction">
           <TravelsDirectionDashboardPanel data={directionDashboard} />
@@ -372,6 +417,8 @@ function TripDashboardContent() {
         onClose={() => setShowRemindersModal(false)}
       />
       <ReplayModuleTourButton moduleId="travels" />
+        </>
+      )}
     </div>
   );
 }

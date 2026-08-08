@@ -3,7 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { parentEmailCoverage } from "@/app/lib/travels-eleves-list";
-import type { TravelsTrip } from "@/app/lib/travels-types";
+import {
+  defaultParentCalendarFromTrip,
+  newCalendarPointId,
+} from "@/app/lib/travels-parent-calendar";
+import type {
+  TravelsCalendarPoint,
+  TravelsParentCalendar,
+  TravelsTrip,
+} from "@/app/lib/travels-types";
 import { TripAlert, TripButton, TripInput, TripSection, TripTextarea } from "@/app/components/travels/TripDetailUI";
 
 type PhotoDraft = {
@@ -21,6 +29,12 @@ type Props = {
 };
 
 const MAX_PHOTOS = 12;
+
+const KIND_OPTIONS: { value: TravelsCalendarPoint["kind"]; label: string }[] = [
+  { value: "depot", label: "Dépôt / départ" },
+  { value: "recuperation", label: "Récupération / retour" },
+  { value: "autre", label: "Autre point" },
+];
 
 async function compressImageFile(file: File): Promise<PhotoDraft> {
   const bitmap = await createImageBitmap(file);
@@ -87,6 +101,14 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
   const [message, setMessage] = useState("");
   const [photos, setPhotos] = useState<PhotoDraft[]>([]);
   const [busy, setBusy] = useState(false);
+  const [calendar, setCalendar] = useState<TravelsParentCalendar>(() =>
+    defaultParentCalendarFromTrip(trip.data),
+  );
+  const [attachIcs, setAttachIcs] = useState(true);
+
+  useEffect(() => {
+    setCalendar(defaultParentCalendarFromTrip(trip.data));
+  }, [trip.id, trip.data.parentCalendar, trip.data.parentMeeting, trip.data.startDate, trip.data.endDate]);
 
   useEffect(() => {
     fetch("/api/eleves")
@@ -109,6 +131,69 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
     [participants, elevesByIne],
   );
   const logs = trip.data.parentComLogs || [];
+
+  const updatePoint = (id: string, patch: Partial<TravelsCalendarPoint>) => {
+    setCalendar((c) => ({
+      ...c,
+      points: c.points.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+    }));
+  };
+
+  const addPoint = (kind: TravelsCalendarPoint["kind"]) => {
+    const startDate = String(trip.data.startDate || trip.data.date || "").slice(0, 10);
+    setCalendar((c) => ({
+      ...c,
+      points: [
+        ...c.points,
+        {
+          id: newCalendarPointId(),
+          kind,
+          label: KIND_OPTIONS.find((k) => k.value === kind)?.label,
+          date: startDate || "",
+          time: kind === "recuperation" ? "20:00" : "10:00",
+          durationMinutes: 30,
+          place: "",
+        },
+      ],
+    }));
+  };
+
+  const removePoint = (id: string) => {
+    setCalendar((c) => ({ ...c, points: c.points.filter((p) => p.id !== id) }));
+  };
+
+  const saveCalendar = async () => {
+    if (!canEdit) return;
+    setBusy(true);
+    try {
+      const updatedTrip: TravelsTrip = {
+        ...trip,
+        data: { ...trip.data, parentCalendar: calendar },
+        history: [
+          ...(trip.history || []),
+          {
+            date: new Date().toISOString(),
+            user: "Équipe",
+            action: "CALENDRIER_PARENTS_MAJ",
+            note: `${calendar.points.length} point(s)`,
+          },
+        ],
+      };
+      const res = await fetch("/api/travels/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: trip.id, data: updatedTrip }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Enregistrement impossible");
+      onTripUpdated((j.trip || updatedTrip) as TravelsTrip);
+      alert("Calendrier parents enregistré.");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const onPickFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -143,7 +228,7 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
     }
     if (
       !confirm(
-        `Envoyer à ${coverage.emails.length} destinataire(s) parent${coverage.emails.length > 1 ? "s" : ""} ?`,
+        `Envoyer à ${coverage.emails.length} destinataire(s) parent${coverage.emails.length > 1 ? "s" : ""}${attachIcs ? " avec calendrier (.ics)" : ""} ?`,
       )
     ) {
       return;
@@ -157,6 +242,8 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
           tripId: trip.id,
           subject: subject.trim(),
           body: message.trim(),
+          attachIcs,
+          parentCalendar: calendar,
           photos: photos.map((p) => ({
             filename: p.filename,
             contentType: p.contentType,
@@ -170,7 +257,9 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
       for (const p of photos) URL.revokeObjectURL(p.previewUrl);
       setPhotos([]);
       setMessage("");
-      alert(`Message envoyé à ${j.recipientCount} destinataire(s).`);
+      alert(
+        `Message envoyé à ${j.recipientCount} destinataire(s)${j.icsAttached ? " (avec .ics)" : ""}.`,
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -199,9 +288,137 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
     >
       <div className="px-6 py-5 space-y-5">
         <TripAlert tone="info" icon="✉️" title="Canal mail">
-          Les photos ne sont pas stockées durablement dans ScolIA — elles sont jointes à l’e-mail
-          uniquement. Pas de messagerie inverse : les parents ne répondent pas dans la plateforme.
+          À la confirmation de la liste élèves (avec horaires dépôt / reprise), un calendrier
+          (.ics) part automatiquement aux parents. Vous pouvez aussi renvoyer un message ici
+          (photos, rappels…).
         </TripAlert>
+
+        <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-4 space-y-3">
+          <div>
+            <h3 className="text-sm font-black text-sky-950">Calendrier parents (.ics)</h3>
+            <p className="text-xs text-sky-900/80 mt-1">
+              Un seul fichier contient le séjour entier + les points de dépôt / récupération (ex.
+              lundi 10h dépôt, mercredi 20h récupération). Pas besoin de 3 fichiers.
+            </p>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-slate-800 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={calendar.includeTripSpan !== false}
+              onChange={(e) =>
+                setCalendar((c) => ({ ...c, includeTripSpan: e.target.checked }))
+              }
+              disabled={!canEdit || busy}
+              className="h-4 w-4"
+            />
+            Inclure l’événement « séjour » (du départ au retour)
+          </label>
+
+          {calendar.points.map((pt, idx) => (
+            <div
+              key={pt.id}
+              className="rounded-lg border border-white bg-white/90 p-3 space-y-2 shadow-sm"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-black uppercase tracking-wide text-slate-500">
+                  Point {idx + 1}
+                </span>
+                {canEdit ? (
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-rose-600"
+                    onClick={() => removePoint(pt.id)}
+                  >
+                    Supprimer
+                  </button>
+                ) : null}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <label className="block text-xs font-semibold text-slate-600">
+                  Type
+                  <select
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                    value={pt.kind}
+                    disabled={!canEdit || busy}
+                    onChange={(e) =>
+                      updatePoint(pt.id, {
+                        kind: e.target.value as TravelsCalendarPoint["kind"],
+                      })
+                    }
+                  >
+                    {KIND_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Date
+                  <TripInput
+                    type="date"
+                    className="mt-1"
+                    value={pt.date}
+                    onChange={(e) => updatePoint(pt.id, { date: e.target.value })}
+                    disabled={!canEdit || busy}
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Heure
+                  <TripInput
+                    type="time"
+                    className="mt-1"
+                    value={pt.time}
+                    onChange={(e) => updatePoint(pt.id, { time: e.target.value })}
+                    disabled={!canEdit || busy}
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-slate-600">
+                  Lieu
+                  <TripInput
+                    className="mt-1"
+                    value={pt.place || ""}
+                    onChange={(e) => updatePoint(pt.id, { place: e.target.value })}
+                    placeholder="Cour, parking…"
+                    disabled={!canEdit || busy}
+                  />
+                </label>
+              </div>
+              <label className="block text-xs font-semibold text-slate-600">
+                Note (optionnel)
+                <TripInput
+                  className="mt-1"
+                  value={pt.note || ""}
+                  onChange={(e) => updatePoint(pt.id, { note: e.target.value })}
+                  placeholder="Ex. arriver 10 min avant"
+                  disabled={!canEdit || busy}
+                />
+              </label>
+            </div>
+          ))}
+
+          {canEdit ? (
+            <div className="flex flex-wrap gap-2">
+              <TripButton variant="secondary" disabled={busy} onClick={() => addPoint("depot")}>
+                + Dépôt
+              </TripButton>
+              <TripButton
+                variant="secondary"
+                disabled={busy}
+                onClick={() => addPoint("recuperation")}
+              >
+                + Récupération
+              </TripButton>
+              <TripButton variant="secondary" disabled={busy} onClick={() => addPoint("autre")}>
+                + Autre point
+              </TripButton>
+              <TripButton variant="primary" disabled={busy} onClick={() => void saveCalendar()}>
+                Enregistrer le calendrier
+              </TripButton>
+            </div>
+          ) : null}
+        </div>
 
         <p className="text-sm text-slate-600">
           Destinataires : <strong>{coverage.emails.length}</strong> e-mail
@@ -228,9 +445,19 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
               onChange={(e) => setMessage(e.target.value)}
               rows={5}
               disabled={!canEdit || busy}
-              placeholder="Ex. Bonjour, voici quelques photos de la journée…"
+              placeholder="Ex. Bonjour, voici quelques infos pratiques…"
             />
           </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={attachIcs}
+              onChange={(e) => setAttachIcs(e.target.checked)}
+              disabled={!canEdit || busy}
+              className="h-4 w-4"
+            />
+            Joindre le calendrier (.ics) — séjour + points
+          </label>
           <div>
             <label className="block text-xs font-semibold text-slate-500 uppercase mb-2">
               Photos ({photos.length}/{MAX_PHOTOS})
@@ -271,7 +498,7 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
         </div>
 
         {canEdit && (
-          <TripButton variant="primary" disabled={busy} onClick={send}>
+          <TripButton variant="primary" disabled={busy} onClick={() => void send()}>
             {busy ? "Envoi…" : "Envoyer aux parents"}
           </TripButton>
         )}
@@ -287,6 +514,7 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
                     {new Date(l.sentAt).toLocaleString("fr-FR")} · {l.recipientCount} destinataire
                     {l.recipientCount > 1 ? "s" : ""} · {l.photoCount} photo
                     {l.photoCount > 1 ? "s" : ""}
+                    {l.icsAttached ? " · .ics" : ""}
                     {l.sentBy.name ? ` · ${l.sentBy.name}` : ""}
                   </div>
                 </li>

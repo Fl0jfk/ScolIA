@@ -181,13 +181,13 @@ function ShortcutTile({
         href={item.href}
         highlight={highlight}
         chip={isTravels ? "Aujourd'hui" : "En cours"}
-        emoji={MODULE_EMOJI[item.moduleId] || (isTravels ? "🚌" : "🚪")}
+        emoji={item.emoji || MODULE_EMOJI[item.moduleId] || (isTravels ? "🚌" : "🚪")}
         fallbackColor={isTravels ? "#0284c7" : "#475569"}
       />
     );
   }
 
-  const emoji = MODULE_EMOJI[item.moduleId] || "›";
+  const emoji = item.emoji || MODULE_EMOJI[item.moduleId] || "›";
 
   return (
     <motion.div

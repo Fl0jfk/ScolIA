@@ -71,6 +71,40 @@ export type TravelsParentComLog = {
   body: string;
   photoCount: number;
   recipientCount: number;
+  /** true si un fichier .ics RDV a été joint. */
+  icsAttached?: boolean;
+};
+
+/** RDV parents legacy (un créneau) — préférer `parentCalendar`. */
+export type TravelsParentMeeting = {
+  /** YYYY-MM-DD */
+  date: string;
+  /** HH:mm */
+  time: string;
+  durationMinutes?: number;
+  place?: string;
+  note?: string;
+};
+
+export type TravelsCalendarPointKind = "depot" | "recuperation" | "autre";
+
+/** Point d’attention calendrier (dépôt, récupération, autre). */
+export type TravelsCalendarPoint = {
+  id: string;
+  kind: TravelsCalendarPointKind;
+  label?: string;
+  date: string;
+  time: string;
+  durationMinutes?: number;
+  place?: string;
+  note?: string;
+};
+
+/** Calendrier parents : un .ics = séjour + points. */
+export type TravelsParentCalendar = {
+  /** Inclure l’événement couvrant tout le séjour (défaut true). */
+  includeTripSpan?: boolean;
+  points: TravelsCalendarPoint[];
 };
 
 export type TravelsTripData = {
@@ -175,6 +209,10 @@ export type TravelsTripData = {
   listeEnvoyeeTransporteurAt?: string;
   /** Historique des envois com’ parents (métadonnées, pas les photos). */
   parentComLogs?: TravelsParentComLog[];
+  /** Heure / lieu de rendez-vous parents (legacy — un créneau). */
+  parentMeeting?: TravelsParentMeeting;
+  /** Calendrier parents multi-points (séjour + dépôt + récupération…). */
+  parentCalendar?: TravelsParentCalendar;
   /** Fiche budget compta (OCR devis + saisie manuelle). */
   comptaSheet?: import("@/app/lib/travels-compta-sheet").TravelsComptaSheet;
   [key: string]: unknown;

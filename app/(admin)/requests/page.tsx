@@ -16,6 +16,8 @@ import type { VisualColumnKey } from "@/app/lib/request-board-move";
 import { getViewerServiceLabel } from "@/app/lib/requests-view-utils";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import RequestPersonnelTagsPanel from "@/app/components/requests/RequestPersonnelTagsPanel";
+import RequestsRoutingEditor from "@/app/components/settings/RequestsRoutingEditor";
+import type { RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 
 type RequestStatus = "NOUVELLE" | "EN_COURS" | "EN_ATTENTE" | "TERMINEE";
@@ -195,7 +197,14 @@ function RequestAttachmentLinks({
 export default function RequestsPage() {
   const { isLoaded, user } = useUser();
   const isOrgAdmin = useIsOrgAdmin();
-  const [mainTab, setMainTab] = useState<"board" | "tags">("board");
+  const [mainTab, setMainTab] = useState<"board" | "tags" | "routing">("board");
+  const [requestsRouting, setRequestsRouting] = useState<RequestsRoutingConfig | null>(null);
+  const [routingMsg, setRoutingMsg] = useState<string | null>(null);
+  const [routingBusy, setRoutingBusy] = useState(false);
+  const [clerkMembers, setClerkMembers] = useState<
+    Array<{ clerkUserId: string; email: string; displayName: string }>
+  >([]);
+  const [membersLoading, setMembersLoading] = useState(false);
   const [items, setItems] = useState<RequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [internalNoteById, setInternalNoteById] = useState<Record<string, string>>({});
@@ -627,7 +636,9 @@ export default function RequestsPage() {
           <p className="text-sm text-slate-500 mt-1">
             {mainTab === "tags"
               ? "Paramétrage des tags pour le routage IA"
-              : `Tableau de traitement — ${serviceLabel}`}
+              : mainTab === "routing"
+                ? "Réglages du ticketing — files et routage des demandes"
+                : `Tableau de traitement — ${serviceLabel}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -655,6 +666,58 @@ export default function RequestsPage() {
               >
                 Tags équipe
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMainTab("routing");
+                  void (async () => {
+                    if (!requestsRouting) {
+                      try {
+                        const res = await fetch("/api/settings/requests-routing");
+                        const j = await res.json();
+                        if (res.ok) setRequestsRouting(j.config as RequestsRoutingConfig);
+                      } catch {
+                        /* ignore */
+                      }
+                    }
+                    if (clerkMembers.length === 0) {
+                      setMembersLoading(true);
+                      try {
+                        const res = await fetch("/api/reservation-rooms/clerk-users");
+                        const j = await res.json();
+                        if (res.ok && Array.isArray(j.users)) {
+                          setClerkMembers(
+                            j.users.map(
+                              (u: {
+                                id?: string;
+                                clerkUserId?: string;
+                                email?: string;
+                                displayName?: string;
+                                name?: string;
+                              }) => ({
+                                clerkUserId: String(u.clerkUserId || u.id || ""),
+                                email: String(u.email || ""),
+                                displayName: String(u.displayName || u.name || u.email || ""),
+                              }),
+                            ),
+                          );
+                        }
+                      } catch {
+                        /* ignore */
+                      } finally {
+                        setMembersLoading(false);
+                      }
+                    }
+                  })();
+                }}
+                className={`rounded-xl px-3.5 py-2 text-xs font-black transition ${
+                  mainTab === "routing"
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Réglages
+              </button>
             </div>
           ) : null}
           {mainTab === "board" ? (
@@ -674,6 +737,50 @@ export default function RequestsPage() {
       {mainTab === "tags" && isOrgAdmin ? (
         <div className="mt-6 max-w-5xl">
           <RequestPersonnelTagsPanel />
+        </div>
+      ) : mainTab === "routing" && isOrgAdmin ? (
+        <div className="mt-6 max-w-5xl space-y-4">
+          {routingMsg ? (
+            <p className="text-sm text-emerald-700">{routingMsg}</p>
+          ) : null}
+          {requestsRouting ? (
+            <>
+              <RequestsRoutingEditor
+                config={requestsRouting}
+                onChange={setRequestsRouting}
+                members={clerkMembers}
+                membersLoading={membersLoading}
+              />
+              <button
+                type="button"
+                disabled={routingBusy}
+                onClick={async () => {
+                  setRoutingBusy(true);
+                  setRoutingMsg(null);
+                  try {
+                    const res = await fetch("/api/settings/requests-routing", {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(requestsRouting),
+                    });
+                    const j = await res.json();
+                    if (!res.ok) throw new Error(j.error || "Échec");
+                    setRequestsRouting(j.config as RequestsRoutingConfig);
+                    setRoutingMsg("Routage enregistré.");
+                  } catch (e) {
+                    setRoutingMsg(e instanceof Error ? e.message : "Erreur");
+                  } finally {
+                    setRoutingBusy(false);
+                  }
+                }}
+                className="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {routingBusy ? "…" : "Enregistrer le routage"}
+              </button>
+            </>
+          ) : (
+            <p className="text-sm text-slate-500">Chargement du routage…</p>
+          )}
         </div>
       ) : (
         <>

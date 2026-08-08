@@ -229,11 +229,7 @@ export async function saveToolboxConfig(config: ToolboxConfig): Promise<void> {
 export function toolboxEnabledTools(config: ToolboxConfig): ToolboxToolId[] {
   const ids: ToolboxToolId[] = [];
   if (config.tools.qrcreator.enabled) ids.push("qrcreator");
-  if (config.tools["secret-santa"].enabled) ids.push("secret-santa");
-  if (config.tools.rentree.enabled) ids.push("rentree");
-  if (config.tools["simulateur-tarifs"].enabled) ids.push("simulateur-tarifs");
-  if (config.tools["simulateur-fournitures"].enabled) ids.push("simulateur-fournitures");
-  if (config.tools["portes-ouvertes"].enabled) ids.push("portes-ouvertes");
+  // événements → /etablissement/evenements ; tarifs → Communication ; fournitures → Rentrée
   if (config.tools["repartition-classes"].enabled) ids.push("repartition-classes");
   return ids;
 }

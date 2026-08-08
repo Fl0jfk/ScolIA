@@ -3,7 +3,7 @@ import { resolveSession } from "@/app/lib/intranet-session";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson, putJson } from "@/app/lib/s3-storage";
-import { computeTripReminders } from "@/app/lib/travels-trip-helpers";
+import { computeTripReminders, complexNeedsBus } from "@/app/lib/travels-trip-helpers";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import {
   createTenantTransporter,
@@ -124,12 +124,20 @@ export async function POST(req: Request) {
     ];
 
     if (reminder.type === "bus_liste_j3") {
-      subject = `Confirmez la liste des élèves — ${trip.data.title || tripId}`;
+      subject = `Confirmez la liste et les horaires parents — ${trip.data.title || tripId}`;
       bodyLines = [
         `Bonjour ${trip.ownerName || ""},`,
         "",
-        "La sortie approche : merci de confirmer la liste des élèves sur la plateforme.",
-        "Une fois confirmée, la liste sera envoyée automatiquement au transporteur.",
+        "La sortie approche : merci de confirmer sur la plateforme :",
+        "1) la liste nominative des élèves,",
+        "2) les points d’attention parents — heure et lieu de dépôt, puis heure et lieu de reprise.",
+        "",
+        "Entre ces deux points, le calendrier couvre tout le séjour (ou la journée).",
+        "Une fois validé, les parents reçoivent automatiquement un e-mail avec le fichier calendrier (.ics)",
+        "rappelant le départ et la reprise de leur enfant.",
+        complexNeedsBus(trip)
+          ? "Si un bus est prévu, la liste sera aussi envoyée au transporteur."
+          : "",
         "",
         reminder.label,
         "",
@@ -137,7 +145,7 @@ export async function POST(req: Request) {
         "",
         "Cordialement,",
         "Plateforme Voyages",
-      ];
+      ].filter((line) => line !== undefined);
     } else if (reminder.type === "com_parents_j0") {
       subject = `Communication parents disponible — ${trip.data.title || tripId}`;
       bodyLines = [

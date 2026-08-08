@@ -39,7 +39,7 @@ export const TILE_EMOJI: Record<string, string> = {
   documents: "☁️",
   "docs-eleves": "📁",
   sorties: "🚌",
-  absences: "📅",
+  absences: "😴",
   salles: "🚪",
   rh: "👥",
   internat: "🌙",

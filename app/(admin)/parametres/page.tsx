@@ -339,7 +339,11 @@ export default function ParametresPage() {
   return (
     <RequireOrgAdmin>
     <div className="max-w-4xl mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-slate-900">Paramètres généraux</h1>
+      <h1 className="text-2xl font-bold text-slate-900">Paramètres</h1>
+      <p className="text-sm text-slate-600 -mt-2">
+        Réglages globaux du SaaS : établissement, utilisateurs, liste des élèves. Les réglages
+        métier (salles, ticketing, transporteurs…) restent dans chaque module.
+      </p>
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         <a href="/onboarding?review=1" className="text-sm text-indigo-600 font-medium hover:underline">
           Relancer l&apos;assistant de configuration
@@ -354,18 +358,15 @@ export default function ParametresPage() {
       <div className="flex flex-wrap gap-2">
         {(
           [
-            ["site", "Identité de l'établissement"],
-            ["establishments", "Établissements"],
+            ["site", "Établissement"],
+            ["establishments", "Sites / directions"],
             ["utilisateurs", "Utilisateurs"],
-            ["notifications", "Notifications"],
-            ["travels", "Sorties scolaires"],
-            ["integrations", "Intégrations"],
-            ["toolbox", "Boîte à outils"],
-            ["referentiel", "Référentiel scolaire"],
+            ["referentiel", "Liste des élèves"],
             ["mef", "Formations MEF"],
-            ["prof-room", "Réservation salles"],
-            ["requests-routing", "Routage demandes"],
+            ["notifications", "Notifications"],
+            ["integrations", "Intégrations"],
             ["dashboard-links", "Raccourcis tableau de bord"],
+            ["toolbox", "Boîte à outils"],
           ] as const
         ).map(([k, label]) => (
           <button
@@ -379,12 +380,44 @@ export default function ParametresPage() {
         ))}
       </div>
 
+      {(tab === "travels" || tab === "prof-room" || tab === "requests-routing") && (
+        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+          {tab === "travels" ? (
+            <>
+              Transporteurs : désormais dans{" "}
+              <a href="/travels?tab=settings" className="font-bold underline">
+                Sorties scolaires → Paramétrage
+              </a>
+              .
+            </>
+          ) : null}
+          {tab === "prof-room" ? (
+            <>
+              Admins salles : désormais dans{" "}
+              <a href="/prof-room" className="font-bold underline">
+                Réservation de salle → Paramétrage
+              </a>
+              .
+            </>
+          ) : null}
+          {tab === "requests-routing" ? (
+            <>
+              Routage ticketing : désormais dans{" "}
+              <a href="/requests" className="font-bold underline">
+                Demandes → Réglages
+              </a>
+              .
+            </>
+          ) : null}
+        </div>
+      )}
+
       {tab === "site" && (
         <div className="bg-white rounded-2xl border p-6 space-y-4">
           <div className="mb-2">
-            <h2 className="text-lg font-black text-slate-900">Identité de l&apos;établissement</h2>
+            <h2 className="text-lg font-black text-slate-900">Établissement</h2>
             <p className="text-sm text-slate-500 mt-1">
-              Nom, logo, couleurs et adresse affichés sur l&apos;intranet et les pages publiques.
+              Nom, logo, couleurs, adresse et zone de vacances — identité globale de l&apos;intranet.
             </p>
           </div>
           <label className="block text-sm font-bold text-slate-600">Nom du groupe</label>
@@ -1393,15 +1426,36 @@ export default function ParametresPage() {
         <div className="bg-white rounded-2xl border p-6 space-y-4">
           <h2 className="text-lg font-black text-slate-900">Boîte à outils saisonnière</h2>
           <p className="text-sm text-slate-600 max-w-xl">
-            QR code, rentrée digitale, simulateur de tarifs, portes ouvertes, Secret Santa — activables par établissement.
-            Les outils activés apparaissent dans la tuile <strong>Boîte à outils</strong> du dashboard (style dossier iPhone).
+            QR code et répartition des classes. Rentrée + fournitures →{" "}
+            <a href="/etablissement/evenements" className="font-bold text-slate-900 underline">
+              Événements
+            </a>
+            . Simulateur de tarifs →{" "}
+            <a href="/etablissement/communication" className="font-bold text-slate-900 underline">
+              Communication
+            </a>
+            .
           </p>
-          <a
-            href="/toolbox"
-            className="inline-flex rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
-          >
-            Ouvrir la configuration →
-          </a>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href="/toolbox"
+              className="inline-flex rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
+            >
+              Ouvrir la boîte à outils →
+            </a>
+            <a
+              href="/etablissement/evenements"
+              className="inline-flex rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50"
+            >
+              Événements →
+            </a>
+            <a
+              href="/etablissement/communication"
+              className="inline-flex rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50"
+            >
+              Communication →
+            </a>
+          </div>
         </div>
       )}
     </div>

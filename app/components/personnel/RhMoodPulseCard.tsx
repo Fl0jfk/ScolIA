@@ -105,14 +105,19 @@ export default function RhMoodPulseCard() {
   return (
     <section className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50/70 via-white to-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-black uppercase tracking-widest text-violet-700">
-            Pulse du jour
-          </p>
-          <h3 className="mt-1 text-lg font-black text-slate-900">Comment je me sens aujourd’hui ?</h3>
-          <p className="mt-1 text-sm text-slate-600">
-            Note anonyme sur 10 — une seule fois par jour. Optionnel : un mot pour la RH.
-          </p>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="text-3xl leading-none" aria-hidden>
+            😊
+          </span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-widest text-violet-700">
+              Pulse du jour
+            </p>
+            <h3 className="mt-1 text-lg font-black text-slate-900">Comment je me sens aujourd’hui ?</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Note anonyme sur 10 — une seule fois par jour. Optionnel : un mot pour la RH.
+            </p>
+          </div>
         </div>
         <div
           className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl border border-violet-100 bg-white shadow-sm transition-transform duration-200"

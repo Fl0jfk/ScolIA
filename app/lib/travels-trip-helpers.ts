@@ -1,4 +1,9 @@
 import type { TravelsHistoryEntry, TravelsTrip, TravelsTripData } from "@/app/lib/travels-types";
+import {
+  calendarHasDepotAndRecuperation,
+  defaultParentCalendarFromTrip,
+} from "@/app/lib/travels-parent-calendar";
+import { formatCuisineDateFR } from "@/app/lib/travels-cuisine-shared";
 
 /** Motif affiché quand le dossier est en « Modifications demandées » (pas la dernière ligne d'historique). */
 export function getModificationRequestNote(trip: {
@@ -16,7 +21,6 @@ export function getModificationRequestNote(trip: {
   }
   return "";
 }
-import { formatCuisineDateFR } from "@/app/lib/travels-cuisine-shared";
 
 export function complexNeedsBus(trip: { type?: string; data?: { needsBus?: boolean } } | null) {
   return trip?.type === "COMPLEX" && Boolean(trip?.data?.needsBus);
@@ -209,7 +213,8 @@ export type TripReminder = {
     | "blocked_status"
     | "transport_pending"
     | "bus_liste_j3"
-    | "com_parents_j0";
+    | "com_parents_j0"
+    | "parent_meeting";
   label: string;
   severity: "info" | "warning" | "urgent";
   daysUntil?: number;
@@ -233,6 +238,21 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
       severity: days <= 3 ? "urgent" : days <= 7 ? "warning" : "info",
       daysUntil: days,
     });
+  }
+
+  if (days != null && days <= 14 && days >= 0 && status === "VALIDE") {
+    const cal = trip.data.parentCalendar || defaultParentCalendarFromTrip(trip.data);
+    if (!calendarHasDepotAndRecuperation(cal)) {
+      out.push({
+        id: `${trip.id}_parent_meeting`,
+        tripId: trip.id,
+        type: "parent_meeting",
+        label: `J-${days} : vérifier dépôt / récupération parents (calendrier .ics)`,
+        severity: days <= 3 ? "urgent" : "warning",
+        daysUntil: days,
+        href: `/travels/${trip.id}?tab=eleves`,
+      });
+    }
   }
 
   if (days != null && days <= 7 && days >= 0 && status === "VALIDE") {
@@ -276,18 +296,19 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
     trip.data.listeElevesStatus === "confirmed" && (trip.data.participantEleves?.length || 0) > 0;
 
   if (
-    complexNeedsBus(trip) &&
     !listeConfirmed &&
     days != null &&
     days <= 4 &&
     days >= 0 &&
+    (status === "VALIDE" || complexNeedsBus(trip)) &&
     !sent.bus_liste_j3
   ) {
+    const busBit = complexNeedsBus(trip) ? " (envoi transporteur)" : "";
     out.push({
       id: `${trip.id}_bus_liste_j3`,
       tripId: trip.id,
       type: "bus_liste_j3",
-      label: `J-${days} : confirmez la liste des élèves sur la plateforme (envoi au transporteur)`,
+      label: `J-${days} : confirmez la liste des élèves et les horaires dépôt / reprise${busBit}`,
       severity: days <= 1 ? "urgent" : "warning",
       daysUntil: days,
       href: `/travels/${trip.id}?tab=eleves`,

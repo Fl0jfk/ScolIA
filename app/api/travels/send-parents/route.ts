@@ -4,7 +4,15 @@ import { collectEleveParentEmails } from "@/app/lib/eleves-parent-emails";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { assertTravelsTripAccess } from "@/app/lib/travels-rbac-server";
-import type { TravelsParentComLog, TravelsTrip } from "@/app/lib/travels-types";
+import {
+  buildTravelsParentsTripIcs,
+  defaultParentCalendarFromTrip,
+} from "@/app/lib/travels-parent-calendar";
+import type {
+  TravelsParentCalendar,
+  TravelsParentComLog,
+  TravelsTrip,
+} from "@/app/lib/travels-types";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
@@ -18,7 +26,6 @@ const BATCH_SIZE = 40;
 type PhotoPayload = {
   filename: string;
   contentType: string;
-  /** base64 sans préfixe data: */
   contentBase64: string;
 };
 
@@ -30,8 +37,10 @@ export async function POST(req: Request) {
     const body = await req.json();
     const tripId = String(body.tripId || "");
     const subject = String(body.subject || "").trim();
-    const message = String(body.body || body.message || "").trim();
+    const message = String(body.message || body.body || "").trim();
     const photos: PhotoPayload[] = Array.isArray(body.photos) ? body.photos : [];
+    const attachIcs = body.attachIcs !== false;
+    const calendarPatch = body.parentCalendar as TravelsParentCalendar | undefined;
 
     if (!tripId) return NextResponse.json({ error: "tripId requis" }, { status: 400 });
     if (!subject) return NextResponse.json({ error: "Sujet requis" }, { status: 400 });
@@ -49,8 +58,19 @@ export async function POST(req: Request) {
 
     const participants = trip.data.participantEleves || [];
     if (participants.length === 0) {
-      return NextResponse.json({ error: "Aucun élève sur la liste — composez d'abord la liste." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Aucun élève sur la liste — composez d'abord la liste." },
+        { status: 400 },
+      );
     }
+
+    const parentCalendar =
+      calendarPatch && Array.isArray(calendarPatch.points)
+        ? {
+            includeTripSpan: calendarPatch.includeTripSpan !== false,
+            points: calendarPatch.points,
+          }
+        : trip.data.parentCalendar || defaultParentCalendarFromTrip(trip.data);
 
     const eleves = await loadElevesRegistry();
     const byIne = new Map(eleves.map((e) => [e.ine, e]));
@@ -91,6 +111,24 @@ export async function POST(req: Request) {
       });
     }
 
+    let icsAttached = false;
+    if (attachIcs) {
+      const tripLabel = String(trip.data.title || trip.data.destination || "Sortie scolaire");
+      const ics = buildTravelsParentsTripIcs({
+        tripId,
+        tripTitle: tripLabel,
+        destination: trip.data.destination ? String(trip.data.destination) : undefined,
+        data: { ...trip.data, parentCalendar },
+        calendar: parentCalendar,
+      });
+      attachments.push({
+        filename: "calendrier-sortie.ics",
+        content: Buffer.from(ics, "utf8"),
+        contentType: "text/calendar; charset=utf-8",
+      });
+      icsAttached = true;
+    }
+
     const smtp = await getTenantSmtpConfig();
     const transporter = smtp ? await createTenantTransporter() : null;
     if (!smtp || !transporter) {
@@ -99,12 +137,20 @@ export async function POST(req: Request) {
 
     const userName = access.user.fullName || "Équipe pédagogique";
     const tripLabel = trip.data.title || trip.data.destination || tripId;
+    const photoCount = attachments.filter((a) => a.contentType.startsWith("image/")).length;
     const html = `
       <div style="font-family: sans-serif; line-height: 1.55; color: #334155; max-width: 560px;">
         <p>Bonjour,</p>
         <p>Message concernant la sortie <strong>${escapeHtml(String(tripLabel))}</strong>.</p>
+        ${
+          icsAttached
+            ? `<p style="margin: 12px 0; padding: 10px 12px; background: #eff6ff; border-radius: 8px; border: 1px solid #bfdbfe;">
+                Un fichier calendrier (<strong>.ics</strong>) est joint : séjour complet + points de dépôt / récupération.
+              </p>`
+            : ""
+        }
         <div style="white-space: pre-wrap; margin: 16px 0; padding: 12px 14px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">${escapeHtml(message)}</div>
-        ${attachments.length ? `<p>${attachments.length} photo(s) en pièce jointe.</p>` : ""}
+        ${photoCount ? `<p>${photoCount} photo(s) en pièce jointe.</p>` : ""}
         <p style="font-size: 12px; color: #64748b;">Cet e-mail est envoyé par l'établissement. Merci de ne pas y répondre sur ce canal (communication unidirectionnelle).</p>
         <p>Cordialement,<br/>${escapeHtml(userName)}</p>
       </div>
@@ -123,9 +169,13 @@ export async function POST(req: Request) {
             "",
             `Message concernant la sortie « ${tripLabel} ».`,
             "",
+            icsAttached
+              ? "Fichier calendrier (.ics) joint : séjour + dépôt / récupération."
+              : "",
+            "",
             message,
             "",
-            attachments.length ? `${attachments.length} photo(s) en pièce jointe.` : "",
+            photoCount ? `${photoCount} photo(s) en pièce jointe.` : "",
             "",
             "Cet e-mail est envoyé par l'établissement (communication unidirectionnelle).",
             "",
@@ -148,8 +198,9 @@ export async function POST(req: Request) {
       sentBy: { userId: access.user.id, name: userName },
       subject,
       body: message,
-      photoCount: attachments.length,
+      photoCount,
       recipientCount: recipients.length,
+      icsAttached,
     };
 
     const updatedTrip: TravelsTrip = {
@@ -157,6 +208,7 @@ export async function POST(req: Request) {
       updatedAt: now,
       data: {
         ...trip.data,
+        parentCalendar,
         parentComLogs: [...(trip.data.parentComLogs || []), log],
       },
       history: [
@@ -164,7 +216,7 @@ export async function POST(req: Request) {
         {
           date: now,
           user: userName,
-          action: `Communication parents envoyée (${recipients.length} destinataire(s), ${attachments.length} photo(s))`,
+          action: `Communication parents envoyée (${recipients.length} destinataire(s), ${photoCount} photo(s)${icsAttached ? ", .ics" : ""})`,
           note: subject,
         },
       ],
@@ -182,7 +234,8 @@ export async function POST(req: Request) {
       success: true,
       trip: updatedTrip,
       recipientCount: recipients.length,
-      photoCount: attachments.length,
+      photoCount,
+      icsAttached,
     });
   } catch (e) {
     console.error("[send-parents]", e);

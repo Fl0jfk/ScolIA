@@ -34,11 +34,10 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     moduleIds: [
       "organigramme",
       "evenements",
-      "identite",
+      "communication",
+      "admin-settings",
       "conformite-rgpd",
       "chatbot-knowledge",
-      "domain-planning",
-      "admin-settings",
     ],
   },
   {
@@ -49,7 +48,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     moduleIds: [
       "requests-staff",
       "prof-room",
-      "photocopies-couleur",
+      "domain-planning",
       "documents",
       "toolbox",
       "covoiturage",

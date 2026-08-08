@@ -1,7 +1,7 @@
 "use client";
 
 import type { ToolboxToolId } from "@/app/lib/toolbox-types";
-import type { ToolboxAdminLinkId } from "@/app/lib/toolbox-tools";
+import type { ToolboxAdminLinkId, ToolboxHubLinkId } from "@/app/lib/toolbox-tools";
 
 type IconProps = { className?: string };
 
@@ -128,6 +128,17 @@ export function UtilisateursToolboxIcon({ className = "w-10 h-10" }: IconProps) 
   );
 }
 
+export function PhotocopiesToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+  return (
+    <svg viewBox="0 0 48 48" className={className} aria-hidden>
+      <rect x="10" y="8" width="28" height="20" rx="2" fill="currentColor" opacity="0.35" />
+      <rect x="8" y="16" width="32" height="22" rx="3" fill="currentColor" opacity="0.9" />
+      <rect x="14" y="22" width="20" height="10" rx="1" fill="white" opacity="0.85" />
+      <circle cx="34" cy="34" r="2.5" fill="white" opacity="0.9" />
+    </svg>
+  );
+}
+
 export function renderToolboxIcon(id: ToolboxToolId, className?: string) {
   switch (id) {
     case "qrcreator":
@@ -149,10 +160,23 @@ export function renderToolboxIcon(id: ToolboxToolId, className?: string) {
   }
 }
 
+export function renderToolboxHubIcon(id: ToolboxHubLinkId, className?: string) {
+  switch (id) {
+    case "photocopies-couleur":
+      return <PhotocopiesToolboxIcon className={className} />;
+    default:
+      return <ToolboxFolderIcon className={className} />;
+  }
+}
+
 export function renderToolboxAdminIcon(id: ToolboxAdminLinkId, className?: string) {
   switch (id) {
     case "parametres":
       return <ParametresToolboxIcon className={className} />;
+    case "evenements":
+      return <PortesOuvertesToolboxIcon className={className} />;
+    case "communication":
+      return <TarifsToolboxIcon className={className} />;
     default:
       return <ToolboxFolderIcon className={className} />;
   }

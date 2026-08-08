@@ -174,7 +174,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       link: "/toolbox",
       external: false,
       variant: "toolbox",
-      description: "QR code et outils secondaires — événements pilotés depuis Établissement.",
+      description: "QR code et photocopies couleur.",
     },
   },
   {
@@ -216,7 +216,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/domain-planning",
       external: false,
-      description: "Positionnements EVARS, séances et validation des intervenants",
+      description: "Positionnements EVARS, séances et validation des intervenants — comme une réservation de salle.",
     },
   },
   {
@@ -281,21 +281,28 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/etablissement/evenements",
       external: false,
-      description: "Portes ouvertes, rentrée digitale et Secret Santa.",
+      description: "Portes ouvertes, rentrée digitale (dont fournitures) et Secret Santa.",
+    },
+  },
+  {
+    id: "communication",
+    pathPrefixes: ["/etablissement/communication"],
+    allowedRoles: [],
+    orgAdminOnly: true,
+    dashboard: {
+      id: 32,
+      name: "Communication",
+      img: "",
+      link: "/etablissement/communication",
+      external: false,
+      description: "Simulateur de tarifs et outils diffusables pour les familles.",
     },
   },
   {
     id: "identite",
     allowedRoles: [],
     orgAdminOnly: true,
-    dashboard: {
-      id: 31,
-      name: "Identité",
-      img: "",
-      link: "/parametres?tab=site",
-      external: false,
-      description: "Nom, logo, couleurs et adresse de l'établissement.",
-    },
+    // Tuile retirée : absorbée dans « Paramètres » (`admin-settings`).
   },
   {
     id: "requests-staff",
@@ -334,14 +341,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "photocopies-couleur",
     pathPrefixes: ["/photocopies-couleur", "/api/photocopies-couleur"],
     allowedRoles: [...DIRECTIONS, "administratif", "professeur"],
-    dashboard: {
-      id: 19,
-      name: "Photocopies couleur",
-      img: "",
-      link: "/photocopies-couleur",
-      external: false,
-      variant: "photocopies-couleur",
-    },
+    // Tuile dashboard retirée : accès via Boîte à outils (+ alertes direction si file d’attente).
+    // Route /photocopies-couleur conservée.
   },
   {
     id: "demandes-hse",
@@ -369,10 +370,11 @@ export const INTRANET_MODULES: IntranetModule[] = [
     orgAdminOnly: true,
     dashboard: {
       id: 21,
-      name: "Paramètres généraux",
+      name: "Paramètres",
       img: "",
       link: "/parametres",
       external: false,
+      description: "Utilisateurs, établissement, liste des élèves et réglages globaux du SaaS.",
     },
   },
   {

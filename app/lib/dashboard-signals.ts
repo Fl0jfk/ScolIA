@@ -44,6 +44,8 @@ export type DashboardShortcut = {
   badge?: string;
   detail?: string;
   tone?: DashboardShortcutTone;
+  /** Emoji de tuile (sinon MODULE_EMOJI[moduleId]). */
+  emoji?: string;
   /** Visible uniquement sur les sous-dashboards piliers (pas la grille home). */
   pillarOnly?: boolean;
   /** Si présent, la tuile fait défiler ces slides (~3 s). */
@@ -621,6 +623,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           rich: true,
           detail: "Note anonyme du jour — 30 secondes",
           tone: "action",
+          emoji: "😊",
         });
       }
     }
@@ -927,7 +930,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
   }
 
-  // —— Services : Photocopies ——
+  // —— Services : Photocopies (alertes direction uniquement — entrée via Boîte à outils) ——
   if (has("photocopies-couleur")) {
     const photoHome = moduleHref("photocopies-couleur");
     const etab = photocopieEtabForDirection(roles);
@@ -939,7 +942,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         shortcuts.push({
           id: "photo-dir",
           pillarId: "services",
-          moduleId: "photocopies-couleur",
+          moduleId: "toolbox",
           href: photoHome,
           label: "Photocopies couleur",
           rich: true,
@@ -960,30 +963,19 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
               ? "1 photocopie à traiter"
               : `${pending} photocopies à traiter`,
         });
-      } else {
-        shortcuts.push({
-          id: "photo",
-          pillarId: "services",
-          moduleId: "photocopies-couleur",
-          href: photoHome,
-          label: "Photocopies couleur",
-        });
       }
-    } else {
-      shortcuts.push({
-        id: "photo",
-        pillarId: "services",
-        moduleId: "photocopies-couleur",
-        href: photoHome,
-        label: "Photocopies couleur",
-      });
     }
   }
 
   // —— Services : stables ——
-  const stableServices: Array<{ moduleId: string; label: string }> = [
+  const stableServices: Array<{ moduleId: string; label: string; detail?: string }> = [
+    { moduleId: "domain-planning", label: "Enseignements transversaux" },
     { moduleId: "documents", label: "Cloud personnel" },
-    { moduleId: "toolbox", label: "Boîte à outils" },
+    {
+      moduleId: "toolbox",
+      label: "Boîte à outils",
+      detail: "QR code · Photocopies couleur",
+    },
     { moduleId: "covoiturage", label: "Covoiturage" },
     { moduleId: "channels", label: "Salons" },
     { moduleId: "assistance", label: "Assistance" },
@@ -996,17 +988,24 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       moduleId: s.moduleId,
       href: moduleHref(s.moduleId),
       label: s.label,
+      ...(s.detail
+        ? { rich: true as const, detail: s.detail, tone: "neutral" as const }
+        : {}),
     });
   }
 
   // —— Établissement : stables ——
-  const stableEtab: Array<{ moduleId: string; label: string }> = [
+  const stableEtab: Array<{ moduleId: string; label: string; detail?: string }> = [
     { moduleId: "organigramme", label: "Annuaire de l'établissement" },
     { moduleId: "evenements", label: "Événements" },
-    { moduleId: "identite", label: "Identité" },
+    { moduleId: "communication", label: "Communication" },
+    {
+      moduleId: "admin-settings",
+      label: "Paramètres",
+      detail: "Utilisateurs, établissement, liste des élèves",
+    },
     { moduleId: "conformite-rgpd", label: "Conformité RGPD" },
     { moduleId: "chatbot-knowledge", label: "Brain AI" },
-    { moduleId: "domain-planning", label: "Enseignements transversaux" },
   ];
   for (const s of stableEtab) {
     if (!has(s.moduleId)) continue;
@@ -1016,6 +1015,9 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       moduleId: s.moduleId,
       href: moduleHref(s.moduleId),
       label: s.label,
+      ...(s.detail
+        ? { rich: true as const, detail: s.detail, tone: "neutral" as const }
+        : {}),
     });
   }
 
