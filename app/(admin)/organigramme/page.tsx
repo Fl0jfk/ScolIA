@@ -8,7 +8,7 @@ export default function Page() {
     <Suspense
       fallback={
         <main className="min-h-screen flex items-center justify-center text-slate-500 text-sm">
-          Chargement de l&apos;organigramme…
+          Chargement de l&apos;annuaire…
         </main>
       }
     >

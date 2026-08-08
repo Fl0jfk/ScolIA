@@ -207,7 +207,9 @@ export function OrganigramPrintDocument({ view }: { view: OrganigramView }) {
   return (
     <article className="organigram-print-root bg-white text-slate-800 max-w-[210mm] mx-auto print:max-w-none">
       <header className="rounded-2xl border border-slate-300 bg-slate-50 p-1.5 mb-1 print:break-inside-avoid">
-        <h1 className="m-0 text-[11.5pt] font-black tracking-tight leading-tight text-slate-800">Organigramme interne</h1>
+        <h1 className="m-0 text-[11.5pt] font-black tracking-tight leading-tight text-slate-800">
+          Annuaire de l&apos;établissement
+        </h1>
         <p className="m-0 mt-0.5 text-[8.5pt] font-semibold text-slate-700">{SCHOOL.shortName}</p>
         <p className="m-0 mt-0.5 text-[6.5pt] text-slate-600">{SCHOOL.address.fullCompact}</p>
         <p className="m-0 mt-1 text-[6pt] text-slate-500">Document du {printedAt} — usage interne</p>

@@ -29,7 +29,8 @@ export const TOOLBOX_TOOLS_META: ToolboxToolMeta[] = [
     id: "secret-santa",
     label: "Secret Santa",
     shortLabel: "Santa",
-    description: "Tirage au sort anonyme pour l'équipe ou une classe.",
+    description:
+      "Tirage au sort anonyme — piloté depuis Établissement → Événements (accès secondaire ici).",
     adminPath: "/toolbox/secret-santa",
     color: "text-red-700",
     bg: "bg-red-50",
@@ -39,7 +40,8 @@ export const TOOLBOX_TOOLS_META: ToolboxToolMeta[] = [
     id: "rentree",
     label: "Rentrée digitale",
     shortLabel: "Rentrée",
-    description: "Hub familles : documents, simulateurs et liens utiles.",
+    description:
+      "Hub familles — piloté depuis Établissement → Événements (accès secondaire ici).",
     adminPath: "/toolbox?tab=rentree",
     publicPath: "/rentree",
     color: "text-amber-800",
@@ -72,7 +74,8 @@ export const TOOLBOX_TOOLS_META: ToolboxToolMeta[] = [
     id: "portes-ouvertes",
     label: "Portes ouvertes",
     shortLabel: "P. ouv.",
-    description: "Inscriptions en ligne, créneaux, confirmation et calendrier.",
+    description:
+      "Inscriptions et créneaux — piloté depuis Établissement → Événements (accès secondaire ici).",
     adminPath: "/toolbox",
     publicPath: "/portes-ouvertes",
     color: "text-violet-800",

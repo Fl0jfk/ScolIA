@@ -16,6 +16,7 @@ import RhOnboardingPanel from "@/app/components/personnel/RhOnboardingPanel";
 import RhBulkDepositPanel from "@/app/components/personnel/RhBulkDepositPanel";
 import RhOrganigramPanel from "@/app/components/personnel/RhOrganigramPanel";
 import RhPersonnelHome from "@/app/components/personnel/RhPersonnelHome";
+import RhPlanningPanel from "@/app/components/personnel/RhPlanningPanel";
 import RhRegistrePanel from "@/app/components/personnel/RhRegistrePanel";
 
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
@@ -32,6 +33,7 @@ const TAB_IDS: RhHubTab[] = [
   "absences",
   "hse",
   "demande",
+  "planning",
   "organigramme",
   "deposit",
 ];
@@ -143,6 +145,8 @@ export default function RhModuleClient() {
         <DemandesHsePanel embeddedInRh />
       ) : activeTab === "demande" ? (
         <RhDemandePanel />
+      ) : activeTab === "planning" ? (
+        <RhPlanningPanel />
       ) : activeTab === "organigramme" ? (
         <RhOrganigramPanel index={index} />
       ) : activeTab === "annuaire" ? (

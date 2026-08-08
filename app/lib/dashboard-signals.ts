@@ -967,7 +967,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— Établissement : stables ——
   const stableEtab: Array<{ moduleId: string; label: string }> = [
-    { moduleId: "organigramme", label: "Organigramme" },
+    { moduleId: "organigramme", label: "Annuaire de l'établissement" },
     { moduleId: "conformite-rgpd", label: "Conformité RGPD" },
     { moduleId: "chatbot-knowledge", label: "Brain AI" },
     { moduleId: "domain-planning", label: "Enseignements transversaux" },

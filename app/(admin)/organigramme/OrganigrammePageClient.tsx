@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import CreateRequestModal from "@/app/components/requests/CreateRequestModal";
 import type { OrganigramPerson } from "@/app/lib/organigramme";
 import type { OrganigramView } from "@/app/lib/organigramme-resolve";
 import { OrganigramServiceFrame, OrganigramPoleColumn } from "./OrganigramServiceFrame";
@@ -95,6 +96,7 @@ export default function OrganigrammePageClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<OrganigramPerson | null>(null);
+  const [taskRequestPerson, setTaskRequestPerson] = useState<OrganigramPerson | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -121,10 +123,22 @@ export default function OrganigrammePageClient() {
     return selected.missions.map((m) => m.trim()).filter(Boolean);
   }, [selected]);
 
+  const taskRequestMeta = useMemo(() => {
+    if (!taskRequestPerson) return null;
+    const name = displayName(taskRequestPerson);
+    const mission =
+      taskRequestPerson.missions.map((m) => m.trim()).filter(Boolean)[0] ||
+      taskRequestPerson.role;
+    return {
+      fixedSubject: `[Tâche] ${name} — ${mission}`.slice(0, 120),
+      initialDescription: `Demande de tâche pour ${name} (${taskRequestPerson.role}).\n\nPrécisez ici ce dont vous avez besoin :`,
+    };
+  }, [taskRequestPerson]);
+
   if (loading) {
     return (
       <main className="min-h-screen flex items-center justify-center text-slate-500 text-sm">
-        Chargement de l&apos;organigramme…
+        Chargement de l&apos;annuaire…
       </main>
     );
   }
@@ -132,7 +146,7 @@ export default function OrganigrammePageClient() {
   if (error || !view) {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center gap-3 text-sm">
-        <p className="text-red-600">{error || "Organigramme indisponible"}</p>
+        <p className="text-red-600">{error || "Annuaire indisponible"}</p>
         <button
           type="button"
           onClick={() => void reload()}
@@ -153,8 +167,11 @@ export default function OrganigrammePageClient() {
         <header className="mb-10 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
             <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
-              Organigramme interne
+              Annuaire de l&apos;établissement
             </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Qui fait quoi — contacts, missions et demandes de tâche.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {canEdit ? (
@@ -349,14 +366,6 @@ export default function OrganigrammePageClient() {
                   {displayName(selected)}
                 </h3>
                 <p className="text-sky-800 font-medium text-sm mt-0.5">{selected.role}</p>
-                {selected.email ? (
-                  <a
-                    href={`mailto:${selected.email}`}
-                    className="text-xs text-sky-600 hover:underline mt-2 inline-block"
-                  >
-                    {selected.email}
-                  </a>
-                ) : null}
               </div>
               <button
                 type="button"
@@ -365,6 +374,26 @@ export default function OrganigrammePageClient() {
                 aria-label="Fermer la fenêtre"
               >
                 ✕
+              </button>
+            </div>
+            <div className="px-6 pt-4 flex flex-wrap gap-2">
+              {selected.email ? (
+                <a
+                  href={`mailto:${selected.email}`}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800 hover:bg-sky-100"
+                >
+                  Contacter par e-mail
+                </a>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  setTaskRequestPerson(selected);
+                  setSelected(null);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+              >
+                Demander une tâche
               </button>
             </div>
             <div className="p-6 max-h-[50vh] overflow-y-auto">
@@ -388,6 +417,19 @@ export default function OrganigrammePageClient() {
             </div>
           </div>
         </div>
+      ) : null}
+      {taskRequestMeta && taskRequestPerson ? (
+        <CreateRequestModal
+          open
+          onClose={() => setTaskRequestPerson(null)}
+          onCreated={() => setTaskRequestPerson(null)}
+          title="Demander une tâche"
+          subtitle={`Sollicitation pour ${displayName(taskRequestPerson)} — routage automatique vers le bon service.`}
+          fixedSubject={taskRequestMeta.fixedSubject}
+          initialDescription={taskRequestMeta.initialDescription}
+          heading="Décrivez la tâche"
+          intro="Le sujet est prérempli avec la personne et sa mission. Précisez le besoin ci-dessous."
+        />
       ) : null}
       <style jsx global>{`
         @media print {

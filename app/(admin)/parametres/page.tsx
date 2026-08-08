@@ -354,7 +354,7 @@ export default function ParametresPage() {
       <div className="flex flex-wrap gap-2">
         {(
           [
-            ["site", "Identité"],
+            ["site", "Identité de l'établissement"],
             ["establishments", "Établissements"],
             ["utilisateurs", "Utilisateurs"],
             ["notifications", "Notifications"],
@@ -381,6 +381,12 @@ export default function ParametresPage() {
 
       {tab === "site" && (
         <div className="bg-white rounded-2xl border p-6 space-y-4">
+          <div className="mb-2">
+            <h2 className="text-lg font-black text-slate-900">Identité de l&apos;établissement</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Nom, logo, couleurs et adresse affichés sur l&apos;intranet et les pages publiques.
+            </p>
+          </div>
           <label className="block text-sm font-bold text-slate-600">Nom du groupe</label>
           <input
             className="w-full border rounded-xl p-3"

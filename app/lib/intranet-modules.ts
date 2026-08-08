@@ -171,7 +171,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       link: "/toolbox",
       external: false,
       variant: "toolbox",
-      description: "QR code, rentrée, portes ouvertes, Secret Santa…",
+      description: "QR code et outils secondaires — événements pilotés depuis Établissement.",
     },
   },
   {
@@ -258,10 +258,37 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [...ROLES_EXCEPT_PARENT].filter((r) => r !== "eleve"),
     dashboard: {
       id: 14,
-      name: "Organigramme interne",
+      name: "Annuaire de l'établissement",
       img: "",
       link: "/organigramme",
       external: false,
+      description: "Qui fait quoi — organisation, contacts et missions.",
+    },
+  },
+  {
+    id: "evenements",
+    pathPrefixes: ["/etablissement/evenements"],
+    allowedRoles: [...ROLES_EXCEPT_PARENT].filter((r) => r !== "eleve"),
+    dashboard: {
+      id: 30,
+      name: "Événements",
+      img: "",
+      link: "/etablissement/evenements",
+      external: false,
+      description: "Portes ouvertes, rentrée digitale et Secret Santa.",
+    },
+  },
+  {
+    id: "identite",
+    allowedRoles: [],
+    orgAdminOnly: true,
+    dashboard: {
+      id: 31,
+      name: "Identité",
+      img: "",
+      link: "/parametres?tab=site",
+      external: false,
+      description: "Nom, logo, couleurs et adresse de l'établissement.",
     },
   },
   {

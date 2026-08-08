@@ -1,0 +1,1199 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  PLANNING_WEEKDAY_LABELS,
+  PLANNING_WEEKDAYS,
+  SURVEILLANT_LOCATION_SUGGESTIONS,
+  type PlanningWeekday,
+  type RhPlanningKind,
+  type StaffFixedSlot,
+  type StaffMissionSlot,
+  type StaffPlanningDoc,
+  type TeacherPlanningDoc,
+  type TeacherPlanningSlot,
+} from "@/app/lib/rh/planning-types";
+import {
+  DayFocusBanner,
+  StaffExceptionsPanel,
+  StaffQuotaBanner,
+  TeacherReplacementsPanel,
+} from "@/app/components/personnel/RhPlanningAdvancedSections";
+
+type Audience = "teachers" | "staff";
+
+type PersonOption = {
+  id: string;
+  displayName: string;
+  category: string;
+  jobTitle?: string | null;
+};
+
+function formatPlanningUpdatedAt(iso?: string | null) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const absolute = d.toLocaleString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const diffMs = Date.now() - d.getTime();
+  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+  let relative = "à l’instant";
+  if (days >= 1) relative = `il y a ${days} j`;
+  else {
+    const hours = Math.floor(diffMs / (60 * 60 * 1000));
+    if (hours >= 1) relative = `il y a ${hours} h`;
+    else {
+      const mins = Math.max(1, Math.floor(diffMs / (60 * 1000)));
+      relative = `il y a ${mins} min`;
+    }
+  }
+  return { absolute, relative };
+}
+
+function newId(prefix: string) {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function emptyTeacherSlot(day: PlanningWeekday = 1): TeacherPlanningSlot {
+  return {
+    id: newId("slot"),
+    day,
+    start: "08:00",
+    end: "09:00",
+    subject: "",
+    classes: [],
+    room: "",
+  };
+}
+
+function emptyFixedSlot(day: PlanningWeekday = 1): StaffFixedSlot {
+  return {
+    id: newId("slot"),
+    day,
+    start: "08:00",
+    end: "12:00",
+    label: "",
+  };
+}
+
+function emptyMissionSlot(day: PlanningWeekday = 1): StaffMissionSlot {
+  return {
+    id: newId("slot"),
+    day,
+    start: "08:00",
+    end: "09:00",
+    mission: "",
+    location: "",
+  };
+}
+
+function WeekGrid({
+  slots,
+  renderCard,
+}: {
+  slots: { id: string; day: PlanningWeekday; start: string; end: string }[];
+  renderCard: (slot: (typeof slots)[number]) => ReactNode;
+}) {
+  const byDay = useMemo(() => {
+    const map = new Map<PlanningWeekday, typeof slots>();
+    for (const d of PLANNING_WEEKDAYS) map.set(d, []);
+    for (const s of [...slots].sort((a, b) => a.start.localeCompare(b.start))) {
+      map.get(s.day)?.push(s);
+    }
+    return map;
+  }, [slots]);
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+      {PLANNING_WEEKDAYS.map((day) => (
+        <div key={day} className="rounded-xl border border-slate-200 bg-slate-50/80 min-h-[120px]">
+          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500 px-2 py-1.5 border-b border-slate-200">
+            {PLANNING_WEEKDAY_LABELS[day]}
+          </p>
+          <div className="p-1.5 space-y-1.5">
+            {(byDay.get(day) || []).length === 0 ? (
+              <p className="text-[11px] text-slate-400 italic px-1 py-2">—</p>
+            ) : (
+              (byDay.get(day) || []).map((slot) => (
+                <div key={slot.id}>{renderCard(slot)}</div>
+              ))
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function RhPlanningPanel() {
+  const [audience, setAudience] = useState<Audience>("teachers");
+  const [people, setPeople] = useState<PersonOption[]>([]);
+  const [personnelId, setPersonnelId] = useState<string>("");
+  const [displayName, setDisplayName] = useState("");
+  const [category, setCategory] = useState("");
+  const [kind, setKind] = useState<RhPlanningKind>("teacher");
+  const [teacher, setTeacher] = useState<TeacherPlanningDoc | null>(null);
+  const [staff, setStaff] = useState<StaffPlanningDoc | null>(null);
+  const [weekView, setWeekView] = useState<"A" | "B">("A");
+  const [rotationId, setRotationId] = useState<string>("");
+  const [canEdit, setCanEdit] = useState(false);
+  const [canManage, setCanManage] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [mergeStrategy, setMergeStrategy] = useState<"replace" | "append_rotation">("replace");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [focusDate, setFocusDate] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const updatedMeta = formatPlanningUpdatedAt(
+    kind === "teacher" ? teacher?.updatedAt : staff?.updatedAt,
+  );
+  const sourceFileName =
+    kind === "teacher" ? teacher?.sourceFileName : staff?.sourceFileName;
+
+  const loadPeople = useCallback(async (aud: Audience) => {
+    const res = await fetch(`/api/rh/planning?audience=${aud}`, { cache: "no-store" });
+    const j = await res.json();
+    if (!res.ok) {
+      // Collaborateur sans vue liste : on charge son propre planning.
+      setPeople([]);
+      setCanManage(false);
+      return null;
+    }
+    setPeople(j.people || []);
+    setCanManage(!!j.canManage);
+    return (j.people || []) as PersonOption[];
+  }, []);
+
+  const loadPlanning = useCallback(async (id?: string, forcedKind?: RhPlanningKind) => {
+    setLoading(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const params = new URLSearchParams();
+      if (id) params.set("personnelId", id);
+      if (forcedKind) params.set("kind", forcedKind);
+      const q = params.toString() ? `?${params}` : "";
+      const res = await fetch(`/api/rh/planning${q}`, { cache: "no-store" });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Chargement impossible");
+      setPersonnelId(j.personnelId);
+      setDisplayName(j.displayName || "");
+      setCategory(j.category || "");
+      setKind(j.kind);
+      setCanEdit(!!j.canEdit);
+      setCanManage(!!j.canManage);
+      if (j.kind === "teacher") {
+        setTeacher(j.planning as TeacherPlanningDoc);
+        setStaff(null);
+      } else {
+        setStaff(j.planning as StaffPlanningDoc);
+        setTeacher(null);
+        const firstRot = (j.planning as StaffPlanningDoc).rotations?.[0]?.id;
+        setRotationId(firstRot || "");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const list = await loadPeople(audience);
+      if (list && list.length > 0) {
+        const preferred = list.find((p) => p.id === personnelId) || list[0]!;
+        setPersonnelId(preferred.id);
+        await loadPlanning(preferred.id, audience === "teachers" ? "teacher" : "staff");
+      } else {
+        // Vue collaborateur : charge le planning selon l’audience demandée.
+        setLoading(true);
+        setError(null);
+        try {
+          const kind = audience === "teachers" ? "teacher" : "staff";
+          const res = await fetch(`/api/rh/planning?kind=${kind}`, { cache: "no-store" });
+          const j = await res.json();
+          if (!res.ok) throw new Error(j.error || "Chargement impossible");
+          setPersonnelId(j.personnelId);
+          setDisplayName(j.displayName || "");
+          setCategory(j.category || "");
+          setKind(j.kind);
+          setCanEdit(!!j.canEdit);
+          setCanManage(!!j.canManage);
+          if (j.kind === "teacher") {
+            setTeacher(j.planning as TeacherPlanningDoc);
+            setStaff(null);
+          } else {
+            setStaff(j.planning as StaffPlanningDoc);
+            setTeacher(null);
+            setRotationId((j.planning as StaffPlanningDoc).rotations?.[0]?.id || "");
+          }
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Erreur");
+        } finally {
+          setLoading(false);
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- init / audience switch
+  }, [audience]);
+
+  const onSelectPerson = (id: string) => {
+    setPersonnelId(id);
+    setEditMode(false);
+    setPreviewMode(false);
+    setImportWarnings([]);
+    void loadPlanning(id, audience === "teachers" ? "teacher" : "staff");
+  };
+
+  const save = async (override?: TeacherPlanningDoc | StaffPlanningDoc) => {
+    if (!personnelId || !canEdit) return;
+    const planning = override || (kind === "teacher" ? teacher : staff);
+    if (!planning) return;
+    setSaving(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/rh/planning", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ personnelId, planning }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Enregistrement impossible");
+      if (j.planning?.kind === "teacher") setTeacher(j.planning);
+      else setStaff(j.planning);
+      setMsg("Planning enregistré.");
+      setEditMode(false);
+      setPreviewMode(false);
+      setImportWarnings([]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runPdfImport = async (file: File) => {
+    if (!personnelId || !canEdit) return;
+    setImporting(true);
+    setError(null);
+    setMsg(null);
+    setImportWarnings([]);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("personnelId", personnelId);
+      fd.append("kind", kind);
+      fd.append("mergeStrategy", mergeStrategy);
+      if (kind === "staff") {
+        fd.append("staffMode", staff?.mode || (category === "education" ? "rotation" : "fixed"));
+      }
+      const res = await fetch("/api/rh/planning/import", { method: "POST", body: fd });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Import impossible");
+      if (j.planning?.kind === "teacher") {
+        setTeacher(j.planning);
+        setStaff(null);
+        setKind("teacher");
+      } else {
+        setStaff(j.planning);
+        setTeacher(null);
+        setKind("staff");
+        setRotationId(j.planning?.rotations?.[0]?.id || "");
+      }
+      setImportWarnings(Array.isArray(j.warnings) ? j.warnings : []);
+      setPreviewMode(true);
+      setEditMode(true);
+      setMsg(
+        j.personHint
+          ? `Prévisualisation IA (détecté : ${j.personHint}). Vérifiez puis validez.`
+          : "Prévisualisation IA prête. Vérifiez puis validez pour enregistrer.",
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur import");
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const discardPreview = () => {
+    setPreviewMode(false);
+    setImportWarnings([]);
+    setEditMode(false);
+    void loadPlanning(personnelId, audience === "teachers" ? "teacher" : "staff");
+  };
+
+  const teacherSlots = weekView === "A" ? teacher?.weekA || [] : teacher?.weekB || [];
+
+  const activeRotation = useMemo(() => {
+    if (!staff) return null;
+    return staff.rotations.find((r) => r.id === rotationId) || staff.rotations[0] || null;
+  }, [staff, rotationId]);
+
+  const focusException = useMemo(() => {
+    if (!staff || staff.mode !== "fixed") return null;
+    return (staff.exceptions || []).find((e) => e.date === focusDate) || null;
+  }, [staff, focusDate]);
+
+  const focusReplacements = useMemo(() => {
+    if (!teacher) return [];
+    return (teacher.replacements || []).filter((r) => r.date === focusDate);
+  }, [teacher, focusDate]);
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div>
+            <h2 className="font-black text-slate-800 text-lg">Planning RH</h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Profs : semaines types A/B (année). OGEC : semaine type + quota, ou missions / lieux
+              (surveillants).
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ["teachers", "Professeurs"],
+                ["staff", "Personnels OGEC"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => {
+                  setAudience(id);
+                  setEditMode(false);
+                  setPreviewMode(false);
+                  setImportWarnings([]);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold ${
+                  audience === id
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {canManage || people.length > 0 ? (
+          <label className="block text-sm">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Collaborateur</span>
+            <select
+              className="mt-1 w-full sm:max-w-md border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium"
+              value={personnelId}
+              onChange={(e) => onSelectPerson(e.target.value)}
+            >
+              {people.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.displayName}
+                  {p.jobTitle ? ` — ${p.jobTitle}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : displayName ? (
+          <p className="text-sm font-semibold text-slate-700">
+            Mon planning — {displayName}
+            {category ? (
+              <span className="text-slate-400 font-medium"> ({category})</span>
+            ) : null}
+          </p>
+        ) : null}
+
+        {updatedMeta ? (
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/80 px-3 py-2 text-sm text-emerald-900">
+            <p className="font-bold">
+              Dernière mise à jour : {updatedMeta.absolute}
+              <span className="font-medium text-emerald-700/80"> ({updatedMeta.relative})</span>
+            </p>
+            {sourceFileName ? (
+              <p className="text-xs text-emerald-800/80 mt-0.5">Source PDF : {sourceFileName}</p>
+            ) : null}
+          </div>
+        ) : !loading ? (
+          <p className="text-xs text-slate-400 italic">Aucun planning enregistré pour l’instant.</p>
+        ) : null}
+
+        {!loading && kind === "teacher" ? (
+          <p className="text-xs font-semibold text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2">
+            Semaines types A/B — valables toute l’année scolaire. Les remplacements sont des créneaux
+            datés en plus.
+          </p>
+        ) : null}
+        {!loading && kind === "staff" && staff?.mode === "fixed" ? (
+          <p className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+            Semaine type annuelle — adaptez vos horaires jour par jour si besoin (avance sur le quota).
+          </p>
+        ) : null}
+        {!loading && kind === "staff" && staff?.mode === "rotation" ? (
+          <p className="text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+            Missions & lieux dans l’établissement (entrée, cour, étude…) — rechargeable souvent via
+            PDF.
+          </p>
+        ) : null}
+
+        {canEdit && personnelId ? (
+          <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-bold text-indigo-900 flex-1">
+                Importer un PDF (OCR + IA) — remplace ou met à jour le planning après validation
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void runPdfImport(f);
+                }}
+              />
+              <button
+                type="button"
+                disabled={importing || !personnelId}
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
+              >
+                {importing ? "Analyse IA…" : previewMode ? "Recharger un PDF" : "Charger un PDF"}
+              </button>
+            </div>
+            {kind === "staff" ? (
+              <label className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <span className="font-bold">Si missions / surveillants :</span>
+                <select
+                  className="border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold bg-white"
+                  value={mergeStrategy}
+                  onChange={(e) =>
+                    setMergeStrategy(e.target.value === "append_rotation" ? "append_rotation" : "replace")
+                  }
+                >
+                  <option value="replace">Remplacer le planning</option>
+                  <option value="append_rotation">Ajouter une nouvelle variante (historique)</option>
+                </select>
+              </label>
+            ) : (
+              <p className="text-[11px] text-indigo-800/80">
+                Semaines types A/B pour toute l’année — détectées automatiquement si le PDF les
+                distingue.
+              </p>
+            )}
+          </div>
+        ) : null}
+
+        {previewMode ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 space-y-2">
+            <p className="text-sm font-bold text-amber-900">
+              Prévisualisation — pas encore enregistré. Vérifiez la grille puis validez.
+            </p>
+            {importWarnings.length > 0 ? (
+              <ul className="text-xs text-amber-800 list-disc pl-4 space-y-0.5">
+                {importWarnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void save()}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {saving ? "Validation…" : "Valider et enregistrer"}
+              </button>
+              <button
+                type="button"
+                onClick={discardPreview}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold border border-amber-300 text-amber-900 bg-white"
+              >
+                Annuler l’import
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+        {msg ? <p className="text-sm text-emerald-700">{msg}</p> : null}
+
+        {loading ? (
+          <p className="text-sm text-slate-400">Chargement…</p>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              {kind === "teacher" ? (
+                <>
+                  {(
+                    [
+                      ["A", "Semaine type A"],
+                      ["B", "Semaine type B"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setWeekView(id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                        weekView === id
+                          ? "bg-slate-900 text-white"
+                          : "bg-white border border-slate-200 text-slate-600"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </>
+              ) : staff?.mode === "rotation" && staff.rotations.length > 0 ? (
+                <select
+                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold"
+                  value={activeRotation?.id || ""}
+                  onChange={(e) => setRotationId(e.target.value)}
+                >
+                  {staff.rotations.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                  Semaine type annuelle
+                </span>
+              )}
+
+              {canEdit ? (
+                <div className="ml-auto flex flex-wrap gap-2">
+                  {!editMode ? (
+                    <button
+                      type="button"
+                      onClick={() => setEditMode(true)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700"
+                    >
+                      Éditer
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditMode(false);
+                          void loadPlanning(
+                            personnelId,
+                            audience === "teachers" ? "teacher" : "staff",
+                          );
+                        }}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-200 text-slate-600"
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => void save()}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+                      >
+                        {saving ? "Enregistrement…" : "Enregistrer"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {!loading ? (
+              <DayFocusBanner
+                date={focusDate}
+                onDateChange={setFocusDate}
+                exception={focusException}
+                replacements={focusReplacements}
+              />
+            ) : null}
+
+            {kind === "teacher" && teacher ? (
+              <>
+                <WeekGrid
+                  slots={teacherSlots}
+                  renderCard={(slot) => {
+                    const full = teacherSlots.find((s) => s.id === slot.id) as TeacherPlanningSlot;
+                    return (
+                      <div className="rounded-lg bg-white border border-indigo-100 px-2 py-1.5 text-[11px] leading-snug">
+                        <p className="font-bold text-indigo-900">
+                          {full.start}–{full.end}
+                        </p>
+                        <p className="text-slate-800 font-semibold">{full.subject || "—"}</p>
+                        <p className="text-slate-500">
+                          {(full.classes || []).join(", ") || "Classe ?"}
+                          {full.room ? ` · ${full.room}` : ""}
+                        </p>
+                      </div>
+                    );
+                  }}
+                />
+                {editMode ? (
+                  <TeacherSlotEditor
+                    slots={teacherSlots}
+                    onChange={(slots) => {
+                      setTeacher((prev) =>
+                        prev
+                          ? weekView === "A"
+                            ? { ...prev, weekA: slots }
+                            : { ...prev, weekB: slots }
+                          : prev,
+                      );
+                    }}
+                  />
+                ) : null}
+                <TeacherReplacementsPanel
+                  teacher={teacher}
+                  canManage={canManage}
+                  onChange={(replacements) => {
+                    setTeacher((prev) => (prev ? { ...prev, replacements } : prev));
+                    if (canManage) setEditMode(true);
+                  }}
+                />
+                {canManage && (teacher.replacements?.length ?? 0) > 0 && !previewMode ? (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void save()}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+                  >
+                    {saving ? "Enregistrement…" : "Enregistrer remplacements"}
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+
+            {kind === "staff" && staff ? (
+              <>
+                {staff.mode === "fixed" ? (
+                  <StaffQuotaBanner
+                    staff={staff}
+                    canEdit={canEdit}
+                    onChangeTarget={(annualHoursTarget) => {
+                      setStaff((prev) =>
+                        prev ? { ...prev, annualHoursTarget } : prev,
+                      );
+                      setEditMode(true);
+                    }}
+                  />
+                ) : null}
+                {canManage && editMode ? (
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <span className="text-xs font-bold text-slate-500">Mode</span>
+                    {(
+                      [
+                        ["fixed", "Planning fixe"],
+                        ["rotation", "Missions / rotation"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() =>
+                          setStaff((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  mode: id,
+                                  rotations:
+                                    id === "rotation" && prev.rotations.length === 0
+                                      ? [
+                                          {
+                                            id: newId("rot"),
+                                            label: "Semaine type",
+                                            startDate: null,
+                                            endDate: null,
+                                            slots: [],
+                                          },
+                                        ]
+                                      : prev.rotations,
+                                }
+                              : prev,
+                          )
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                          staff.mode === id
+                            ? "bg-amber-600 text-white"
+                            : "bg-white border border-slate-200 text-slate-600"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {staff.mode === "fixed" ? (
+                  <>
+                    <WeekGrid
+                      slots={staff.fixedSlots}
+                      renderCard={(slot) => {
+                        const full = staff.fixedSlots.find((s) => s.id === slot.id)!;
+                        return (
+                          <div className="rounded-lg bg-white border border-amber-100 px-2 py-1.5 text-[11px]">
+                            <p className="font-bold text-amber-900">
+                              {full.start}–{full.end}
+                            </p>
+                            <p className="text-slate-800 font-semibold">{full.label || "—"}</p>
+                          </div>
+                        );
+                      }}
+                    />
+                    {editMode ? (
+                      <FixedSlotEditor
+                        slots={staff.fixedSlots}
+                        onChange={(fixedSlots) => setStaff((p) => (p ? { ...p, fixedSlots } : p))}
+                      />
+                    ) : null}
+                    <StaffExceptionsPanel
+                      staff={staff}
+                      canEdit={canEdit}
+                      onChange={(exceptions) => {
+                        setStaff((prev) => (prev ? { ...prev, exceptions } : prev));
+                        setEditMode(true);
+                      }}
+                    />
+                    {canEdit && (staff.exceptions?.length || staff.annualHoursTarget != null) && !previewMode ? (
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => void save()}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
+                      >
+                        {saving ? "Enregistrement…" : "Enregistrer quota / exceptions"}
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <WeekGrid
+                      slots={activeRotation?.slots || []}
+                      renderCard={(slot) => {
+                        const full = (activeRotation?.slots || []).find((s) => s.id === slot.id)!;
+                        return (
+                          <div className="rounded-lg bg-white border border-emerald-100 px-2 py-1.5 text-[11px]">
+                            <p className="font-bold text-emerald-900">
+                              {full.start}–{full.end}
+                            </p>
+                            <p className="text-slate-800 font-semibold">{full.mission || "—"}</p>
+                            <p className="text-slate-500">
+                              {full.location || "Lieu non précisé"}
+                            </p>
+                          </div>
+                        );
+                      }}
+                    />
+                    {editMode && activeRotation ? (
+                      <MissionSlotEditor
+                        slots={activeRotation.slots}
+                        onChange={(slots) =>
+                          setStaff((prev) => {
+                            if (!prev) return prev;
+                            return {
+                              ...prev,
+                              rotations: prev.rotations.map((r) =>
+                                r.id === activeRotation.id ? { ...r, slots } : r,
+                              ),
+                            };
+                          })
+                        }
+                        onAddRotation={() => {
+                          const id = newId("rot");
+                          setStaff((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  rotations: [
+                                    ...prev.rotations,
+                                    {
+                                      id,
+                                      label: `Variante ${prev.rotations.length + 1}`,
+                                      startDate: null,
+                                      endDate: null,
+                                      slots: [],
+                                    },
+                                  ],
+                                }
+                              : prev,
+                          );
+                          setRotationId(id);
+                        }}
+                        rotationLabel={activeRotation.label}
+                        onRenameRotation={(label) =>
+                          setStaff((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  rotations: prev.rotations.map((r) =>
+                                    r.id === activeRotation.id ? { ...r, label } : r,
+                                  ),
+                                }
+                              : prev,
+                          )
+                        }
+                      />
+                    ) : null}
+                  </>
+                )}
+              </>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TeacherSlotEditor({
+  slots,
+  onChange,
+}: {
+  slots: TeacherPlanningSlot[];
+  onChange: (slots: TeacherPlanningSlot[]) => void;
+}) {
+  return (
+    <div className="space-y-3 border-t border-slate-100 pt-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-black uppercase tracking-wide text-slate-500">Créneaux</p>
+        <button
+          type="button"
+          onClick={() => onChange([...slots, emptyTeacherSlot()])}
+          className="text-xs font-bold text-indigo-600 hover:underline"
+        >
+          + Ajouter
+        </button>
+      </div>
+      {slots.map((slot, idx) => (
+        <div key={slot.id} className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end bg-slate-50 rounded-xl p-3">
+          <Field label="Jour">
+            <select
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              value={slot.day}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, day: Number(e.target.value) as PlanningWeekday };
+                onChange(next);
+              }}
+            >
+              {PLANNING_WEEKDAYS.map((d) => (
+                <option key={d} value={d}>
+                  {PLANNING_WEEKDAY_LABELS[d]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Début">
+            <input
+              type="time"
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              value={slot.start}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, start: e.target.value };
+                onChange(next);
+              }}
+            />
+          </Field>
+          <Field label="Fin">
+            <input
+              type="time"
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              value={slot.end}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, end: e.target.value };
+                onChange(next);
+              }}
+            />
+          </Field>
+          <Field label="Matière">
+            <input
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              value={slot.subject}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, subject: e.target.value };
+                onChange(next);
+              }}
+            />
+          </Field>
+          <Field label="Classe(s)">
+            <input
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              placeholder="6A, 6B"
+              value={(slot.classes || []).join(", ")}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = {
+                  ...slot,
+                  classes: e.target.value
+                    .split(",")
+                    .map((c) => c.trim())
+                    .filter(Boolean),
+                };
+                onChange(next);
+              }}
+            />
+          </Field>
+          <div className="flex gap-2 items-end">
+            <Field label="Salle">
+              <input
+                className="w-full border rounded-lg px-2 py-1.5 text-sm"
+                value={slot.room || ""}
+                onChange={(e) => {
+                  const next = [...slots];
+                  next[idx] = { ...slot, room: e.target.value };
+                  onChange(next);
+                }}
+              />
+            </Field>
+            <button
+              type="button"
+              className="mb-0.5 text-rose-500 text-xs font-bold px-2 py-1.5"
+              onClick={() => onChange(slots.filter((s) => s.id !== slot.id))}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FixedSlotEditor({
+  slots,
+  onChange,
+}: {
+  slots: StaffFixedSlot[];
+  onChange: (slots: StaffFixedSlot[]) => void;
+}) {
+  return (
+    <div className="space-y-3 border-t border-slate-100 pt-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-black uppercase tracking-wide text-slate-500">Créneaux</p>
+        <button
+          type="button"
+          onClick={() => onChange([...slots, emptyFixedSlot()])}
+          className="text-xs font-bold text-amber-700 hover:underline"
+        >
+          + Ajouter
+        </button>
+      </div>
+      {slots.map((slot, idx) => (
+        <div key={slot.id} className="grid grid-cols-2 sm:grid-cols-5 gap-2 items-end bg-slate-50 rounded-xl p-3">
+          <Field label="Jour">
+            <select
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              value={slot.day}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, day: Number(e.target.value) as PlanningWeekday };
+                onChange(next);
+              }}
+            >
+              {PLANNING_WEEKDAYS.map((d) => (
+                <option key={d} value={d}>
+                  {PLANNING_WEEKDAY_LABELS[d]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Début">
+            <input
+              type="time"
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              value={slot.start}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, start: e.target.value };
+                onChange(next);
+              }}
+            />
+          </Field>
+          <Field label="Fin">
+            <input
+              type="time"
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              value={slot.end}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, end: e.target.value };
+                onChange(next);
+              }}
+            />
+          </Field>
+          <Field label="Poste / libellé">
+            <input
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              value={slot.label}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, label: e.target.value };
+                onChange(next);
+              }}
+            />
+          </Field>
+          <button
+            type="button"
+            className="text-rose-500 text-xs font-bold px-2 py-1.5 justify-self-start"
+            onClick={() => onChange(slots.filter((s) => s.id !== slot.id))}
+          >
+            Supprimer
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MissionSlotEditor({
+  slots,
+  onChange,
+  onAddRotation,
+  rotationLabel,
+  onRenameRotation,
+}: {
+  slots: StaffMissionSlot[];
+  onChange: (slots: StaffMissionSlot[]) => void;
+  onAddRotation: () => void;
+  rotationLabel: string;
+  onRenameRotation: (label: string) => void;
+}) {
+  return (
+    <div className="space-y-3 border-t border-slate-100 pt-4">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Nom de la variante">
+          <input
+            className="border rounded-lg px-2 py-1.5 text-sm min-w-[160px]"
+            value={rotationLabel}
+            onChange={(e) => onRenameRotation(e.target.value)}
+          />
+        </Field>
+        <button
+          type="button"
+          onClick={onAddRotation}
+          className="text-xs font-bold text-emerald-700 hover:underline pb-2"
+        >
+          + Variante de semaine
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange([...slots, emptyMissionSlot()])}
+          className="ml-auto text-xs font-bold text-emerald-700 hover:underline pb-2"
+        >
+          + Créneau
+        </button>
+      </div>
+      <datalist id="surveillant-locations">
+        {SURVEILLANT_LOCATION_SUGGESTIONS.map((loc) => (
+          <option key={loc} value={loc} />
+        ))}
+      </datalist>
+      {slots.map((slot, idx) => (
+        <div key={slot.id} className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end bg-slate-50 rounded-xl p-3">
+          <Field label="Jour">
+            <select
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              value={slot.day}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, day: Number(e.target.value) as PlanningWeekday };
+                onChange(next);
+              }}
+            >
+              {PLANNING_WEEKDAYS.map((d) => (
+                <option key={d} value={d}>
+                  {PLANNING_WEEKDAY_LABELS[d]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Début">
+            <input
+              type="time"
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              value={slot.start}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, start: e.target.value };
+                onChange(next);
+              }}
+            />
+          </Field>
+          <Field label="Fin">
+            <input
+              type="time"
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              value={slot.end}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, end: e.target.value };
+                onChange(next);
+              }}
+            />
+          </Field>
+          <Field label="Mission">
+            <input
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              placeholder="Surveillance, étude…"
+              value={slot.mission}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, mission: e.target.value };
+                onChange(next);
+              }}
+            />
+          </Field>
+          <Field label="Lieu">
+            <input
+              className="w-full border rounded-lg px-2 py-1.5 text-sm"
+              list="surveillant-locations"
+              placeholder="Entrée, cour, étude…"
+              value={slot.location || ""}
+              onChange={(e) => {
+                const next = [...slots];
+                next[idx] = { ...slot, location: e.target.value };
+                onChange(next);
+              }}
+            />
+          </Field>
+          <button
+            type="button"
+            className="text-rose-500 text-xs font-bold px-2 py-1.5 justify-self-start"
+            onClick={() => onChange(slots.filter((s) => s.id !== slot.id))}
+          >
+            Supprimer
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block text-[11px] font-bold text-slate-500">
+      {label}
+      <div className="mt-0.5">{children}</div>
+    </label>
+  );
+}

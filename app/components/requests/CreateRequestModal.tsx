@@ -6,10 +6,24 @@ export default function CreateRequestModal({
   open,
   onClose,
   onCreated,
+  title = "Faire une demande",
+  subtitle = "Pas de catégorie à choisir — le système oriente vers le bon service.",
+  subjectPrefix,
+  fixedSubject,
+  initialDescription,
+  heading,
+  intro,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated?: () => void;
+  title?: string;
+  subtitle?: string;
+  subjectPrefix?: string;
+  fixedSubject?: string;
+  initialDescription?: string;
+  heading?: string;
+  intro?: string;
 }) {
   if (!open) return null;
 
@@ -29,8 +43,8 @@ export default function CreateRequestModal({
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">Nouvelle demande</p>
-            <h2 className="text-xl font-black text-slate-900 mt-0.5">Faire une demande</h2>
-            <p className="text-xs text-slate-500 mt-1">Pas de catégorie à choisir — le système oriente vers le bon service.</p>
+            <h2 className="text-xl font-black text-slate-900 mt-0.5">{title}</h2>
+            <p className="text-xs text-slate-500 mt-1">{subtitle}</p>
           </div>
           <button
             type="button"
@@ -41,7 +55,16 @@ export default function CreateRequestModal({
             ×
           </button>
         </div>
-        <FaireUneDemandeForm variant="modal" onSuccess={handleSuccess} mesDemandesHref="/requests#mes-demandes" />
+        <FaireUneDemandeForm
+          variant="modal"
+          onSuccess={handleSuccess}
+          mesDemandesHref="/requests#mes-demandes"
+          subjectPrefix={subjectPrefix}
+          fixedSubject={fixedSubject}
+          initialDescription={initialDescription}
+          heading={heading}
+          intro={intro}
+        />
       </div>
     </div>
   );

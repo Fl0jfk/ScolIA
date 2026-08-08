@@ -33,6 +33,8 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     description: "",
     moduleIds: [
       "organigramme",
+      "evenements",
+      "identite",
       "conformite-rgpd",
       "chatbot-knowledge",
       "domain-planning",

@@ -24,12 +24,16 @@ type Props = {
   mesDemandesHref?: string;
   /** Préfixe sujet (ex. [Demande RH]). */
   subjectPrefix?: string;
+  /** Sujet fixe (ex. demande depuis l’annuaire) — ignore la dérivation depuis la description. */
+  fixedSubject?: string;
   /** Force le routage ticketing (whitelist serveur). */
   forceRouteId?: string;
   heading?: string;
   intro?: string;
   placeholder?: string;
   hideIdentityCard?: boolean;
+  /** Description préremplie (ex. demande depuis l’annuaire). */
+  initialDescription?: string;
 };
 
 export default function FaireUneDemandeForm({
@@ -37,15 +41,17 @@ export default function FaireUneDemandeForm({
   onSuccess,
   mesDemandesHref = "/requests#mes-demandes",
   subjectPrefix,
+  fixedSubject,
   forceRouteId,
   heading,
   intro,
   placeholder = "Expliquez ce dont vous avez besoin : réparation, document, information…",
   hideIdentityCard = false,
+  initialDescription = "",
 }: Props) {
   const { isLoaded, isSignedIn, user } = useUser();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState(initialDescription);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -54,6 +60,10 @@ export default function FaireUneDemandeForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<FaireUneDemandeSuccess | null>(null);
+
+  useEffect(() => {
+    if (initialDescription) setDescription(initialDescription);
+  }, [initialDescription]);
 
   useEffect(() => {
     if (!isSignedIn || !user) return;
@@ -86,10 +96,14 @@ export default function FaireUneDemandeForm({
     setError(null);
     setSuccess(null);
     try {
-      const rawSubject = deriveSubject(description);
-      const subject = subjectPrefix
-        ? `${subjectPrefix} ${rawSubject}`.trim().slice(0, 120)
-        : rawSubject;
+      const rawSubject = fixedSubject?.trim() || deriveSubject(description);
+      const subject = (
+        fixedSubject?.trim()
+          ? rawSubject
+          : subjectPrefix
+            ? `${subjectPrefix} ${rawSubject}`.trim()
+            : rawSubject
+      ).slice(0, 120);
       const fd = new FormData();
       fd.append("firstName", firstName.trim());
       fd.append("lastName", lastName.trim());

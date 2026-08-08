@@ -4,7 +4,7 @@ Backlog produit — outils **supplémentaires** qui ne font pas ce qu’ÉcoleDi
 
 > **ÉcoleDirecte informe et gère la scolarité. Scola mobilise, organise et active — une démarche à la fois.**
 
-Dernière mise à jour : 30 juillet 2026
+Dernière mise à jour : 8 août 2026
 
 ---
 
@@ -13,7 +13,7 @@ Dernière mise à jour : 30 juillet 2026
 | Niveau | Quoi | Exemples |
 |--------|------|----------|
 | **Killers** | Gros modules — valeur quotidienne ou stratégique, argument de vente principal | OCR documents, sorties, réservation salles |
-| **Boîte à outils saisonnière** | Petites briques activables à la demande — sympas, utiles, pas le cœur du pitch | Portes ouvertes, Secret Santa, QR code… |
+| **Boîte à outils saisonnière** | Petites briques activables à la demande — sympas, utiles, pas le cœur du pitch | QR code… (PO / Rentrée / Santa pilotés depuis **Établissement → Événements**) |
 
 Les killers font vendre Scola. La boîte à outils crée de la **fidélité** et du **bouche-à-oreille** (« ils ont même un truc pour les portes ouvertes »).
 
@@ -192,8 +192,10 @@ Socle livré : sélection nominative, flux bus, com’ parents optionnelle.
 | Internat | Killer |
 | Covoiturage | Killer |
 | Photocopies, HSE, assistance | Utilitaire |
-| Salons, organigramme | Utilitaire |
-| **QR Code** | Boîte à outils *(à regrouper)* |
+| Salons, annuaire établissement | Utilitaire |
+| **Événements** (hub PO / Rentrée / Santa) | Établissement |
+| **QR Code** | Boîte à outils |
+| Planning RH (profs A/B + OGEC) | Killer léger (RH) |
 | Brain AI / chatbot | Killer léger |
 | Échéances académiques, feuille de semaine | Widget dashboard |
 | Paramètres, membres, plateforme | Admin |
@@ -218,6 +220,7 @@ Socle livré : sélection nominative, flux bus, com’ parents optionnelle.
 
 | Date | Ajout |
 |------|-------|
+| 2026-08-08 | **Établissement** : Annuaire (ex-organigramme) + hub Événements (PO/Rentrée/Santa) + Identité ; **Planning RH** profs A/B + OGEC. |
 | 2026-07-30 | **Travels** : liste élèves + com’ parents **livrés** (`produit`) — onglets Élèves / Communication, confirm → CSV transporteur, rappels `bus_liste_j3` / `com_parents_j0`. |
 | 2026-07-30 | **Travels** : sélection classes/élèves (`eleves.json`) ; rappel droit à l’image ; flux bus ; com’ parents optionnelle — backlog puis livraison. |
 | 2026-06-13 | Création du document. |

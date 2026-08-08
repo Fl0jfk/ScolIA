@@ -66,7 +66,7 @@ export function OrganigrammeEditor({ onSaved }: { onSaved: () => void }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Échec enregistrement");
       setConfig(data.config);
-      setMessage("Organigramme enregistré.");
+      setMessage("Annuaire enregistré.");
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -147,7 +147,7 @@ export function OrganigrammeEditor({ onSaved }: { onSaved: () => void }) {
     <div className="mb-8 rounded-2xl border border-slate-200 bg-white/90 shadow-sm overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3 bg-slate-50/80">
         <div>
-          <p className="text-sm font-bold text-slate-900">Édition de l&apos;organigramme</p>
+          <p className="text-sm font-bold text-slate-900">Édition de l&apos;annuaire</p>
           <p className="text-[11px] text-slate-500">
             Modifiez les fiches, puis enregistrez. Les suggestions RH / tickets n&apos;écrasent pas
             l&apos;existant.
@@ -301,7 +301,7 @@ export function OrganigrammeEditor({ onSaved }: { onSaved: () => void }) {
                     checked={Boolean(selected.hidden)}
                     onChange={(e) => updateSelected({ hidden: e.target.checked })}
                   />
-                  Masquer sur l&apos;organigramme
+                  Masquer sur l&apos;annuaire
                 </label>
                 <button
                   type="button"

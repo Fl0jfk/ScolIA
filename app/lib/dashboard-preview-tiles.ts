@@ -158,7 +158,7 @@ export const DASHBOARD_PREVIEW_TILES: DashboardPreviewTile[] = [
 
       "Dépôt rapide : l'IA propose le bon dossier destinataire",
 
-      "Absences, HSE, organigramme, espace « Mon dossier »",
+      "Absences, HSE, annuaire, espace « Mon dossier »",
 
       "Signatures et suivi des arrivées / pièces RH",
 
