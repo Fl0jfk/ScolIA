@@ -17,6 +17,7 @@ export type InternatTab =
 
 const TABS: { id: InternatTab; label: string }[] = [
   { id: "dashboard", label: "Tableau de bord" },
+  { id: "installation", label: "Installation / RDV" },
   { id: "chambres", label: "Chambres" },
   { id: "internes", label: "Internes" },
   { id: "sorties", label: "Sorties" },
@@ -28,7 +29,6 @@ const TABS: { id: InternatTab; label: string }[] = [
   { id: "communication", label: "Communication" },
   { id: "activites", label: "Événements" },
   { id: "alertes", label: "Alertes" },
-  { id: "installation", label: "Installation / RDV" },
 ];
 
 export default function InternatHubNav({
