@@ -3,6 +3,7 @@
  *
  * RAPPEL CONFIG AZURE (App Registration → Authentification → URI de redirection Web) :
  *   https://{votre-domaine}/api/rh/drive/oauth/callback
+ *   https://{votre-domaine}/api/teams-chat/oauth/callback
  * Exemple local (si test MSAL local) : http://localhost:3000/api/rh/drive/oauth/callback
  */
 

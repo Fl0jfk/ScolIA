@@ -12,6 +12,8 @@ export const RH_OAUTH_STATE_COOKIE = "rh_onedrive_oauth_state";
  * Callback OAuth OneDrive RH.
  * RAPPEL AZURE : enregistrer cette URI en redirect Web sur l'App Registration :
  *   {appUrl}/api/rh/drive/oauth/callback
+ * Messagerie Teams (même app) :
+ *   {appUrl}/api/teams-chat/oauth/callback
  */
 export const RH_OAUTH_CALLBACK_PATH = "/api/rh/drive/oauth/callback";
 

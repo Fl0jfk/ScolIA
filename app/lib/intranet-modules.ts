@@ -67,6 +67,7 @@ export const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/services",
   "/scolia-ai",
   "/api/app/context",
+  "/api/teams-chat",
   "/api/tenant/public",
   "/api/tenant/diagnostics",
   "/api/dashboard/signals",
