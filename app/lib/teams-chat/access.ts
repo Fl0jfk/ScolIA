@@ -6,6 +6,7 @@ import {
   getTeamsChatAccessContext,
   TeamsChatUnlinkedError,
 } from "@/app/lib/teams-chat/graph";
+import { isTeamsChatOverlayEnabled } from "@/app/lib/teams-chat/flag";
 import { canUseTeamsChatOverlay } from "@/app/lib/teams-chat/roles";
 
 export { canUseTeamsChatOverlay } from "@/app/lib/teams-chat/roles";
@@ -20,6 +21,16 @@ export function graphTokenFromRequest(req: NextRequest): string {
 export async function requireTeamsChatAccess(): Promise<
   { ok: true; userId: string } | { ok: false; response: NextResponse }
 > {
+  if (!isTeamsChatOverlayEnabled()) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Messagerie Teams indisponible.", code: "TEAMS_CHAT_DISABLED" },
+        { status: 404 },
+      ),
+    };
+  }
+
   const gate = await requireAuth();
   if (!gate.ok) return gate;
 

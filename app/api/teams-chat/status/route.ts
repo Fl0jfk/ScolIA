@@ -3,12 +3,18 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canUseTeamsChatOverlay } from "@/app/lib/teams-chat/access";
+import { isTeamsChatOverlayEnabled } from "@/app/lib/teams-chat/flag";
 import { getTeamsChatAccessContext, TeamsChatUnlinkedError } from "@/app/lib/teams-chat/graph";
 import { getTeamsChatOAuthRedirectUri } from "@/app/lib/teams-chat/oauth";
 import { loadTeamsChatLink } from "@/app/lib/teams-chat/tokens";
 import type { TeamsChatStatus } from "@/app/lib/teams-chat/types";
 
 export async function GET() {
+  if (!isTeamsChatOverlayEnabled()) {
+    const body: TeamsChatStatus = { enabled: false, allowed: false, linked: false };
+    return NextResponse.json(body);
+  }
+
   const gate = await requireAuth();
   if (!gate.ok) {
     const body: TeamsChatStatus = { enabled: true, allowed: false, linked: false };

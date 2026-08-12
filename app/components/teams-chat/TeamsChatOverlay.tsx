@@ -15,7 +15,12 @@ import type {
   TeamsChatStatus,
   TeamsChatSummary,
 } from "@/app/lib/teams-chat/types";
-import { acquireTeamsChatToken } from "@/app/lib/teams-chat/msal-client";
+import {
+  acquireTeamsChatToken,
+  getTeamsChatAdminConsentUrl,
+  isTeamsChatAdminConsentError,
+  type TeamsChatMsalSession,
+} from "@/app/lib/teams-chat/msal-client";
 
 const HEADS_COLLAPSED_KEY = "scola.teamsChat.headsCollapsed";
 const DOCKED_HEADS_KEY = "scola.teamsChat.dockedHeadIds";
@@ -91,6 +96,7 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
   const [dragOverDock, setDragOverDock] = useState(false);
   const [graphToken, setGraphToken] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [adminConsentUrl, setAdminConsentUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const linked = Boolean(graphToken);
 
@@ -105,7 +111,7 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
   useEffect(() => {
     let cancelled = false;
     acquireTeamsChatToken(false)
-      .then((session) => {
+      .then((session: TeamsChatMsalSession | null) => {
         if (cancelled || !session) return;
         setGraphToken(session.accessToken);
         setStatus((s) => ({
@@ -308,8 +314,17 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
         me: { displayName: session.accountLabel },
       }));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Connexion Microsoft impossible.";
+      const msg = isTeamsChatAdminConsentError(e)
+        ? "Approbation administrateur requise : un admin Entra (DSI) doit autoriser DocsLaPro pour Chat."
+        : e instanceof Error
+          ? e.message
+          : "Connexion Microsoft impossible.";
       setError(msg);
+      try {
+        setAdminConsentUrl(await getTeamsChatAdminConsentUrl());
+      } catch {
+        /* ignore */
+      }
     } finally {
       setConnecting(false);
     }
@@ -367,6 +382,20 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
             </p>
             {error || status.error ? (
               <p className="text-xs text-rose-600">{error || status.error}</p>
+            ) : null}
+            {adminConsentUrl ? (
+              <p className="text-left text-[11px] leading-relaxed text-slate-600">
+                Envoyez ce lien à un administrateur Microsoft 365 (il se connecte et clique sur
+                Accepter) :
+                <a
+                  href={adminConsentUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 block break-all text-indigo-700 underline"
+                >
+                  {adminConsentUrl}
+                </a>
+              </p>
             ) : null}
             <button
               type="button"

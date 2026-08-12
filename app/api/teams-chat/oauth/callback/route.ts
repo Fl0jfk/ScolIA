@@ -4,6 +4,7 @@ import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import { canUseTeamsChatOverlay } from "@/app/lib/teams-chat/access";
+import { isTeamsChatOverlayEnabled } from "@/app/lib/teams-chat/flag";
 import { fetchTeamsGraphMe } from "@/app/lib/teams-chat/graph";
 import {
   TEAMS_CHAT_OAUTH_STATE_COOKIE,
@@ -18,6 +19,10 @@ async function redirectDash(query: string) {
 
 /** Callback OAuth — stocke le refresh token Teams de l’utilisateur et redirige. */
 export async function GET(req: NextRequest) {
+  if (!isTeamsChatOverlayEnabled()) {
+    return redirectDash("teamsChat=disabled");
+  }
+
   const gate = await requireAuth();
   if (!gate.ok) {
     return NextResponse.redirect(await tenantAbsolutePath("/sign-in"));

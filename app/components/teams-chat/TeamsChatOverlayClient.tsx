@@ -9,6 +9,11 @@ import { isPublicVisitorPath } from "@/app/lib/public-site-paths";
 import { canUseTeamsChatOverlay } from "@/app/lib/teams-chat/roles";
 import type { TeamsChatStatus } from "@/app/lib/teams-chat/types";
 
+/** UI masquée jusqu’à activation explicite (voir app/lib/teams-chat/flag.ts). */
+const UI_ENABLED =
+  process.env.NEXT_PUBLIC_TEAMS_CHAT_OVERLAY === "1" ||
+  process.env.NEXT_PUBLIC_TEAMS_CHAT_OVERLAY === "true";
+
 const TeamsChatOverlay = dynamic(() => import("./TeamsChatOverlay"), { ssr: false });
 
 export default function TeamsChatOverlayClient() {
@@ -17,6 +22,7 @@ export default function TeamsChatOverlayClient() {
   const [status, setStatus] = useState<TeamsChatStatus | null>(null);
 
   const skip =
+    !UI_ENABLED ||
     !isLoaded ||
     !isSignedIn ||
     isPublicVisitorPath(pathname) ||

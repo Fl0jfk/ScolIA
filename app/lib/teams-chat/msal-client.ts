@@ -37,10 +37,34 @@ export async function getTeamsChatMsal(): Promise<msal.PublicClientApplication> 
   return pca;
 }
 
-export async function acquireTeamsChatToken(interactive: boolean): Promise<{
+export async function getTeamsChatAdminConsentUrl(): Promise<string> {
+  const ms = await fetchMicrosoftAppIds();
+  const redirect =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/agentIAOCR/msal-callback`
+      : "";
+  const params = new URLSearchParams({
+    client_id: ms.clientId,
+    redirect_uri: redirect,
+  });
+  return `https://login.microsoftonline.com/${ms.tenantId}/adminconsent?${params.toString()}`;
+}
+
+export function isTeamsChatAdminConsentError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error ?? "");
+  return /AADSTS65001|AADSTS90094|admin(istrator)? (approval|consent)|approbation administrateur/i.test(
+    msg,
+  );
+}
+
+export type TeamsChatMsalSession = {
   accessToken: string;
   accountLabel: string;
-} | null> {
+};
+
+export async function acquireTeamsChatToken(
+  interactive: boolean,
+): Promise<TeamsChatMsalSession | null> {
   const instance = await getTeamsChatMsal();
   const scopes = [...TEAMS_CHAT_MSAL_SCOPES];
   const accounts = instance.getAllAccounts();
