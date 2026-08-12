@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamsChatAccess } from "@/app/lib/teams-chat/access";
-import {
-  fetchUserPhotoBytes,
-  getTeamsChatAccessContext,
-  TeamsChatUnlinkedError,
-} from "@/app/lib/teams-chat/graph";
+import { requireTeamsChatGraph } from "@/app/lib/teams-chat/access";
+import { fetchUserPhotoBytes } from "@/app/lib/teams-chat/graph";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   ctx: { params: Promise<{ userId: string }> },
 ) {
-  const gate = await requireTeamsChatAccess();
+  const gate = await requireTeamsChatGraph(req);
   if (!gate.ok) return gate.response;
 
   const { userId } = await ctx.params;
@@ -19,8 +15,7 @@ export async function GET(
   }
 
   try {
-    const access = await getTeamsChatAccessContext(gate.userId);
-    const photo = await fetchUserPhotoBytes(access.accessToken, userId);
+    const photo = await fetchUserPhotoBytes(gate.accessToken, userId);
     if (!photo) return new NextResponse(null, { status: 404 });
     return new NextResponse(new Uint8Array(photo.bytes), {
       status: 200,
@@ -29,10 +24,7 @@ export async function GET(
         "Cache-Control": "private, max-age=3600",
       },
     });
-  } catch (e) {
-    if (e instanceof TeamsChatUnlinkedError) {
-      return NextResponse.json({ error: e.message, code: "TEAMS_UNLINKED" }, { status: 409 });
-    }
+  } catch {
     return new NextResponse(null, { status: 404 });
   }
 }

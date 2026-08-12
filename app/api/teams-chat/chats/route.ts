@@ -1,24 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamsChatAccess } from "@/app/lib/teams-chat/access";
-import {
-  ensureOneOnOneChat,
-  getTeamsChatAccessContext,
-  listTeamsOneOnOneChats,
-  TeamsChatUnlinkedError,
-} from "@/app/lib/teams-chat/graph";
+import { requireTeamsChatGraph } from "@/app/lib/teams-chat/access";
+import { ensureOneOnOneChat, listTeamsOneOnOneChats } from "@/app/lib/teams-chat/graph";
 
-export async function GET() {
-  const gate = await requireTeamsChatAccess();
+export async function GET(req: NextRequest) {
+  const gate = await requireTeamsChatGraph(req);
   if (!gate.ok) return gate.response;
 
   try {
-    const ctx = await getTeamsChatAccessContext(gate.userId);
-    const chats = await listTeamsOneOnOneChats(ctx.accessToken, ctx.microsoftUserId);
+    const chats = await listTeamsOneOnOneChats(gate.accessToken, gate.microsoftUserId);
     return NextResponse.json({ chats });
   } catch (e) {
-    if (e instanceof TeamsChatUnlinkedError) {
-      return NextResponse.json({ error: e.message, code: "TEAMS_UNLINKED" }, { status: 409 });
-    }
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Impossible de lister les conversations." },
       { status: 502 },
@@ -28,7 +19,7 @@ export async function GET() {
 
 /** Ouvre ou crée une conversation 1:1 avec un utilisateur Entra. */
 export async function POST(req: NextRequest) {
-  const gate = await requireTeamsChatAccess();
+  const gate = await requireTeamsChatGraph(req);
   if (!gate.ok) return gate.response;
 
   let otherUserId = "";
@@ -43,16 +34,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const ctx = await getTeamsChatAccessContext(gate.userId);
-    if (otherUserId === ctx.microsoftUserId) {
+    if (otherUserId === gate.microsoftUserId || otherUserId === gate.upn) {
       return NextResponse.json({ error: "Impossible de discuter avec soi-même." }, { status: 400 });
     }
-    const chatId = await ensureOneOnOneChat(ctx.accessToken, ctx.microsoftUserId, otherUserId);
+    const chatId = await ensureOneOnOneChat(gate.accessToken, gate.microsoftUserId, otherUserId);
     return NextResponse.json({ chatId });
   } catch (e) {
-    if (e instanceof TeamsChatUnlinkedError) {
-      return NextResponse.json({ error: e.message, code: "TEAMS_UNLINKED" }, { status: 409 });
-    }
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Impossible d’ouvrir la conversation." },
       { status: 502 },

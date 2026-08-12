@@ -15,6 +15,7 @@ import type {
   TeamsChatStatus,
   TeamsChatSummary,
 } from "@/app/lib/teams-chat/types";
+import { acquireTeamsChatToken } from "@/app/lib/teams-chat/msal-client";
 
 const HEADS_COLLAPSED_KEY = "scola.teamsChat.headsCollapsed";
 const DOCKED_HEADS_KEY = "scola.teamsChat.dockedHeadIds";
@@ -29,24 +30,42 @@ function initials(name: string): string {
 
 function PersonAvatar({
   person,
+  token,
   size = "md",
 }: {
   person: Pick<TeamsChatPerson, "id" | "displayName">;
+  token: string | null;
   size?: "sm" | "md";
 }) {
-  const [failed, setFailed] = useState(false);
+  const [src, setSrc] = useState<string | null>(null);
   const dim = size === "sm" ? "h-8 w-8 text-[11px]" : "h-12 w-12 text-sm";
+
+  useEffect(() => {
+    if (!token || !person.id) return;
+    let alive = true;
+    let objectUrl: string | null = null;
+    fetch(`/api/teams-chat/people/${encodeURIComponent(person.id)}/photo`, {
+      headers: { "X-Graph-Access-Token": token },
+    })
+      .then(async (r) => {
+        if (!r.ok) return;
+        const blob = await r.blob();
+        objectUrl = URL.createObjectURL(blob);
+        if (alive) setSrc(objectUrl);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [person.id, token]);
+
   return (
     <span
       className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/40 bg-indigo-800 text-white ${dim}`}
     >
-      {!failed ? (
-        <img
-          src={`/api/teams-chat/people/${encodeURIComponent(person.id)}/photo`}
-          alt=""
-          className="h-full w-full object-cover"
-          onError={() => setFailed(true)}
-        />
+      {src ? (
+        <img src={src} alt="" className="h-full w-full object-cover" />
       ) : (
         initials(person.displayName)
       )}
@@ -70,7 +89,36 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOverDock, setDragOverDock] = useState(false);
+  const [graphToken, setGraphToken] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const linked = Boolean(graphToken);
+
+  const graphHeaders = useCallback(
+    (extra?: HeadersInit): HeadersInit => ({
+      ...(extra ?? {}),
+      ...(graphToken ? { "X-Graph-Access-Token": graphToken } : {}),
+    }),
+    [graphToken],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    acquireTeamsChatToken(false)
+      .then((session) => {
+        if (cancelled || !session) return;
+        setGraphToken(session.accessToken);
+        setStatus((s) => ({
+          ...s,
+          linked: true,
+          me: { displayName: session.accountLabel },
+        }));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -102,12 +150,13 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
   };
 
   const loadChats = useCallback(async () => {
-    if (!status.linked) return;
+    if (!graphToken) return;
     setLoadingChats(true);
     try {
-      const res = await fetch("/api/teams-chat/chats");
+      const res = await fetch("/api/teams-chat/chats", { headers: graphHeaders() });
       const data = (await res.json()) as { chats?: TeamsChatSummary[]; error?: string; code?: string };
       if (data.code === "TEAMS_UNLINKED") {
+        setGraphToken(null);
         setStatus((s) => ({ ...s, linked: false }));
         return;
       }
@@ -119,12 +168,15 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
     } finally {
       setLoadingChats(false);
     }
-  }, [status.linked]);
+  }, [graphToken, graphHeaders]);
 
   const loadMessages = useCallback(async (chatId: string, quiet = false) => {
+    if (!graphToken) return;
     if (!quiet) setLoadingMessages(true);
     try {
-      const res = await fetch(`/api/teams-chat/chats/${encodeURIComponent(chatId)}/messages`);
+      const res = await fetch(`/api/teams-chat/chats/${encodeURIComponent(chatId)}/messages`, {
+        headers: graphHeaders(),
+      });
       const data = (await res.json()) as { messages?: TeamsChatMessage[]; error?: string };
       if (!res.ok) throw new Error(data.error || "Messages indisponibles.");
       setMessages(data.messages ?? []);
@@ -133,17 +185,17 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
     } finally {
       if (!quiet) setLoadingMessages(false);
     }
-  }, []);
+  }, [graphToken, graphHeaders]);
 
   useEffect(() => {
     void loadChats();
   }, [loadChats]);
 
   useEffect(() => {
-    if (!status.linked) return;
+    if (!linked) return;
     const t = window.setInterval(() => void loadChats(), 25000);
     return () => window.clearInterval(t);
-  }, [status.linked, loadChats]);
+  }, [linked, loadChats]);
 
   useEffect(() => {
     if (!open || !activeChat) return;
@@ -157,20 +209,20 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
   }, [messages, open, activeChat]);
 
   useEffect(() => {
-    if (!open || !status.linked) return;
+    if (!open || !linked) return;
     const q = query.trim();
     if (q.length < 2) {
       setPeople([]);
       return;
     }
     const t = window.setTimeout(() => {
-      fetch(`/api/teams-chat/people?q=${encodeURIComponent(q)}`)
+      fetch(`/api/teams-chat/people?q=${encodeURIComponent(q)}`, { headers: graphHeaders() })
         .then((r) => r.json() as Promise<{ people?: TeamsChatPerson[] }>)
         .then((data) => setPeople(data.people ?? []))
         .catch(() => setPeople([]));
     }, 280);
     return () => window.clearTimeout(t);
-  }, [query, open, status.linked]);
+  }, [query, open, linked, graphHeaders]);
 
   const visibleHeads = useMemo(() => {
     const docked = new Set(dockedIds);
@@ -190,7 +242,7 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
     try {
       const res = await fetch("/api/teams-chat/chats", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: graphHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ otherUserId: person.id }),
       });
       const data = (await res.json()) as { chatId?: string; error?: string };
@@ -218,7 +270,7 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
         `/api/teams-chat/chats/${encodeURIComponent(activeChat.id)}/messages`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: graphHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ text: draft }),
         },
       );
@@ -243,7 +295,25 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
     if (activeChat?.id === chatId) setOpen(false);
   };
 
-  const connectHref = "/api/teams-chat/oauth/start";
+  const connectMicrosoft = async () => {
+    setConnecting(true);
+    setError(null);
+    try {
+      const session = await acquireTeamsChatToken(true);
+      if (!session) throw new Error("Connexion Microsoft annulée.");
+      setGraphToken(session.accessToken);
+      setStatus((s) => ({
+        ...s,
+        linked: true,
+        me: { displayName: session.accountLabel },
+      }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Connexion Microsoft impossible.";
+      setError(msg);
+    } finally {
+      setConnecting(false);
+    }
+  };
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[128]">
@@ -275,7 +345,7 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
               {activeChat ? activeChat.other.displayName : "Messages"}
             </p>
             <p className="truncate text-[11px] text-slate-500">
-              {status.linked
+              {linked
                 ? status.me?.displayName || "Compte Microsoft lié"
                 : "Liez votre compte Microsoft (Teams)"}
             </p>
@@ -290,7 +360,7 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
           </button>
         </div>
 
-        {!status.linked ? (
+        {!linked ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <p className="text-sm text-slate-600">
               La messagerie interne utilise Teams. Chaque personne lie son propre compte A1 ou A3.
@@ -298,12 +368,14 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
             {error || status.error ? (
               <p className="text-xs text-rose-600">{error || status.error}</p>
             ) : null}
-            <a
-              href={connectHref}
-              className="rounded-full bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800"
+            <button
+              type="button"
+              onClick={() => void connectMicrosoft()}
+              disabled={connecting}
+              className="rounded-full bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
             >
-              Lier mon compte Microsoft
-            </a>
+              {connecting ? "Connexion…" : "Lier mon compte Microsoft"}
+            </button>
           </div>
         ) : activeChat ? (
           <>
@@ -362,7 +434,7 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
                       onClick={() => void startChatWith(p)}
                       className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left hover:bg-slate-100"
                     >
-                      <PersonAvatar person={p} size="sm" />
+                      <PersonAvatar person={p} token={graphToken} size="sm" />
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium text-slate-800">
                           {p.displayName}
@@ -380,7 +452,7 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
                       onClick={() => openChat(c)}
                       className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left hover:bg-slate-100"
                     >
-                      <PersonAvatar person={c.other} size="sm" />
+                      <PersonAvatar person={c.other} token={graphToken} size="sm" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-slate-800">
                           {c.other.displayName}
@@ -436,7 +508,7 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
                 title={`${c.other.displayName} — glisser sur Messages pour ranger`}
                 className="rounded-full shadow-[0_8px_20px_rgba(15,23,42,0.25)] transition hover:scale-105"
               >
-                <PersonAvatar person={c.other} />
+                <PersonAvatar person={c.other} token={graphToken} />
               </button>
             ))
           : null}

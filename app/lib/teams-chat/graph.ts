@@ -94,12 +94,27 @@ export async function fetchTeamsGraphMe(accessToken: string): Promise<GraphMe> {
   );
 }
 
-export async function getTeamsChatAccessContext(clerkUserId: string): Promise<{
+export async function getTeamsChatAccessContext(
+  clerkUserId: string,
+  graphAccessToken?: string,
+): Promise<{
   accessToken: string;
   microsoftUserId: string;
   displayName?: string;
   upn?: string;
 }> {
+  const headerToken = graphAccessToken?.trim() || "";
+  if (headerToken) {
+    const me = await fetchTeamsGraphMe(headerToken);
+    if (!me.id) throw new TeamsChatUnlinkedError("Profil Microsoft sans id.");
+    return {
+      accessToken: headerToken,
+      microsoftUserId: me.id,
+      displayName: me.displayName,
+      upn: me.userPrincipalName || me.mail,
+    };
+  }
+
   const link = await loadTeamsChatLink(clerkUserId);
   if (!link) throw new TeamsChatUnlinkedError();
 

@@ -41,12 +41,18 @@ async function microsoftAppCreds(): Promise<{
   const ms = secrets?.microsoft;
   const clientId = ms?.clientId || process.env.NEXT_PUBLIC_CLIENT_ID?.trim() || "";
   const tenantId = ms?.tenantId || process.env.NEXT_PUBLIC_TENANT_ID?.trim() || "";
-  const clientSecret = ms?.clientSecret?.trim() || "";
+  const clientSecret =
+    ms?.clientSecret?.trim() ||
+    process.env.MICROSOFT_CLIENT_SECRET?.trim() ||
+    process.env.CLIENT_SECRET?.trim() ||
+    "";
   if (!clientId || !tenantId) {
     throw new Error("Microsoft non configuré (clientId / tenantId).");
   }
   if (!clientSecret) {
-    throw new Error("clientSecret Microsoft requis pour lier le compte Teams (flux code serveur).");
+    throw new Error(
+      "Secret client Microsoft manquant — ce n’est pas l’ID du tenant. Entra → Inscription d’application → Certificats et secrets → Nouvelle clé secrète, puis coller la Valeur dans Scola (Plateforme → Microsoft — client secret). La messagerie peut aussi se lier via MSAL (même flux que OneDrive), sans ce secret.",
+    );
   }
   return { clientId, tenantId, clientSecret };
 }

@@ -1,16 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireTeamsChatAccess } from "@/app/lib/teams-chat/access";
-import {
-  getTeamsChatAccessContext,
-  listChatMessages,
-  sendChatMessage,
-  TeamsChatUnlinkedError,
-} from "@/app/lib/teams-chat/graph";
+import { requireTeamsChatGraph } from "@/app/lib/teams-chat/access";
+import { listChatMessages, sendChatMessage } from "@/app/lib/teams-chat/graph";
 
 type Ctx = { params: Promise<{ chatId: string }> };
 
-export async function GET(_req: NextRequest, route: Ctx) {
-  const gate = await requireTeamsChatAccess();
+export async function GET(req: NextRequest, route: Ctx) {
+  const gate = await requireTeamsChatGraph(req);
   if (!gate.ok) return gate.response;
 
   const { chatId } = await route.params;
@@ -19,13 +14,9 @@ export async function GET(_req: NextRequest, route: Ctx) {
   }
 
   try {
-    const ctx = await getTeamsChatAccessContext(gate.userId);
-    const messages = await listChatMessages(ctx.accessToken, chatId, ctx.microsoftUserId);
+    const messages = await listChatMessages(gate.accessToken, chatId, gate.microsoftUserId);
     return NextResponse.json({ messages });
   } catch (e) {
-    if (e instanceof TeamsChatUnlinkedError) {
-      return NextResponse.json({ error: e.message, code: "TEAMS_UNLINKED" }, { status: 409 });
-    }
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Impossible de charger les messages." },
       { status: 502 },
@@ -34,7 +25,7 @@ export async function GET(_req: NextRequest, route: Ctx) {
 }
 
 export async function POST(req: NextRequest, route: Ctx) {
-  const gate = await requireTeamsChatAccess();
+  const gate = await requireTeamsChatGraph(req);
   if (!gate.ok) return gate.response;
 
   const { chatId } = await route.params;
@@ -54,14 +45,10 @@ export async function POST(req: NextRequest, route: Ctx) {
   }
 
   try {
-    const ctx = await getTeamsChatAccessContext(gate.userId);
-    await sendChatMessage(ctx.accessToken, chatId, text);
-    const messages = await listChatMessages(ctx.accessToken, chatId, ctx.microsoftUserId);
+    await sendChatMessage(gate.accessToken, chatId, text);
+    const messages = await listChatMessages(gate.accessToken, chatId, gate.microsoftUserId);
     return NextResponse.json({ ok: true, messages });
   } catch (e) {
-    if (e instanceof TeamsChatUnlinkedError) {
-      return NextResponse.json({ error: e.message, code: "TEAMS_UNLINKED" }, { status: 409 });
-    }
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Envoi impossible." },
       { status: 502 },
