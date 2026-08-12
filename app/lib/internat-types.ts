@@ -27,6 +27,8 @@ export const INTERNAT_S3 = {
   messages: "internat/messages.json",
   journal: "internat/journal.json",
   moduleConfig: "settings/modules/internat.json",
+  installationConfig: "internat/installation-config.json",
+  installationBookings: "internat/installation-bookings.json",
 } as const;
 
 export type InternatFloor = {
@@ -372,3 +374,45 @@ export function roomLocationLabel(buildings: InternatBuilding[], room: InternatR
 export function usableInternatFloors(building: InternatBuilding): InternatFloor[] {
   return sortInternatFloors(building.floors).filter((f) => f.inUse);
 }
+
+/** Jour d’ouverture pour la campagne d’installation (prise de chambre). */
+export type InternatInstallationDay = {
+  /** YYYY-MM-DD */
+  date: string;
+  /** HH:mm */
+  openTime: string;
+  /** HH:mm */
+  closeTime: string;
+};
+
+export type InternatInstallationConfig = {
+  enabled: boolean;
+  title: string;
+  intro?: string;
+  /** Lieu affiché aux parents (mail / ICS). */
+  location?: string;
+  slotDurationMinutes: number;
+  maxFamiliesPerSlot: number;
+  days: InternatInstallationDay[];
+  /** Clés `YYYY-MM-DDTHH:mm` bloquées manuellement. */
+  closedSlots: string[];
+};
+
+export type InternatInstallationBooking = {
+  id: string;
+  /** Clé créneau `YYYY-MM-DDTHH:mm` (heure murale Europe/Paris). */
+  slotStart: string;
+  studentFirstName: string;
+  studentLastName: string;
+  parentPhone: string;
+  parentEmail: string;
+  createdAt: string;
+};
+
+export type InternatInstallationPublicSlot = {
+  slotStart: string;
+  date: string;
+  time: string;
+  remaining: number;
+  capacity: number;
+};

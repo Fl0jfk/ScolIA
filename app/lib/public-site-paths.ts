@@ -30,6 +30,7 @@ export function isPublicVisitorPath(pathname: string | null | undefined): boolea
     "/faire-une-demande",
     "/demande-parents",
     "/internat/autorisation",
+    "/internat/installation",
     "/stages/eleve",
     "/stages/deposer",
     "/stages/signer",

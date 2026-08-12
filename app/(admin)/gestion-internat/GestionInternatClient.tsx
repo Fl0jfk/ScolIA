@@ -15,6 +15,7 @@ import InternatStudyPanel from "@/app/components/internat/InternatStudyPanel";
 import InternatSupervisorsPanel from "@/app/components/internat/InternatSupervisorsPanel";
 import InternatEducationalPanel from "@/app/components/internat/InternatEducationalPanel";
 import InternatCommunicationPanel from "@/app/components/internat/InternatCommunicationPanel";
+import InternatInstallationPanel from "@/app/components/internat/InternatInstallationPanel";
 import InternatStudentsPanel from "@/app/components/internat/InternatStudentsPanel";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
@@ -39,6 +40,7 @@ const TAB_IDS: InternatTab[] = [
   "communication",
   "activites",
   "alertes",
+  "installation",
 ];
 
 function parseTab(raw: string | null): InternatTab {
@@ -161,6 +163,9 @@ export default function GestionInternatClient() {
           {activeTab === "communication" && <InternatCommunicationPanel canManage={canManage} />}
           {activeTab === "activites" && <InternatActivitiesPanel />}
           {activeTab === "alertes" && <InternatAlertsPanel />}
+          {activeTab === "installation" && (
+            <InternatInstallationPanel canManage={canManage} />
+          )}
         </>
       )}
       <ReplayModuleTourButton moduleId="internat" />
