@@ -20,7 +20,6 @@ function compactCsp(value: string): string {
 }
 
 function contentSecurityPolicyDirectives(nonce?: string): string {
-  const noncePart = nonce ? ` 'nonce-${nonce}'` : "";
   const scriptSrc = nonce
     ? `'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`
     : `'self'${isDev ? " 'unsafe-eval'" : ""}`;
@@ -69,12 +68,16 @@ function contentSecurityPolicyDirectives(nonce?: string): string {
   form-action 'self' https://*.s3.fr-par.scw.cloud https://s3.fr-par.scw.cloud;
   img-src 'self' https://img.clerk.com https://clerk.scolia.fr https://clerk.lpnb.scolia.fr https://clerk.docslapro.com https://clerk.lp.docslapro.com https: data:;
   script-src ${scriptSrc};
-  style-src 'self' 'unsafe-inline'${noncePart} ${CLERK_SCRIPT_STYLE_HOSTS};
+  style-src 'self' 'unsafe-inline' ${CLERK_SCRIPT_STYLE_HOSTS};
   font-src 'self' https: data:;
 `;
 }
 
-/** CSP enforce : nonce + strict-dynamic sur les scripts. style-src garde unsafe-inline. */
+/**
+ * CSP enforce : nonce + strict-dynamic sur les scripts.
+ * style-src : pas de nonce — en CSP3, un nonce dans style-src annule 'unsafe-inline',
+ * ce qui bloque les <style> de Next, Clerk et Framer Motion (dashboard).
+ */
 export function contentSecurityPolicyHeaderValue(nonce?: string): string {
   return compactCsp(contentSecurityPolicyDirectives(nonce));
 }
