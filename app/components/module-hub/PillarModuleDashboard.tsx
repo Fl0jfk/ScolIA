@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
+import GlassLayer from "@/app/components/GlassLayer";
 import { dash } from "@/app/lib/dashboard-brand";
 import {
   DASHBOARD_PILLARS,
@@ -249,14 +250,15 @@ function ModuleCard({
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.45, delay: 0.04 * index, ease: [0.22, 1, 0.36, 1] }}
-      className="group relative flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/45 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
+      className="group relative flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/55 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)]"
     >
+      <GlassLayer className="bg-white/45 backdrop-blur-2xl" />
       <div
-        className={`pointer-events-none absolute -right-10 -top-12 h-44 w-44 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${orbClass}`}
+        className={`pointer-events-none absolute -right-10 -top-12 z-0 h-44 w-44 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${orbClass}`}
         aria-hidden
       />
 
-      <div className="relative flex min-h-0 flex-1 flex-col p-4 sm:p-5">
+      <div className="relative z-[1] flex min-h-0 flex-1 flex-col p-4 sm:p-5">
         <header className="mb-3 flex shrink-0 items-center justify-between gap-3">
           <div className="min-w-0 flex items-center gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/70 ring-1 ring-white/80 shadow-sm">

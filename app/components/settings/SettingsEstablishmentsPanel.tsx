@@ -3,6 +3,7 @@
 import type { Dispatch, SetStateAction } from "react";
 import { motion } from "framer-motion";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import GlassLayer from "@/app/components/GlassLayer";
 import ClerkPersonSelect from "@/app/components/settings/ClerkPersonSelect";
 import {
   SettingsField,
@@ -140,12 +141,15 @@ export default function SettingsEstablishmentsPanel({
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.04 * idx, ease: [0.22, 1, 0.36, 1] }}
-            className="relative overflow-hidden rounded-[1.5rem] border shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
+            className="relative overflow-hidden rounded-[1.5rem] border shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)]"
             style={{
-              backgroundColor: hexToRgba(color, est.active ? 0.16 : 0.07),
               borderColor: visual.borderColor,
             }}
           >
+            <GlassLayer
+              className="backdrop-blur-2xl"
+              style={{ backgroundColor: hexToRgba(color, est.active ? 0.16 : 0.07) }}
+            />
             <div
               className="pointer-events-none absolute -right-10 -top-12 h-44 w-44 rounded-full blur-3xl"
               style={{ backgroundColor: visual.orbBg }}
@@ -156,7 +160,7 @@ export default function SettingsEstablishmentsPanel({
               style={{ backgroundColor: hexToRgba(color, 0.14) }}
               aria-hidden
             />
-            <div className="relative space-y-4 p-5 sm:p-6">
+            <div className="relative z-[1] space-y-4 p-5 sm:p-6">
               <header className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <span

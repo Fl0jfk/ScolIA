@@ -12,6 +12,7 @@ import {
 } from "@/app/lib/dashboard-pillars";
 import type { DashboardShortcut, DashboardShortcutSlide } from "@/app/lib/dashboard-signals";
 import { MODULE_EMOJI } from "@/app/lib/pillar-module-routes";
+import GlassLayer from "@/app/components/GlassLayer";
 
 type Props = {
   categories: DashboardCategory[];
@@ -272,14 +273,15 @@ function PillarCard({
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.06 * index, ease: [0.22, 1, 0.36, 1] }}
-      className="group relative flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/45 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
+      className="group relative flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/55 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)]"
     >
+      <GlassLayer className="bg-white/45 backdrop-blur-2xl" />
       <div
-        className={`pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${PILLAR_ORB[pillar.id]}`}
+        className={`pointer-events-none absolute -right-8 -top-10 z-0 h-36 w-36 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${PILLAR_ORB[pillar.id]}`}
         aria-hidden
       />
 
-      <div className="relative flex min-h-0 flex-1 flex-col p-3.5 sm:p-4">
+      <div className="relative z-[1] flex min-h-0 flex-1 flex-col p-3.5 sm:p-4">
         <header className="mb-2.5 flex shrink-0 items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">

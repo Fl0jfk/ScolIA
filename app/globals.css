@@ -29,9 +29,9 @@
 body { font-family: Arial, Helvetica, sans-serif}
 
 /*
-  Tailwind v4 : boutons en cursor:default (UA).
-  Pas de backdrop-filter sur l’élément cliquable : Chrome/Safari ne
-  montrent alors le pointer que sur la bordure.
+  Tailwind v4 : UA = cursor:default sur <button>.
+  Les enfants en pointer (pas inherit) : le texte ne doit pas passer en I-beam.
+  backdrop-filter reste INTERDIT sur a/button (calque GPU = pointer seulement sur la bordure).
 */
 a[href],
 button:not(:disabled),
@@ -52,7 +52,12 @@ button:not(:disabled) *,
 [role="link"] *,
 [role="button"]:not([aria-disabled="true"]) *,
 summary * {
-  cursor: inherit !important;
+  cursor: pointer !important;
+}
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  -webkit-user-select: none;
+  user-select: none;
 }
 button:disabled,
 [role="button"][aria-disabled="true"],

@@ -14,6 +14,7 @@ import { toDashboardQuickLinks } from "@/app/lib/dashboard-quick-links";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { dashboardBrandCssVars, parseDashboardAccent } from "@/app/lib/dashboard-brand-presets";
 import { SCOLA_HEADER_ACCENT } from "@/app/lib/marketing-theme";
+import GlassLayer from "@/app/components/GlassLayer";
 import Logo from "../../../public/Logo header.png";
 
 const MOBILE_MODULE_LINKS = [
@@ -143,11 +144,12 @@ export default function Header() {
   return (
     <>
       <header
-        className={`relative sticky top-0 z-50 border-b bg-white/90 backdrop-blur-md print:!hidden ${
+        className={`relative sticky top-0 z-50 border-b print:!hidden ${
           isDashboard ? "dashboard-themed" : "border-emerald-200/50"
         }`}
         style={headerStyle}
       >
+        <GlassLayer className="bg-white/90 backdrop-blur-md" />
         <div
           className={
             isDashboard && dashVars
@@ -163,7 +165,7 @@ export default function Header() {
           }
           aria-hidden
         />
-        <div className="mx-auto flex h-14 max-w-[1600px] items-center gap-3 px-4 sm:px-6 lg:px-8">
+        <div className="relative z-[1] mx-auto flex h-14 max-w-[1600px] items-center gap-3 px-4 sm:px-6 lg:px-8">
           <Link href={homeHref} className="group flex shrink-0 items-center transition hover:opacity-90">
             <div className="flex h-10 min-w-[56px] shrink-0 items-center justify-center">
               {!bootstrapLoading &&

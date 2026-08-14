@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { motion } from "framer-motion";
+import GlassLayer from "@/app/components/GlassLayer";
 import { dash } from "@/app/lib/dashboard-brand";
 
 export const settingsInputClass =
@@ -44,10 +45,11 @@ export function SettingsSection({
 }) {
   return (
     <section
-      className={`relative overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/55 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl ${className}`}
+      className={`relative overflow-hidden rounded-[1.5rem] border border-white/55 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] ${className}`}
     >
-      <div className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-[color:var(--dash-soft)]/70 blur-3xl" />
-      <div className="relative space-y-4 p-5 sm:p-6">
+      <GlassLayer className="bg-white/55 backdrop-blur-2xl" />
+      <div className="pointer-events-none absolute -right-10 -top-12 z-0 h-36 w-36 rounded-full bg-[color:var(--dash-soft)]/70 blur-3xl" />
+      <div className="relative z-[1] space-y-4 p-5 sm:p-6">
         {(title || description) && (
           <header>
             <div className="flex items-center gap-2.5">
