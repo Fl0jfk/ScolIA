@@ -27,7 +27,7 @@ const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i);
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 
 const fieldClass =
-  "w-full rounded-xl border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-[var(--dash-ink)] outline-none shadow-sm transition focus:border-[var(--dash-primary)]";
+  "w-full rounded-xl border-2 border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-[var(--dash-ink)] outline-none shadow-sm transition focus:border-[var(--dash-primary)]";
 
 function ProfRoomPageContent() {
   const searchParams = useSearchParams();
@@ -458,6 +458,7 @@ function ProfRoomPageContent() {
           <>
             <ProfRoomGlassCard
               data-tour="prof-room-room-select"
+              className="border-2 !border-slate-300"
               bodyClassName="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"
             >
               <div className="flex w-full flex-col items-stretch gap-3 sm:flex-row sm:items-center md:w-1/2">
@@ -472,7 +473,7 @@ function ProfRoomPageContent() {
                     </option>
                   ))}
                 </select>
-                <div className="flex w-full items-center justify-between rounded-xl border border-white/70 bg-white/60">
+                <div className="flex w-full items-center justify-between rounded-xl border-2 border-slate-300 bg-white">
                   {!isMobile ? (
                     <button
                       type="button"
@@ -516,7 +517,7 @@ function ProfRoomPageContent() {
                 </div>
               </div>
               <div className="flex w-full items-center justify-between gap-3 md:w-1/2 md:justify-end">
-                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-full border border-white/70 bg-white/80 px-3 py-1.5 shadow-sm">
+                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-full border-2 border-slate-300 bg-white px-3 py-1.5 shadow-sm">
                   <span className="flex-shrink-0 text-sm" aria-hidden>
                     📅
                   </span>
@@ -534,16 +535,16 @@ function ProfRoomPageContent() {
               </div>
             </ProfRoomGlassCard>
 
-            <ProfRoomGlassCard data-tour="prof-room-calendar">
-              <div className={`grid border-b border-white/60 ${dash.bgSoft50} ${isMobile ? "grid-cols-2" : "grid-cols-6"}`}>
+            <ProfRoomGlassCard data-tour="prof-room-calendar" className="border-2 !border-slate-300 bg-white">
+              <div className={`grid border-b-2 border-slate-300 bg-slate-100 ${isMobile ? "grid-cols-2" : "grid-cols-6"}`}>
                 <div className={`p-4 text-center text-[11px] font-semibold uppercase tracking-wide ${dash.textMid}`}>
                   Heure
                 </div>
                 {displayDays.map((day, i) => (
                   <div
                     key={`${day.label}-${i}`}
-                    className={`border-l border-white/50 p-4 text-center ${
-                      day.date.toDateString() === new Date().toDateString() ? dash.bgSoft : ""
+                    className={`border-l-2 border-slate-300 p-4 text-center ${
+                      day.date.toDateString() === new Date().toDateString() ? "bg-[color:var(--dash-soft)]" : "bg-white"
                     }`}
                   >
                     <p className={`text-[10px] font-semibold uppercase tracking-wide ${dash.textMid}`}>{day.label}</p>
@@ -551,10 +552,10 @@ function ProfRoomPageContent() {
                   </div>
                 ))}
               </div>
-              <div className="divide-y divide-white/50">
+              <div className="divide-y-2 divide-slate-300">
                 {HOURS.map((h) => (
                   <div key={h} className={`grid min-h-[95px] ${isMobile ? "grid-cols-2" : "grid-cols-6"}`}>
-                    <div className={`flex items-center justify-center text-[12px] font-semibold italic ${dash.bgSoft50} ${dash.textMid}`}>
+                    <div className={`flex items-center justify-center border-r-2 border-slate-300 bg-slate-100 text-[12px] font-semibold italic ${dash.textMid}`}>
                       {h}h30
                     </div>
                     {displayDays.map((day, i) => {
@@ -571,20 +572,21 @@ function ProfRoomPageContent() {
                       const canModify = isAdmin || isOwn;
                       const colorValue = res ? SUBJECT_COLORS[res.subject] || "bg-slate-600 text-white" : "";
                       const colorPresentation = res ? getSubjectColorPresentation(colorValue) : null;
+                      const isToday = date.toDateString() === new Date().toDateString();
                       return (
                         <div
                           key={i}
                           onClick={() => handleCellClick(dateStr, h, res)}
                           onContextMenu={(e) => handleContextMenu(e, dateStr, h, res)}
-                          className={`group relative cursor-pointer border-l border-white/50 p-1 transition-all sm:h-[120px] ${
-                            !res ? "hover:bg-[color:var(--dash-soft)]/45" : ""
+                          className={`group relative cursor-pointer border-l-2 border-slate-300 p-1.5 transition-all sm:h-[120px] ${
+                            isToday ? "bg-[color:var(--dash-soft)]/40" : "bg-white"
                           }`}
                         >
                           {res ? (
                             <>
                               <div
                                 className={`flex h-full w-full flex-col justify-between rounded-xl p-2 text-[11px] ${colorPresentation?.className || ""} ${
-                                  isOwn ? "ring-2 ring-[color:var(--dash-bright)]/70 ring-inset" : ""
+                                  isOwn ? "ring-2 ring-[color:var(--dash-primary)] ring-inset" : ""
                                 }`}
                                 style={colorPresentation?.style}
                               >
@@ -605,7 +607,7 @@ function ProfRoomPageContent() {
                                 </div>
                               </div>
                               <div
-                                className={`pointer-events-none absolute left-1/2 z-[100] w-72 -translate-x-1/2 rounded-xl border border-white/70 bg-white/95 p-4 opacity-0 shadow-xl backdrop-blur-xl transition-all group-hover:opacity-100 ${
+                                className={`pointer-events-none absolute left-1/2 z-[100] w-72 -translate-x-1/2 rounded-xl border-2 border-slate-200 bg-white p-4 opacity-0 shadow-xl transition-all group-hover:opacity-100 ${
                                   h <= 10 ? "top-full mt-2" : "bottom-full mb-2"
                                 }`}
                               >
@@ -623,15 +625,15 @@ function ProfRoomPageContent() {
                                   </div>
                                 ) : null}
                                 <div
-                                  className={`absolute left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-white/70 bg-white/95 ${
+                                  className={`absolute left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-slate-200 bg-white ${
                                     h <= 10 ? "-top-1.5 border-l border-t" : "-bottom-1.5 border-b border-r"
                                   }`}
                                 />
                               </div>
                             </>
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center opacity-0 transition-opacity hover:opacity-100">
-                              <span className={`text-[10px] font-semibold ${dash.textPrimary}`}>+ Libre</span>
+                            <div className="flex h-full w-full items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50/80 text-[10px] font-semibold text-slate-400 transition group-hover:border-[var(--dash-primary)] group-hover:bg-[color:var(--dash-soft)] group-hover:text-[var(--dash-primary)]">
+                              + Libre
                             </div>
                           )}
                         </div>
@@ -657,7 +659,7 @@ function ProfRoomPageContent() {
                         const hNum = parseInt(res.startsAt.split("T")[1].split(":")[0]);
                         handleCellClick(dStr, hNum, res);
                       }}
-                      className={`cursor-pointer rounded-xl border bg-white/70 p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-white ${dash.borderSoft} ${dash.hoverBorder}`}
+                      className={`cursor-pointer rounded-xl border-2 bg-white p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--dash-primary)] hover:bg-white ${dash.border}`}
                     >
                       <p className={`text-[10px] font-semibold uppercase tracking-wide ${dash.textMid}`}>
                         {new Date(res.startsAt).toLocaleDateString("fr-FR", {
@@ -681,7 +683,12 @@ function ProfRoomPageContent() {
               </ProfRoomGlassCard>
             ) : null}
 
-            <ProfRoomGlassCard id="form-section" data-tour="prof-room-form" bodyClassName="p-4 md:p-8">
+            <ProfRoomGlassCard
+              id="form-section"
+              data-tour="prof-room-form"
+              className="border-2 !border-[color:var(--dash-primary)]/35 bg-[color:var(--dash-soft-muted)]"
+              bodyClassName="p-4 md:p-8"
+            >
               <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
                   <div
@@ -724,7 +731,7 @@ function ProfRoomPageContent() {
                       />
                     </div>
                   ) : (
-                    <div className={`rounded-xl border bg-white/70 p-4 text-sm font-semibold ${dash.borderSoft}`}>
+                    <div className={`rounded-xl border bg-white/70 p-4 text-sm font-semibold ${dash.border}`}>
                       <p className={`mb-1 text-[10px] uppercase tracking-wide ${dash.textMid}`}>Identité Clerk :</p>
                       <span className={dash.textPrimary}>
                         {user.firstName} {lastName}
@@ -776,7 +783,7 @@ function ProfRoomPageContent() {
                       className={`${fieldClass} block text-[16px]`}
                     />
                   </div>
-                  <div className={`rounded-xl border bg-white/55 p-4 ${dash.borderSoft}`}>
+                  <div className="rounded-xl border-2 border-slate-300 bg-white p-4">
                     <p className={`mb-2 text-[10px] font-semibold uppercase tracking-wide ${dash.textMid}`}>
                       Choisir l&apos;heure :
                     </p>
@@ -801,7 +808,7 @@ function ProfRoomPageContent() {
                                 ? `${dash.bgPrimary} z-10 scale-110 text-white shadow-md`
                                 : isTaken
                                   ? "cursor-not-allowed border border-rose-200 bg-rose-50 text-rose-400"
-                                  : `cursor-pointer border bg-white/80 ${dash.borderSoft} ${dash.ink} ${dash.hoverBgSoft}`
+                                  : `cursor-pointer border-2 border-slate-300 bg-white ${dash.ink} hover:border-[var(--dash-primary)] hover:bg-[color:var(--dash-soft)]`
                             }`}
                           >
                             {h}h30
