@@ -3,7 +3,6 @@ import type {
   InternatInstallationConfig,
   InternatInstallationPublicSlot,
 } from "@/app/lib/internat-types";
-import { countBookingsBySlot } from "@/app/lib/internat-installation-storage";
 
 function timeToMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
@@ -43,6 +42,16 @@ export function listGeneratedSlotKeys(config: InternatInstallationConfig): strin
     }
   }
   return keys;
+}
+
+export function countBookingsBySlot(
+  rows: InternatInstallationBooking[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    out[r.slotStart] = (out[r.slotStart] || 0) + 1;
+  }
+  return out;
 }
 
 export function buildPublicInstallationSlots(

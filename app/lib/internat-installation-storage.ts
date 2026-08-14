@@ -1,3 +1,5 @@
+import "server-only";
+
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   INTERNAT_S3,
@@ -82,15 +84,7 @@ export async function saveInstallationBookings(
   await putJson(INTERNAT_S3.installationBookings, rows);
 }
 
-export function countBookingsBySlot(
-  rows: InternatInstallationBooking[],
-): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const r of rows) {
-    out[r.slotStart] = (out[r.slotStart] || 0) + 1;
-  }
-  return out;
-}
+export { countBookingsBySlot } from "@/app/lib/internat-installation-slots";
 
 export async function addInstallationBooking(
   row: Omit<InternatInstallationBooking, "id" | "createdAt">,
