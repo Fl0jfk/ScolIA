@@ -30,28 +30,39 @@ body { font-family: Arial, Helvetica, sans-serif}
 
 /*
   Tailwind v4 retire cursor:pointer des boutons (preflight).
-  On le restaure en @layer base (priorité !important > utilities),
-  y compris pour les Next <Link> (= <a>) et leurs enfants.
+  Hors @layer + !important : survit au preflight et aux utilities,
+  y compris Next <Link> (= <a>) et leurs enfants.
 */
-@layer base {
+html :where(
   a[href],
-  a[href] *,
   button:not(:disabled),
-  button:not(:disabled) *,
   [role="link"],
-  [role="link"] *,
   [role="button"]:not([aria-disabled="true"]),
-  [role="button"]:not([aria-disabled="true"]) *,
-  summary {
-    cursor: pointer !important;
-  }
+  summary,
+  label[for],
+  input[type="button"]:not(:disabled),
+  input[type="submit"]:not(:disabled),
+  input[type="reset"]:not(:disabled),
+  select:not(:disabled)
+),
+html :where(
+  a[href],
+  button:not(:disabled),
+  [role="link"],
+  [role="button"]:not([aria-disabled="true"]),
+  summary
+) * {
+  cursor: pointer !important;
+}
 
+html :where(
   button:disabled,
-  button:disabled *,
   [role="button"][aria-disabled="true"],
-  [role="button"][aria-disabled="true"] * {
-    cursor: default !important;
-  }
+  input:disabled,
+  select:disabled
+),
+html :where(button:disabled, [role="button"][aria-disabled="true"]) * {
+  cursor: default !important;
 }
 
 /* Fallback thème dashboard (surchargé par DashboardThemeRoot) */

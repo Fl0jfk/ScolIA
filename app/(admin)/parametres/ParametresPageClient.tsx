@@ -150,8 +150,11 @@ export default function ParametresPage() {
             kind: String(e.kind || e.id || ""),
             directorName: String(e.directorName || ""),
             directorEmail: String(e.directorEmail || ""),
+            directorClerkUserId: String(e.directorClerkUserId || ""),
+            colorHex: String(e.colorHex || ""),
             clerkRoleSlugs: Array.isArray(e.clerkRoleSlugs) ? (e.clerkRoleSlugs as string[]).join(", ") : "",
             active: e.active !== false,
+            grades: typeof e.grades === "string" ? e.grades : undefined,
             signatureS3Key: typeof e.signatureS3Key === "string" ? e.signatureS3Key : undefined,
             signaturePreviewUrl: null,
           })),
@@ -216,7 +219,7 @@ export default function ParametresPage() {
   }, [isOrgAdmin]);
 
   useEffect(() => {
-    if (!isOrgAdmin || (tab !== "prof-room" && tab !== "requests-routing")) return;
+    if (!isOrgAdmin || (tab !== "prof-room" && tab !== "requests-routing" && tab !== "establishments")) return;
     let cancelled = false;
     (async () => {
       setMembersLoading(true);
@@ -518,6 +521,8 @@ export default function ParametresPage() {
           <SettingsEstablishmentsPanel
             establishments={establishments}
             setEstablishments={setEstablishments}
+            clerkMembers={clerkMembers}
+            membersLoading={membersLoading}
             uploadingSignatureId={uploadingSignatureId}
             saving={saving}
             uploadDirectionSignature={uploadDirectionSignature}

@@ -6,7 +6,7 @@ import {
 } from "@/app/lib/travels-workflow-audit";
 
 export type TripNextGuidance = {
-  /** Libellé d’étape (ex. Logistique transport). */
+  /** Libellé d’étape (ex. Choix du devis transport). */
   stepLabel: string;
   /** Qui doit agir (rôle métier). */
   who: string;
@@ -213,7 +213,7 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
             : "Créateur ou direction devront choisir un devis dès qu’il sera reçu.",
         ctaTab: "transport",
         ctaLabel: "Ouvrir Transport",
-        focusQuestion: "On est en logistique transport mais aucun devis n’est encore là. Que faut-il faire ?",
+        focusQuestion: "On est à l’étape choix du devis transport mais aucun devis n’est encore là. Que faut-il faire ?",
       });
     }
     return finish({

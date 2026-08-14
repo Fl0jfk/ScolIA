@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { TravelsDirectionDashboard } from "@/app/lib/travels-direction-dashboard";
+import { TRAVELS_STATUS_LABELS } from "@/app/lib/travels-types";
 
 function StatCard({
   label,
@@ -93,7 +94,7 @@ export default function TravelsDirectionDashboardPanel({ data }: { data: Travels
                     >
                       <p className="text-sm font-bold text-white truncate">{u.title}</p>
                       <p className="text-[10px] text-sky-100">
-                        {u.dateLabel} · {u.status.replace("EN_ATTENTE_", "").replace(/_/g, " ")}
+                        {u.dateLabel} · {TRAVELS_STATUS_LABELS[u.status] || u.status.replace("EN_ATTENTE_", "").replace(/_/g, " ")}
                       </p>
                     </Link>
                   </li>

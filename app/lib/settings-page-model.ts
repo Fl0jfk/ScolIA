@@ -18,11 +18,29 @@ export type SettingsEstablishmentForm = {
   kind?: string;
   directorName: string;
   directorEmail: string;
+  directorClerkUserId: string;
+  colorHex: string;
   clerkRoleSlugs: string;
   active: boolean;
+  grades?: string;
   signatureS3Key?: string;
   signaturePreviewUrl?: string | null;
 };
+
+export function emptySettingsEstablishmentForm(): SettingsEstablishmentForm {
+  return {
+    id: "",
+    label: "",
+    kind: "custom",
+    directorName: "",
+    directorEmail: "",
+    directorClerkUserId: "",
+    colorHex: "#8B5CF6",
+    clerkRoleSlugs: "",
+    active: true,
+    signaturePreviewUrl: null,
+  };
+}
 
 export type SettingsTravelsConfig = {
   transportProviders: { name: string; email: string }[];

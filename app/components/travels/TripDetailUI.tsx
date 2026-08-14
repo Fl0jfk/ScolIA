@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { establishmentKindEmoji, inferEstablishmentKind } from "@/app/lib/establishment-visual";
 
 /* ─── Statut ─── */
 
@@ -11,7 +12,7 @@ const STATUS_MAP: Record<string, { label: string; tone: string }> = {
   ANNULE: { label: "Sortie annulée", tone: "bg-red-100 text-red-800 ring-red-200" },
   BESOIN_MODIFICATION: { label: "Modifications demandées", tone: "bg-orange-100 text-orange-800 ring-orange-200" },
   EN_ATTENTE_DIR_INITIAL: { label: "Validation pédagogique", tone: "bg-blue-100 text-blue-800 ring-blue-200" },
-  PROF_LOGISTICS: { label: "Logistique transport", tone: "bg-violet-100 text-violet-800 ring-violet-200" },
+  PROF_LOGISTICS: { label: "Choix du devis transport", tone: "bg-violet-100 text-violet-800 ring-violet-200" },
   EN_ATTENTE_BUS_SIGNATURE: { label: "Signature devis bus", tone: "bg-amber-100 text-amber-900 ring-amber-200" },
   EN_ATTENTE_COMPTA: { label: "Validation finances", tone: "bg-cyan-100 text-cyan-900 ring-cyan-200" },
   EN_ATTENTE_DIR_FINAL: { label: "Validation finale", tone: "bg-indigo-100 text-indigo-800 ring-indigo-200" },
@@ -109,8 +110,7 @@ export function TripHeroHeader({
   status: string;
   statusPulse?: boolean;
 }) {
-  const etabEmoji =
-    etablissement === "École" ? "🏫" : etablissement === "Collège" ? "📚" : etablissement === "Lycée" ? "🎓" : "🏛";
+  const etabEmoji = establishmentKindEmoji(inferEstablishmentKind({ label: etablissement }));
 
   return (
     <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white shadow-xl">

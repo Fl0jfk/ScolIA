@@ -374,7 +374,7 @@ export function TripTransportHubPanel({
                 </div>
               ) : (
                 <p className="text-sm text-slate-400 italic text-center">
-                  Le créateur choisira un devis à l&apos;étape logistique.
+                  Le créateur choisira un devis à l&apos;étape « Choix du devis transport ».
                 </p>
               )}
             </div>

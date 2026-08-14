@@ -50,6 +50,10 @@ export type Establishment = {
   kind?: EstablishmentKind;
   directorName?: string;
   directorEmail?: string;
+  /** Utilisateur Clerk désigné comme responsable de l’établissement. */
+  directorClerkUserId?: string;
+  /** Couleur d’affichage (#RRGGBB) — voyages, filtres, badges. */
+  colorHex?: string;
   /** Clé S3 relative dans le dataBucket (ex. settings/signatures/ecole.png) — jamais une URL publique. */
   signatureS3Key?: string;
   grades?: string;
@@ -360,6 +364,13 @@ export function parseEstablishment(raw: unknown): Establishment {
     kind,
     directorName: str(o.directorName) || undefined,
     directorEmail: email || undefined,
+    directorClerkUserId: str(o.directorClerkUserId).trim() || undefined,
+    colorHex: (() => {
+      const raw = str(o.colorHex).trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw.toUpperCase();
+      if (/^[0-9a-fA-F]{6}$/.test(raw)) return `#${raw.toUpperCase()}`;
+      return undefined;
+    })(),
     signatureS3Key: str(o.signatureS3Key).trim() || undefined,
     grades: str(o.grades) || undefined,
     clerkRoleSlugs: strArr(o.clerkRoleSlugs),

@@ -12,10 +12,15 @@ import {
 } from "@/app/components/travels/TravelsRemindersModal";
 import type { TravelsDirectionDashboard } from "@/app/lib/travels-direction-dashboard";
 import { isTripTravelDatePast } from "@/app/lib/travels-trip-helpers";
-import type { TravelsTrip } from "@/app/lib/travels-types";
+import { TRAVELS_STATUS_LABELS, type TravelsTrip } from "@/app/lib/travels-types";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
+import {
+  establishmentKindEmoji,
+  inferEstablishmentKind,
+  visualForEstablishmentLabel,
+} from "@/app/lib/establishment-visual";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleEmptyState from "@/app/components/module-chrome/ModuleEmptyState";
@@ -131,9 +136,10 @@ function TripDashboardContent() {
   }, [searchParams]);
 
   const etabFilterOptions = useMemo(() => {
-    const labels = (appCtx?.establishments || []).map((e) => e.label);
+    const establishments = (appCtx?.establishments || []).filter((e) => e.active !== false);
+    const labels = establishments.map((e) => e.label);
     const showGroupe = labels.length > 1;
-    return { labels, showGroupe };
+    return { labels, showGroupe, establishments };
   }, [appCtx?.establishments]);
 
   const filteredTrips = useMemo(() => {
@@ -153,11 +159,14 @@ function TripDashboardContent() {
     return isNaN(d.getTime()) ? val : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  const ETAB_STYLE: Record<string, { bg: string; text: string; border: string; stripe: string }> = {
-    "École":          { bg: "bg-yellow-50",  text: "text-yellow-800", border: "border-yellow-300", stripe: "bg-yellow-400" },
-    "Collège":        { bg: "bg-sky-50",    text: "text-sky-800",   border: "border-sky-300",   stripe: "bg-sky-500"   },
-    "Lycée":          { bg: "bg-pink-50",    text: "text-pink-800",   border: "border-pink-300",   stripe: "bg-pink-500"   },
-    "Groupe Scolaire":{ bg: "bg-violet-50",  text: "text-violet-800", border: "border-violet-300", stripe: "bg-violet-500" },
+  const etabVisual = (label: string) =>
+    visualForEstablishmentLabel(label, etabFilterOptions.establishments, GROUPE_SCOLAIRE_LABEL);
+
+  const etabEmoji = (label: string) => {
+    const hit = etabFilterOptions.establishments.find((e) => e.label === label || e.id === label);
+    if (hit) return establishmentKindEmoji(inferEstablishmentKind(hit));
+    if (label === GROUPE_SCOLAIRE_LABEL) return "🏛";
+    return establishmentKindEmoji(inferEstablishmentKind({ label }));
   };
 
   const getStatusStyle = (status: string) => {
@@ -223,18 +232,29 @@ function TripDashboardContent() {
       <div className="flex gap-2 flex-wrap mb-6">
         {["Tous", ...etabFilterOptions.labels, ...(etabFilterOptions.showGroupe ? [GROUPE_SCOLAIRE_LABEL] : [])].map((f) => {
           const active = (f === "Tous" && !filterEtab) || filterEtab === f;
-          const s = f !== "Tous" ? ETAB_STYLE[f] ?? ETAB_STYLE[GROUPE_SCOLAIRE_LABEL] : null;
+          const vis = f !== "Tous" ? etabVisual(f) : null;
           return (
             <button
               key={f}
               onClick={() => setFilterEtab(f === "Tous" ? "" : f)}
-              className={`px-4 py-2 rounded-xl text-sm font-bold border transition-all ${
+              className={`px-4 py-2 rounded-xl text-sm font-bold border transition-all cursor-pointer ${
                 active
-                  ? s ? `${s.bg} ${s.text} ${s.border} shadow-sm` : "bg-slate-900 text-white border-slate-900"
+                  ? vis
+                    ? "shadow-sm"
+                    : "bg-slate-900 text-white border-slate-900"
                   : "bg-white text-slate-500 border-slate-200 hover:border-slate-400"
               }`}
+              style={
+                active && vis
+                  ? {
+                      backgroundColor: vis.badgeBg,
+                      color: vis.textColor,
+                      borderColor: vis.borderColor,
+                    }
+                  : undefined
+              }
             >
-              {f === "Tous" ? "🗂 Tous" : f === "École" ? `🏫 ${f}` : f === "Collège" ? `📚 ${f}` : f === "Lycée" ? `🎓 ${f}` : `🏛 ${f}`}
+              {f === "Tous" ? "🗂 Tous" : `${etabEmoji(f)} ${f}`}
             </button>
           );
         })}
@@ -251,20 +271,31 @@ function TripDashboardContent() {
             );
             const defaultEtab = etabFilterOptions.showGroupe ? GROUPE_SCOLAIRE_LABEL : etabFilterOptions.labels[0] || "Établissement";
             const etabLabel = trip.data?.etablissement || defaultEtab;
-            const etabStyle = ETAB_STYLE[etabLabel] ?? ETAB_STYLE[GROUPE_SCOLAIRE_LABEL];
+            const vis = etabVisual(etabLabel);
             const isPast = isTripTravelDatePast(trip);
             return (
               <div
                 key={trip.id}
                 onClick={() => router.push(`/travels/${trip.id}`)}
-                className={`group min-w-0 rounded-[2.5rem] overflow-hidden border transition-all duration-300 cursor-pointer transform-gpu ${
+                className={`group relative min-w-0 rounded-[2.5rem] overflow-hidden border transition-all duration-300 cursor-pointer transform-gpu ${
                   isPast
                     ? "bg-slate-100/90 border-slate-200 opacity-60 grayscale hover:opacity-75 hover:grayscale-[0.85]"
-                    : "bg-white border-slate-200/60 shadow-sm hover:shadow-xl hover:-translate-y-1"
+                    : "shadow-sm hover:shadow-xl hover:-translate-y-1"
                 }`}
+                style={
+                  isPast
+                    ? undefined
+                    : { backgroundColor: vis.washBg, borderColor: vis.borderColor }
+                }
               >
-                <div className={`h-1.5 w-full ${etabStyle.stripe}`} />
-                <div className="h-44 w-full relative bg-slate-100 overflow-hidden isolate" style={{ maskImage: 'radial-gradient(white, black)' }}>
+                {isPast ? null : (
+                  <div
+                    className="pointer-events-none absolute -right-10 -bottom-12 h-44 w-44 rounded-full blur-3xl transition duration-700 group-hover:scale-110"
+                    style={{ backgroundColor: vis.orbBg }}
+                    aria-hidden
+                  />
+                )}
+                <div className="relative h-44 w-full bg-slate-100 overflow-hidden isolate" style={{ maskImage: 'radial-gradient(white, black)' }}>
                   {imageUrl ? (
                     <Image 
                       src={imageUrl} 
@@ -280,16 +311,24 @@ function TripDashboardContent() {
                   )}
                   <div className="absolute top-4 left-4 flex gap-2">
                     <span className={`text-[10px] font-black px-3 py-1.5 rounded-xl border backdrop-blur-md shadow-sm ${getStatusStyle(trip.status)}`}>
-                      {trip.status === "SEANCE_ANNULEE"
-                        ? "Séance annulée"
-                        : trip.status?.replace('EN_ATTENTE_', '').replace('_', ' ')}
+                      {TRAVELS_STATUS_LABELS[trip.status] ||
+                        (trip.status === "SEANCE_ANNULEE"
+                          ? "Séance annulée"
+                          : trip.status?.replace("EN_ATTENTE_", "").replace("_", " "))}
                     </span>
                   </div>
-                  <div className={`absolute top-4 right-4 px-4 py-1.5 rounded-xl font-black text-sm border shadow-lg backdrop-blur-md ${etabStyle.bg} ${etabStyle.text} ${etabStyle.border}`}>
-                    {etabLabel === "École" ? "🏫" : etabLabel === "Collège" ? "📚" : etabLabel === "Lycée" ? "🎓" : "🏛"} {etabLabel}
+                  <div
+                    className="absolute top-4 right-4 px-4 py-1.5 rounded-xl font-black text-sm border shadow-lg backdrop-blur-md"
+                    style={{
+                      backgroundColor: vis.badgeBg,
+                      color: vis.textColor,
+                      borderColor: vis.borderColor,
+                    }}
+                  >
+                    {etabEmoji(etabLabel)} {etabLabel}
                   </div>
                 </div>
-                <div className="p-8">
+                <div className="relative p-8">
                   <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
                     <span className={`text-[11px] font-bold px-3 py-1 rounded-full border ${isComplex ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-slate-50 text-slate-600 border-slate-100'}`}>
                       {isComplex ? 'Voyage Scolaire' : 'Sortie Locale'}

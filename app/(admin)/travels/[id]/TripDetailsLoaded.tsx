@@ -1119,7 +1119,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       setManualDevisName("");
       setManualDevisEmail("");
       if (fileInput) fileInput.value = "";
-      alert("Devis ajouté. Vous pouvez le sélectionner à l’étape logistique comme un devis reçu par mail.");
+      alert("Devis ajouté. Vous pouvez le sélectionner à l’étape « Choix du devis transport » comme un devis reçu par mail.");
     } catch (err) {
       console.error(err);
       alert("Impossible d’ajouter le devis. Réessayez ou vérifiez votre connexion.");
@@ -1299,7 +1299,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       ? withBusLogistics
         ? [
             { n: "1", label: "Pédagogie", key: "EN_ATTENTE_DIR_INITIAL" },
-            { n: "2", label: "Logistique", key: "PROF_LOGISTICS" },
+            { n: "2", label: "Choix du devis", key: "PROF_LOGISTICS" },
             { n: "3", label: "Finances", key: "EN_ATTENTE_COMPTA" },
             { n: "4", label: "Validation", key: "EN_ATTENTE_DIR_FINAL" },
             { n: "5", label: "Finalisé", key: "VALIDE" },
@@ -1524,7 +1524,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
 
       {trip.type === "COMPLEX" && !withBusLogistics && hubTab === "overview" && (
         <TripAlert tone="info" icon="ℹ️" title="Sans transport bus">
-          L&apos;étape logistique (devis transporteurs) est ignorée pour ce voyage.
+          L&apos;étape « Choix du devis transport » est ignorée pour ce voyage (sans bus).
         </TripAlert>
       )}
 

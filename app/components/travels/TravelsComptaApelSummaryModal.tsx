@@ -10,6 +10,7 @@ import {
   type ComptaApelSummary,
   type ComptaApelTripCommitment,
 } from "@/app/lib/travels-compta-apel-summary";
+import { establishmentKindEmoji, inferEstablishmentKind } from "@/app/lib/establishment-visual";
 
 type Props = {
   tripId: string;
@@ -97,10 +98,7 @@ export default function TravelsComptaApelSummaryModal({
   }
 
   function etabEmoji(etab: string): string {
-    if (etab === "École") return "🏫";
-    if (etab === "Collège") return "📚";
-    if (etab === "Lycée") return "🎓";
-    return "🏛";
+    return establishmentKindEmoji(inferEstablishmentKind({ label: etab }));
   }
 
   return (

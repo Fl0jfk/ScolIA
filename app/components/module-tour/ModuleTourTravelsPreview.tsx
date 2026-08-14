@@ -5,7 +5,7 @@ type Variant = NonNullable<ModuleTourStep["travelsPreview"]>;
 
 const WORKFLOW_STEPS = [
   { label: "Validation pédagogique", icon: "📋", note: "Direction valide le projet" },
-  { label: "Logistique transport", icon: "🚌", note: "Si bus : devis transporteurs" },
+  { label: "Choix du devis transport", icon: "🚌", note: "Si bus : devis transporteurs" },
   { label: "Signature devis bus", icon: "✍️", note: "Direction signe le devis retenu" },
   { label: "Validation finances", icon: "💶", note: "Comptabilité / budget" },
   { label: "Validation finale", icon: "✅", note: "Direction confirme" },

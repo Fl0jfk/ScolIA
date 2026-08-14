@@ -17,7 +17,7 @@ export type TravelsStatus = (typeof TRAVELS_STATUSES)[number];
 
 export const TRAVELS_STATUS_LABELS: Record<string, string> = {
   EN_ATTENTE_DIR_INITIAL: "Validation pédagogique",
-  PROF_LOGISTICS: "Logistique transport",
+  PROF_LOGISTICS: "Choix du devis transport",
   EN_ATTENTE_BUS_SIGNATURE: "Signature devis bus",
   EN_ATTENTE_COMPTA: "Validation finances",
   EN_ATTENTE_DIR_FINAL: "Validation finale",

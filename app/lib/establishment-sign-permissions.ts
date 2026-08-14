@@ -18,6 +18,7 @@ export function canSignForEstablishmentLabel(
   if (!user || !etablissementLabel) return false;
   const est = establishments.find((e) => e.label === etablissementLabel && e.active !== false);
   if (!est) return false;
+  if (est.directorClerkUserId && user.id && est.directorClerkUserId === user.id) return true;
   const roles = userRoleSlugs(user).map(normRole);
   const slugs = (est.clerkRoleSlugs || []).map(normRole);
   return slugs.some((s) => roles.some((r) => r === s || r.includes(s) || s.includes(r)));

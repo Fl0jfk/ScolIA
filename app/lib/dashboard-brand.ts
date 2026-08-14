@@ -32,7 +32,7 @@ export const dash = {
     "bg-gradient-to-r from-[var(--dash-primary)] via-[var(--dash-mid)] to-[var(--dash-bright)] bg-clip-text text-transparent",
   gradientHeader: "bg-gradient-to-r from-[color:var(--dash-soft-muted)]/50 to-white",
   btnPrimary:
-    "rounded-lg bg-[var(--dash-primary)] font-bold text-white hover:brightness-110 disabled:opacity-50",
+    "cursor-pointer rounded-lg bg-[var(--dash-primary)] font-bold text-white hover:brightness-110 disabled:opacity-50",
   btnPrimaryGrad:
     "bg-gradient-to-r from-[var(--dash-primary)] to-[var(--dash-dark)] font-bold text-white hover:brightness-110",
   hoverPrimary: "hover:text-[var(--dash-primary)]",
