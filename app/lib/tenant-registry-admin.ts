@@ -12,7 +12,7 @@ import {
 import type { TenantBillingState } from "@/app/lib/tenant-billing-types";
 import type { TenantConfig, TenantIndexEntry, TenantPostalAddress, TenantSecrets } from "@/app/lib/tenant-types";
 
-export type TenantSecretsPatch = {
+type TenantSecretsPatch = {
   clerkSecretKey?: string;
   clerkDevPublishableKey?: string;
   clerkDevSecretKey?: string;
@@ -30,7 +30,7 @@ export type TenantSecretsPatch = {
   awsImageBucket?: string;
 };
 
-export type TenantUpsertInput = {
+type TenantUpsertInput = {
   slug: string;
   kind: "groupe" | "standalone";
   label: string;
@@ -44,7 +44,7 @@ export type TenantUpsertInput = {
   secrets?: TenantSecretsPatch;
 };
 
-export type TenantEditPayload = {
+type TenantEditPayload = {
   entry: Omit<TenantIndexEntry, "clerkSecretKey">;
   configured: {
     clerkSecretKey: boolean;
@@ -219,7 +219,7 @@ export async function getTenantEditPayload(slug: string): Promise<TenantEditPayl
   return tenantToEditPayload(tenant);
 }
 
-export function validateTenantUpsertInput(
+function validateTenantUpsertInput(
   input: TenantUpsertInput,
   options: { isCreate: boolean },
 ): string | null {
@@ -320,7 +320,7 @@ export async function updateTenant(slug: string, input: TenantUpsertInput): Prom
   return updated;
 }
 
-export function secretsPatchFromBody(raw: unknown): TenantSecretsPatch | undefined {
+function secretsPatchFromBody(raw: unknown): TenantSecretsPatch | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const o = raw as Record<string, unknown>;
   const str = (k: string) => (typeof o[k] === "string" ? (o[k] as string).trim() : undefined);
@@ -393,7 +393,7 @@ export function upsertInputFromBody(raw: unknown): TenantUpsertInput {
   };
 }
 
-export type TenantIndexPatch = {
+type TenantIndexPatch = {
   billing?: TenantBillingState;
 };
 

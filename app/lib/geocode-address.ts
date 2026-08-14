@@ -4,7 +4,7 @@ type NominatimResult = {
   display_name?: string;
 };
 
-export type GeocodedAddress = {
+type GeocodedAddress = {
   latitude: number;
   longitude: number;
   displayName?: string;

@@ -40,7 +40,7 @@ function buildRhFileName(extracted: PersonnelExtracted, originalName: string): s
   return originalName.replace(/[^a-zA-Z0-9._-]/g, "_") || `document${ext}`;
 }
 
-export type RhOcrAnalyzeResult = {
+type RhOcrAnalyzeResult = {
   fileName: string;
   oneDriveFolderPath: string | null;
   oneDriveFilePath: string | null;

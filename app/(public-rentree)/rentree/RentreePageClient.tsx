@@ -136,7 +136,7 @@ function RentreeSectionPanel({
   );
 }
 
-export type RentreePageClientProps = {
+type RentreePageClientProps = {
   title: string;
   schoolYear: string;
   pages: RentreeEstablishmentPage[];

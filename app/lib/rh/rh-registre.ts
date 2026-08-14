@@ -17,13 +17,6 @@ import {
   type RhPersonnelIndexEntry,
 } from "@/app/lib/rh/types";
 
-export type {
-  RhRegistreAlert,
-  RhRegistrePayload,
-  RhRegistreRow,
-  RhSkillBucket,
-} from "@/app/lib/rh/rh-registre-types";
-
 const HAB_ALERT_DAYS = 90;
 const MED_ALERT_DAYS = 45;
 

@@ -11,7 +11,7 @@ import type { FournituresStage, FournituresToolConfig } from "@/app/lib/fournitu
 const STAGES: FournituresStage[] = ["ecole", "college", "lycee"];
 
 /** Transforme chemins S3 / URLs bucket privé en route publique. */
-export async function resolveFournituresPublicHref(href: string): Promise<string> {
+async function resolveFournituresPublicHref(href: string): Promise<string> {
   const synced = resolveFournituresPublicHrefSync(href);
   const trimmed = href.trim();
   if (!trimmed || synced !== trimmed) return synced;

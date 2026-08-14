@@ -8,9 +8,7 @@ import { RGPD_PROCESSING_FICHES } from "@/app/lib/rgpd-processing-fiches";
 export const RGPD_DOCUMENT_DISCLAIMER =
   "Document généré automatiquement — outil d'aide à la conformité, sans valeur de conseil juridique. À valider par le DPD/DPO et la direction.";
 
-export type { RgpdDocumentContentPreview };
-
-export async function buildRgpdDocumentContentPreview(
+async function buildRgpdDocumentContentPreview(
   docId: string,
   workspace: RgpdWorkspace,
   establishmentLabel: string,

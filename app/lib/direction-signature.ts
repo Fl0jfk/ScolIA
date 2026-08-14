@@ -30,7 +30,7 @@ export function directionSignatureObjectKey(
  * Priorité : establishments[].signatureS3Key → travels.signatureImageUrls (legacy).
  * Jamais le CDN public scolia-images.
  */
-export async function resolveDirectionSignatureObjectKey(
+async function resolveDirectionSignatureObjectKey(
   establishmentId: string,
 ): Promise<string | null> {
   const id = establishmentId.trim().toLowerCase();

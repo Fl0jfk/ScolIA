@@ -16,7 +16,7 @@ function minutesToTime(total: number): string {
 }
 
 /** Clé créneau murale Europe/Paris : `YYYY-MM-DDTHH:mm`. */
-export function installationSlotKey(date: string, time: string): string {
+function installationSlotKey(date: string, time: string): string {
   return `${date}T${time}`;
 }
 

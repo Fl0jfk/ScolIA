@@ -19,7 +19,7 @@ export async function ocrS3Key(_bucket: string, key: string): Promise<string> {
   return result.text;
 }
 
-export type SignatureFieldBBoxNormalized = {
+type SignatureFieldBBoxNormalized = {
   pageNumber: number;
   left: number;
   top: number;
@@ -56,7 +56,7 @@ export async function findAllDevisSignatureZones(
  * Compat legacy : une seule BBox (meilleure zone = score le plus haut / dernière page).
  * Préférer findAllDevisSignatureZones pour signer tous les devis d'un PDF.
  */
-export async function findSignatureFieldBBoxFromTextract(
+async function findSignatureFieldBBoxFromTextract(
   pdfBytes: Buffer | Uint8Array,
 ): Promise<SignatureFieldBBoxNormalized | null> {
   const zones = await findAllDevisSignatureZones(pdfBytes);
@@ -76,7 +76,7 @@ export function textractSignatureBBoxToPdfLibDrawCoords(
   return signatureBBoxToPdfLibCoords(pageWidth, pageHeight, bbox, sigDrawWidth, sigDrawHeight, gapBelowLabelPt);
 }
 
-export type DevisOcrMetadata = {
+type DevisOcrMetadata = {
   price: string | null;
   company: string | null;
   contactEmail: string | null;
@@ -107,7 +107,7 @@ export type TripCandidateForMatch = {
   transportContext?: string;
 };
 
-export type DevisOcrAndTripMatch = DevisOcrMetadata & {
+type DevisOcrAndTripMatch = DevisOcrMetadata & {
   matchedTripId: string | null;
   matchConfidence: "high" | "medium" | "low" | null;
   matchMotif: string | null;
@@ -292,7 +292,7 @@ async function interpretMistralDevisMatchResponse(
   };
 }
 
-export async function extractDevisAndMatchTripWithMistral(
+async function extractDevisAndMatchTripWithMistral(
   ocrText: string,
   emailContext: { subject: string; snippet: string },
   candidates: TripCandidateForMatch[]

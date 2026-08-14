@@ -4,7 +4,7 @@ import { buildEleveFolderName, validateElevesJson } from "@/app/lib/eleves-confi
 
 export type ElevesImportSource = "pronote" | "ecoledirecte" | "auto";
 
-export type ElevesImportResult =
+type ElevesImportResult =
   | { ok: true; eleves: EleveConfig[]; detectedSource: ElevesImportSource; headerRow: number }
   | { ok: false; error: string };
 
@@ -434,7 +434,7 @@ export function parseElevesJsonText(text: string): ElevesImportResult {
   };
 }
 
-export type ElevesMergeStats = {
+type ElevesMergeStats = {
   total: number;
   added: number;
   updated: number;

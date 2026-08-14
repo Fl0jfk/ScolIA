@@ -122,7 +122,7 @@ export async function handleGetWeekSheetRange(
 }
 
 /** Exposé pour sync knowledge. */
-export async function weekSheetTodayTitles(): Promise<{
+async function weekSheetTodayTitles(): Promise<{
   weekLabel?: string;
   weekStart?: string;
   eventCount: number;

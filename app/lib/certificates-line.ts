@@ -1,6 +1,6 @@
 import type { CertificateLine } from "@/app/lib/certificates-types";
 
-export type CertificateLineInput = {
+type CertificateLineInput = {
   title?: string;
   period?: string;
   description?: string;

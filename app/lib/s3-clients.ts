@@ -108,7 +108,7 @@ export async function getDataS3ClientForTenantSlug(slug: string): Promise<S3Clie
   return clientForTenantAws(tenant.slug, tenant.secrets?.aws);
 }
 
-export async function getTenantDataS3Region(): Promise<string> {
+async function getTenantDataS3Region(): Promise<string> {
   try {
     const tenant = await getTenant();
     return tenant.secrets?.aws?.region?.trim() || defaultRegion();

@@ -9,15 +9,15 @@ import {
 } from "@/app/lib/requests";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
 
-export const ASSISTANCE_DASHBOARD_SCOPE = "dashboard";
+const ASSISTANCE_DASHBOARD_SCOPE = "dashboard";
 
-export type AssistanceScopeOption = {
+type AssistanceScopeOption = {
   id: string;
   label: string;
 };
 
 /** Destinataire des tickets assistance (config tenant puis env). */
-export async function getAssistanceTargetEmail(): Promise<string> {
+async function getAssistanceTargetEmail(): Promise<string> {
   try {
     const config = await loadAppConfig();
     const fromSite = config.identity.assistanceEmail?.trim();

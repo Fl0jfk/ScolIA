@@ -7,7 +7,7 @@
  * Exemple local (si test MSAL local) : http://localhost:3000/api/rh/drive/oauth/callback
  */
 
-export const RH_AZURE_REDIRECT_URI_HINT =
+const RH_AZURE_REDIRECT_URI_HINT =
   "Ajoutez l'URI Web « /api/rh/drive/oauth/callback » dans Azure (App Registration → Authentification → URI de redirection, plateforme Web).";
 
 const REDIRECT_URI_ERROR_PATTERNS = [
@@ -21,7 +21,7 @@ const REDIRECT_URI_ERROR_PATTERNS = [
   /reply address registered/i,
 ];
 
-export function isRhOAuthRedirectUriError(raw: string): boolean {
+function isRhOAuthRedirectUriError(raw: string): boolean {
   const s = raw.trim();
   if (!s) return false;
   return REDIRECT_URI_ERROR_PATTERNS.some((re) => re.test(s));
@@ -44,7 +44,7 @@ export function formatRhOAuthError(raw: string, redirectUri?: string | null): st
 }
 
 /** Code query `rhDrive=azure_redirect` pour l'UI. */
-export const RH_OAUTH_ERROR_CODE_AZURE_REDIRECT = "azure_redirect";
+const RH_OAUTH_ERROR_CODE_AZURE_REDIRECT = "azure_redirect";
 
 export function rhOAuthErrorQueryParam(raw: string): string {
   if (isRhOAuthRedirectUriError(raw)) return RH_OAUTH_ERROR_CODE_AZURE_REDIRECT;

@@ -27,7 +27,7 @@ export function normalizeNir(raw?: string | null): string {
   return digits.length >= 13 ? digits.slice(0, 13) : digits;
 }
 
-export function normalizeMatricule(raw?: string | null): string {
+function normalizeMatricule(raw?: string | null): string {
   return String(raw || "")
     .trim()
     .toLowerCase()

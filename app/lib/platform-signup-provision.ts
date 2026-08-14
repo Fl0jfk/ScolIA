@@ -14,7 +14,7 @@ import { billingFromSignupRequest } from "@/app/lib/tenant-billing";
 import { tenantSignInUrl } from "@/app/lib/tenant-portal";
 import type { TenantConfig } from "@/app/lib/tenant-types";
 
-export type ProvisionSignupInput = {
+type ProvisionSignupInput = {
   slug?: string;
   hostname?: string;
   dataBucket?: string;
@@ -49,7 +49,7 @@ async function inviteAdminOnTenantClerk(
   });
 }
 
-export async function provisionSignupRequest(
+async function provisionSignupRequest(
   request: TenantSignupRequest,
   input: ProvisionSignupInput,
   masterUserId?: string,

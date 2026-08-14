@@ -224,7 +224,7 @@ export async function notifyStageAdminRejected(convention: StageConvention, note
   return { sent: true, recipients: [to] };
 }
 
-export async function notifyStageSignatureRequest(
+async function notifyStageSignatureRequest(
   convention: StageConvention,
   signature: StageSignature,
 ) {

@@ -2,7 +2,7 @@ import { PERSONNEL_CATEGORY_LABELS, type PersonnelRecord } from "@/app/lib/perso
 import type { PersonnelProfile } from "@/app/lib/personnel-profile";
 import { defaultPersonnelProfile } from "@/app/lib/personnel-profile";
 
-export type PersonnelTemplateVarDef = {
+type PersonnelTemplateVarDef = {
   key: string;
   label: string;
   group: string;
@@ -72,7 +72,7 @@ function fullAddress(p: PersonnelProfile): string {
 }
 
 /** Construit le dictionnaire de variables pour fusion de documents. */
-export function buildPersonnelTemplateVars(record: PersonnelRecord): Record<string, string> {
+function buildPersonnelTemplateVars(record: PersonnelRecord): Record<string, string> {
   const p = record.profile || defaultPersonnelProfile();
 
   const vars: Record<string, string> = {

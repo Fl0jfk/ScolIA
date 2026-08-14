@@ -8,7 +8,7 @@ import type { VisualColumnKey } from "@/app/lib/request-board-move";
 
 export type PileKey = "etablissement" | "service";
 
-export type CorbeilleItem = {
+type CorbeilleItem = {
   id: string;
   subject: string;
   status: string;

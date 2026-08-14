@@ -9,7 +9,7 @@ function norm(classe: string): string {
 }
 
 /** Détection approximative du niveau à partir du libellé de classe (liste élèves). */
-export function guessClassLevelFromClasse(classe: string | undefined): ClassLevel | null {
+function guessClassLevelFromClasse(classe: string | undefined): ClassLevel | null {
   const c = norm(String(classe || ""));
   if (!c) return null;
 

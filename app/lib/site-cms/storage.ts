@@ -5,7 +5,7 @@ import type { SitePost, SitePostIndexEntry } from "@/app/lib/site-cms/types";
 
 const INDEX_KEY = "site-cms/posts/index.json";
 
-export function postKey(id: string) {
+function postKey(id: string) {
   return `site-cms/posts/${id}.json`;
 }
 

@@ -1,6 +1,6 @@
 /** Modèle de données Travels (S3 `travels/{id}.json`). */
 
-export const TRAVELS_STATUSES = [
+const TRAVELS_STATUSES = [
   "EN_ATTENTE_DIR_INITIAL",
   "PROF_LOGISTICS",
   "EN_ATTENTE_BUS_SIGNATURE",

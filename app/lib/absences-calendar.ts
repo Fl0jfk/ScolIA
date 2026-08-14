@@ -121,7 +121,7 @@ export function absencesToCalendarEvents(
   return out.sort((a, b) => +new Date(a.startAt) - +new Date(b.startAt));
 }
 
-export function teacherColorKey(name: string) {
+function teacherColorKey(name: string) {
   return String(name || "")
     .trim()
     .toLowerCase()
@@ -129,7 +129,7 @@ export function teacherColorKey(name: string) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-export function appearanceForTeacherIndex(index: number) {
+function appearanceForTeacherIndex(index: number) {
   const hue = Math.round((index * 137.508) % 360);
   return {
     cardStyle: {
@@ -145,7 +145,7 @@ export function appearanceForTeacherIndex(index: number) {
   };
 }
 
-export const OGEC_APPEARANCE = {
+const OGEC_APPEARANCE = {
   cardStyle: {
     backgroundColor: "#fee2e2",
     color: "#991b1b",

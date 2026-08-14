@@ -8,7 +8,7 @@ const NO_DRAG_SELECTOR = "button, a, input, select, textarea, option, label, [da
 // Distance minimale (px) avant de considérer le geste comme un glisser et non un clic.
 const DRAG_THRESHOLD = 6;
 
-export type BoardDndConfig = {
+type BoardDndConfig = {
   draggedRequestIdRef: MutableRefObject<string | null>;
   onDropColumn: (column: string, requestId: string) => void;
   onDropPile: (pile: string, requestId: string) => void;

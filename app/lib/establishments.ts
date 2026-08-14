@@ -5,8 +5,6 @@ import {
   userRoleSlugs,
 } from "@/app/lib/establishment-sign-permissions";
 
-export { canSignForEstablishmentLabel, userRoleSlugs };
-
 export async function canSignTravelsDirectionForEtab(
   user: ClerkLikeUser | null | undefined,
   etablissement: string | null | undefined,

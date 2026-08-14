@@ -3,8 +3,6 @@ import "server-only";
 import type { OcrBatchJob, OcrBatchJobItem, OcrJobTraceEntry } from "@/app/api/agentIAOCR/batch-job/batch-job";
 import { flushOcrJobTraces, queueOcrJobTrace } from "@/app/lib/ocr-job-trace-store";
 
-export type { OcrJobTraceEntry };
-
 /** Contexte de traçage propagé dans le pipeline (greppable CloudWatch : `[ocr-batch <jobId>]`). */
 export type OcrTraceCtx = {
   batchJobId: string;
@@ -12,7 +10,7 @@ export type OcrTraceCtx = {
   itemIndex?: number;
 };
 
-export type OcrTraceScope =
+type OcrTraceScope =
   | "api"
   | "worker"
   | "lock"
@@ -23,7 +21,7 @@ export type OcrTraceScope =
   | "classify"
   | "onedrive";
 
-export type OcrTraceLevel = "debug" | "info" | "warn" | "error";
+type OcrTraceLevel = "debug" | "info" | "warn" | "error";
 
 function serializeData(data?: Record<string, unknown>): string {
   if (!data || Object.keys(data).length === 0) return "";

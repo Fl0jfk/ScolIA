@@ -1,6 +1,6 @@
 export type AbsencePeriodType = "single_day" | "multi_day";
 
-export type AbsencePeriodFields = {
+type AbsencePeriodFields = {
   periodType?: AbsencePeriodType | null;
   startDate: string;
   endDate: string;
@@ -19,14 +19,14 @@ function formatDateFR(input?: string | null) {
   });
 }
 
-export function formatTimeFR(hhmm: string) {
+function formatTimeFR(hhmm: string) {
   const [hRaw, mRaw] = hhmm.split(":");
   const h = hRaw?.padStart(2, "0") ?? "00";
   const m = mRaw?.padStart(2, "0") ?? "00";
   return m === "00" ? `${h}h` : `${h}h${m}`;
 }
 
-export function getAbsencePeriodType(data: AbsencePeriodFields): AbsencePeriodType {
+function getAbsencePeriodType(data: AbsencePeriodFields): AbsencePeriodType {
   if (data.periodType === "single_day") return "single_day";
   if (data.periodType === "multi_day") return "multi_day";
   if (data.startTime && data.endTime) return "single_day";

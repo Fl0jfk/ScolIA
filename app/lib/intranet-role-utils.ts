@@ -23,7 +23,7 @@ export function hasMasterRole(roles: string[]): boolean {
 }
 
 /** Administrateur de l'établissement (son tenant uniquement). */
-export function hasTenantAdminRole(roles: string[]): boolean {
+function hasTenantAdminRole(roles: string[]): boolean {
   return hasGlobalAdminRole(roles) || hasMasterRole(roles);
 }
 

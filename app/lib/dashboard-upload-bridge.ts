@@ -1,4 +1,4 @@
-export type DashboardUploadMode = "standard" | "class";
+type DashboardUploadMode = "standard" | "class";
 
 type PendingDashboardUpload = {
   mode: DashboardUploadMode;

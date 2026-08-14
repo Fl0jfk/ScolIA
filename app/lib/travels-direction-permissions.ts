@@ -44,7 +44,7 @@ export function isTripOwnerOrCreator(
 }
 
 /** Statuts workflow autorisés lors d'une réouverture depuis « Finalisé » (VALIDE). */
-export const TRAVELS_REOPEN_FROM_VALIDE_STATUSES = [
+const TRAVELS_REOPEN_FROM_VALIDE_STATUSES = [
   "EN_ATTENTE_DIR_INITIAL",
   "PROF_LOGISTICS",
   "EN_ATTENTE_BUS_SIGNATURE",

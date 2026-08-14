@@ -16,7 +16,7 @@ import { sendTravelEmailUnmatchedAlert } from "@/app/lib/travel-email-alert";
 import { resolveTenantSlugWithMistral } from "@/app/lib/travel-tenant-match";
 
 const INCOMING_PREFIX = "devis-incoming/";
-export const UNMATCHED_EMAIL_KEY = "travels/email-devis-unmatched.json";
+const UNMATCHED_EMAIL_KEY = "travels/email-devis-unmatched.json";
 const INDEX_KEY = "travels/index.json";
 const MAX_CANDIDATES = 80;
 const MARKER_PREFIX = "travels/email-ingest-markers/";
@@ -33,7 +33,7 @@ const TRANSIENT_FAIL_REASONS = new Set([
   "erreur_traitement",
 ]);
 
-export type TravelEmailIngestInput = {
+type TravelEmailIngestInput = {
   s3Key?: string;
   fromEmail: string;
   subject?: string;
@@ -273,7 +273,7 @@ function transportContextSnippet(tr: Record<string, unknown> | undefined): strin
   return parts.length ? parts.join(" · ").slice(0, 400) : undefined;
 }
 
-export async function loadTripCandidates(client: S3Client, bucket: string): Promise<TripCandidateForMatch[]> {
+async function loadTripCandidates(client: S3Client, bucket: string): Promise<TripCandidateForMatch[]> {
   try {
     const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: INDEX_KEY }));
     const raw = await res.Body?.transformToString();

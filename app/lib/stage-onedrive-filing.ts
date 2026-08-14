@@ -19,14 +19,14 @@ import { buildStageConventionPdf } from "@/app/lib/stage-pdf";
 import { getConventionsIndex, getStageConvention, saveStageConvention } from "@/app/lib/stage-storage";
 import type { StageConvention } from "@/app/lib/stage-types";
 
-export async function verifyOneDriveAccessToken(accessToken: string): Promise<boolean> {
+async function verifyOneDriveAccessToken(accessToken: string): Promise<boolean> {
   const res = await fetch("https://graph.microsoft.com/v1.0/me/drive?$select=id", {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   return res.ok;
 }
 
-export async function isOneDriveIntegrationEnabled(): Promise<boolean> {
+async function isOneDriveIntegrationEnabled(): Promise<boolean> {
   const config = await loadAppConfig();
   return config.integrations.microsoftOneDrive?.enabled === true;
 }
@@ -287,7 +287,7 @@ export async function tryAutoFileConventionToOneDrive(
   return { filed: true };
 }
 
-export async function listSignedConventionsPendingOneDrive(): Promise<StageConvention[]> {
+async function listSignedConventionsPendingOneDrive(): Promise<StageConvention[]> {
   const index = await getConventionsIndex();
   const all = await Promise.all(index.map((e) => getStageConvention(e.id)));
   return all.filter(
@@ -296,7 +296,7 @@ export async function listSignedConventionsPendingOneDrive(): Promise<StageConve
   );
 }
 
-export type BatchOneDriveFilingResult = {
+type BatchOneDriveFilingResult = {
   total: number;
   filed: number;
   skippedOtherSecteur: number;

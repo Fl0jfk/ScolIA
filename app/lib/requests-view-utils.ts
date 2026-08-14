@@ -26,11 +26,11 @@ export function getViewerServiceLabel(roles: string[]): string {
   return "mon service";
 }
 
-export function isCorbeilleStackKey(key: string): boolean {
+function isCorbeilleStackKey(key: string): boolean {
   return key === "corbeille" || key === "tri.inconnu";
 }
 
-export function stackGroupLabel(key: string, roleLabel: string, isPersonal: boolean): string {
+function stackGroupLabel(key: string, roleLabel: string, isPersonal: boolean): string {
   if (isPersonal) return "Mes demandes en cours";
   if (isCorbeilleStackKey(key)) return "Corbeille — visible par tout le personnel";
   const cleaned = roleLabel.replace(/\s*—\s*[^—]+$/, "").trim();

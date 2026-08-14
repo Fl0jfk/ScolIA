@@ -14,7 +14,7 @@ import {
   tryRestoreOneDriveAccessToken,
 } from "@/app/lib/onedrive-msal-session";
 
-export const ONEDRIVE_SCOPES = [...ONEDRIVE_MSAL_SCOPES];
+const ONEDRIVE_SCOPES = [...ONEDRIVE_MSAL_SCOPES];
 
 let msalInstance: msal.PublicClientApplication | null = null;
 
@@ -23,7 +23,7 @@ function getMsal() {
   return msalInstance;
 }
 
-export type OneDriveConnectionState = {
+type OneDriveConnectionState = {
   msalReady: boolean;
   oneDriveEnabled: boolean;
   connected: boolean;

@@ -135,7 +135,7 @@ export async function writeMetaRh(
   return { ok: true, meta: next };
 }
 
-export async function ensureRhDriveLinked(): Promise<
+async function ensureRhDriveLinked(): Promise<
   { ok: true; basePath: string } | { ok: false; error: string; code: string }
 > {
   const cfg = await getRhDrivePublicConfig();

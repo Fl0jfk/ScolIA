@@ -393,7 +393,7 @@ function materializeToolTurn(
   };
 }
 
-export type RunBrainChatInput = {
+type RunBrainChatInput = {
   message: string;
   audience: "public" | "private";
   history: Array<{ role: "user" | "assistant"; content: string }>;

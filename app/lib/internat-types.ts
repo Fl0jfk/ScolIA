@@ -320,7 +320,7 @@ export function etablissementFromSecteur(secteur?: string): InternatEtablissemen
   return "Lycée";
 }
 
-export function emptyRollSection(): InternatRollSection {
+function emptyRollSection(): InternatRollSection {
   return { completed: false, marks: {} };
 }
 
@@ -346,7 +346,7 @@ export function sortInternatFloors(floors: InternatFloor[]): InternatFloor[] {
   );
 }
 
-export function findInternatBuilding(
+function findInternatBuilding(
   buildings: InternatBuilding[],
   buildingId: string | undefined | null,
 ): InternatBuilding | undefined {

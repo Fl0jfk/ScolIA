@@ -1,4 +1,4 @@
-export type OnboardingGateDecision =
+type OnboardingGateDecision =
   | { action: "allow" }
   | { action: "redirect"; path: "/onboarding" | "/configuration-en-cours" };
 

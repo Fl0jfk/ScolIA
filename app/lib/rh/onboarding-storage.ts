@@ -37,7 +37,7 @@ async function writeIndex(index: RhOnboardingIndex): Promise<void> {
   });
 }
 
-export function generateOnboardingToken(): string {
+function generateOnboardingToken(): string {
   return randomBytes(24).toString("base64url");
 }
 

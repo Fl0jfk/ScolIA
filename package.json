@@ -7,28 +7,24 @@
     "clerk:env": "clerk env pull",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "audit:knip": "knip"
   },
   "engines": {
     "node": ">=22.x"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "latest",
-    "@aws-sdk/client-sts": "^3.1067.0",
-    "@aws-sdk/client-textract": "latest",
     "@aws-sdk/s3-request-presigner": "latest",
     "@azure/msal-browser": "^4.26.1",
     "@clerk/backend": "^3.2.8",
     "@clerk/localizations": "latest",
     "@clerk/nextjs": "^7.0.12",
-    "@clerk/shared": "^4.6.0",
     "@napi-rs/canvas": "^1.0.2",
     "@react-pdf/renderer": "^4.5.1",
     "@tailwindcss/postcss": "latest",
     "docx": "^9.7.1",
-    "docxtemplater": "^3.69.3",
     "framer-motion": "latest",
-    "html5-qrcode": "latest",
     "imapflow": "^1.5.0",
     "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.7",
@@ -38,9 +34,7 @@
     "nodemailer": "latest",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.1.200",
-    "pizzip": "^3.2.0",
     "qrcode": "latest",
-    "qrcode.react": "latest",
     "react": "latest",
     "react-dom": "latest",
     "server-only": "^0.0.1",
@@ -56,6 +50,7 @@
     "@types/react-dom": "latest",
     "eslint": "^10.0.0",
     "eslint-config-next": "latest",
+    "knip": "^5.88.1",
     "postcss": "latest",
     "tailwindcss": "latest",
     "typescript": "latest"

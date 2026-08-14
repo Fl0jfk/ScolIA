@@ -12,9 +12,7 @@ import {
   writeDashboardLinksCache,
 } from "@/app/lib/dashboard-links-cache";
 
-export type { DashboardTileVariant };
-export type Categories = DashboardCategory;
-export type { ExternalQuickLink };
+type Categories = DashboardCategory;
 
 type Data = {
   categories: DashboardCategory[];

@@ -31,14 +31,14 @@ import {
 
 const LOG_PREFIX = "[compta-bus-ocr]";
 
-export type ComptaOcrLogger = {
+type ComptaOcrLogger = {
   entries: ComptaOcrLogEntry[];
   info: (message: string, detail?: unknown) => void;
   warn: (message: string, detail?: unknown) => void;
   error: (message: string, detail?: unknown) => void;
 };
 
-export function createComptaOcrLogger(): ComptaOcrLogger {
+function createComptaOcrLogger(): ComptaOcrLogger {
   const entries: ComptaOcrLogEntry[] = [];
   const push = (level: ComptaOcrLogLevel, message: string, detail?: unknown) => {
     entries.push({
@@ -196,7 +196,7 @@ async function ocrPdfUrl(
   return "";
 }
 
-export async function collectQuoteOcrForTrip(
+async function collectQuoteOcrForTrip(
   trip: TravelsTrip,
   logger = createComptaOcrLogger(),
 ): Promise<QuoteOcrChunk[]> {
@@ -379,11 +379,11 @@ async function extractQuoteAmountWithMistral(
   }
 }
 
-export type ComptaSyncOptions = {
+type ComptaSyncOptions = {
   forceBusOcr?: boolean;
 };
 
-export type ComptaSyncResult = {
+type ComptaSyncResult = {
   sheet: TravelsComptaSheet;
   ocrNewCount: number;
   removedCount: number;
@@ -597,7 +597,7 @@ export async function syncComptaSheetWithDocuments(
   };
 }
 
-export async function extractComptaSheetWithAi(
+async function extractComptaSheetWithAi(
   trip: TravelsTrip,
   ocrChunks: QuoteOcrChunk[],
   baseSheet: TravelsComptaSheet,

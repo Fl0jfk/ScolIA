@@ -26,11 +26,11 @@ export function canAccessCertificatesModule(user: ClerkActor | null | undefined)
   );
 }
 
-export function isProgramOwner(program: CertificateProgram, userId: string): boolean {
+function isProgramOwner(program: CertificateProgram, userId: string): boolean {
   return program.ownerId === userId;
 }
 
-export function isProgramCollaborator(program: CertificateProgram, userId: string): boolean {
+function isProgramCollaborator(program: CertificateProgram, userId: string): boolean {
   return program.collaboratorIds.includes(userId);
 }
 
@@ -60,13 +60,13 @@ export function eligibleSignatoryIds(program: CertificateProgram): string[] {
   );
 }
 
-export function canEditAwardSignatories(award: StudentAward, program: CertificateProgram, userId: string): boolean {
+function canEditAwardSignatories(award: StudentAward, program: CertificateProgram, userId: string): boolean {
   if (award.status !== "draft") return false;
   return canManageAwardSignatoriesBase(program, userId, award.addedBy);
 }
 
 /** Retirer / ajouter des profs signataires tant que la direction n'a pas signé. */
-export function canEditAwardSignatoriesDuringSigning(
+function canEditAwardSignatoriesDuringSigning(
   award: StudentAward,
   program: CertificateProgram,
   userId: string,
@@ -117,7 +117,7 @@ export function canSubmitAward(
   return isProgramOwner(program, userId) || award.addedBy === userId;
 }
 
-export function isDesignatedSignatory(award: StudentAward, userId: string): boolean {
+function isDesignatedSignatory(award: StudentAward, userId: string): boolean {
   return award.designatedSignatories.some((s) => s.clerkUserId === userId);
 }
 
@@ -157,7 +157,7 @@ export async function canSignAwardAsDirectionForUserId(
   return canSignAwardAsDirectionWithRoles(roles, award);
 }
 
-export function awardAwaitingDirectionSignature(award: StudentAward): boolean {
+function awardAwaitingDirectionSignature(award: StudentAward): boolean {
   if (award.directionSignature) return false;
   return (
     award.designatedSignatories.length > 0 &&

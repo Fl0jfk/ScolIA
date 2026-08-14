@@ -1,8 +1,8 @@
 import { hasRole, normRole } from "@/app/lib/intranet-role-utils";
 
-export type PhotocopiesEtablissement = "École" | "Collège" | "Lycée";
+type PhotocopiesEtablissement = "École" | "Collège" | "Lycée";
 
-export type PhotocopiesRecordLike = {
+type PhotocopiesRecordLike = {
   etablissement: PhotocopiesEtablissement | string;
   createdBy: { userId: string };
 };

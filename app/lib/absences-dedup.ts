@@ -9,15 +9,9 @@ import {
 } from "@/app/lib/absences-types";
 import { resolveTravelsS3ObjectKey } from "@/app/lib/travels-s3";
 
-export {
-  absencePersonNamesMatch,
-  compareAbsenceRecordsAlphabetically,
-  isPendingAbsenceRecord,
-  normalizeAbsencePersonName,
-  sortAbsenceRecordsAlphabetically,
-} from "@/app/lib/absences-shared-utils";
+export {isPendingAbsenceRecord} from "@/app/lib/absences-shared-utils";
 
-export type AbsenceDuplicateCandidate = {
+type AbsenceDuplicateCandidate = {
   displayName: string;
   scope: AbsenceScope;
   etablissement: Etablissement | null;
@@ -35,7 +29,7 @@ export function absenceCandidateFromRecord(record: AbsenceRecord): AbsenceDuplic
   };
 }
 
-export function absencePeriodsOverlap(
+function absencePeriodsOverlap(
   aStart: string,
   aEnd: string,
   bStart: string,
@@ -49,7 +43,7 @@ export function absencePeriodsOverlap(
   return ea >= sb && eb >= sa;
 }
 
-export function isDuplicateAbsence(
+function isDuplicateAbsence(
   existing: AbsenceRecord,
   candidate: AbsenceDuplicateCandidate,
 ): boolean {
@@ -182,7 +176,7 @@ export function mergeAbsenceRecordsSync(
   });
 }
 
-export async function mergeAbsenceRecords(
+async function mergeAbsenceRecords(
   existing: AbsenceRecord,
   incoming: AbsenceRecord,
   actor: string,

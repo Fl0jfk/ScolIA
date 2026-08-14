@@ -5,7 +5,7 @@ import { platformMailerAddress } from "@/app/lib/tenant-mail";
 /**
  * Boîte plateforme (MAILER_EMAIL) — polling + Reply-To mailer+{slug}@…
  */
-export function travelInboundMailbox(): string | null {
+function travelInboundMailbox(): string | null {
   return platformMailerAddress();
 }
 

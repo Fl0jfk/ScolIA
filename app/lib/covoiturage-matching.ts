@@ -85,7 +85,7 @@ export function otherPartyId(match: CovoiturageMatch, userId: string): string {
   return match.profileA === userId ? match.profileB : match.profileA;
 }
 
-export function userAcceptedMatch(match: CovoiturageMatch, userId: string): boolean {
+function userAcceptedMatch(match: CovoiturageMatch, userId: string): boolean {
   if (match.profileA === userId) return match.acceptedA;
   if (match.profileB === userId) return match.acceptedB;
   return false;

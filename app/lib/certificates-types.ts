@@ -111,7 +111,7 @@ export const CERTIFICATE_S3 = {
   profSignature: (clerkUserId: string) => `certificates/signatures/prof/${clerkUserId}.png`,
 } as const;
 
-export const CERTIFICATE_PROGRAM_STATUS_LABELS: Record<CertificateProgramStatus, string> = {
+const CERTIFICATE_PROGRAM_STATUS_LABELS: Record<CertificateProgramStatus, string> = {
   draft: "En cours",
   signing: "Signatures",
   completed: "Terminé",

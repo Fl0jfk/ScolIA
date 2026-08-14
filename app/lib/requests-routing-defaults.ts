@@ -22,7 +22,6 @@ const BRANCH_TO_SERVICE: Record<string, string> = {
 export const RH_REQUEST_ROUTE_ID = "rh_personnel";
 export const RH_REQUEST_SUBJECT_PREFIX = "[Demande RH]";
 
-
 function uid(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -122,7 +121,7 @@ export function defaultRequestsRouting(): RequestsRoutingConfig {
   };
 }
 
-export function buildAssignmentsFromStaffRows(
+function buildAssignmentsFromStaffRows(
   rows: { email: string; branchId: string; role: string }[],
 ): RoutingAssignment[] {
   return rows

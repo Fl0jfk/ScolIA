@@ -3,7 +3,7 @@
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import { TripButton, TripDecisionPanel } from "@/app/components/travels/TripDetailUI";
 
-export type TripDecisionHubPanelProps = {
+type TripDecisionHubPanelProps = {
   trip: TravelsTrip;
   isDirection: boolean;
   canSign: boolean;

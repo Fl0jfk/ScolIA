@@ -19,7 +19,7 @@ const STAFF_ROLE_SLUGS = new Set([
 ]);
 
 /** Alias historique — délégué à la normalisation intranet. */
-export function intranetRolesFromUnknown(meta: unknown): string[] {
+function intranetRolesFromUnknown(meta: unknown): string[] {
   return intranetRolesFromMetadata(meta);
 }
 

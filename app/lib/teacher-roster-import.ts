@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 import type { ClassAllocationTeacherAssignment } from "@/app/lib/class-allocation-teachers";
 
-export type TeacherRosterImportResult =
+type TeacherRosterImportResult =
   | { ok: true; assignments: ClassAllocationTeacherAssignment[] }
   | { ok: false; error: string };
 

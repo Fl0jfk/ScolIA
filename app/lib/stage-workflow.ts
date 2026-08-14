@@ -44,7 +44,7 @@ function pushHistory(
   };
 }
 
-export async function buildDefaultSignatures(convention: StageConvention): Promise<StageSignature[]> {
+async function buildDefaultSignatures(convention: StageConvention): Promise<StageSignature[]> {
   const adminEmails = await resolveStagesAdminEmails();
   const directionEmail = await resolveStagesDirectionEmail(convention.student.level);
 
@@ -70,7 +70,7 @@ export async function buildDefaultSignatures(convention: StageConvention): Promi
 }
 
 /** Signatures après dépôt PDF : papier déjà signé (élève, parent, entreprise) + prof référent + direction en ligne. */
-export async function buildDepositedConventionSignatures(
+async function buildDepositedConventionSignatures(
   convention: StageConvention,
 ): Promise<StageSignature[]> {
   const directionEmail = await resolveStagesDirectionEmail(convention.student.level);
@@ -127,7 +127,7 @@ export async function ensureStudentAccessToken(convention: StageConvention): Pro
   return { ...convention, studentAccessToken: token };
 }
 
-export async function attachSignTokens(convention: StageConvention): Promise<StageConvention> {
+async function attachSignTokens(convention: StageConvention): Promise<StageConvention> {
   const signatures: StageSignature[] = [];
   for (const sig of convention.signatures) {
     if (sig.status === "signe") {
@@ -147,7 +147,7 @@ export async function attachSignTokens(convention: StageConvention): Promise<Sta
   return { ...convention, signatures };
 }
 
-export function validateConventionForSubmit(convention: StageConvention): string | null {
+function validateConventionForSubmit(convention: StageConvention): string | null {
   const s = convention.student;
   if (!s.firstName.trim() || !s.lastName.trim() || !s.className.trim() || !s.level.trim()) {
     return "Identité élève incomplète.";

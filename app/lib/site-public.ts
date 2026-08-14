@@ -4,7 +4,7 @@ import { loadAppConfig } from "@/app/lib/app-config";
 import { resolveHeaderLogoDisplayUrl } from "@/app/lib/branding-logo";
 import { getTenant } from "@/app/lib/tenant-context";
 
-export type PublicSiteIdentity = {
+type PublicSiteIdentity = {
   name?: string;
   shortName?: string;
   headerLogoUrl: string | null;

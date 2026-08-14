@@ -32,7 +32,7 @@ function isoDateOnly(d = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 
-export type PlanningImportResult = {
+type PlanningImportResult = {
   kind: RhPlanningKind;
   planning: TeacherPlanningDoc | StaffPlanningDoc;
   warnings: string[];

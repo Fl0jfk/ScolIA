@@ -35,7 +35,7 @@ export const LAPROVIDENCE_STAFF_DIRECTORY: StaffDirectoryRow[] = [
   { email: SCHOOL.lycee.email, branchId: "direction_lycee", role: "leader" },
 ];
 
-export const LAPROVIDENCE_TRANSPORT_PROVIDERS = [
+const LAPROVIDENCE_TRANSPORT_PROVIDERS = [
   { name: "Perrier", email: "stephanie.fouin@cars-perier.fr" },
   { name: "Reflexe", email: "contact@reflexe-voyages.com" },
   { name: "Grisel", email: "j.saint-denis@grisel-voyages.fr" },

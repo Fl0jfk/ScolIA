@@ -52,7 +52,7 @@ export async function requireAuth(): Promise<
   }
 }
 
-export async function isPlatformMaster(): Promise<boolean> {
+async function isPlatformMaster(): Promise<boolean> {
   const user = await safeCurrentUser();
   return isPlatformMasterFromPublicMetadata(user?.publicMetadata);
 }

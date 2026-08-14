@@ -2,7 +2,7 @@ import { hasRole } from "@/app/lib/absences-types";
 import { defaultPersonnelProfile, normalizePersonnelProfile, type PersonnelProfile } from "@/app/lib/personnel-profile";
 
 /** Phase pilote : accès ouvert à tous les utilisateurs connectés. À restreindre plus tard. */
-export const PERSONNEL_OPEN_ACCESS = true;
+const PERSONNEL_OPEN_ACCESS = true;
 
 export type { PersonnelProfile };
 
@@ -36,7 +36,7 @@ export type PersonnelDocument = {
   expiresAt?: string | null;
 };
 
-export type FormationStatus = "demandee" | "planifiee" | "realisee" | "annulee";
+type FormationStatus = "demandee" | "planifiee" | "realisee" | "annulee";
 
 export type PersonnelFormation = {
   id: string;
@@ -140,7 +140,7 @@ export const PERSONNEL_LEAVE_TYPE_LABELS: Record<PersonnelLeaveType, string> = {
   autre: "Autre",
 };
 
-export const PERSONNEL_LEAVE_STATUS_LABELS: Record<PersonnelLeaveStatus, string> = {
+const PERSONNEL_LEAVE_STATUS_LABELS: Record<PersonnelLeaveStatus, string> = {
   en_attente: "En attente",
   validee: "Validée",
   refusee: "Refusée",
@@ -205,7 +205,7 @@ export const PERSONNEL_SHARED_DOCS_KEY = "personnel-ogec/shared-documents.json";
 export const PERSONNEL_LEAVES_KEY = "personnel-ogec/leave-requests.json";
 export const PERSONNEL_SIGNATURE_TOKEN_PREFIX = "personnel-ogec/signature-tokens/";
 
-export const OGEC_STAFF_ROLES = [
+const OGEC_STAFF_ROLES = [
   "administratif",
   "maintenance",
   "education",
@@ -229,7 +229,7 @@ export function uid(prefix = "p") {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export function getPersonnelRoleFlags(roles: string[]) {
+function getPersonnelRoleFlags(roles: string[]) {
   return {
     isCompta: hasRole(roles, "comptabilite"),
     isAdministratif: hasRole(roles, "administratif"),
@@ -302,7 +302,7 @@ export function canViewRecord(
   return false;
 }
 
-export function filterDocumentsForViewer(
+function filterDocumentsForViewer(
   docs: PersonnelDocument[],
   roles: string[],
   record: PersonnelRecord,

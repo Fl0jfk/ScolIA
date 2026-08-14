@@ -11,7 +11,7 @@ import {
 
 export type StageRosterStudentStatus = "sans_stage" | "en_cours" | "valide" | "plusieurs";
 
-export type StageRosterConvention = {
+type StageRosterConvention = {
   id: string;
   status: StageConventionStatus;
   statusLabel: string;
@@ -69,7 +69,7 @@ function namesMatch(
 }
 
 /** Classe explicite (champ `classe` de la liste élèves). */
-export function resolveEleveClassName(eleve: EleveConfig): string | null {
+function resolveEleveClassName(eleve: EleveConfig): string | null {
   const explicit = String(eleve.classe ?? "").trim();
   if (explicit) return explicit;
 
@@ -86,7 +86,7 @@ export function resolveEleveClassName(eleve: EleveConfig): string | null {
   return null;
 }
 
-export function eleveMatchesClass(eleve: EleveConfig, className: string): boolean {
+function eleveMatchesClass(eleve: EleveConfig, className: string): boolean {
   const resolved = resolveEleveClassName(eleve);
   if (!resolved) return false;
   return classKey(resolved) === classKey(className);

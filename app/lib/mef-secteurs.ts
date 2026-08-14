@@ -57,7 +57,7 @@ export function parseMefSecteursConfig(
   return { ok: true, config };
 }
 
-export function buildMefToSecteurMap(config: MefSecteursConfig): Map<string, Secteur> {
+function buildMefToSecteurMap(config: MefSecteursConfig): Map<string, Secteur> {
   const map = new Map<string, Secteur>();
   for (const code of config.lycee) map.set(code, "lycee");
   for (const code of config.college) map.set(code, "college");

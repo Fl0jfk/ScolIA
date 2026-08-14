@@ -7,7 +7,7 @@ import type { EleveConfig } from "@/app/lib/eleves-config";
 import { scoreEleveNameMatch } from "@/app/lib/eleves-registry";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 
-export type ResolvedPeerWish = {
+type ResolvedPeerWish = {
   input: string;
   ine: string;
   nom: string;
@@ -15,7 +15,7 @@ export type ResolvedPeerWish = {
   method: "fuzzy" | "mistral";
 };
 
-export type ResolvedTeacherWish = {
+type ResolvedTeacherWish = {
   input: string;
   matchedName: string;
   method: "fuzzy" | "mistral";

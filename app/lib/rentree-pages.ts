@@ -95,12 +95,12 @@ export function syncRentreePages(
   });
 }
 
-export function parseRentreeAccent(raw: unknown, fallback: RentreeAccent = "violet"): RentreeAccent {
+function parseRentreeAccent(raw: unknown, fallback: RentreeAccent = "violet"): RentreeAccent {
   const accents: RentreeAccent[] = ["yellow", "sky", "pink", "green", "blue", "rose", "violet", "amber", "teal"];
   return accents.includes(raw as RentreeAccent) ? (raw as RentreeAccent) : fallback;
 }
 
-export function parseRentreeSections(raw: unknown): RentreeSection[] {
+function parseRentreeSections(raw: unknown): RentreeSection[] {
   if (!Array.isArray(raw)) return [];
   const sections: RentreeSection[] = [];
   for (const s of raw) {

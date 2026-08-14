@@ -2,12 +2,12 @@ import { normalizeHostname } from "@/app/lib/tenant-registry";
 
 const LOCAL_DEV_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
-export type ClerkKeyPair = {
+type ClerkKeyPair = {
   publishableKey: string;
   secretKey: string;
 };
 
-export type ClerkKeySource = {
+type ClerkKeySource = {
   clerkPublishableKey: string;
   clerkSecretKey: string;
   clerkDevPublishableKey?: string;
@@ -61,7 +61,7 @@ export function needsLocalClerkDevKeys(hostname: string, publishableKey: string)
 }
 
 /** @deprecated Préférer clerkKeysFromEnv() ou resolveClerkKeysForHostname(). */
-export function clerkKeysFromEnvOverride(): ClerkKeyPair | null {
+function clerkKeysFromEnvOverride(): ClerkKeyPair | null {
   const env = clerkKeysFromEnv();
   if (!env) return null;
   if (!env.publishableKey.startsWith("pk_test_") || !env.secretKey.startsWith("sk_test_")) {
@@ -70,13 +70,13 @@ export function clerkKeysFromEnvOverride(): ClerkKeyPair | null {
   return env;
 }
 
-export function resolveClerkPublishableKey(tenantKey: string, hostname?: string): string {
+function resolveClerkPublishableKey(tenantKey: string, hostname?: string): string {
   const fromEnv = clerkKeysFromEnv();
   if (fromEnv) return fromEnv.publishableKey;
   return tenantKey;
 }
 
-export function resolveClerkSecretKey(tenantKey: string, hostname?: string): string {
+function resolveClerkSecretKey(tenantKey: string, hostname?: string): string {
   const fromEnv = clerkKeysFromEnv();
   if (fromEnv) return fromEnv.secretKey;
   return tenantKey;

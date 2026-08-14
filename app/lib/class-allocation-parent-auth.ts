@@ -11,7 +11,7 @@ const CODE_TTL_MS = 15 * 60 * 1000;
 const MAX_VERIFY_ATTEMPTS = 5;
 const RESEND_COOLDOWN_MS = 60 * 1000;
 
-export type ClassAllocationParentSession = {
+type ClassAllocationParentSession = {
   email: string;
   campaignId: string;
   childInes: string[];
@@ -50,11 +50,11 @@ function hashCode(email: string, campaignId: string, code: string): string {
     .digest("hex");
 }
 
-export function generateParentAuthCode(): string {
+function generateParentAuthCode(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
-export async function loadPendingParentAuth(
+async function loadPendingParentAuth(
   campaignId: string,
   email: string,
 ): Promise<PendingParentAuth | null> {
@@ -62,11 +62,11 @@ export async function loadPendingParentAuth(
   return hit?.data ?? null;
 }
 
-export async function savePendingParentAuth(record: PendingParentAuth): Promise<void> {
+async function savePendingParentAuth(record: PendingParentAuth): Promise<void> {
   await putJson(pendingKey(record.campaignId, record.email), record);
 }
 
-export async function clearPendingParentAuth(campaignId: string, email: string): Promise<void> {
+async function clearPendingParentAuth(campaignId: string, email: string): Promise<void> {
   await savePendingParentAuth({
     email: normalizeParentEmail(email),
     campaignId,

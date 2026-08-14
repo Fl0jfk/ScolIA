@@ -176,7 +176,7 @@ export function buildOrganigramView(config: OrganigramConfig, ctx: ResolveCtx = 
 }
 
 /** Mappe une tâche / branche tickets vers une section organigramme. */
-export function suggestSectionFromTaskId(taskId: string): {
+function suggestSectionFromTaskId(taskId: string): {
   sectionId: OrganigramSectionId;
   poleId?: string;
   blockId?: string;

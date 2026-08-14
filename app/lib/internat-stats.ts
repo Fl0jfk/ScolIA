@@ -85,7 +85,7 @@ function countMarks(marks: Record<string, InternatRollMark>) {
   return { present, absent, excused, activity };
 }
 
-export function sectionNeeded(students: InternatStudent[], sexe: "M" | "F") {
+function sectionNeeded(students: InternatStudent[], sexe: "M" | "F") {
   return students.some((s) => s.actif && s.sexe === sexe);
 }
 
@@ -108,7 +108,7 @@ export function rollCallCanValidate(rollCall: InternatRollCall, students: Intern
   );
 }
 
-export function computePresenceRate7d(
+function computePresenceRate7d(
   rollCalls: InternatRollCall[],
   students: InternatStudent[],
   refDate = todayDateParis(),
@@ -144,7 +144,7 @@ export function computePresenceRate7d(
   return Math.round((present / expected) * 100);
 }
 
-export function buildWeeklySummary(
+function buildWeeklySummary(
   rollCalls: InternatRollCall[],
   students: InternatStudent[],
   rooms: InternatRoom[],
@@ -310,6 +310,6 @@ export function rollCallAbsentStudents(rollCall: InternatRollCall, students: Int
   return rollCallStudentsByMark(rollCall, students, ["absent", "excuse"]);
 }
 
-export function formatStudentList(items: InternatStudent[]) {
+function formatStudentList(items: InternatStudent[]) {
   return items.map((s) => `${studentDisplayName(s)} (${s.classe}, ${s.etablissement})`).join("\n");
 }

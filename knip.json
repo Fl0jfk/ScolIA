@@ -1,0 +1,29 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "app/**/{page,layout,route,loading,error,not-found}.{ts,tsx}",
+    "proxy.ts",
+    "next.config.ts"
+  ],
+  "project": ["app/**/*.{ts,tsx}", "proxy.ts", "next.config.ts"],
+  "ignoreBinaries": ["clerk"],
+  "ignoreDependencies": [
+    "@tailwindcss/postcss",
+    "postcss",
+    "tailwindcss",
+    "server-only",
+    "eslint",
+    "eslint-config-next",
+    "@eslint/eslintrc",
+    "postcss-load-config"
+  ],
+  "ignoreMembers": ["runtime", "dynamic", "maxDuration", "revalidate", "generateMetadata", "generateStaticParams"],
+  "ignoreIssues": {
+    "app/lib/travels-compta-sheet.ts": ["exports", "types", "duplicates"],
+    "app/lib/travels-compta-sheet-pdf.ts": ["exports", "types"],
+    "app/lib/ocr-segment-run.ts": ["exports", "types"],
+    "app/lib/ocr-segmentation.ts": ["exports", "types"],
+    "app/lib/ocr-batch-process.ts": ["exports", "types"]
+  },
+  "eslint": false
+}

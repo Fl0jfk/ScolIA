@@ -22,7 +22,7 @@ export function buildMicrosoftAuthorizeUrl(opts: {
   return `https://login.microsoftonline.com/${opts.tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
 }
 
-export type MicrosoftOAuthTokens = {
+type MicrosoftOAuthTokens = {
   accessToken: string;
   refreshToken?: string;
 };

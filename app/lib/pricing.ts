@@ -6,31 +6,21 @@
 
  */
 
-
-
 import { MARKETING } from "@/app/lib/marketing-site";
-
-
 
 /** Tarif de référence : €/élève/mois */
 
-export const PRICE_PER_STUDENT_MONTHLY_EUR = 0.3;
-
-
+const PRICE_PER_STUDENT_MONTHLY_EUR = 0.3;
 
 /** Réduction paiement annuel (à la rentrée) */
 
-export const ANNUAL_UPFRONT_DISCOUNT = 0.1;
+const ANNUAL_UPFRONT_DISCOUNT = 0.1;
 export const INCLUDED_A3_LICENSES = 10;
 export const EXTRA_A3_PRICE_MONTHLY_EUR = 5;
 
-
-
 export type BillingMode = "monthly" | "annual_upfront";
 
-
-
-export type PricingBreakdown = {
+type PricingBreakdown = {
 
   studentCount: number;
 
@@ -55,9 +45,7 @@ export type PricingBreakdown = {
 
 };
 
-
-
-export function clampStudentCount(value: number): number {
+function clampStudentCount(value: number): number {
 
   if (!Number.isFinite(value) || value < 0) return 0;
 
@@ -65,17 +53,13 @@ export function clampStudentCount(value: number): number {
 
 }
 
-
-
-export function computePricing(studentCount: number, mode: BillingMode): PricingBreakdown {
+function computePricing(studentCount: number, mode: BillingMode): PricingBreakdown {
 
   const students = clampStudentCount(studentCount);
 
   const baseMonthly = PRICE_PER_STUDENT_MONTHLY_EUR;
 
   const annualFull = baseMonthly * 12 * students;
-
-
 
   const extrasCount = 0;
   const extraMonthly = extrasCount * EXTRA_A3_PRICE_MONTHLY_EUR;
@@ -109,8 +93,6 @@ export function computePricing(studentCount: number, mode: BillingMode): Pricing
     };
 
   }
-
-
 
   const annualDiscounted = annualFull * (1 - ANNUAL_UPFRONT_DISCOUNT);
 
@@ -165,8 +147,6 @@ export function computePricingWithA3Extras(
   };
 }
 
-
-
 export function formatEur(amount: number, opts?: { decimals?: number }): string {
 
   const decimals = opts?.decimals ?? (amount < 10 ? 2 : 0);
@@ -184,8 +164,6 @@ export function formatEur(amount: number, opts?: { decimals?: number }): string 
   }).format(amount);
 
 }
-
-
 
 export const BILLING_OPTIONS = [
 
@@ -247,8 +225,6 @@ export const BILLING_OPTIONS = [
 
 ] as const;
 
-
-
 /**
 
  * Préparation Stripe — à brancher après création de la société.
@@ -286,11 +262,11 @@ export const STRIPE_BILLING = {
 } as const;
 
 /** Paiement abonnement via Easytransac (Open Banking + prélèvement). */
-export const EASYTRANSAC_BILLING = {
+const EASYTRANSAC_BILLING = {
   isConfigured: Boolean(process.env.EASYTRANSAC_API_KEY?.trim()),
 } as const;
 
-export function getSubscribeCta(mode: BillingMode): {
+function getSubscribeCta(mode: BillingMode): {
   label: string;
   href: string;
   stripeReady: boolean;
@@ -328,5 +304,4 @@ export function getSubscribeCta(mode: BillingMode): {
     easytransacReady: false,
   };
 }
-
 

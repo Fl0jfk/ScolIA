@@ -5,7 +5,7 @@ import { hasGlobalAdminRole, hasMasterRole, intranetRolesFromMetadata } from "@/
 import { isMultiTenantEnabled } from "@/app/lib/tenant-registry";
 import { resolveTenantCurrentUser, resolveTenantSession } from "@/app/lib/tenant-session";
 
-export type ResolvedSession = {
+type ResolvedSession = {
   userId: string;
 };
 
@@ -14,7 +14,7 @@ export function isPlatformMasterFromPublicMetadata(meta: unknown): boolean {
 }
 
 /** Admin établissement (paramètres tenant, relance onboarding) — pas la config plateforme. */
-export function isTenantAdminFromPublicMetadata(meta: unknown): boolean {
+function isTenantAdminFromPublicMetadata(meta: unknown): boolean {
   const m = meta as Record<string, unknown> | undefined;
   if (!m) return false;
   if (m.org_admin === true) return true;
@@ -52,7 +52,7 @@ export async function resolveSession(): Promise<ResolvedSession | null> {
   }
 }
 
-export type IntranetClerkUser = User;
+type IntranetClerkUser = User;
 
 /** Profil Clerk courant — en multi-tenant, via la clé secrète du tenant (pas auth() Next). */
 export async function safeCurrentUser(): Promise<User | null> {
@@ -75,7 +75,7 @@ export async function safeCurrentUser(): Promise<User | null> {
   }
 }
 
-export async function isCurrentUserAdmin(): Promise<boolean> {
+async function isCurrentUserAdmin(): Promise<boolean> {
   const user = await safeCurrentUser();
   return isOrgAdminFromPublicMetadata(user?.publicMetadata);
 }

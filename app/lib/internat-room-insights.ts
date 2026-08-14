@@ -88,7 +88,7 @@ export function buildRoomInsights(
   });
 }
 
-export type WingOccupancySummary = {
+type WingOccupancySummary = {
   wing: "garcons" | "filles" | "mixte" | "non_defini";
   label: string;
   roomCount: number;

@@ -14,7 +14,7 @@ import {
   type OrganigramPerson,
 } from "@/app/lib/organigramme";
 
-export const ORGANIGRAMME_CONFIG_KEY = "settings/organigramme.json";
+const ORGANIGRAMME_CONFIG_KEY = "settings/organigramme.json";
 
 export type OrganigramSectionId =
   | "direction"
@@ -86,7 +86,7 @@ function personToSlot(
 }
 
 /** Seed = organigramme hardcodé actuel (migration one-shot). */
-export function seedOrganigramConfig(): OrganigramConfig {
+function seedOrganigramConfig(): OrganigramConfig {
   const sections: OrganigramSectionMeta[] = [
     {
       id: "direction",

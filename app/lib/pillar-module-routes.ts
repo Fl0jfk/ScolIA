@@ -1,7 +1,7 @@
 import type { DashboardPillarId } from "@/app/lib/dashboard-pillars";
 
 /** Route native du module (hors hub `?tab=`). */
-export const PILLAR_MODULE_HREF: Record<string, string> = {
+const PILLAR_MODULE_HREF: Record<string, string> = {
   travels: "/travels",
   internat: "/gestion-internat",
   stages: "/stages",
@@ -27,7 +27,7 @@ export const PILLAR_MODULE_HREF: Record<string, string> = {
 };
 
 /** Anciens onglets hub → moduleId (compat `?tab=`). */
-export const PILLAR_TAB_TO_MODULE: Record<
+const PILLAR_TAB_TO_MODULE: Record<
   DashboardPillarId,
   Record<string, string>
 > = {

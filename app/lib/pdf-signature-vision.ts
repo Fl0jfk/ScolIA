@@ -28,7 +28,7 @@ export type SignatureBBox = {
   score?: number;
 };
 
-export type DetectSignatureZonesOptions = {
+type DetectSignatureZonesOptions = {
   /**
    * Mode devis : prompt + filtres orientés « signature client / direction / bon pour accord ».
    * Ignore les zones transporteur / déjà remplies quand c'est possible.

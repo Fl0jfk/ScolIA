@@ -2,8 +2,6 @@ import "server-only";
 
 import { readBatchJob, writeBatchJob, type OcrJobTraceEntry } from "@/app/api/agentIAOCR/batch-job/batch-job";
 
-export type { OcrJobTraceEntry };
-
 type TraceLevel = "debug" | "info" | "warn" | "error";
 
 const MAX_TRACE_ENTRIES = 200;

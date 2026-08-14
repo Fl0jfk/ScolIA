@@ -50,7 +50,7 @@ export function schoolWeekParity(d = new Date()): "A" | "B" {
   return week % 2 === 0 ? "A" : "B";
 }
 
-export function isoWeekNumber(d: Date): number {
+function isoWeekNumber(d: Date): number {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const dayNum = date.getUTCDay() || 7;
   date.setUTCDate(date.getUTCDate() + 4 - dayNum);
@@ -81,13 +81,13 @@ export function toIsoDateLocal(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-export function weekdayFromDate(d: Date): PlanningWeekday | null {
+function weekdayFromDate(d: Date): PlanningWeekday | null {
   const js = d.getDay();
   if (js === 0 || js === 6) return null;
   return js as PlanningWeekday;
 }
 
-export function resolveDayContext(input: {
+function resolveDayContext(input: {
   isoDate: string;
   audience: "teacher" | "staff";
   zone?: SchoolHolidayZone | null;
@@ -144,7 +144,7 @@ export function resolveDayContext(input: {
 }
 
 /** Fusionne les créneaux adjacents de même titre/sous-titre le même jour. */
-export function mergeAdjacentBlocks(blocks: CalendarBlock[]): CalendarBlock[] {
+function mergeAdjacentBlocks(blocks: CalendarBlock[]): CalendarBlock[] {
   const sorted = [...blocks].sort((a, b) => {
     if (a.day !== b.day) return a.day - b.day;
     return a.start.localeCompare(b.start);
@@ -299,7 +299,7 @@ export function weekDayContexts(input: {
   return out;
 }
 
-export type CurrentActivity = {
+type CurrentActivity = {
   title: string;
   detail: string;
   start: string;
@@ -392,6 +392,6 @@ export function findCurrentActivity(
   };
 }
 
-export function minutesSinceMidnight(t: string): number {
+function minutesSinceMidnight(t: string): number {
   return planningTimeToMinutes(t);
 }

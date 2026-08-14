@@ -91,7 +91,7 @@ export async function appendRhDocumentToPersonnel(input: {
 }
 
 /** Chemin cible pour un dépôt RH identifié (OCR). */
-export function rhTargetPathForAnalyze(
+function rhTargetPathForAnalyze(
   folderName: string,
   subfolder: "contrats" | "formations" | "habilitations" | "medecine" | "personnels" | "divers",
   fileName: string,

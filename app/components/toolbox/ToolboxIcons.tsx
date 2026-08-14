@@ -5,7 +5,7 @@ import type { ToolboxAdminLinkId, ToolboxHubLinkId } from "@/app/lib/toolbox-too
 
 type IconProps = { className?: string };
 
-export function QrToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+function QrToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <rect x="4" y="4" width="16" height="16" rx="2" fill="currentColor" opacity="0.9" />
@@ -19,7 +19,7 @@ export function QrToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   );
 }
 
-export function SantaToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+function SantaToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <circle cx="24" cy="28" r="12" fill="currentColor" opacity="0.85" />
@@ -29,7 +29,7 @@ export function SantaToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   );
 }
 
-export function RentreeToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+function RentreeToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <rect x="8" y="14" width="32" height="24" rx="3" fill="currentColor" opacity="0.85" />
@@ -39,7 +39,7 @@ export function RentreeToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   );
 }
 
-export function TarifsToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+function TarifsToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <rect x="10" y="6" width="28" height="36" rx="4" fill="currentColor" opacity="0.85" />
@@ -53,7 +53,7 @@ export function TarifsToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   );
 }
 
-export function FournituresToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+function FournituresToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <rect x="6" y="12" width="36" height="28" rx="4" fill="currentColor" opacity="0.85" />
@@ -64,7 +64,7 @@ export function FournituresToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   );
 }
 
-export function PortesOuvertesToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+function PortesOuvertesToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <rect x="8" y="10" width="32" height="30" rx="3" fill="currentColor" opacity="0.85" />
@@ -75,7 +75,7 @@ export function PortesOuvertesToolboxIcon({ className = "w-10 h-10" }: IconProps
   );
 }
 
-export function RepartitionClassesToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+function RepartitionClassesToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <rect x="6" y="8" width="14" height="14" rx="3" fill="currentColor" opacity="0.9" />
@@ -86,7 +86,7 @@ export function RepartitionClassesToolboxIcon({ className = "w-10 h-10" }: IconP
   );
 }
 
-export function ToolboxFolderIcon({ className = "w-10 h-10" }: IconProps) {
+function ToolboxFolderIcon({ className = "w-10 h-10" }: IconProps) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <path
@@ -98,7 +98,7 @@ export function ToolboxFolderIcon({ className = "w-10 h-10" }: IconProps) {
   );
 }
 
-export function ParametresToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+function ParametresToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <circle cx="24" cy="24" r="8" fill="none" stroke="currentColor" strokeWidth="3" opacity="0.9" />
@@ -112,7 +112,7 @@ export function ParametresToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   );
 }
 
-export function UtilisateursToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+function UtilisateursToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <circle cx="18" cy="16" r="6" fill="currentColor" opacity="0.9" />
@@ -128,7 +128,7 @@ export function UtilisateursToolboxIcon({ className = "w-10 h-10" }: IconProps) 
   );
 }
 
-export function PhotocopiesToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+function PhotocopiesToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden>
       <rect x="10" y="8" width="28" height="20" rx="2" fill="currentColor" opacity="0.35" />

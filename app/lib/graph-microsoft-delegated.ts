@@ -7,7 +7,7 @@ import {
 
 const GRAPH_SCOPES = "https://graph.microsoft.com/Files.ReadWrite offline_access User.Read";
 
-export type MicrosoftRefreshTokenResult =
+type MicrosoftRefreshTokenResult =
   | { accessToken: string; refreshToken?: string }
   | { error: string };
 

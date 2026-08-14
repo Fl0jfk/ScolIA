@@ -5,15 +5,15 @@ import type { Configuration } from "@azure/msal-browser";
 export const ONEDRIVE_MSAL_SCOPES = ["Files.ReadWrite", "User.Read", "offline_access"] as const;
 
 /** Page légère — la popup MSAL ne doit pas charger toute l'app OCR. */
-export const ONEDRIVE_MSAL_CALLBACK_PATH = "/agentIAOCR/msal-callback";
+const ONEDRIVE_MSAL_CALLBACK_PATH = "/agentIAOCR/msal-callback";
 
-export type MicrosoftOneDrivePublicConfig = {
+type MicrosoftOneDrivePublicConfig = {
   enabled: boolean;
   clientId: string;
   tenantId: string;
 };
 
-export function oneDriveMsalRedirectUri(): string {
+function oneDriveMsalRedirectUri(): string {
   if (typeof window === "undefined") return ONEDRIVE_MSAL_CALLBACK_PATH;
   return `${window.location.origin}${ONEDRIVE_MSAL_CALLBACK_PATH}`;
 }

@@ -5,7 +5,7 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
 export const LOCAL_DEV_TENANT_COOKIE = "scola_dev_tenant";
 export const LOCAL_DEV_TENANT_QUERY = "dev_tenant";
 
-export function isLocalDevHostname(hostname: string): boolean {
+function isLocalDevHostname(hostname: string): boolean {
   const raw = (hostname || "").trim().toLowerCase().replace(/:\d+$/, "");
   return LOCAL_HOSTS.has(raw);
 }

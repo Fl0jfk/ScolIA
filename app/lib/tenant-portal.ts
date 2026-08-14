@@ -5,7 +5,7 @@ import { resolveTenantCatalogLogo } from "@/app/lib/tenant-catalog-logos";
 import { loadAllTenants } from "@/app/lib/tenant-registry";
 import type { TenantConfig, TenantPostalAddress } from "@/app/lib/tenant-types";
 
-export type PublicTenantCatalogEntry = {
+type PublicTenantCatalogEntry = {
   slug: string;
   kind: string;
   kindLabel: string;
@@ -22,7 +22,7 @@ function kindLabel(kind: string): string {
   return kind === "standalone" ? "École" : "Groupe scolaire";
 }
 
-export function formatPostalAddress(addr?: TenantPostalAddress | null): string {
+function formatPostalAddress(addr?: TenantPostalAddress | null): string {
   if (!addr) return "";
   const line2 = [addr.zip, addr.city].filter(Boolean).join(" ");
   return [addr.street, line2].filter(Boolean).join(", ");
@@ -57,7 +57,7 @@ export function tenantSignInUrl(tenant: TenantConfig, portalHost: string): strin
   return "/sign-in";
 }
 
-export function tenantToCatalogEntry(
+function tenantToCatalogEntry(
   tenant: TenantConfig,
   portalHost: string,
 ): PublicTenantCatalogEntry {
@@ -77,7 +77,7 @@ export function tenantToCatalogEntry(
 }
 
 /** Libellé pour <select> : nom — type — adresse postale */
-export function tenantSelectLabel(entry: PublicTenantCatalogEntry): string {
+function tenantSelectLabel(entry: PublicTenantCatalogEntry): string {
   const address = entry.postalAddressLabel || "Adresse non renseignée";
   return `${entry.label} — ${entry.kindLabel} — ${address}`;
 }

@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { contentSecurityPolicyHeaderValue, crossOriginOpenerPolicyHeaderValue } from "./app/lib/content-security-policy";
+import { crossOriginOpenerPolicyHeaderValue } from "./app/lib/content-security-policy";
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -35,17 +35,14 @@ const nextConfig: NextConfig = {
   async headers() {
     const securityHeaders = [
       {
-        key: "Content-Security-Policy",
-        value: contentSecurityPolicyHeaderValue(),
-      },
-      {
         key: "Cross-Origin-Opener-Policy",
         value: crossOriginOpenerPolicyHeaderValue(),
       },
     ];
     return [
       {
-        // Pas de CSP sur les flux binaires : le lecteur PDF intégré de Chrome plante sinon.
+        // CSP (nonce) posée dans proxy.ts — pas ici, sinon AND sans nonce casse strict-dynamic.
+        // Pas de COOP non plus sur les flux PDF binaires (lecteur Chrome).
         source: "/((?!api/rentree/file)(?!api/fournitures/file)(?!documents/rentree/).*)",
         headers: securityHeaders,
       },

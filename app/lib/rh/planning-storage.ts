@@ -13,7 +13,7 @@ import {
   type TeacherPlanningDoc,
 } from "@/app/lib/rh/planning-types";
 
-export async function readTeacherPlanning(personnelId: string): Promise<TeacherPlanningDoc> {
+async function readTeacherPlanning(personnelId: string): Promise<TeacherPlanningDoc> {
   const hit = await getJson<unknown>(planningKeyFor("teacher", personnelId));
   if (!hit?.data) {
     return { ...emptyTeacherPlanning(personnelId), updatedAt: "" };
@@ -21,7 +21,7 @@ export async function readTeacherPlanning(personnelId: string): Promise<TeacherP
   return normalizeTeacherPlanning(hit.data, personnelId);
 }
 
-export async function readStaffPlanning(personnelId: string): Promise<StaffPlanningDoc> {
+async function readStaffPlanning(personnelId: string): Promise<StaffPlanningDoc> {
   const hit = await getJson<unknown>(planningKeyFor("staff", personnelId));
   if (!hit?.data) {
     return { ...emptyStaffPlanning(personnelId), updatedAt: "" };
@@ -53,7 +53,7 @@ export async function writeRhPlanning(doc: RhPlanningDoc): Promise<RhPlanningDoc
   return next;
 }
 
-export function ensurePlanningShape(
+function ensurePlanningShape(
   kind: RhPlanningKind,
   personnelId: string,
   updatedBy: string,

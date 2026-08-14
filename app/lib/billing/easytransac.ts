@@ -2,7 +2,7 @@ import "server-only";
 
 import { platformAppOrigin } from "@/app/lib/platform-portal-url";
 
-export type EasytransacEnvironment = "sandbox" | "production";
+type EasytransacEnvironment = "sandbox" | "production";
 
 export const EASYTRANSAC_BILLING = {
   isConfigured: Boolean(process.env.EASYTRANSAC_API_KEY?.trim()),
@@ -66,7 +66,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return json;
 }
 
-export type EasytransacInitPaymentInput = {
+type EasytransacInitPaymentInput = {
   amountCents: number;
   email: string;
   firstName: string;
@@ -79,7 +79,7 @@ export type EasytransacInitPaymentInput = {
   city?: string;
 };
 
-export type EasytransacInitPaymentResult = {
+type EasytransacInitPaymentResult = {
   tid: string;
   redirectUrl: string;
   status: string;
@@ -137,7 +137,7 @@ export function easytransacReturnUrl(signupId: string, token: string): string {
 }
 
 /** URL à coller dans EasyTransac → Application → URL de notification. */
-export function easytransacNotificationUrl(): string {
+function easytransacNotificationUrl(): string {
   return `${platformAppOrigin()}/api/billing/easytransac/webhook`;
 }
 
@@ -157,7 +157,7 @@ export function isEasytransacPaymentFailed(status: string): boolean {
   );
 }
 
-export type EasytransacSddPaymentInput = EasytransacInitPaymentInput & {
+type EasytransacSddPaymentInput = EasytransacInitPaymentInput & {
   clientId?: string;
 };
 

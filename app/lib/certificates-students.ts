@@ -7,7 +7,7 @@ import { loadMefSecteurMap } from "@/app/lib/mef-secteurs";
 import { resolveEleveSecteur } from "@/app/lib/onedrive-eleves";
 import type { CertificateSecteur } from "@/app/lib/certificates-types";
 
-export type CertificateStudentOption = {
+type CertificateStudentOption = {
   key: string;
   ine?: string;
   nom: string;

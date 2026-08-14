@@ -2,7 +2,7 @@
 
 import type { FournituresChild } from "@/app/lib/fournitures-types";
 
-export type SuppliesPrintPayload = {
+type SuppliesPrintPayload = {
   children: FournituresChild[];
   suppliesByChild: Record<string, Array<{ title: string; items: string[] }>>;
 };

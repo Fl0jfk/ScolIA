@@ -37,7 +37,7 @@ function isValidLegacyConvocation(record: unknown): record is LegacyConvocationR
   return true;
 }
 
-export function convertLegacyConvocation(record: LegacyConvocationRecord): AbsenceRecord {
+function convertLegacyConvocation(record: LegacyConvocationRecord): AbsenceRecord {
   const data = record.data || ({} as LegacyConvocationRecord["data"]);
   const sourceDocument = String(data.sourceDocument || "");
   const isManual = /saisie manuelle/i.test(sourceDocument);
@@ -86,7 +86,7 @@ export function convertLegacyConvocation(record: LegacyConvocationRecord): Absen
   return normalizeAbsenceRecord(raw);
 }
 
-export async function getLegacyConvocationIndex(): Promise<AbsenceRecord[]> {
+async function getLegacyConvocationIndex(): Promise<AbsenceRecord[]> {
   const hit = await getJson<LegacyConvocationRecord[]>(CONVOCATIONS_INDEX_KEY);
   const out: AbsenceRecord[] = [];
   for (const entry of hit?.data ?? []) {

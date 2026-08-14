@@ -1,6 +1,6 @@
 import { getJson, putJson } from "@/app/lib/s3-storage";
 
-export type ClassAllocationAuditEntry = {
+type ClassAllocationAuditEntry = {
   at: string;
   action: string;
   actor: string;

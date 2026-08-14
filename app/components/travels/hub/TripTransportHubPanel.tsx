@@ -13,7 +13,7 @@ import {
   TripTextarea,
 } from "@/app/components/travels/TripDetailUI";
 
-export type TripTransportHubPanelProps = {
+type TripTransportHubPanelProps = {
   trip: TravelsTrip;
   setTrip: Dispatch<SetStateAction<TravelsTrip | null>>;
   loadingAction: string | null;

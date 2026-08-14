@@ -13,7 +13,7 @@ export const DOCUMENTS_QUOTA_BYTES = 2 * 1024 * 1024 * 1024;
 
 export type DocumentScope = "personal" | "shared";
 
-export type ShareMeta = {
+type ShareMeta = {
   id: string;
   name: string;
   ownerId: string;
@@ -22,7 +22,7 @@ export type ShareMeta = {
   updatedAt: string;
 };
 
-export type DocumentItem = {
+type DocumentItem = {
   type: "folder" | "file";
   name: string;
   relPath: string;
@@ -33,10 +33,10 @@ export type DocumentItem = {
 };
 
 /** Dossier virtuel à la racine du cloud perso (fichiers partagés reçus). */
-export const INCOMING_SHARED_FILES_FOLDER = "Fichiers partagés";
-export const FILE_SHARE_REL_PREFIX = "__fileshare__/";
+const INCOMING_SHARED_FILES_FOLDER = "Fichiers partagés";
+const FILE_SHARE_REL_PREFIX = "__fileshare__/";
 
-export type FileShareMeta = {
+type FileShareMeta = {
   id: string;
   ownerId: string;
   memberIds: string[];
@@ -65,7 +65,7 @@ function fileShareMetaRel(fileShareId: string): string {
   return `documents/file-shares/${fileShareId}.json`;
 }
 
-export function isIncomingSharedFilesPath(relPath: string): boolean {
+function isIncomingSharedFilesPath(relPath: string): boolean {
   const rel = normalizeRelPath(relPath).replace(/\/$/, "");
   return rel === INCOMING_SHARED_FILES_FOLDER;
 }
@@ -76,7 +76,7 @@ export function parseFileShareIdFromRel(relPath: string): string | null {
   return id || null;
 }
 
-export function isVirtualSharedFilePath(relPath: string): boolean {
+function isVirtualSharedFilePath(relPath: string): boolean {
   return relPath.startsWith(FILE_SHARE_REL_PREFIX);
 }
 
@@ -96,7 +96,7 @@ function isMarkerFile(name: string): boolean {
   return MARKER_SUFFIXES.some((s) => name.endsWith(s));
 }
 
-export function resolveStoragePrefix(
+function resolveStoragePrefix(
   userId: string,
   scope: DocumentScope,
   shareId: string | null,
@@ -115,7 +115,7 @@ export function resolveStoragePrefix(
   return { ok: true, prefix: prefix.endsWith("/") ? prefix : `${prefix}/` };
 }
 
-export async function getShareMeta(shareId: string): Promise<ShareMeta | null> {
+async function getShareMeta(shareId: string): Promise<ShareMeta | null> {
   const hit = await getJson<ShareMeta>(shareMetaRel(shareId));
   return hit?.data ?? null;
 }
@@ -150,14 +150,14 @@ export async function listAccessibleShares(userId: string): Promise<ShareMeta[]>
   return out.sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
 }
 
-export async function canAccessShare(userId: string, shareId: string): Promise<ShareMeta | null> {
+async function canAccessShare(userId: string, shareId: string): Promise<ShareMeta | null> {
   const meta = await getShareMeta(shareId);
   if (!meta) return null;
   if (meta.ownerId === userId || meta.memberIds.includes(userId)) return meta;
   return null;
 }
 
-export async function assertShareWrite(
+async function assertShareWrite(
   userId: string,
   shareId: string,
 ): Promise<{ ok: true; meta: ShareMeta } | { ok: false; error: string }> {
@@ -166,7 +166,7 @@ export async function assertShareWrite(
   return { ok: true, meta };
 }
 
-export async function sumPrefixBytes(relativePrefix: string): Promise<number> {
+async function sumPrefixBytes(relativePrefix: string): Promise<number> {
   const client = await getS3Client();
   const bucket = await getBucketName();
   const prefix = s3Key(relativePrefix.replace(/^\/+/, ""));
@@ -204,7 +204,7 @@ export async function getUserStorageBytes(userId: string): Promise<number> {
   return total;
 }
 
-export async function assertQuotaForUpload(
+async function assertQuotaForUpload(
   ownerUserId: string,
   additionalBytes: number,
 ): Promise<{ ok: true } | { ok: false; error: string; used: number; quota: number }> {
@@ -227,7 +227,7 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} Go`;
 }
 
-export async function getFileShareMeta(fileShareId: string): Promise<FileShareMeta | null> {
+async function getFileShareMeta(fileShareId: string): Promise<FileShareMeta | null> {
   const hit = await getJson<FileShareMeta>(fileShareMetaRel(fileShareId));
   return hit?.data ?? null;
 }

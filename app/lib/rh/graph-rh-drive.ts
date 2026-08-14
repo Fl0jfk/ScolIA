@@ -12,11 +12,11 @@ import {
 } from "@/app/lib/tenant-registry";
 import type { TenantSecrets } from "@/app/lib/tenant-types";
 
-export const RH_GRAPH_SCOPES = "Files.ReadWrite offline_access User.Read";
+const RH_GRAPH_SCOPES = "Files.ReadWrite offline_access User.Read";
 export const RH_GRAPH_SCOPE_URL =
   "https://graph.microsoft.com/Files.ReadWrite offline_access User.Read";
 
-export type RhDriveStatus = {
+type RhDriveStatus = {
   enabled: boolean;
   linked: boolean;
   healthy: boolean;

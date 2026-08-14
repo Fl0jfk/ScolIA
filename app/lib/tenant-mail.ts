@@ -9,7 +9,7 @@ type MailTransporter = ReturnType<typeof nodemailer.createTransport>;
  * - `user` = adresse From (MAILER_EMAIL) — utilisée partout en `from: <${smtp.user}>`.
  * - `authUser` = username SMTP si différent du From (TEM : Project ID).
  */
-export type TenantSmtpConfig = {
+type TenantSmtpConfig = {
   user: string;
   pass: string;
   host: string;
@@ -45,7 +45,7 @@ export function platformMailerAddress(): string | null {
  * Mot de passe boîte OVH (IMAP / legacy SMTP unifié).
  * Ne jamais confondre avec MAILER_SMTP_PASS (secret IAM TEM).
  */
-export function platformMailerPass(): string | null {
+function platformMailerPass(): string | null {
   const raw =
     process.env.MAILER_PASS?.trim() ||
     process.env.TRAVEL_IMAP_PASS?.trim() || // legacy
@@ -55,7 +55,7 @@ export function platformMailerPass(): string | null {
 }
 
 /** Host IMAP / legacy partagé (OVH), sans confondre avec MAILER_SMTP_HOST (TEM). */
-export function platformMailerHost(): string | null {
+function platformMailerHost(): string | null {
   const raw =
     process.env.MAILER_HOST?.trim() ||
     process.env.TRAVEL_IMAP_HOST?.trim() || // legacy
@@ -126,7 +126,7 @@ export function getPlatformSmtpConfig(): TenantSmtpConfig | null {
   return { user: from, pass, host, port, secure };
 }
 
-export type PlatformImapConfig = {
+type PlatformImapConfig = {
   host: string;
   port: number;
   secure: boolean;
@@ -168,7 +168,7 @@ export function getPlatformImapConfig(): PlatformImapConfig | null {
 const SMTP_CONNECT_MS = 8_000;
 const SMTP_SOCKET_MS = 12_000;
 /** Envoi réservations salles : au-delà, on renvoie quand même le succès métier. */
-export const ROOM_MAIL_TIMEOUT_MS = 10_000;
+const ROOM_MAIL_TIMEOUT_MS = 10_000;
 
 function createTransportFromConfig(smtp: TenantSmtpConfig): MailTransporter {
   return nodemailer.createTransport({
@@ -240,7 +240,7 @@ export async function getTenantSmtpConfig(): Promise<TenantSmtpConfig | null> {
   return null;
 }
 
-export function isTenantSmtpConfigured(): Promise<boolean> {
+function isTenantSmtpConfigured(): Promise<boolean> {
   return getTenantSmtpConfig().then(Boolean);
 }
 

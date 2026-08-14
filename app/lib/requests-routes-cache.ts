@@ -11,7 +11,7 @@ import type { RequestRouteDef } from "@/app/lib/requests-types";
 const CACHE_MS = 45_000;
 let routesCache: { at: number; map: Map<string, RequestRouteDef>; routes: RequestRouteDef[] } | null = null;
 
-export function invalidateRequestRoutesCache() {
+function invalidateRequestRoutesCache() {
   routesCache = null;
 }
 

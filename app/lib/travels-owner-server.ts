@@ -4,13 +4,13 @@ import { getClerkClientForTenant } from "@/app/lib/tenant-clerk";
 import { canReassignTravelsOwner } from "@/app/lib/travels-roles";
 import type { ClerkActor } from "@/app/lib/clerk-user-types";
 
-export type TravelsOwnerProfile = {
+type TravelsOwnerProfile = {
   ownerId: string;
   ownerName: string;
   ownerEmail: string;
 };
 
-export async function resolveTravelsOwnerFromClerk(
+async function resolveTravelsOwnerFromClerk(
   clerkUserId: string,
 ): Promise<TravelsOwnerProfile | null> {
   const id = clerkUserId.trim();

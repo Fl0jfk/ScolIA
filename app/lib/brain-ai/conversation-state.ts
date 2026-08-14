@@ -89,7 +89,7 @@ export function withPendingChoices(
   return { ...state, pendingChoices: pending, pendingConfirmation: pending ? null : state.pendingConfirmation };
 }
 
-export function mergeSlots(
+function mergeSlots(
   state: BrainConversationState,
   patch: Record<string, unknown>,
 ): BrainConversationState {

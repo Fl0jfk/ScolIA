@@ -1,6 +1,6 @@
 import { getJson, putJson } from "@/app/lib/s3-storage";
 
-export type PortesOuvertesRegistration = {
+type PortesOuvertesRegistration = {
   id: string;
   slotId: string;
   firstName: string;
@@ -19,7 +19,7 @@ export async function listPortesOuvertesRegistrations(): Promise<PortesOuvertesR
   return Array.isArray(raw?.data) ? raw.data : [];
 }
 
-export async function savePortesOuvertesRegistrations(rows: PortesOuvertesRegistration[]): Promise<void> {
+async function savePortesOuvertesRegistrations(rows: PortesOuvertesRegistration[]): Promise<void> {
   await putJson(KEY, rows);
 }
 

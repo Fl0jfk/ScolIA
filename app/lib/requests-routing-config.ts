@@ -29,12 +29,12 @@ const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
 
 let cache: { at: number; config: RequestsRoutingConfig } | null = null;
 
-export function invalidateRequestsRoutingCache() {
+function invalidateRequestsRoutingCache() {
   cache = null;
 }
 
 /** Assure la présence de la file RH même sur une config tenant plus ancienne. */
-export function ensureBuiltinRhRouting(config: RequestsRoutingConfig): RequestsRoutingConfig {
+function ensureBuiltinRhRouting(config: RequestsRoutingConfig): RequestsRoutingConfig {
   const defaults = defaultRequestsRouting();
   const rhService = defaults.services.find((s) => s.id === "rh");
   const rhTask = defaults.tasks.find((t) => t.id === RH_REQUEST_ROUTE_ID);
@@ -90,16 +90,16 @@ export async function saveRequestsRoutingConfig(config: RequestsRoutingConfig): 
   invalidateRequestsRoutingCache();
 }
 
-export function getActiveTasks(config: RequestsRoutingConfig): RoutingTask[] {
+function getActiveTasks(config: RequestsRoutingConfig): RoutingTask[] {
   return config.tasks.filter((t) => t.active);
 }
 
-export function getActiveAssignments(config: RequestsRoutingConfig): RoutingAssignment[] {
+function getActiveAssignments(config: RequestsRoutingConfig): RoutingAssignment[] {
   const activeTaskIds = new Set(getActiveTasks(config).map((t) => t.id));
   return config.assignments.filter((a) => a.active && activeTaskIds.has(a.taskId));
 }
 
-export function getAllStaffEmailsFromRouting(config: RequestsRoutingConfig): string[] {
+function getAllStaffEmailsFromRouting(config: RequestsRoutingConfig): string[] {
   const emails = new Set<string>();
   for (const a of getActiveAssignments(config)) emails.add(a.email.toLowerCase());
   for (const d of config.directionQueues.filter((q) => q.active)) emails.add(d.email.toLowerCase());
@@ -111,7 +111,7 @@ export function isListedInRouting(config: RequestsRoutingConfig, email: string):
   return getAllStaffEmailsFromRouting(config).includes(e);
 }
 
-export function getAssignmentsForEmail(config: RequestsRoutingConfig, email: string): RoutingAssignment[] {
+function getAssignmentsForEmail(config: RequestsRoutingConfig, email: string): RoutingAssignment[] {
   const e = email.trim().toLowerCase();
   return getActiveAssignments(config).filter((a) => a.email.toLowerCase() === e);
 }

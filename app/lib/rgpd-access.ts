@@ -8,7 +8,7 @@ export const RGPD_MODULE_ROLES = [
   "comptabilite",
 ] as const;
 
-export function isDirectionRole(roles: string[]): boolean {
+function isDirectionRole(roles: string[]): boolean {
   return INTRANET_DIRECTION_SLUGS.some((slug) => hasRole(roles, slug));
 }
 
@@ -16,6 +16,6 @@ export function canAccessRgpdModule(roles: string[]): boolean {
   return RGPD_MODULE_ROLES.some((slug) => hasRole(roles, slug));
 }
 
-export function canManageRgpdWorkspace(roles: string[]): boolean {
+function canManageRgpdWorkspace(roles: string[]): boolean {
   return canAccessRgpdModule(roles);
 }

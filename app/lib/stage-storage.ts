@@ -17,7 +17,7 @@ export async function getOffersIndex(): Promise<StageOfferIndexEntry[]> {
   return Array.isArray(hit?.data) ? hit.data : [];
 }
 
-export async function saveOffersIndex(index: StageOfferIndexEntry[]) {
+async function saveOffersIndex(index: StageOfferIndexEntry[]) {
   await putJson(STAGE_S3.offersIndex, index);
 }
 
@@ -26,7 +26,7 @@ export async function getConventionsIndex(): Promise<StageConventionIndexEntry[]
   return Array.isArray(hit?.data) ? hit.data : [];
 }
 
-export async function saveConventionsIndex(index: StageConventionIndexEntry[]) {
+async function saveConventionsIndex(index: StageConventionIndexEntry[]) {
   await putJson(STAGE_S3.conventionsIndex, index);
 }
 
@@ -129,7 +129,7 @@ export async function listOfferApplications(offerId: string): Promise<StageOffer
   return Array.isArray(hit?.data) ? hit.data : [];
 }
 
-export async function saveOfferApplications(offerId: string, apps: StageOfferApplication[]) {
+async function saveOfferApplications(offerId: string, apps: StageOfferApplication[]) {
   await putJson(STAGE_S3.offerApplications(offerId), apps);
 }
 

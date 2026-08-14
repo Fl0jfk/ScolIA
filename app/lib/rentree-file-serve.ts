@@ -37,7 +37,7 @@ function contentTypeForKey(key: string): string {
   return "application/octet-stream";
 }
 
-export function fileNameFromRentreeKey(key: string): string {
+function fileNameFromRentreeKey(key: string): string {
   const base = key.split("/").pop() || "document";
   try {
     return decodeURIComponent(base);
@@ -64,7 +64,7 @@ async function rentreeKeyCandidates(key: string): Promise<string[]> {
   return out;
 }
 
-export async function loadRentreeFileBytes(
+async function loadRentreeFileBytes(
   key: string,
 ): Promise<{ bytes: Buffer; resolvedKey: string } | null> {
   if (!key || !isAllowedRentreeS3Key(key)) return null;
@@ -157,7 +157,7 @@ export async function createRentreeFileServeResponse(
   return buildRentreeFileResponse(loaded.bytes, loaded.resolvedKey, opts);
 }
 
-export function buildRentreeFileResponse(
+function buildRentreeFileResponse(
   bytes: Buffer,
   resolvedKey: string,
   opts?: { download?: boolean },

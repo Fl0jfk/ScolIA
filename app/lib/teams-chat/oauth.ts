@@ -21,9 +21,9 @@ export const TEAMS_CHAT_OAUTH_STATE_COOKIE = "teams_chat_oauth_state";
  *   Chat.ReadWrite, Chat.Create, ChatMessage.Send, User.Read, People.Read, offline_access
  * People.Read suffit pour chercher des collègues (pas besoin de User.Read.All / consentement admin).
  */
-export const TEAMS_CHAT_OAUTH_CALLBACK_PATH = "/api/teams-chat/oauth/callback";
+const TEAMS_CHAT_OAUTH_CALLBACK_PATH = "/api/teams-chat/oauth/callback";
 
-export const TEAMS_CHAT_GRAPH_SCOPES = [
+const TEAMS_CHAT_GRAPH_SCOPES = [
   "https://graph.microsoft.com/Chat.ReadWrite",
   "https://graph.microsoft.com/Chat.Create",
   "https://graph.microsoft.com/ChatMessage.Send",

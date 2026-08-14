@@ -11,7 +11,7 @@ import type {
 } from "@/app/lib/internat-types";
 import { studentDisplayName } from "@/app/lib/internat-types";
 
-export function generateOutingToken(): string {
+function generateOutingToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
@@ -29,7 +29,7 @@ export function normalizeParentContact(raw: unknown): { nom?: string; email?: st
   };
 }
 
-export function directorEmailForEtab(
+function directorEmailForEtab(
   etablissement: InternatEtablissement,
   establishments: Establishment[],
 ): string | undefined {

@@ -4,7 +4,7 @@ import { CUISINE_DAYS_UI as CUISINE_DAYS, CUISINE_ROWS_UI as CUISINE_ROWS, getTo
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import { TripAlert, TripButton, TripSection } from "@/app/components/travels/TripDetailUI";
 
-export type TripCuisineHubPanelProps = {
+type TripCuisineHubPanelProps = {
   trip: TravelsTrip;
   cuisineOrderSent: boolean;
   cuisineOrderSentAt: string | null | undefined;

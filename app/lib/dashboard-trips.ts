@@ -22,7 +22,7 @@ function parseDay(raw?: string): string | null {
   return parisDateKey(d);
 }
 
-export function isTripOnDay(trip: TripIndexRow, dayKey = parisDateKey(new Date())): boolean {
+function isTripOnDay(trip: TripIndexRow, dayKey = parisDateKey(new Date())): boolean {
   if (trip.status === "SEANCE_ANNULEE") return false;
   const isComplex = trip.type === "COMPLEX" || Boolean(trip.data?.startDate);
   if (isComplex) {

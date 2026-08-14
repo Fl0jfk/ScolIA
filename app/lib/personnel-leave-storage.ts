@@ -6,7 +6,7 @@ export async function getPersonnelLeaveRequests(): Promise<PersonnelLeaveRequest
   return Array.isArray(hit?.data) ? hit.data : [];
 }
 
-export async function savePersonnelLeaveRequests(requests: PersonnelLeaveRequest[]) {
+async function savePersonnelLeaveRequests(requests: PersonnelLeaveRequest[]) {
   const sorted = [...requests].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   await putJson(PERSONNEL_LEAVES_KEY, sorted);
 }

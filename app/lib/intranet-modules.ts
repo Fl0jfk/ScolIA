@@ -48,7 +48,7 @@ export type ExternalQuickLink = {
   allowedRoles: string[];
 };
 
-export type IntranetModule = {
+type IntranetModule = {
   id: string;
   allowedRoles: string[];
   orgAdminOnly?: boolean;
@@ -60,7 +60,7 @@ export type IntranetModule = {
 };
 
 /** Accessible à tout utilisateur connecté (hors contrôle module). */
-export const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
+const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/dashboard",
   "/eleves",
   "/etablissement",
@@ -83,7 +83,7 @@ export const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
 ];
 
 /** Profil élève : accès minimal (dashboard + bulle bien-être). */
-export const INTRANET_ELEVE_ALLOWED_PREFIXES = [
+const INTRANET_ELEVE_ALLOWED_PREFIXES = [
   "/dashboard",
   "/bien-etre",
   "/api/dashboard",
@@ -97,7 +97,7 @@ export const INTRANET_ELEVE_ALLOWED_PREFIXES = [
 ];
 
 /** Réservé au profil Master (invisible, config plateforme). */
-export const INTRANET_PLATFORM_MASTER_PREFIXES = [
+const INTRANET_PLATFORM_MASTER_PREFIXES = [
   "/platform/setup",
   "/api/platform/setup",
   "/plateforme",
@@ -512,7 +512,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
 ];
 
 /** Raccourcis externes sous le slider (mêmes règles de rôles, pas de route interne). */
-export const INTRANET_EXTERNAL_QUICK_LINKS: ExternalQuickLink[] = [
+const INTRANET_EXTERNAL_QUICK_LINKS: ExternalQuickLink[] = [
   {
     id: "ecole-directe",
     name: "École Directe",
@@ -564,7 +564,7 @@ export function getDashboardCategories(): DashboardCategory[] {
     .sort((a, b) => a.id - b.id);
 }
 
-export function getExternalQuickLinks(): ExternalQuickLink[] {
+function getExternalQuickLinks(): ExternalQuickLink[] {
   return INTRANET_EXTERNAL_QUICK_LINKS;
 }
 

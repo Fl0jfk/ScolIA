@@ -28,7 +28,7 @@ export function moodPulseTodayKey(d = new Date()) {
   return calendarDateKeyParis(d);
 }
 
-export function hashMoodPulseVoter(userId: string, date: string) {
+function hashMoodPulseVoter(userId: string, date: string) {
   return createHash("sha256")
     .update(`${userId}|${date}|${voterPepper()}`)
     .digest("hex");
@@ -124,7 +124,7 @@ export async function listMoodPulseHistory(
   });
 }
 
-export type SubmitMoodPulseResult =
+type SubmitMoodPulseResult =
   | { ok: true; entry: MoodPulseEntry }
   | { ok: false; error: string; code: "ALREADY_SUBMITTED" | "INVALID_SCORE" | "INVALID_COMMENT" };
 

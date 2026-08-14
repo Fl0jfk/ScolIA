@@ -2,13 +2,13 @@ import * as XLSX from "xlsx";
 import type { ClassLevel } from "@/app/lib/class-allocation-types";
 import { CLASS_LEVELS } from "@/app/lib/class-allocation-types";
 
-export type ClassImportRow = {
+type ClassImportRow = {
   level: ClassLevel;
   type: "actuelle" | "cible";
   className: string;
 };
 
-export type ClassImportResult =
+type ClassImportResult =
   | { ok: true; rows: ClassImportRow[] }
   | { ok: false; error: string };
 

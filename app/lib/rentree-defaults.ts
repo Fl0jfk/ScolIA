@@ -1,8 +1,8 @@
 import { scolaImageUrl } from "@/app/lib/scola-image";
 import type { RentreeEstablishmentPage, RentreeLinksByLevel, RentreeSection } from "@/app/lib/rentree-types";
 
-export const RENTREE_SECTION_CALENDRIER = "Calendrier";
-export const RENTREE_SECTION_INFOS = "Infos pratiques";
+const RENTREE_SECTION_CALENDRIER = "Calendrier";
+const RENTREE_SECTION_INFOS = "Infos pratiques";
 export const RENTREE_SECTION_INTERNAT = "Internat";
 
 export const DEFAULT_RENTREE_SECTIONS: RentreeSection[] = [

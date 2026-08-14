@@ -42,11 +42,11 @@ function appendAudit(
   return { ...billing, auditLog: auditLog.slice(-50) };
 }
 
-export function defaultTenantBilling(): TenantBillingState {
+function defaultTenantBilling(): TenantBillingState {
   return { status: "active", auditLog: [{ at: nowIso(), action: "initialized" }] };
 }
 
-export function computeNextBillingAt(
+function computeNextBillingAt(
   mode: "monthly" | "annual_upfront" | undefined,
   from = nowIso(),
 ): string {
@@ -182,7 +182,7 @@ export async function recordTenantPaymentFailure(
   return updated;
 }
 
-export async function sendPaymentReminderIfDue(tenant: TenantConfig): Promise<TenantConfig> {
+async function sendPaymentReminderIfDue(tenant: TenantConfig): Promise<TenantConfig> {
   const billing = getTenantBilling(tenant);
   if (billing.status !== "past_due" || !billing.lastFailureAt) return tenant;
 
@@ -206,7 +206,7 @@ export async function sendPaymentReminderIfDue(tenant: TenantConfig): Promise<Te
   return updated;
 }
 
-export async function maybeAutoSuspendTenant(tenant: TenantConfig): Promise<TenantConfig> {
+async function maybeAutoSuspendTenant(tenant: TenantConfig): Promise<TenantConfig> {
   const billing = getTenantBilling(tenant);
   if (billing.status !== "past_due" || !billing.graceEndsAt) return tenant;
   if (new Date(billing.graceEndsAt).getTime() > Date.now()) return tenant;

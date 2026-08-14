@@ -2,7 +2,7 @@ import { loadAppConfig, invalidateAppConfigCache } from "@/app/lib/app-config";
 import type { StaffDirectoryRow as ConfigStaffRow } from "@/app/lib/app-config-schemas";
 import { normalizeRequestEmail } from "@/app/lib/requests-board";
 
-export type StaffRequestBranchId =
+type StaffRequestBranchId =
   | "corbeille"
   | "maintenance"
   | "admin_ecole"
@@ -18,7 +18,7 @@ export type StaffRequestBranchId =
   | "direction_college"
   | "direction_lycee";
 
-export type StaffDirectoryRow = {
+type StaffDirectoryRow = {
   email: string;
   branchId: StaffRequestBranchId | string;
   role: "leader" | "executor";
@@ -29,7 +29,7 @@ let cachedRows: StaffDirectoryRow[] | null = null;
 let cacheAt = 0;
 const CACHE_MS = 45_000;
 
-export function invalidateStaffDirectoryCache() {
+function invalidateStaffDirectoryCache() {
   cachedRows = null;
   cacheAt = 0;
   invalidateAppConfigCache();
@@ -48,7 +48,7 @@ export async function loadStaffDirectoryRows(): Promise<StaffDirectoryRow[]> {
   return cachedRows;
 }
 
-export function isStaffRowActive(row: StaffDirectoryRow, now = new Date()): boolean {
+function isStaffRowActive(row: StaffDirectoryRow, now = new Date()): boolean {
   const v = row.validUntil?.trim();
   if (!v) return true;
   const end = new Date(v);
@@ -92,23 +92,23 @@ export function getStaffExecutorsForBranchFromRows(
   ];
 }
 
-export async function getStaffLeadersForBranch(branchId: string, now = new Date()): Promise<string[]> {
+async function getStaffLeadersForBranch(branchId: string, now = new Date()): Promise<string[]> {
   const rows = await loadStaffDirectoryRows();
   return getStaffLeadersForBranchFromRows(rows, branchId, now);
 }
 
-export async function getStaffExecutorsForBranch(branchId: string, now = new Date()): Promise<string[]> {
+async function getStaffExecutorsForBranch(branchId: string, now = new Date()): Promise<string[]> {
   const rows = await loadStaffDirectoryRows();
   return getStaffExecutorsForBranchFromRows(rows, branchId, now);
 }
 
-export async function getStaffPoolForBranch(branchId: string, now = new Date()): Promise<string[]> {
+async function getStaffPoolForBranch(branchId: string, now = new Date()): Promise<string[]> {
   const leaders = await getStaffLeadersForBranch(branchId, now);
   const execs = await getStaffExecutorsForBranch(branchId, now);
   return [...new Set([...leaders, ...execs].filter(Boolean))];
 }
 
-export async function isStaffLeaderForBranch(
+async function isStaffLeaderForBranch(
   branchId: string,
   actorEmail: string,
   now = new Date(),
@@ -126,7 +126,7 @@ export async function isStaffInBranchPool(
   return (await getStaffPoolForBranch(branchId, now)).includes(normalizeRequestEmail(actorEmail));
 }
 
-export async function getAllStaffEmailsFromDirectory(now = new Date()): Promise<string[]> {
+async function getAllStaffEmailsFromDirectory(now = new Date()): Promise<string[]> {
   const rows = await loadStaffDirectoryRows();
   const s = new Set<string>();
   for (const r of activeRows(rows, now)) {
@@ -158,7 +158,7 @@ export async function getFirstBranchForStaffEmailFromDirectory(
   return null;
 }
 
-export function configRowsToStaffDirectory(rows: ConfigStaffRow[]): StaffDirectoryRow[] {
+function configRowsToStaffDirectory(rows: ConfigStaffRow[]): StaffDirectoryRow[] {
   return rows.map((r) => ({
     email: r.email,
     branchId: r.branchId,

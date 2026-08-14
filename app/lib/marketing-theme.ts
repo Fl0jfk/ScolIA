@@ -35,7 +35,7 @@ export const WORKFLOW_ANIMATION_INNER =
 export const WORKFLOW_ANIMATION_BODY = "min-h-0 flex-1 overflow-hidden";
 
 /** Icônes légères pour l’aperçu dashboard marketing (remplace les anciennes images categories/). */
-export const TILE_EMOJI: Record<string, string> = {
+const TILE_EMOJI: Record<string, string> = {
   documents: "☁️",
   "docs-eleves": "📁",
   sorties: "🚌",
@@ -51,7 +51,7 @@ export const TILE_EMOJI: Record<string, string> = {
 };
 
 /** @deprecated Assets categories/ retirés — laisser vide. */
-export const TILE_IMAGES: Record<string, string> = {};
+const TILE_IMAGES: Record<string, string> = {};
 
 /** @deprecated Assets categories/ retirés — laisser vide. */
-export const WORKFLOW_IMAGES: Record<string, string> = {};
+const WORKFLOW_IMAGES: Record<string, string> = {};

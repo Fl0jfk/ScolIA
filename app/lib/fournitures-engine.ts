@@ -11,18 +11,7 @@ import type {
   LyceeOption,
 } from "./fournitures-types";
 
-export type {
-  FournituresSection,
-  FournituresChild,
-  FournituresStage,
-  EcoleNiveau,
-  CollegeNiveau,
-  LyceeNiveau,
-  LyceeTrack,
-  LangueSeconde,
-  LyceeSpecialite,
-  LyceeOption,
-} from "./fournitures-types";
+export type {FournituresChild, EcoleNiveau, CollegeNiveau, LyceeNiveau, LyceeTrack, LangueSeconde, LyceeSpecialite, LyceeOption} from "./fournitures-types";
 
 export type { FournituresStage as Stage } from "./fournitures-types";
 
@@ -886,14 +875,14 @@ export function lyceeProfileId(child: Extract<FournituresChild, { stage: "lycee"
   return niveau === "1re" ? "lycee:1re-general" : "lycee:terminale-general";
 }
 
-export function getEcoleSupplies(
+function getEcoleSupplies(
   niveau: import("./fournitures-types").EcoleNiveau,
   overrides?: FournituresProfileOverrides,
 ): FournituresSection[] {
   return applyProfileOverride(ecoleProfileId(niveau), getEcoleSuppliesLegacy(niveau), overrides);
 }
 
-export function getCollegeSupplies(
+function getCollegeSupplies(
   child: Extract<FournituresChild, { stage: "college" }>,
   overrides?: FournituresProfileOverrides,
 ): FournituresSection[] {
@@ -912,7 +901,7 @@ export function getCollegeSupplies(
   });
 }
 
-export function getLyceeSupplies(
+function getLyceeSupplies(
   child: Extract<FournituresChild, { stage: "lycee" }>,
   overrides?: FournituresProfileOverrides,
 ): FournituresSection[] {
@@ -969,7 +958,7 @@ function slugifyFilenamePart(value: string): string {
 }
 
 /** Nom de fichier PDF dérivé de la sélection (ex. college_6e_option_bilingue). */
-export function formatChildFilenameBase(child: FournituresChild): string {
+function formatChildFilenameBase(child: FournituresChild): string {
   if (child.stage === "ecole") {
     const niveauSlug: Record<EcoleNiveau, string> = {
       JE1MMEBAYEL: "je1",

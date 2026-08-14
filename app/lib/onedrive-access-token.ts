@@ -1,5 +1,5 @@
 /** Décodage léger du JWT Microsoft (claim `exp` uniquement). */
-export function getAccessTokenExpiresAt(token: string): number | null {
+function getAccessTokenExpiresAt(token: string): number | null {
   try {
     const parts = token.split(".");
     if (parts.length < 2) return null;

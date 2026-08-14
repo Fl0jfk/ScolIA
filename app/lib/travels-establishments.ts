@@ -3,13 +3,13 @@ import { shouldShowGroupeScolaire } from "@/app/lib/app-config-establishments";
 
 export const GROUPE_SCOLAIRE_LABEL = "Groupe Scolaire";
 
-export type TravelsEstablishmentOption = {
+type TravelsEstablishmentOption = {
   id: string;
   label: string;
   isGroupe?: boolean;
 };
 
-export function getTravelsEstablishmentOptions(config: AppConfigBundle): TravelsEstablishmentOption[] {
+function getTravelsEstablishmentOptions(config: AppConfigBundle): TravelsEstablishmentOption[] {
   const active = config.establishments.filter((e) => e.active !== false);
   const options: TravelsEstablishmentOption[] = active.map((e) => ({
     id: e.id,
@@ -21,12 +21,12 @@ export function getTravelsEstablishmentOptions(config: AppConfigBundle): Travels
   return options;
 }
 
-export function getTravelsFilterLabels(config: AppConfigBundle): string[] {
+function getTravelsFilterLabels(config: AppConfigBundle): string[] {
   const opts = getTravelsEstablishmentOptions(config);
   return ["Tous", ...opts.map((o) => o.label)];
 }
 
-export function resolveEstablishmentFromTrip(
+function resolveEstablishmentFromTrip(
   config: AppConfigBundle,
   trip: { establishmentId?: string; etablissement?: string },
 ): Establishment | null {
@@ -39,7 +39,7 @@ export function resolveEstablishmentFromTrip(
   return config.establishments.find((e) => e.label === label) ?? null;
 }
 
-export function tripEstablishmentLabel(
+function tripEstablishmentLabel(
   config: AppConfigBundle,
   trip: { establishmentId?: string; etablissement?: string },
 ): string {
@@ -51,7 +51,7 @@ export function tripEstablishmentLabel(
   return config.establishments[0]?.label || "Établissement";
 }
 
-export function zeendocButtonLabel(config: AppConfigBundle): string {
+function zeendocButtonLabel(config: AppConfigBundle): string {
   const z = config.integrations.zeendoc;
   if (z?.enabled && z.buttonLabel?.trim()) return z.buttonLabel.trim();
   if (z?.enabled) return "Envoyer sur Zeendoc";

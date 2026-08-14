@@ -41,7 +41,7 @@ async function mistralJson<T>(prompt: string): Promise<T> {
   return JSON.parse(content) as T;
 }
 
-export type RgpdAnalysisResult = {
+type RgpdAnalysisResult = {
   documentScore: number;
   presentCriteria: string[];
   missingCriteria: string[];
@@ -90,7 +90,7 @@ Réponds en JSON strict :
   };
 }
 
-export type RgpdIncidentChatResult = {
+type RgpdIncidentChatResult = {
   assistantMessage: string;
   title: string;
   fields: RgpdDataBreachFields | RgpdSecurityIncidentFields;

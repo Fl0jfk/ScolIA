@@ -11,7 +11,7 @@ export type DashboardAccent = (typeof DASHBOARD_ACCENT_OPTIONS)[number]["id"];
 
 export const DEFAULT_DASHBOARD_ACCENT: DashboardAccent = "green";
 
-export type DashboardBrandPalette = {
+type DashboardBrandPalette = {
   primary: string;
   dark: string;
   mid: string;
@@ -22,7 +22,7 @@ export type DashboardBrandPalette = {
   ink: string;
 };
 
-export const DASHBOARD_BRAND_PRESETS: Record<DashboardAccent, DashboardBrandPalette> = {
+const DASHBOARD_BRAND_PRESETS: Record<DashboardAccent, DashboardBrandPalette> = {
   green: {
     primary: "#2F6B4A",
     dark: "#1E4A32",

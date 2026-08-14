@@ -13,7 +13,7 @@ import {
   TripTextarea,
 } from "@/app/components/travels/TripDetailUI";
 
-export type TripOverviewFieldsPanelProps = {
+type TripOverviewFieldsPanelProps = {
   trip: TravelsTrip;
   isEditing: boolean;
   editedData: Record<string, unknown> & {

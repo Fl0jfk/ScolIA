@@ -19,7 +19,7 @@ export type ClassAllocationTeacherAssignment = {
   email: string;
 };
 
-export function studentMatchesClass(studentClasse: string | undefined, className: string): boolean {
+function studentMatchesClass(studentClasse: string | undefined, className: string): boolean {
   const student = classKey(String(studentClasse ?? ""));
   const target = classKey(className);
   if (!student || !target) return false;
@@ -45,7 +45,7 @@ export function canManageAllClassAllocationStudents(roles: string[]): boolean {
 }
 
 /** Affectations prof ↔ classe depuis le référentiel global (paramètres). */
-export async function loadTeacherAssignmentsFromRoster(): Promise<ClassAllocationTeacherAssignment[]> {
+async function loadTeacherAssignmentsFromRoster(): Promise<ClassAllocationTeacherAssignment[]> {
   const roster = await loadSchoolRoster();
   return roster.classAssignments;
 }
@@ -64,6 +64,6 @@ export async function listClassesForTeacherUser(
   return listClassesForReferentUser(clerkUserId, currentStageSchoolYear());
 }
 
-export function teacherCatalogFromRoster(roster: SchoolRosterConfig): string[] {
+function teacherCatalogFromRoster(roster: SchoolRosterConfig): string[] {
   return roster.teacherCatalog;
 }

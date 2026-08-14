@@ -3,7 +3,7 @@ import "server-only";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getPlatformS3Client } from "@/app/lib/s3-clients";
 
-export function getPlatformDataBucket(): string {
+function getPlatformDataBucket(): string {
   const bucket =
     process.env.REGISTRY_BUCKET?.trim() ||
     process.env.PLATFORM_DATA_BUCKET?.trim() ||

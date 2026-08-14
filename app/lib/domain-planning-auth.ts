@@ -19,13 +19,13 @@ export async function isDomainCoordinator(userId: string, domainId: string): Pro
   return Boolean(domain?.coordinatorClerkUserIds.includes(userId));
 }
 
-export async function isAnyDomainCoordinator(userId: string): Promise<boolean> {
+async function isAnyDomainCoordinator(userId: string): Promise<boolean> {
   if (!userId) return false;
   const domains = await loadDomains();
   return domains.some((d) => d.coordinatorClerkUserIds.includes(userId));
 }
 
-export async function canAccessDomainPlanningSettings(userId: string): Promise<boolean> {
+async function canAccessDomainPlanningSettings(userId: string): Promise<boolean> {
   if (await isIntranetAdmin()) return true;
   const user = await safeCurrentUser();
   const roles = intranetRolesFromMetadata(user?.publicMetadata);
@@ -34,7 +34,7 @@ export async function canAccessDomainPlanningSettings(userId: string): Promise<b
 }
 
 /** Liste Clerk : paramétrage ou affectation de créneaux (responsables de domaine). */
-export async function canListDomainPlanningClerkUsers(userId: string): Promise<boolean> {
+async function canListDomainPlanningClerkUsers(userId: string): Promise<boolean> {
   return canAccessDomainPlanningSettings(userId);
 }
 

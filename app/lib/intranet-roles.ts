@@ -108,4 +108,4 @@ export function intranetRolesFromSessionClaims(
   return normalizeIntranetRoles(claims?.role);
 }
 
-export { hasGlobalAdminRole, hasMasterRole, hasTenantAdminRole, isHiddenMasterMember } from "./intranet-role-utils";
+export {hasGlobalAdminRole, hasMasterRole, isHiddenMasterMember} from "./intranet-role-utils";

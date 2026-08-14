@@ -148,7 +148,7 @@ export async function emailTenantProvisioned(
   });
 }
 
-export async function emailMicrosoftLicenseRequest(
+async function emailMicrosoftLicenseRequest(
   tenantLabel: string,
   tenantSlug: string,
   people: { firstName: string; lastName: string; email: string; role: string; licenseType: string }[],

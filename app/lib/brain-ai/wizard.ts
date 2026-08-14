@@ -6,7 +6,7 @@ export function wizardStep(current: number, total: number, body: string): string
   return `Étape ${current}/${total} — ${body}`;
 }
 
-export function addDaysToKey(dateKey: string, days: number): string {
+function addDaysToKey(dateKey: string, days: number): string {
   const [y, m, d] = dateKey.split("-").map(Number);
   const next = new Date(Date.UTC(y!, m! - 1, d! + days, 12, 0, 0));
   return next.toISOString().slice(0, 10);

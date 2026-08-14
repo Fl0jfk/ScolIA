@@ -3,7 +3,7 @@ import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-m
 import { travelEmailAlertRecipients } from "@/app/lib/travel-email-routing";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 
-export type UnmatchedAlertPayload = {
+type UnmatchedAlertPayload = {
   gmailMessageId: string;
   fromEmail: string;
   subject: string;

@@ -2,7 +2,7 @@
 
 export const GRAPH_API_BASE = "https://graph.microsoft.com/v1.0";
 
-export function encodeGraphDrivePath(path: string): string {
+function encodeGraphDrivePath(path: string): string {
   return String(path || "")
     .split("/")
     .filter(Boolean)

@@ -15,8 +15,6 @@ import {
 } from "@/app/lib/onedrive-user-profiles";
 import type { StageConvention } from "@/app/lib/stage-types";
 
-export { getOneDriveProfileForSecteur };
-
 function normalize(str: string): string {
   return str
     .normalize("NFD")

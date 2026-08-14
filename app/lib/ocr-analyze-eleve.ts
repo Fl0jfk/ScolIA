@@ -114,14 +114,14 @@ function nameSimilarity(aNom: string, aPrenom: string, bNom: string, bPrenom: st
   return score;
 }
 
-export type OcrAnalyzeResult = {
+type OcrAnalyzeResult = {
   fileName: string;
   oneDriveFolderPath: string | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 };
 
-export type AnalyzeDocMatchOptions = {
+type AnalyzeDocMatchOptions = {
   /**
    * Segment déjà découpé : texte OCR du morceau uniquement.
    * 1 appel Mistral (small), matching local si score fort, nommage sans 2e/3e appel IA.

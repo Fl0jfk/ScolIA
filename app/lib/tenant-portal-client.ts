@@ -38,7 +38,7 @@ export function catalogEntrySignInUrl(entry: {
   return entry.signInUrl;
 }
 
-export type SavedPortalTenant = {
+type SavedPortalTenant = {
   slug: string;
   label: string;
   signInUrl: string;
@@ -145,7 +145,7 @@ export async function resolveEstablishmentPortalOrigin(): Promise<string | null>
 }
 
 /** Vérifie que le tenant mémorisé existe encore dans le catalogue. */
-export async function resolveSavedPortalTenantSignIn(): Promise<string | null> {
+async function resolveSavedPortalTenantSignIn(): Promise<string | null> {
   const saved = readLastPortalTenant();
   if (!saved) return null;
   try {

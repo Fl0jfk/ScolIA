@@ -62,11 +62,11 @@ export function canAccessHseModule(roles: string[]) {
 }
 
 /** @deprecated Plus d’accès administratif aux HSE. */
-export function canViewAcceptedHseAsAdministratif(_rec: HseRecordLike, _roles: string[]) {
+function canViewAcceptedHseAsAdministratif(_rec: HseRecordLike, _roles: string[]) {
   return false;
 }
 
 /** @deprecated Plus d’accès administratif aux HSE. */
-export function isHseAdministratifViewer(_roles: string[]) {
+function isHseAdministratifViewer(_roles: string[]) {
   return false;
 }

@@ -1,7 +1,7 @@
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import IMAGE_CATALOG from "@/app/api/travels/update/image-catalog.json";
 
-export type TravelCatalogImage = {
+type TravelCatalogImage = {
   id: string;
   label: string;
   url: string;

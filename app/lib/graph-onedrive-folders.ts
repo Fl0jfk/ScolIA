@@ -1,6 +1,6 @@
 import { GRAPH_API_BASE, graphDriveRootItemUrl } from "@/app/lib/graph-onedrive-path";
 
-export async function graphGetItemByPath(accessToken: string, itemPath: string) {
+async function graphGetItemByPath(accessToken: string, itemPath: string) {
   const res = await fetch(graphDriveRootItemUrl(itemPath), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -63,7 +63,7 @@ export async function ensureFolderPath(accessToken: string, fullPath: string): P
 }
 
 /** Évite les collisions de noms dans un dossier OneDrive. */
-export async function resolveUniqueFileName(
+async function resolveUniqueFileName(
   accessToken: string,
   folderPath: string,
   fileName: string,

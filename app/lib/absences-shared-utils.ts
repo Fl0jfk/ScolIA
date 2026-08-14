@@ -32,6 +32,6 @@ export function compareAbsenceRecordsAlphabetically(a: AbsenceRecord, b: Absence
   return nameA.localeCompare(nameB, "fr", { sensitivity: "base" });
 }
 
-export function sortAbsenceRecordsAlphabetically<T extends AbsenceRecord>(items: T[]): T[] {
+function sortAbsenceRecordsAlphabetically<T extends AbsenceRecord>(items: T[]): T[] {
   return [...items].sort(compareAbsenceRecordsAlphabetically);
 }

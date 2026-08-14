@@ -29,7 +29,7 @@ export function getHoursTreatmentOptions(scope: AbsenceScope, etablissement: Eta
   ];
 }
 
-export function parseAbsenceHoursTreatment(value: unknown): AbsenceHoursTreatment | null {
+function parseAbsenceHoursTreatment(value: unknown): AbsenceHoursTreatment | null {
   if (
     value === "RATTRAPAGE" ||
     value === "DEDUCTION_SALAIRE" ||

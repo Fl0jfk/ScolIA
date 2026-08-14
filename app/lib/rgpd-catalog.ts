@@ -256,7 +256,7 @@ export function getRgpdCatalogEntry(docId: string): RgpdCatalogEntry | undefined
   return RGPD_CATALOG.find((d) => d.id === docId);
 }
 
-export type RgpdDocumentRequirement = {
+type RgpdDocumentRequirement = {
   docId: string;
   applicable: boolean;
   reason: string;

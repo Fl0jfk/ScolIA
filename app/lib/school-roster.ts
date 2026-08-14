@@ -21,7 +21,7 @@ export type SchoolRosterConfig = {
 
 const ROSTER_KEY = "settings/school-roster.json";
 
-export function defaultSchoolRoster(): SchoolRosterConfig {
+function defaultSchoolRoster(): SchoolRosterConfig {
   return {
     updatedAt: new Date().toISOString(),
     teacherCatalog: [],
@@ -88,7 +88,7 @@ export async function saveSchoolRoster(
   return next;
 }
 
-export async function listClassesForTeacherFromRoster(clerkUserId: string): Promise<string[]> {
+async function listClassesForTeacherFromRoster(clerkUserId: string): Promise<string[]> {
   const roster = await loadSchoolRoster();
   return roster.classAssignments
     .filter((a) => a.clerkUserId === clerkUserId)
@@ -96,7 +96,7 @@ export async function listClassesForTeacherFromRoster(clerkUserId: string): Prom
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
 
-export function assignmentForClass(
+function assignmentForClass(
   roster: SchoolRosterConfig,
   className: string,
 ): ClassAllocationTeacherAssignment | null {

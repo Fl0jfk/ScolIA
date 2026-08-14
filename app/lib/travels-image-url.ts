@@ -31,6 +31,6 @@ export function normalizeTripImageFields<T extends { imageUrl?: string; data?: o
 }
 
 /** @deprecated Utiliser normalizePublicImageUrl / scolaImageUrl. */
-export function travelImageUrl(path: string): string {
+function travelImageUrl(path: string): string {
   return scolaImageUrl(path);
 }

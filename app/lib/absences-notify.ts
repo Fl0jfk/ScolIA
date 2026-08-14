@@ -3,7 +3,7 @@ import type { AbsenceRecord } from "@/app/lib/absences-types";
 import { getObjectBytes } from "@/app/lib/s3-storage";
 import { fetchTravelsPdfBytes, resolveTravelsS3ObjectKey } from "@/app/lib/travels-s3";
 
-export type AbsenceMailAttachment = {
+type AbsenceMailAttachment = {
   filename: string;
   content: Buffer;
   contentType: string;

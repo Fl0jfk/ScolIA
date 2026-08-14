@@ -11,7 +11,7 @@ export type RequestRouteDef = {
   keywords: string[];
 };
 
-export type ResolvedRequestRouting = {
+type ResolvedRequestRouting = {
   category: string;
   assignedTo: {
     routeId: string;

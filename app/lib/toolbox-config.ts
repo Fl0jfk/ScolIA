@@ -18,19 +18,6 @@ import {
   type ToolboxToolId,
 } from "@/app/lib/toolbox-types";
 
-export type {
-  ToolboxConfig,
-  ToolboxToolId,
-  TarifsNiveau,
-  SimulateurTarifsConfig,
-  PortesOuvertesSlot,
-  PortesOuvertesToolConfig,
-  SecretSantaToolConfig,
-  RentreeToolConfig,
-} from "@/app/lib/toolbox-types";
-
-export { DEFAULT_TARIFS, defaultToolboxConfig } from "@/app/lib/toolbox-types";
-
 const TOOLBOX_KEY = "settings/modules/toolbox.json";
 
 function numRecord(v: unknown): Record<string, number> {

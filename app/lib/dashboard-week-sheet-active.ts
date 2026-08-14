@@ -39,7 +39,7 @@ function weekContainsDate(week: WeekSheetWeek, dateKey: string): boolean {
   return dateKey >= week.weekStart && dateKey <= weekEndFriday(week.weekStart);
 }
 
-export function listWeekSheetWeeks(data: WeekSheetData): WeekSheetWeek[] {  const raw = data.weeks?.length
+function listWeekSheetWeeks(data: WeekSheetData): WeekSheetWeek[] {  const raw = data.weeks?.length
     ? data.weeks
     : [{ weekLabel: data.weekLabel, weekStart: data.weekStart, events: data.events }];
   return raw.map(enrichWeekSheetWeek);

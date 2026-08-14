@@ -1,5 +1,5 @@
 /** Caractères mal rendus par Helvetica dans jsPDF (espaces fines, flèches, tirets Unicode). */
-export function pdfSanitizeText(text: string): string {
+function pdfSanitizeText(text: string): string {
   return text
     .replace(/\u00a0/g, " ")
     .replace(/\u202f/g, " ")

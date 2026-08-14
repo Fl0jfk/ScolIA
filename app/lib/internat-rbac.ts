@@ -40,11 +40,11 @@ export function isOrgAdminMetadata(meta: unknown) {
   if (m.platform_admin === true) return true;
   return hasGlobalAdminRole(intranetRolesFromMetadata(m));
 }
-export function canMarkRollCall(roles: string[]) {
+function canMarkRollCall(roles: string[]) {
   return canAccessInternatModule(roles);
 }
 
-export function canValidateRollCall(roles: string[]) {
+function canValidateRollCall(roles: string[]) {
   return canAccessInternatModule(roles);
 }
 

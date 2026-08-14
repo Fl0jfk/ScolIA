@@ -16,8 +16,6 @@ import { tenantOrigin } from "@/app/lib/tenant-auth-urls";
 import { isPlatformHostname } from "@/app/lib/platform-hostname";
 import { platformTenantFromEnv } from "@/app/lib/platform-tenant";
 
-export { TENANT_SLUG_HEADER };
-
 /** Tenant courant (une requête serveur). */
 export const getTenant = cache(async (): Promise<TenantConfig> => {
   const h = await headers();

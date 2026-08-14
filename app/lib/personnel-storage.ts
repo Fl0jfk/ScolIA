@@ -16,7 +16,7 @@ export async function getPersonnelIndex(): Promise<PersonnelIndexEntry[]> {
   return Array.isArray(hit?.data) ? hit.data : [];
 }
 
-export async function savePersonnelIndex(index: PersonnelIndexEntry[]) {
+async function savePersonnelIndex(index: PersonnelIndexEntry[]) {
   await putJson(PERSONNEL_INDEX_KEY, index);
 }
 
@@ -50,7 +50,7 @@ export async function savePersonnelRecord(record: PersonnelRecord): Promise<Pers
   return normalized;
 }
 
-export async function deletePersonnelRecord(id: string) {
+async function deletePersonnelRecord(id: string) {
   const index = await getPersonnelIndex();
   await savePersonnelIndex(index.filter((e) => e.id !== id));
   // record file left on S3 intentionally (soft) — could delete with deleteObject if needed

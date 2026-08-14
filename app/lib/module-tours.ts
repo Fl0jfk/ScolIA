@@ -43,7 +43,7 @@ export type ModuleTourDefinition = {
   steps: ModuleTourStep[];
 };
 
-export const MODULE_TOURS: ModuleTourDefinition[] = [
+const MODULE_TOURS: ModuleTourDefinition[] = [
   {
     moduleId: "agent-ia-ocr",
     title: "Ajout de documents IA",

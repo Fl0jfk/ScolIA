@@ -7,7 +7,7 @@ export type DocumentTemplateId =
 /** Formats de sortie V2 : modèles vierges uniquement. */
 export type DocumentOutputFormat = "docx" | "fillable-pdf";
 
-export type DocumentFieldType = "text" | "date" | "textarea" | "checkbox";
+type DocumentFieldType = "text" | "date" | "textarea" | "checkbox";
 
 /** Champ du modèle = zone à trous (PDF) ou placeholder `$$key$$` (Word). */
 export type DocumentFieldDef = {

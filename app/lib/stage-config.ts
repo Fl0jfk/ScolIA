@@ -4,10 +4,8 @@ import {
   resolveDirectionSignatureDisplayUrlForLevel,
 } from "@/app/lib/direction-signature";
 
-export { establishmentIdForStudentLevel };
-
 /** @deprecated Plus de signatures sur le CDN public — utiliser Paramètres → Établissements. */
-export const DEFAULT_DIRECTION_SIGNATURE_URLS: Record<string, string> = {};
+const DEFAULT_DIRECTION_SIGNATURE_URLS: Record<string, string> = {};
 
 export async function resolveStagesAdminEmails(): Promise<string[]> {
   const bundle = await loadAppConfig();

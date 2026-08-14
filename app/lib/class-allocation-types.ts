@@ -80,7 +80,7 @@ export type ClassAllocationRun = {
   score: number;
 };
 
-export type ClassAllocationPublicStudent = Pick<
+type ClassAllocationPublicStudent = Pick<
   EleveConfig,
   "ine" | "nom" | "prenom" | "classe"
 >;

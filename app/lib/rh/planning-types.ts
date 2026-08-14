@@ -28,7 +28,7 @@ export const SURVEILLANT_LOCATION_SUGGESTIONS = [
  * Nombre de semaines travaillées utilisées pour estimer le volume annuel
  * à partir d’une semaine type (hors vacances / RTT — approximation RH).
  */
-export const PLANNING_ANNUAL_WEEKS_FACTOR = 36;
+const PLANNING_ANNUAL_WEEKS_FACTOR = 36;
 
 export type PlanningTimeSlot = {
   id: string;
@@ -135,11 +135,11 @@ export type AnnualBalanceEstimate = {
   weeksFactor: number;
 };
 
-export function teacherPlanningKey(personnelId: string) {
+function teacherPlanningKey(personnelId: string) {
   return `rh/planning/teachers/${personnelId}.json`;
 }
 
-export function staffPlanningKey(personnelId: string) {
+function staffPlanningKey(personnelId: string) {
   return `rh/planning/staff/${personnelId}.json`;
 }
 
@@ -154,11 +154,11 @@ export function isPlanningWeekday(v: unknown): v is PlanningWeekday {
   return v === 1 || v === 2 || v === 3 || v === 4 || v === 5;
 }
 
-export function isValidPlanningTime(v: unknown): v is string {
+function isValidPlanningTime(v: unknown): v is string {
   return typeof v === "string" && TIME_RE.test(v);
 }
 
-export function isValidIsoDate(v: unknown): v is string {
+function isValidIsoDate(v: unknown): v is string {
   return typeof v === "string" && DATE_RE.test(v);
 }
 
@@ -205,7 +205,7 @@ function normalizeTimeSlotBase(raw: unknown): PlanningTimeSlot | null {
   };
 }
 
-export function normalizeTeacherSlot(raw: unknown): TeacherPlanningSlot | null {
+function normalizeTeacherSlot(raw: unknown): TeacherPlanningSlot | null {
   const base = normalizeTimeSlotBase(raw);
   if (!base) return null;
   const o = raw as Record<string, unknown>;
@@ -218,7 +218,7 @@ export function normalizeTeacherSlot(raw: unknown): TeacherPlanningSlot | null {
   return { ...base, subject, classes, room };
 }
 
-export function normalizeStaffFixedSlot(raw: unknown): StaffFixedSlot | null {
+function normalizeStaffFixedSlot(raw: unknown): StaffFixedSlot | null {
   const base = normalizeTimeSlotBase(raw);
   if (!base) return null;
   const label = str((raw as Record<string, unknown>).label, 120);
@@ -226,7 +226,7 @@ export function normalizeStaffFixedSlot(raw: unknown): StaffFixedSlot | null {
   return { ...base, label };
 }
 
-export function normalizeStaffMissionSlot(raw: unknown): StaffMissionSlot | null {
+function normalizeStaffMissionSlot(raw: unknown): StaffMissionSlot | null {
   const base = normalizeTimeSlotBase(raw);
   if (!base) return null;
   const o = raw as Record<string, unknown>;
@@ -236,7 +236,7 @@ export function normalizeStaffMissionSlot(raw: unknown): StaffMissionSlot | null
   return { ...base, mission, location };
 }
 
-export function normalizeTeacherReplacement(raw: unknown): TeacherReplacementSlot | null {
+function normalizeTeacherReplacement(raw: unknown): TeacherReplacementSlot | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   if (!isValidIsoDate(o.date) || !isValidPlanningTime(o.start) || !isValidPlanningTime(o.end)) {
@@ -262,7 +262,7 @@ export function normalizeTeacherReplacement(raw: unknown): TeacherReplacementSlo
   };
 }
 
-export function normalizePlanningException(raw: unknown): PlanningDayException | null {
+function normalizePlanningException(raw: unknown): PlanningDayException | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   if (!isValidIsoDate(o.date) || !isValidPlanningTime(o.start) || !isValidPlanningTime(o.end)) {
@@ -419,7 +419,7 @@ export function normalizeStaffPlanning(raw: unknown, personnelId: string): Staff
   };
 }
 
-export function sumWeeklyHoursFromSlots(slots: { start: string; end: string }[]): number {
+function sumWeeklyHoursFromSlots(slots: { start: string; end: string }[]): number {
   return Math.round(slots.reduce((acc, s) => acc + planningSlotHours(s.start, s.end), 0) * 10) / 10;
 }
 
@@ -463,7 +463,7 @@ export function estimateAnnualBalance(doc: StaffPlanningDoc): AnnualBalanceEstim
 }
 
 /** Catégories RH OGEC → mode staff. Les professeurs utilisent le modèle teacher (Clerk). */
-export function planningKindForCategory(category: string): RhPlanningKind {
+function planningKindForCategory(category: string): RhPlanningKind {
   return category === "professeur" ? "teacher" : "staff";
 }
 

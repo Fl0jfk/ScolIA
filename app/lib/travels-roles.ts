@@ -1,8 +1,6 @@
 import { intranetRolesFromMetadata, rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
 
-export { rolesFromUserLike, rolesFromUserLike as intranetRolesFromUserLike } from "@/app/lib/intranet-roles";
-
 export function userHasAdministratifRoleFromMetadata(
   publicMetadata?: Record<string, unknown> | null,
 ): boolean {

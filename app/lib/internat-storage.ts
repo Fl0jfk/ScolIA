@@ -100,7 +100,7 @@ export async function saveInternatRollCall(rollCall: InternatRollCall) {
   await putJson(rollCallKey(rollCall.date, period), { ...rollCall, period });
 }
 
-export async function listInternatRollCallDates(): Promise<Array<{ date: string; period: InternatRollCallPeriod }>> {
+async function listInternatRollCallDates(): Promise<Array<{ date: string; period: InternatRollCallPeriod }>> {
   const keys = await listPrefix(INTERNAT_S3.rollCallPrefix);
   return keys
     .map((k) => {
@@ -194,12 +194,12 @@ export async function listInternatAlerts(limit = 50): Promise<InternatAlert[]> {
   return out;
 }
 
-export async function getInternatModuleConfig(): Promise<InternatModuleConfig> {
+async function getInternatModuleConfig(): Promise<InternatModuleConfig> {
   const hit = await getJson<InternatModuleConfig>(INTERNAT_S3.moduleConfig);
   return hit?.data || { rollCallDeadlineHour: 22, weeklySummaryEnabled: true };
 }
 
-export async function saveInternatModuleConfig(config: InternatModuleConfig) {
+async function saveInternatModuleConfig(config: InternatModuleConfig) {
   await putJson(INTERNAT_S3.moduleConfig, config);
 }
 
@@ -207,7 +207,7 @@ function outingKey(id: string) {
   return `${INTERNAT_S3.outingsPrefix}${id}.json`;
 }
 
-export async function getInternatOutingsIndex(): Promise<InternatOutingIndexEntry[]> {
+async function getInternatOutingsIndex(): Promise<InternatOutingIndexEntry[]> {
   const hit = await getJson<InternatOutingIndexEntry[]>(INTERNAT_S3.outingsIndex);
   return Array.isArray(hit?.data) ? hit.data : [];
 }

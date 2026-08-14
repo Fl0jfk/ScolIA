@@ -1,7 +1,7 @@
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
 import { TRAVELS_STATUS_LABELS, type TravelsTrip } from "@/app/lib/travels-types";
 
-export type TripWorkflowAudit = {
+type TripWorkflowAudit = {
   tripId: string;
   title: string;
   type: "SIMPLE" | "COMPLEX" | string;

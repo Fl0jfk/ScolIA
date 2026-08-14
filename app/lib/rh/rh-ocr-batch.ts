@@ -52,7 +52,7 @@ export type RhOcrJob = {
 const JOB_PREFIX = "rhOCR/jobs/";
 const RUN_BUDGET_MS = 50_000;
 
-export function newRhOcrJobId() {
+function newRhOcrJobId() {
   return `rhocr_${Date.now()}_${randomBytes(4).toString("hex")}`;
 }
 
@@ -65,7 +65,7 @@ export async function readRhOcrJob(jobId: string): Promise<RhOcrJob | null> {
   return hit?.data ?? null;
 }
 
-export async function writeRhOcrJob(job: RhOcrJob): Promise<void> {
+async function writeRhOcrJob(job: RhOcrJob): Promise<void> {
   await putJson(jobKey(job.jobId), { ...job, updatedAt: new Date().toISOString() });
 }
 

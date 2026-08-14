@@ -83,7 +83,7 @@ async function ensureActualiteDomain(): Promise<string> {
 }
 
 /** Upsert non bloquant d'une fiche actualité (tools = vérité ; knowledge = rappel RAG). */
-export async function syncActualiteEntry(entry: {
+async function syncActualiteEntry(entry: {
   entryId: string;
   title: string;
   content: string;
@@ -159,7 +159,7 @@ export async function syncTripActualite(trip: {
 }
 
 /** Helper legacy si un domaine file existe déjà. */
-export async function appendActualiteViaDomain(entry: {
+async function appendActualiteViaDomain(entry: {
   title: string;
   content: string;
   source: string;

@@ -31,7 +31,7 @@ export function findElevesByParentEmail(
   return eleves.filter((e) => collectEleveParentEmails(e).includes(key));
 }
 
-export type ParentLinkedChild = {
+type ParentLinkedChild = {
   ine: string;
   nom: string;
   prenom: string;

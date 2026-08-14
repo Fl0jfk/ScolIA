@@ -21,11 +21,11 @@ export function collectEleveContactEmails(eleve?: EleveConfig | null): string[] 
   );
 }
 
-export async function loadElevesConfig(): Promise<EleveConfig[]> {
+async function loadElevesConfig(): Promise<EleveConfig[]> {
   return loadElevesRegistry();
 }
 
-export async function findEleveByIne(ine?: string): Promise<EleveConfig | null> {
+async function findEleveByIne(ine?: string): Promise<EleveConfig | null> {
   if (!ine?.trim()) return null;
   return findEleveByIneRegistry(ine);
 }
@@ -55,7 +55,7 @@ export async function resolveDepositFinalRecipients(
 }
 
 /** Contacts élève/parents pour notifier un refus de dépôt. */
-export async function resolveDepositStudentContacts(
+async function resolveDepositStudentContacts(
   params: {
     studentEmail?: string;
     parentEmail?: string;

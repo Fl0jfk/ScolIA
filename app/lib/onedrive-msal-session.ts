@@ -7,7 +7,7 @@ import { ONEDRIVE_MSAL_SCOPES, storeMsalReturnPath } from "@/app/lib/msal-onedri
 const SCOPES = [...ONEDRIVE_MSAL_SCOPES];
 
 /** Vérifie l'accès OneDrive via l'API (évite les 401 Graph visibles dans la console). */
-export async function verifyOneDriveAccessToken(accessToken: string): Promise<boolean> {
+async function verifyOneDriveAccessToken(accessToken: string): Promise<boolean> {
   try {
     const res = await fetch("/api/agentIAOCR/onedrive-verify", {
       method: "POST",

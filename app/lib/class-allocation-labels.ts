@@ -1,6 +1,6 @@
 import type { ClassLevel } from "@/app/lib/class-allocation-types";
 
-export const CLASS_LEVEL_LABELS: Record<ClassLevel, string> = {
+const CLASS_LEVEL_LABELS: Record<ClassLevel, string> = {
   ecole: "École",
   college: "Collège",
   lycee: "Lycée",

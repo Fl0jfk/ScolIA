@@ -12,19 +12,10 @@ import type {
   TenantSignupAuditEntry,
 } from "@/app/lib/platform-signup-types";
 
-export type {
-  CreateSignupRequestInput,
-  TenantSignupAdminContact,
-  TenantSignupEstablishment,
-  TenantSignupPostalAddress,
-  TenantSignupRequest,
-  TenantSignupStatus,
-  TenantSignupEasytransac,
-  TenantSignupAuditEntry,
-} from "@/app/lib/platform-signup-types";
-export { SIGNUP_STATUS_LABELS, slugifyEstablishmentName } from "@/app/lib/platform-signup-types";
+export type {CreateSignupRequestInput, TenantSignupRequest} from "@/app/lib/platform-signup-types";
+export {slugifyEstablishmentName} from "@/app/lib/platform-signup-types";
 
-export type TenantSignupIndexEntry = {
+type TenantSignupIndexEntry = {
   id: string;
   status: TenantSignupStatus;
   legalName: string;
@@ -34,21 +25,21 @@ export type TenantSignupIndexEntry = {
   updatedAt: string;
 };
 
-export type TenantSignupIndex = {
+type TenantSignupIndex = {
   version: 1;
   requests: TenantSignupIndexEntry[];
 };
 
-export const SIGNUP_REQUEST_PREFIX = "platform/signup-requests";
-export const SIGNUP_INDEX_KEY = `${SIGNUP_REQUEST_PREFIX}/index.json`;
+const SIGNUP_REQUEST_PREFIX = "platform/signup-requests";
+const SIGNUP_INDEX_KEY = `${SIGNUP_REQUEST_PREFIX}/index.json`;
 
 const RNE_PATTERN = /^[0-9]{7}[A-Z]$/i;
 
-export function normalizeRne(value: string): string {
+function normalizeRne(value: string): string {
   return value.trim().toUpperCase().replace(/\s/g, "");
 }
 
-export function isValidRne(value: string): boolean {
+function isValidRne(value: string): boolean {
   return RNE_PATTERN.test(normalizeRne(value));
 }
 
@@ -114,7 +105,7 @@ export async function listSignupRequests(): Promise<TenantSignupRequest[]> {
   return out;
 }
 
-export function validateCreateSignupInput(input: CreateSignupRequestInput): string | null {
+function validateCreateSignupInput(input: CreateSignupRequestInput): string | null {
   const name = input.establishment.legalName?.trim();
   if (!name || name.length < 2) return "Nom de l'établissement requis.";
   const rne = normalizeRne(input.establishment.rne || "");

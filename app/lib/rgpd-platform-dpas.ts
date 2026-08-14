@@ -1,8 +1,6 @@
 import type { RgpdPlatformDpaId, RgpdQuestionnaireAnswers } from "@/app/lib/rgpd-types";
 
-export type { RgpdPlatformDpaId };
-
-export type RgpdPlatformDpaEntry = {
+type RgpdPlatformDpaEntry = {
   id: RgpdPlatformDpaId;
   name: string;
   provider: string;
@@ -66,7 +64,7 @@ export const RGPD_PLATFORM_DPAS: RgpdPlatformDpaEntry[] = [
   },
 ];
 
-export const DEFAULT_PLATFORM_DPA_FLAGS: Record<RgpdPlatformDpaId, boolean> = {
+const DEFAULT_PLATFORM_DPA_FLAGS: Record<RgpdPlatformDpaId, boolean> = {
   microsoft365: true,
   aws: true,
   mistral: true,
@@ -92,7 +90,7 @@ export function getEnabledPlatformDpas(
   return RGPD_PLATFORM_DPAS.filter((p) => flags[p.id]);
 }
 
-export function formatPlatformDpaLine(entry: RgpdPlatformDpaEntry): string {
+function formatPlatformDpaLine(entry: RgpdPlatformDpaEntry): string {
   return `${entry.name} (${entry.provider}) — ${entry.purposes} — Localisation : ${entry.dataLocation} — DPA : ${entry.dpaLabel} (${entry.dpaUrl})`;
 }
 

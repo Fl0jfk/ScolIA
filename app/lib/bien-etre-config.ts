@@ -5,7 +5,7 @@ import type { BienEtreConfig } from "@/app/lib/bien-etre-types";
 
 const CONFIG_KEY = "settings/bien-etre.json";
 
-export function defaultBienEtreConfig(): BienEtreConfig {
+function defaultBienEtreConfig(): BienEtreConfig {
   return {
     enabled: false,
     psychologistEmail: "",

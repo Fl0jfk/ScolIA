@@ -7,11 +7,11 @@ import type {
   InternatOutingParentStatus,
 } from "@/app/lib/internat-types";
 
-export type OutingTokenRole =
+type OutingTokenRole =
   | { role: "direction"; index: number; etablissement: InternatEtablissement }
   | { role: "parent"; index: number; studentName: string };
 
-export function resolveOutingToken(outing: InternatOuting, token: string): OutingTokenRole | null {
+function resolveOutingToken(outing: InternatOuting, token: string): OutingTokenRole | null {
   if (outing.status === "cancelled") return null;
   const dirIdx = outing.directionDecisions.findIndex((d) => d.token === token);
   if (dirIdx >= 0) {
@@ -53,7 +53,7 @@ export async function notifyParentsIfReady(outing: InternatOuting): Promise<Inte
   return updated;
 }
 
-export type OutingDecisionInput = {
+type OutingDecisionInput = {
   outing: InternatOuting;
   decision: "approve" | "refuse";
   decidedBy?: string;

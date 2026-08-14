@@ -2,19 +2,19 @@ import type { PersonnelEntretien, PersonnelMedecineTravail, PersonnelRecord } fr
 import { daysUntil, isOverdue, uid } from "@/app/lib/personnel-types";
 
 export const RH_MEDECINE_INTERVAL_YEARS = 3;
-export const RH_ENTRETIEN_INTERVAL_YEARS = 3;
+const RH_ENTRETIEN_INTERVAL_YEARS = 3;
 
-export function parseIsoDate(iso?: string | null): Date | null {
+function parseIsoDate(iso?: string | null): Date | null {
   if (!iso) return null;
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export function toIsoDateOnly(d: Date): string {
+function toIsoDateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function addYears(isoDate: string, years: number): string {
+function addYears(isoDate: string, years: number): string {
   const d = parseIsoDate(isoDate);
   if (!d) return isoDate;
   const next = new Date(d);
@@ -22,20 +22,20 @@ export function addYears(isoDate: string, years: number): string {
   return toIsoDateOnly(next);
 }
 
-export function calendarYearBounds(year: number) {
+function calendarYearBounds(year: number) {
   return {
     start: new Date(year, 0, 1),
     end: new Date(year, 11, 31, 23, 59, 59, 999),
   };
 }
 
-export function isDueInCalendarYear(dueDate: string | null | undefined, year: number): boolean {
+function isDueInCalendarYear(dueDate: string | null | undefined, year: number): boolean {
   const d = parseIsoDate(dueDate);
   if (!d) return false;
   return d.getFullYear() === year;
 }
 
-export function isDueInOrBeforeCalendarYear(dueDate: string | null | undefined, year: number): boolean {
+function isDueInOrBeforeCalendarYear(dueDate: string | null | undefined, year: number): boolean {
   const d = parseIsoDate(dueDate);
   if (!d) return false;
   return d.getFullYear() <= year;
@@ -94,7 +94,7 @@ export function normalizeMedecineTravail(raw: PersonnelMedecineTravail | undefin
   });
 }
 
-export function lastCompletedEntretien(record: PersonnelRecord): PersonnelEntretien | null {
+function lastCompletedEntretien(record: PersonnelRecord): PersonnelEntretien | null {
   const done = record.entretiens
     .filter((e) => e.status === "realise" && e.completedAt)
     .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime());

@@ -155,6 +155,6 @@ export function profileFromFormData(fd: FormData): PersonnelProfile {
   });
 }
 
-export function profileToJsonBody(profile: PersonnelProfile): Record<string, unknown> {
+function profileToJsonBody(profile: PersonnelProfile): Record<string, unknown> {
   return { ...profile };
 }

@@ -11,7 +11,7 @@ export const WEEKDAY_JS_OPTIONS: { value: number; label: string }[] = [
   { value: 0, label: "Dimanche" },
 ];
 
-export function parseISODateLocal(ymd: string): Date | null {
+function parseISODateLocal(ymd: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
   if (!m) return null;
   const y = Number(m[1]);
@@ -23,7 +23,7 @@ export function parseISODateLocal(ymd: string): Date | null {
   return dt;
 }
 
-export function formatYMDLocal(d: Date): string {
+function formatYMDLocal(d: Date): string {
   const y = d.getFullYear();
   const mo = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");

@@ -111,7 +111,7 @@ export const KEY_PILLARS = [
 ] as const;
 
 /** Compléments (hors les piliers principaux). */
-export const REST_CAPABILITIES = [
+const REST_CAPABILITIES = [
   {
     title: "Cloud personnel",
     desc: "Fichiers de travail et partages au quotidien — sans USB ni boîtes mail saturées.",
@@ -149,7 +149,7 @@ export const PLATFORM_CAPABILITIES = [
   },
 ] as const;
 
-export const AUDIENCES = [
+const AUDIENCES = [
   {
     title: "Direction & OGEC",
     desc: "Pilotage, validations, sorties, RH et vision d'ensemble.",
@@ -310,7 +310,7 @@ export const RGPD_HIGHLIGHTS = {
     "Droits RGPD exercables auprès de notre référent données. Détails des sous-traitants dans les mentions légales.",
 } as const;
 
-export const TRUST_ITEMS = RGPD_COMPACT.bullets.map((detail, i) => ({
+const TRUST_ITEMS = RGPD_COMPACT.bullets.map((detail, i) => ({
   label: ["Vos données", "Stack française", "Microsoft & Clerk"][i] ?? "Confiance",
   detail,
 }));
@@ -322,7 +322,7 @@ export const STATS = [
   { value: "MS", label: "licences incluses" },
 ] as const;
 
-export type PricingPlan = {
+type PricingPlan = {
   id: string;
   name: string;
   /** Libellé effectif (ex. Moins de 500 élèves). */
@@ -351,7 +351,7 @@ export const PRICING_INCLUDED = [
   "Licences Microsoft Éducation (A1 / A3) selon effectif",
 ] as const;
 
-export const PRICING_PLANS: PricingPlan[] = [
+const PRICING_PLANS: PricingPlan[] = [
   {
     id: "essentielle",
     name: "Essentielle",

@@ -9,10 +9,8 @@ export function userHasComptaRole(user: { publicMetadata?: Record<string, unknow
   return userHasComptaRoleFromMetadata(user?.publicMetadata);
 }
 
-export { userHasAdministratifRole };
-
 /** Consultation fiche compta : comptabilité, direction (établissement) ou administratif — pas les professeurs créateurs seuls. */
-export async function userCanViewComptaSheet(
+async function userCanViewComptaSheet(
   user: { publicMetadata?: Record<string, unknown> } | null,
   trip: TravelsTrip,
 ): Promise<boolean> {
@@ -67,4 +65,3 @@ export async function assertTravelsTripAccess(
   return { ok: true, user };
 }
 
-export { isTripOwner, isTripOwnerOrCreator };

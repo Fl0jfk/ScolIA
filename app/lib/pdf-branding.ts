@@ -86,7 +86,7 @@ function bytesToPdfLogo(buf: Buffer): PdfLogo | null {
 }
 
 /** Même logique que GET /api/site/public — logo du tenant courant, pas la plateforme. */
-export async function resolveTenantLogoRawRef(): Promise<string> {
+async function resolveTenantLogoRawRef(): Promise<string> {
   const [bundle, tenant] = await Promise.all([loadAppConfig(), getTenant()]);
   return bundle.identity.headerLogoUrl?.trim() || tenant.logoUrl?.trim() || "";
 }
@@ -160,7 +160,7 @@ export async function getSchoolLetterhead() {
   };
 }
 
-export async function loadImageDataUriFromUrl(url: string): Promise<PdfLogo | null> {
+async function loadImageDataUriFromUrl(url: string): Promise<PdfLogo | null> {
   try {
     const res = await fetch(url);
     if (!res.ok) return null;

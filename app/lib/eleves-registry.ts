@@ -5,7 +5,7 @@ import { validateElevesJson } from "@/app/lib/eleves-config";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 
 /** Référentiel élèves unique du tenant — partagé par tous les modules. */
-export const ELEVES_REGISTRY_KEY = "eleves.json";
+const ELEVES_REGISTRY_KEY = "eleves.json";
 
 function normalizeName(str: string): string {
   return str
@@ -42,7 +42,7 @@ export async function findEleveByIne(ine: string): Promise<EleveConfig | null> {
   return eleves.find((e) => e.ine?.trim().toUpperCase() === key) ?? null;
 }
 
-export type EleveNameMatch = {
+type EleveNameMatch = {
   eleve: EleveConfig;
   score: number;
 };
@@ -63,7 +63,7 @@ export function scoreEleveNameMatch(
 }
 
 /** Recherche fuzzy nom/prénom — utilisée par stages, OCR, certificats, etc. */
-export async function matchElevesByName(
+async function matchElevesByName(
   nom: string,
   prenom: string,
   opts?: { minScore?: number; limit?: number; classe?: string },
@@ -83,7 +83,7 @@ export async function matchElevesByName(
     .slice(0, limit);
 }
 
-export async function searchElevesRegistry(q: string, limit = 50): Promise<EleveConfig[]> {
+async function searchElevesRegistry(q: string, limit = 50): Promise<EleveConfig[]> {
   const query = q.trim().toLowerCase();
   const eleves = await loadElevesRegistry();
   if (!query) return eleves.slice(0, limit);

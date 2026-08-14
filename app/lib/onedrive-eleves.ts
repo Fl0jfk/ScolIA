@@ -9,12 +9,6 @@ import {
 } from "@/app/lib/onedrive-user-profiles";
 
 export type { Secteur } from "@/app/lib/onedrive-eleves-types";
-export {
-  getOneDriveProfileForClerkLastName,
-  getOneDriveProfileForClerkUser,
-  getOneDriveProfileForUser,
-  ONEDRIVE_USER_BASES,
-};
 
 export type EleveSecteurInput = EleveConfig & { secteur?: string; mef?: string };
 

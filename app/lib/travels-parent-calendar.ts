@@ -69,14 +69,14 @@ export function defaultParentCalendarFromTrip(data: TravelsTripData): TravelsPar
   return { includeTripSpan: true, points };
 }
 
-export function normalizeTime(t: unknown): string | undefined {
+function normalizeTime(t: unknown): string | undefined {
   const s = String(t || "").trim();
   if (/^\d{2}:\d{2}$/.test(s)) return s;
   if (/^\d{2}:\d{2}:\d{2}$/.test(s)) return s.slice(0, 5);
   return undefined;
 }
 
-export function isValidCalendarPoint(p: TravelsCalendarPoint | undefined): p is TravelsCalendarPoint {
+function isValidCalendarPoint(p: TravelsCalendarPoint | undefined): p is TravelsCalendarPoint {
   return Boolean(
     p &&
       /^\d{4}-\d{2}-\d{2}$/.test(p.date) &&
@@ -155,7 +155,7 @@ export function buildTravelsParentsTripIcs(input: {
 }
 
 /** Compat : ancien champ parentMeeting → calendrier. */
-export function parentMeetingToCalendar(m: TravelsParentMeeting | undefined): TravelsParentCalendar | null {
+function parentMeetingToCalendar(m: TravelsParentMeeting | undefined): TravelsParentCalendar | null {
   if (!m?.date || !m?.time) return null;
   return {
     includeTripSpan: true,
@@ -224,7 +224,7 @@ function formatFrDate(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
-export function isTripSameDay(data: TravelsTripData): boolean {
+function isTripSameDay(data: TravelsTripData): boolean {
   const start = String(data.startDate || data.date || "").slice(0, 10);
   const end = String(data.endDate || start).slice(0, 10);
   return Boolean(start && start === end);

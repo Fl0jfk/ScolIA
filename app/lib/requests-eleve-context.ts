@@ -190,7 +190,7 @@ export async function buildRequestEleveContext(
 }
 
 /** Tags / mots qui rattachent une personne à un cycle. */
-export const SECTEUR_TAG_ALIASES: Record<Secteur, string[]> = {
+const SECTEUR_TAG_ALIASES: Record<Secteur, string[]> = {
   ecole: ["ecole", "école", "elementaire", "élémentaire", "primaire", "maternelle", "secretariat ecole", "secrétariat école", "admin ecole", "admin école"],
   college: ["college", "collège", "collegien", "secretariat college", "secrétariat collège", "admin college", "admin collège"],
   lycee: ["lycee", "lycée", "lyceen", "lycéen", "secretariat lycee", "secrétariat lycée", "admin lycee", "admin lycée"],

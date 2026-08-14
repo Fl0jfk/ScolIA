@@ -17,14 +17,14 @@ const STATUS_MAP: Record<string, { label: string; tone: string }> = {
   EN_ATTENTE_DIR_FINAL: { label: "Validation finale", tone: "bg-indigo-100 text-indigo-800 ring-indigo-200" },
 };
 
-export function tripStatusDisplay(status: string) {
+function tripStatusDisplay(status: string) {
   return STATUS_MAP[status] || {
     label: status.replace(/EN_ATTENTE_/g, "").replace(/_/g, " "),
     tone: "bg-slate-100 text-slate-700 ring-slate-200",
   };
 }
 
-export function TripStatusBadge({ status, pulse }: { status: string; pulse?: boolean }) {
+function TripStatusBadge({ status, pulse }: { status: string; pulse?: boolean }) {
   const { label, tone } = tripStatusDisplay(status);
   return (
     <span

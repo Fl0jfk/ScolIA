@@ -1,6 +1,6 @@
 export type TenantBillingStatus = "active" | "past_due" | "suspended" | "cancelled";
 
-export type MicrosoftLicensesBillingStatus = "active" | "suspend_requested" | "revoked";
+type MicrosoftLicensesBillingStatus = "active" | "suspend_requested" | "revoked";
 
 export type TenantBillingAuditEntry = {
   at: string;
@@ -64,6 +64,6 @@ export function isTenantAccessBlocked(status: TenantBillingStatus | undefined): 
   return status === "suspended" || status === "cancelled";
 }
 
-export function isTenantPastDue(status: TenantBillingStatus | undefined): boolean {
+function isTenantPastDue(status: TenantBillingStatus | undefined): boolean {
   return status === "past_due";
 }

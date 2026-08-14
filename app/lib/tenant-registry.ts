@@ -49,8 +49,6 @@ function secretsKeyForSlug(slug: string): string {
   return `${SECRETS_PREFIX}/${safe}.json`;
 }
 
-export { secretsKeyForSlug };
-
 export function parseTenantIndexEntry(raw: unknown): TenantIndexEntry | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -106,7 +104,7 @@ export function parseTenantIndexEntry(raw: unknown): TenantIndexEntry | null {
   };
 }
 
-export function parseTenantSecrets(raw: unknown): TenantSecrets | null {
+function parseTenantSecrets(raw: unknown): TenantSecrets | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const clerkSecretKey =

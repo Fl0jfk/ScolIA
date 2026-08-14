@@ -5,7 +5,7 @@ export const EVENEMENTS_TOOL_IDS = ["portes-ouvertes", "rentree", "secret-santa"
 
 export type EvenementToolId = (typeof EVENEMENTS_TOOL_IDS)[number];
 
-export function isEvenementToolId(id: ToolboxToolId | string): id is EvenementToolId {
+function isEvenementToolId(id: ToolboxToolId | string): id is EvenementToolId {
   return (EVENEMENTS_TOOL_IDS as readonly string[]).includes(id);
 }
 

@@ -90,7 +90,7 @@ export function findReferentAssignment(
   return config.assignments.find((a) => classKey(a.className) === key) ?? null;
 }
 
-export async function resolveReferentForClass(
+async function resolveReferentForClass(
   className: string,
   schoolYear?: string,
 ): Promise<StageClassReferentAssignment | null> {
@@ -115,7 +115,7 @@ export async function listClassesForReferentUser(
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
 
-export function referentAssignmentMatchesUser(
+function referentAssignmentMatchesUser(
   assignment: StageClassReferentAssignment,
   user: { userId?: string; email?: string },
 ): boolean {

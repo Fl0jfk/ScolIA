@@ -18,7 +18,7 @@ export function eleveParticipantKey(e: {
   return `local:${nom}|${prenom}|${classe}`;
 }
 
-export function collectParticipantParentEmails(eleve: {
+function collectParticipantParentEmails(eleve: {
   parentEmail?: string;
   parent1Email?: string;
   parent2Email?: string;
@@ -33,7 +33,7 @@ export function collectParticipantParentEmails(eleve: {
   return [...set];
 }
 
-export function collectParticipantParentPhones(eleve: {
+function collectParticipantParentPhones(eleve: {
   parentPhone?: string;
   parent1Phone?: string;
   parent2Phone?: string;
@@ -88,7 +88,7 @@ function csvCell(value: string): string {
 }
 
 /** CSV interne simple (sans contacts). */
-export function buildElevesListCsv(participants: TravelsParticipantEleve[]): string {
+function buildElevesListCsv(participants: TravelsParticipantEleve[]): string {
   const header = "Nom;Prénom;Classe;INE";
   const rows = participants
     .slice()
@@ -151,6 +151,6 @@ export function parentEmailCoverage(
   return { withMail, withoutMail, emails: [...emailSet] };
 }
 
-export function isListeElevesConfirmed(data: TravelsTripData | undefined): boolean {
+function isListeElevesConfirmed(data: TravelsTripData | undefined): boolean {
   return data?.listeElevesStatus === "confirmed" && (data.participantEleves?.length || 0) > 0;
 }

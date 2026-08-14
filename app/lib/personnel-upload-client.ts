@@ -12,7 +12,7 @@ export function isPersonnelDropFile(file: File): boolean {
   return false;
 }
 
-export async function uploadPersonnelFile(staffId: string, file: File) {
+async function uploadPersonnelFile(staffId: string, file: File) {
   const prep = await fetch("/api/personnel/upload", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

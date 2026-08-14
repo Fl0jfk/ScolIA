@@ -9,7 +9,7 @@ import {
   type PersonnelRecord,
 } from "@/app/lib/personnel-types";
 
-export type PersonnelSignatureRef = {
+type PersonnelSignatureRef = {
   personnelId: string;
   kind: "onboarding" | "offboarding";
   signatureId: string;
@@ -30,7 +30,7 @@ export async function savePersonnelSignatureRef(token: string, ref: PersonnelSig
   await putJson(tokenKey(token), ref);
 }
 
-export async function getPersonnelSignatureRef(token: string): Promise<PersonnelSignatureRef | null> {
+async function getPersonnelSignatureRef(token: string): Promise<PersonnelSignatureRef | null> {
   const hit = await getJson<PersonnelSignatureRef>(tokenKey(token));
   return hit?.data || null;
 }
@@ -43,7 +43,7 @@ function updateSignatures(
   return signatures.map((s) => (s.id === sigId ? { ...s, ...patch } : s));
 }
 
-export async function resolvePersonnelSignatureContext(token: string) {
+async function resolvePersonnelSignatureContext(token: string) {
   const ref = await getPersonnelSignatureRef(token);
   if (!ref) return null;
   const record = await getPersonnelRecord(ref.personnelId);
@@ -61,7 +61,7 @@ export async function resolvePersonnelSignatureContext(token: string) {
   return { ref, record, flow, signature };
 }
 
-export async function applyPersonnelSignature(params: {
+async function applyPersonnelSignature(params: {
   token: string;
   signerName?: string;
   ip?: string;

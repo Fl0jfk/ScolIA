@@ -8,7 +8,7 @@ import {
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
 /** Année scolaire APEL : 1er septembre → 15 juillet inclus. */
-export function comptaApelSchoolYearBounds(now = new Date()) {
+function comptaApelSchoolYearBounds(now = new Date()) {
   const y = now.getFullYear();
   const m = now.getMonth();
   const day = now.getDate();
@@ -42,7 +42,7 @@ export const COMPTA_APEL_ETABLISSEMENTS = [
 
 export type ComptaApelEtablissement = (typeof COMPTA_APEL_ETABLISSEMENTS)[number];
 
-export function normalizeApelEtablissement(raw: string | null | undefined): ComptaApelEtablissement {
+function normalizeApelEtablissement(raw: string | null | undefined): ComptaApelEtablissement {
   const s = String(raw || "").trim();
   if (s === "École" || s === "Ecole") return "École";
   if (s === "Collège" || s === "College") return "Collège";
@@ -94,7 +94,7 @@ function roundApelMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function computeApelTotals(rows: ComptaApelTripCommitment[]): ComptaApelTotals {
+function computeApelTotals(rows: ComptaApelTripCommitment[]): ComptaApelTotals {
   const totals = rows.reduce(
     (acc, row) => ({
       apelCollective: acc.apelCollective + row.apelCollective,
@@ -121,7 +121,7 @@ function buildApelGroupsByEtablissement(rows: ComptaApelTripCommitment[]): Compt
   }).filter((group) => group.trips.length > 0);
 }
 
-export function apelCommitmentFromSheet(sheet: TravelsComptaSheet | null | undefined): {
+function apelCommitmentFromSheet(sheet: TravelsComptaSheet | null | undefined): {
   apelCollective: number;
   aidesIndividuelles: number;
   totalApel: number;
@@ -186,7 +186,7 @@ function tripInApelSchoolYear(trip: TravelsTrip, start: Date, end: Date): boolea
   return ms >= startDay.getTime() && ms <= endDay.getTime();
 }
 
-export function comptaApelCommitmentForTrip(
+function comptaApelCommitmentForTrip(
   trip: TravelsTrip,
   sheetOverride?: TravelsComptaSheet | null,
 ): ComptaApelTripCommitment {

@@ -68,14 +68,14 @@ export type DashboardNotification = {
   detail: string;
 };
 
-export type DashboardSignals = {
+type DashboardSignals = {
   shortcuts: DashboardShortcut[];
   todayNews: DashboardTodayNewsItem[];
   hasCurrentWeek: boolean;
   notifications: DashboardNotification[];
 };
 
-export type DashboardSignalsInput = {
+type DashboardSignalsInput = {
   roles: string[];
   userId: string;
   email: string;
@@ -223,7 +223,7 @@ function isReservationLiveNow(
   return start <= nowLocal && nowLocal < end;
 }
 
-export function buildTodayNewsFromWeekSheet(
+function buildTodayNewsFromWeekSheet(
   weekSheet: WeekSheetData | null | undefined,
 ): { items: DashboardTodayNewsItem[]; hasCurrentWeek: boolean } {
   if (!weekSheet) return { items: [], hasCurrentWeek: false };
@@ -1035,6 +1035,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   };
 }
 
-export function dayLabelFr(dayKey: WeekDayKey): string {
+function dayLabelFr(dayKey: WeekDayKey): string {
   return WEEK_DAYS.find((d) => d.key === dayKey)?.label ?? dayKey;
 }

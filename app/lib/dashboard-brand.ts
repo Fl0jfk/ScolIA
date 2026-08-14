@@ -6,9 +6,6 @@ import {
   type DashboardAccent,
 } from "@/app/lib/dashboard-brand-presets";
 
-export type { DashboardAccent };
-export { DASHBOARD_ACCENT_OPTIONS, DEFAULT_DASHBOARD_ACCENT } from "@/app/lib/dashboard-brand-presets";
-
 export function dashboardBrandStyle(accent?: string | null): CSSProperties {
   const key = parseDashboardAccent(accent ?? DEFAULT_DASHBOARD_ACCENT);
   return dashboardBrandCssVars(key) as CSSProperties;

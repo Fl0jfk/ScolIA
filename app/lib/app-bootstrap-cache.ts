@@ -4,7 +4,7 @@ const STORAGE_KEY_PREFIX = "scola.bootstrap:v1:";
 /** Données stables (logo, accent, modules) — revalidation en arrière-plan. */
 const MAX_AGE_MS = 30 * 60 * 1000;
 
-export type BootstrapCachePayload = {
+type BootstrapCachePayload = {
   sitePublic: SitePublicIdentity;
   appContext: AppContextPayload | null;
   savedAt: number;

@@ -69,22 +69,22 @@ export type EcoleDirecteIntegration = {
   preinscriptionUrl?: string;
 };
 
-export type OneDriveSecteur = "ecole" | "college" | "lycee";
+type OneDriveSecteur = "ecole" | "college" | "lycee";
 
 /** Dossier racine OneDrive où ranger les documents élèves, par cycle. */
-export type OneDriveSecteurBase = {
+type OneDriveSecteurBase = {
   basePath: string;
   label?: string;
 };
 
 /** Associe un utilisateur (email ou nom) à un cycle, pour le classement OCR/stages. */
-export type OneDriveUserSecteur = {
+type OneDriveUserSecteur = {
   match: string;
   secteur: OneDriveSecteur;
 };
 
 /** Lien public (sans secret) du OneDrive RH — attachée de gestion. */
-export type MicrosoftRhDriveIntegration = {
+type MicrosoftRhDriveIntegration = {
   enabled: boolean;
   linked: boolean;
   linkedUpn?: string;

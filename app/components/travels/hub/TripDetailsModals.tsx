@@ -4,7 +4,7 @@ import { CUISINE_DAYS_UI as CUISINE_DAYS, CUISINE_ROWS_UI as CUISINE_ROWS, empty
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import { TripButton, TripInput, TripTextarea } from "@/app/components/travels/TripDetailUI";
 
-export type TripDetailsModalsProps = {
+type TripDetailsModalsProps = {
   trip: TravelsTrip;
   showEffectifModal: boolean;
   setShowEffectifModal: (v: boolean) => void;

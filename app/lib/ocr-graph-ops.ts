@@ -3,7 +3,7 @@ import "server-only";
 import { ensureFolderPath } from "@/app/lib/graph-onedrive-folders";
 import { GRAPH_API_BASE, graphDriveRootItemUrl } from "@/app/lib/graph-onedrive-path";
 
-export function parseGraphRetryAfterMs(res: Response, attempt: number): number {
+function parseGraphRetryAfterMs(res: Response, attempt: number): number {
   const raw = res.headers.get("Retry-After");
   if (raw) {
     const sec = Number(raw);
@@ -25,7 +25,7 @@ function graphConflict(detail: string, status: number): boolean {
 }
 
 /** Vérifie si un fichier existe déjà à ce chemin OneDrive. */
-export async function oneDriveItemExists(
+async function oneDriveItemExists(
   accessToken: string,
   itemPath: string,
 ): Promise<boolean> {
@@ -35,7 +35,7 @@ export async function oneDriveItemExists(
   return res.ok;
 }
 
-export async function uploadBytesToOneDrive(
+async function uploadBytesToOneDrive(
   accessToken: string,
   itemPath: string,
   bytes: Uint8Array | Buffer,

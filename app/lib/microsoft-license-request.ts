@@ -5,14 +5,14 @@ import { getJson, putJson } from "@/app/lib/s3-storage";
 import type { MicrosoftLicensePerson, MicrosoftLicenseRequest } from "@/app/lib/microsoft-license-types";
 import { MAX_A3_LICENSES } from "@/app/lib/microsoft-license-types";
 
-export const MICROSOFT_LICENSE_STORAGE_KEY = "microsoft-license-request.json";
+const MICROSOFT_LICENSE_STORAGE_KEY = "microsoft-license-request.json";
 
 export async function loadMicrosoftLicenseRequest(): Promise<MicrosoftLicenseRequest | null> {
   const hit = await getJson<MicrosoftLicenseRequest>(MICROSOFT_LICENSE_STORAGE_KEY);
   return hit?.data ?? null;
 }
 
-export type SaveMicrosoftLicenseInput = {
+type SaveMicrosoftLicenseInput = {
   people: Omit<MicrosoftLicensePerson, "id">[];
   notes?: string;
   submittedBy?: string;

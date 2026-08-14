@@ -100,7 +100,7 @@ export function validateInternatRoster(
   return { ok: true, entries };
 }
 
-export async function resolveInternatEtablissement(
+async function resolveInternatEtablissement(
   entry: InternatRosterEntry,
 ): Promise<InternatEtablissement> {
   if (entry.etablissement === "Collège" || entry.etablissement === "Lycée") {
@@ -120,7 +120,7 @@ export async function resolveInternatEtablissement(
   return etablissementFromSecteur(entry.folderName);
 }
 
-export function inferClasse(entry: InternatRosterEntry): string {
+function inferClasse(entry: InternatRosterEntry): string {
   if (entry.classe?.trim()) return entry.classe.trim();
   const parts = entry.folderName.split("—").map((p) => p.trim()).filter(Boolean);
   if (parts.length >= 3) return parts[parts.length - 1]!;
@@ -128,7 +128,7 @@ export function inferClasse(entry: InternatRosterEntry): string {
   return "—";
 }
 
-export function studentMatchesRoster(s: InternatStudent, entry: InternatRosterEntry) {
+function studentMatchesRoster(s: InternatStudent, entry: InternatRosterEntry) {
   if (entry.ine && s.eleveRef.ine && s.eleveRef.ine.toUpperCase() === entry.ine.toUpperCase()) return true;
   if (entry.folderName && s.eleveRef.folderName === entry.folderName) return true;
   return (

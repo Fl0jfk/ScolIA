@@ -8,7 +8,7 @@
 
 export type SchoolHolidayZone = "A" | "B" | "C";
 
-export type SchoolHolidayPeriod = {
+type SchoolHolidayPeriod = {
   id: string;
   label: string;
   /** Inclusive YYYY-MM-DD (souvent un samedi). */
@@ -23,9 +23,9 @@ export type SchoolHolidayPeriod = {
  * L’établissement doit définir `schoolHolidayZone` dans settings/site.json —
  * l’UI ne présélectionne plus cette valeur.
  */
-export const DEFAULT_SCHOOL_HOLIDAY_ZONE: SchoolHolidayZone = "B";
+const DEFAULT_SCHOOL_HOLIDAY_ZONE: SchoolHolidayZone = "B";
 
-export const SCHOOL_HOLIDAY_ZONE_OPTIONS: { value: SchoolHolidayZone; label: string; hint: string }[] =
+const SCHOOL_HOLIDAY_ZONE_OPTIONS: { value: SchoolHolidayZone; label: string; hint: string }[] =
   [
     { value: "A", label: "Zone A", hint: "ex. Lyon, Clermont-Ferrand, Montpellier…" },
     { value: "B", label: "Zone B", hint: "ex. Normandie, Lille, Nantes, Rennes…" },
@@ -36,7 +36,7 @@ export const SCHOOL_HOLIDAY_ZONE_OPTIONS: { value: SchoolHolidayZone; label: str
  * Calendriers officiels 2025-2026 et 2026-2027 (sources MEN / Service-Public).
  * Hiver / printemps varient selon la zone ; Toussaint, Noël, Été sont communs.
  */
-export const SCHOOL_HOLIDAY_PERIODS: SchoolHolidayPeriod[] = [
+const SCHOOL_HOLIDAY_PERIODS: SchoolHolidayPeriod[] = [
   // —— 2025-2026 ——
   {
     id: "2025-toussaint",
@@ -183,7 +183,7 @@ export function schoolHolidayOnDate(
   return null;
 }
 
-export function isSchoolHolidayDate(
+function isSchoolHolidayDate(
   isoDate: string,
   zone?: SchoolHolidayZone | null,
 ): boolean {

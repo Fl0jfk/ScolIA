@@ -8,7 +8,7 @@ import {
 } from "@/app/lib/stage-storage";
 import type { StageConventionStatus, StageOfferStatus } from "@/app/lib/stage-types";
 
-export type StagePurgeResult = {
+type StagePurgeResult = {
   schoolYear: string;
   offersArchived: number;
   conventionsArchived: number;

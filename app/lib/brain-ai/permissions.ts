@@ -5,7 +5,7 @@ import {
 } from "@/app/lib/intranet-modules";
 import type { BrainToolCtx, BrainToolDefinition } from "@/app/lib/brain-ai/types";
 
-export function getIntranetModuleById(moduleId: string) {
+function getIntranetModuleById(moduleId: string) {
   return INTRANET_MODULES.find((m) => m.id === moduleId) ?? null;
 }
 

@@ -11,7 +11,7 @@ import { canUseTeamsChatOverlay } from "@/app/lib/teams-chat/roles";
 
 export { canUseTeamsChatOverlay } from "@/app/lib/teams-chat/roles";
 
-export function graphTokenFromRequest(req: NextRequest): string {
+function graphTokenFromRequest(req: NextRequest): string {
   const header = req.headers.get("x-graph-access-token")?.trim() || "";
   if (header) return header;
   const auth = req.headers.get("authorization")?.trim() || "";

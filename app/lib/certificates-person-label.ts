@@ -1,4 +1,4 @@
-export type CertificatePersonLabelInput = {
+type CertificatePersonLabelInput = {
   firstName?: string | null;
   lastName?: string | null;
   displayName?: string | null;

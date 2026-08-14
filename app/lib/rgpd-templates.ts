@@ -16,7 +16,7 @@ import { loadAppConfig } from "@/app/lib/app-config";
 
 export type { RgpdTemplateSection } from "@/app/lib/rgpd-types";
 
-export type RgpdTemplateContext = {
+type RgpdTemplateContext = {
   establishmentName: string;
   establishmentKinds: string;
   dpdName: string;
@@ -28,7 +28,7 @@ export type RgpdTemplateContext = {
   date: string;
 };
 
-export function buildTemplateContext(answers: RgpdQuestionnaireAnswers): RgpdTemplateContext {
+function buildTemplateContext(answers: RgpdQuestionnaireAnswers): RgpdTemplateContext {
   const kinds = answers.establishmentKinds.length
     ? answers.establishmentKinds.join(", ")
     : "établissement scolaire";
@@ -338,7 +338,7 @@ function baseSections(docId: string, ctx: RgpdTemplateContext): RgpdTemplateSect
   }
 }
 
-export const RGPD_PRIORITY_DOC_IDS = [
+const RGPD_PRIORITY_DOC_IDS = [
   "registre-traitements",
   "mentions-information",
   "procedure-droits",

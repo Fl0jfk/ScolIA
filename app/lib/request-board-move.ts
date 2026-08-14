@@ -2,7 +2,7 @@ import type { PileKey } from "@/app/components/requests/CorbeilleInbox";
 
 export type VisualColumnKey = "A_TRAITER" | "EN_COURS" | "TERMINEE";
 
-export type BoardMoveTarget =
+type BoardMoveTarget =
   | { kind: "pile"; key: PileKey }
   | { kind: "column"; key: VisualColumnKey };
 
@@ -16,12 +16,12 @@ export function getRequestBoardLocation(item: { boardColumn?: string | null }): 
   return { kind: "pile", key: "service" };
 }
 
-export function boardMoveTargetKey(target: BoardMoveTarget): string {
+function boardMoveTargetKey(target: BoardMoveTarget): string {
   return target.kind === "pile" ? `pile:${target.key}` : `column:${target.key}`;
 }
 
 /** Pastilles alignées sur les couleurs du tableau (corbeilles + colonnes). */
-export const BOARD_MOVE_DOT_CLASS: Record<string, string> = {
+const BOARD_MOVE_DOT_CLASS: Record<string, string> = {
   "pile:etablissement": "bg-rose-500 ring-rose-200",
   "pile:service": "bg-indigo-500 ring-indigo-200",
   "column:A_TRAITER": "bg-red-500 ring-red-200",

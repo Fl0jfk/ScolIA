@@ -6,7 +6,7 @@ import {
 } from "./absences-calendar";
 import type { AbsenceRecord } from "./absences-types";
 
-export type AbsenceDashboardRow = {
+type AbsenceDashboardRow = {
   id: string;
   displayName: string;
   reason: string;
@@ -18,14 +18,14 @@ export type AbsenceDashboardRow = {
   privacyReasonRedacted?: boolean;
 };
 
-export type AbsenceTodayRow = {
+type AbsenceTodayRow = {
   id: string;
   teacherName: string;
   examType: string;
   timeLabel: string;
 };
 
-export type AbsenceWeekRow = AbsenceTodayRow & { dayKey: string; dayLabel: string };
+type AbsenceWeekRow = AbsenceTodayRow & { dayKey: string; dayLabel: string };
 
 function formatDayLabel(dayKey: string): string {
   const [y, m, day] = dayKey.split("-").map(Number);
@@ -46,7 +46,7 @@ function calendarEventToTodayRow(event: CalendarEvent): AbsenceTodayRow {
   };
 }
 
-export function absencesInWeek(items: AbsenceRecord[]): AbsenceWeekRow[] {
+function absencesInWeek(items: AbsenceRecord[]): AbsenceWeekRow[] {
   const events = absencesToCalendarEvents(items);
   const out: AbsenceWeekRow[] = [];
 

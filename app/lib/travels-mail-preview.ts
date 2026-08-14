@@ -12,7 +12,7 @@ export type MailPreviewType =
   | "cancel_trip_transport"
   | "cancel_trip_cuisine";
 
-export type MailPreviewResult = {
+type MailPreviewResult = {
   type: MailPreviewType;
   to: string[];
   cc?: string[];
@@ -22,7 +22,7 @@ export type MailPreviewResult = {
   attachments: { filename: string; description: string }[];
 };
 
-export function buildTravelsMailPreview(
+function buildTravelsMailPreview(
   trip: TravelsTrip,
   type: MailPreviewType,
   opts?: { userName?: string; chefEmail?: string; transportProviders?: TransportProvider[] },

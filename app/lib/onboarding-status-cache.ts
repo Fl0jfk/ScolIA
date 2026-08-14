@@ -1,7 +1,7 @@
 const STORAGE_KEY_PREFIX = "scola.onboarding-status:v1:";
 const MAX_AGE_MS = 10 * 60 * 1000;
 
-export type OnboardingStatusCache = {
+type OnboardingStatusCache = {
   completed: boolean;
   step: number;
   isOrgAdmin: boolean;

@@ -168,8 +168,8 @@ export function isSvtSubject(subject: string): boolean {
   return /\bsvt\b/.test(s) || /sciences?\s*(de\s*la\s*)?vie/.test(s) || /profs?\s*d['']?svt/.test(s);
 }
 
-export const SVT_LOCKED_SUBJECT = "Profs d'SVT";
-export const PSY_INF_LOCKED_SUBJECT = "Psychologue / Infirmière";
+const SVT_LOCKED_SUBJECT = "Profs d'SVT";
+const PSY_INF_LOCKED_SUBJECT = "Psychologue / Infirmière";
 export const ASSOCIATION_LOCKED_SUBJECT = "Association";
 export const ASSOCIATION_LOCKED_IDEA = "Association";
 
@@ -191,11 +191,11 @@ export function lockedSessionIdeaForSession(session: DomainPlanningSession): str
   return null;
 }
 
-export function hasPsyInfRole(roles: string[]): boolean {
+function hasPsyInfRole(roles: string[]): boolean {
   return hasRole(roles, "infirmerie") || hasRole(roles, "psychologue");
 }
 
-export function hasTeacherRole(roles: string[]): boolean {
+function hasTeacherRole(roles: string[]): boolean {
   return hasRole(roles, "professeur") || hasRole(roles, "education");
 }
 
@@ -254,7 +254,7 @@ export function normalizeSessionConstraint(
   return null;
 }
 
-export function withDefaultDomainPlanningActivities<T extends { activityColors: Record<string, string> }>(
+function withDefaultDomainPlanningActivities<T extends { activityColors: Record<string, string> }>(
   config: T,
 ): T {
   return {

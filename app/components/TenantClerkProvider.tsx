@@ -40,7 +40,12 @@ export default async function TenantClerkProvider({ children, nonce }: Props) {
     }
 
     return (
-      <ClerkProvider publishableKey={publishableKey || undefined} localization={frFR} nonce={nonce}>
+      <ClerkProvider
+        publishableKey={publishableKey || undefined}
+        localization={frFR}
+        nonce={nonce}
+        dynamic
+      >
         {children}
       </ClerkProvider>
     );
@@ -74,6 +79,7 @@ export default async function TenantClerkProvider({ children, nonce }: Props) {
       signUpFallbackRedirectUrl={afterAuthUrl}
       localization={frFR}
       nonce={nonce}
+      dynamic
     >
       {children}
     </ClerkProvider>

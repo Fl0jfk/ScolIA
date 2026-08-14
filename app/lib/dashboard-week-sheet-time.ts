@@ -48,19 +48,19 @@ export function parseTimeToMinutes(raw: string | undefined): number | null {
   return null;
 }
 
-export function formatMinutesAsHour(minutes: number): string {
+function formatMinutesAsHour(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}`;
 }
 
-export function getEventEndMinutes(event: WeekSheetEvent): number {
+function getEventEndMinutes(event: WeekSheetEvent): number {
   const start = parseTimeToMinutes(event.startTime);
   if (start === null) return 0;
   return parseTimeToMinutes(event.endTime) ?? start + 60;
 }
 
-export function eventOverlapsHour(event: WeekSheetEvent, hour: number): boolean {
+function eventOverlapsHour(event: WeekSheetEvent, hour: number): boolean {
   const start = parseTimeToMinutes(event.startTime);
   if (start === null) return false;
   const end = parseTimeToMinutes(event.endTime) ?? start + 60;
@@ -69,19 +69,19 @@ export function eventOverlapsHour(event: WeekSheetEvent, hour: number): boolean 
   return start < hourEnd && end > hourStart;
 }
 
-export function inferTimeBounds(events: WeekSheetEvent[]): { startMin: number; endMin: number } {
+function inferTimeBounds(events: WeekSheetEvent[]): { startMin: number; endMin: number } {
   return getWeekSheetDisplayBounds();
 }
 
 /** Grille affichée de 8h à 20h (fixe). */
-export const WEEK_SHEET_GRID_START_MIN = 8 * 60;
-export const WEEK_SHEET_GRID_END_MIN = 20 * 60;
+const WEEK_SHEET_GRID_START_MIN = 8 * 60;
+const WEEK_SHEET_GRID_END_MIN = 20 * 60;
 
-export function getWeekSheetDisplayBounds(): { startMin: number; endMin: number } {
+function getWeekSheetDisplayBounds(): { startMin: number; endMin: number } {
   return { startMin: WEEK_SHEET_GRID_START_MIN, endMin: WEEK_SHEET_GRID_END_MIN };
 }
 
-export function getWeekSheetDisplayHours(): number[] {
+function getWeekSheetDisplayHours(): number[] {
   const hours: number[] = [];
   for (let h = WEEK_SHEET_GRID_START_MIN / 60; h <= WEEK_SHEET_GRID_END_MIN / 60; h++) {
     hours.push(h);
@@ -89,11 +89,11 @@ export function getWeekSheetDisplayHours(): number[] {
   return hours;
 }
 
-export function inferHourRange(_events?: WeekSheetEvent[]): number[] {
+function inferHourRange(_events?: WeekSheetEvent[]): number[] {
   return getWeekSheetDisplayHours();
 }
 
-export type DayEventLayout = {
+type DayEventLayout = {
   event: WeekSheetEvent;
   top: number;
   height: number;
@@ -106,7 +106,7 @@ function eventsOverlap(startA: number, endA: number, startB: number, endB: numbe
 }
 
 /** Positionne les événements d'un jour façon Google Agenda (colonnes si chevauchement). */
-export function layoutDayEvents(
+function layoutDayEvents(
   events: WeekSheetEvent[],
   rangeStartMin: number,
   rangeEndMin: number,
@@ -170,7 +170,7 @@ export function layoutDayEvents(
 }
 
 /** Hauteur totale de la grille (8h–20h + extension si un créneau dépasse). */
-export function getWeekSheetGridPixelHeight(
+function getWeekSheetGridPixelHeight(
   events: WeekSheetEvent[],
   pxPerMinute: number,
   minHeightPx = 24,

@@ -3,7 +3,7 @@
 import type { ReactNode, ReactElement } from "react";
 import { useId } from "react";
 
-export type OrganigramFrameVariant = | "direction" | "admin" | "accounting" | "poles" | "poleEcole" | "poleCollege" | "poleLycee" | "reception" | "health" | "maintenance" | "pastoral" | "ogec" | "tutelle";
+type OrganigramFrameVariant = | "direction" | "admin" | "accounting" | "poles" | "poleEcole" | "poleCollege" | "poleLycee" | "reception" | "health" | "maintenance" | "pastoral" | "ogec" | "tutelle";
 
 type Theme = {
   badge: string;

@@ -8,7 +8,7 @@ import {
 } from "@/app/lib/personnel-types";
 
 /** Rôles OGEC typiques (hors professeur) — utilisé pour suggestion de catégorie. */
-export const RH_OGEC_CLERK_ROLES = [
+const RH_OGEC_CLERK_ROLES = [
   "administratif",
   "education",
   "cpe",
@@ -21,7 +21,7 @@ export const RH_OGEC_CLERK_ROLES = [
   "admin",
 ] as const;
 
-export type RhClerkCandidate = ClerkMemberRow & {
+type RhClerkCandidate = ClerkMemberRow & {
   suggestedCategory: PersonnelCategory;
   roleLabel: string;
 };
@@ -30,12 +30,12 @@ const ROLE_LABELS: Record<string, string> = Object.fromEntries(
   INTRANET_ROLE_OPTIONS.map((r) => [r.slug, r.label]),
 );
 
-export function clerkRoleLabel(slug: string): string {
+function clerkRoleLabel(slug: string): string {
   return ROLE_LABELS[slug] || slug;
 }
 
 /** Exclut uniquement les comptes dont le seul rôle est professeur. */
-export function isProfesseurOnly(roles: string[]): boolean {
+function isProfesseurOnly(roles: string[]): boolean {
   const normalized = normalizeIntranetRoles(roles);
   return normalized.length > 0 && normalized.every((r) => r === "professeur");
 }
@@ -46,17 +46,17 @@ export function suggestPersonnelCategoryFromClerkRoles(roles: string[]): Personn
   return "administratif";
 }
 
-export function clerkRolesForPersonnelCategory(category: PersonnelCategory): string[] {
+function clerkRolesForPersonnelCategory(category: PersonnelCategory): string[] {
   return [category];
 }
 
-export function formatClerkRolesLabel(roles: string[]): string {
+function formatClerkRolesLabel(roles: string[]): string {
   const normalized = normalizeIntranetRoles(roles);
   if (normalized.length === 0) return "Rôle non renseigné dans Clerk";
   return normalized.map(clerkRoleLabel).join(" · ");
 }
 
-export function filterRhClerkCandidates(
+function filterRhClerkCandidates(
   members: ClerkMemberRow[],
   existingIndex: PersonnelIndexEntry[],
 ): RhClerkCandidate[] {
@@ -143,7 +143,7 @@ export async function getClerkMemberById(clerkUserId: string): Promise<ClerkMemb
 }
 
 /** @deprecated Utiliser isProfesseurOnly — conservé pour compatibilité interne */
-export function hasRhEligibleClerkRole(roles: string[]): boolean {
+function hasRhEligibleClerkRole(roles: string[]): boolean {
   if (isProfesseurOnly(roles)) return false;
   const normalized = normalizeIntranetRoles(roles);
   if (normalized.length === 0) return true;

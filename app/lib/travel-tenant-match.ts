@@ -3,7 +3,7 @@ import { getMistralApiKey } from "@/app/lib/tenant-config";
 import { isPlatformTenantSlug } from "@/app/lib/platform-tenant";
 import { loadAllTenants } from "@/app/lib/tenant-registry";
 
-export type TenantMatchCandidate = {
+type TenantMatchCandidate = {
   slug: string;
   label: string;
   street: string | null;
@@ -12,7 +12,7 @@ export type TenantMatchCandidate = {
 };
 
 /** Tenants établissement (hors plateforme) pour le matching IA. */
-export async function listTenantMatchCandidates(): Promise<TenantMatchCandidate[]> {
+async function listTenantMatchCandidates(): Promise<TenantMatchCandidate[]> {
   const tenants = await loadAllTenants();
   return tenants
     .filter((t) => !isPlatformTenantSlug(t.slug))
@@ -25,7 +25,7 @@ export async function listTenantMatchCandidates(): Promise<TenantMatchCandidate[
     }));
 }
 
-export type TenantMatchResult = {
+type TenantMatchResult = {
   slug: string | null;
   motif: string | null;
 };

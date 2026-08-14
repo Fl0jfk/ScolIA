@@ -2,7 +2,7 @@
 export const TRAVELS_CLASSES_AUTRES_VALUE = "__AUTRES__";
 export const TRAVELS_CLASSES_AUTRES_LABEL = "Autres";
 
-export function flattenClassesByPole(classesByPole?: Record<string, string[]> | null): string[] {
+function flattenClassesByPole(classesByPole?: Record<string, string[]> | null): string[] {
   if (!classesByPole || typeof classesByPole !== "object") return [];
   const out: string[] = [];
   const seen = new Set<string>();
@@ -43,7 +43,7 @@ export function splitClassesValue(raw: string): string[] {
     .filter(Boolean);
 }
 
-export function joinClassesValue(parts: string[]): string {
+function joinClassesValue(parts: string[]): string {
   return parts.map((c) => c.trim()).filter(Boolean).join(", ");
 }
 

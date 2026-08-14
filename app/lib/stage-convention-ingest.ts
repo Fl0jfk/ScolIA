@@ -17,7 +17,7 @@ import {
   type StageInternshipKind,
 } from "@/app/lib/stage-types";
 
-export type ConventionExtracted = {
+type ConventionExtracted = {
   studentFirstName: string;
   studentLastName: string;
   studentClass: string;
@@ -38,14 +38,14 @@ export type ConventionExtracted = {
   internshipKind: string;
 };
 
-export type PaperSignatureCheck = {
+type PaperSignatureCheck = {
   studentSigned: boolean;
   parentSigned: boolean;
   companySigned: boolean;
   missing: string[];
 };
 
-export type DepositReadinessCheck = PaperSignatureCheck & {
+type DepositReadinessCheck = PaperSignatureCheck & {
   fieldsComplete: boolean;
   missingFields: string[];
 };
@@ -131,7 +131,7 @@ async function loadEleves(): Promise<EleveConfig[]> {
   return loadElevesRegistry();
 }
 
-export async function extractConventionFieldsWithMistral(text: string): Promise<ConventionExtracted> {
+async function extractConventionFieldsWithMistral(text: string): Promise<ConventionExtracted> {
   const mistralKey = await getMistralApiKey();
   if (!mistralKey) throw new Error("Service IA non configuré.");
 
@@ -209,7 +209,7 @@ Réponds UNIQUEMENT avec du JSON valide :
   };
 }
 
-export async function matchEleveFromExtracted(
+async function matchEleveFromExtracted(
   extracted: ConventionExtracted,
   hints?: { firstName?: string; lastName?: string; className?: string },
 ): Promise<{ eleve: EleveConfig | null; score: number }> {
@@ -234,7 +234,7 @@ export async function matchEleveFromExtracted(
   return { eleve: scored[0]?.eleve ?? null, score: scored[0]?.score ?? 0 };
 }
 
-export async function checkDepositReadinessWithMistral(
+async function checkDepositReadinessWithMistral(
   ocrText: string,
 ): Promise<DepositReadinessCheck> {
   const mistralKey = await getMistralApiKey();
@@ -324,7 +324,7 @@ Réponds UNIQUEMENT avec du JSON valide :
 }
 
 /** @deprecated Utiliser checkDepositReadinessWithMistral */
-export async function checkPaperSignaturesWithMistral(ocrText: string): Promise<PaperSignatureCheck> {
+async function checkPaperSignaturesWithMistral(ocrText: string): Promise<PaperSignatureCheck> {
   const r = await checkDepositReadinessWithMistral(ocrText);
   return {
     studentSigned: r.studentSigned,
@@ -345,7 +345,7 @@ async function purgeUploadedPdf(s3Key: string) {
   }
 }
 
-export type DepositHints = {
+type DepositHints = {
   firstName?: string;
   lastName?: string;
   className?: string;
@@ -353,7 +353,7 @@ export type DepositHints = {
   companyEmail?: string;
 };
 
-export type DepositResult = {
+type DepositResult = {
   convention: StageConvention;
   warnings: string[];
 };

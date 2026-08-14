@@ -45,7 +45,7 @@ export function defaultStageSchedule(mode: StageScheduleMode = "uniform_week"): 
 }
 
 /** Applique le modèle du premier jour à lun–ven (mode uniform_week). */
-export function replicateUniformWeekDays(template: StageDaySlot): StageDaySlot[] {
+function replicateUniformWeekDays(template: StageDaySlot): StageDaySlot[] {
   const base = { ...template };
   delete base.date;
   return WEEKDAYS.map((weekday) => ({ ...base, weekday }));
@@ -116,7 +116,7 @@ export function formatDaySlotLabel(slot: StageDaySlot): string {
 }
 
 /** Génère une entrée par jour ouvré entre deux dates ISO (mode per_day). */
-export function expandWeekdayDates(periodStart: string, periodEnd: string): string[] {
+function expandWeekdayDates(periodStart: string, periodEnd: string): string[] {
   const out: string[] = [];
   const start = new Date(`${periodStart}T12:00:00`);
   const end = new Date(`${periodEnd}T12:00:00`);

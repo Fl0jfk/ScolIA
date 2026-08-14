@@ -79,7 +79,7 @@ export type ToolboxConfig = {
   };
 };
 
-export const DEFAULT_TARIFS: SimulateurTarifsConfig = {
+const DEFAULT_TARIFS: SimulateurTarifsConfig = {
   enabled: false,
   schoolYear: "2026 / 2027",
   enseignement: {

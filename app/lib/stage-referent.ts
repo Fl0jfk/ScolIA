@@ -4,7 +4,7 @@ import {
 } from "@/app/lib/stage-access";
 import type { StageConvention } from "@/app/lib/stage-types";
 
-export function conventionMatchesReferent(
+function conventionMatchesReferent(
   convention: StageConvention,
   userEmail: string,
   userId?: string,
@@ -16,7 +16,7 @@ export function conventionMatchesReferent(
   return false;
 }
 
-export function canViewReferentConventions(roles: string[]) {
+function canViewReferentConventions(roles: string[]) {
   return roles.includes("professeur");
 }
 

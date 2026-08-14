@@ -10,11 +10,11 @@ import type {
 const INDEX_KEY = "documents/generated/index.json";
 const MAX_INDEX = 80;
 
-export function generatedMetaKey(id: string) {
+function generatedMetaKey(id: string) {
   return `documents/generated/${id}.json`;
 }
 
-export function generatedPdfKey(id: string) {
+function generatedPdfKey(id: string) {
   return `documents/generated/${id}.pdf`;
 }
 
@@ -92,6 +92,6 @@ export async function loadGeneratedFileBytes(id: string): Promise<Buffer | null>
 }
 
 /** @deprecated alias */
-export async function loadGeneratedPdfBytes(id: string): Promise<Buffer | null> {
+async function loadGeneratedPdfBytes(id: string): Promise<Buffer | null> {
   return loadGeneratedFileBytes(id);
 }

@@ -20,7 +20,7 @@ export const RH_OAUTH_STATE_COOKIE = "rh_onedrive_oauth_state";
  * Messagerie Teams (même app) :
  *   {appUrl}/api/teams-chat/oauth/callback
  */
-export const RH_OAUTH_CALLBACK_PATH = "/api/rh/drive/oauth/callback";
+const RH_OAUTH_CALLBACK_PATH = "/api/rh/drive/oauth/callback";
 
 export async function getRhOAuthRedirectUri(): Promise<string> {
   const base = await getTenantAppUrl();

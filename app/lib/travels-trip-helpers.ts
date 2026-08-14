@@ -30,7 +30,7 @@ export function tripEffectifTotal(data: TravelsTripData | undefined): number {
   return Number(data?.nbEleves) + Number(data?.nbAccompagnateurs || 0);
 }
 
-export function tripDateLabel(trip: TravelsTrip): string {
+function tripDateLabel(trip: TravelsTrip): string {
   const d = trip.data;
   if (trip.type === "COMPLEX") {
     const start = formatCuisineDateFR(d.startDate);
@@ -124,7 +124,7 @@ export function isValidEmailLoose(s: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 }
 
-export function daysUntilTrip(data: TravelsTripData): number | null {
+function daysUntilTrip(data: TravelsTripData): number | null {
   const raw = data.startDate || data.date;
   if (!raw) return null;
   const tripDate = new Date(raw);
@@ -142,7 +142,7 @@ function todayStartMs(): number {
 }
 
 /** Timestamp (début de journée) du séjour pour tri / comparaison. */
-export function tripTravelStartMs(trip: { data?: TravelsTripData }): number | null {
+function tripTravelStartMs(trip: { data?: TravelsTripData }): number | null {
   const raw = trip.data?.startDate || trip.data?.date;
   if (!raw) return null;
   const d = new Date(raw);
@@ -152,7 +152,7 @@ export function tripTravelStartMs(trip: { data?: TravelsTripData }): number | nu
 }
 
 /** Dernier jour du séjour (fin pour les voyages, date unique pour les sorties). */
-export function tripTravelEndMs(trip: {
+function tripTravelEndMs(trip: {
   type?: string;
   data?: TravelsTripData;
 }): number | null {

@@ -1,6 +1,6 @@
 import type { RentreeAccent } from "@/app/lib/rentree-types";
 
-export type RentreeAccentStyle = {
+type RentreeAccentStyle = {
   pillActive: string;
   pillIdle: string;
   badge: string;

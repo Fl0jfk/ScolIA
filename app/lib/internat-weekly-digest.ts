@@ -19,7 +19,7 @@ function parentStatusLabel(outing: InternatOuting, studentId: string) {
   return OUTING_STATUS_LABELS[outing.status];
 }
 
-export function buildWeeklyParentDigestLines(outings: InternatOuting[], range = nextWeekDateRange()) {
+function buildWeeklyParentDigestLines(outings: InternatOuting[], range = nextWeekDateRange()) {
   const linesByEmail = new Map<string, ParentWeeklyDigestLine[]>();
 
   for (const outing of outings) {

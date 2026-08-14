@@ -1,7 +1,7 @@
 import type { OcrBatchJob, OcrBatchJobItem } from "@/app/api/agentIAOCR/batch-job/batch-job";
 import { resolveSegmentationEngine, type SegmentationEngine } from "@/app/lib/ocr-segment-run";
 
-export type OcrBatchProgressPhase =
+type OcrBatchProgressPhase =
   | "pending"
   | "ocr"
   | "segmenting"
@@ -10,7 +10,7 @@ export type OcrBatchProgressPhase =
   | "done"
   | "idle";
 
-export type OcrBatchProgressView = {
+type OcrBatchProgressView = {
   percent: number;
   label: string;
   phase: OcrBatchProgressPhase;

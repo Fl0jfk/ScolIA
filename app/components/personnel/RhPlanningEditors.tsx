@@ -15,7 +15,7 @@ export function newId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function emptyTeacherSlot(day: PlanningWeekday = 1): TeacherPlanningSlot {
+function emptyTeacherSlot(day: PlanningWeekday = 1): TeacherPlanningSlot {
   return {
     id: newId("slot"),
     day,
@@ -27,7 +27,7 @@ export function emptyTeacherSlot(day: PlanningWeekday = 1): TeacherPlanningSlot 
   };
 }
 
-export function emptyFixedSlot(day: PlanningWeekday = 1): StaffFixedSlot {
+function emptyFixedSlot(day: PlanningWeekday = 1): StaffFixedSlot {
   return {
     id: newId("slot"),
     day,
@@ -37,7 +37,7 @@ export function emptyFixedSlot(day: PlanningWeekday = 1): StaffFixedSlot {
   };
 }
 
-export function emptyMissionSlot(day: PlanningWeekday = 1): StaffMissionSlot {
+function emptyMissionSlot(day: PlanningWeekday = 1): StaffMissionSlot {
   return {
     id: newId("slot"),
     day,
@@ -413,7 +413,7 @@ export function MissionSlotEditor({
   );
 }
 
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block text-[11px] font-bold text-slate-500">
       {label}

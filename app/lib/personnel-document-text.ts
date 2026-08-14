@@ -1,7 +1,7 @@
 import { runTextractForPdfBytes } from "@/app/lib/ocr-textract";
 
 /** Chaînes lisibles dans les binaires Office / Excel (sans librairie dédiée). */
-export function scrapeBinaryText(bytes: Uint8Array, maxChars = 20_000): string {
+function scrapeBinaryText(bytes: Uint8Array, maxChars = 20_000): string {
   const buf = Buffer.from(bytes);
   const latin = buf.toString("latin1");
   const runs = latin.match(/[\x20-\x7E\u00C0-\u024F\u00DF\u0152\u0153]{4,}/g) || [];
@@ -10,7 +10,7 @@ export function scrapeBinaryText(bytes: Uint8Array, maxChars = 20_000): string {
 }
 
 /** Extraction PDF via Mistral OCR. */
-export async function extractPdfText(bytes: Uint8Array): Promise<string> {
+async function extractPdfText(bytes: Uint8Array): Promise<string> {
   const result = await runTextractForPdfBytes(bytes);
   const text = result.text;
   if (!text.trim()) throw new Error("Impossible de lire le texte du PDF.");

@@ -1,6 +1,6 @@
 "use client";
 
-export type RgpdDocumentSectionView = {
+type RgpdDocumentSectionView = {
   heading: string;
   paragraphs?: string[];
   bullets?: string[];

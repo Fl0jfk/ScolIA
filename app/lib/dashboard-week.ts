@@ -31,7 +31,7 @@ export function todaySchoolWeekDayIndex(): number {
 }
 
 /** « Jean Dupont » → « Dupont Jean » */
-export function formatNomPrenom(displayName: string): string {
+function formatNomPrenom(displayName: string): string {
   const parts = displayName.trim().split(/\s+/).filter(Boolean);
   if (parts.length < 2) return displayName.trim();
   const nom = parts[parts.length - 1];

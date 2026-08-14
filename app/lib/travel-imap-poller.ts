@@ -10,7 +10,7 @@ import { ingestTravelEmail, type TravelEmailIngestResult } from "@/app/lib/trave
 import { extractTenantSlugFromEmailHeaders } from "@/app/lib/travel-email-routing";
 import { resolveTenantSlugWithMistral } from "@/app/lib/travel-tenant-match";
 
-export type TravelEmailPollSummary = {
+type TravelEmailPollSummary = {
   scanned: number;
   processed: number;
   unmatched: number;
@@ -18,10 +18,10 @@ export type TravelEmailPollSummary = {
   errors: Array<{ messageId?: string; file?: string; err: string }>;
 };
 
-export type TravelImapConfig = NonNullable<ReturnType<typeof getPlatformImapConfig>>;
+type TravelImapConfig = NonNullable<ReturnType<typeof getPlatformImapConfig>>;
 
 /** Config IMAP = MAILER_* (même boîte que l'envoi SMTP). */
-export function getTravelImapConfig(): TravelImapConfig | null {
+function getTravelImapConfig(): TravelImapConfig | null {
   return getPlatformImapConfig();
 }
 

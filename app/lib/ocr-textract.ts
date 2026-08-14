@@ -24,13 +24,13 @@ import { ocrTraceCtx, type OcrTraceCtx } from "@/app/lib/ocr-trace";
 // Types publics
 // ---------------------------------------------------------------------------
 
-export type OcrTextractResult = {
+type OcrTextractResult = {
   text: string;
   pageTexts: Record<string, string>;
   pageCount: number;
 };
 
-export type TextractPollResult =
+type TextractPollResult =
   | { status: "IN_PROGRESS"; pagesRead: number; maxPageSeen: number }
   | { status: "FAILED" }
   | { status: "SUCCEEDED"; result: OcrTextractResult; pagesRead: number };

@@ -134,7 +134,7 @@ function escapeIcs(s: string) {
 }
 
 /** @deprecated Préférer buildTravelsParentsTripIcs (multi-événements). */
-export function buildTravelsParentMeetingIcs(input: {
+function buildTravelsParentMeetingIcs(input: {
   tripId: string;
   tripTitle: string;
   meeting: {

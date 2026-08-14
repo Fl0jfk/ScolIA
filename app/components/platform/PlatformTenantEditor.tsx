@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { clerkFrontendDomainFromPublishableKey } from "@/app/lib/clerk-pk-domain";
 
-export type TenantFormSecrets = {
+type TenantFormSecrets = {
   clerkSecretKey: string;
   clerkDevPublishableKey: string;
   clerkDevSecretKey: string;
@@ -21,7 +21,7 @@ export type TenantFormSecrets = {
   awsImageBucket: string;
 };
 
-export type TenantFormState = {
+type TenantFormState = {
   slug: string;
   kind: "groupe" | "standalone";
   label: string;
@@ -36,7 +36,7 @@ export type TenantFormState = {
   secrets: TenantFormSecrets;
 };
 
-export type TenantEditResponse = {
+type TenantEditResponse = {
   entry: {
     slug: string;
     kind: "groupe" | "standalone";
@@ -77,7 +77,7 @@ const EMPTY_SECRETS: TenantFormSecrets = {
   awsImageBucket: "",
 };
 
-export function emptyTenantForm(): TenantFormState {
+function emptyTenantForm(): TenantFormState {
   return {
     slug: "",
     kind: "groupe",
@@ -94,7 +94,7 @@ export function emptyTenantForm(): TenantFormState {
   };
 }
 
-export function formFromEdit(t: TenantEditResponse): TenantFormState {
+function formFromEdit(t: TenantEditResponse): TenantFormState {
   return {
     slug: t.entry.slug,
     kind: t.entry.kind,

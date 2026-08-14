@@ -44,7 +44,7 @@ export type RhDocumentRef = {
   expiresAt?: string | null;
 };
 
-export type RhFormationStatus = "demandee" | "planifiee" | "realisee" | "annulee";
+type RhFormationStatus = "demandee" | "planifiee" | "realisee" | "annulee";
 
 export type RhFormation = {
   id: string;
@@ -66,7 +66,7 @@ export type RhHabilitation = {
   notes?: string;
 };
 
-export type RhMedecineVisit = {
+type RhMedecineVisit = {
   id: string;
   visitedAt: string;
   visitType?: string;
@@ -84,7 +84,7 @@ export type RhMedecineTravail = {
   notes?: string;
 };
 
-export type RhEntretienStatus = "a_planifier" | "planifie" | "realise";
+type RhEntretienStatus = "a_planifier" | "planifie" | "realise";
 
 export type RhEntretien = {
   id: string;
@@ -97,7 +97,7 @@ export type RhEntretien = {
   status: RhEntretienStatus;
 };
 
-export type RhOnboardingStatus =
+type RhOnboardingStatus =
   | "brouillon"
   | "soumis"
   | "validation_rh"
@@ -208,17 +208,17 @@ export const RH_CATEGORY_LABELS: Record<RhCategory, string> = {
   direction: "Direction",
 };
 
-export const RH_CATEGORIES = Object.keys(RH_CATEGORY_LABELS) as RhCategory[];
+const RH_CATEGORIES = Object.keys(RH_CATEGORY_LABELS) as RhCategory[];
 
 export function buildPersonnelFolderName(lastName: string, firstName: string): string {
   return buildEleveFolderName(lastName, firstName);
 }
 
-export function formatPersonnelLastName(lastName: string): string {
+function formatPersonnelLastName(lastName: string): string {
   return formatEleveNomForFolder(lastName);
 }
 
-export function formatPersonnelFirstName(firstName: string): string {
+function formatPersonnelFirstName(firstName: string): string {
   return formatElevePrenomForFolder(firstName);
 }
 
@@ -234,7 +234,7 @@ export function computeRhComplianceFlags(meta: Pick<MetaRhDocument, "identity" |
   };
 }
 
-export function emptyMedecineTravail(): RhMedecineTravail {
+function emptyMedecineTravail(): RhMedecineTravail {
   return { visits: [], lastVisitAt: null, nextVisitAt: null, visitType: "", notes: "" };
 }
 

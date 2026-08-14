@@ -49,9 +49,9 @@ function formatDateFR(input?: string | null) {
   return raw;
 }
 
-export type TransportQuotePdfMode = "initial" | "amendment";
+type TransportQuotePdfMode = "initial" | "amendment";
 
-export type BuildTransportQuotePdfInput = {
+type BuildTransportQuotePdfInput = {
   tripId: string;
   data: Record<string, any>;
   userName: string;

@@ -108,7 +108,7 @@ export type OcrBatchJob = {
   lastWorkerKickAt?: string;
 };
 
-export type OcrCachePayload = {
+type OcrCachePayload = {
   text: string;
   pageTexts: Record<string, string>;
   pageCount: number;

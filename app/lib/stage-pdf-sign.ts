@@ -125,7 +125,7 @@ export function roleStampsPdf(role: StageSignerRole): boolean {
   return role === "professeur_referent" || role === "direction";
 }
 
-export async function resolveSignaturePngForRole(
+async function resolveSignaturePngForRole(
   convention: StageConvention,
   role: StageSignerRole,
   drawnPngBase64?: string,

@@ -5,7 +5,7 @@ import { getJson, putJson } from "@/app/lib/s3-storage";
 
 const LIMITS_PREFIX = "bien-etre/limits";
 
-export type BienEtreRateState = {
+type BienEtreRateState = {
   messagesHour: number;
   hourWindowStart: string;
   signalementsDay: number;

@@ -4,7 +4,7 @@ import * as msal from "@azure/msal-browser";
 import { buildOneDriveMsalConfig } from "@/app/lib/msal-onedrive-client";
 
 /** Mêmes identifiants que OneDrive (client ID + tenant ID). Pas de client secret. */
-export const TEAMS_CHAT_MSAL_SCOPES = [
+const TEAMS_CHAT_MSAL_SCOPES = [
   "Chat.ReadWrite",
   "Chat.Create",
   "ChatMessage.Send",
@@ -28,7 +28,7 @@ async function fetchMicrosoftAppIds(): Promise<{ clientId: string; tenantId: str
   return { clientId, tenantId };
 }
 
-export async function getTeamsChatMsal(): Promise<msal.PublicClientApplication> {
+async function getTeamsChatMsal(): Promise<msal.PublicClientApplication> {
   if (pca) return pca;
   const ms = await fetchMicrosoftAppIds();
   pca = new msal.PublicClientApplication(buildOneDriveMsalConfig(ms));

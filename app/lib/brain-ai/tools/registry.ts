@@ -24,7 +24,7 @@ import {
   handleGetWeekSheetToday,
 } from "@/app/lib/brain-ai/tools/handlers/week-sheet";
 
-export const BRAIN_TOOLS: BrainToolDefinition[] = [
+const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "get_week_sheet_today",
     description:

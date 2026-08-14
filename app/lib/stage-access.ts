@@ -2,7 +2,7 @@ import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 
 const DIRECTIONS = [...INTRANET_DIRECTION_SLUGS];
 
-export type StageViewerRole =
+type StageViewerRole =
   | "parent"
   | "administratif"
   | "direction"

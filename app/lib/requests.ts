@@ -22,7 +22,7 @@ export type RequestAttachment = {
   size: number;
   uploadedAt: string;
 };
-export const MAX_REQUEST_ATTACHMENT_BYTES = 12 * 1024 * 1024;
+const MAX_REQUEST_ATTACHMENT_BYTES = 12 * 1024 * 1024;
 export const MAX_REQUEST_ATTACHMENTS_PER_UPLOAD = 12;
 const ATTACHMENT_EXT_OK = /\.(pdf|png|jpe?g|gif|webp|heic|doc|docx|xls|xlsx)$/i;
 const ATTACHMENT_MIME_OK = new Set([
@@ -179,7 +179,7 @@ export function findRequestAttachment(record: RequestRecord, attachmentId: strin
   return null;
 }
 
-export type RequestCreateInput = {
+type RequestCreateInput = {
   firstName: string;
   lastName: string;
   email: string;
@@ -192,8 +192,8 @@ export type RequestCreateInput = {
 const INDEX_KEY = "requests/index.json";
 const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
 export const REQUEST_STATUSES: RequestStatus[] = ["NOUVELLE", "EN_COURS", "EN_ATTENTE", "TERMINEE"];
-export const REQUEST_TERMINATED_RETENTION_DAYS = 30;
-export function computePurgeAtForTerminated(fromIso: string): string {
+const REQUEST_TERMINATED_RETENTION_DAYS = 30;
+function computePurgeAtForTerminated(fromIso: string): string {
   const d = new Date(fromIso);
   d.setUTCDate(d.getUTCDate() + REQUEST_TERMINATED_RETENTION_DAYS);
   return d.toISOString();
@@ -206,7 +206,7 @@ export function finalizeRequestPurgeMetadata(prev: RequestRecord, next: RequestR
   return { ...next, purgeAt: null };
 }
 
-export function requestShouldBePurged(record: RequestRecord, now = new Date()): boolean {
+function requestShouldBePurged(record: RequestRecord, now = new Date()): boolean {
   if (record.status !== "TERMINEE") return false;
   if (record.purgeAt) return now >= new Date(record.purgeAt);
   const legacy = new Date(record.updatedAt);
@@ -263,7 +263,7 @@ export async function purgeExpiredRequests(): Promise<{ removed: number }> {
 
 function compact(value: string) { return value.trim().replace(/\s+/g, " ")}
 
-export function deriveRequestSubject(description: string): string {
+function deriveRequestSubject(description: string): string {
   const line = compact(description).split(/\n/)[0] || compact(description);
   if (line.length <= 80) return line;
   return `${line.slice(0, 77)}…`;
@@ -352,8 +352,6 @@ function normalizeForMatch(input: string) {
 
 const ROUTING_CONFIDENCE_MIN = 0.52;
 
-export type { RequestRouteDef } from "@/app/lib/requests-types";
-
 /** Jamais assignées automatiquement — réservées au transfert manuel admin. */
 export const MANUAL_ONLY_DIRECTION_IDS = new Set(["direction_ecole", "direction_college", "direction_lycee"]);
 
@@ -398,7 +396,7 @@ async function applyDirectionGate(routing: ResolvedRequestRouting): Promise<Reso
   };
 }
 
-export async function getAllBranchStaffEmails(): Promise<string[]> {
+async function getAllBranchStaffEmails(): Promise<string[]> {
   const { routes } = await ensureRequestRoutes();
   const s = new Set<string>();
   for (const r of routes) {
@@ -434,7 +432,7 @@ function materializeAssigned(def: RequestRouteDef): RequestRecord["assignedTo"] 
   };
 }
 
-export async function listRequestRoutesForPicker(): Promise<Array<{ id: string; label: string; category: string }>> {
+async function listRequestRoutesForPicker(): Promise<Array<{ id: string; label: string; category: string }>> {
   const { routes } = await ensureRequestRoutes();
   return routes.filter((r) => r.id !== "corbeille").map((r) => ({
     id: r.id,
@@ -443,7 +441,7 @@ export async function listRequestRoutesForPicker(): Promise<Array<{ id: string; 
   }));
 }
 
-export async function listRequestRoutesForTransmit(): Promise<Array<{ id: string; label: string; category: string }>> {
+async function listRequestRoutesForTransmit(): Promise<Array<{ id: string; label: string; category: string }>> {
   const { routes } = await ensureRequestRoutes();
   return routes.filter((r) => r.id !== "corbeille" && MANUAL_ONLY_DIRECTION_IDS.has(r.id)).map((r) => ({
     id: r.id,
@@ -493,11 +491,11 @@ export async function isUserInRequestPool(record: RequestRecord, userEmail: stri
   return (await getRequestPoolEmails(record)).includes(normalizeRequestEmail(userEmail));
 }
 
-export function isSharedRequestPool(record: RequestRecord): boolean {
+function isSharedRequestPool(record: RequestRecord): boolean {
   return (record.assignedTo.poolEmails?.length ?? 0) > 1;
 }
 
-export async function isVisibleInMyQueue(record: RequestRecord, userEmail: string) {
+async function isVisibleInMyQueue(record: RequestRecord, userEmail: string) {
   if (!userEmail) return false;
   const u = normalizeRequestEmail(userEmail);
   const c = record.assignedTo.claimedBy;

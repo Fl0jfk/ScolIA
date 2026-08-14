@@ -39,7 +39,7 @@ export async function getTenantAwsRegion(): Promise<string> {
 }
 
 /** Bucket images (actualités…) — secrets tenant ou repli scola-image. */
-export async function getTenantImageBucket(): Promise<string> {
+async function getTenantImageBucket(): Promise<string> {
   try {
     const tenant = await getTenant();
     const fromSecrets = tenant.secrets?.aws?.imageBucket?.trim();

@@ -1,9 +1,9 @@
 /** Chemins OneDrive RH (drive de l'attachée de gestion). */
 
 export const RH_DEFAULT_BASE_PATH = "Dossier personnel";
-export const RH_TEMP_FOLDER = "Temp";
-export const RH_INDEX_FILE = "personnel-index.json";
-export const RH_META_FILE = "meta-rh.json";
+const RH_TEMP_FOLDER = "Temp";
+const RH_INDEX_FILE = "personnel-index.json";
+const RH_META_FILE = "meta-rh.json";
 
 export function normalizeRhBasePath(basePath?: string | null): string {
   const p = String(basePath ?? RH_DEFAULT_BASE_PATH).trim().replace(/^\/+|\/+$/g, "");

@@ -11,7 +11,7 @@ export const SCOLA_IMAGE_CDN_HOST =
   process.env.NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST?.trim() ||
   `${SCOLA_IMAGE_BUCKET}.s3.fr-par.scw.cloud`;
 
-export const SCOLA_IMAGE_CDN_BASE = `https://${SCOLA_IMAGE_CDN_HOST}`;
+const SCOLA_IMAGE_CDN_BASE = `https://${SCOLA_IMAGE_CDN_HOST}`;
 
 /** Anciens hosts AWS DocsLaPro → réécrits vers le CDN Scaleway. */
 const LEGACY_PUBLIC_IMAGE_HOSTS = new Set([

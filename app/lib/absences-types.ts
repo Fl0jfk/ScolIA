@@ -62,7 +62,7 @@ export type AbsenceRecord = {
 
 export const ABSENCES_INDEX_KEY = "absences/index.json";
 
-export function normRole(s: string) {
+function normRole(s: string) {
   return String(s || "")
     .toLowerCase()
     .normalize("NFD")
@@ -70,7 +70,7 @@ export function normRole(s: string) {
     .replace(/[_\s-]+/g, "");
 }
 
-export function normRoleSpaced(s: string) {
+function normRoleSpaced(s: string) {
   return String(s || "")
     .toLowerCase()
     .normalize("NFD")
@@ -84,12 +84,12 @@ export function hasRole(roles: string[], matcher: string) {
   return roles.some((r) => normRole(r).includes(m));
 }
 
-export function isTeacherRole(roles: string[]) {
+function isTeacherRole(roles: string[]) {
   return roles.some((r) => normRole(r).includes("professeur"));
 }
 
 /** Personnel OGEC (hors enseignement) : admin, compta, éducation, direction. */
-export function isOgecStaffRole(roles: string[]) {
+function isOgecStaffRole(roles: string[]) {
   const flags = getRoleFlags(roles);
   return (
     flags.isAdministratif ||
@@ -155,7 +155,7 @@ export function resolveAbsenceScope(abs: AbsenceRecord): AbsenceScope {
 }
 
 /** Qui peut consulter les absences du personnel OGEC (hors les siennes). */
-export function canViewOgecAbsences(roles: string[]) {
+function canViewOgecAbsences(roles: string[]) {
   const flags = getRoleFlags(roles);
   return (
     flags.isAdministratif ||
@@ -180,7 +180,7 @@ export function isAbsenceVisibleOnCalendar(
 }
 
 /** Pièces jointes absences personnel OGEC : compta et direction uniquement (jamais administratif). */
-export function canViewOgecAbsenceAttachments(roles: string[]) {
+function canViewOgecAbsenceAttachments(roles: string[]) {
   const flags = getRoleFlags(roles);
   if (flags.isCompta) return true;
   return flags.isDirectionEcole || flags.isDirectionCollege || flags.isDirectionLycee;
@@ -188,9 +188,9 @@ export function canViewOgecAbsenceAttachments(roles: string[]) {
 
 /** Pièces jointes absences professeurs : administratif et direction de l'établissement. */
 /** Pièces jointes absences : jamais exposées dans l’UI (données sensibles). */
-export const ABSENCE_ATTACHMENTS_DISABLED = true;
+const ABSENCE_ATTACHMENTS_DISABLED = true;
 
-export function canViewProfAbsenceAttachments(abs: AbsenceRecord, roles: string[]) {
+function canViewProfAbsenceAttachments(abs: AbsenceRecord, roles: string[]) {
   if (ABSENCE_ATTACHMENTS_DISABLED) return false;
   const flags = getRoleFlags(roles);
   if (flags.isAdministratif) return true;
@@ -219,7 +219,7 @@ export function canManageAbsenceAttachment(abs: AbsenceRecord, roles: string[]) 
   return canViewProfAbsenceAttachments(abs, roles);
 }
 
-export function redactAbsenceAttachments(abs: AbsenceRecord): AbsenceRecord {
+function redactAbsenceAttachments(abs: AbsenceRecord): AbsenceRecord {
   return {
     ...abs,
     justification: null,

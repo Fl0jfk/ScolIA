@@ -8,7 +8,7 @@ import {
 } from "@/app/lib/certificates-types";
 import { normalizeCertificateLine } from "@/app/lib/certificates-line";
 
-export type AwardsIndexEntry = {
+type AwardsIndexEntry = {
   id: string;
   programId: string;
   studentKey: string;
@@ -96,7 +96,7 @@ export async function loadProgramsIndex(): Promise<CertificateProgramIndexEntry[
   return Array.isArray(hit?.data) ? hit.data : [];
 }
 
-export async function saveProgramsIndex(entries: CertificateProgramIndexEntry[]): Promise<void> {
+async function saveProgramsIndex(entries: CertificateProgramIndexEntry[]): Promise<void> {
   await putJson(CERTIFICATE_S3.programsIndex, entries);
 }
 
@@ -129,7 +129,7 @@ export async function loadAwardsIndex(): Promise<AwardsIndexEntry[]> {
   return Array.isArray(hit?.data) ? hit.data : [];
 }
 
-export async function saveAwardsIndex(entries: AwardsIndexEntry[]): Promise<void> {
+async function saveAwardsIndex(entries: AwardsIndexEntry[]): Promise<void> {
   await putJson(CERTIFICATE_S3.awardsIndex, entries);
 }
 

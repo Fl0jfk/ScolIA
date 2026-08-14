@@ -14,14 +14,6 @@ import {
   type CuisineTripPayload,
 } from "@/app/lib/travels-cuisine-shared";
 
-export type { CuisineTripPayload } from "@/app/lib/travels-cuisine-shared";
-export {
-  CUISINE_DAYS,
-  CUISINE_ROWS,
-  formatCuisineDateFR,
-  cuisineDateRangeLabel,
-} from "@/app/lib/travels-cuisine-shared";
-
 export async function buildCuisineOrderPdfBase64(
   tripData: CuisineTripPayload,
   opts?: { userName?: string; chefEmail?: string; amendment?: boolean },

@@ -1,6 +1,6 @@
 import type { DashboardCategory } from "@/app/lib/intranet-modules";
 
-export const DASHBOARD_WEEK_SHEET_MODULE_ID = "dashboard-week-sheet";
+const DASHBOARD_WEEK_SHEET_MODULE_ID = "dashboard-week-sheet";
 
 export const WEEK_SHEET_STORAGE_PATH = "dashboard/week-sheet/current.json";
 
@@ -45,7 +45,7 @@ export type WeekSheetData = {
   multiWeekParsed?: boolean;
 };
 
-export const WEEK_SHEET_DASHBOARD_CATEGORY: DashboardCategory = {
+const WEEK_SHEET_DASHBOARD_CATEGORY: DashboardCategory = {
   id: 9001,
   moduleId: DASHBOARD_WEEK_SHEET_MODULE_ID,
   name: "Feuille de semaine",

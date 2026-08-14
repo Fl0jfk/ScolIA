@@ -1,4 +1,4 @@
-export type StaffBoardColumn = "CORBEILLE" | "NOUVELLES" | "EN_COURS" | "EN_ATTENTE" | "TERMINEE";
+type StaffBoardColumn = "CORBEILLE" | "NOUVELLES" | "EN_COURS" | "EN_ATTENTE" | "TERMINEE";
 
 export const LEGACY_ROUTE_TO_BRANCH: Record<string, string> = {
   "maintenance.consommables": "maintenance",
@@ -27,7 +27,7 @@ export function isCorbeilleBranchId(branchId: string): boolean {
   return branchId === "corbeille" || branchId === "tri.inconnu";
 }
 
-export type MinimalAssigned = {
+type MinimalAssigned = {
   routeId?: string;
   unit: string;
   email: string;
@@ -62,7 +62,7 @@ function getEffectivePoolEmails(assigned: MinimalAssigned, branch: string, allSt
   return [...new Set(raw.map(normalizeRequestEmail).filter(Boolean))];
 }
 
-export function isUserInBranchPool( assigned: MinimalAssigned, userEmail: string, allStaffEmails: string[]): boolean {
+function isUserInBranchPool( assigned: MinimalAssigned, userEmail: string, allStaffEmails: string[]): boolean {
   const u = normalizeRequestEmail(userEmail);
   const branch = normalizeRequestBranchId(assigned.routeId, assigned.unit);
   return getEffectivePoolEmails(assigned, branch, allStaffEmails).includes(u);

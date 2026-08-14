@@ -58,7 +58,7 @@ export function invalidateAppConfigCache() {
   cache = null;
 }
 
-export function isOnboardingComplete(config: AppConfigBundle): boolean {
+function isOnboardingComplete(config: AppConfigBundle): boolean {
   return config.identity.onboardingCompleted === true;
 }
 
@@ -350,7 +350,7 @@ export function getEstablishmentByLabel(bundle: AppConfigBundle, label: string):
   return bundle.establishments.find((e) => e.label === t) ?? null;
 }
 
-export function getEstablishmentById(bundle: AppConfigBundle, id: string): Establishment | null {
+function getEstablishmentById(bundle: AppConfigBundle, id: string): Establishment | null {
   return bundle.establishments.find((e) => e.id === id) ?? null;
 }
 

@@ -4,7 +4,7 @@ import type { RefObject } from "react";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import { TripButton, TripDocumentChip, TripSection } from "@/app/components/travels/TripDetailUI";
 
-export type TripDocumentsHubPanelProps = {
+type TripDocumentsHubPanelProps = {
   trip: TravelsTrip;
   isEditing: boolean;
   editedData: { attachments?: Array<{ name: string; url: string; s3Key?: string }> };

@@ -71,7 +71,7 @@ async function incomingClerkRequest(): Promise<Request> {
   return clerkRequestFromHeaders(hdrs);
 }
 
-export function clerkRequestFromNextRequest(request: NextRequest): Request {
+function clerkRequestFromNextRequest(request: NextRequest): Request {
   const headerInit = new Headers();
   request.headers.forEach((value, key) => {
     headerInit.set(key, value);

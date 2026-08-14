@@ -10,7 +10,7 @@ import {
 
 export const INSTALLATION_PENDING_TTL_MS = 2 * 60 * 60 * 1000;
 
-export const DEFAULT_INSTALLATION_CONFIG: InternatInstallationConfig = {
+const DEFAULT_INSTALLATION_CONFIG: InternatInstallationConfig = {
   enabled: false,
   title: "Installation internat — prise de rendez-vous",
   intro:
@@ -82,13 +82,11 @@ export async function listInstallationBookings(): Promise<InternatInstallationBo
   return purgeExpiredPendingBookings(list);
 }
 
-export async function saveInstallationBookings(
+async function saveInstallationBookings(
   rows: InternatInstallationBooking[],
 ): Promise<void> {
   await putJson(INTERNAT_S3.installationBookings, rows);
 }
-
-export { countBookingsBySlot, isConfirmedInstallationBooking } from "@/app/lib/internat-installation-slots";
 
 export function generateInstallationConfirmToken(): string {
   return randomBytes(32).toString("base64url");

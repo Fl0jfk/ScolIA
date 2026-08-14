@@ -1,6 +1,6 @@
 import type { ToolboxToolId } from "@/app/lib/toolbox-types";
 
-export type ToolboxToolMeta = {
+type ToolboxToolMeta = {
   id: ToolboxToolId;
   label: string;
   shortLabel: string;
@@ -64,7 +64,7 @@ export const TOOLBOX_HUB_LINKS: ToolboxHubLinkMeta[] = [
   },
 ];
 
-export function toolboxMetaById(id: ToolboxToolId): ToolboxToolMeta | undefined {
+function toolboxMetaById(id: ToolboxToolId): ToolboxToolMeta | undefined {
   return TOOLBOX_TOOLS_META.find((t) => t.id === id);
 }
 

@@ -44,7 +44,7 @@ export async function saveAbsenceRecord(record: AbsenceRecord) {
   return normalized;
 }
 
-export async function deleteAbsenceRecordJson(id: string) {
+async function deleteAbsenceRecordJson(id: string) {
   const bucket = await getBucketName();
   const s3Client = await getTenantDataS3Client();
   try {
@@ -110,7 +110,7 @@ export async function purgeExpiredAbsences(index: AbsenceRecord[]) {
   return index;
 }
 
-export async function upsertAbsenceInIndex(record: AbsenceRecord) {
+async function upsertAbsenceInIndex(record: AbsenceRecord) {
   const index = await getAbsenceIndex();
   const pos = index.findIndex((a) => a.id === record.id);
   if (pos >= 0) index[pos] = record;
@@ -132,7 +132,7 @@ async function deleteStorageKeyIfUnused(key: string, index: AbsenceRecord[]) {
 }
 
 /** Supprime les fichiers S3 liés à une absence (sans supprimer l'absence elle-même). */
-export async function purgeAbsenceDocumentsFromStorage(
+async function purgeAbsenceDocumentsFromStorage(
   record: AbsenceRecord,
   index: AbsenceRecord[],
 ): Promise<AbsenceRecord> {

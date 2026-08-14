@@ -7,10 +7,10 @@ import type {
   DomainPlanningSignup,
 } from "@/app/lib/domain-planning-types";
 
-export const DOMAINS_KEY = "domain-planning/domains.json";
-export const BOOKINGS_KEY = "domain-planning/bookings.json";
-export const SESSIONS_KEY = "domain-planning/sessions.json";
-export const SIGNUPS_KEY = "domain-planning/signups.json";
+const DOMAINS_KEY = "domain-planning/domains.json";
+const BOOKINGS_KEY = "domain-planning/bookings.json";
+const SESSIONS_KEY = "domain-planning/sessions.json";
+const SIGNUPS_KEY = "domain-planning/signups.json";
 
 const DEPRECATED_DOMAIN_IDS = new Set(["unss"]);
 

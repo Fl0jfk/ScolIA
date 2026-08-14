@@ -7,7 +7,7 @@ import {
 } from "@/app/lib/rgpd-types";
 import { resolvePlatformDpaFlags } from "@/app/lib/rgpd-platform-dpas";
 
-export const RGPD_WORKSPACE_KEY = "rgpd/workspace.json";
+const RGPD_WORKSPACE_KEY = "rgpd/workspace.json";
 
 function incidentKey(id: string) {
   return `rgpd/incidents/${id}.json`;
@@ -25,7 +25,7 @@ export function newRgpdId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-export function emptyWorkspace(): RgpdWorkspace {
+function emptyWorkspace(): RgpdWorkspace {
   const now = new Date().toISOString();
   return {
     version: 1,
@@ -80,7 +80,7 @@ export async function saveRgpdWorkspace(workspace: RgpdWorkspace): Promise<void>
   await putJson(RGPD_WORKSPACE_KEY, workspace);
 }
 
-export async function appendWorkspaceHistory(
+async function appendWorkspaceHistory(
   workspace: RgpdWorkspace,
   entry: Omit<RgpdWorkspaceHistoryEntry, "at"> & { at?: string },
 ): Promise<RgpdWorkspace> {

@@ -1,7 +1,7 @@
 /** Clés / helpers mémoire ScolIA (localStorage, côté client). */
 
 export const SCOLIA_AI_NAME = "ScolIA";
-export const SCOLIA_AI_MEMORY_KEY = "scolia-ai-memory-v1";
+const SCOLIA_AI_MEMORY_KEY = "scolia-ai-memory-v1";
 export const SCOLIA_AI_PAGE_PATH = "/scolia-ai";
 
 export type ScoliaMemoryMessage = {
@@ -9,7 +9,7 @@ export type ScoliaMemoryMessage = {
   content: string;
 };
 
-export type ScoliaMemorySnapshot = {
+type ScoliaMemorySnapshot = {
   version: 1;
   updatedAt: string;
   messages: ScoliaMemoryMessage[];

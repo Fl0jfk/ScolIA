@@ -4,7 +4,7 @@ import { getTenantAwsRegion, getTenantBucketName } from "@/app/lib/tenant-config
 import { isSafeS3RelativeKey, keyHasAllowedPrefix, s3Key } from "@/app/lib/s3-path";
 
 /** Préfixes objets voyages (upload, JSON, devis e-mail). */
-export const TRAVELS_DOWNLOAD_KEY_PREFIXES = ["travels", "attachments", "devis-incoming"] as const;
+const TRAVELS_DOWNLOAD_KEY_PREFIXES = ["travels", "attachments", "devis-incoming"] as const;
 
 export function isAllowedTravelsDownloadKey(key: string): boolean {
   const n = s3Key(key);
@@ -19,7 +19,7 @@ export function isAllowedTravelsDownloadKey(key: string): boolean {
   return false;
 }
 
-export function encodeS3KeyForUrl(key: string): string {
+function encodeS3KeyForUrl(key: string): string {
   return key
     .split("/")
     .map((segment) => encodeURIComponent(segment))

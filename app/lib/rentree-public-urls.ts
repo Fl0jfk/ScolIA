@@ -22,7 +22,7 @@ export function isAllowedRentreeS3Key(key: string): boolean {
   return k.startsWith("documents/rentree/") || k.startsWith("toolbox/rentree/");
 }
 
-export function rentreePublicFileApiUrl(key: string): string {
+function rentreePublicFileApiUrl(key: string): string {
   return `/api/rentree/file?key=${encodeURIComponent(key.replace(/^\/+/, ""))}`;
 }
 
@@ -116,7 +116,7 @@ function extractRentreeKeyFromS3Url(href: string): string | null {
 }
 
 /** Transforme chemins S3 / URLs bucket privé en route publique signée. */
-export async function resolveRentreePublicHref(
+async function resolveRentreePublicHref(
   href: string,
   kind?: "pdf" | "link",
 ): Promise<string> {

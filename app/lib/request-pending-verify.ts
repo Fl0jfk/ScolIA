@@ -4,9 +4,9 @@ import { assertEligibleRequestAttachment, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD, sa
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getTenantBucketName } from "@/app/lib/tenant-config";
 
-export const PENDING_REQUEST_TTL_MS = 72 * 60 * 60 * 1000;
+const PENDING_REQUEST_TTL_MS = 72 * 60 * 60 * 1000;
 
-export type PendingRequestMeta = {
+type PendingRequestMeta = {
   version: 1;
   firstName: string;
   lastName: string;
