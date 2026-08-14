@@ -1,5 +1,5 @@
 import type { NextConfig } from "next";
-import { contentSecurityPolicyHeaderValue, contentSecurityPolicyReportOnlyHeaderValue, crossOriginOpenerPolicyHeaderValue } from "./app/lib/content-security-policy";
+import { contentSecurityPolicyHeaderValue, crossOriginOpenerPolicyHeaderValue } from "./app/lib/content-security-policy";
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -37,10 +37,6 @@ const nextConfig: NextConfig = {
       {
         key: "Content-Security-Policy",
         value: contentSecurityPolicyHeaderValue(),
-      },
-      {
-        key: "Content-Security-Policy-Report-Only",
-        value: contentSecurityPolicyReportOnlyHeaderValue(),
       },
       {
         key: "Cross-Origin-Opener-Policy",
