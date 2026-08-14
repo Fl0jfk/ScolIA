@@ -1,5 +1,6 @@
 import "server-only";
 
+import { graphDriveRootItemUrl } from "@/app/lib/graph-onedrive-path";
 import {
   getRhDriveAccessToken,
   getRhDrivePublicConfig,
@@ -13,21 +14,11 @@ import {
 } from "@/app/lib/rh/types";
 import { rhIndexPath, rhMetaPath } from "@/app/lib/rh/paths";
 
-const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
-
-function encodePath(path: string): string {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((seg) => encodeURIComponent(seg))
-    .join("/");
-}
-
 async function graphGetJson<T>(
   accessToken: string,
   pathInDrive: string,
 ): Promise<{ ok: true; data: T } | { ok: false; status: number; error: string }> {
-  const url = `${GRAPH_BASE}/me/drive/root:/${encodePath(pathInDrive)}:/content`;
+  const url = graphDriveRootItemUrl(pathInDrive, "/content");
   const res = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -50,7 +41,7 @@ async function graphPutJson(
   pathInDrive: string,
   body: unknown,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const url = `${GRAPH_BASE}/me/drive/root:/${encodePath(pathInDrive)}:/content`;
+  const url = graphDriveRootItemUrl(pathInDrive, "/content");
   const res = await fetch(url, {
     method: "PUT",
     headers: {

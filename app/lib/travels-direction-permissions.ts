@@ -1,15 +1,14 @@
 /** Aligné sur la logique « canSign » de la fiche voyage (direction par établissement). */
 
-type ClerkLikeUser = {
-  id?: string | null;
-  fullName?: string | null;
-  publicMetadata?: Record<string, unknown> | null;
-};
+import type { ClerkLikeUser } from "@/app/lib/clerk-user-types";
 
 const norm = (v: string) =>
   v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s-]+/g, "");
 
-export function canSignTravelsDirectionForEtab(user: ClerkLikeUser | null, etablissement: string | null | undefined): boolean {
+export function canSignTravelsDirectionForEtab(
+  user: ClerkLikeUser | null | undefined,
+  etablissement: string | null | undefined,
+): boolean {
   if (!user?.publicMetadata) return false;
   const rawRoles = user.publicMetadata.role;
   const userRoles: string[] = Array.isArray(rawRoles) ? (rawRoles as string[]) : rawRoles ? [String(rawRoles)] : [];

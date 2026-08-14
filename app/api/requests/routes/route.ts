@@ -1,4 +1,5 @@
 import { resolveSession, safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
 import { canAccessRequestsStaffBoard } from "@/app/lib/requests-staff-access";
@@ -13,8 +14,7 @@ export async function GET(req: Request) {
   const userId = session?.userId;
   if (!userId) return new NextResponse("Non autorisé", { status: 401 });
   const user = await safeCurrentUser();
-  const roleRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(roleRaw) ? roleRaw.map(String) : roleRaw ? [String(roleRaw)] : [];
+  const roles = rolesFromUserLike(user);
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
   if (!(await canAccessRequestsStaffBoard(roles, userEmail))) return new NextResponse("Accès refusé", { status: 403 });
   const config = await getRequestsRoutingConfig();

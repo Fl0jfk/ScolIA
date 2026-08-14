@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -22,8 +23,7 @@ export async function POST(
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
   const user = await safeCurrentUser();
-  const rolesRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
+  const roles = rolesFromUserLike(user);
   if (!canAccessRgpdModule(roles)) {
     return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
   }

@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canViewPersonnelDashboard } from "@/app/lib/personnel-types";
 import { readRhPersonnelIndex } from "@/app/lib/rh/meta-storage";
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 /** Index personnel OneDrive (léger) — fondation registre RH. */
 export async function GET() {
@@ -15,7 +12,7 @@ export async function GET() {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  if (!user || !canViewPersonnelDashboard(rolesFromUser(user))) {
+  if (!user || !canViewPersonnelDashboard(rolesFromUserLike(user))) {
     return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
   }
 

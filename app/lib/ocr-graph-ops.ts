@@ -1,8 +1,7 @@
 import "server-only";
 
 import { ensureFolderPath } from "@/app/lib/graph-onedrive-folders";
-
-const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
+import { GRAPH_API_BASE, graphDriveRootItemUrl } from "@/app/lib/graph-onedrive-path";
 
 export function parseGraphRetryAfterMs(res: Response, attempt: number): number {
   const raw = res.headers.get("Retry-After");
@@ -30,7 +29,7 @@ export async function oneDriveItemExists(
   accessToken: string,
   itemPath: string,
 ): Promise<boolean> {
-  const res = await fetch(`${GRAPH_BASE}/me/drive/root:/${itemPath}:`, {
+  const res = await fetch(graphDriveRootItemUrl(itemPath), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   return res.ok;
@@ -47,8 +46,8 @@ export async function uploadBytesToOneDrive(
   for (let attempt = 0; attempt < 5; attempt++) {
     const replace = attempt === 0;
     const url = replace
-      ? `${GRAPH_BASE}/me/drive/root:/${itemPath}:/content?@microsoft.graph.conflictBehavior=replace`
-      : `${GRAPH_BASE}/me/drive/root:/${itemPath}:/content`;
+      ? graphDriveRootItemUrl(itemPath, "/content?@microsoft.graph.conflictBehavior=replace")
+      : graphDriveRootItemUrl(itemPath, "/content");
 
     const res = await fetch(url, {
       method: "PUT",
@@ -80,7 +79,7 @@ export async function uploadBytesToOneDrive(
 
 export async function deleteOneDrivePath(accessToken: string, itemPath: string) {
   try {
-    const res = await fetch(`${GRAPH_BASE}/me/drive/root:/${itemPath}:`, {
+    const res = await fetch(graphDriveRootItemUrl(itemPath), {
       method: "DELETE",
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -98,7 +97,7 @@ export async function moveOneDriveFile(
   targetFolderPath: string,
   newFileName?: string,
 ): Promise<{ ok: true; finalFileName: string } | { ok: false; status: number; detail: string }> {
-  const sourceRes = await fetch(`${GRAPH_BASE}/me/drive/root:/${sourcePath}:`, {
+  const sourceRes = await fetch(graphDriveRootItemUrl(sourcePath), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!sourceRes.ok) {
@@ -113,7 +112,7 @@ export async function moveOneDriveFile(
 
   await ensureFolderPath(accessToken, targetFolderPath);
 
-  const targetFolderRes = await fetch(`${GRAPH_BASE}/me/drive/root:/${targetFolderPath}:`, {
+  const targetFolderRes = await fetch(graphDriveRootItemUrl(targetFolderPath), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!targetFolderRes.ok) {
@@ -128,7 +127,7 @@ export async function moveOneDriveFile(
   const finalFileName =
     newFileName && newFileName.trim().length > 0 ? newFileName.trim() : (sourceItem.name as string);
 
-  const childrenRes = await fetch(`${GRAPH_BASE}/drives/${driveId}/items/${targetFolderId}/children`, {
+  const childrenRes = await fetch(`${GRAPH_API_BASE}/drives/${driveId}/items/${targetFolderId}/children`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -149,7 +148,7 @@ export async function moveOneDriveFile(
   }
 
   for (let attempt = 0; attempt < 6; attempt++) {
-    const moveRes = await fetch(`${GRAPH_BASE}/drives/${driveId}/items/${sourceItemId}`, {
+    const moveRes = await fetch(`${GRAPH_API_BASE}/drives/${driveId}/items/${sourceItemId}`, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${accessToken}`,

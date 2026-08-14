@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canAccessRgpdModule } from "@/app/lib/rgpd-access";
@@ -16,16 +17,12 @@ import type {
   RgpdSecurityIncidentFields,
 } from "@/app/lib/rgpd-types";
 
-function rolesFromUser(user: { publicMetadata?: { role?: unknown } } | null): string[] {
-  const raw = user?.publicMetadata?.role;
-  return Array.isArray(raw) ? raw.map(String) : raw ? [String(raw)] : [];
-}
 
 export async function GET() {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
   const user = await safeCurrentUser();
-  if (!canAccessRgpdModule(rolesFromUser(user))) {
+  if (!canAccessRgpdModule(rolesFromUserLike(user))) {
     return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
   }
   const workspace = await loadRgpdWorkspace();
@@ -37,7 +34,7 @@ export async function POST(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
   const user = await safeCurrentUser();
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   if (!canAccessRgpdModule(roles)) {
     return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
   }

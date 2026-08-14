@@ -14,7 +14,13 @@ import {
 
 async function verifyWebhookAuth(req: Request): Promise<boolean> {
   const secret = process.env.EASYTRANSAC_WEBHOOK_SECRET?.trim();
-  if (!secret) return true;
+  if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      console.error("[easytransac/webhook] EASYTRANSAC_WEBHOOK_SECRET manquant");
+      return false;
+    }
+    return true;
+  }
   const header = req.headers.get("x-easytransac-secret") || req.headers.get("authorization");
   return header === secret || header === `Bearer ${secret}`;
 }

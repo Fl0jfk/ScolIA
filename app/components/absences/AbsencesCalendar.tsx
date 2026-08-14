@@ -1,6 +1,7 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   canManageAbsence,
@@ -354,11 +355,7 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
     return () => media.removeEventListener("change", update);
   }, []);
 
-  const roles = useMemo(() => {
-    if (!userLoaded) return [] as string[];
-    const rolesRaw = user?.publicMetadata?.role;
-    return Array.isArray(rolesRaw) ? (rolesRaw as string[]) : rolesRaw ? [String(rolesRaw)] : [];
-  }, [user, userLoaded]);
+  const roles = useMemo(() => (userLoaded ? rolesFromUserLike(user) : []), [user, userLoaded]);
 
   const canViewDocumentsFor = useMemo(() => {
     // Pièces jointes absences : jamais affichées (trop sensibles).

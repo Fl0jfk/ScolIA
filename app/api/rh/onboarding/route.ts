@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canManagePersonnel } from "@/app/lib/personnel-types";
@@ -9,17 +10,13 @@ import {
 import { RH_ONBOARDING_STATUS_LABELS } from "@/app/lib/rh/onboarding-types";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 export async function GET() {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  if (!user || !canManagePersonnel(rolesFromUser(user))) {
+  if (!user || !canManagePersonnel(rolesFromUserLike(user))) {
     return NextResponse.json({ error: "Réservé à la RH." }, { status: 403 });
   }
 
@@ -37,7 +34,7 @@ export async function POST(req: Request) {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  if (!user || !canManagePersonnel(rolesFromUser(user))) {
+  if (!user || !canManagePersonnel(rolesFromUserLike(user))) {
     return NextResponse.json({ error: "Réservé à la RH." }, { status: 403 });
   }
 

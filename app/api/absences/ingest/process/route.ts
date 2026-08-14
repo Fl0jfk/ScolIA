@@ -1,4 +1,5 @@
 import { resolveSession, safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
 import { readIngestJob, canIngestFromUser } from "../ingest-job";
@@ -12,8 +13,7 @@ export async function POST(req: Request) {
   if (!userId) return new NextResponse("Non autorisé", { status: 401 });
 
   const user = await safeCurrentUser();
-  const rolesRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(rolesRaw) ? (rolesRaw as string[]) : rolesRaw ? [String(rolesRaw)] : [];
+  const roles = rolesFromUserLike(user);
   if (!canIngestFromUser(roles)) {
     return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
   }

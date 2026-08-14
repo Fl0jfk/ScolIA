@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
@@ -121,8 +122,7 @@ export async function GET(req: Request) {
   if (!gate.ok) return gate.response;
   const { userId } = gate.ctx;
   const user = await safeCurrentUser();
-  const rolesRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(rolesRaw) ? (rolesRaw as string[]) : rolesRaw ? [String(rolesRaw)] : [];
+  const roles = rolesFromUserLike(user);
 
   const { searchParams } = new URL(req.url);
   const calendarOnly = searchParams.get("calendar") === "true";
@@ -164,8 +164,7 @@ export async function POST(req: Request) {
   if (!gate.ok) return gate.response;
   const { userId } = gate.ctx;
   const user = await safeCurrentUser();
-  const rolesRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(rolesRaw) ? (rolesRaw as string[]) : rolesRaw ? [String(rolesRaw)] : [];
+  const roles = rolesFromUserLike(user);
 
   try {
     const body = await req.json();
@@ -326,8 +325,7 @@ export async function PATCH(req: Request) {
   if (!gate.ok) return gate.response;
   const { userId } = gate.ctx;
   const user = await safeCurrentUser();
-  const rolesRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(rolesRaw) ? (rolesRaw as string[]) : rolesRaw ? [String(rolesRaw)] : [];
+  const roles = rolesFromUserLike(user);
 
   try {
     const body = await req.json();
@@ -734,8 +732,7 @@ export async function DELETE(req: Request) {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  const rolesRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(rolesRaw) ? (rolesRaw as string[]) : rolesRaw ? [String(rolesRaw)] : [];
+  const roles = rolesFromUserLike(user);
   if (!canViewCalendar(roles)) return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
 
   const { searchParams } = new URL(req.url);

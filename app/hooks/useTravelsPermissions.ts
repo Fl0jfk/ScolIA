@@ -3,6 +3,7 @@
 import { useUser } from "@clerk/nextjs";
 import { useMemo } from "react";
 import { useAppContext } from "@/app/hooks/useAppContext";
+import { canSignForEstablishmentLabel } from "@/app/lib/establishment-sign-permissions";
 import {
   canSignTravelsDirectionForEtab,
   isTripOwnerOrCreator,
@@ -14,18 +15,19 @@ import type { TravelsTrip } from "@/app/lib/travels-types";
 export function useTravelsPermissions(trip: TravelsTrip | null) {
   const { user } = useUser();
   const { data: appCtx } = useAppContext();
-
   const roles = useMemo(() => {
     const fromContext = appCtx?.session?.intranetRoles;
     if (Array.isArray(fromContext) && fromContext.length > 0) return fromContext;
     return intranetRolesFromMetadata(user?.publicMetadata);
   }, [appCtx?.session?.intranetRoles, user?.publicMetadata]);
-
   return useMemo(() => {
     const etabForSign = trip?.data?.etablissement || "";
-    const isDirection = canSignTravelsDirectionForEtab(user, etabForSign);
-    const isCompta =
-      roles.includes("comptabilité") || hasRole(roles, "comptabilite");
+    const establishments = appCtx?.establishments ?? [];
+    const isDirection =
+      establishments.length > 0
+        ? canSignForEstablishmentLabel(user ?? null, establishments, etabForSign)
+        : canSignTravelsDirectionForEtab(user ?? null, etabForSign);
+    const isCompta = roles.includes("comptabilité") || hasRole(roles, "comptabilite");
     const isAdministratif = hasRole(roles, "administratif");
     const isGlobalAdmin = appCtx?.session?.isGlobalAdmin === true || hasGlobalAdminRole(roles);
     const canReassignTripOwner = isAdministratif || isGlobalAdmin;
@@ -39,7 +41,6 @@ export function useTravelsPermissions(trip: TravelsTrip | null) {
       trip != null &&
       !["SEANCE_ANNULEE", "REJETE", "ANNULE"].includes(trip.status);
     const canAccessComptaTab = isCompta || isAdministratif || isDirection;
-
     return {
       user,
       isOwner,
@@ -56,5 +57,5 @@ export function useTravelsPermissions(trip: TravelsTrip | null) {
       canSeeTravelDocHoverActions,
       canEditEffectif,
     };
-  }, [trip, user, roles, appCtx?.session?.isGlobalAdmin]);
+  }, [trip, user, roles, appCtx?.session?.isGlobalAdmin, appCtx?.establishments]);
 }

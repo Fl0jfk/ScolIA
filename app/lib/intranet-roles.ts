@@ -1,3 +1,5 @@
+import { normRole } from "./intranet-role-utils";
+
 /** Slugs stockés dans Clerk `publicMetadata.role` (tableau de strings). */
 export const INTRANET_ROLE_OPTIONS: { slug: string; label: string }[] = [
   { slug: "admin", label: "Admin (gestion utilisateurs & paramètres)" },
@@ -30,13 +32,28 @@ export function intranetRolesExceptParent(): string[] {
 const ALLOWED = new Set(INTRANET_ROLE_OPTIONS.map((r) => r.slug));
 const HIDDEN_ROLES = new Set(["master"]);
 
+/** Libellés historiques Clerk → slug catalogue (ne retire aucun slug déjà valide). */
+function canonicalIntranetRole(raw: string): string | null {
+  const s = raw.trim();
+  if (!s) return null;
+  if (ALLOWED.has(s) || HIDDEN_ROLES.has(s)) return s;
+  const n = normRole(s);
+  for (const opt of INTRANET_ROLE_OPTIONS) {
+    if (normRole(opt.slug) === n || normRole(opt.label) === n) return opt.slug;
+  }
+  if (n.includes("direction") && n.includes("ecole")) return "direction_ecole";
+  if (n.includes("direction") && n.includes("college")) return "direction_college";
+  if (n.includes("direction") && n.includes("lycee")) return "direction_lycee";
+  return null;
+}
+
 export function normalizeIntranetRoles(input: unknown): string[] {
   const raw = Array.isArray(input) ? input : typeof input === "string" && input ? [input] : [];
   const out: string[] = [];
   for (const r of raw) {
-    const s = String(r).trim();
-    if (!s || out.includes(s)) continue;
-    if (ALLOWED.has(s) || HIDDEN_ROLES.has(s)) out.push(s);
+    const canonical = canonicalIntranetRole(String(r));
+    if (!canonical || out.includes(canonical)) continue;
+    out.push(canonical);
   }
   return out;
 }
@@ -44,6 +61,13 @@ export function normalizeIntranetRoles(input: unknown): string[] {
 export function intranetRolesFromMetadata(meta: unknown): string[] {
   const role = (meta as Record<string, unknown> | undefined)?.role;
   return normalizeIntranetRoles(role);
+}
+
+/** Rôles intranet depuis un user Clerk (client ou serveur). */
+export function rolesFromUserLike(
+  user: { publicMetadata?: unknown } | null | undefined,
+): string[] {
+  return intranetRolesFromMetadata(user?.publicMetadata);
 }
 
 /**

@@ -2,6 +2,12 @@ import "server-only";
 
 import { getTenant, getTenantAppUrl } from "@/app/lib/tenant-context";
 import { getTenantSecrets } from "@/app/lib/tenant-registry";
+import {
+  buildMicrosoftAuthorizeUrl,
+  microsoftAuthorizationCodeParams,
+  microsoftRefreshTokenParams,
+  postMicrosoftOAuthToken,
+} from "@/app/lib/microsoft-oauth-token";
 
 /** Cookie anti-CSRF OAuth Teams (compte Microsoft personnel). */
 export const TEAMS_CHAT_OAUTH_STATE_COOKIE = "teams_chat_oauth_state";
@@ -59,17 +65,13 @@ async function microsoftAppCreds(): Promise<{
 
 export async function buildTeamsChatOAuthAuthorizeUrl(state: string): Promise<string> {
   const { clientId, tenantId } = await microsoftAppCreds();
-  const redirectUri = await getTeamsChatOAuthRedirectUri();
-  const params = new URLSearchParams({
-    client_id: clientId,
-    response_type: "code",
-    redirect_uri: redirectUri,
-    response_mode: "query",
+  return buildMicrosoftAuthorizeUrl({
+    tenantId,
+    clientId,
+    redirectUri: await getTeamsChatOAuthRedirectUri(),
     scope: TEAMS_CHAT_GRAPH_SCOPES,
     state,
-    prompt: "select_account",
   });
-  return `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params.toString()}`;
 }
 
 export async function exchangeTeamsChatOAuthCode(code: string): Promise<{
@@ -78,40 +80,26 @@ export async function exchangeTeamsChatOAuthCode(code: string): Promise<{
 }> {
   const { clientId, tenantId, clientSecret } = await microsoftAppCreds();
   const redirectUri = await getTeamsChatOAuthRedirectUri();
-  const params = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    code,
-    redirect_uri: redirectUri,
-    grant_type: "authorization_code",
-    scope: TEAMS_CHAT_GRAPH_SCOPES,
-  });
-
-  const res = await fetch(
-    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params,
-    },
+  const result = await postMicrosoftOAuthToken(
+    tenantId,
+    microsoftAuthorizationCodeParams({
+      clientId,
+      clientSecret,
+      code,
+      redirectUri,
+      scope: TEAMS_CHAT_GRAPH_SCOPES,
+    }),
   );
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Échange code OAuth Teams : ${err.slice(0, 400)}`);
+  if (!result.ok) {
+    throw new Error(`Échange code OAuth Teams : ${result.body.slice(0, 400)}`);
   }
-
-  const data = (await res.json()) as {
-    access_token?: string;
-    refresh_token?: string;
-  };
-  if (!data.access_token) throw new Error("Réponse OAuth Teams sans access_token.");
-  if (!data.refresh_token) {
+  if (!result.tokens.refreshToken) {
     throw new Error(
       "Réponse OAuth sans refresh_token — vérifiez offline_access et le type d'app (Web).",
     );
   }
-  return { accessToken: data.access_token, refreshToken: data.refresh_token };
+  return { accessToken: result.tokens.accessToken, refreshToken: result.tokens.refreshToken };
 }
 
 export async function refreshTeamsChatAccessToken(refreshToken: string): Promise<{
@@ -119,35 +107,21 @@ export async function refreshTeamsChatAccessToken(refreshToken: string): Promise
   refreshToken?: string;
 }> {
   const { clientId, tenantId, clientSecret } = await microsoftAppCreds();
-  const params = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    refresh_token: refreshToken.trim(),
-    grant_type: "refresh_token",
-    scope: TEAMS_CHAT_GRAPH_SCOPES,
-  });
-
-  const res = await fetch(
-    `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params,
-    },
+  const result = await postMicrosoftOAuthToken(
+    tenantId,
+    microsoftRefreshTokenParams({
+      clientId,
+      clientSecret,
+      refreshToken,
+      scope: TEAMS_CHAT_GRAPH_SCOPES,
+    }),
   );
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Refresh token Teams : ${err.slice(0, 400)}`);
+  if (!result.ok) {
+    throw new Error(`Refresh token Teams : ${result.body.slice(0, 400)}`);
   }
-
-  const data = (await res.json()) as {
-    access_token?: string;
-    refresh_token?: string;
-  };
-  if (!data.access_token) throw new Error("Réponse refresh Teams sans access_token.");
   return {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token?.trim() || undefined,
+    accessToken: result.tokens.accessToken,
+    refreshToken: result.tokens.refreshToken,
   };
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
@@ -10,10 +11,6 @@ import { buildOrganigramView } from "@/app/lib/organigramme-resolve";
 import { getPersonnelIndex } from "@/app/lib/personnel-storage";
 import { getRequestsRoutingConfig } from "@/app/lib/requests-routing-config";
 
-function rolesFromUser(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 export async function GET() {
   const gate = await requireAuth();
@@ -21,7 +18,7 @@ export async function GET() {
 
   try {
     const user = await safeCurrentUser();
-    const roles = rolesFromUser(user);
+    const roles = rolesFromUserLike(user);
     const [config, personnelIndex, app, routing] = await Promise.all([
       loadOrganigramConfig(),
       getPersonnelIndex().catch(() => []),

@@ -21,6 +21,7 @@ import RhRegistrePanel from "@/app/components/personnel/RhRegistrePanel";
 
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import { canAccessHseModule } from "@/app/lib/demandes-hse-access";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import type { PersonnelDashboardData } from "@/app/lib/personnel-dashboard";
 import { type PersonnelIndexEntry, type SharedPersonnelDocument } from "@/app/lib/personnel-types";
 
@@ -58,10 +59,7 @@ export default function RhModuleClient() {
   const [showNew, setShowNew] = useState(false);
   const [canManage, setCanManage] = useState(false);
 
-  const roles = useMemo(() => {
-    const rolesRaw = user?.publicMetadata?.role;
-    return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-  }, [user]);
+  const roles = useMemo(() => rolesFromUserLike(user), [user]);
 
   const canAccessHse = canAccessHseModule(roles);
 

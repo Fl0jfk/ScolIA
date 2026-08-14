@@ -6,6 +6,7 @@ import { REQUEST_STATUSES, RequestAttachment, RequestComment, RequestRecord, Req
 import { isCorbeilleBranchId, normalizeRequestBranchId, normalizeRequestEmail} from "@/app/lib/requests-board";
 import { canAccessRequestsStaffBoard } from "@/app/lib/requests-staff-access";
 import { isStaffInBranchPool } from "@/app/lib/staff-directory";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
 const LEGACY_ASSIGN_UNIT_TO_ROUTE: Record<string, string> = { comptabilite: "comptabilite", maintenance: "maintenance", "direction-college": "admin_college", "direction-lycee": "admin_lycee", "vie-scolaire": "vie_scolaire_infirmerie", informatique: "maintenance"};
 
@@ -16,8 +17,7 @@ export async function PATCH(req: Request) {
     const user = await safeCurrentUser();
     const actorName = user?.fullName || user?.firstName || "Équipe";
     const actorEmail = user?.primaryEmailAddress?.emailAddress || "";
-    const roleRaw = user?.publicMetadata?.role;
-    const actorRoles = Array.isArray(roleRaw) ? roleRaw.map(String) : roleRaw ? [String(roleRaw)] : [];
+    const actorRoles = rolesFromUserLike(user);
   try {
     const contentType = req.headers.get("content-type") || "";
     let body: Record<string, unknown>;

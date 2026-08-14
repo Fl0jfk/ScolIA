@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { loadAppConfig } from "@/app/lib/app-config";
@@ -23,10 +24,6 @@ import {
   type TeacherPlanningDoc,
 } from "@/app/lib/rh/planning-types";
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 function isTeacherRole(roles: string[]) {
   return hasRole(roles, "professeur");
@@ -41,7 +38,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   }
 
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   if (!canAccessPersonnelModule(roles) && !canViewPersonnelDashboard(roles) && !isTeacherRole(roles)) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   }
@@ -194,7 +191,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   }
 
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   const canManage = canManagePersonnel(roles);
 
   let body: { personnelId?: unknown; planning?: unknown };

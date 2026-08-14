@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canManagePersonnel } from "@/app/lib/personnel-types";
 import { clearRhDriveLink } from "@/app/lib/rh/graph-rh-drive";
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 /** Déconnecte le OneDrive RH (supprime le refresh token). */
 export async function POST() {
@@ -15,7 +12,7 @@ export async function POST() {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  if (!user || !canManagePersonnel(rolesFromUser(user))) {
+  if (!user || !canManagePersonnel(rolesFromUserLike(user))) {
     return NextResponse.json({ error: "Réservé à la RH / comptabilité." }, { status: 403 });
   }
 

@@ -12,11 +12,35 @@ import {
   isValidOpenInstallationSlot,
   parseInstallationSlotKey,
 } from "@/app/lib/internat-installation-slots";
+import { escapeHtml } from "@/app/lib/escape-html";
+import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
+
+/** 10 POST / IP / 10 min — même famille que chatbot / portail parents. */
+const internatRegisterLimiter = createMemoryRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+});
 
 export async function POST(req: Request) {
   try {
+    if (!internatRegisterLimiter.allow(clientIpFromRequest(req))) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez dans quelques minutes." },
+        { status: 429 },
+      );
+    }
+
     const body = (await req.json()) as Record<string, unknown>;
+    const honeypot = String(body.website || body.company || "").trim();
+    if (honeypot) {
+      return NextResponse.json({
+        success: true,
+        bookingId: "ignored",
+        slotLabel: "votre créneau",
+      });
+    }
+
     const slotStart = String(body.slotStart || "").trim();
     const studentFirstName = String(body.studentFirstName || "").trim();
     const studentLastName = String(body.studentLastName || "").trim();
@@ -89,6 +113,7 @@ export async function POST(req: Request) {
     if (smtp && transporter) {
       const bundle = await loadAppConfig();
       const school = bundle.identity.shortName || bundle.identity.name;
+      const studentLabel = escapeHtml(`${studentFirstName} ${studentLastName}`);
       await transporter.sendMail({
         from: `"${school}" <${smtp.user}>`,
         to: parentEmail,
@@ -96,10 +121,10 @@ export async function POST(req: Request) {
         html: `
           <p>Bonjour,</p>
           <p>Votre rendez-vous d’installation internat est confirmé pour
-          <strong>${studentFirstName} ${studentLastName}</strong>.</p>
-          <p><strong>Créneau :</strong> ${slotLabel}<br/>
-          ${config.location ? `<strong>Lieu :</strong> ${config.location}<br/>` : ""}
-          <strong>Téléphone indiqué :</strong> ${parentPhone}</p>
+          <strong>${studentLabel}</strong>.</p>
+          <p><strong>Créneau :</strong> ${escapeHtml(slotLabel)}<br/>
+          ${config.location ? `<strong>Lieu :</strong> ${escapeHtml(config.location)}<br/>` : ""}
+          <strong>Téléphone indiqué :</strong> ${escapeHtml(parentPhone)}</p>
           <p>Ajoutez l’événement à votre agenda via le fichier joint (.ics).</p>
         `,
         attachments: [

@@ -11,6 +11,7 @@ import { useData } from "@/app/contexts/data";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { ExternalQuickLinksBar } from "@/app/components/Dashboard/ExternalQuickLinks";
 import { toDashboardQuickLinks } from "@/app/lib/dashboard-quick-links";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { dashboardBrandCssVars, parseDashboardAccent } from "@/app/lib/dashboard-brand-presets";
 import { SCOLA_HEADER_ACCENT } from "@/app/lib/marketing-theme";
 import Logo from "../../../public/Logo header.png";
@@ -128,8 +129,7 @@ export default function Header() {
 
   const headerQuickLinks = useMemo(() => {
     if (!isLoaded || !isSignedIn || !user || !data?.externalQuickLinks) return [];
-    const rawRoles = user.publicMetadata?.role;
-    const roles = Array.isArray(rawRoles) ? rawRoles : typeof rawRoles === "string" ? [rawRoles] : [];
+    const roles = rolesFromUserLike(user);
     return toDashboardQuickLinks(
       data.externalQuickLinks.filter((l) => (l.allowedRoles ?? []).some((r) => roles.includes(r))),
     );

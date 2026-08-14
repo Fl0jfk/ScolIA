@@ -13,6 +13,7 @@ import {
   putJson,
 } from "@/app/lib/s3-storage";
 import { getTenantAwsRegion } from "@/app/lib/tenant-config";
+import { isSafeS3RelativeKey } from "@/app/lib/s3-path";
 const FILE_KEY = "chat/messages.json";
 
 async function readMessagesFromS3( shouldSign: boolean = true) {
@@ -42,7 +43,7 @@ async function readMessagesFromS3( shouldSign: boolean = true) {
           const marker = `${bucket}.s3.${region}.amazonaws.com/`;
           const idx = fileUrl.indexOf(marker);
           const fileKey = idx >= 0 ? fileUrl.slice(idx + marker.length) : "";
-          if (fileKey) {
+          if (fileKey && isSafeS3RelativeKey(fileKey)) {
             const signedUrl =
               (await getSignedReadUrl(fileKey, 3600)) ||
               (await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: fileKey }), { expiresIn: 3600 }));

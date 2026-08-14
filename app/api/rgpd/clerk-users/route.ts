@@ -3,7 +3,7 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canAccessRgpdModule } from "@/app/lib/rgpd-access";
 import { listClerkMembers } from "@/app/lib/clerk-users";
-import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
 /** Membres Clerk de l'établissement (sélection DPD interne). */
 export async function GET() {
@@ -12,7 +12,7 @@ export async function GET() {
     if (!gate.ok) return gate.response;
 
     const user = await safeCurrentUser();
-    const roles = intranetRolesFromMetadata(user?.publicMetadata);
+    const roles = rolesFromUserLike(user);
     if (!canAccessRgpdModule(roles)) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }

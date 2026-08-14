@@ -107,6 +107,12 @@ export async function getTeamsChatAccessContext(
   if (headerToken) {
     const me = await fetchTeamsGraphMe(headerToken);
     if (!me.id) throw new TeamsChatUnlinkedError("Profil Microsoft sans id.");
+    const link = await loadTeamsChatLink(clerkUserId);
+    if (link?.microsoftUserId && link.microsoftUserId !== me.id) {
+      throw new TeamsChatUnlinkedError(
+        "Le compte Microsoft ne correspond pas au compte déjà lié.",
+      );
+    }
     return {
       accessToken: headerToken,
       microsoftUserId: me.id,

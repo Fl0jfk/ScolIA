@@ -10,7 +10,7 @@ export default function AbonnementSuspenduPage() {
         <p className="text-xs font-bold uppercase tracking-widest text-amber-800">Abonnement</p>
         <h1 className="mt-2 text-2xl font-black text-[#14231A]">Accès suspendu</h1>
         <p className="mt-4 text-sm text-stone-700 leading-relaxed">
-          L&apos;accès à votre espace Scola est temporairement suspendu pour cause d&apos;impayé ou de
+          L&apos;accès à votre espace ScolIA est temporairement suspendu pour cause d&apos;impayé ou de
           décision administrative.
         </p>
         <p className="mt-3 text-sm text-stone-600 leading-relaxed">

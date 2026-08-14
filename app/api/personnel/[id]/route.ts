@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -28,10 +29,6 @@ import {
   type PersonnelMedecineVisit,
 } from "@/app/lib/personnel-types";
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAuth();
@@ -39,7 +36,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
   const { id } = await ctx.params;
   const user = await safeCurrentUser();
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   const email = user?.primaryEmailAddress?.emailAddress || "";
 
   try {
@@ -66,7 +63,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   const { id } = await ctx.params;
   const user = await safeCurrentUser();
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
 
   if (!canManagePersonnel(roles)) {
     return NextResponse.json({ error: "Modification réservée à la RH." }, { status: 403 });

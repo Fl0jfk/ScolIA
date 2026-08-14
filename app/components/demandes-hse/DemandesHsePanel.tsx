@@ -1,6 +1,7 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   canCreateHseDemand,
@@ -28,9 +29,6 @@ type HseItem = {
   directionNote?: string;
 };
 
-function rolesFromUser(roleRaw: unknown): string[] {
-  return Array.isArray(roleRaw) ? (roleRaw as string[]) : roleRaw ? [String(roleRaw)] : [];
-}
 
 function canManageItem(item: HseItem, roles: string[]) {
   return canManageHseDemand(item, roles);
@@ -86,7 +84,7 @@ export default function DemandesHsePanel({
   const [patchingId, setPatchingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  const roles = rolesFromUser(user?.publicMetadata?.role);
+  const roles = rolesFromUserLike(user);
   const creator = canCreateHseDemand(roles);
   const dirFlags = getHseRoleFlags(roles);
   const directionAny = dirFlags.isDirectionEcole || dirFlags.isDirectionCollege || dirFlags.isDirectionLycee;

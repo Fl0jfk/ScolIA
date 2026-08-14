@@ -1,15 +1,7 @@
-const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
-
-function encodePath(path: string): string {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((seg) => encodeURIComponent(seg))
-    .join("/");
-}
+import { GRAPH_API_BASE, graphDriveRootItemUrl } from "@/app/lib/graph-onedrive-path";
 
 export async function graphGetItemByPath(accessToken: string, itemPath: string) {
-  const res = await fetch(`${GRAPH_BASE}/me/drive/root:/${encodePath(itemPath)}:`, {
+  const res = await fetch(graphDriveRootItemUrl(itemPath), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) return null;
@@ -19,7 +11,7 @@ export async function graphGetItemByPath(accessToken: string, itemPath: string) 
 /** Liste les noms des sous-dossiers directs d'un chemin (une page, jusqu'à 500). */
 export async function listChildFolderNames(accessToken: string, folderPath: string): Promise<Set<string>> {
   const names = new Set<string>();
-  const url = `${GRAPH_BASE}/me/drive/root:/${encodePath(folderPath)}:/children?$select=name,folder&$top=500`;
+  const url = graphDriveRootItemUrl(folderPath, "/children?$select=name,folder&$top=500");
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return names;
   const data = await res.json();
@@ -42,8 +34,8 @@ export async function ensureChildFolder(
 
   const parent = parentPath.replace(/\/+$/, "") || "";
   const createUrl = parent
-    ? `${GRAPH_BASE}/me/drive/root:/${encodePath(parent)}:/children`
-    : `${GRAPH_BASE}/me/drive/root/children`;
+    ? graphDriveRootItemUrl(parent, "/children")
+    : `${GRAPH_API_BASE}/me/drive/root/children`;
 
   const res = await fetch(createUrl, {
     method: "POST",
@@ -101,13 +93,13 @@ export async function uploadFileToOneDriveFolder(
   await ensureFolderPath(accessToken, folderPath);
   const safeName = await resolveUniqueFileName(accessToken, folderPath, fileName);
   const fullPath = `${folderPath.replace(/\/+$/, "")}/${safeName}`;
-  const res = await fetch(`${GRAPH_BASE}/me/drive/root:/${encodePath(fullPath)}:/content`, {
+  const res = await fetch(graphDriveRootItemUrl(fullPath, "/content"), {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": contentType,
     },
-    body: bytes,
+    body: bytes as BodyInit,
   });
   if (!res.ok) {
     const err = await res.text();

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { loadAppConfig } from "@/app/lib/app-config";
+import type { ClerkLikeUser } from "@/app/lib/clerk-user-types";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import {
   getOneDriveProfileForClerkUser,
@@ -22,13 +23,7 @@ function normalizeMatch(value: string): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-type ClerkUserLike = {
-  lastName?: string | null;
-  emailAddresses?: { emailAddress: string }[];
-  primaryEmailAddress?: { emailAddress: string } | null;
-};
-
-function collectUserIdentifiers(user: ClerkUserLike): string[] {
+function collectUserIdentifiers(user: ClerkLikeUser): string[] {
   const out: string[] = [];
   if (user.lastName?.trim()) out.push(normalizeMatch(user.lastName));
   if (user.primaryEmailAddress?.emailAddress) {
@@ -47,7 +42,7 @@ function collectUserIdentifiers(user: ClerkUserLike): string[] {
  *  3. la surcharge des dossiers racine par cycle (config tenant).
  */
 export async function resolveOneDriveProfileForClerkUserServer(
-  user: ClerkUserLike,
+  user: ClerkLikeUser,
 ): Promise<OneDriveUserProfile | null> {
   let profile = getOneDriveProfileForClerkUser(user);
 

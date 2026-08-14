@@ -5,7 +5,6 @@ export const metadata: Metadata = {
   description: "Assistant IA de votre établissement",
 };
 
-/** Page immersive ScolIA — sans header intranet. */
 export default function ScoliaLayout({ children }: { children: React.ReactNode }) {
   return <div className="min-h-[100dvh] bg-slate-50">{children}</div>;
 }

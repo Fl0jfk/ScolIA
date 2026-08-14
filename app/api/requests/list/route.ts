@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -16,8 +17,7 @@ export async function GET(req: NextRequest) {
   if (!gate.ok) return gate.response;
   const { userId } = gate.ctx;
   const user = await safeCurrentUser();
-  const roleRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(roleRaw) ? roleRaw.map(String) : roleRaw ? [String(roleRaw)] : [];
+  const roles = rolesFromUserLike(user);
   const scopeParam = req.nextUrl.searchParams.get("scope");
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
   const scope = scopeParam ?? ((await hasStaffBoardAccess(roles, userEmail)) ? "board" : "submitted");

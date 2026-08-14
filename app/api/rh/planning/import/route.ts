@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { getPersonnelRecord } from "@/app/lib/personnel-storage";
@@ -17,10 +18,6 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 export async function POST(req: Request) {
   const gate = await requireAuth();
@@ -31,7 +28,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   }
 
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   const canManage = canManagePersonnel(roles);
 
   let form: FormData;

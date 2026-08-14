@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useUser } from "@clerk/nextjs";
 import Image from "next/image";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
 type Channel = {
   id: string;
@@ -51,7 +52,7 @@ export default function ProfChatPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const lastSeenMessageId = useRef<Record<string, number>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
-  const roles = (user?.publicMetadata?.role as string[]) || [];
+  const roles = rolesFromUserLike(user);
   const isAdminByName = useMemo(() => {
     if (!user?.fullName) return false;
     return AUTHORIZED_ADMINS.includes(user.fullName);

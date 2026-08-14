@@ -9,7 +9,7 @@
  */
 
 import { hasGlobalAdminRole, hasMasterRole, hasRole, isEleveOnlyRoleSet } from "./intranet-role-utils";
-import { INTRANET_DIRECTION_SLUGS, intranetRolesExceptParent } from "./intranet-roles";
+import { INTRANET_DIRECTION_SLUGS, intranetRolesExceptParent, rolesFromUserLike } from "./intranet-roles";
 import { RGPD_MODULE_ROLES } from "./rgpd-access";
 
 const DIRECTIONS = [...INTRANET_DIRECTION_SLUGS];
@@ -664,11 +664,7 @@ export function isOrgAdminFromSession(
   orgRole: string | null | undefined,
   publicMetadata: Record<string, unknown> | undefined,
 ): boolean {
-  const roleArr = Array.isArray(publicMetadata?.role)
-    ? publicMetadata.role.map(String)
-    : publicMetadata?.role
-      ? [String(publicMetadata.role)]
-      : [];
+  const roleArr = rolesFromUserLike({ publicMetadata });
   return (
     orgRole === "org:admin" ||
     roleArr.includes("admin") ||

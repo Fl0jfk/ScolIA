@@ -2,6 +2,7 @@ import "server-only";
 
 import { getClerkClientForTenant } from "@/app/lib/tenant-clerk";
 import { canReassignTravelsOwner } from "@/app/lib/travels-roles";
+import type { ClerkActor } from "@/app/lib/clerk-user-types";
 
 export type TravelsOwnerProfile = {
   ownerId: string;
@@ -28,13 +29,6 @@ export async function resolveTravelsOwnerFromClerk(
     return null;
   }
 }
-
-type ClerkActor = {
-  id?: string | null;
-  fullName?: string | null;
-  primaryEmailAddress?: { emailAddress?: string } | null;
-  publicMetadata?: Record<string, unknown> | null;
-};
 
 /** Applique ownerId / ownerName / ownerEmail avec contrôle administratif si tiers. */
 export async function applyTravelsOwnerAssignment(
@@ -76,9 +70,9 @@ export async function applyTravelsOwnerAssignment(
   if (!requestedOwnerId) {
     if (actorId) {
       objectToSave.ownerId = actorId;
-      if (!objectToSave.ownerName) objectToSave.ownerName = actor.fullName || "Enseignant";
+      if (!objectToSave.ownerName) objectToSave.ownerName = actor?.fullName || "Enseignant";
       if (!objectToSave.ownerEmail) {
-        objectToSave.ownerEmail = actor.primaryEmailAddress?.emailAddress || "";
+        objectToSave.ownerEmail = actor?.primaryEmailAddress?.emailAddress || "";
       }
     }
     return { ok: true };

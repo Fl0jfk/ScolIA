@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { useUser } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 import AbsencesCalendar from "@/app/components/absences/AbsencesCalendar";
@@ -121,8 +122,7 @@ export default function AbsencesPageClient({
   const [managerNotes, setManagerNotes] = useState<Record<string, string>>({});
   const [managerHoursTreatment, setManagerHoursTreatment] = useState<Record<string, string>>({});
   const [uploadingJustificationId, setUploadingJustificationId] = useState<string | null>(null);
-  const rolesRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(rolesRaw) ? (rolesRaw as string[]) : rolesRaw ? [String(rolesRaw)] : [];
+  const roles = rolesFromUserLike(user);
   const isDirectionEcole = roles.some((r) => norm(r).includes("directionecole"));
   const isDirectionCollege = roles.some((r) => norm(r).includes("directioncollege"));
   const isDirectionLycee = roles.some((r) => norm(r).includes("directionlycee"));

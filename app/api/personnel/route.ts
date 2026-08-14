@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -31,10 +32,6 @@ import {
   type SharedPersonnelDocument,
 } from "@/app/lib/personnel-types";
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 async function assertNotAlreadyInRh(email: string, clerkUserId?: string | null) {
   const index = await getPersonnelIndex();
@@ -52,7 +49,7 @@ export async function GET(req: Request) {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   if (!canAccessPersonnelModule(roles)) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   }
@@ -87,7 +84,7 @@ export async function POST(req: Request) {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   if (!canManagePersonnel(roles)) {
     return NextResponse.json({ error: "Création réservée à la RH / comptabilité." }, { status: 403 });
   }
@@ -228,7 +225,7 @@ export async function PATCH(req: Request) {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   const email = user?.primaryEmailAddress?.emailAddress || "";
 
   try {

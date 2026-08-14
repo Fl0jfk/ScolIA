@@ -1,3 +1,4 @@
+import type { ClerkLikeUser } from "@/app/lib/clerk-user-types";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 
 export type OneDriveUserProfile = {
@@ -73,11 +74,7 @@ export function getOneDriveProfileForSecteur(secteur: Secteur): OneDriveUserProf
   return null;
 }
 
-export function getOneDriveProfileForClerkUser(user: {
-  lastName?: string | null;
-  emailAddresses?: { emailAddress: string }[];
-  primaryEmailAddress?: { emailAddress: string } | null;
-}): OneDriveUserProfile | null {
+export function getOneDriveProfileForClerkUser(user: ClerkLikeUser): OneDriveUserProfile | null {
   const emails = [
     user.primaryEmailAddress?.emailAddress,
     ...(user.emailAddresses?.map((e) => e.emailAddress) ?? []),

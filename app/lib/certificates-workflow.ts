@@ -23,14 +23,7 @@ import { saveAward, saveProgram, saveVerifySnapshot } from "@/app/lib/certificat
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 import { listClerkMembers } from "@/app/lib/clerk-users";
-
-type ClerkActor = {
-  id?: string | null;
-  fullName?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
-  publicMetadata?: Record<string, unknown> | null;
-};
+import type { ClerkActor } from "@/app/lib/clerk-user-types";
 
 function clerkDisplayName(user: ClerkActor | null | undefined): string {
   return (

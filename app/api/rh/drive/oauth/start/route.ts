@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
@@ -8,10 +9,6 @@ import {
   buildRhOAuthAuthorizeUrl,
 } from "@/app/lib/rh/oauth-rh-drive";
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 /** Démarre le flux OAuth pour lier le OneDrive de l'attachée RH. */
 export async function GET() {
@@ -19,7 +16,7 @@ export async function GET() {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  if (!user || !canManagePersonnel(rolesFromUser(user))) {
+  if (!user || !canManagePersonnel(rolesFromUserLike(user))) {
     return NextResponse.json({ error: "Réservé à la RH / comptabilité." }, { status: 403 });
   }
 

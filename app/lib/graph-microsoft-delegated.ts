@@ -1,5 +1,9 @@
 import { getTenant } from "@/app/lib/tenant-context";
 import { getTenantSecrets } from "@/app/lib/tenant-registry";
+import {
+  microsoftRefreshTokenParams,
+  postMicrosoftOAuthToken,
+} from "@/app/lib/microsoft-oauth-token";
 
 const GRAPH_SCOPES = "https://graph.microsoft.com/Files.ReadWrite offline_access User.Read";
 
@@ -21,37 +25,21 @@ export async function getMicrosoftAccessTokenFromRefresh(
     return { error: "Microsoft non configuré pour ce tenant." };
   }
 
-  const params = new URLSearchParams({
-    client_id: ms.clientId,
-    refresh_token: token,
-    grant_type: "refresh_token",
-    scope: GRAPH_SCOPES,
-  });
-  if (ms.clientSecret) {
-    params.set("client_secret", ms.clientSecret);
-  }
-
-  const res = await fetch(
-    `https://login.microsoftonline.com/${ms.tenantId}/oauth2/v2.0/token`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params,
-    },
+  const result = await postMicrosoftOAuthToken(
+    ms.tenantId,
+    microsoftRefreshTokenParams({
+      clientId: ms.clientId,
+      refreshToken: token,
+      scope: GRAPH_SCOPES,
+      clientSecret: ms.clientSecret?.trim() || undefined,
+    }),
   );
 
-  if (!res.ok) {
-    const err = await res.text();
-    return { error: `Refresh token Microsoft : ${err.slice(0, 200)}` };
+  if (!result.ok) {
+    return { error: `Refresh token Microsoft : ${result.body.slice(0, 200)}` };
   }
-
-  const data = (await res.json()) as {
-    access_token?: string;
-    refresh_token?: string;
-  };
-  if (!data.access_token) return { error: "Réponse token sans access_token." };
   return {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token?.trim() || undefined,
+    accessToken: result.tokens.accessToken,
+    refreshToken: result.tokens.refreshToken,
   };
 }

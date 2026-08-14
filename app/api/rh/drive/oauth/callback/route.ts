@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canManagePersonnel } from "@/app/lib/personnel-types";
@@ -17,10 +18,6 @@ import {
 } from "@/app/lib/rh/oauth-rh-drive";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 async function redirectRh(query: string) {
   const url = await tenantAbsolutePath(`/rh?tab=admin&${query}`);
@@ -35,7 +32,7 @@ export async function GET(req: NextRequest) {
   }
 
   const user = await safeCurrentUser();
-  if (!user || !canManagePersonnel(rolesFromUser(user))) {
+  if (!user || !canManagePersonnel(rolesFromUserLike(user))) {
     return redirectRh("rhDrive=forbidden");
   }
 

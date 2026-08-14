@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canManagePersonnel } from "@/app/lib/personnel-types";
 import { activateRhOnboarding } from "@/app/lib/rh/onboarding-workflow";
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 /** Active le compte (Clerk accepté → statut active dans meta-rh). */
 export async function POST(
@@ -18,7 +15,7 @@ export async function POST(
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  if (!user || !canManagePersonnel(rolesFromUser(user))) {
+  if (!user || !canManagePersonnel(rolesFromUserLike(user))) {
     return NextResponse.json({ error: "Réservé à la RH." }, { status: 403 });
   }
 

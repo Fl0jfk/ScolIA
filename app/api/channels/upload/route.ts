@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { putObject } from "@/app/lib/s3-storage";
-import { s3Key } from "@/app/lib/s3-path";
+import { s3Key, sanitizeS3FileName } from "@/app/lib/s3-path";
 import { publicS3UrlForKey } from "@/app/lib/travels-s3";
 
 export const maxDuration = 60;
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Aucun fichier trouvé" }, { status: 400 });
     }
     const buffer = Buffer.from(await file.arrayBuffer());
-    const fileName = `${Date.now()}-${file.name.replace(/\s+/g, "_")}`;
+    const fileName = `${Date.now()}-${sanitizeS3FileName(file.name).replace(/\s+/g, "_")}`;
     const rel = `uploads/${fileName}`;
     await putObject( rel, buffer, file.type);
     const fileKey = s3Key( rel);

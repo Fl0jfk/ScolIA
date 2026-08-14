@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import {
@@ -15,16 +16,12 @@ import {
 import { getPersonnelIndex } from "@/app/lib/personnel-storage";
 import { getRequestsRoutingConfig } from "@/app/lib/requests-routing-config";
 
-function rolesFromUser(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 async function assertCanEdit() {
   const gate = await requireAuth();
   if (!gate.ok) return gate;
   const user = await safeCurrentUser();
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   if (!canEditOrganigramme(roles)) {
     return {
       ok: false as const,

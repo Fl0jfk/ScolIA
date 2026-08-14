@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canManagePersonnel } from "@/app/lib/personnel-types";
@@ -15,10 +16,6 @@ import type {
   MoodPulseCollabResponse,
 } from "@/app/lib/rh/mood-pulse-types";
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 export async function GET() {
   const gate = await requireAuth();
@@ -29,7 +26,7 @@ export async function GET() {
     return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   }
 
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   const canManage = canManagePersonnel(roles);
   const date = moodPulseTodayKey();
   const todayDoc = await readMoodPulseDay(date);

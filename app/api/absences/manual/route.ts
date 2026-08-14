@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -17,8 +18,7 @@ export async function POST(req: Request) {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  const rolesRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(rolesRaw) ? (rolesRaw as string[]) : rolesRaw ? [String(rolesRaw)] : [];
+  const roles = rolesFromUserLike(user);
   if (!canAdminIngest(roles)) {
     return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
   }

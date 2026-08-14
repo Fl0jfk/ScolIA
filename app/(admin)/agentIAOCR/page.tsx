@@ -17,6 +17,7 @@ import {
   pickCachedAccessToken,
   tryRestoreOneDriveAccessToken,
 } from "@/app/lib/onedrive-msal-session";
+import { graphDriveRootItemUrl } from "@/app/lib/graph-onedrive-path";
 
 const ONEDRIVE_SCOPES = [...ONEDRIVE_MSAL_SCOPES];
 
@@ -491,7 +492,7 @@ function OneDriveUpDocsOCRAIContent() {
 
     const tempPath = `Temp/${file.name}`;
     const putOneDrive = (accessToken: string) =>
-      fetch(`https://graph.microsoft.com/v1.0/me/drive/root:/${tempPath}:/content`, {
+      fetch(graphDriveRootItemUrl(tempPath, "/content"), {
         method: "PUT",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -1117,17 +1118,9 @@ function OneDriveUpDocsOCRAIContent() {
       try {
         const token = pickCachedAccessToken(oneDriveTokenRef.current) ?? (await ensureOneDriveConnection());
         if (!token) return;
-        const encodedPath = cleanPath
-          .split("/")
-          .filter(Boolean)
-          .map((part) => encodeURIComponent(part))
-          .join("/");
-        const res = await fetch(
-          `https://graph.microsoft.com/v1.0/me/drive/root:/${encodedPath}:?$select=webUrl`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          },
-        );
+        const res = await fetch(graphDriveRootItemUrl(cleanPath, "?$select=webUrl"), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (!res.ok) {
           throw new Error(`Graph ${res.status}`);
         }

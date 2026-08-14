@@ -28,6 +28,7 @@ export default function InstallationClient() {
   const [studentLastName, setStudentLastName] = useState("");
   const [parentPhone, setParentPhone] = useState("");
   const [parentEmail, setParentEmail] = useState("");
+  const [honeypot, setHoneypot] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [doneLabel, setDoneLabel] = useState<string | null>(null);
@@ -84,6 +85,7 @@ export default function InstallationClient() {
           studentLastName,
           parentPhone,
           parentEmail,
+          website: honeypot,
         }),
       });
       const json = (await res.json()) as { error?: string; slotLabel?: string };
@@ -155,7 +157,21 @@ export default function InstallationClient() {
       {!data.slots.length ? (
         <p className="text-sm text-slate-500">Aucun créneau disponible pour le moment.</p>
       ) : (
-        <form onSubmit={submit} className="space-y-6">
+        <form onSubmit={submit} className="relative space-y-6">
+          <div
+            className="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0"
+            aria-hidden
+          >
+            <label>
+              Site web
+              <input
+                tabIndex={-1}
+                autoComplete="off"
+                value={honeypot}
+                onChange={(e) => setHoneypot(e.target.value)}
+              />
+            </label>
+          </div>
           <fieldset className="space-y-4">
             <legend className="text-sm font-bold text-slate-900">Choisissez un créneau</legend>
             {slotsByDay.map(([date, slots]) => (

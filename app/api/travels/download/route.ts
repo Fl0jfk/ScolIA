@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { resolveTravelsS3ObjectKey } from "@/app/lib/travels-s3";
+import { isAllowedTravelsDownloadKey, resolveTravelsS3ObjectKey } from "@/app/lib/travels-s3";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getTenantBucketName } from "@/app/lib/tenant-config";
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -17,7 +17,7 @@ export async function POST(req: Request) {
     }
 
     const key = await resolveTravelsS3ObjectKey(String(fileUrl || ""), explicitKey ? String(explicitKey) : null);
-    if (!key) {
+    if (!key || !isAllowedTravelsDownloadKey(key)) {
       return NextResponse.json(
         { error: "Fichier introuvable sur le stockage (clé S3 non résolue)." },
         { status: 404 },

@@ -2,21 +2,16 @@ import "server-only";
 
 import { getClerkUserRoles } from "@/app/lib/clerk-users";
 import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
-import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import {
   CERTIFICATE_DIRECTION_ROLE_BY_SECTEUR,
   type CertificateProgram,
   type StudentAward,
 } from "@/app/lib/certificates-types";
-
-type ClerkActor = {
-  id?: string | null;
-  fullName?: string | null;
-  publicMetadata?: Record<string, unknown> | null;
-};
+import type { ClerkActor } from "@/app/lib/clerk-user-types";
 
 function rolesOf(user: ClerkActor | null | undefined): string[] {
-  return intranetRolesFromMetadata(user?.publicMetadata);
+  return rolesFromUserLike(user);
 }
 
 export function canAccessCertificatesModule(user: ClerkActor | null | undefined): boolean {

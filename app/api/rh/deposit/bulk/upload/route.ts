@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canManagePersonnel } from "@/app/lib/personnel-types";
@@ -6,10 +7,6 @@ import { uploadRhBulkToTemp } from "@/app/lib/rh/rh-ocr-batch";
 
 export const maxDuration = 60;
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 /** Upload RH en vrac → S3 + OneDrive Temp (sans MSAL client). */
 export async function POST(req: Request) {
@@ -17,7 +14,7 @@ export async function POST(req: Request) {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  if (!user || !canManagePersonnel(rolesFromUser(user))) {
+  if (!user || !canManagePersonnel(rolesFromUserLike(user))) {
     return NextResponse.json({ error: "Réservé à la RH." }, { status: 403 });
   }
 

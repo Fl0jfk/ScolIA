@@ -1,7 +1,23 @@
 import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getTenantAwsRegion, getTenantBucketName } from "@/app/lib/tenant-config";
-import { s3Key } from "@/app/lib/s3-path";
+import { isSafeS3RelativeKey, keyHasAllowedPrefix, s3Key } from "@/app/lib/s3-path";
+
+/** Préfixes objets voyages (upload, JSON, devis e-mail). */
+export const TRAVELS_DOWNLOAD_KEY_PREFIXES = ["travels", "attachments", "devis-incoming"] as const;
+
+export function isAllowedTravelsDownloadKey(key: string): boolean {
+  const n = s3Key(key);
+  if (!isSafeS3RelativeKey(n)) return false;
+  if (keyHasAllowedPrefix(n, TRAVELS_DOWNLOAD_KEY_PREFIXES)) return true;
+  if (n.startsWith("tenants/")) {
+    const parts = n.split("/");
+    if (parts.length >= 3) {
+      return keyHasAllowedPrefix(parts.slice(2).join("/"), TRAVELS_DOWNLOAD_KEY_PREFIXES);
+    }
+  }
+  return false;
+}
 
 export function encodeS3KeyForUrl(key: string): string {
   return key
@@ -127,7 +143,7 @@ export async function candidateTravelsS3Keys(
   const out: string[] = [];
   const add = (k: string | null | undefined) => {
     const n = s3Key(String(k || "").split("?")[0].split("#")[0]);
-    if (n && !out.includes(n)) out.push(n);
+    if (n && isSafeS3RelativeKey(n) && !out.includes(n)) out.push(n);
   };
 
   if (explicitKey) add(explicitKey);

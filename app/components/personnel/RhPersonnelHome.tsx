@@ -6,6 +6,7 @@ import { useUser } from "@clerk/nextjs";
 import RhMoodPulseCard from "@/app/components/personnel/RhMoodPulseCard";
 import RhSelfDepositPanel from "@/app/components/personnel/RhSelfDepositPanel";
 import { canAccessHseModule, canCreateHseDemand } from "@/app/lib/demandes-hse-access";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { formatAbsencePeriod } from "@/app/lib/absence-period";
 
 type MyAbsence = {
@@ -48,10 +49,7 @@ function statusHse(s: string) {
 
 export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
   const { user, isLoaded } = useUser();
-  const roles = useMemo(() => {
-    const raw = user?.publicMetadata?.role;
-    return Array.isArray(raw) ? raw.map(String) : raw ? [String(raw)] : [];
-  }, [user]);
+  const roles = useMemo(() => rolesFromUserLike(user), [user]);
 
   const showHse = canAccessHseModule(roles);
   const canCreateHse = canCreateHseDemand(roles);

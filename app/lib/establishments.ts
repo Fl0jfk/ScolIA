@@ -1,33 +1,14 @@
-type ClerkLikeUser = {
-  publicMetadata?: Record<string, unknown>;
-};
-import type { Establishment } from "@/app/lib/app-config-schemas";
+import type { ClerkLikeUser } from "@/app/lib/clerk-user-types";
 import { loadAppConfig, getEstablishmentByLabel } from "@/app/lib/app-config";
+import {
+  canSignForEstablishmentLabel,
+  userRoleSlugs,
+} from "@/app/lib/establishment-sign-permissions";
 
-const norm = (v: string) =>
-  v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s-]+/g, "");
-
-export function userRoleSlugs(user: ClerkLikeUser | null): string[] {
-  if (!user?.publicMetadata) return [];
-  const raw = user.publicMetadata.role;
-  return Array.isArray(raw) ? (raw as string[]) : raw ? [String(raw)] : [];
-}
-
-export function canSignForEstablishmentLabel(
-  user: ClerkLikeUser | null,
-  establishments: Establishment[],
-  etablissementLabel: string | null | undefined,
-): boolean {
-  if (!user || !etablissementLabel) return false;
-  const est = establishments.find((e) => e.label === etablissementLabel && e.active !== false);
-  if (!est) return false;
-  const roles = userRoleSlugs(user).map(norm);
-  const slugs = (est.clerkRoleSlugs || []).map(norm);
-  return slugs.some((s) => roles.some((r) => r === s || r.includes(s) || s.includes(r)));
-}
+export { canSignForEstablishmentLabel, userRoleSlugs };
 
 export async function canSignTravelsDirectionForEtab(
-  user: ClerkLikeUser | null,
+  user: ClerkLikeUser | null | undefined,
   etablissement: string | null | undefined,
 ): Promise<boolean> {
   const bundle = await loadAppConfig();

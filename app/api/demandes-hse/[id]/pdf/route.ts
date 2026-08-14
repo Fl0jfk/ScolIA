@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import {
@@ -17,9 +18,6 @@ type HseRecord = HseAcceptanceRecord & {
   acceptancePdfPath?: string;
 };
 
-function rolesOfUser(roleRaw: unknown): string[] {
-  return Array.isArray(roleRaw) ? (roleRaw as string[]) : roleRaw ? [String(roleRaw)] : [];
-}
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const gate = await requireAuth();
@@ -27,7 +25,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { userId } = gate.ctx;
 
   const user = await safeCurrentUser();
-  const roles = rolesOfUser(user?.publicMetadata?.role);
+  const roles = rolesFromUserLike(user);
 
   const { id } = await ctx.params;
   if (!id?.trim()) {

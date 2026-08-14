@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -11,8 +12,7 @@ export async function GET() {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  const rolesRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
+  const roles = rolesFromUserLike(user);
 
   if (!canViewPersonnelDashboard(roles)) {
     return NextResponse.json({ error: "Accès réservé à la RH / comptabilité / direction." }, { status: 403 });

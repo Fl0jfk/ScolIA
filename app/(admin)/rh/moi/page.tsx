@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import Link from "next/link";
 import { useUser } from "@clerk/nextjs";
 import StaffDossier from "@/app/components/personnel/StaffDossier";
@@ -18,8 +19,7 @@ export default function RhMoiPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const rolesRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
+  const roles = rolesFromUserLike(user);
   const isRh = canViewPersonnelDashboard(roles);
 
   const load = async () => {

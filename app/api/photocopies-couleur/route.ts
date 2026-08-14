@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import {
@@ -9,6 +10,12 @@ import { loadAppConfig, getEstablishmentByLabel } from "@/app/lib/app-config";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson, putJson, getObjectBytes } from "@/app/lib/s3-storage";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
+import {
+  canCreatePhotocopiesDemand,
+  canManagePhotocopiesDemand,
+  canViewPhotocopiesDemand,
+  getPhotocopiesRoleFlags,
+} from "@/app/lib/photocopies-couleur-access";
 
 const INDEX_KEY = "photocopies-couleur/index.json";
 
@@ -34,47 +41,6 @@ type PhotoCopieRecord = {
   decidedAt?: string;
   directionNote?: string;
 };
-
-const norm = (s: string) =>
-  String(s || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[_\s-]+/g, "");
-
-function rolesOfUser(roleRaw: unknown): string[] {
-  return Array.isArray(roleRaw) ? (roleRaw as string[]) : roleRaw ? [String(roleRaw)] : [];
-}
-
-function getRoleFlags(roles: string[]) {
-  const n = roles.map(norm);
-  return {
-    isDirectionEcole: n.some((r) => r.includes("direction") && r.includes("ecole")),
-    isDirectionCollege: n.some((r) => r.includes("direction") && r.includes("college")),
-    isDirectionLycee: n.some((r) => r.includes("direction") && r.includes("lycee")),
-    isAdministratif: n.some((r) => r.includes("administratif")),
-    isProfesseur: n.some((r) => r.includes("professeur")),
-    isEducation: n.some((r) => r.includes("education") || r === "cpe"),
-  };
-}
-
-function canCreateDemand(roles: string[]) {
-  const f = getRoleFlags(roles);
-  return f.isProfesseur || f.isAdministratif || f.isEducation;
-}
-
-function canManageDemand(rec: PhotoCopieRecord, roles: string[]) {
-  const f = getRoleFlags(roles);
-  if (rec.etablissement === "École") return f.isDirectionEcole;
-  if (rec.etablissement === "Collège") return f.isDirectionCollege;
-  if (rec.etablissement === "Lycée") return f.isDirectionLycee;
-  return false;
-}
-
-function canViewDemand(rec: PhotoCopieRecord, userId: string, roles: string[]) {
-  if (rec.createdBy.userId === userId) return true;
-  return canManageDemand(rec, roles);
-}
 
 async function resolveDirectorMail( etab: PhotoCopieEtablissement) {
   const bundle = await loadAppConfig();
@@ -127,10 +93,10 @@ export async function GET() {
   const { userId } = gate.ctx;
 
   const user = await safeCurrentUser();
-  const roles = rolesOfUser(user?.publicMetadata?.role);
+  const roles = rolesFromUserLike(user);
 
-  if (!canCreateDemand(roles)) {
-    const f = getRoleFlags(roles);
+  if (!canCreatePhotocopiesDemand(roles)) {
+    const f = getPhotocopiesRoleFlags(roles);
     if (!f.isDirectionEcole && !f.isDirectionCollege && !f.isDirectionLycee) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
@@ -138,7 +104,7 @@ export async function GET() {
 
   try {
     const all = await getIndex();
-    const filtered = all.filter((r) => canViewDemand(r, userId, roles));
+    const filtered = all.filter((r) => canViewPhotocopiesDemand(r, userId, roles));
     filtered.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
     return NextResponse.json({ items: filtered });
   } catch (e) {
@@ -153,9 +119,9 @@ export async function POST(req: Request) {
   const { userId } = gate.ctx;
 
   const user = await safeCurrentUser();
-  const roles = rolesOfUser(user?.publicMetadata?.role);
+  const roles = rolesFromUserLike(user);
 
-  if (!canCreateDemand(roles)) {
+  if (!canCreatePhotocopiesDemand(roles)) {
     return NextResponse.json({ error: "Seuls les enseignants, l'équipe vie scolaire et l'administratif peuvent créer une demande." }, { status: 403 });
   }
 
@@ -282,7 +248,7 @@ export async function PATCH(req: Request) {
   const { userId } = gate.ctx;
 
   const user = await safeCurrentUser();
-  const roles = rolesOfUser(user?.publicMetadata?.role);
+  const roles = rolesFromUserLike(user);
 
   let body: { id?: string; status?: string; directionNote?: string };
   try {
@@ -305,7 +271,7 @@ export async function PATCH(req: Request) {
     if (idx < 0) return NextResponse.json({ error: "Demande introuvable." }, { status: 404 });
 
     const current = all[idx];
-    if (!canManageDemand(current, roles)) {
+    if (!canManagePhotocopiesDemand(current, roles)) {
       return NextResponse.json({ error: "Décision réservée à la direction concernée." }, { status: 403 });
     }
     if (current.status !== "EN_ATTENTE") {

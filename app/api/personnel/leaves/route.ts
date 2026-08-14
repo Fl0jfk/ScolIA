@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -12,17 +13,13 @@ import {
   uid,
 } from "@/app/lib/personnel-types";
 
-function rolesFromUser(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
-  const rolesRaw = user?.publicMetadata?.role;
-  return Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-}
 
 export async function GET() {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   const email = user?.primaryEmailAddress?.emailAddress?.toLowerCase() || "";
   const all = await getPersonnelLeaveRequests();
 
@@ -44,7 +41,7 @@ export async function POST(req: Request) {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   const body = await req.json().catch(() => ({}));
   const action = String(body.action || "create");
 

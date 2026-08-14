@@ -4,6 +4,7 @@ import { runBrainChat } from "@/app/lib/brain-ai/run-chat";
 import type { BrainToolCtx } from "@/app/lib/brain-ai/types";
 import { isOrgAdminFromPublicMetadata, safeCurrentUser } from "@/app/lib/intranet-session";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
+import { createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 
 export const runtime = "nodejs";
@@ -25,22 +26,8 @@ type ChatRequest = {
   attachments?: Array<{ key: string; fileName: string; contentType?: string }>;
 };
 
-/** Soft rate-limit en mémoire (best-effort sur instance). */
-const RATE = new Map<string, { count: number; resetAt: number }>();
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 30;
-
-function rateLimit(key: string): boolean {
-  const now = Date.now();
-  const cur = RATE.get(key);
-  if (!cur || cur.resetAt < now) {
-    RATE.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (cur.count >= RATE_MAX) return false;
-  cur.count += 1;
-  return true;
-}
+/** Soft rate-limit en mémoire (best-effort sur instance) — 30 / 60 s inchangé. */
+const chatbotLimiter = createMemoryRateLimiter({ windowMs: 60_000, max: 30 });
 
 export async function POST(req: Request) {
   try {
@@ -67,7 +54,7 @@ export async function POST(req: Request) {
     }
 
     const rateKey = user?.id || req.headers.get("x-forwarded-for") || "anon";
-    if (!rateLimit(rateKey)) {
+    if (!chatbotLimiter.allow(rateKey)) {
       return NextResponse.json(
         { error: "Trop de messages. Réessayez dans une minute.", code: "RATE_LIMIT" },
         { status: 429 },

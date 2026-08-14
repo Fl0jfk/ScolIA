@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canAccessRgpdModule } from "@/app/lib/rgpd-access";
@@ -11,16 +12,12 @@ import { buildAllRgpdDocumentContentPreviews } from "@/app/lib/rgpd-document-con
 import { loadRgpdWorkspace, saveRgpdWorkspace } from "@/app/lib/rgpd-storage";
 import type { RgpdQuestionnaireAnswers, RgpdWorkspace } from "@/app/lib/rgpd-types";
 
-function rolesFromUser(user: { publicMetadata?: { role?: unknown } } | null): string[] {
-  const raw = user?.publicMetadata?.role;
-  return Array.isArray(raw) ? raw.map(String) : raw ? [String(raw)] : [];
-}
 
 async function gateRgpd() {
   const gate = await requireAuth();
   if (!gate.ok) return { ok: false as const, response: gate.response };
   const user = await safeCurrentUser();
-  const roles = rolesFromUser(user);
+  const roles = rolesFromUserLike(user);
   if (!canAccessRgpdModule(roles)) {
     return {
       ok: false as const,

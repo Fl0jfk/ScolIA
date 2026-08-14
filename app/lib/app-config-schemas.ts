@@ -6,9 +6,7 @@ export type OrganizationKind = "standalone" | "groupe";
 export type SiteIdentity = {
   name: string;
   shortName?: string;
-  /** Logo affiché en haut à gauche (URL publique S3). */
   headerLogoUrl?: string;
-  /** Couleur d'accent du tableau de bord (vert, bleu, rose…). */
   dashboardAccent?: string;
   organizationKind?: OrganizationKind;
   onboardingCompleted?: boolean;
@@ -16,10 +14,6 @@ export type SiteIdentity = {
   /** Dernière étape validée dans l'assistant (1–12). */
   onboardingStep?: number;
   assistanceEmail?: string;
-  /**
-   * Zone de vacances scolaires (MEN). Non présélectionnée :
-   * à configurer dans Paramètres → Identité.
-   */
   schoolHolidayZone?: SchoolHolidayZone;
   address?: {
     street?: string;

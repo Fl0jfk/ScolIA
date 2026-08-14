@@ -19,6 +19,7 @@ import RequestPersonnelTagsPanel from "@/app/components/requests/RequestPersonne
 import RequestsRoutingEditor from "@/app/components/settings/RequestsRoutingEditor";
 import type { RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
 type RequestStatus = "NOUVELLE" | "EN_COURS" | "EN_ATTENTE" | "TERMINEE";
 
@@ -228,11 +229,7 @@ export default function RequestsPage() {
   const [delegateEmailById, setDelegateEmailById] = useState<Record<string, string>>({});
   const mobileMoveMode = useMobileBoardUi();
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
-  const userRoles = useMemo(() => {
-    if (!user) return [] as string[];
-    const roleRaw = user.publicMetadata?.role;
-    return Array.isArray(roleRaw) ? roleRaw.map(String) : roleRaw ? [String(roleRaw)] : [];
-  }, [user]);
+  const userRoles = useMemo(() => rolesFromUserLike(user), [user]);
   const serviceLabel = useMemo(() => getViewerServiceLabel(userRoles), [userRoles]);
   const visualColumns = useMemo(() => buildVisualColumns(serviceLabel), [serviceLabel]);
   const kanbanItems = useMemo(

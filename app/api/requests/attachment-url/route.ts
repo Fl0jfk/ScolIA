@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextRequest, NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -9,6 +10,7 @@ import { normalizeRequestEmail } from "@/app/lib/requests-board";
 import { findRequestAttachment, getRequestsIndex } from "@/app/lib/requests";
 import { canAccessRequestsStaffBoard } from "@/app/lib/requests-staff-access";
 import { getBucketName } from "@/app/lib/s3-storage";
+import { isSafeS3RelativeKey } from "@/app/lib/s3-path";
 
 export async function GET(req: NextRequest) {
   const gate = await requireAuth();
@@ -16,8 +18,7 @@ export async function GET(req: NextRequest) {
   const { userId } = gate.ctx;
   const user = await safeCurrentUser();
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
-  const roleRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(roleRaw) ? roleRaw.map(String) : roleRaw ? [String(roleRaw)] : [];
+  const roles = rolesFromUserLike(user);
   const requestId = req.nextUrl.searchParams.get("requestId")?.trim() ?? "";
   const attachmentId = req.nextUrl.searchParams.get("attachmentId")?.trim() ?? "";
   if (!requestId || !attachmentId) {  return NextResponse.json({ error: "requestId et attachmentId requis" }, { status: 400 });}
@@ -30,7 +31,8 @@ export async function GET(req: NextRequest) {
     const staff = await canAccessRequestsStaffBoard(roles, userEmail);
     const isRequester = record.requester.userId === userId || (userEmail && normalizeRequestEmail(record.requester.email) === normalizeRequestEmail(userEmail));
     if (!staff && !isRequester) { return NextResponse.json({ error: "Accès refusé" }, { status: 403 })}
-    const relOk = att.key.includes(`requests/${requestId}/files/`);
+    const relOk =
+      isSafeS3RelativeKey(att.key) && att.key.includes(`requests/${requestId}/files/`);
     if (!relOk) {
       return NextResponse.json({ error: "Clé invalide" }, { status: 400 });
     }

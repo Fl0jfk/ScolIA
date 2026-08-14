@@ -74,8 +74,7 @@ export default function Home() {
 
   const quickLinks = useMemo(() => {
     if (!isLoaded || !user || !data?.externalQuickLinks) return [];
-    const rawRoles = user.publicMetadata?.role;
-    const roles = Array.isArray(rawRoles) ? rawRoles : typeof rawRoles === "string" ? [rawRoles] : [];
+    const roles = intranetRolesFromMetadata(user.publicMetadata);
     return toDashboardQuickLinks(
       data.externalQuickLinks.filter((l) => (l.allowedRoles ?? []).some((r) => roles.includes(r))),
     );

@@ -1,8 +1,14 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
+import {
+  canCreatePhotocopiesDemand,
+  canManagePhotocopiesDemand,
+  getPhotocopiesRoleFlags,
+} from "@/app/lib/photocopies-couleur-access";
 
 type Etablissement = "École" | "Collège" | "Lycée";
 type PhotoCopieStatus = "EN_ATTENTE" | "ACCEPTEE" | "REFUSEE";
@@ -22,42 +28,6 @@ type PhotoCopieItem = {
   decidedAt?: string;
   directionNote?: string;
 };
-
-const norm = (s: string) =>
-  String(s || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[_\s-]+/g, "");
-
-function rolesFromUser(roleRaw: unknown): string[] {
-  return Array.isArray(roleRaw) ? (roleRaw as string[]) : roleRaw ? [String(roleRaw)] : [];
-}
-
-function getRoleFlags(roles: string[]) {
-  const n = roles.map(norm);
-  return {
-    isDirectionEcole: n.some((r) => r.includes("direction") && r.includes("ecole")),
-    isDirectionCollege: n.some((r) => r.includes("direction") && r.includes("college")),
-    isDirectionLycee: n.some((r) => r.includes("direction") && r.includes("lycee")),
-    isAdministratif: n.some((r) => r.includes("administratif")),
-    isProfesseur: n.some((r) => r.includes("professeur")),
-    isEducation: n.some((r) => r.includes("education") || r === "cpe"),
-  };
-}
-
-function canCreateDemand(roles: string[]) {
-  const f = getRoleFlags(roles);
-  return f.isProfesseur || f.isAdministratif || f.isEducation;
-}
-
-function canManageItem(item: PhotoCopieItem, roles: string[]) {
-  const f = getRoleFlags(roles);
-  if (item.etablissement === "École") return f.isDirectionEcole;
-  if (item.etablissement === "Collège") return f.isDirectionCollege;
-  if (item.etablissement === "Lycée") return f.isDirectionLycee;
-  return false;
-}
 
 function statusBadgeClass(s: PhotoCopieStatus) {
   if (s === "ACCEPTEE") return "bg-emerald-50 text-emerald-800 border-emerald-200";
@@ -85,9 +55,9 @@ export default function PhotocopiesCouleurPage() {
   const [directionNotes, setDirectionNotes] = useState<Record<string, string>>({});
   const [patchingId, setPatchingId] = useState<string | null>(null);
 
-  const roles = rolesFromUser(user?.publicMetadata?.role);
-  const creator = canCreateDemand(roles);
-  const dirFlags = getRoleFlags(roles);
+  const roles = rolesFromUserLike(user);
+  const creator = canCreatePhotocopiesDemand(roles);
+  const dirFlags = getPhotocopiesRoleFlags(roles);
   const directionAny = dirFlags.isDirectionEcole || dirFlags.isDirectionCollege || dirFlags.isDirectionLycee;
   const userEmail = user?.primaryEmailAddress?.emailAddress?.trim() ?? "";
 
@@ -128,7 +98,7 @@ export default function PhotocopiesCouleurPage() {
   const directionPending = useMemo(
     () =>
       [...items]
-        .filter((i) => i.status === "EN_ATTENTE" && canManageItem(i, roles))
+        .filter((i) => i.status === "EN_ATTENTE" && canManagePhotocopiesDemand(i, roles))
         .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt)),
     [items, roles],
   );
@@ -136,7 +106,7 @@ export default function PhotocopiesCouleurPage() {
   const directionHistory = useMemo(
     () =>
       [...items]
-        .filter((i) => i.status !== "EN_ATTENTE" && canManageItem(i, roles))
+        .filter((i) => i.status !== "EN_ATTENTE" && canManagePhotocopiesDemand(i, roles))
         .sort((a, b) => +new Date(b.decidedAt || b.updatedAt) - +new Date(a.decidedAt || a.updatedAt)),
     [items, roles],
   );

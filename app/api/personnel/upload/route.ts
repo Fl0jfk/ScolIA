@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -6,7 +7,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
-import { s3Key } from "@/app/lib/s3-path";
+import { s3Key, sanitizeS3FileName } from "@/app/lib/s3-path";
 import { publicS3UrlForKey } from "@/app/lib/travels-s3";
 import { canAccessPersonnelModule } from "@/app/lib/personnel-types";
 
@@ -15,16 +16,16 @@ export async function POST(req: Request) {
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
-  const rolesRaw = user?.publicMetadata?.role;
-  const roles = Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
+  const roles = rolesFromUserLike(user);
   if (!canAccessPersonnelModule(roles)) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   }
 
   try {
     const { fileName, fileType, staffId } = await req.json();
-    const safeName = String(fileName || "document").replace(/[^a-zA-Z0-9._-]/g, "_");
-    const folder = staffId ? `personnel-ogec/${staffId}/documents` : "personnel-ogec/shared";
+    const safeName = sanitizeS3FileName(String(fileName || "document")).replace(/[^a-zA-Z0-9._-]/g, "_");
+    const safeStaffId = sanitizeS3FileName(String(staffId || ""));
+    const folder = safeStaffId && safeStaffId !== "file" ? `personnel-ogec/${safeStaffId}/documents` : "personnel-ogec/shared";
     const fileKey = s3Key(`${folder}/${Date.now()}-${safeName}`);
 
     const s3Client = await getTenantDataS3Client();

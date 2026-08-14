@@ -28,11 +28,15 @@ type PendingParentAuth = {
 };
 
 function authSecret(): string {
-  return (
+  const secret =
     process.env.CLASS_ALLOCATION_PARENT_SECRET?.trim() ||
     process.env.CLERK_ENCRYPTION_KEY?.trim() ||
-    "dev-class-allocation-parent-secret"
-  );
+    "";
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("CLASS_ALLOCATION_PARENT_SECRET (ou CLERK_ENCRYPTION_KEY) requis en production.");
+  }
+  return "dev-class-allocation-parent-secret";
 }
 
 function pendingKey(campaignId: string, email: string): string {

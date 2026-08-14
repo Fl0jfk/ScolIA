@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -7,6 +8,7 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 import { s3Key } from "@/app/lib/s3-path";
+import { canCreatePhotocopiesDemand } from "@/app/lib/photocopies-couleur-access";
 
 const ALLOWED_TYPES = new Set(["application/pdf"]);
 
@@ -26,14 +28,8 @@ export async function POST(req: Request) {
     }
 
     const user = await safeCurrentUser();
-    const rolesRaw = user?.publicMetadata?.role;
-    const roles = Array.isArray(rolesRaw) ? rolesRaw.map(String) : rolesRaw ? [String(rolesRaw)] : [];
-    const norm = roles.map((r) => r.toLowerCase());
-    const canCreate =
-      norm.some((r) => r.includes("professeur")) ||
-      norm.some((r) => r.includes("administratif")) ||
-      norm.some((r) => r.includes("education") || r === "cpe");
-    if (!canCreate) {
+    const roles = rolesFromUserLike(user);
+    if (!canCreatePhotocopiesDemand(roles)) {
       return NextResponse.json({ error: "Accès réservé aux demandeurs." }, { status: 403 });
     }
 

@@ -1,14 +1,7 @@
-import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
+import { intranetRolesFromMetadata, rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
 
-const norm = (v: string) =>
-  v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s-]+/g, "");
-
-export function intranetRolesFromUserLike(user: {
-  publicMetadata?: Record<string, unknown> | null;
-} | null | undefined): string[] {
-  return intranetRolesFromMetadata(user?.publicMetadata);
-}
+export { rolesFromUserLike, rolesFromUserLike as intranetRolesFromUserLike } from "@/app/lib/intranet-roles";
 
 export function userHasAdministratifRoleFromMetadata(
   publicMetadata?: Record<string, unknown> | null,
@@ -27,8 +20,7 @@ export function canReassignTravelsOwner(
 export function userHasComptaRoleFromMetadata(
   publicMetadata?: Record<string, unknown> | null,
 ): boolean {
-  const roles = intranetRolesFromUserLike({ publicMetadata });
-  return roles.includes("comptabilité") || roles.some((r) => norm(r).includes("comptabilite"));
+  return hasRole(rolesFromUserLike({ publicMetadata }), "comptabilite");
 }
 
 export function userHasAdministratifRole(user: {

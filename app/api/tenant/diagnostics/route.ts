@@ -1,16 +1,16 @@
 import { resolveSession } from "@/app/lib/intranet-session";
 import { NextResponse } from "next/server";
 
-import { requireAuth } from "@/app/lib/intranet-auth";
+import { requireAdmin } from "@/app/lib/intranet-auth";
 import { resolveTenantCurrentUser, resolveTenantSession } from "@/app/lib/tenant-session";
 import { getJson } from "@/app/lib/s3-storage";
 import { getTenant } from "@/app/lib/tenant-context";
 import { isMultiTenantEnabled } from "@/app/lib/tenant-registry";
 import { clerkFrontendDomainFromPublishableKey } from "@/app/lib/clerk-pk-domain";
 
-/** Diagnostic rapide tenant + Clerk + S3 (connecté). */
+/** Diagnostic rapide tenant + Clerk + S3 (admin org). */
 export async function GET() {
-  const gate = await requireAuth();
+  const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
 
   const report: Record<string, unknown> = {

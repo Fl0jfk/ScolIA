@@ -1,4 +1,5 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import {
@@ -44,9 +45,6 @@ type HseRecord = {
   acceptancePdfPath?: string;
 };
 
-function rolesOfUser(roleRaw: unknown): string[] {
-  return Array.isArray(roleRaw) ? (roleRaw as string[]) : roleRaw ? [String(roleRaw)] : [];
-}
 
 async function resolveDirectorMail( etab: HseEtablissement) {
   const bundle = await loadAppConfig();
@@ -107,7 +105,7 @@ export async function GET() {
   const { userId } = gate.ctx;
 
   const user = await safeCurrentUser();
-  const roles = rolesOfUser(user?.publicMetadata?.role);
+  const roles = rolesFromUserLike(user);
 
   if (!canAccessHseModule(roles)) {
     return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
@@ -130,7 +128,7 @@ export async function POST(req: Request) {
   const { userId } = gate.ctx;
 
   const user = await safeCurrentUser();
-  const roles = rolesOfUser(user?.publicMetadata?.role);
+  const roles = rolesFromUserLike(user);
 
   if (!canCreateHseDemand(roles)) {
     return NextResponse.json({ error: "Seuls les enseignants peuvent créer une demande HSE." }, { status: 403 });
@@ -246,7 +244,7 @@ export async function PATCH(req: Request) {
   const { userId } = gate.ctx;
 
   const user = await safeCurrentUser();
-  const roles = rolesOfUser(user?.publicMetadata?.role);
+  const roles = rolesFromUserLike(user);
 
   let body: { id?: string; status?: string; directionNote?: string };
   try {

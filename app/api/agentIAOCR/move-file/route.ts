@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveSession } from "@/app/lib/intranet-session";
 
 import { ensureFolderPath } from "@/app/lib/graph-onedrive-folders";
-
-const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
+import { GRAPH_API_BASE, graphDriveRootItemUrl } from "@/app/lib/graph-onedrive-path";
 
 export async function POST(req: Request) {
   try {
@@ -31,9 +30,7 @@ export async function POST(req: Request) {
     if (!sourcePath || !targetFolderPath) {
       return NextResponse.json({ error: "sourcePath et targetFolderPath sont requis" },{ status: 400 });
     }
-    const sourceRes = await fetch(
-      `${GRAPH_BASE}/me/drive/root:/${sourcePath}:`,
-      {
+    const sourceRes = await fetch(graphDriveRootItemUrl(sourcePath), {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
     );
@@ -59,9 +56,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const targetFolderRes = await fetch(
-      `${GRAPH_BASE}/me/drive/root:/${targetFolderPath}:`,
-      {
+    const targetFolderRes = await fetch(graphDriveRootItemUrl(targetFolderPath), {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
     );
@@ -76,7 +71,7 @@ export async function POST(req: Request) {
     }
     const finalFileName =
       newFileName && newFileName.trim().length > 0  ? newFileName.trim() : (sourceItem.name as string);
-    const childrenRes = await fetch(`${GRAPH_BASE}/drives/${driveId}/items/${targetFolderId}/children`,
+    const childrenRes = await fetch(`${GRAPH_API_BASE}/drives/${driveId}/items/${targetFolderId}/children`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
@@ -96,7 +91,7 @@ export async function POST(req: Request) {
       safeName = `${base} (${suffix})${ext}`;
       suffix++;
     }
-    const moveRes = await fetch(`${GRAPH_BASE}/drives/${driveId}/items/${sourceItemId}`,
+    const moveRes = await fetch(`${GRAPH_API_BASE}/drives/${driveId}/items/${sourceItemId}`,
       {
         method: "PATCH",
         headers: {

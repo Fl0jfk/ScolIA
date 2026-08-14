@@ -40,58 +40,9 @@ import {
 } from '@/app/lib/intranet-roles';
 import { contentSecurityPolicyHeaderValue, crossOriginOpenerPolicyHeaderValue } from '@/app/lib/content-security-policy';
 import { isTenantAccessBlocked } from '@/app/lib/tenant-billing-types';
+import { PROXY_PUBLIC_ROUTE_MATCHERS } from '@/app/lib/public-routes';
 
-const isPublicRoute = createRouteMatcher([
-  '/',
-  '/rentree(.*)',
-  '/documents/rentree(.*)',
-  '/simulateurTarifs(.*)',
-  '/simulateurFournitures(.*)',
-  '/portes-ouvertes(.*)',
-  '/repartition-classes(.*)',
-  '/api/toolbox/public',
-  '/api/toolbox/class-allocation/public(.*)',
-  '/api/rentree/file',
-  '/api/fournitures/file',
-  '/api/portes-ouvertes/register',
-  '/faire-une-demande(.*)',
-  '/demande-parents(.*)',
-  '/demande/merci',
-  '/onboarding-rh(.*)',
-  '/api/rh/onboarding/public(.*)',
-  '/api/agentIAOCR/batch-job/internal-run',
-  '/api/travels/ingest-from-email',
-  '/api/travels/poll-email',
-  '/api/requests/create',
-  '/api/requests/confirm',
-  '/api/requests/parent-portal',
-  '/api/supplies/send',
-  '/api/supplies/pdf',
-  '/api/chatbot',
-  '/api/site/public',
-  '/api/public/site/posts',
-  '/api/tenant/public',
-  '/api/tenants/public',
-  '/connexion',
-  '/plateforme',
-  '/sign-in(.*)',
-  '/sign-up(.*)',
-  '/sign-out(.*)',
-  '/mentions-legales',
-  '/tarifs',
-  '/internat/autorisation(.*)',
-  '/internat/installation(.*)',
-  '/api/internat/outings/decision(.*)',
-  '/api/internat/installation/public',
-  '/api/internat/installation/register',
-  '/stages/eleve(.*)',
-  '/stages/deposer(.*)',
-  '/stages/signer(.*)',
-  '/stages/candidater(.*)',
-  '/api/stages/public(.*)',
-  '/certificates/verify(.*)',
-  '/api/certificates/verify(.*)',
-]);
+const isPublicRoute = createRouteMatcher([...PROXY_PUBLIC_ROUTE_MATCHERS]);
 
 function localDevTenantSlugFromRequest(request: NextRequest): string | null {
   const fromQuery = request.nextUrl.searchParams.get(LOCAL_DEV_TENANT_QUERY)?.trim();
@@ -367,7 +318,7 @@ async function handleProxyRequest(
       return withTenantHeaders(
         NextResponse.json(
           {
-            error: "Abonnement suspendu. Contactez Scola pour régulariser votre situation.",
+            error: "Abonnement suspendu. Contactez ScolIA pour régulariser votre situation.",
             code: "SUBSCRIPTION_SUSPENDED",
           },
           { status: 402 },

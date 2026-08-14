@@ -4,6 +4,12 @@ import {
   sanitizeOutingForTokenView,
 } from "@/app/lib/internat-outing-decision";
 import { findOutingByToken, saveInternatOuting } from "@/app/lib/internat-storage";
+import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
+
+const outingDecisionLimiter = createMemoryRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+});
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -26,6 +32,13 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  if (!outingDecisionLimiter.allow(clientIpFromRequest(req))) {
+    return NextResponse.json(
+      { error: "Trop de tentatives. Réessayez dans quelques minutes." },
+      { status: 429 },
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
   const token = String(body.token || "").trim();
   const decision = body.decision === "refuse" ? "refuse" : body.decision === "approve" ? "approve" : null;

@@ -1,9 +1,7 @@
 import { notFound } from "next/navigation";
 import { loadVerifySnapshot } from "@/app/lib/certificates-storage";
 import { shortContentHash } from "@/app/lib/certificates-verify";
-import {
-  CERTIFICATE_SECTEUR_LABELS,
-} from "@/app/lib/certificates-types";
+import { CERTIFICATE_SECTEUR_LABELS } from "@/app/lib/certificates-types";
 
 type VerifyPageParams = { params: Promise<{ token: string }> };
 
