@@ -13,7 +13,7 @@ import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import ProfRoomGlassCard from "@/app/components/prof-room/ProfRoomGlassCard";
 import ProfRoomSettingsTab from "@/app/components/prof-room/ProfRoomSettingsTab";
 import { DEFAULT_PROF_ROOM_SUBJECT_COLORS } from "@/app/lib/prof-room-defaults";
-import { getSubjectColorPresentation } from "@/app/lib/prof-room-subject-colors";
+import { getReservationTilePresentation } from "@/app/lib/prof-room-subject-colors";
 import {
   isReservationBookedForOther,
   reservationWhoCompact,
@@ -639,7 +639,7 @@ function ProfRoomPageContent() {
                       const isOwn = res?.userId === user.id;
                       const canModify = isAdmin || isOwn;
                       const colorValue = res ? SUBJECT_COLORS[res.subject] || "bg-slate-600 text-white" : "";
-                      const colorPresentation = res ? getSubjectColorPresentation(colorValue) : null;
+                      const tilePresentation = res ? getReservationTilePresentation(colorValue) : null;
                       return (
                         <div
                           key={i}
@@ -652,10 +652,10 @@ function ProfRoomPageContent() {
                           {res ? (
                             <>
                               <div
-                                className={`flex h-full w-full flex-col justify-between rounded-xl p-2 text-[11px] ${colorPresentation?.className || ""} ${
+                                className={`flex h-full w-full flex-col justify-between rounded-xl p-2 text-[11px] ${
                                   isOwn ? "ring-2 ring-[color:var(--dash-bright)]/70 ring-inset" : ""
                                 }`}
-                                style={colorPresentation?.style}
+                                style={tilePresentation?.style}
                               >
                                 <div>
                                   <div className="flex items-start justify-between sm:flex-col">

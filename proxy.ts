@@ -41,6 +41,7 @@ import {
 import { contentSecurityPolicyHeaderValue, crossOriginOpenerPolicyHeaderValue } from '@/app/lib/content-security-policy';
 import { isTenantAccessBlocked } from '@/app/lib/tenant-billing-types';
 import { PROXY_PUBLIC_ROUTE_MATCHERS } from '@/app/lib/public-routes';
+import { legacyDocsLaProRedirect } from '@/app/lib/legacy-hostname-redirects';
 
 const isPublicRoute = createRouteMatcher([...PROXY_PUBLIC_ROUTE_MATCHERS]);
 
@@ -228,6 +229,9 @@ async function handleProxyRequest(
   request: NextRequest,
   auth?: ClerkMiddlewareAuth,
 ): Promise<NextResponse> {
+  const legacyRedirect = legacyDocsLaProRedirect(request);
+  if (legacyRedirect) return legacyRedirect;
+
   let tenant: TenantConfig;
   try {
     tenant = await resolveTenantForProxy(request);

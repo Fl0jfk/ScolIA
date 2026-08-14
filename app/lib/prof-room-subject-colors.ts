@@ -61,6 +61,24 @@ function hexLuminance(hex: string): number {
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const byte = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  return `#${byte(r)}${byte(g)}${byte(b)}`;
+}
+
+function mixRgb(
+  a: [number, number, number],
+  b: [number, number, number],
+  t: number,
+): [number, number, number] {
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+}
+
 export function getSubjectColorPresentation(value: string): {
   className?: string;
   style?: { backgroundColor: string; color: string };
@@ -75,6 +93,26 @@ export function getSubjectColorPresentation(value: string): {
     };
   }
   return { className: value || "bg-slate-600 text-white" };
+}
+
+/** Fond de tuile planning : couleur matière un peu plus dense, texte contrasté. */
+export function getReservationTilePresentation(value: string): {
+  style: { backgroundColor: string; color: string };
+} {
+  const hex = subjectColorToHex(value);
+  let rgb = hexToRgb(hex);
+  if (hexLuminance(hex) > 0.42) {
+    rgb = mixRgb(rgb, [20, 35, 26], 0.32);
+  } else {
+    rgb = mixRgb(rgb, [15, 23, 42], 0.12);
+  }
+  const backgroundColor = rgbToHex(rgb[0], rgb[1], rgb[2]);
+  return {
+    style: {
+      backgroundColor,
+      color: hexLuminance(backgroundColor) > 0.45 ? "#14231A" : "#ffffff",
+    },
+  };
 }
 
 export function isPresetSubjectColor(value: string): boolean {
