@@ -155,9 +155,9 @@ export default function Home() {
 
   return (
     <DashboardThemeRoot>
-      <div className="relative isolate overflow-hidden">
+      <div className="relative overflow-hidden">
         {/* Atmosphere */}
-        <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
+        <div className="pointer-events-none absolute inset-0" aria-hidden>
           <div className="absolute -left-24 top-0 h-[28rem] w-[28rem] rounded-full bg-[color:var(--dash-soft)]/80 blur-3xl" />
           <div className="absolute right-0 top-24 h-[22rem] w-[22rem] rounded-full bg-[color:var(--dash-bright)]/20 blur-3xl" />
           <div className="absolute bottom-0 left-1/3 h-[18rem] w-[18rem] rounded-full bg-[color:var(--dash-mid)]/15 blur-3xl" />

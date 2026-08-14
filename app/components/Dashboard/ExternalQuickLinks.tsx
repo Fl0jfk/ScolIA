@@ -69,7 +69,7 @@ export function ExternalQuickLinksBar({
           target="_blank"
           rel="noopener noreferrer"
           title={link.name}
-          className={`flex cursor-pointer items-center gap-2 rounded-xl border bg-white/90 shadow-sm backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${dash.borderSoft} ${dash.hoverBorder} ${
+          className={`flex cursor-pointer items-center gap-2 rounded-xl border bg-white/90 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${dash.borderSoft} ${dash.hoverBorder} ${
             compact ? "px-2 py-1" : "px-2.5 py-1.5"
           }`}
         >

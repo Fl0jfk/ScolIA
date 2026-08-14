@@ -201,7 +201,7 @@ function ShortcutTile({
         href={item.href}
         className={`group relative flex cursor-pointer items-center gap-2 overflow-hidden rounded-xl border transition hover:-translate-y-0.5 ${
           item.rich
-            ? "border-white/70 bg-white/80 px-2.5 py-2.5 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] backdrop-blur-md hover:bg-white"
+            ? "border-white/70 bg-white/80 px-2.5 py-2.5 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] hover:bg-white"
             : "border-transparent bg-white/40 px-2 py-2 hover:border-white/70 hover:bg-white/70"
         }`}
       >
@@ -272,10 +272,10 @@ function PillarCard({
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.06 * index, ease: [0.22, 1, 0.36, 1] }}
-      className="group relative isolate flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/45 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
+      className="group relative flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/45 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
     >
       <div
-        className={`pointer-events-none absolute -right-8 -top-10 -z-10 h-36 w-36 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${PILLAR_ORB[pillar.id]}`}
+        className={`pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${PILLAR_ORB[pillar.id]}`}
         aria-hidden
       />
 
@@ -293,7 +293,7 @@ function PillarCard({
           </div>
           <Link
             href={pillar.href}
-            className="shrink-0 cursor-pointer rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] shadow-sm backdrop-blur transition hover:bg-white"
+            className="shrink-0 cursor-pointer rounded-full border border-white/70 bg-white/80 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] shadow-sm transition hover:bg-white"
           >
             Ouvrir →
           </Link>

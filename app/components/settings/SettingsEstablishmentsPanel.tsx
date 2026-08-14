@@ -140,19 +140,19 @@ export default function SettingsEstablishmentsPanel({
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.04 * idx, ease: [0.22, 1, 0.36, 1] }}
-            className="relative isolate overflow-hidden rounded-[1.5rem] border shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
+            className="relative overflow-hidden rounded-[1.5rem] border shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
             style={{
               backgroundColor: hexToRgba(color, est.active ? 0.16 : 0.07),
               borderColor: visual.borderColor,
             }}
           >
             <div
-              className="pointer-events-none absolute -right-10 -top-12 -z-10 h-44 w-44 rounded-full blur-3xl"
+              className="pointer-events-none absolute -right-10 -top-12 h-44 w-44 rounded-full blur-3xl"
               style={{ backgroundColor: visual.orbBg }}
               aria-hidden
             />
             <div
-              className="pointer-events-none absolute -left-16 bottom-0 -z-10 h-40 w-40 rounded-full blur-3xl"
+              className="pointer-events-none absolute -left-16 bottom-0 h-40 w-40 rounded-full blur-3xl"
               style={{ backgroundColor: hexToRgba(color, 0.14) }}
               aria-hidden
             />
