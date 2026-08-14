@@ -4,6 +4,8 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import CreateRequestModal from "@/app/components/requests/CreateRequestModal";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import type { OrganigramPerson } from "@/app/lib/organigramme";
 import type { OrganigramView } from "@/app/lib/organigramme-resolve";
 import { OrganigramServiceFrame, OrganigramPoleColumn } from "./OrganigramServiceFrame";
@@ -137,16 +139,16 @@ export default function OrganigrammePageClient() {
 
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center text-slate-500 text-sm">
-        Chargement de l&apos;annuaire…
-      </main>
+      <ModulePageShell maxWidthClass="max-w-6xl" className="min-h-screen flex items-center justify-center">
+        <p className="text-slate-500 text-sm">Chargement de l&apos;annuaire…</p>
+      </ModulePageShell>
     );
   }
 
   if (error || !view) {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center gap-3 text-sm">
-        <p className="text-red-600">{error || "Annuaire indisponible"}</p>
+      <ModulePageShell maxWidthClass="max-w-6xl" className="min-h-screen flex flex-col items-center justify-center gap-3">
+        <p className="text-red-600 text-sm">{error || "Annuaire indisponible"}</p>
         <button
           type="button"
           onClick={() => void reload()}
@@ -154,7 +156,7 @@ export default function OrganigrammePageClient() {
         >
           Réessayer
         </button>
-      </main>
+      </ModulePageShell>
     );
   }
 
@@ -162,35 +164,34 @@ export default function OrganigrammePageClient() {
   const polesMeta = sectionMeta(view, "poles");
 
   return (
-    <main className="relative min-h-screen w-full max-w-6xl mx-auto px-4 sm:px-6 pb-16 pt-[4vh] overflow-x-clip print:max-w-none print:mx-0 print:px-4 print:pb-0 print:pt-2 print:overflow-visible">
+    <ModulePageShell
+      maxWidthClass="max-w-6xl"
+      className="relative min-h-screen pb-16 pt-[4vh] overflow-x-clip print:max-w-none print:mx-0 print:px-4 print:pb-0 print:pt-2 print:overflow-visible"
+    >
       <div className="print:hidden">
-        <header className="mb-10 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
-              Annuaire de l&apos;établissement
-            </h1>
-            <p className="text-sm text-slate-500 mt-1">
-              Qui fait quoi — contacts, missions et demandes de tâche.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {canEdit ? (
-              <a
-                href={editMode ? "/organigramme" : "/organigramme?edit=1"}
-                className="shrink-0 self-start px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-800 text-sm font-bold hover:bg-slate-50"
+        <ModulePageHeader
+          title="Annuaire de l'établissement"
+          description="Qui fait quoi — contacts, missions et demandes de tâche."
+          actions={
+            <>
+              {canEdit ? (
+                <a
+                  href={editMode ? "/organigramme" : "/organigramme?edit=1"}
+                  className="shrink-0 self-start px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-800 text-sm font-bold hover:bg-slate-50"
+                >
+                  {editMode ? "Quitter l'édition" : "Éditer"}
+                </a>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="shrink-0 self-start px-5 py-3 rounded-xl bg-slate-900 text-white text-sm font-bold shadow-lg hover:bg-slate-800 transition-colors border border-slate-700"
               >
-                {editMode ? "Quitter l'édition" : "Éditer"}
-              </a>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="shrink-0 self-start px-5 py-3 rounded-xl bg-slate-900 text-white text-sm font-bold shadow-lg hover:bg-slate-800 transition-colors border border-slate-700"
-            >
-              Imprimer / PDF (A4)
-            </button>
-          </div>
-        </header>
+                Imprimer / PDF (A4)
+              </button>
+            </>
+          }
+        />
 
         {editMode && canEdit ? <OrganigrammeEditor onSaved={() => void reload()} /> : null}
 
@@ -454,6 +455,6 @@ export default function OrganigrammePageClient() {
           }
         }
       `}</style>
-    </main>
+    </ModulePageShell>
   );
 }

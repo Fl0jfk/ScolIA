@@ -2,6 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { currentCertificateSchoolYear } from "@/app/lib/certificates-types";
 
 export default function NewCertificateProgramPage() {
@@ -36,9 +40,9 @@ export default function NewCertificateProgramPage() {
   }
 
   return (
-    <div className="px-4 py-6 max-w-lg mx-auto space-y-6">
-      <h1 className="text-3xl font-black text-slate-900">Nouveau parcours</h1>
-      <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
+    <ModulePageShell maxWidthClass="max-w-lg" className="space-y-6">
+      <ModulePageHeader eyebrow="Élèves" title="Nouveau parcours" />
+      <ModuleCard className="space-y-4 p-5">
         <label className="block space-y-1">
           <span className="text-sm font-bold text-slate-700">Titre du certificat / parcours</span>
           <input
@@ -57,15 +61,10 @@ export default function NewCertificateProgramPage() {
           />
         </label>
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void create()}
-          className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-black text-white disabled:opacity-50"
-        >
+        <ModuleButton className="w-full py-3" disabled={busy} onClick={() => void create()}>
           {busy ? "Création…" : "Créer le parcours"}
-        </button>
-      </div>
-    </div>
+        </ModuleButton>
+      </ModuleCard>
+    </ModulePageShell>
   );
 }

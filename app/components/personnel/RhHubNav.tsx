@@ -1,5 +1,7 @@
 "use client";
 
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
+
 export type RhHubTab =
   | "dashboard"
   | "annuaire"
@@ -38,28 +40,11 @@ export default function RhHubNav({
   canManage: boolean;
   canAccessHse: boolean;
 }) {
-  const visible = TABS.filter((t) => {
-    if (t.hseOnly) return canAccessHse;
-    if (t.manageOnly) return canManage;
-    return true;
-  });
+  const tabs = TABS.map((t) => ({
+    id: t.id,
+    label: t.label,
+    hidden: Boolean((t.hseOnly && !canAccessHse) || (t.manageOnly && !canManage)),
+  }));
 
-  return (
-    <nav className="flex flex-wrap gap-2 mb-6">
-      {visible.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          onClick={() => onChange(tab.id)}
-          className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${
-            active === tab.id
-              ? "bg-indigo-600 text-white shadow-md"
-              : "bg-white border border-slate-200 text-slate-600 hover:border-indigo-300"
-          }`}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </nav>
-  );
+  return <ModuleTabNav tabs={tabs} active={active} onChange={onChange} className="mb-6" />;
 }

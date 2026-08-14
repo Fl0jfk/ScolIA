@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useUser } from "@clerk/nextjs";
 import MesDemandesSuivi from "@/app/(admin)/requests/MesDemandesSuivi";
 import CompleteRequestModal, {
@@ -15,11 +16,25 @@ import { useMobileBoardUi } from "@/app/hooks/useMobileBoardUi";
 import type { VisualColumnKey } from "@/app/lib/request-board-move";
 import { getViewerServiceLabel } from "@/app/lib/requests-view-utils";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
-import RequestPersonnelTagsPanel from "@/app/components/requests/RequestPersonnelTagsPanel";
-import RequestsRoutingEditor from "@/app/components/settings/RequestsRoutingEditor";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import type { RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
+
+type RequestsMainTab = "board" | "tags" | "routing";
+
+const RequestPersonnelTagsPanel = dynamic(
+  () => import("@/app/components/requests/RequestPersonnelTagsPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
+const RequestsRoutingPanel = dynamic(
+  () => import("@/app/components/requests/RequestsRoutingPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 type RequestStatus = "NOUVELLE" | "EN_COURS" | "EN_ATTENTE" | "TERMINEE";
 
@@ -198,7 +213,7 @@ function RequestAttachmentLinks({
 export default function RequestsPage() {
   const { isLoaded, user } = useUser();
   const isOrgAdmin = useIsOrgAdmin();
-  const [mainTab, setMainTab] = useState<"board" | "tags" | "routing">("board");
+  const [mainTab, setMainTab] = useState<RequestsMainTab>("board");
   const [requestsRouting, setRequestsRouting] = useState<RequestsRoutingConfig | null>(null);
   const [routingMsg, setRoutingMsg] = useState<string | null>(null);
   const [routingBusy, setRoutingBusy] = useState(false);
@@ -585,31 +600,106 @@ export default function RequestsPage() {
     }
   };
 
-  if (!isLoaded) return <main className="max-w-7xl mx-auto p-6">Chargement...</main>;
-  if (!user) return <main className="max-w-7xl mx-auto p-6">Connexion requise.</main>;
+  const loadRoutingSettings = useCallback(async () => {
+    if (!requestsRouting) {
+      try {
+        const res = await fetch("/api/settings/requests-routing");
+        const j = await res.json();
+        if (res.ok) setRequestsRouting(j.config as RequestsRoutingConfig);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (clerkMembers.length === 0) {
+      setMembersLoading(true);
+      try {
+        const res = await fetch("/api/reservation-rooms/clerk-users");
+        const j = await res.json();
+        if (res.ok && Array.isArray(j.users)) {
+          setClerkMembers(
+            j.users.map(
+              (u: {
+                id?: string;
+                clerkUserId?: string;
+                email?: string;
+                displayName?: string;
+                name?: string;
+              }) => ({
+                clerkUserId: String(u.clerkUserId || u.id || ""),
+                email: String(u.email || ""),
+                displayName: String(u.displayName || u.name || u.email || ""),
+              }),
+            ),
+          );
+        }
+      } catch {
+        /* ignore */
+      } finally {
+        setMembersLoading(false);
+      }
+    }
+  }, [requestsRouting, clerkMembers.length]);
+
+  const saveRouting = async () => {
+    if (!requestsRouting) return;
+    setRoutingBusy(true);
+    setRoutingMsg(null);
+    try {
+      const res = await fetch("/api/settings/requests-routing", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestsRouting),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Échec");
+      setRequestsRouting(j.config as RequestsRoutingConfig);
+      setRoutingMsg("Routage enregistré.");
+    } catch (e) {
+      setRoutingMsg(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setRoutingBusy(false);
+    }
+  };
+
+  if (!isLoaded) {
+    return (
+      <ModulePageShell maxWidthClass="max-w-7xl">
+        <p className="text-sm text-slate-600">Chargement...</p>
+      </ModulePageShell>
+    );
+  }
+  if (!user) {
+    return (
+      <ModulePageShell maxWidthClass="max-w-7xl">
+        <p className="text-sm text-slate-600">Connexion requise.</p>
+      </ModulePageShell>
+    );
+  }
   if (loading) {
     return (
-      <main className="max-w-7xl mx-auto px-4 py-10 mt-[9vh] text-sm text-slate-600">
-        Chargement des demandes…
-      </main>
+      <ModulePageShell maxWidthClass="max-w-7xl">
+        <p className="text-sm text-slate-600">Chargement des demandes…</p>
+      </ModulePageShell>
     );
   }
   if (!isSubmitOnlyUser && !hasStaffBoard) {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-10 mt-[9vh] text-sm text-slate-700">
-        Accès refusé. Le suivi des demandes est réservé aux enseignants (leurs dépôts) et au personnel figurant dans la table
-        équipe des demandes ou disposant d’un rôle personnel adapté dans Clerk.
-      </main>
+      <ModulePageShell maxWidthClass="max-w-3xl">
+        <p className="text-sm text-slate-700">
+          Accès refusé. Le suivi des demandes est réservé aux enseignants (leurs dépôts) et au personnel figurant dans la table
+          équipe des demandes ou disposant d’un rôle personnel adapté dans Clerk.
+        </p>
+      </ModulePageShell>
     );
   }
   if (!hasStaffBoard && isSubmitOnlyUser) {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-8 mt-[3vh] pb-24">
-        <h1 className="text-4xl font-black text-slate-900">Demandes</h1>
-        <p className="text-sm text-slate-600 mt-1">
-          Déposez une demande et suivez son avancement depuis cette page.
-        </p>
-        <div id="faire-demande" className="mt-8 scroll-mt-24">
+      <ModulePageShell maxWidthClass="max-w-3xl" className="pb-24">
+        <ModulePageHeader
+          title="Demandes"
+          description="Déposez une demande et suivez son avancement depuis cette page."
+        />
+        <div id="faire-demande" className="mt-2 scroll-mt-24">
           <h2 className="text-lg font-black text-slate-900 mb-3">Faire une demande</h2>
           <FaireUneDemandeForm variant="inline" onSuccess={() => void load()} mesDemandesHref="/requests#mes-demandes" />
         </div>
@@ -621,164 +711,68 @@ export default function RequestsPage() {
             intro="État d’avancement et service en charge (libellé lisible, pas de code technique)."
           />
         </div>
-      </main>
+      </ModulePageShell>
     );
   }
 
   return (
-    <main className="max-w-[1500px] mx-auto px-4 py-4 relative">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-black text-slate-900">Demandes</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            {mainTab === "tags"
-              ? "Paramétrage des tags pour le routage IA"
-              : mainTab === "routing"
-                ? "Réglages du ticketing — files et routage des demandes"
-                : `Tableau de traitement — ${serviceLabel}`}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {isOrgAdmin ? (
-            <div className="flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
-              <button
-                type="button"
-                onClick={() => setMainTab("board")}
-                className={`rounded-xl px-3.5 py-2 text-xs font-black transition ${
-                  mainTab === "board"
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
+    <ModulePageShell maxWidthClass="max-w-[1500px]" className="relative">
+      <ModulePageHeader
+        title="Demandes"
+        description={
+          mainTab === "tags"
+            ? "Paramétrage des tags pour le routage IA"
+            : mainTab === "routing"
+              ? "Réglages du ticketing — files et routage des demandes"
+              : `Tableau de traitement — ${serviceLabel}`
+        }
+        actions={
+          <>
+            {mainTab === "board" ? (
+              <ModuleButton
+                data-tour="requests-new"
+                onClick={() => setCreateModalOpen(true)}
+                className="inline-flex items-center gap-2 shadow-lg"
               >
-                Tableau
-              </button>
-              <button
-                type="button"
-                onClick={() => setMainTab("tags")}
-                className={`rounded-xl px-3.5 py-2 text-xs font-black transition ${
-                  mainTab === "tags"
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                Tags équipe
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMainTab("routing");
-                  void (async () => {
-                    if (!requestsRouting) {
-                      try {
-                        const res = await fetch("/api/settings/requests-routing");
-                        const j = await res.json();
-                        if (res.ok) setRequestsRouting(j.config as RequestsRoutingConfig);
-                      } catch {
-                        /* ignore */
-                      }
-                    }
-                    if (clerkMembers.length === 0) {
-                      setMembersLoading(true);
-                      try {
-                        const res = await fetch("/api/reservation-rooms/clerk-users");
-                        const j = await res.json();
-                        if (res.ok && Array.isArray(j.users)) {
-                          setClerkMembers(
-                            j.users.map(
-                              (u: {
-                                id?: string;
-                                clerkUserId?: string;
-                                email?: string;
-                                displayName?: string;
-                                name?: string;
-                              }) => ({
-                                clerkUserId: String(u.clerkUserId || u.id || ""),
-                                email: String(u.email || ""),
-                                displayName: String(u.displayName || u.name || u.email || ""),
-                              }),
-                            ),
-                          );
-                        }
-                      } catch {
-                        /* ignore */
-                      } finally {
-                        setMembersLoading(false);
-                      }
-                    }
-                  })();
-                }}
-                className={`rounded-xl px-3.5 py-2 text-xs font-black transition ${
-                  mainTab === "routing"
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                Réglages
-              </button>
-            </div>
-          ) : null}
-          {mainTab === "board" ? (
-            <button
-              data-tour="requests-new"
-              type="button"
-              onClick={() => setCreateModalOpen(true)}
-              className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-blue-600 text-white text-sm font-black shadow-lg shadow-blue-200/40 hover:bg-blue-700 transition"
-            >
-              <span className="text-lg leading-none">+</span>
-              Faire une demande
-            </button>
-          ) : null}
-        </div>
-      </div>
+                <span className="text-lg leading-none">+</span>
+                Faire une demande
+              </ModuleButton>
+            ) : null}
+            <ReplayModuleTourButton moduleId="requests-staff" />
+          </>
+        }
+      />
+
+      {isOrgAdmin ? (
+        <ModuleTabNav
+          className="mb-6"
+          tabs={[
+            { id: "board", label: "Tableau" },
+            { id: "tags", label: "Tags équipe" },
+            { id: "routing", label: "Réglages" },
+          ]}
+          active={mainTab}
+          onChange={(id) => {
+            setMainTab(id);
+            if (id === "routing") void loadRoutingSettings();
+          }}
+        />
+      ) : null}
 
       {mainTab === "tags" && isOrgAdmin ? (
         <div className="mt-6 max-w-5xl">
           <RequestPersonnelTagsPanel />
         </div>
       ) : mainTab === "routing" && isOrgAdmin ? (
-        <div className="mt-6 max-w-5xl space-y-4">
-          {routingMsg ? (
-            <p className="text-sm text-emerald-700">{routingMsg}</p>
-          ) : null}
-          {requestsRouting ? (
-            <>
-              <RequestsRoutingEditor
-                config={requestsRouting}
-                onChange={setRequestsRouting}
-                members={clerkMembers}
-                membersLoading={membersLoading}
-              />
-              <button
-                type="button"
-                disabled={routingBusy}
-                onClick={async () => {
-                  setRoutingBusy(true);
-                  setRoutingMsg(null);
-                  try {
-                    const res = await fetch("/api/settings/requests-routing", {
-                      method: "PUT",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(requestsRouting),
-                    });
-                    const j = await res.json();
-                    if (!res.ok) throw new Error(j.error || "Échec");
-                    setRequestsRouting(j.config as RequestsRoutingConfig);
-                    setRoutingMsg("Routage enregistré.");
-                  } catch (e) {
-                    setRoutingMsg(e instanceof Error ? e.message : "Erreur");
-                  } finally {
-                    setRoutingBusy(false);
-                  }
-                }}
-                className="rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50"
-              >
-                {routingBusy ? "…" : "Enregistrer le routage"}
-              </button>
-            </>
-          ) : (
-            <p className="text-sm text-slate-500">Chargement du routage…</p>
-          )}
-        </div>
+        <RequestsRoutingPanel
+          requestsRouting={requestsRouting}
+          onChange={setRequestsRouting}
+          members={clerkMembers}
+          membersLoading={membersLoading}
+          routingMsg={routingMsg}
+          routingBusy={routingBusy}
+          onSave={saveRouting}
+        />
       ) : (
         <>
       <CreateRequestModal
@@ -1337,9 +1331,8 @@ export default function RequestsPage() {
           intro="Demandes que vous avez déposées : statut et service qui les traite."
         />
       </div>
-      <ReplayModuleTourButton moduleId="requests-staff" />
         </>
       )}
-    </main>
+    </ModulePageShell>
   );
 }

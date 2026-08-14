@@ -14,6 +14,8 @@ import TravelsOwnerAssignSection, {
   type TravelsOwnerFields,
 } from "@/app/components/travels/TravelsOwnerAssignSection";
 import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSelect";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
 
 const CUISINE_DAYS = [
@@ -301,16 +303,17 @@ function SimpleTripFormContent() {
     }
   };
   return (
-    <main className="max-w-4xl mx-auto p-8 text-left">
-      <div className="mb-8 flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">
-            {editId ? "Modifier la sortie" : "Nouvelle Sortie Simple"}
-          </h1>
-          <p className="text-slate-500 font-medium">Proximité, sans transport complexe ni nuitée.</p>
-        </div>
-        <button onClick={() => router.back()} className="text-sm font-bold text-indigo-600 hover:underline">Annuler</button>
-      </div>
+    <ModulePageShell maxWidthClass="max-w-4xl">
+      <ModulePageHeader
+        eyebrow="Voyages"
+        title={editId ? "Modifier la sortie" : "Nouvelle Sortie Simple"}
+        description="Proximité, sans transport complexe ni nuitée."
+        actions={
+          <button type="button" onClick={() => router.back()} className="text-sm font-bold text-indigo-600 hover:underline">
+            Annuler
+          </button>
+        }
+      />
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-white p-8 border rounded-3xl shadow-sm">
         <div className="md:col-span-2 space-y-4 border-b pb-4 text-slate-400 uppercase text-xs font-bold tracking-widest">
           Informations Générales
@@ -606,7 +609,7 @@ function SimpleTripFormContent() {
           </button>
         </div>
       </form>
-    </main>
+    </ModulePageShell>
   );
 }
 

@@ -1,9 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useUser } from "@clerk/nextjs";
 import PlanningWeekCalendar from "@/app/components/personnel/PlanningWeekCalendar";
-import RhPlanningPanel from "@/app/components/personnel/RhPlanningPanel";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import { hasGlobalAdminRole, intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import {
   canManagePersonnel,
@@ -17,6 +21,11 @@ import {
 } from "@/app/lib/rh/planning-calendar";
 import type { SchoolHolidayZone } from "@/app/lib/fr-school-holidays";
 import type { RhPlanningDoc, RhPlanningKind } from "@/app/lib/rh/planning-types";
+
+const RhPlanningPanel = dynamic(() => import("@/app/components/personnel/RhPlanningPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
 
 type Tab = "mine" | "gestion";
 
@@ -104,47 +113,36 @@ export default function MonPlanningClient() {
   }, [planning, leaves, schoolHolidayZone]);
 
   if (!isLoaded || loading) {
-    return <p className="p-10 text-center text-slate-500">Chargement du planning…</p>;
+    return (
+      <ModulePageShell maxWidthClass="max-w-6xl">
+        <p className="text-center text-slate-500">Chargement du planning…</p>
+      </ModulePageShell>
+    );
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-5">
-      <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">RH</p>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight mt-0.5">Mon planning</h1>
-          <p className="text-sm text-slate-500 mt-1">
+    <ModulePageShell maxWidthClass="max-w-6xl">
+      <ModulePageHeader
+        eyebrow="RH"
+        title="Mon planning"
+        description={
+          <>
             Vue semaine{displayName ? ` — ${displayName}` : ""}.
             {kind === "teacher" ? " Semaines types A/B pour l’année." : ""}
-          </p>
-        </div>
-        {showGestion ? (
-          <nav className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setTab("mine")}
-              className={`px-4 py-2 rounded-xl text-sm font-bold ${
-                tab === "mine"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-white border border-slate-200 text-slate-600"
-              }`}
-            >
-              Mon planning
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("gestion")}
-              className={`px-4 py-2 rounded-xl text-sm font-bold ${
-                tab === "gestion"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-white border border-slate-200 text-slate-600"
-              }`}
-            >
-              Gestion des plannings
-            </button>
-          </nav>
-        ) : null}
-      </header>
+          </>
+        }
+      />
+      {showGestion ? (
+        <ModuleTabNav
+          className="mb-5"
+          tabs={[
+            { id: "mine", label: "Mon planning" },
+            { id: "gestion", label: "Gestion des plannings" },
+          ]}
+          active={tab}
+          onChange={setTab}
+        />
+      ) : null}
 
       {tab === "gestion" && showGestion ? (
         <RhPlanningPanel />
@@ -184,6 +182,6 @@ export default function MonPlanningClient() {
           )}
         </div>
       )}
-    </div>
+    </ModulePageShell>
   );
 }

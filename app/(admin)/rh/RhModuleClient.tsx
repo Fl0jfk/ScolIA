@@ -1,29 +1,60 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
-import AbsencesPageClient from "@/app/(admin)/absences/AbsencesPageClient";
-import DemandesHsePanel from "@/app/components/demandes-hse/DemandesHsePanel";
 import PersonnelDashboard from "@/app/components/personnel/PersonnelDashboard";
 import PersonnelStaffCard from "@/app/components/personnel/PersonnelStaffCard";
-import RhAdminOverviewPanel from "@/app/components/personnel/RhAdminOverviewPanel";
 import RhHubNav, { type RhHubTab } from "@/app/components/personnel/RhHubNav";
 import RhNewStaffModal from "@/app/components/personnel/RhNewStaffModal";
-import RhDemandePanel from "@/app/components/personnel/RhDemandePanel";
 import RhMoodPulseAdminPanel from "@/app/components/personnel/RhMoodPulseAdminPanel";
-import RhOnboardingPanel from "@/app/components/personnel/RhOnboardingPanel";
-import RhBulkDepositPanel from "@/app/components/personnel/RhBulkDepositPanel";
-import RhOrganigramPanel from "@/app/components/personnel/RhOrganigramPanel";
 import RhPersonnelHome from "@/app/components/personnel/RhPersonnelHome";
-import RhPlanningPanel from "@/app/components/personnel/RhPlanningPanel";
-import RhRegistrePanel from "@/app/components/personnel/RhRegistrePanel";
-
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import { canAccessHseModule } from "@/app/lib/demandes-hse-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import type { PersonnelDashboardData } from "@/app/lib/personnel-dashboard";
 import { type PersonnelIndexEntry, type SharedPersonnelDocument } from "@/app/lib/personnel-types";
+
+const AbsencesPageClient = dynamic(() => import("@/app/(admin)/absences/AbsencesPageClient"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const DemandesHsePanel = dynamic(() => import("@/app/components/demandes-hse/DemandesHsePanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const RhAdminOverviewPanel = dynamic(() => import("@/app/components/personnel/RhAdminOverviewPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const RhDemandePanel = dynamic(() => import("@/app/components/personnel/RhDemandePanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const RhOnboardingPanel = dynamic(() => import("@/app/components/personnel/RhOnboardingPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const RhBulkDepositPanel = dynamic(() => import("@/app/components/personnel/RhBulkDepositPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const RhOrganigramPanel = dynamic(() => import("@/app/components/personnel/RhOrganigramPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const RhPlanningPanel = dynamic(() => import("@/app/components/personnel/RhPlanningPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const RhRegistrePanel = dynamic(() => import("@/app/components/personnel/RhRegistrePanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
 
 const TAB_IDS: RhHubTab[] = [
   "dashboard",
@@ -112,13 +143,13 @@ export default function RhModuleClient() {
   if (!dashboard) return null;
 
   return (
-    <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-6">
-      <header>
-        <h1 className="text-3xl font-black text-slate-900 tracking-tight">Module RH</h1>
-        <p className="text-slate-500 text-sm mt-1">
-          Portail RH unifié — personnel, absences, HSE (sans paie ni coffre bulletins).
-        </p>
-      </header>
+    <ModulePageShell maxWidthClass="max-w-7xl">
+      <ModulePageHeader
+        eyebrow="RH"
+        title="Module RH"
+        description="Portail RH unifié — personnel, absences, HSE (sans paie ni coffre bulletins)."
+        actions={<ReplayModuleTourButton moduleId="rh" />}
+      />
 
       <RhHubNav
         active={activeTab}
@@ -191,8 +222,7 @@ export default function RhModuleClient() {
           router.push(`/rh/${recordId}`);
         }}
       />
-      <ReplayModuleTourButton moduleId="rh" />
-    </div>
+    </ModulePageShell>
   );
 }
 

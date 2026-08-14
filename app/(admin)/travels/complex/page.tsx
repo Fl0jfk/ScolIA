@@ -13,6 +13,8 @@ import TravelsOwnerAssignSection, {
   type TravelsOwnerFields,
 } from "@/app/components/travels/TravelsOwnerAssignSection";
 import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSelect";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 
 function ComplexTripFormContent() {
   const { user, isLoaded } = useUser();
@@ -172,14 +174,17 @@ function ComplexTripFormContent() {
   };
   if (!isLoaded) return <div className="p-10 text-center font-medium">Chargement...</div>;
   return (
-    <main className="max-w-5xl mx-auto p-8 pb-24 text-left">
-      <div className="mb-8 flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">Nouveau Voyage Scolaire</h1>
-          <p className="text-slate-500 font-medium text-sm">Séjours, nuitées et projets complexes.</p>
-        </div>
-        <button onClick={() => router.back()} className="text-sm font-bold text-indigo-600 hover:underline">Annuler</button>
-      </div>
+    <ModulePageShell maxWidthClass="max-w-5xl" className="pb-24">
+      <ModulePageHeader
+        eyebrow="Voyages"
+        title="Nouveau Voyage Scolaire"
+        description="Séjours, nuitées et projets complexes."
+        actions={
+          <button type="button" onClick={() => router.back()} className="text-sm font-bold text-indigo-600 hover:underline">
+            Annuler
+          </button>
+        }
+      />
       <form onSubmit={handleSubmitAttempt} className="space-y-6">
         <div className="bg-white p-8 border rounded-3xl shadow-sm space-y-6">
           <div className="text-slate-400 uppercase text-xs font-bold tracking-widest border-b pb-4">1. Projet Pédagogique</div>
@@ -441,7 +446,7 @@ function ComplexTripFormContent() {
           </div>
         </div>
       )}
-    </main>
+    </ModulePageShell>
   );
 }
 

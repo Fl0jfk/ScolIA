@@ -2,6 +2,8 @@
 
 import { useUser } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import type { CovoiturageDirection, CovoiturageStatus } from "@/app/lib/covoiturage-types";
 import { directionLabel } from "@/app/lib/covoiturage-types";
 
@@ -184,9 +186,9 @@ export default function CovoituragePage() {
 
   if (!isLoaded || loading) {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-10 text-sm text-slate-600">
-        Chargement du covoiturage…
-      </main>
+      <ModulePageShell maxWidthClass="max-w-3xl">
+        <p className="text-sm text-slate-600">Chargement du covoiturage…</p>
+      </ModulePageShell>
     );
   }
 
@@ -196,15 +198,12 @@ export default function CovoituragePage() {
   const revealedMatches = (data?.matches ?? []).filter((m) => m.status === "revealed");
 
   return (
-    <main className="max-w-3xl mx-auto px-4 py-8 pb-24">
-      <div className="mb-8">
-        <p className="text-[10px] font-black uppercase tracking-widest text-teal-700">Familles</p>
-        <h1 className="text-4xl font-black text-slate-900 mt-1">Covoiturage</h1>
-        <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-          Mise en relation entre familles par zone (code postal) et établissement.
-          Aucune adresse exacte n&apos;est stockée. Les coordonnées ne sont échangées qu&apos;avec votre accord.
-        </p>
-      </div>
+    <ModulePageShell maxWidthClass="max-w-3xl" className="pb-24">
+      <ModulePageHeader
+        eyebrow="Familles"
+        title="Covoiturage"
+        description="Mise en relation entre familles par zone (code postal) et établissement. Aucune adresse exacte n'est stockée. Les coordonnées ne sont échangées qu'avec votre accord."
+      />
 
       {error ? (
         <p className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -479,6 +478,6 @@ export default function CovoituragePage() {
           {data.disclaimer}
         </p>
       ) : null}
-    </main>
+    </ModulePageShell>
   );
 }

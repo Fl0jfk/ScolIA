@@ -1,58 +1,39 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import { useOneDriveConnection } from "@/app/hooks/useOneDriveConnection";
 import { getOneDriveProfileForClerkUser } from "@/app/lib/onedrive-user-profiles";
 import type { StageConvention, StageOffer } from "@/app/lib/stage-types";
-import { STAGE_CONVENTION_STATUS_LABELS, STAGE_OFFER_KIND_LABELS } from "@/app/lib/stage-types";
-import StageReferentsEditor from "@/app/components/stages/StageReferentsEditor";
-import StageClassRosterPanel from "@/app/components/stages/StageClassRosterPanel";
+import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
 import StagePendingSignaturesPanel from "@/app/components/stages/StagePendingSignaturesPanel";
 import StageMySignatureBlock from "@/app/components/stages/StageMySignatureBlock";
-import type { PendingStageSignature } from "@/app/lib/stage-pending-signatures";
+import StagesBoardPanel from "@/app/components/stages/StagesBoardPanel";
+import type {
+  StageTab,
+  StagesHubBoard,
+  StagesOfferForm,
+} from "@/app/components/stages/stages-hub-types";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 
-type StageTab = "board" | "classe" | "offers" | "conventions";
-
-type Board = {
-  viewer: string;
-  permissions: {
-    canModerateOffers: boolean;
-    canReviewPreconvention: boolean;
-    canViewAllConventions: boolean;
-    canViewReferentConventions: boolean;
-    canDepositOffer: boolean;
-    canFileToOneDrive: boolean;
-    canPurge: boolean;
-    canManageReferents: boolean;
-    referentOnly: boolean;
-    canViewClassRoster: boolean;
-  };
-  counts: Record<string, number>;
-  myPendingSignatures?: PendingStageSignature[];
-  pendingOffers: Array<{ id: string; companyName: string; kind: string; targetLevels: string[] }>;
-  adminQueue: Array<{
-    id: string;
-    student?: { firstName: string; lastName: string };
-    company?: { name: string };
-    studentName?: string;
-    companyName?: string;
-    status: string;
-  }>;
-  conventions: Array<{
-    id: string;
-    studentName: string;
-    className: string;
-    companyName: string;
-    status: string;
-    periodStart: string;
-    periodEnd: string;
-  }>;
-};
-
-const LEVELS = ["3e", "2de", "1re", "Tle", "CAP", "BTS"];
+const StagesClassePanel = dynamic(() => import("@/app/components/stages/StagesClassePanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const StagesOffersPanel = dynamic(() => import("@/app/components/stages/StagesOffersPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const StagesConventionsPanel = dynamic(
+  () => import("@/app/components/stages/StagesConventionsPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 function currentSchoolYearLabel() {
   const now = new Date();
@@ -62,44 +43,7 @@ function currentSchoolYearLabel() {
   return `${y - 1}-${y}`;
 }
 
-function candidatureHref(token: string) {
-  return `/stages/candidater?token=${encodeURIComponent(token)}`;
-}
-
-function CandidatureLinkBlock({ token }: { token: string }) {
-  const path = candidatureHref(token);
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    const full =
-      typeof window !== "undefined" ? `${window.location.origin}${path}` : path;
-    try {
-      await navigator.clipboard.writeText(full);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return (
-    <div className="mt-3 rounded-lg border border-[#2F6B4A]/20 bg-white/80 p-3 text-xs">
-      <p className="font-semibold text-[#1F3D2B]">Lien candidature élève</p>
-      <a href={path} className="mt-1 block break-all text-[#2F6B4A] underline" target="_blank" rel="noreferrer">
-        {path}
-      </a>
-      <button
-        type="button"
-        onClick={() => void copy()}
-        className="mt-2 rounded-md border border-stone-300 px-2 py-1 font-semibold text-stone-700 hover:bg-stone-50"
-      >
-        {copied ? "Copié !" : "Copier le lien complet"}
-      </button>
-    </div>
-  );
-}
-
-function emptyOfferForm() {
+function emptyOfferForm(): StagesOfferForm {
   return {
     kind: "pfmp",
     companyName: "",
@@ -124,7 +68,7 @@ function StagesContent() {
     [clerkUser],
   );
   const od = useOneDriveConnection();
-  const [board, setBoard] = useState<Board | null>(null);
+  const [board, setBoard] = useState<StagesHubBoard | null>(null);
   const [offers, setOffers] = useState<StageOffer[]>([]);
   const [approvedOffers, setApprovedOffers] = useState<StageOffer[]>([]);
   const [conventions, setConventions] = useState<StageConvention[]>([]);
@@ -232,12 +176,6 @@ function StagesContent() {
     const id = searchParams.get("convention");
     if (id) void loadDetail(id).catch(() => undefined);
   }, [searchParams, loadDetail]);
-
-  useEffect(() => {
-    if (board?.permissions.referentOnly && tab === "board") {
-      setTab("classe");
-    }
-  }, [board, tab]);
 
   const permissions = board?.permissions;
 
@@ -491,26 +429,13 @@ function StagesContent() {
   const canShowOneDriveFiling =
     permissions?.canFileToOneDrive && detail?.convention.status === "signed";
 
-  const dossiers = useMemo(() => {
-    const map = new Map<string, typeof conventions>();
-    for (const c of conventions) {
-      const key = `${c.student.lastName}|${c.student.firstName}|${c.student.className}`;
-      const list = map.get(key) || [];
-      list.push(c);
-      map.set(key, list);
-    }
-    return [...map.entries()];
-  }, [conventions]);
-
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8">
-      <header className="mb-8">
-        <h1 className="text-3xl font-black text-[#1F3D2B]">Stages & conventions</h1>
-        <p className="mt-2 text-stone-600 max-w-2xl">
-          Les élèves déposent leur convention signée en PDF sur une page publique. L&apos;IA extrait
-          entreprise, SIRET et classe — vous validez dans la file d&apos;attente.
-        </p>
-      </header>
+    <ModulePageShell maxWidthClass="max-w-6xl">
+      <ModulePageHeader
+        title="Stages & conventions"
+        description="Les élèves déposent leur convention signée en PDF sur une page publique. L'IA extrait entreprise, SIRET et classe — vous validez dans la file d'attente."
+        actions={<ReplayModuleTourButton moduleId="stages" />}
+      />
 
       {permissions?.canFileToOneDrive && od.oneDriveEnabled && (
         <section className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
@@ -609,376 +534,72 @@ function StagesContent() {
 
       {permissions?.canViewClassRoster && permissions.referentOnly && <StageMySignatureBlock />}
 
-      <nav className="mb-6 flex flex-wrap gap-2">
-        {(
-          [
-            ...(permissions?.referentOnly ? [] : (["board"] as const)),
-            ...(permissions?.canViewClassRoster ? (["classe"] as const) : []),
-            ...(permissions?.referentOnly ? [] : (["offers"] as const)),
-            ["conventions"],
-          ] as StageTab[]
-        ).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`rounded-full px-4 py-2 text-sm font-semibold ${
-              tab === t ? "bg-[#2F6B4A] text-white" : "bg-white border border-stone-200 text-stone-700"
-            }`}
-          >
-            {t === "board"
-              ? "Tableau de bord"
-              : t === "classe"
-                ? "Suivi classe"
-                : t === "offers"
-                  ? "Offres"
-                  : `Conventions${
-                      board?.counts?.myPendingSignatures
-                        ? ` (${board.counts.myPendingSignatures})`
-                        : ""
-                    }`}
-          </button>
-        ))}
-      </nav>
+      <ModuleTabNav
+        className="mb-6"
+        tabs={[
+          { id: "board", label: "Tableau de bord", hidden: Boolean(permissions?.referentOnly) },
+          { id: "classe", label: "Suivi classe", hidden: !permissions?.canViewClassRoster },
+          { id: "offers", label: "Offres", hidden: Boolean(permissions?.referentOnly) },
+          { id: "conventions", label: "Conventions" },
+        ]}
+        active={tab}
+        onChange={setTab}
+        badges={{ conventions: board?.counts?.myPendingSignatures }}
+      />
 
       {tab === "classe" && permissions?.canViewClassRoster && (
-        <section data-tour="stages-classe" className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-bold text-[#1F3D2B]">Suivi des stages par classe</h2>
-          <p className="mt-2 text-sm text-stone-600 max-w-3xl">
-            Liste de la classe : élèves avec stage validé, en cours de traitement, sans stage, ou avec
-            plusieurs conventions. Cliquez sur un dossier pour ouvrir le détail.
-          </p>
-          <div className="mt-6">
-            <StageClassRosterPanel
-              defaultSchoolYear={purgeYear}
-              onOpenConvention={(id) => {
-                void loadDetail(id);
-                setTab("conventions");
-              }}
-              canFileOneDrive={Boolean(permissions?.canFileToOneDrive && od.oneDriveEnabled)}
-              oneDriveConnected={od.connected}
-              onFileOneDrive={(id) => void fileConventionToOneDrive(id)}
-              filingConventionId={filingConventionId}
-            />
-          </div>
-        </section>
+        <StagesClassePanel
+          defaultSchoolYear={purgeYear}
+          onOpenConvention={(id) => {
+            void loadDetail(id);
+            setTab("conventions");
+          }}
+          canFileOneDrive={Boolean(permissions?.canFileToOneDrive && od.oneDriveEnabled)}
+          oneDriveConnected={od.connected}
+          onFileOneDrive={(id) => void fileConventionToOneDrive(id)}
+          filingConventionId={filingConventionId}
+        />
       )}
 
       {tab === "board" && board && (
-        <div data-tour="stages-board" className="space-y-8">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              ...(permissions?.referentOnly
-                ? [
-                    ["Mes conventions", board.counts.conventions],
-                    ...(board.counts.myPendingSignatures
-                      ? [["À signer", board.counts.myPendingSignatures]]
-                      : []),
-                  ]
-                : [
-                    ["Offres en attente", board.counts.pendingOffers],
-                    ["Dépôts à valider", board.counts.adminQueue],
-                    ["Signatures en cours", board.counts.signaturesPending],
-                    ["Conventions totales", board.counts.conventions],
-                  ]),
-            ].map(([label, n]) => (
-              <div key={String(label)} className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
-                <p className="text-sm text-stone-500">{label}</p>
-                <p className="text-3xl font-black text-[#2F6B4A] mt-1">{n}</p>
-              </div>
-            ))}
-          </div>
-
-          {!permissions?.referentOnly && (
-            <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
-              <h2 className="text-sm font-bold text-emerald-900">Lien public — dépôt convention PDF</h2>
-              <p className="mt-2 text-sm text-emerald-800">
-                Communiquez cette adresse aux élèves (mail, ENT, affiche…) :
-              </p>
-              <p className="mt-2 rounded-lg bg-white border border-emerald-100 px-3 py-2 text-sm font-mono break-all text-[#1F3D2B]">
-                {typeof window !== "undefined" ? window.location.origin : ""}/stages/deposer
-              </p>
-              <p className="mt-2 text-xs text-emerald-700">
-                Le PDF est lu par OCR et IA (entreprise, SIRET, élève, classe). Aucun compte requis.
-              </p>
-            </section>
-          )}
-
-          {!permissions?.referentOnly && board.adminQueue.length > 0 && permissions?.canReviewPreconvention && (
-            <section className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5">
-              <h2 className="text-sm font-bold text-amber-900">File d&apos;attente administrative</h2>
-              <ul className="mt-3 space-y-2">
-                {board.adminQueue.map((c) => {
-                  const studentName =
-                    c.studentName ||
-                    (c.student ? `${c.student.firstName} ${c.student.lastName}`.trim() : "Élève");
-                  const companyName = c.companyName || c.company?.name || "—";
-                  return (
-                    <li key={c.id}>
-                      <button
-                        type="button"
-                        className="text-sm font-medium text-[#2F6B4A] underline"
-                        onClick={() => void loadDetail(c.id)}
-                      >
-                        {studentName} → {companyName} ·{" "}
-                        {STAGE_CONVENTION_STATUS_LABELS[c.status as keyof typeof STAGE_CONVENTION_STATUS_LABELS] ||
-                          c.status}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          )}
-
-          {permissions?.canManageReferents && (
-            <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-bold text-[#1F3D2B]">Professeurs principaux / référents par classe</h2>
-              <p className="mt-2 text-sm text-stone-600 max-w-2xl">
-                Assignez le professeur principal (ou référent stage) de chaque classe. Il verra l&apos;onglet
-                <strong> Suivi classe</strong> avec tous les élèves et l&apos;état de leurs conventions.
-              </p>
-              <div className="mt-4">
-                <StageReferentsEditor
-                  initialYear={purgeYear}
-                  onSaved={(m) => setMsg(m)}
-                />
-              </div>
-            </section>
-          )}
-
-          {permissions?.canPurge && (
-            <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-bold text-[#1F3D2B]">Purge fin d&apos;année</h2>
-              <p className="mt-2 text-sm text-stone-600 max-w-xl">
-                Archive les offres et conventions d&apos;une année scolaire (statut « archivé »). Les données restent
-                stockées mais disparaissent des listes actives.
-              </p>
-              <label className="mt-4 block text-sm">
-                Année scolaire
-                <input
-                  className="mt-1 w-full max-w-xs rounded-lg border border-stone-300 px-3 py-2"
-                  value={purgeYear}
-                  onChange={(e) => setPurgeYear(e.target.value)}
-                  placeholder="2024-2025"
-                />
-              </label>
-              {purgePreview && (
-                <p className="mt-3 text-xs text-stone-500">
-                  Dernière simulation : {purgePreview.offersArchived} offre(s), {purgePreview.conventionsArchived}{" "}
-                  convention(s).
-                </p>
-              )}
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void runPurge(true)}
-                  className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-800 disabled:opacity-50"
-                >
-                  Simuler
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void runPurge(false)}
-                  className="rounded-lg bg-rose-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  Archiver l&apos;année
-                </button>
-              </div>
-            </section>
-          )}
-        </div>
+        <StagesBoardPanel
+          board={board}
+          permissions={permissions}
+          purgeYear={purgeYear}
+          setPurgeYear={setPurgeYear}
+          purgePreview={purgePreview}
+          busy={busy}
+          onLoadDetail={(id) => void loadDetail(id)}
+          onRunPurge={(dryRun) => void runPurge(dryRun)}
+          onSavedMsg={setMsg}
+        />
       )}
 
       {tab === "offers" && (
-        <div className="grid gap-8 lg:grid-cols-2">
-          {permissions?.canDepositOffer && (
-            <form onSubmit={submitOffer} className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm space-y-4">
-              <h2 className="text-lg font-bold text-[#1F3D2B]">Déposer une offre</h2>
-              <label className="block text-sm">
-                Type
-                <select
-                  className="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2"
-                  value={offerForm.kind}
-                  onChange={(e) => setOfferForm({ ...offerForm, kind: e.target.value })}
-                >
-                  {Object.entries(STAGE_OFFER_KIND_LABELS).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
-                  ))}
-                </select>
-              </label>
-              <input
-                required
-                placeholder="Nom de l'entreprise *"
-                className="w-full rounded-lg border border-stone-300 px-3 py-2"
-                value={offerForm.companyName}
-                onChange={(e) => setOfferForm({ ...offerForm, companyName: e.target.value })}
-              />
-              <textarea
-                required
-                placeholder="Description du poste / activité *"
-                className="w-full rounded-lg border border-stone-300 px-3 py-2 min-h-[80px]"
-                value={offerForm.description}
-                onChange={(e) => setOfferForm({ ...offerForm, description: e.target.value })}
-              />
-              <div className="flex flex-wrap gap-2">
-                {LEVELS.map((lv) => (
-                  <label key={lv} className="text-sm flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={offerForm.targetLevels.includes(lv)}
-                      onChange={(e) => {
-                        const targetLevels = e.target.checked
-                          ? [...offerForm.targetLevels, lv]
-                          : offerForm.targetLevels.filter((x) => x !== lv);
-                        setOfferForm({ ...offerForm, targetLevels });
-                      }}
-                    />
-                    {lv}
-                  </label>
-                ))}
-              </div>
-              <input
-                required
-                placeholder="Contact (nom) *"
-                className="w-full rounded-lg border border-stone-300 px-3 py-2"
-                value={offerForm.contactName}
-                onChange={(e) => setOfferForm({ ...offerForm, contactName: e.target.value })}
-              />
-              <input
-                required
-                type="email"
-                placeholder="Contact (e-mail) *"
-                className="w-full rounded-lg border border-stone-300 px-3 py-2"
-                value={offerForm.contactEmail}
-                onChange={(e) => setOfferForm({ ...offerForm, contactEmail: e.target.value })}
-              />
-              <button
-                type="submit"
-                disabled={busy}
-                className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                Soumettre à la direction
-              </button>
-            </form>
-          )}
-
-          <div className="space-y-4">
-            <h2 className="text-lg font-bold text-[#1F3D2B]">Offres</h2>
-            {offers.map((o) => (
-              <div key={o.id} className="rounded-xl border border-stone-200 bg-white p-4">
-                <p className="font-semibold">{o.companyName}</p>
-                <p className="text-sm text-stone-600">{STAGE_OFFER_KIND_LABELS[o.kind]} · {o.status}</p>
-                {permissions?.canModerateOffers && o.status === "pending" && (
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void moderateOffer(o.id, "approved")}
-                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white"
-                    >
-                      Valider
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void moderateOffer(o.id, "rejected")}
-                      className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white"
-                    >
-                      Refuser
-                    </button>
-                  </div>
-                )}
-                {o.status === "approved" && o.candidatureToken && (
-                  <CandidatureLinkBlock token={o.candidatureToken} />
-                )}
-              </div>
-            ))}
-            {approvedOffers.length > 0 && (
-              <>
-                <h3 className="text-sm font-bold text-stone-500 mt-6">Offres validées (réseau)</h3>
-                {approvedOffers.map((o) => (
-                  <div key={o.id} className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
-                    <p className="font-semibold">{o.companyName}</p>
-                    <p className="text-sm text-stone-600">{o.description.slice(0, 120)}…</p>
-                    {o.candidatureToken && <CandidatureLinkBlock token={o.candidatureToken} />}
-                    <button
-                      type="button"
-                      className="mt-2 text-xs font-semibold text-[#2F6B4A] underline"
-                      onClick={() => setTab("conventions")}
-                    >
-                      Voir les conventions déposées →
-                    </button>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        </div>
+        <StagesOffersPanel
+          permissions={permissions}
+          offers={offers}
+          approvedOffers={approvedOffers}
+          offerForm={offerForm}
+          setOfferForm={setOfferForm}
+          busy={busy}
+          onSubmit={(e) => void submitOffer(e)}
+          onModerate={(id, status) => void moderateOffer(id, status)}
+          onGoToConventions={() => setTab("conventions")}
+        />
       )}
 
       {tab === "conventions" && (
-        <div data-tour="stages-conventions" className="grid gap-8 lg:grid-cols-2">
-          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-6 shadow-sm space-y-3 text-sm" data-tour="stages-deposer-link">
-            <h2 className="text-lg font-bold text-[#1F3D2B]">Dépôt élève (PDF)</h2>
-            <p className="text-stone-600">
-              Les élèves envoient leur convention remplie et signée sur la page publique. Plus besoin de
-              remplir une préconvention en ligne.
-            </p>
-            <a
-              href="/stages/deposer"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-semibold text-white"
-            >
-              Ouvrir /stages/deposer →
-            </a>
-          </div>
-
-          <div className="space-y-6 lg:col-span-2">
-            <h2 className="text-lg font-bold text-[#1F3D2B]">Dossiers élèves</h2>
-            {dossiers.map(([key, list]) => {
-              const first = list[0]!;
-              return (
-                <div key={key} className="rounded-xl border border-stone-200 bg-white p-4">
-                  <p className="font-semibold">
-                    {first.student.firstName} {first.student.lastName} — {first.student.className}
-                  </p>
-                  <p className="text-xs text-stone-500">{list.length} convention(s)</p>
-                  <ul className="mt-2 space-y-2">
-                    {list.map((c) => (
-                      <li key={c.id} className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          className="text-sm text-[#2F6B4A] font-medium underline"
-                          onClick={() => void loadDetail(c.id)}
-                        >
-                          {c.company.name} · {STAGE_CONVENTION_STATUS_LABELS[c.status]}
-                        </button>
-                        {permissions?.canFileToOneDrive && od.oneDriveEnabled && (
-                          <>
-                            {c.oneDriveFiling?.filedAt ? (
-                              <span className="text-xs font-semibold text-emerald-700">OneDrive ✓</span>
-                            ) : c.status === "signed" ? (
-                              <button
-                                type="button"
-                                disabled={!od.connected || filingConventionId === c.id || busy}
-                                onClick={() => void fileConventionToOneDrive(c.id)}
-                                className="rounded border border-[#2F6B4A]/40 px-2 py-0.5 text-xs font-semibold text-[#2F6B4A] disabled:opacity-50"
-                              >
-                                {filingConventionId === c.id ? "Envoi…" : "→ OneDrive"}
-                              </button>
-                            ) : null}
-                          </>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <StagesConventionsPanel
+          conventions={conventions}
+          permissions={permissions}
+          oneDriveEnabled={Boolean(od.oneDriveEnabled)}
+          oneDriveConnected={od.connected}
+          filingConventionId={filingConventionId}
+          busy={busy}
+          onLoadDetail={(id) => void loadDetail(id)}
+          onFileOneDrive={(id) => void fileConventionToOneDrive(id)}
+        />
       )}
 
       {detail && (
@@ -1231,14 +852,19 @@ function StagesContent() {
           )}
         </section>
       )}
-      <ReplayModuleTourButton moduleId="stages" />
-    </main>
+    </ModulePageShell>
   );
 }
 
 export default function StagesPage() {
   return (
-    <Suspense fallback={<main className="p-8">Chargement…</main>}>
+    <Suspense
+      fallback={
+        <ModulePageShell maxWidthClass="max-w-6xl">
+          <p>Chargement…</p>
+        </ModulePageShell>
+      }
+    >
       <StagesContent />
     </Suspense>
   );

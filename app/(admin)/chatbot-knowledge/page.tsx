@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 
 type IngestUpdate = {
   domain: string;
@@ -97,11 +99,11 @@ export default function ChatbotKnowledgePage() {
     } finally {setLoading(false)}
   };
   return (
-    <main className="max-w-4xl mx-auto px-4 py-10">
-      <h1 className="text-2xl font-black text-slate-900 mb-2">Brain AI (training engine)</h1>
-      <p className="text-sm text-slate-600 mb-6">
-        Injectez du texte ou des PDF. Le système classe automatiquement vers le bon JSON knowledge sur S3.
-      </p>
+    <ModulePageShell maxWidthClass="max-w-4xl">
+      <ModulePageHeader
+        title="Brain AI (training engine)"
+        description="Injectez du texte ou des PDF. Le système classe automatiquement vers le bon JSON knowledge sur S3."
+      />
       <section className="rounded-2xl border border-slate-200 bg-white p-5 mb-6">
         <h2 className="font-bold mb-3">Injection texte</h2>
         <input
@@ -177,6 +179,6 @@ export default function ChatbotKnowledgePage() {
           </div>
         </section>
       ) : null}
-    </main>
+    </ModulePageShell>
   );
 }

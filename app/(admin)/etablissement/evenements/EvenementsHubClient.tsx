@@ -1,13 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import RequireOrgAdmin from "@/app/components/RequireOrgAdmin";
-import RentreeEditor from "@/app/components/toolbox/RentreeEditor";
-import FournituresEditor from "@/app/components/toolbox/FournituresEditor";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import { EVENEMENTS_TOOLS_META, type EvenementToolId } from "@/app/lib/evenements-tools";
 import type { PortesOuvertesSlot, ToolboxConfig } from "@/app/lib/toolbox-types";
+
+const RentreeEditor = dynamic(() => import("@/app/components/toolbox/RentreeEditor"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const FournituresEditor = dynamic(() => import("@/app/components/toolbox/FournituresEditor"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
 
 type Tab = "overview" | EvenementToolId;
 
@@ -136,9 +149,9 @@ export default function EvenementsHubClient() {
 
   if (loading || !config) {
     return (
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
+      <ModulePageShell maxWidthClass="max-w-5xl">
         <p className="text-slate-500">{loading ? "Chargement…" : "Configuration indisponible."}</p>
-      </main>
+      </ModulePageShell>
     );
   }
 
@@ -146,29 +159,19 @@ export default function EvenementsHubClient() {
 
   return (
     <RequireOrgAdmin>
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
-              Établissement
-            </p>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight mt-1">Événements</h1>
-            <p className="text-sm text-slate-500 mt-2 max-w-2xl">
-              Portes ouvertes, rentrée digitale et Secret Santa — configuration ici, plus dans la
-              boîte à outils.
-            </p>
-          </div>
-          {tab !== "overview" ? (
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={saving}
-              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-            >
-              {saving ? "Enregistrement…" : "Enregistrer"}
-            </button>
-          ) : null}
-        </header>
+      <ModulePageShell maxWidthClass="max-w-5xl" className="space-y-6">
+        <ModulePageHeader
+          eyebrow="Établissement"
+          title="Événements"
+          description="Portes ouvertes, rentrée digitale et Secret Santa — configuration ici, plus dans la boîte à outils."
+          actions={
+            tab !== "overview" ? (
+              <ModuleButton onClick={() => void save()} disabled={saving}>
+                {saving ? "Enregistrement…" : "Enregistrer"}
+              </ModuleButton>
+            ) : null
+          }
+        />
 
         {error ? (
           <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -181,33 +184,22 @@ export default function EvenementsHubClient() {
           </p>
         ) : null}
 
-        <nav className="flex flex-wrap gap-2">
-          {(
-            [
-              ["overview", "Vue d’ensemble"],
-              ["portes-ouvertes", "Portes ouvertes"],
-              ["rentree", "Rentrée"],
-              ["secret-santa", "Secret Santa"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => {
-                setTab(id);
-                const url = new URL(window.location.href);
-                if (id === "overview") url.searchParams.delete("tab");
-                else url.searchParams.set("tab", id);
-                window.history.replaceState({}, "", url.pathname + url.search);
-              }}
-              className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
-                tab === id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
+        <ModuleTabNav
+          tabs={[
+            { id: "overview", label: "Vue d’ensemble" },
+            { id: "portes-ouvertes", label: "Portes ouvertes" },
+            { id: "rentree", label: "Rentrée" },
+            { id: "secret-santa", label: "Secret Santa" },
+          ]}
+          active={tab}
+          onChange={(id) => {
+            setTab(id);
+            const url = new URL(window.location.href);
+            if (id === "overview") url.searchParams.delete("tab");
+            else url.searchParams.set("tab", id);
+            window.history.replaceState({}, "", url.pathname + url.search);
+          }}
+        />
 
         {tab === "overview" ? (
           <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-3">
@@ -552,7 +544,7 @@ export default function EvenementsHubClient() {
           </Link>
           .
         </p>
-      </main>
+      </ModulePageShell>
     </RequireOrgAdmin>
   );
 }

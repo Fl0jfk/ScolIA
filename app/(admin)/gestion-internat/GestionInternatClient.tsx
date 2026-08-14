@@ -1,22 +1,14 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useUser } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import InternatActivitiesPanel from "@/app/components/internat/InternatActivitiesPanel";
-import InternatAlertsPanel from "@/app/components/internat/InternatAlertsPanel";
 import InternatDashboardPanel from "@/app/components/internat/InternatDashboardPanel";
 import InternatHubNav, { type InternatTab } from "@/app/components/internat/InternatHubNav";
-import InternatOutingsPanel from "@/app/components/internat/InternatOutingsPanel";
-import InternatRollCallPanel from "@/app/components/internat/InternatRollCallPanel";
-import InternatRoomsPanel from "@/app/components/internat/InternatRoomsPanel";
-import InternatRollCallHistoryPanel from "@/app/components/internat/InternatRollCallHistoryPanel";
-import InternatStudyPanel from "@/app/components/internat/InternatStudyPanel";
-import InternatSupervisorsPanel from "@/app/components/internat/InternatSupervisorsPanel";
-import InternatEducationalPanel from "@/app/components/internat/InternatEducationalPanel";
-import InternatCommunicationPanel from "@/app/components/internat/InternatCommunicationPanel";
-import InternatInstallationPanel from "@/app/components/internat/InternatInstallationPanel";
-import InternatStudentsPanel from "@/app/components/internat/InternatStudentsPanel";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import {
@@ -26,6 +18,55 @@ import {
 } from "@/app/lib/internat-rbac";
 import type { InternatDashboardStats } from "@/app/lib/internat-stats";
 import type { InternatBuilding, InternatIncident, InternatRoom, InternatStudent } from "@/app/lib/internat-types";
+
+const InternatRoomsPanel = dynamic(() => import("@/app/components/internat/InternatRoomsPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const InternatStudentsPanel = dynamic(() => import("@/app/components/internat/InternatStudentsPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const InternatOutingsPanel = dynamic(() => import("@/app/components/internat/InternatOutingsPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const InternatRollCallPanel = dynamic(() => import("@/app/components/internat/InternatRollCallPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const InternatRollCallHistoryPanel = dynamic(
+  () => import("@/app/components/internat/InternatRollCallHistoryPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
+const InternatStudyPanel = dynamic(() => import("@/app/components/internat/InternatStudyPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const InternatSupervisorsPanel = dynamic(() => import("@/app/components/internat/InternatSupervisorsPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const InternatEducationalPanel = dynamic(() => import("@/app/components/internat/InternatEducationalPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const InternatCommunicationPanel = dynamic(
+  () => import("@/app/components/internat/InternatCommunicationPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
+const InternatActivitiesPanel = dynamic(() => import("@/app/components/internat/InternatActivitiesPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const InternatAlertsPanel = dynamic(() => import("@/app/components/internat/InternatAlertsPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const InternatInstallationPanel = dynamic(
+  () => import("@/app/components/internat/InternatInstallationPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 const TAB_IDS: InternatTab[] = [
   "dashboard",
@@ -103,20 +144,20 @@ export default function GestionInternatClient() {
 
   if (!isLoaded || !allowed) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-10">
+      <ModulePageShell maxWidthClass="max-w-6xl">
         <p className="text-slate-500 text-sm">Chargement…</p>
-      </div>
+      </ModulePageShell>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 sm:py-10">
-      <header className="mb-6">
-        <h1 className="text-3xl font-black text-slate-900 tracking-tight">Gestion internat</h1>
-        <p className="text-slate-500 mt-1 text-sm">
-          Chambres, internes, appel du soir, activités et alertes — équipe éducation / direction.
-        </p>
-      </header>
+    <ModulePageShell maxWidthClass="max-w-6xl">
+      <ModulePageHeader
+        eyebrow="Élèves"
+        title="Gestion internat"
+        description="Chambres, internes, appel du soir, activités et alertes — équipe éducation / direction."
+        actions={<ReplayModuleTourButton moduleId="internat" />}
+      />
 
       <InternatHubNav active={activeTab} onChange={setTab} />
 
@@ -137,13 +178,13 @@ export default function GestionInternatClient() {
           )}
           {activeTab === "internes" && (
             <div data-tour="internat-roster">
-            <InternatStudentsPanel
-              students={students}
-              rooms={rooms}
-              buildings={buildings}
-              canManage={canManage}
-              onRefresh={refresh}
-            />
+              <InternatStudentsPanel
+                students={students}
+                rooms={rooms}
+                buildings={buildings}
+                canManage={canManage}
+                onRefresh={refresh}
+              />
             </div>
           )}
           {activeTab === "sorties" && (
@@ -168,7 +209,6 @@ export default function GestionInternatClient() {
           )}
         </>
       )}
-      <ReplayModuleTourButton moduleId="internat" />
-    </div>
+    </ModulePageShell>
   );
 }

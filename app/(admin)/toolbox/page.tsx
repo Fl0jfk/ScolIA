@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import RequireOrgAdmin from "@/app/components/RequireOrgAdmin";
 import ToolboxModal from "@/app/components/toolbox/ToolboxModal";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import {
   renderToolboxAdminIcon,
   renderToolboxHubIcon,
@@ -122,14 +124,12 @@ export default function ToolboxAdminPage() {
       : false;
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8">
-      <header className="mb-8">
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Services</p>
-        <h1 className="text-3xl font-black text-slate-900">Boîte à outils</h1>
-        <p className="mt-2 text-sm text-blue-700 max-w-xl font-medium">
-          QR code et photocopies couleur — les petits utilitaires du quotidien.
-        </p>
-      </header>
+    <ModulePageShell maxWidthClass="max-w-5xl">
+      <ModulePageHeader
+        eyebrow="Services"
+        title="Boîte à outils"
+        description="QR code et photocopies couleur — les petits utilitaires du quotidien."
+      />
 
       {error && (
         <p className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
@@ -339,6 +339,6 @@ export default function ToolboxAdminPage() {
           </div>
         </RequireOrgAdmin>
       ) : null}
-    </main>
+    </ModulePageShell>
   );
 }

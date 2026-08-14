@@ -1,12 +1,16 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { useUser } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 import AbsencesCalendar from "@/app/components/absences/AbsencesCalendar";
-import AbsencesDeclareOther from "@/app/components/absences/AbsencesDeclareOther";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import {
   canChooseDeclarationScope,
   canManageAbsenceAttachment,
@@ -37,6 +41,11 @@ import {
   type AbsenceWorkflowStatus,
   type Etablissement,
 } from "@/app/lib/absences-page-model";
+
+const AbsencesDeclareOther = dynamic(
+  () => import("@/app/components/absences/AbsencesDeclareOther"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 const norm = (s: string) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[_\s-]+/g, "");
 
@@ -397,43 +406,28 @@ export default function AbsencesPageClient({
   ].filter((t) => t.show);
 
   if (!isLoaded) return null;
-  return (
-    <div className={embeddedInRh ? "space-y-4" : "max-w-7xl mx-auto p-6"}>
-      {!embeddedInRh && (
-        <div className="mb-6">
-          <h1 className="text-4xl font-black text-slate-900">Absences</h1>
-          <p className="text-slate-500 mt-2">Déclaration, suivi et calendrier des absences.</p>
-        </div>
-      )}
-      {embeddedInRh && (
-        <div className="mb-2">
-          <h2 className="text-xl font-black text-slate-900">Absences</h2>
-          <p className="text-sm text-slate-500 mt-1">
-            Déclaration, suivi et calendrier — intégré au module RH.
-          </p>
-        </div>
-      )}
-      <nav data-tour="absences-tabs" className="flex flex-wrap gap-2 mb-6 border-b border-slate-200 pb-3">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            data-absences-tab={t.id}
-            onClick={() => setTab(t.id)}
-            className={[
-              "px-4 py-2 rounded-xl text-sm font-bold transition-colors",
-              activeTab === t.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200",
-            ].join(" ")}
-          >
-            {t.label}
-            {t.id === "a-traiter" && pendingItems.length > 0
-              ? ` (${pendingItems.length})`
-              : t.id === "se-declarer" && pendingSelfCount > 0
-                ? ` (${pendingSelfCount})`
-                : ""}
-          </button>
-        ))}
-      </nav>
+
+  const tabNav = (
+    <ModuleTabNav
+      className="mb-6"
+      navDataTour="absences-tabs"
+      tabs={tabs.map((t) => ({
+        id: t.id,
+        label: t.label,
+        dataAttrs: { "data-absences-tab": t.id },
+      }))}
+      active={activeTab}
+      onChange={setTab}
+      badges={{
+        "a-traiter": pendingItems.length,
+        "se-declarer": pendingSelfCount,
+      }}
+    />
+  );
+
+  const body = (
+    <>
+      {tabNav}
 
       {activeTab === "calendrier" && showCalendar ? (
         <div data-tour="absences-calendar">
@@ -820,7 +814,31 @@ export default function AbsencesPageClient({
           )}
         </div>
       ) : null}
-      {!embeddedInRh && <ReplayModuleTourButton moduleId="absences" />}
-    </div>
+    </>
+  );
+
+  if (embeddedInRh) {
+    return (
+      <div className="space-y-4">
+        <div className="mb-2">
+          <h2 className="text-xl font-black text-slate-900">Absences</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            Déclaration, suivi et calendrier — intégré au module RH.
+          </p>
+        </div>
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <ModulePageShell maxWidthClass="max-w-7xl">
+      <ModulePageHeader
+        title="Absences"
+        description="Déclaration, suivi et calendrier des absences."
+        actions={<ReplayModuleTourButton moduleId="absences" />}
+      />
+      {body}
+    </ModulePageShell>
   );
 }

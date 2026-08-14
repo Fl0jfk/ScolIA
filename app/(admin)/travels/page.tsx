@@ -2,6 +2,7 @@
 
 import { useUser } from "@clerk/nextjs";
 import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import TravelsDirectionDashboardPanel from "@/app/components/travels/TravelsDirectionDashboard";
@@ -16,12 +17,24 @@ import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
-import TravelsTransportSettingsPanel from "@/app/components/travels/TravelsTransportSettingsPanel";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModuleEmptyState from "@/app/components/module-chrome/ModuleEmptyState";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import {
   MODULE_TOUR_ACTION_EVENT,
   MODULE_TOUR_STEP_EVENT,
 } from "@/app/lib/module-tour-actions";
+
+type TravelsMainTab = "dossiers" | "settings";
+
+const TravelsTransportSettingsPanel = dynamic(
+  () => import("@/app/components/travels/TravelsTransportSettingsPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 function TripDashboardContent() {
   const { isLoaded, isSignedIn } = useUser();
@@ -38,7 +51,7 @@ function TripDashboardContent() {
   const [reminders, setReminders] = useState<TravelsReminderRow[]>([]);
   const [showRemindersModal, setShowRemindersModal] = useState(false);
   const [tourModalBoost, setTourModalBoost] = useState(false);
-  const [mainTab, setMainTab] = useState<"dossiers" | "settings">("dossiers");
+  const [mainTab, setMainTab] = useState<TravelsMainTab>("dossiers");
 
   useEffect(() => {
     if (searchParams.get("tab") === "settings" && isOrgAdmin) {
@@ -158,11 +171,11 @@ function TripDashboardContent() {
     }
   };
   return (
-    <div className="max-w-7xl mx-auto p-6 min-h-screen mt-[1vh]">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight">Module Voyage</h1>
-          <p className="text-slate-500 font-medium" data-tour="travels-reminders">
+    <ModulePageShell maxWidthClass="max-w-7xl">
+      <ModulePageHeader
+        title="Module Voyage"
+        description={
+          <p data-tour="travels-reminders">
             Gestion des sorties — transport, cuisine, documents et suivi.
             {reminderCount > 0 && (
               <button
@@ -175,45 +188,28 @@ function TripDashboardContent() {
               </button>
             )}
           </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {isOrgAdmin ? (
-            <div className="flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
-              <button
-                type="button"
-                onClick={() => setMainTab("dossiers")}
-                className={`rounded-xl px-3.5 py-2 text-xs font-black transition ${
-                  mainTab === "dossiers"
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                Dossiers
-              </button>
-              <button
-                type="button"
-                onClick={() => setMainTab("settings")}
-                className={`rounded-xl px-3.5 py-2 text-xs font-black transition ${
-                  mainTab === "settings"
-                    ? "bg-slate-900 text-white"
-                    : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                Paramétrage
-              </button>
-            </div>
-          ) : null}
-          {mainTab === "dossiers" ? (
-            <button
-              data-tour="travels-create"
-              onClick={() => setShowModal(true)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3.5 rounded-2xl font-bold shadow-lg transition-all"
-            >
-              + Nouvelle demande
-            </button>
-          ) : null}
-        </div>
-      </div>
+        }
+        actions={
+          <>
+            {mainTab === "dossiers" ? (
+              <ModuleButton data-tour="travels-create" onClick={() => setShowModal(true)}>
+                + Nouvelle demande
+              </ModuleButton>
+            ) : null}
+            <ReplayModuleTourButton moduleId="travels" />
+          </>
+        }
+      />
+
+      <ModuleTabNav
+        className="mb-6"
+        tabs={[
+          { id: "dossiers", label: "Dossiers" },
+          { id: "settings", label: "Paramétrage", hidden: !isOrgAdmin },
+        ]}
+        active={mainTab}
+        onChange={setMainTab}
+      />
 
       {mainTab === "settings" && isOrgAdmin ? (
         <TravelsTransportSettingsPanel />
@@ -359,9 +355,9 @@ function TripDashboardContent() {
           })}
         </div>
       ) : (
-        <div className="text-center py-20 bg-white rounded-[2.5rem] border-2 border-dashed border-slate-200">
-          <p className="text-slate-400 font-bold text-xl">Aucun dossier en cours.</p>
-        </div>
+        <ModuleEmptyState className="py-20 rounded-[2.5rem]">
+          <p className="font-bold text-xl">Aucun dossier en cours.</p>
+        </ModuleEmptyState>
       )}
       {showModal && (
         <div
@@ -416,16 +412,21 @@ function TripDashboardContent() {
         reminders={reminders}
         onClose={() => setShowRemindersModal(false)}
       />
-      <ReplayModuleTourButton moduleId="travels" />
         </>
       )}
-    </div>
+    </ModulePageShell>
   );
 }
 
 export default function TripDashboard() {
   return (
-    <Suspense fallback={<div className="p-8 text-slate-500 text-sm">Chargement des sorties…</div>}>
+    <Suspense
+      fallback={
+        <ModulePageShell maxWidthClass="max-w-7xl">
+          <p className="text-slate-500 text-sm">Chargement des sorties…</p>
+        </ModulePageShell>
+      }
+    >
       <TripDashboardContent />
     </Suspense>
   );

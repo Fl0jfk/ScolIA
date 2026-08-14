@@ -1,5 +1,7 @@
 "use client";
 
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
+
 export type InternatTab =
   | "dashboard"
   | "chambres"
@@ -38,22 +40,5 @@ export default function InternatHubNav({
   active: InternatTab;
   onChange: (tab: InternatTab) => void;
 }) {
-  return (
-    <nav className="flex flex-wrap gap-2 mb-8">
-      {TABS.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          onClick={() => onChange(tab.id)}
-          className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${
-            active === tab.id
-              ? "bg-indigo-600 text-white shadow-md"
-              : "bg-white border border-slate-200 text-slate-600 hover:border-indigo-300"
-          }`}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </nav>
-  );
+  return <ModuleTabNav tabs={TABS} active={active} onChange={onChange} className="mb-8" />;
 }

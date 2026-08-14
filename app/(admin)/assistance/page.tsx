@@ -2,6 +2,8 @@
 
 import { useUser } from "@clerk/nextjs";
 import { useEffect, useRef, useState } from "react";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 
 const MAX_FILES = 8;
 
@@ -80,14 +82,11 @@ export default function AssistancePage() {
   };
 
   return (
-    <main className="mx-auto mt-[1vh] max-w-3xl px-4 pb-16">
-      <header className="mb-8">
-        <h1 className="text-3xl font-black tracking-tight text-slate-900">Assistance</h1>
-        <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-          Signalez un problème sur le tableau de bord ou un module de l&apos;intranet. Votre message
-          sera transmis à l&apos;équipe technique avec les pièces jointes éventuelles.
-        </p>
-      </header>
+    <ModulePageShell maxWidthClass="max-w-3xl" className="pb-16">
+      <ModulePageHeader
+        title="Assistance"
+        description="Signalez un problème sur le tableau de bord ou un module de l'intranet. Votre message sera transmis à l'équipe technique avec les pièces jointes éventuelles."
+      />
 
       <div className="rounded-3xl border border-slate-200 bg-white p-6 md:p-8 shadow-sm space-y-6">
         {loading ? (
@@ -186,6 +185,6 @@ export default function AssistancePage() {
           </>
         )}
       </div>
-    </main>
+    </ModulePageShell>
   );
 }

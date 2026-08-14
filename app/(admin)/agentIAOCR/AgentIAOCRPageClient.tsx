@@ -6,6 +6,14 @@ import * as msal from "@azure/msal-browser";
 import { consumeDashboardUpload } from "@/app/lib/dashboard-upload-bridge";
 import { getOneDriveProfileForClerkUser } from "@/app/lib/onedrive-user-profiles";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import OcrBatchProgress from "@/app/components/ocr/OcrBatchProgress";
+import OcrConfigPanel from "@/app/components/ocr/OcrConfigPanel";
+import OcrDropZones from "@/app/components/ocr/OcrDropZones";
+import OcrOneDriveConnectBar from "@/app/components/ocr/OcrOneDriveConnectBar";
+import OcrResultsList from "@/app/components/ocr/OcrResultsList";
+import OcrSessionStats from "@/app/components/ocr/OcrSessionStats";
 import {
   ONEDRIVE_MSAL_SCOPES,
   buildOneDriveMsalConfig,
@@ -18,6 +26,18 @@ import {
   tryRestoreOneDriveAccessToken,
 } from "@/app/lib/onedrive-msal-session";
 import { graphDriveRootItemUrl } from "@/app/lib/graph-onedrive-path";
+import {
+  BATCH_JOB_LAST_RESULTS_KEY,
+  BATCH_JOB_STORAGE_KEY,
+  INITIAL_OCR_PROCESSING_STATUS,
+  buildOcrProgressCaption,
+  mergeOcrResultsForUi,
+  type BatchJobStatusPayload,
+  type OcrMefCounts,
+  type OcrProgressDetail,
+  type OcrSyncReport,
+  type ProcessResult,
+} from "@/app/lib/ocr-page-model";
 
 const ONEDRIVE_SCOPES = [...ONEDRIVE_MSAL_SCOPES];
 
@@ -45,105 +65,6 @@ async function restoreOneDriveToken(account: msal.AccountInfo): Promise<string |
   return tryRestoreOneDriveAccessToken(getMsalInstance(), account);
 }
 
-type ProcessResult = {
-  success: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  result?: any;
-  error?: string;
-  fileName: string;
-  /** Chemin OneDrive (ex. Temp/monfichier.pdf) si le fichier est resté dans Temp */
-  tempOneDrivePath?: string;
-};
-
-const INITIAL_OCR_PROCESSING_STATUS = {
-  percent: 0,
-  total: 0,
-  done: 0,
-  completed: 0,
-  failed: 0,
-  totalKnown: false,
-  label: "",
-};
-
-const BATCH_JOB_STORAGE_KEY = "agentIAOCR-active-batch-job";
-/** Dernier lot terminé — conservé jusqu'au prochain dépôt de fichiers. */
-const BATCH_JOB_LAST_RESULTS_KEY = "agentIAOCR-last-batch-job";
-
-type OcrProgressDetail = {
-  percent: number;
-  label: string;
-  phase: string;
-  phaseLabel: string;
-  fileName: string | null;
-  fileIndex: number;
-  fileTotal: number;
-  pageCount: number | null;
-  pdfPageCount: number | null;
-  ocrPagesRead: number | null;
-  segmentIndex: number | null;
-  segmentTotal: number | null;
-  segmentationEngine: "identity" | "mistral" | "mistral_chunked" | "heuristic" | null;
-  documentsProcessed: number;
-  documentsSucceeded: number;
-  documentsFailed: number;
-  updatedAt: string;
-  idleSeconds: number;
-};
-
-type OcrServerTraceEntry = {
-  t: string;
-  scope: string;
-  phase: string;
-  level: string;
-  message: string;
-  data?: Record<string, unknown>;
-};
-
-/** Ne jamais faire régresser la liste de résultats affichée (poll S3 parfois en retard). */
-function mergeOcrResultsForUi(prev: ProcessResult[], incoming: ProcessResult[]): ProcessResult[] {
-  if (incoming.length === 0 && prev.length > 0) return prev;
-  const byName = new Map<string, ProcessResult>();
-  for (const r of prev) byName.set(r.fileName, r);
-  for (const r of incoming) {
-    const ex = byName.get(r.fileName);
-    if (!ex) byName.set(r.fileName, r);
-    else if (r.success && !ex.success) byName.set(r.fileName, r);
-    else if (incoming.length >= prev.length) byName.set(r.fileName, r);
-  }
-  if (incoming.length >= prev.length) {
-    return incoming.map((r) => byName.get(r.fileName) ?? r);
-  }
-  const order = [...prev.map((r) => r.fileName), ...incoming.map((r) => r.fileName)];
-  const seen = new Set<string>();
-  const merged: ProcessResult[] = [];
-  for (const name of order) {
-    if (seen.has(name)) continue;
-    const row = byName.get(name);
-    if (row) {
-      merged.push(row);
-      seen.add(name);
-    }
-  }
-  return merged;
-}
-
-type BatchJobStatusPayload = {
-  jobId?: string;
-  status?: string;
-  label?: string;
-  percent?: number;
-  currentItemIndex?: number;
-  totalItems?: number;
-  completed?: number;
-  failed?: number;
-  results?: ProcessResult[];
-  error?: string | null;
-  serverManaged?: boolean;
-  serverSelfRelays?: boolean;
-  traceLog?: OcrServerTraceEntry[];
-  progress?: OcrProgressDetail;
-};
-
 function OneDriveUpDocsOCRAIContent() {
   const searchParams = useSearchParams();
   const { user: clerkUser } = useUser();
@@ -164,25 +85,8 @@ function OneDriveUpDocsOCRAIContent() {
 
   const [elevesCount, setElevesCount] = useState<number | null>(null);
   const [syncingFolders, setSyncingFolders] = useState(false);
-  const [syncReport, setSyncReport] = useState<{
-    message?: string;
-    secteurLabel?: string;
-    basePath?: string;
-    jsonForYourSecteur?: number;
-    created?: number;
-    alreadyThere?: number;
-    createdFolders?: string[];
-    extraFoldersCount?: number;
-    extraFoldersOnOneDrive?: string[];
-    ambiguousCount?: number;
-    ambiguous?: Array<{ folderName: string; mef?: string; reason?: string }>;
-    errors?: Array<{ folderName: string; error: string }>;
-    otherSecteurCounts?: Record<string, number>;
-    mefTableConfigured?: boolean;
-  } | null>(null);
-  const [mefCounts, setMefCounts] = useState<{ total: number; lycee: number; college: number; ecole: number } | null>(
-    null,
-  );
+  const [syncReport, setSyncReport] = useState<OcrSyncReport | null>(null);
+  const [mefCounts, setMefCounts] = useState<OcrMefCounts | null>(null);
   const [mefUploading, setMefUploading] = useState(false);
   const [mefMessage, setMefMessage] = useState("");
   const mefInputRef = useRef<HTMLInputElement | null>(null);
@@ -1142,12 +1046,14 @@ function OneDriveUpDocsOCRAIContent() {
 
   if (!msalReady) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          <p className="text-gray-500 font-medium">Initialisation de MSAL...</p>
+      <ModulePageShell>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="flex flex-col items-center gap-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <p className="text-gray-500 font-medium">Initialisation de MSAL...</p>
+          </div>
         </div>
-      </div>
+      </ModulePageShell>
     );
   }
 
@@ -1182,1102 +1088,122 @@ function OneDriveUpDocsOCRAIContent() {
   const displayPercent = Math.min(100, Math.max(progressPeakRef.current.percent, ratioPercent));
   progressPeakRef.current = { percent: displayPercent, totalDocs: displayDocTotal };
   const progressPercent = displayPercent;
-  const progressCaption = isUploadPhase
-    ? processingStatus.totalKnown && processingStatus.total > 1
-      ? `Fichier ${Math.min(processingStatus.done + 1, processingStatus.total)} / ${processingStatus.total}`
-      : "Envoi en cours…"
-    : progressDetail
-    ? progressDetail.phase === "segments" && sessionDocTotal
-      ? `Document ${sessionDocProcessed} / ${sessionDocTotal}`
-      : progressDetail.phase === "ocr"
-        ? progressDetail.pdfPageCount
-          ? progressDetail.ocrPagesRead && progressDetail.ocrPagesRead > 0
-            ? `Page ${progressDetail.ocrPagesRead} / ${progressDetail.pdfPageCount}`
-            : `0 / ${progressDetail.pdfPageCount} page(s)`
-          : "Mistral lit le document…"
-        : progressDetail.phase === "segmenting"
-          ? progressDetail.pageCount
-            ? progressDetail.segmentationEngine === "identity"
-              ? `Repérage élèves · ${progressDetail.pageCount} p.`
-              : progressDetail.segmentationEngine === "heuristic"
-                ? `Découpage auto · ${progressDetail.pageCount} p.`
-                : progressDetail.segmentationEngine === "mistral_chunked"
-                  ? `Mistral découpe · ${progressDetail.pageCount} p.`
-                  : progressDetail.segmentationEngine === "mistral"
-                    ? `Mistral découpe · ${progressDetail.pageCount} p.`
-                    : `Découpage · ${progressDetail.pageCount} p.`
-            : "Mistral en déduit le découpage…"
-          : progressDetail.fileTotal > 1
-            ? `Fichier ${progressDetail.fileIndex} / ${progressDetail.fileTotal}`
-            : progressDetail.pageCount
-              ? `${progressDetail.pageCount} page${progressDetail.pageCount > 1 ? "s" : ""}`
-              : ""
-    : processingStatus.totalKnown
-      ? `${processingStatus.done} / ${processingStatus.total} document${processingStatus.total > 1 ? "s" : ""}`
-      : "";
-
-  const formatIdleHint = (seconds: number): string | null => {
-    if (seconds < 90) return null;
-    if (seconds < 3600) {
-      const min = Math.floor(seconds / 60);
-      return `Dernière activité il y a ${min} min — sur un gros PDF, Mistral peut analyser 10–20 min sans mise à jour visible.`;
-    }
-    const h = Math.floor(seconds / 3600);
-    return `Dernière activité il y a ${h} h — si rien ne bouge, vérifiez les résultats ou relancez.`;
-  };
-
-  const phaseSteps: { id: string; label: string }[] = [
-    { id: "ocr", label: "1. Lecture Mistral" },
-    { id: "segmenting", label: "2. Découpage" },
-    { id: "segments", label: "3. Nom & rangement" },
-  ];
-
-  const activePhaseIndex = progressDetail
-    ? progressDetail.phase === "ocr"
-      ? 0
-      : progressDetail.phase === "segmenting"
-        ? 1
-        : progressDetail.phase === "segments" || progressDetail.phase === "analyze"
-          ? 2
-          : -1
-    : -1;
-
-  const dropZoneClass = (active: boolean, variant: "blue" | "violet") => {
-    if (!dropsAvailable) {
-      return "relative overflow-hidden border-2 border-dashed rounded-3xl p-10 text-center border-slate-200 bg-slate-50/90 cursor-not-allowed opacity-80";
-    }
-    return `relative overflow-hidden border-2 border-dashed rounded-3xl p-10 text-center transition-all duration-300 group
-    ${active ? (variant === "violet" ? "border-violet-600 bg-violet-50 scale-[1.01]" : "border-blue-600 bg-blue-50 scale-[1.01]") : "border-gray-300 bg-white hover:border-blue-400 hover:bg-gray-50"}
-    ${dropDisabled ? "opacity-60 cursor-not-allowed shadow-none" : "cursor-pointer shadow-lg hover:shadow-xl"}
-    ${ocrProcessing ? "ring-4 ring-blue-400/40 border-blue-500 bg-blue-50/80" : ""}`;
-  };
-
-  const failureHint = (result: ProcessResult): string => {
-    const err = (result.error || "").toLowerCase();
-    if (err.includes("élève") || err.includes("eleve") || err.includes("identifi")) {
-      return "Le nom ou prénom de l'élève n'a pas été reconnu clairement dans le document.";
-    }
-    if (err.includes("incomplet") || err.includes("filename")) {
-      return "Le type de document ou les informations attendues (classe, date…) n'ont pas pu être lues.";
-    }
-    if (err.includes("ocr") || err.includes("texte")) {
-      return "Le texte du PDF est illisible ou trop pauvre pour une analyse fiable.";
-    }
-    if (err.includes("déplacé") || err.includes("deplace") || err.includes("folder") || err.includes("graph")) {
-      return "Le dossier de destination n'a pas pu être créé ou atteint sur OneDrive.";
-    }
-    return "Le rangement automatique n'a pas abouti pour ce fichier.";
-  };
-
-  /** Distingue un échec « métier » (à classer à la main) d'une vraie erreur technique. */
-  const failureCategory = (
-    result: ProcessResult,
-  ): { label: string; technical: boolean } => {
-    const err = (result.error || "").toLowerCase();
-    if (err.includes("élève") || err.includes("eleve") || err.includes("identifi")) {
-      return { label: "Élève non trouvé", technical: false };
-    }
-    if (err.includes("incomplet") || err.includes("filename")) {
-      return { label: "Lecture incomplète", technical: false };
-    }
-    if (err.includes("ocr") || err.includes("mistral") || err.includes("textract")) {
-      return { label: "Lecture Mistral échouée", technical: true };
-    }
-    if (
-      err.includes("token") ||
-      err.includes("onedrive") ||
-      err.includes("graph") ||
-      err.includes("déplac") ||
-      err.includes("deplac") ||
-      err.includes("upload") ||
-      err.includes("401") ||
-      err.includes("429") ||
-      err.includes("500")
-    ) {
-      return { label: "Erreur technique", technical: true };
-    }
-    return { label: "Échec", technical: true };
-  };
-
-  const failedResults = ocrResults.filter((r) => !r.success);
-
-  const ProcessingSpinner = ({ size = "text-7xl" }: { size?: string }) => (
-    <span
-      className={`${size} inline-block animate-spin`}
-      role="status"
-      aria-label="Analyse en cours"
-    >
-      ⚙️
-    </span>
-  );
+  const progressCaption = buildOcrProgressCaption({
+    isUploadPhase,
+    processingStatus,
+    progressDetail,
+    sessionDocTotal,
+    sessionDocProcessed,
+  });
 
   return (
-    <div className="p-6 max-w-[1200px] mx-auto mt-[1vh]">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
-            Ajout de documents IA
-          </h1>
-          <p className="text-gray-500 mt-1">
-            Numérisez et rangez vos PDF dans les dossiers élèves sur OneDrive.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {oneDriveVerified && accessToken ? (
-            <span className="px-4 py-2 bg-green-50 text-green-800 text-sm font-bold rounded-xl border border-green-200">
-              OneDrive connecté
-            </span>
-          ) : null}
-        </div>
-      </div>
+    <ModulePageShell>
+      <ModulePageHeader
+        eyebrow="Élèves"
+        title="Ajout de documents IA"
+        description="Numérisez et rangez vos PDF dans les dossiers élèves sur OneDrive."
+        actions={<ReplayModuleTourButton moduleId="agent-ia-ocr" />}
+      />
 
-      {error && (
+      {error ? (
         <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-r-xl">
           <p className="font-bold">Attention</p>
           <p className="text-sm">{error}</p>
         </div>
-      )}
+      ) : null}
 
-      {batchPollIssue && activeBatchJobId && !batchJobNeedsToken && (
-        <div className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 text-amber-900 rounded-r-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <p className="font-bold">
-              {batchPollIssue === "auth" ? "Suivi interrompu (session)" : "Suivi interrompu (réseau)"}
-            </p>
-            <p className="text-sm">
-              {batchPollIssue === "auth"
-                ? "La connexion intranet a expiré (veille, onglet en arrière-plan, Wi‑Fi coupé). Le traitement peut avoir continué sur le serveur."
-                : "Connexion internet coupée ou ordinateur en veille. Le traitement peut avoir continué sur le serveur."}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void resumeBatchTracking()}
-            className="shrink-0 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl"
-          >
-            Reprendre le suivi
-          </button>
-        </div>
-      )}
-
-      {batchJobNeedsToken && activeBatchJobId && (
-        <div className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 text-amber-900 rounded-r-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <p className="font-bold">Session OneDrive expirée</p>
-            <p className="text-sm">
-              Le traitement serveur est en pause. Reconnectez Microsoft pour reprendre le rangement des fichiers restants.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => void resumeBatchWithOneDrive()}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl"
-            >
-              Reconnecter et reprendre
-            </button>
-            <button
-              type="button"
-              onClick={() => void cancelOcrProcessing()}
-              className="px-4 py-2 bg-white border border-amber-400 text-amber-900 font-bold rounded-xl hover:bg-amber-100"
-            >
-              Annuler le traitement
-            </button>
-          </div>
-        </div>
-      )}
-
-      {(isServerPhase || (ocrProcessing && activeBatchJobId)) && !batchJobNeedsToken && batchServerSelfRelays && (
-        <div className="mb-6 p-5 bg-emerald-50 border-2 border-emerald-400 rounded-2xl flex gap-4 items-start justify-between shadow-sm">
-          <div className="flex gap-4 items-start min-w-0">
-            <span
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white text-xl font-bold"
-              aria-hidden
-            >
-              ✓
-            </span>
-            <div>
-              <p className="text-lg font-extrabold text-emerald-950">Vous pouvez quitter cette page</p>
-              <p className="text-sm text-emerald-900 mt-1 leading-relaxed">
-                Le reste du traitement tourne sur le <strong>serveur</strong> (Mistral, rangement OneDrive).
-                Revenez sur cette page à tout moment pour voir où en est le lot et consulter les résultats.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => void cancelOcrProcessing()}
-            className="shrink-0 px-4 py-2 bg-white border border-emerald-500 text-emerald-900 font-bold rounded-xl hover:bg-emerald-100"
-          >
-            Annuler
-          </button>
-        </div>
-      )}
-
-      {(isServerPhase || (ocrProcessing && activeBatchJobId)) && !batchJobNeedsToken && !batchServerSelfRelays && (
-        <div className="mb-6 p-5 bg-amber-50 border-2 border-amber-400 rounded-2xl flex gap-4 items-start justify-between shadow-sm">
-          <div className="flex gap-4 items-start min-w-0">
-            <span
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-600 text-white text-xl font-bold"
-              aria-hidden
-            >
-              !
-            </span>
-            <div>
-              <p className="text-lg font-extrabold text-amber-950">Gardez cet onglet ouvert</p>
-              <p className="text-sm text-amber-900 mt-1 leading-relaxed">
-                L&apos;auto-relance serveur n&apos;est pas active sur cet environnement. Le traitement avance
-                tant que cette page reste ouverte (veille ou fermeture = arrêt). Contactez l&apos;administrateur
-                pour activer <code className="text-xs">OCR_WORKER_SECRET</code> en production.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => void cancelOcrProcessing()}
-            className="shrink-0 px-4 py-2 bg-white border border-amber-500 text-amber-900 font-bold rounded-xl hover:bg-amber-100"
-          >
-            Annuler
-          </button>
-        </div>
-      )}
-
-      {isUploadPhase && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="ocr-upload-phase-title"
-          aria-describedby="ocr-upload-phase-desc"
-        >
-          <div className="w-full max-w-xl rounded-3xl border-4 border-amber-500 bg-amber-50 p-8 md:p-10 shadow-2xl text-center">
-            <p className="text-[11px] font-black uppercase tracking-[0.2em] text-amber-800 mb-3">
-              Phase d&apos;upload
-            </p>
-            <h2
-              id="ocr-upload-phase-title"
-              className="text-2xl md:text-3xl font-black text-amber-950 leading-tight mb-4"
-            >
-              Ne quittez pas cette page
-            </h2>
-            <p id="ocr-upload-phase-desc" className="text-base md:text-lg font-semibold text-amber-900 mb-6 leading-relaxed">
-              Vos PDF sont envoyés vers le cloud et OneDrive. Sur un gros lot, cela peut prendre plusieurs
-              minutes — laissez cet onglet ouvert jusqu&apos;au message de confirmation serveur.
-            </p>
-            <div className="rounded-2xl bg-white/90 border border-amber-300 px-4 py-3 text-sm font-bold text-amber-950">
-              {processingStatus.label || "Préparation de l'envoi…"}
-            </div>
-            <div className="mt-5 w-full bg-amber-200/80 rounded-full h-3 overflow-hidden">
-              <div
-                className="bg-amber-600 h-full transition-all duration-500"
-                style={{ width: `${Math.min(100, progressPercent)}%` }}
-              />
-            </div>
-            <p className="mt-3 text-xs font-bold uppercase tracking-wide text-amber-800">
-              {progressCaption ? `${progressCaption} · ` : ""}
-              {Math.round(progressPercent)}%
-            </p>
-            <button
-              type="button"
-              onClick={() => void cancelOcrProcessing()}
-              className="mt-6 px-5 py-2.5 bg-white border-2 border-amber-600 text-amber-950 font-bold rounded-xl hover:bg-amber-100"
-            >
-              Annuler l&apos;envoi
-            </button>
-          </div>
-        </div>
-      )}
-
-      {clerkUser && !oneDriveProfile && (
-        <div className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 text-amber-900 rounded-r-xl">
-          <p className="font-bold">Profil OneDrive non reconnu</p>
-          <p className="text-sm">
-            Votre compte Clerk ({clerkUser.lastName || "nom absent"} —{" "}
-            {clerkUser.primaryEmailAddress?.emailAddress || "e-mail absent"}) n&apos;est pas encore associé au
-            dossier collège / lycée / école. Contactez l&apos;administrateur pour l&apos;ajouter.
-          </p>
-        </div>
-      )}
-
-      {oneDriveProfile && (
-        <div className="mb-6 p-4 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-sm">
-          Dossier OneDrive configuré : <strong>{oneDriveProfile.label}</strong> —{" "}
-          <span className="font-mono text-xs">{oneDriveProfile.basePath}</span>
-        </div>
-      )}
-
-      <div
-        data-tour="onedrive-connect"
-        className={`mb-8 rounded-3xl border p-5 md:p-6 ${
-          dropsAvailable
-            ? "border-green-200 bg-green-50/60"
-            : "border-amber-200 bg-amber-50/80"
-        }`}
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
-              Étape 1 — Connexion
-            </p>
-            <h2 className="text-lg font-bold text-slate-900">
-              {dropsAvailable ? "OneDrive est connecté" : "Connectez-vous à OneDrive"}
-            </h2>
-            <p className="text-sm text-slate-600 mt-1 max-w-xl">
-              {dropsAvailable
-                ? account?.name
-                  ? `Compte : ${account.name}. Vous pouvez déposer vos PDF ci-dessous.`
-                  : "Vous pouvez déposer vos PDF ci-dessous."
-                : "La connexion Microsoft est obligatoire avant tout dépôt. Sans OneDrive, l'analyse et le rangement ne sont pas possibles."}
-            </p>
-          </div>
-          {!dropsAvailable && (
-            <div className="flex flex-wrap gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={login}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg transition-all"
-              >
-                Se connecter à OneDrive
-              </button>
-              {account ? (
-                <button
-                  type="button"
-                  onClick={() => void reconnectOneDrive()}
-                  className="px-6 py-3 bg-white border border-blue-300 text-blue-800 font-bold rounded-xl hover:bg-blue-50 transition-all"
-                >
-                  Reconnecter (consentement)
-                </button>
-              ) : null}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <>
-          {checkingOneDrive && (
-            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-2xl text-blue-800 text-sm font-medium flex items-center gap-3">
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent" />
-              Vérification de la connexion OneDrive…
-            </div>
-          )}
-          {ocrProcessing && (
-            <div
-              className={`mb-8 p-8 rounded-3xl shadow-xl flex flex-col items-center gap-4 border-2 ${
-                isServerPhase
-                  ? "bg-gradient-to-br from-emerald-50 to-indigo-50 border-emerald-300"
-                  : "bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-300"
-              }`}
-            >
-              <ProcessingSpinner size="text-8xl" />
-              <p className="text-2xl font-extrabold text-blue-900 tracking-tight">
-                {isServerPhase ? "Traitement serveur en cours…" : "Envoi des fichiers…"}
-              </p>
-              {isServerPhase && batchServerSelfRelays && (
-                <div className="flex items-center gap-3 rounded-2xl bg-white/80 border border-emerald-300 px-5 py-3 max-w-lg">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white font-bold">
-                    ✓
-                  </span>
-                  <p className="text-sm font-semibold text-emerald-950 text-left">
-                    Vous pouvez fermer cet onglet — revenez plus tard pour suivre la progression.
-                  </p>
-                </div>
-              )}
-              {isServerPhase && !batchServerSelfRelays && (
-                <div className="flex items-center gap-3 rounded-2xl bg-white/80 border border-amber-300 px-5 py-3 max-w-lg">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-600 text-white font-bold">
-                    !
-                  </span>
-                  <p className="text-sm font-semibold text-amber-950 text-left">
-                    Gardez cet onglet ouvert — sans auto-relance serveur, le traitement s&apos;arrête si vous partez.
-                  </p>
-                </div>
-              )}
-              <div className="w-full max-w-lg">
-                <div className="flex justify-between text-xs font-bold text-blue-700 mb-2 uppercase">
-                  <span>Progression</span>
-                  <span>
-                    {progressCaption ? `${progressCaption} · ` : ""}
-                    {Math.round(progressPercent)}%
-                  </span>
-                </div>
-                <div className="w-full bg-white/80 rounded-full h-4 overflow-hidden border border-blue-200">
-                  <div
-                    className="bg-blue-600 h-full transition-all duration-500 ease-out"
-                    style={{ width: `${Math.min(100, progressPercent)}%` }}
-                  />
-                </div>
-                {progressDetail && progressDetail.phase !== "done" && progressDetail.phase !== "idle" ? (
-                  <div className="mt-4 rounded-2xl border border-blue-200 bg-white/90 p-4 text-left space-y-3">
-                    <div className="flex flex-wrap gap-2">
-                      {phaseSteps.map((step, idx) => {
-                        const isActive = idx === activePhaseIndex;
-                        const isDone = activePhaseIndex > idx;
-                        return (
-                          <span
-                            key={step.id}
-                            className={`text-[10px] font-black uppercase tracking-wide px-2.5 py-1 rounded-full border ${
-                              isActive
-                                ? "bg-blue-600 text-white border-blue-600"
-                                : isDone
-                                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                                  : "bg-slate-50 text-slate-400 border-slate-200"
-                            }`}
-                          >
-                            {isDone ? "✓ " : ""}
-                            {step.label}
-                          </span>
-                        );
-                      })}
-                    </div>
-                    <p className="text-sm font-bold text-slate-900">{progressDetail.phaseLabel}</p>
-                    {progressDetail.fileName ? (
-                      <p className="text-xs text-slate-600 font-mono truncate">{progressDetail.fileName}</p>
-                    ) : null}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                      {progressDetail.phase === "ocr" && progressDetail.pdfPageCount ? (
-                        <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
-                          <p className="text-[10px] font-bold uppercase text-slate-400">Lecture Mistral</p>
-                          <p className="font-black text-slate-800">
-                            {progressDetail.ocrPagesRead && progressDetail.ocrPagesRead > 0
-                              ? `${progressDetail.ocrPagesRead} / ${progressDetail.pdfPageCount}`
-                              : `0 / ${progressDetail.pdfPageCount}`}
-                          </p>
-                        </div>
-                      ) : progressDetail.pageCount ? (
-                        <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
-                          <p className="text-[10px] font-bold uppercase text-slate-400">Pages PDF</p>
-                          <p className="font-black text-slate-800">{progressDetail.pageCount}</p>
-                        </div>
-                      ) : null}
-                      {progressDetail.phase === "segments" && sessionDocTotal ? (
-                        <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
-                          <p className="text-[10px] font-bold uppercase text-slate-400">Documents</p>
-                          <p className="font-black text-slate-800">
-                            {sessionDocProcessed} / {sessionDocTotal}
-                          </p>
-                        </div>
-                      ) : progressDetail.phase === "segmenting" ? (
-                        <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
-                          <p className="text-[10px] font-bold uppercase text-slate-400">Documents</p>
-                          <p className="font-black text-slate-500">
-                            {progressDetail.segmentationEngine === "identity"
-                              ? "Repérage élèves…"
-                              : progressDetail.segmentationEngine === "heuristic"
-                                ? "Découpage auto…"
-                                : progressDetail.segmentationEngine === "mistral_chunked"
-                                  ? "Mistral découpe…"
-                                  : progressDetail.segmentationEngine === "mistral"
-                                    ? "Mistral découpe…"
-                                    : "En cours…"}
-                          </p>
-                        </div>
-                      ) : null}
-                      <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
-                        <p className="text-[10px] font-bold uppercase text-slate-400">Traités</p>
-                        <p className="font-black text-slate-800">
-                          <span className="text-emerald-700">{progressDetail.documentsSucceeded}</span>
-                          {progressDetail.documentsFailed > 0 ? (
-                            <span className="text-red-600"> · {progressDetail.documentsFailed} échec(s)</span>
-                          ) : null}
-                        </p>
-                      </div>
-                    </div>
-                    {progressDetail.phase === "ocr" && progressDetail.pdfPageCount ? (
-                      <p className="text-[11px] text-slate-500 leading-relaxed">
-                        {progressDetail.ocrPagesRead && progressDetail.ocrPagesRead > 0
-                          ? "Mistral lit les pages au fur et à mesure."
-                          : `PDF de ${progressDetail.pdfPageCount} page${progressDetail.pdfPageCount > 1 ? "s" : ""} — le compteur peut rester à 0 quelques minutes pendant que Mistral analyse le document.`}
-                      </p>
-                    ) : null}
-                    {progressDetail.phase === "segmenting" ? (
-                      <p className="text-[11px] text-slate-500 leading-relaxed">
-                        {progressDetail.segmentationEngine === "identity" ? (
-                          <>
-                            <strong className="text-slate-700">Mistral a terminé la lecture.</strong> Les
-                            pages sont regroupées par élève (INE + noms de votre liste) : chaque bulletin
-                            multi-pages reste entier, aucun découpage page par page.
-                          </>
-                        ) : progressDetail.segmentationEngine === "heuristic" ? (
-                          <>
-                            <strong className="text-slate-700">Mistral a terminé la lecture.</strong> Repli
-                            automatique (règles locales) — utilisé seulement si Mistral échoue.
-                          </>
-                        ) : progressDetail.segmentationEngine === "mistral_chunked" ? (
-                          <>
-                            <strong className="text-slate-700">Mistral en déduit le découpage</strong>{" "}
-                            par blocs (~30 pages max), en ne coupant qu&apos;entre deux documents (pas
-                            au milieu d&apos;un bulletin sur 2 pages).
-                          </>
-                        ) : progressDetail.segmentationEngine === "mistral" ? (
-                          <>
-                            <strong className="text-slate-700">Mistral en déduit le découpage</strong>{" "}
-                            en lisant tout le PDF pour repérer chaque document (environ 15–30 s).
-                          </>
-                        ) : (
-                          <>
-                            <strong className="text-slate-700">Mistral prépare le découpage</strong> pour
-                            séparer les documents du PDF…
-                          </>
-                        )}
-                      </p>
-                    ) : null}
-                    {progressDetail.phase === "segments" ? (
-                      <p className="text-[11px] text-slate-500 leading-relaxed">
-                        <strong className="text-slate-700">Découpage terminé.</strong> Pour chaque
-                        document, Mistral déduit le nom du fichier et où le ranger sur OneDrive —
-                        c&apos;est l&apos;étape la plus longue sur un gros lot.
-                      </p>
-                    ) : null}
-                    {progressDetail.phase === "segments" && sessionDocTotal ? (
-                      <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                        <div
-                          className="bg-indigo-500 h-full transition-all duration-500"
-                          style={{
-                            width: `${Math.min(100, Math.round((sessionDocProcessed / sessionDocTotal) * 100))}%`,
-                          }}
-                        />
-                      </div>
-                    ) : null}
-                    {formatIdleHint(progressDetail.idleSeconds) ? (
-                      <div className="space-y-2">
-                        <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 leading-relaxed">
-                          {formatIdleHint(progressDetail.idleSeconds)}
-                        </p>
-                        {progressDetail.idleSeconds >= 300 && activeBatchJobId ? (
-                          <button
-                            type="button"
-                            onClick={() => void resumeBatchTracking()}
-                            className="w-full px-3 py-2 text-xs font-bold rounded-xl bg-amber-600 hover:bg-amber-700 text-white"
-                          >
-                            Reprendre le suivi et relancer le worker
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                {processingStatus.label ? (
-                  <p className="mt-3 text-center text-sm font-semibold text-blue-900/90">
-                    {processingStatus.label}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          )}
-
-          {!ocrProcessing ? (
-          <>
-          <div className="mb-4">
-            <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
-              Étape 2 — Dépôt des PDF
-            </p>
-            <p className="text-sm text-slate-600">
-              {dropsAvailable
-                ? "Déposez vos PDF : l'outil détecte automatiquement s'il s'agit d'un document par élève ou d'un export de classe entière à découper."
-                : "La zone ci-dessous reste désactivée tant que OneDrive n'est pas connecté."}
-            </p>
-          </div>
-
-          <div className="mb-8">
-            <div
-              id="ocr-drop-standard"
-              data-tour="drop-standard"
-              onDragOver={
-                dropDisabled
-                  ? undefined
-                  : (e) => {
-                      e.preventDefault();
-                      setIsDraggingClass(true);
-                    }
+      <OcrOneDriveConnectBar
+        dropsAvailable={dropsAvailable}
+        accountName={account?.name}
+        clerkUnmapped={
+          clerkUser && !oneDriveProfile
+            ? {
+                lastName: clerkUser.lastName,
+                email: clerkUser.primaryEmailAddress?.emailAddress,
               }
-              onDragLeave={() => setIsDraggingClass(false)}
-              onDrop={
-                dropDisabled
-                  ? undefined
-                  : (e) => {
-                      e.preventDefault();
-                      setIsDraggingClass(false);
-                      if (e.dataTransfer.files?.length) {
-                        enqueueAuto(e.dataTransfer.files);
-                      }
-                    }
-              }
-              onClick={() => !dropDisabled && classInputRef.current?.click()}
-              className={dropZoneClass(isDraggingClass, "blue")}
-            >
-              <div className="mb-3 min-h-[4rem] flex items-center justify-center">
-                {ocrProcessing ? (
-                  <ProcessingSpinner size="text-6xl" />
-                ) : (
-                  <span className="text-5xl">📄</span>
-                )}
-              </div>
-              <h3 className="text-lg font-bold text-gray-800 mb-2">
-                {!dropsAvailable
-                  ? "Connexion OneDrive requise"
-                  : checkingOneDrive
-                    ? "Vérification OneDrive…"
-                    : ocrProcessing
-                      ? "Analyse en cours…"
-                      : "Déposez vos PDF — détection automatique"}
-              </h3>
-              <p className="text-sm text-gray-500">
-                {!dropsAvailable
-                  ? "Connectez-vous à l'étape 1 pour débloquer le dépôt de fichiers."
-                  : checkingOneDrive
-                    ? "Connexion Microsoft vérifiée avant tout traitement."
-                    : ocrProcessing
-                      ? "Traitement en cours — patientez."
-                      : "Un document par élève OU un export de classe entière : l'outil reconnaît, découpe si besoin et range automatiquement. Glissez-déposez (plusieurs fichiers possibles) ou cliquez."}
-              </p>
-              <input
-                ref={classInputRef}
-                type="file"
-                className="hidden"
-                multiple
-                accept="application/pdf,.pdf"
-                onChange={(e) => {
-                  if (e.target.files) {
-                    enqueueAuto(e.target.files);
-                    e.target.value = "";
-                  }
-                }}
-              />
-            </div>
-          </div>
-          </>
-          ) : null}
+            : null
+        }
+        oneDriveProfile={oneDriveProfile}
+        checkingOneDrive={checkingOneDrive}
+        showReconnect={Boolean(account)}
+        onLogin={() => void login()}
+        onReconnect={() => void reconnectOneDrive()}
+      />
 
-          <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100 mb-8">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-              <h4 className="font-bold text-gray-800">📊 Session actuelle</h4>
-              {canStartFreshSession ? (
-                <button
-                  type="button"
-                  onClick={handleStartFreshOcrSession}
-                  className="px-4 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 text-sm font-bold hover:bg-slate-100"
-                >
-                  Nouvelle session
-                </button>
-              ) : null}
-            </div>
-            {canStartFreshSession ? (
-              <p className="text-xs text-slate-500 mb-4">
-                Les résultats ci-dessous restent visibles jusqu&apos;au prochain dépôt. Utilisez « Nouvelle session » pour
-                effacer l&apos;écran sans recharger la page.
-              </p>
-            ) : null}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="p-3 bg-gray-50 rounded-2xl text-center">
-                <span className="text-xs text-gray-600 block">
-                  {sessionDocTotal ? "Documents" : "Fichiers"}
-                </span>
-                <span className="font-black text-lg">
-                  {sessionDocTotal ? (
-                    <>
-                      {sessionDocProcessed}
-                      <span className="text-sm font-bold text-gray-400">
-                        {" "}
-                        / {sessionDocTotal}
-                      </span>
-                    </>
-                  ) : processingStatus.totalKnown ? (
-                    <>
-                      {processingStatus.done}
-                      <span className="text-sm font-bold text-gray-400">
-                        {" "}
-                        / {processingStatus.total}
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-sm font-bold text-gray-400">—</span>
-                  )}
-                </span>
-              </div>
-              <div className="p-3 bg-green-50 rounded-2xl text-center">
-                <span className="text-xs text-green-700 block">Succès</span>
-                <span className="font-black text-lg text-green-600">{sessionDocSucceeded}</span>
-              </div>
-              <div className="p-3 bg-red-50 rounded-2xl text-center">
-                <span className="text-xs text-red-700 block">Échecs</span>
-                <span className="font-black text-lg text-red-600">{sessionDocFailed}</span>
-              </div>
-            </div>
-            {sessionDocTotal && progressDetail?.phase === "segments" ? (
-              <p className="text-[11px] text-slate-500 mt-3 text-center">
-                Classement document par document — chaque bulletin passe par Mistral puis OneDrive (~15–30 s
-                / document).
-              </p>
-            ) : null}
-          </div>
+      <OcrBatchProgress
+        batchPollIssue={batchPollIssue}
+        activeBatchJobId={activeBatchJobId}
+        batchJobNeedsToken={batchJobNeedsToken}
+        batchServerSelfRelays={batchServerSelfRelays}
+        isServerPhase={isServerPhase}
+        isUploadPhase={isUploadPhase}
+        ocrProcessing={ocrProcessing}
+        progressPercent={progressPercent}
+        progressCaption={progressCaption}
+        progressDetail={progressDetail}
+        processingStatus={processingStatus}
+        sessionDocTotal={sessionDocTotal}
+        sessionDocProcessed={sessionDocProcessed}
+        onResumeBatchTracking={() => void resumeBatchTracking()}
+        onResumeBatchWithOneDrive={() => void resumeBatchWithOneDrive()}
+        onCancel={() => void cancelOcrProcessing()}
+      />
 
-          {failedResults.length > 0 && (
-            <div className="mb-8 p-6 bg-amber-50 border-2 border-amber-300 rounded-3xl shadow-lg">
-              <h3 className="text-lg font-black text-amber-950 mb-2 flex items-center gap-2">
-                <span>📁</span>
-                {failedResults.length} document
-                {failedResults.length > 1 ? "s" : ""} à traiter manuellement
-              </h3>
-              <div className="text-sm text-amber-950 mb-4 leading-relaxed space-y-3">
-                <p>
-                  Ces fichiers n&apos;ont <strong>pas pu être rangés automatiquement</strong> dans le dossier
-                  d&apos;un élève. Ils se trouvent dans le dossier{" "}
-                  <strong>Temp</strong>, à la <strong>racine de votre OneDrive</strong> (même niveau que
-                  « Documents », « Images », etc.).
-                </p>
-                <p>
-                  <strong>Pourquoi ?</strong> Le plus souvent : le nom de l&apos;élève n&apos;a pas été reconnu,
-                  le type de document est ambigu, ou le texte du PDF est illisible.
-                </p>
-                <p>
-                  <strong>Que faire ?</strong>
-                </p>
-                <ul className="list-disc pl-5 space-y-1">
-                  <li>
-                    Ouvrez OneDrive → dossier <strong>Temp</strong> → déplacez le PDF dans le bon dossier élève ;
-                  </li>
-                  <li>
-                    ou, si le document n&apos;a pas été reconnu, vérifiez qu&apos;il est lisible et que l&apos;élève
-                    figure bien dans la liste, puis redéposez-le.
-                  </li>
-                </ul>
-              </div>
-              <ul className="space-y-3">
-                {failedResults.map((r, index) => (
-                  <li
-                    key={`${ocrResultsSessionId}-fail-${r.fileName}-${index}`}
-                    className="p-4 bg-white rounded-xl border border-amber-200"
-                  >
-                    <p className="font-bold text-slate-900">{r.fileName}</p>
-                    <p className="text-sm text-slate-600 mt-1">{failureHint(r)}</p>
-                    {r.tempOneDrivePath && (
-                      <p className="text-sm text-slate-700 mt-2">
-                        Emplacement OneDrive :{" "}
-                        <span className="font-semibold">Temp / {r.tempOneDrivePath.replace(/^Temp\//, "")}</span>
-                      </p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+      <OcrDropZones
+        dropsAvailable={dropsAvailable}
+        dropDisabled={dropDisabled}
+        ocrProcessing={ocrProcessing}
+        checkingOneDrive={checkingOneDrive}
+        isDraggingClass={isDraggingClass}
+        inputRef={classInputRef}
+        onDraggingChange={setIsDraggingClass}
+        onFiles={(files) => void enqueueAuto(files)}
+      />
 
-          {ocrResults.length > 0 && (
-            <div>
-              <h3 className="text-xl font-black text-gray-900 mb-4">
-                Journal d&apos;analyse
-              </h3>
-              <div className="grid grid-cols-1 gap-3">
-                {[...ocrResults]
-                  .sort((a, b) =>
-                    a.success === b.success ? 0 : a.success ? 1 : -1
-                  )
-                  .map((result, index) => (
-                    <div
-                      key={`${ocrResultsSessionId}-${result.fileName}-${index}`}
-                      className={`p-4 rounded-2xl border ${
-                        result.success
-                          ? "bg-white border-gray-100"
-                          : "bg-red-50 border-red-100 ring-2 ring-red-400/20"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p
-                          className={`font-bold ${result.success ? "text-gray-800" : "text-red-700"}`}
-                        >
-                          {result.fileName}
-                        </p>
-                        {!result.success && (
-                          <span
-                            className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase text-white ${
-                              failureCategory(result).technical ? "bg-orange-600" : "bg-red-600"
-                            }`}
-                          >
-                            {failureCategory(result).label}
-                          </span>
-                        )}
-                      </div>
-                      {result.success ? (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Classé : {result.result?.fileName || "—"}
-                        </p>
-                      ) : (
-                        <>
-                          <p className="text-sm text-red-600 mt-1 font-medium">
-                            {failureHint(result)}
-                          </p>
-                          {result.error ? (
-                            <p className="text-[11px] text-slate-500 mt-1 font-mono break-words">
-                              Détail : {result.error}
-                            </p>
-                          ) : null}
-                          {result.tempOneDrivePath ? (
-                            <p className="text-xs text-slate-600 mt-2 bg-slate-50 p-2 rounded-lg">
-                              Fichier dans OneDrive → dossier{" "}
-                              <strong>Temp</strong> ({result.tempOneDrivePath.replace(/^Temp\//, "")})
-                            </p>
-                          ) : null}
-                        </>
-                      )}
-                      {result.result?.oneDriveItemPath || result.tempOneDrivePath ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void openOneDrivePath(
-                              String(result.result?.oneDriveItemPath || result.tempOneDrivePath),
-                            )
-                          }
-                          disabled={
-                            openingOneDrivePath ===
-                            String(result.result?.oneDriveItemPath || result.tempOneDrivePath)
-                          }
-                          className="mt-2 inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
-                        >
-                          {openingOneDrivePath ===
-                          String(result.result?.oneDriveItemPath || result.tempOneDrivePath)
-                            ? "Ouverture…"
-                            : "Ouvrir le document source dans OneDrive"}
-                        </button>
-                      ) : null}
-                    </div>
-                  ))}
-              </div>
-            </div>
-          )}
+      <OcrSessionStats
+        processingStatus={processingStatus}
+        progressDetail={progressDetail}
+        sessionDocTotal={sessionDocTotal}
+        sessionDocProcessed={sessionDocProcessed}
+        sessionDocSucceeded={sessionDocSucceeded}
+        sessionDocFailed={sessionDocFailed}
+        canStartFreshSession={canStartFreshSession}
+        onStartFreshSession={handleStartFreshOcrSession}
+      />
 
-          <details
-            data-tour="eleves-import"
-            className="mt-10 rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden group"
-          >
-            <summary className="cursor-pointer list-none px-6 py-4 font-bold text-slate-800 hover:bg-slate-50 flex items-center justify-between gap-2">
-              <span>Configuration — liste élèves & dossiers OneDrive</span>
-              <span className="text-slate-400 text-sm font-normal group-open:rotate-180 transition-transform">
-                ▼
-              </span>
-            </summary>
-            <div className="px-6 pb-6 pt-2 border-t border-slate-100 space-y-6">
-              <p className="text-sm text-slate-600">
-                Trois actions dans l&apos;ordre : importer la liste élèves, configurer la table MEF, puis créer les
-                dossiers OneDrive manquants.
-                {elevesCount != null && (
-                  <span className="block mt-1 font-medium text-slate-800">
-                    {elevesCount} élève(s) actuellement enregistré(s) pour le classement automatique.
-                  </span>
-                )}
-              </p>
+      <OcrResultsList
+        ocrResults={ocrResults}
+        ocrResultsSessionId={ocrResultsSessionId}
+        openingOneDrivePath={openingOneDrivePath}
+        onOpenOneDrivePath={(path) => void openOneDrivePath(path)}
+      />
 
-              <section className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 space-y-3">
-                <h3 className="text-sm font-bold text-slate-800">1 — Liste élèves (référentiel global)</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  L&apos;import Excel des élèves se fait désormais dans les{" "}
-                  <a href="/parametres?tab=referentiel" className="font-bold text-indigo-800 underline">
-                    Paramètres généraux → Référentiel scolaire
-                  </a>
-                  . Le fichier <code className="bg-white px-1 rounded">eleves.json</code> alimente tous les modules
-                  (stages, certificats, répartition des classes, reconnaissance IA…).
-                </p>
-                {elevesCount != null && (
-                  <p className="text-sm font-medium text-slate-800">
-                    {elevesCount} élève(s) actuellement enregistré(s).
-                  </p>
-                )}
-                <a
-                  href="/parametres?tab=referentiel"
-                  className="inline-flex rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700"
-                >
-                  Mettre à jour la liste élèves →
-                </a>
-              </section>
-
-              <section
-                data-tour="mef-table"
-                className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3"
-              >
-                <h3 className="text-sm font-bold text-slate-800">2 — Table des formations (MEF)</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Associe chaque <strong>code ou libellé MEF</strong> (colonne E de l&apos;Excel : 3EME, 2NDE,
-                  Cycle 2…) au secteur <strong>Lycée</strong>, <strong>Collège</strong> ou{" "}
-                  <strong>École</strong>. Cela permet à chaque secrétariat de ne traiter que ses élèves et de
-                  créer les bons dossiers OneDrive.
-                </p>
-                <p className="text-xs text-slate-500">
-                  Configuration habituelle :{" "}
-                  <a href="/parametres" className="text-indigo-600 font-medium hover:underline">
-                    Paramètres → Formations MEF
-                  </a>{" "}
-                  (une fois par an ou si les formations changent). Le bouton ci-dessous est un raccourci pour
-                  importer un fichier JSON déjà préparé.
-                </p>
-                {mefCounts && mefCounts.total > 0 && (
-                  <p className="text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-                    Table MEF active : {mefCounts.total} formation(s) — lycée {mefCounts.lycee}, collège{" "}
-                    {mefCounts.college}, école {mefCounts.ecole}.
-                  </p>
-                )}
-                <div>
-                  <button
-                    type="button"
-                    disabled={mefUploading}
-                    onClick={() => mefInputRef.current?.click()}
-                    className="px-4 py-2 border border-slate-300 hover:bg-white disabled:opacity-50 text-slate-700 text-sm font-bold rounded-xl bg-white"
-                  >
-                    {mefUploading ? "Envoi…" : "Importer table MEF (JSON)"}
-                  </button>
-                </div>
-                {mefMessage && (
-                  <p className={`text-sm ${mefMessage.startsWith("Erreur") ? "text-red-600" : "text-slate-700"}`}>
-                    {mefMessage}
-                  </p>
-                )}
-              </section>
-
-              <section
-                data-tour="sync-onedrive"
-                className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3"
-              >
-                <h3 className="text-sm font-bold text-slate-800">3 — Créer les dossiers sur OneDrive</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  Crée un dossier par élève de <strong>votre secteur</strong> (format « NOM Prenom » — sans
-                  tirets, sans classe)
-                  dans l&apos;arborescence OneDrive connectée en haut de page.
-                </p>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-950 leading-relaxed space-y-1">
-                  <p className="font-bold">Sans risque pour les dossiers existants</p>
-                  <p>
-                    Ce bouton <strong>ne supprime ni ne renomme rien</strong>. Il ajoute uniquement les dossiers
-                    manquants pour les élèves de la liste actuelle. Les dossiers déjà là sont laissés tels quels.
-                  </p>
-                  <p>
-                    Il est normal d&apos;avoir <strong>plus de dossiers sur OneDrive</strong> que d&apos;élèves dans
-                    la liste : les anciens élèves partis restent archivés sur OneDrive et ne sont{" "}
-                    <strong>jamais supprimés</strong> par cette action.
-                  </p>
-                </div>
-                <div>
-                  <button
-                    type="button"
-                    disabled={!dropsAvailable || syncingFolders || checkingOneDrive}
-                    onClick={handleSyncOneDriveFolders}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl"
-                  >
-                    {syncingFolders ? "Synchronisation…" : "Créer les dossiers sur OneDrive"}
-                  </button>
-                  {!dropsAvailable && (
-                    <p className="mt-2 text-xs text-amber-700">
-                      Connectez OneDrive en haut de page pour activer ce bouton.
-                    </p>
-                  )}
-                </div>
-                {syncReport && (
-                  <div className="p-4 bg-white rounded-xl border border-slate-200 text-sm text-slate-700 space-y-3">
-                    <div>
-                      <p className="font-bold text-slate-900">
-                        {syncReport.secteurLabel} — {syncReport.basePath}
-                      </p>
-                      <p className="text-slate-600 mt-1">{syncReport.message}</p>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                      <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
-                        <p className="font-bold text-emerald-900">{syncReport.created ?? 0}</p>
-                        <p className="text-emerald-800">créé(s)</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-                        <p className="font-bold text-slate-800">{syncReport.alreadyThere ?? 0}</p>
-                        <p className="text-slate-600">déjà présent(s)</p>
-                      </div>
-                      <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
-                        <p className="font-bold text-amber-900">{syncReport.extraFoldersCount ?? 0}</p>
-                        <p className="text-amber-800">archives OneDrive</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-                        <p className="font-bold text-slate-800">{syncReport.jsonForYourSecteur ?? "—"}</p>
-                        <p className="text-slate-600">élèves secteur</p>
-                      </div>
-                    </div>
-
-                    {(syncReport.createdFolders?.length ?? 0) > 0 && (
-                      <div>
-                        <p className="text-xs font-bold text-slate-800 mb-1">
-                          Dossiers créés ({syncReport.createdFolders!.length})
-                        </p>
-                        <ul className="max-h-48 overflow-y-auto rounded-lg border border-emerald-100 bg-emerald-50/50 text-xs font-mono divide-y divide-emerald-100">
-                          {syncReport.createdFolders!.map((name) => (
-                            <li key={name} className="px-3 py-1.5 text-emerald-950">
-                              {name}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {(syncReport.created ?? 0) === 0 && (syncReport.alreadyThere ?? 0) > 0 && (
-                      <p className="text-xs text-slate-600 leading-relaxed">
-                        Tous les élèves de la liste avaient déjà leur dossier — rien à ajouter, c&apos;est normal.
-                      </p>
-                    )}
-
-                    {(syncReport.extraFoldersCount ?? 0) > 0 && (
-                      <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 leading-relaxed">
-                        <strong>{syncReport.extraFoldersCount} dossier(s)</strong> sur OneDrive ne correspondent plus
-                        à un élève de la liste actuelle (anciens élèves, archives…). Ils ont été{" "}
-                        <strong>laissés en place</strong> — cette action ne les supprime pas.
-                      </p>
-                    )}
-
-                    {(syncReport.ambiguousCount ?? 0) > 0 && (
-                      <div>
-                        <p className="text-xs font-bold text-amber-800 mb-1">
-                          Non traités — MEF manquant ou inconnu ({syncReport.ambiguousCount})
-                        </p>
-                        <ul className="max-h-32 overflow-y-auto text-xs text-amber-900 space-y-0.5">
-                          {syncReport.ambiguous?.map((a) => (
-                            <li key={a.folderName}>
-                              {a.folderName}
-                              {a.mef ? ` (${a.mef})` : ""} — {a.reason}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {(syncReport.errors?.length ?? 0) > 0 && (
-                      <div>
-                        <p className="text-xs font-bold text-red-700 mb-1">Erreurs</p>
-                        <ul className="text-xs text-red-600 space-y-0.5">
-                          {syncReport.errors!.map((e) => (
-                            <li key={e.folderName}>
-                              {e.folderName} — {e.error}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </section>
-
-              <input
-                ref={mefInputRef}
-                type="file"
-                accept=".json,application/json"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleMefUpload(f);
-                }}
-              />
-            </div>
-          </details>
-          <ReplayModuleTourButton moduleId="agent-ia-ocr" />
-      </>
-    </div>
+      <OcrConfigPanel
+        elevesCount={elevesCount}
+        mefCounts={mefCounts}
+        mefUploading={mefUploading}
+        mefMessage={mefMessage}
+        mefInputRef={mefInputRef}
+        dropsAvailable={dropsAvailable}
+        checkingOneDrive={checkingOneDrive}
+        syncingFolders={syncingFolders}
+        syncReport={syncReport}
+        onMefFile={(file) => void handleMefUpload(file)}
+        onSyncFolders={() => void handleSyncOneDriveFolders()}
+      />
+    </ModulePageShell>
   );
 }
 
 export default function OneDriveUpDocsOCRAI() {
   return (
-    <Suspense fallback={<div className="p-8 text-slate-500 text-sm">Chargement…</div>}>
+    <Suspense
+      fallback={
+        <ModulePageShell>
+          <p className="text-slate-500 text-sm">Chargement…</p>
+        </ModulePageShell>
+      }
+    >
       <OneDriveUpDocsOCRAIContent />
     </Suspense>
   );

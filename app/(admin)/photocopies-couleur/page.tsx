@@ -3,6 +3,8 @@
 import { useUser } from "@clerk/nextjs";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import {
   canCreatePhotocopiesDemand,
@@ -225,13 +227,13 @@ export default function PhotocopiesCouleurPage() {
   if (!isLoaded || !user) return null;
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      <div className="mb-8">
-        <h1 className="text-4xl font-black text-slate-900">Photocopies couleur</h1>
-        <p className="text-slate-500 font-medium mt-2">
-          Demande destinée au service impressions : la direction de l’établissement choisi valide avant traitement opérationnel.
-        </p>
-      </div>
+    <ModulePageShell maxWidthClass="max-w-7xl">
+      <ModulePageHeader
+        eyebrow="Services"
+        title="Photocopies couleur"
+        description="Demande destinée au service impressions : la direction de l’établissement choisi valide avant traitement opérationnel."
+        actions={<ReplayModuleTourButton moduleId="photocopies-couleur" />}
+      />
 
       {creator && !userEmail && (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 mb-6">
@@ -494,7 +496,6 @@ export default function PhotocopiesCouleurPage() {
           )}
         </div>
       </div>
-      <ReplayModuleTourButton moduleId="photocopies-couleur" />
-    </div>
+    </ModulePageShell>
   );
 }

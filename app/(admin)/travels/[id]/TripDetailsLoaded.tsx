@@ -1,8 +1,10 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
+import dynamic from "next/dynamic";
 import { useState, useEffect, useRef, useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import { useTravelsPermissions } from "@/app/hooks/useTravelsPermissions";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
@@ -25,18 +27,13 @@ import { getTripNextGuidance } from "@/app/lib/travels-next-guidance";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
 import { TripActionsPanel } from "@/app/components/travels/hub/TripActionsPanel";
 import { TripAmendmentJournal } from "@/app/components/travels/hub/TripAmendmentJournal";
-import { TripCuisineHubPanel } from "@/app/components/travels/hub/TripCuisineHubPanel";
 import { TripDecisionHubPanel } from "@/app/components/travels/hub/TripDecisionHubPanel";
 import { TripDetailsModals } from "@/app/components/travels/hub/TripDetailsModals";
-import { TripDocumentsHubPanel } from "@/app/components/travels/hub/TripDocumentsHubPanel";
-import { TripElevesListPanel } from "@/app/components/travels/hub/TripElevesListPanel";
 import { TripHubNav } from "@/app/components/travels/hub/TripHubNav";
 import { TripInternalThreadPanel } from "@/app/components/travels/hub/TripInternalThreadPanel";
 import { TripOverviewFieldsPanel } from "@/app/components/travels/hub/TripOverviewFieldsPanel";
-import { TripParentComPanel } from "@/app/components/travels/hub/TripParentComPanel";
 import { TripRemindersBanner } from "@/app/components/travels/hub/TripRemindersBanner";
 import { TripNextStepBanner } from "@/app/components/travels/hub/TripNextStepBanner";
-import { TripTransportHubPanel } from "@/app/components/travels/hub/TripTransportHubPanel";
 import TravelsOwnerRepairSection from "@/app/components/travels/TravelsOwnerRepairSection";
 import TravelsComptaSheetForm from "@/app/components/travels/TravelsComptaSheetForm";
 import type { TravelsComptaSheet } from "@/app/lib/travels-compta-sheet";
@@ -50,6 +47,42 @@ import {
   TripQuickStats,
   TripWorkflowStepper,
 } from "@/app/components/travels/TripDetailUI";
+
+const TripElevesListPanel = dynamic(
+  () =>
+    import("@/app/components/travels/hub/TripElevesListPanel").then((m) => ({
+      default: m.TripElevesListPanel,
+    })),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
+const TripParentComPanel = dynamic(
+  () =>
+    import("@/app/components/travels/hub/TripParentComPanel").then((m) => ({
+      default: m.TripParentComPanel,
+    })),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
+const TripTransportHubPanel = dynamic(
+  () =>
+    import("@/app/components/travels/hub/TripTransportHubPanel").then((m) => ({
+      default: m.TripTransportHubPanel,
+    })),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
+const TripCuisineHubPanel = dynamic(
+  () =>
+    import("@/app/components/travels/hub/TripCuisineHubPanel").then((m) => ({
+      default: m.TripCuisineHubPanel,
+    })),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
+const TripDocumentsHubPanel = dynamic(
+  () =>
+    import("@/app/components/travels/hub/TripDocumentsHubPanel").then((m) => ({
+      default: m.TripDocumentsHubPanel,
+    })),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 type TripDetailsLoadedProps = {
   trip: TravelsTrip;

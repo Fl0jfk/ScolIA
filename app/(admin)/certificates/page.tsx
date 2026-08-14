@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import CertificatePendingSignaturesPanel from "@/app/components/certificates/CertificatePendingSignaturesPanel";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { currentCertificateSchoolYear } from "@/app/lib/certificates-types";
 
 type ProgramEntry = {
@@ -34,33 +36,35 @@ export default function CertificatesListPage() {
   }, []);
 
   if (loading) {
-    return <div className="p-20 text-center font-bold text-slate-600">Chargement…</div>;
+    return (
+      <ModulePageShell maxWidthClass="max-w-5xl">
+        <p className="text-center font-bold text-slate-600">Chargement…</p>
+      </ModulePageShell>
+    );
   }
 
   return (
-    <div className="px-4 py-6 max-w-5xl mx-auto space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight">Parcours & certificats</h1>
-          <p className="text-slate-600 mt-2 text-sm">
-            Créez des parcours, ajoutez des élèves, des lignes personnalisées et signez en fin d&apos;année.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href="/certificates/my-signature"
-            className="rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-black text-slate-700"
-          >
-            Ma signature
-          </Link>
-          <Link
-            href="/certificates/new"
-            className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white shadow-lg"
-          >
-            Nouveau parcours
-          </Link>
-        </div>
-      </div>
+    <ModulePageShell maxWidthClass="max-w-5xl">
+      <ModulePageHeader
+        title="Parcours & certificats"
+        description="Créez des parcours, ajoutez des élèves, des lignes personnalisées et signez en fin d'année."
+        actions={
+          <>
+            <Link
+              href="/certificates/my-signature"
+              className="rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-black text-slate-700"
+            >
+              Ma signature
+            </Link>
+            <Link
+              href="/certificates/new"
+              className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white shadow-lg"
+            >
+              Nouveau parcours
+            </Link>
+          </>
+        }
+      />
 
       <CertificatePendingSignaturesPanel />
 
@@ -109,6 +113,6 @@ export default function CertificatesListPage() {
       )}
 
       <p className="text-xs text-slate-400">Année scolaire en cours : {currentCertificateSchoolYear()}</p>
-    </div>
+    </ModulePageShell>
   );
 }
