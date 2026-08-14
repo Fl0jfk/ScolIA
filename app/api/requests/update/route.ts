@@ -221,9 +221,9 @@ export async function PATCH(req: Request) {
       let nextCategory = current.category;
       let nextAssignedTo: RequestRecord["assignedTo"] = { ...current.assignedTo, claimedBy: { email: actorEmail, name: actorName, userId: userId ?? null, at: now }};
       if (isCorbeilleBranchId(fromBr)) {
-        const dest = getDefaultRequestBranchForStaffEmail(actorEmail);
+        const dest = await getDefaultRequestBranchForStaffEmail(actorEmail);
         if (dest) {
-          const resolved = resolveRequestRouteById(dest);
+          const resolved = await resolveRequestRouteById(dest);
           if (resolved) {
             nextCategory = resolved.category;
             nextAssignedTo = {

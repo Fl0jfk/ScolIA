@@ -231,7 +231,7 @@ const KICK_DEBOUNCE_MS = 15_000;
 export function isBatchJobStale(job: OcrBatchJob): boolean {
   if (job.status !== "processing" && job.status !== "pending") return false;
 
-  // Lot créé mais worker jamais passé en processing (cas le plus fréquent sur Amplify).
+  // Lot créé mais worker jamais passé en processing (cas le plus fréquent en serverless).
   if (job.status === "pending" && !job.processingStartedAt) {
     const started = new Date(job.startedAt).getTime();
     if (!Number.isNaN(started) && Date.now() - started >= PENDING_KICK_MS) return true;
@@ -976,7 +976,7 @@ async function stepItem(
  *     pour avancer même onglet fermé — utilisé par la création et internal-run.
  *   false : un seul chunk est exécuté puis on rend la main SANS planifier de relance serveur.
  *     C'est le client (poll /process) qui relancera. Fiable quand la page reste ouverte,
- *     même sans secret d'auto-relance configuré sur Amplify.
+ *     même sans secret d'auto-relance configuré sur Scaleway.
  */
 export async function runOcrBatchJob(
   jobId: string,

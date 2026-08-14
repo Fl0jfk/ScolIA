@@ -17,7 +17,7 @@ const URGENCY_DOT = {
 
 const URGENCY_ORDER = { high: 0, medium: 1, low: 2 };
 
-function mergeByPerson(...lists: DashboardPersonnelItem[]): DashboardPersonnelItem[] {
+function mergeByPerson(...lists: DashboardPersonnelItem[][]): DashboardPersonnelItem[] {
   const map = new Map<string, DashboardPersonnelItem>();
   for (const item of lists.flat()) {
     const key = item.link;

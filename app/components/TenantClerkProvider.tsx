@@ -8,11 +8,12 @@ import {
   resolveClerkKeysForHostname,
 } from "@/app/lib/clerk-tenant-keys";
 import { getTenant } from "@/app/lib/tenant-context";
-import { clerkAfterSignInUrl, clerkSignInPageUrl, tenantOrigin } from "@/app/lib/tenant-auth-urls";
+import { clerkAfterSignInUrl, clerkSignInPageUrl } from "@/app/lib/tenant-auth-urls";
 import { isMultiTenantEnabled } from "@/app/lib/tenant-registry";
 
 type Props = {
   children: React.ReactNode;
+  nonce?: string;
 };
 
 async function requestHostname(): Promise<string> {
@@ -21,7 +22,7 @@ async function requestHostname(): Promise<string> {
 }
 
 /** ClerkProvider — clé dynamique par tenant uniquement si registry multi-tenant actif. */
-export default async function TenantClerkProvider({ children }: Props) {
+export default async function TenantClerkProvider({ children, nonce }: Props) {
   const host = await requestHostname();
 
   if (!isMultiTenantEnabled()) {
@@ -39,7 +40,7 @@ export default async function TenantClerkProvider({ children }: Props) {
     }
 
     return (
-      <ClerkProvider publishableKey={publishableKey || undefined} localization={frFR}>
+      <ClerkProvider publishableKey={publishableKey || undefined} localization={frFR} nonce={nonce}>
         {children}
       </ClerkProvider>
     );
@@ -69,11 +70,10 @@ export default async function TenantClerkProvider({ children }: Props) {
       publishableKey={keys.publishableKey}
       signInUrl={signInUrl}
       signUpUrl={signInUrl.replace(/\/sign-in$/, "/sign-up")}
-      signOutFallbackRedirectUrl={`${tenantOrigin(tenant, host)}/`}
-      signOutForceRedirectUrl={`${tenantOrigin(tenant, host)}/`}
-      afterSignInUrl={afterAuthUrl}
-      afterSignUpUrl={afterAuthUrl}
+      signInFallbackRedirectUrl={afterAuthUrl}
+      signUpFallbackRedirectUrl={afterAuthUrl}
       localization={frFR}
+      nonce={nonce}
     >
       {children}
     </ClerkProvider>

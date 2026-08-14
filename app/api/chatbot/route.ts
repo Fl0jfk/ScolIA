@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { isEleveBienEtreProfile, intranetRolesFromUnknown } from "@/app/lib/bien-etre-profile";
+import { isEleveBienEtreProfile } from "@/app/lib/bien-etre-profile";
 import { runBrainChat } from "@/app/lib/brain-ai/run-chat";
 import type { BrainToolCtx } from "@/app/lib/brain-ai/types";
+import { intranetRolesFromMetadata, rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { isOrgAdminFromPublicMetadata, safeCurrentUser } from "@/app/lib/intranet-session";
-import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
-import { createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
+import { createMemoryRateLimiter, clientIpFromRequest } from "@/app/lib/memory-rate-limit";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 
 export const runtime = "nodejs";
@@ -32,7 +32,7 @@ const chatbotLimiter = createMemoryRateLimiter({ windowMs: 60_000, max: 30 });
 export async function POST(req: Request) {
   try {
     const user = await safeCurrentUser();
-    if (user && isEleveBienEtreProfile(intranetRolesFromUnknown(user.publicMetadata))) {
+    if (user && isEleveBienEtreProfile(rolesFromUserLike(user))) {
       return NextResponse.json(
         {
           error: "Utilise la bulle bien-être 💜 (bot d'écoute), pas l'assistant institutionnel.",
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "message requis" }, { status: 400 });
     }
 
-    const rateKey = user?.id || req.headers.get("x-forwarded-for") || "anon";
+    const rateKey = user?.id || clientIpFromRequest(req);
     if (!chatbotLimiter.allow(rateKey)) {
       return NextResponse.json(
         { error: "Trop de messages. Réessayez dans une minute.", code: "RATE_LIMIT" },

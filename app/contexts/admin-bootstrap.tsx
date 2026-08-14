@@ -117,7 +117,9 @@ export function AdminBootstrapProvider({
     let cancelled = false;
     (async () => {
       try {
-        const siteRes = await fetch("/api/site/public", { cache: "no-store" });
+        const siteP = fetch("/api/site/public", { cache: "no-store" });
+        const ctxP = isSignedIn ? fetch("/api/app/context", { cache: "no-store" }) : null;
+        const [siteRes, ctxRes] = await Promise.all([siteP, ctxP ?? Promise.resolve(null)]);
         const siteJson = (await siteRes.json()) as SitePublicIdentity;
 
         if (!cancelled && siteRes.ok) {
@@ -131,8 +133,7 @@ export function AdminBootstrapProvider({
         }
 
         let nextAppContext: AppContextPayload | null = null;
-        if (isSignedIn) {
-          const ctxRes = await fetch("/api/app/context", { cache: "no-store" });
+        if (isSignedIn && ctxRes) {
           const ctxJson = (await ctxRes.json()) as AppContextPayload & { error?: string };
 
           if (!cancelled && ctxRes.ok) {

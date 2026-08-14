@@ -5,7 +5,7 @@ import { runInternatRollCallReminder } from "@/app/lib/internat-roll-call-remind
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const cronSecret = process.env.INTERNAT_CRON_SECRET || process.env.TRAVELS_CRON_SECRET;
-  const isCron = cronSecret && body.cronSecret === cronSecret;
+  const isCron = Boolean(cronSecret && body.cronSecret === cronSecret);
 
   if (!isCron) {
     const access = await requireInternatManage();

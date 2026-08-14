@@ -14,4 +14,4 @@ export function isClerkDynamicKeyError(error: unknown): boolean {
 }
 
 export const CLERK_ENCRYPTION_KEY_HINT =
-  "Clerk multi-tenant : définissez CLERK_ENCRYPTION_KEY dans Amplify (32+ caractères aléatoires, stable entre déploiements).";
+  "Clerk multi-tenant : définissez CLERK_ENCRYPTION_KEY dans l’environnement de production (32+ caractères aléatoires, stable entre déploiements).";

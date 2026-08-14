@@ -2,10 +2,23 @@ import { NextResponse } from "next/server";
 import { getToolboxConfig } from "@/app/lib/toolbox-config";
 import { buildSuppliesListPdf } from "@/app/lib/fournitures-supplies-pdf";
 import { parseSuppliesPdfRequest } from "@/app/lib/fournitures-print-payload";
+import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
+
+const suppliesPdfLimiter = createMemoryRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+});
 
 /** Génère le PDF liste de fournitures (JSON ou formulaire `payload`). */
 export async function POST(req: Request) {
   try {
+    if (!suppliesPdfLimiter.allow(clientIpFromRequest(req))) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez plus tard." },
+        { status: 429 },
+      );
+    }
+
     const toolbox = await getToolboxConfig();
     if (!toolbox.tools["simulateur-fournitures"].enabled) {
       return NextResponse.json({ error: "Simulateur fournitures désactivé." }, { status: 404 });

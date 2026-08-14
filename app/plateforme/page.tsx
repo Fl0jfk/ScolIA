@@ -120,7 +120,7 @@ export default function PlateformePage() {
           <section className="rounded-xl border border-stone-200 bg-stone-50/80 p-4 text-xs text-stone-600 space-y-2">
             <p className="font-bold text-stone-800">Après la création</p>
             <ol className="list-decimal list-inside space-y-1">
-              <li>Pointer le DNS du sous-domaine vers l&apos;application (Amplify / hébergeur).</li>
+              <li>Pointer le DNS du sous-domaine vers l&apos;application (Scaleway / hébergeur).</li>
               <li>
                 Se connecter sur le nouveau domaine avec un compte <code>admin</code> Clerk de
                 l&apos;établissement.

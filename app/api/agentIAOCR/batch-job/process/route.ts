@@ -8,7 +8,7 @@ import { flushOcrJobTraces } from "@/app/lib/ocr-job-trace-store";
 /**
  * Moteur d'avancement piloté par le client (page ouverte).
  * Exécute UN chunk du worker de façon SYNCHRONE pendant la requête (selfChain=false) :
- * c'est fiable sur Amplify car cela ne dépend ni de after() ni d'un secret d'auto-relance.
+ * c'est fiable sur Scaleway car cela ne dépend ni de after() ni d'un secret d'auto-relance.
  * Le verrou S3 garantit qu'on ne double-traite pas si une chaîne serveur tourne déjà en arrière-plan.
  * Le client rappelle cette route à chaque sondage pour enchaîner les chunks jusqu'à la fin.
  */

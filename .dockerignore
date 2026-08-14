@@ -34,4 +34,3 @@ Dockerfile
 .dockerignore
 README.md
 *.md
-amplify.yml

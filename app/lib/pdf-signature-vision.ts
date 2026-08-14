@@ -86,12 +86,14 @@ async function loadPdf(pdfBytes: Uint8Array | Buffer) {
   const loadingTask = getDocument({
     data,
     useWorkerFetch: false,
-    isEvalSupported: false,
     useSystemFonts: true,
     standardFontDataUrl: pdfjsStandardFontsUrl(),
   });
   return loadingTask.promise;
 }
+
+type PdfDocument = Awaited<ReturnType<typeof loadPdf>>;
+type PdfPage = Awaited<ReturnType<PdfDocument["getPage"]>>;
 
 async function renderPageToPngDataUrl(
   page: Awaited<ReturnType<Awaited<ReturnType<typeof loadPdf>>["getPage"]>>,
@@ -363,7 +365,7 @@ export async function detectAllSignatureZones(
   const maxPages = options.maxPages ?? 12;
   const renderScale = options.renderScale ?? 1.5;
 
-  let pdf: PDFDocumentProxy;
+  let pdf: PdfDocument;
   try {
     pdf = await loadPdf(pdfBytes);
   } catch (err) {
@@ -376,7 +378,7 @@ export async function detectAllSignatureZones(
 
   try {
     for (let pageIndex = 1; pageIndex <= pageCount; pageIndex++) {
-      let page: PDFPageProxy;
+      let page: PdfPage;
       try {
         page = await pdf.getPage(pageIndex);
       } catch (err) {
@@ -397,7 +399,7 @@ export async function detectAllSignatureZones(
       try {
         const textContent = await page.getTextContent();
         textHint = textContent.items
-          .map((it) => ("str" in it ? String((it as { str: string }).str) : ""))
+          .map((it: unknown) => (it && typeof it === "object" && "str" in it ? String((it as { str: string }).str) : ""))
           .join(" ")
           .slice(0, 1200);
       } catch {
@@ -415,7 +417,7 @@ export async function detectAllSignatureZones(
   } finally {
     // Libération mémoire si l'API le permet (selon version pdfjs)
     try {
-      const maybeDestroy = (pdf as PDFDocumentProxy & { destroy?: () => Promise<void> }).destroy;
+      const maybeDestroy = (pdf as PdfDocument & { destroy?: () => Promise<void> }).destroy;
       if (typeof maybeDestroy === "function") await maybeDestroy.call(pdf);
     } catch {
       /* ignore */

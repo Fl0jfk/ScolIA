@@ -56,6 +56,7 @@ export default function FaireUneDemandeForm({
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [honeypot, setHoneypot] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +113,7 @@ export default function FaireUneDemandeForm({
       fd.append("subject", subject);
       fd.append("description", description.trim());
       if (forceRouteId) fd.append("forceRouteId", forceRouteId);
+      fd.append("website", honeypot);
       for (const f of files) fd.append("files", f);
       const res = await fetch("/api/requests/create", { method: "POST", body: fd });
       const data = await res.json();
@@ -179,7 +181,7 @@ export default function FaireUneDemandeForm({
 
   return (
     <form
-      className={shellClass}
+      className={`relative ${shellClass}`}
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
@@ -189,6 +191,20 @@ export default function FaireUneDemandeForm({
         <p className="text-sm text-slate-500 animate-pulse">Chargement…</p>
       ) : (
         <>
+          <div
+            className="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0"
+            aria-hidden
+          >
+            <label>
+              Site web
+              <input
+                tabIndex={-1}
+                autoComplete="off"
+                value={honeypot}
+                onChange={(e) => setHoneypot(e.target.value)}
+              />
+            </label>
+          </div>
           {heading || intro ? (
             <div className="space-y-1">
               {heading ? <h3 className="text-lg font-black text-slate-900">{heading}</h3> : null}

@@ -4,7 +4,7 @@ import { contentSecurityPolicyHeaderValue, contentSecurityPolicyReportOnlyHeader
 const nextConfig: NextConfig = {
   output: "standalone",
   serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist"],
-  typescript: { ignoreBuildErrors: true },
+  typescript: { ignoreBuildErrors: false },
   images: {
     formats : ['image/webp'],
     remotePatterns: [

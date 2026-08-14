@@ -24,3 +24,20 @@ export function createMemoryRateLimiter(options: { windowMs: number; max: number
     },
   };
 }
+
+export function createSlidingWindowRateLimiter(options: { windowMs: number; max: number }) {
+  const hits = new Map<string, number[]>();
+  return {
+    allow(key: string): boolean {
+      const now = Date.now();
+      const prev = (hits.get(key) || []).filter((t) => now - t < options.windowMs);
+      if (prev.length >= options.max) {
+        hits.set(key, prev);
+        return false;
+      }
+      prev.push(now);
+      hits.set(key, prev);
+      return true;
+    },
+  };
+}

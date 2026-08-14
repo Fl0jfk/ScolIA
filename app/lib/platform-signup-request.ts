@@ -9,6 +9,7 @@ import type {
   TenantSignupPostalAddress,
   TenantSignupRequest,
   TenantSignupStatus,
+  TenantSignupAuditEntry,
 } from "@/app/lib/platform-signup-types";
 
 export type {

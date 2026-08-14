@@ -17,33 +17,16 @@ import {
 } from "@/app/lib/requests";
 import { getRequestsRoutingConfig } from "@/app/lib/requests-routing-config";
 import { getTenantSmtpConfig } from "@/app/lib/tenant-mail";
+import { clientIpFromRequest, createSlidingWindowRateLimiter } from "@/app/lib/memory-rate-limit";
 
 export const runtime = "nodejs";
 
 const MAX_PARENT_ATTACHMENTS = 2;
 
-/** Rate-limit léger en mémoire (par instance). */
-const recentByIp = new Map<string, number[]>();
-const RATE_WINDOW_MS = 60 * 60 * 1000;
-const RATE_MAX = 8;
-
-function clientIp(req: Request): string {
-  const xf = req.headers.get("x-forwarded-for");
-  if (xf) return xf.split(",")[0]?.trim() || "unknown";
-  return req.headers.get("x-real-ip")?.trim() || "unknown";
-}
-
-function allowRate(ip: string): boolean {
-  const now = Date.now();
-  const prev = (recentByIp.get(ip) || []).filter((t) => now - t < RATE_WINDOW_MS);
-  if (prev.length >= RATE_MAX) {
-    recentByIp.set(ip, prev);
-    return false;
-  }
-  prev.push(now);
-  recentByIp.set(ip, prev);
-  return true;
-}
+const parentPortalLimiter = createSlidingWindowRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 8,
+});
 
 /** Statut page parents (public). */
 export async function GET() {
@@ -69,8 +52,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const ip = clientIp(req);
-    if (!allowRate(ip)) {
+    const ip = clientIpFromRequest(req);
+    if (!parentPortalLimiter.allow(ip)) {
       return NextResponse.json(
         { error: "Trop de tentatives. Réessayez plus tard." },
         { status: 429 },

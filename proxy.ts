@@ -97,10 +97,15 @@ async function resolveTenantForProxy(request: NextRequest): Promise<TenantConfig
   }
 }
 
+function createCspNonce(): string {
+  return Buffer.from(crypto.randomUUID()).toString("base64");
+}
+
 function withTenantHeaders(
   response: NextResponse,
   tenant: TenantConfig,
   pathname?: string,
+  nonce?: string,
 ): NextResponse {
   response.headers.set(TENANT_SLUG_HEADER, tenant.slug);
   response.headers.set("x-tenant-bucket", tenant.dataBucket);
@@ -109,10 +114,11 @@ function withTenantHeaders(
     pathname?.startsWith("/api/fournitures/file") ||
     pathname?.startsWith("/documents/rentree/");
   if (!omitCsp) {
-    response.headers.set("Content-Security-Policy", contentSecurityPolicyHeaderValue());
+    const n = nonce ?? createCspNonce();
+    response.headers.set("Content-Security-Policy", contentSecurityPolicyHeaderValue(n));
     response.headers.set(
       "Content-Security-Policy-Report-Only",
-      contentSecurityPolicyReportOnlyHeaderValue(),
+      contentSecurityPolicyReportOnlyHeaderValue(n),
     );
     response.headers.set("Cross-Origin-Opener-Policy", crossOriginOpenerPolicyHeaderValue());
   }
@@ -120,15 +126,18 @@ function withTenantHeaders(
 }
 
 function nextWithTenant(request: NextRequest, tenant: TenantConfig): NextResponse {
+  const nonce = createCspNonce();
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set(TENANT_SLUG_HEADER, tenant.slug);
   requestHeaders.set(TENANT_REQUEST_URL_HEADER, request.nextUrl.pathname + request.nextUrl.search);
+  requestHeaders.set("x-nonce", nonce);
   return withTenantHeaders(
     NextResponse.next({
       request: { headers: requestHeaders },
     }),
     tenant,
     request.nextUrl.pathname,
+    nonce,
   );
 }
 
@@ -398,7 +407,7 @@ const clerkMw = clerkMiddleware(clerkAuthHandler, clerkOptionsForTenant);
  * Multi-tenant :
  * - Routes API → handler natif (auth via clé secrète tenant). Elles n'affichent
  *   pas <ClerkProvider>, donc pas besoin de clerkMiddleware ni de
- *   CLERK_ENCRYPTION_KEY (absent au runtime Amplify) — ce qui causait des 500
+ *   CLERK_ENCRYPTION_KEY (absent au runtime Scaleway) — ce qui causait des 500
  *   sur toutes les API une fois connecté.
  * - Routes pages → clerkMiddleware (nécessaire au rendu des Server Components).
  */

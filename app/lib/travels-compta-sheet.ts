@@ -776,7 +776,7 @@ function providerBusQuoteFromReceivedDevis(trip: TravelsTrip): number | null {
 /** Montant connu du devis bus (sélectionné, reçu par mail ou facturation compta). */
 export function resolveSignedBusQuoteAmount(
   trip: TravelsTrip,
-  sheet?: Pick<TravelsComptaSheet, "facturations" | "facturation" | "depenses"> | null,
+  sheet?: Partial<Pick<TravelsComptaSheet, "facturations" | "facturation" | "depenses">> | null,
 ): number | null {
   const savedBus = sheet?.depenses?.find((d) => d.source === "devis_signe")?.amount;
   if (isUsableComptaAmount(savedBus)) return savedBus;
@@ -790,7 +790,7 @@ export function resolveSignedBusQuoteAmount(
 export function applyBusQuoteAmountFallback(
   trip: TravelsTrip,
   depenses: TravelsComptaExpenseLine[],
-  sheet?: Pick<TravelsComptaSheet, "facturations" | "facturation" | "depenses"> | null,
+  sheet?: Partial<Pick<TravelsComptaSheet, "facturations" | "facturation" | "depenses">> | null,
 ): TravelsComptaExpenseLine[] {
   const manualBus = sheet?.depenses?.find((d) => d.source === "devis_signe")?.amount;
   const busAmount =
@@ -1121,7 +1121,10 @@ export function depensesFromDocumentSync(
   }
 
   while (lines.length < 2) lines.push({ label: "", amount: null });
-  return filterComptaDepenses(applyBusQuoteAmountFallback(trip, lines, { depenses: savedDepenses || undefined }), trip);
+  return filterComptaDepenses(
+    applyBusQuoteAmountFallback(trip, lines, savedDepenses ? { depenses: savedDepenses } : null),
+    trip,
+  );
 }
 
 export function documentsNeedComptaSync(trip: TravelsTrip, sheet: TravelsComptaSheet | null): boolean {

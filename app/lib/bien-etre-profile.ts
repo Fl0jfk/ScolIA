@@ -1,5 +1,7 @@
 /** Détecte le profil élève bien-être (bot d'écoute, pas Nico institutionnel). */
 
+import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
+
 const STAFF_ROLE_SLUGS = new Set([
   "admin",
   "administratif",
@@ -16,11 +18,9 @@ const STAFF_ROLE_SLUGS = new Set([
   "master",
 ]);
 
+/** Alias historique — délégué à la normalisation intranet. */
 export function intranetRolesFromUnknown(meta: unknown): string[] {
-  const role = (meta as Record<string, unknown> | undefined)?.role;
-  if (Array.isArray(role)) return role.map(String);
-  if (typeof role === "string" && role.trim()) return [role.trim()];
-  return [];
+  return intranetRolesFromMetadata(meta);
 }
 
 /** Élève sans rôle staff → agent bien-être dans la bulle IA. */

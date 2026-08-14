@@ -31,7 +31,7 @@ import {
   type StageConvention,
 } from "@/app/lib/stage-types";
 
-function displayName(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
+function displayName(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
   const first = user?.firstName?.trim() || "";
   const last = user?.lastName?.trim() || "";
   return `${first} ${last}`.trim() || "Utilisateur";

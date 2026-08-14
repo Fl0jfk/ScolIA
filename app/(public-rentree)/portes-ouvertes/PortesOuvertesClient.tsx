@@ -14,6 +14,7 @@ export default function PortesOuvertesClient({ po }: { po: PortesOuvertesToolCon
     childrenInfo: "",
     consent: false,
   });
+  const [honeypot, setHoneypot] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +27,7 @@ export default function PortesOuvertesClient({ po }: { po: PortesOuvertesToolCon
       const res = await fetch("/api/portes-ouvertes/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, website: honeypot }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Erreur");
@@ -81,7 +82,21 @@ export default function PortesOuvertesClient({ po }: { po: PortesOuvertesToolCon
           {po.slots.length === 0 ? (
             <p className="mt-8 text-sm text-slate-500">Les créneaux d&apos;inscription seront bientôt publiés.</p>
           ) : (
-            <form onSubmit={(e) => void submit(e)} className="mt-8 space-y-4">
+            <form onSubmit={(e) => void submit(e)} className="relative mt-8 space-y-4">
+              <div
+                className="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0"
+                aria-hidden
+              >
+                <label>
+                  Site web
+                  <input
+                    tabIndex={-1}
+                    autoComplete="off"
+                    value={honeypot}
+                    onChange={(e) => setHoneypot(e.target.value)}
+                  />
+                </label>
+              </div>
               <label className="block">
                 <span className="text-xs font-bold uppercase text-slate-500">Créneau</span>
                 <select

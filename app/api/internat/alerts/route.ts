@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireInternatAccess } from "@/app/api/internat/_auth";
 import { getInternatStudents, listInternatAlerts, saveInternatAlert } from "@/app/lib/internat-storage";
 import { notifyInternatEmergency } from "@/app/lib/internat-notify";
-import { studentDisplayName, newId, type InternatAlert, type InternatAlertSeverity } from "@/app/lib/internat-types";
+import { studentDisplayName, newId, type InternatAlert, type InternatAlertSeverity, type InternatStudent } from "@/app/lib/internat-types";
 
 export async function GET() {
   const access = await requireInternatAccess();
@@ -21,12 +21,12 @@ export async function POST(req: Request) {
 
   const severity: InternatAlertSeverity =
     body.severity === "critique" || body.severity === "urgent" ? body.severity : "info";
-  const studentIds = Array.isArray(body.studentIds) ? body.studentIds.map(String) : [];
-  const students = await getInternatStudents();
+  const studentIds: string[] = Array.isArray(body.studentIds) ? body.studentIds.map(String) : [];
+  const students: InternatStudent[] = await getInternatStudents();
   const studentNames = studentIds
-    .map((id) => students.find((s) => s.id === id))
-    .filter(Boolean)
-    .map((s) => studentDisplayName(s!));
+    .map((id: string) => students.find((s: InternatStudent) => s.id === id))
+    .filter((s): s is InternatStudent => Boolean(s))
+    .map((s) => studentDisplayName(s));
 
   const now = new Date().toISOString();
   const mail = await notifyInternatEmergency({

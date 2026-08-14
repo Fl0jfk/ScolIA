@@ -7,7 +7,8 @@
     "clerk:env": "clerk env pull",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "audit:knip": "knip"
   },
   "engines": {
     "node": ">=22.x"
@@ -58,7 +59,8 @@
     "eslint-config-next": "latest",
     "postcss": "latest",
     "tailwindcss": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "knip": "^5.61.0"
   },
   "overrides": {
     "ajv": "^8.18.0",

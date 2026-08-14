@@ -32,12 +32,17 @@ function mergeMarks(
 
 function mergeSection(
   current: InternatRollSection,
-  patch: Partial<InternatRollSection> & { marks?: Record<string, string | null> } | undefined,
+  patch:
+    | {
+        marks?: Record<string, string | null>;
+        completed?: boolean;
+        completedBy?: string;
+        completedAt?: string;
+      }
+    | undefined,
 ): InternatRollSection {
   if (!patch) return current;
-  const marks = patch.marks
-    ? mergeMarks(current.marks, patch.marks as Record<string, string | null | undefined>)
-    : current.marks;
+  const marks = patch.marks ? mergeMarks(current.marks, patch.marks) : current.marks;
   const completed = patch.completed !== undefined ? patch.completed : current.completed;
   return {
     completed,
@@ -82,8 +87,13 @@ export async function PATCH(req: Request) {
   const now = new Date().toISOString();
 
   if (body.section === "boys" || body.section === "girls") {
-    const key = body.section;
-    const sectionPatch: Partial<InternatRollSection> = {};
+    const key: "boys" | "girls" = body.section;
+    const sectionPatch: {
+      marks?: Record<string, string | null>;
+      completed?: boolean;
+      completedBy?: string;
+      completedAt?: string;
+    } = {};
     if (body.marks && typeof body.marks === "object") {
       sectionPatch.marks = body.marks as Record<string, string | null>;
       if (rollCall[key].completed) {

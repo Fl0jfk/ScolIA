@@ -54,10 +54,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Lien invalide ou expiré." }, { status: 404 });
   }
 
-  const clientIp =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    req.headers.get("x-real-ip") ||
-    undefined;
+  const clientIp = clientIpFromRequest(req);
 
   try {
     const { outing: updated, alreadyDecided } = await applyOutingDecision({

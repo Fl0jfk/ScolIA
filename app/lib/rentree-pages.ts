@@ -1,13 +1,7 @@
 import type { Establishment, EstablishmentKind } from "@/app/lib/app-config-schemas";
 import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
 import { DEFAULT_RENTREE_SECTIONS, emptyRentreePage, normalizeRentreeSections, RENTREE_LINKS } from "@/app/lib/rentree-defaults";
-import type {
-  RentreeAccent,
-  RentreeEstablishmentPage,
-  RentreeLevel,
-  RentreeLinksByLevel,
-  RentreeSection,
-} from "@/app/lib/rentree-types";
+import type { RentreeAccent, RentreeEstablishmentPage, RentreeLevel, RentreeLinkItem, RentreeLinksByLevel, RentreeSection } from "@/app/lib/rentree-types";
 
 function defaultAccentForKind(kind?: EstablishmentKind): RentreeAccent {
   if (kind === "ecole") return "yellow";
@@ -108,30 +102,29 @@ export function parseRentreeAccent(raw: unknown, fallback: RentreeAccent = "viol
 
 export function parseRentreeSections(raw: unknown): RentreeSection[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((s) => {
-      const sec = s && typeof s === "object" ? (s as Record<string, unknown>) : {};
-      const items = Array.isArray(sec.items)
-        ? sec.items
-            .map((it) => {
-              const row = it && typeof it === "object" ? (it as Record<string, unknown>) : {};
-              const href = String(row.href || "").trim();
-              const title = String(row.title || "").trim();
-              if (!title || !href) return null;
-              return {
-                title,
-                description: String(row.description || "").trim() || undefined,
-                href,
-                kind: row.kind === "pdf" ? ("pdf" as const) : row.kind === "link" ? ("link" as const) : undefined,
-              };
-            })
-            .filter((x): x is NonNullable<typeof x> => Boolean(x))
-        : [];
-      const title = String(sec.title || "").trim();
-      if (!title) return null;
-      return { title, items };
-    })
-    .filter((x): x is RentreeSection => Boolean(x));
+  const sections: RentreeSection[] = [];
+  for (const s of raw) {
+    const sec = s && typeof s === "object" ? (s as Record<string, unknown>) : {};
+    const items: RentreeLinkItem[] = Array.isArray(sec.items)
+      ? sec.items.flatMap((it) => {
+          const row = it && typeof it === "object" ? (it as Record<string, unknown>) : {};
+          const href = String(row.href || "").trim();
+          const title = String(row.title || "").trim();
+          if (!title || !href) return [];
+          const item: RentreeLinkItem = {
+            title,
+            href,
+            description: String(row.description || "").trim() || undefined,
+            kind: row.kind === "pdf" ? "pdf" : row.kind === "link" ? "link" : undefined,
+          };
+          return [item];
+        })
+      : [];
+    const title = String(sec.title || "").trim();
+    if (!title) continue;
+    sections.push({ title, items });
+  }
+  return sections;
 }
 
 export function parseRentreePages(raw: unknown): RentreeEstablishmentPage[] {

@@ -12,6 +12,7 @@ type DriveStatus = {
   linkedAt: string | null;
   basePath: string;
   error: string | null;
+  oauthRedirectUri?: string | null;
 };
 
 export default function RhDriveLinkPanel() {

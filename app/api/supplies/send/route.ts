@@ -6,6 +6,12 @@ import {
 import { getToolboxConfig } from "@/app/lib/toolbox-config";
 import type { FournituresChild } from "@/app/lib/fournitures-types";
 import { buildSuppliesListPdf } from "@/app/lib/fournitures-supplies-pdf";
+import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
+
+const suppliesSendLimiter = createMemoryRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+});
 
 function isValidEmail(value: string) {
   const v = String(value || "").trim();
@@ -14,6 +20,13 @@ function isValidEmail(value: string) {
 
 export async function POST(req: Request) {
   try {
+    if (!suppliesSendLimiter.allow(clientIpFromRequest(req))) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez plus tard." },
+        { status: 429 },
+      );
+    }
+
     const toolbox = await getToolboxConfig();
     if (!toolbox.tools["simulateur-fournitures"].enabled) {
       return NextResponse.json({ error: "Simulateur fournitures désactivé." }, { status: 404 });

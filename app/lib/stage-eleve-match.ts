@@ -1,6 +1,6 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { resolveEleveFolderName } from "@/app/lib/eleves-config";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesRegistry, findEleveByIne } from "@/app/lib/eleves-registry";
 import { loadMefSecteurMap } from "@/app/lib/mef-secteurs";
 import {
   buildElevesPoolForOcrMatching,

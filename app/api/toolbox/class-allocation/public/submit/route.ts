@@ -17,6 +17,12 @@ import {
   resolvePeerWishInputs,
   resolveTeacherWishInput,
 } from "@/app/lib/class-allocation-wish-match";
+import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
+
+const parentSubmitLimiter = createMemoryRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+});
 
 type Body = {
   studentIne?: string;
@@ -43,6 +49,12 @@ function normalizeTexts(v: unknown, max: number): string[] {
 }
 
 export async function POST(req: Request) {
+  if (!parentSubmitLimiter.allow(clientIpFromRequest(req))) {
+    return NextResponse.json(
+      { error: "Trop de tentatives. Réessayez dans quelques minutes." },
+      { status: 429 },
+    );
+  }
   const campaign = await loadCampaignConfig();
   if (!campaign.isOpen) {
     return NextResponse.json({ error: "La campagne est fermée." }, { status: 400 });

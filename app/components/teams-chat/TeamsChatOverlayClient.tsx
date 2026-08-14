@@ -4,7 +4,8 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
-import { intranetRolesFromUnknown, isEleveBienEtreProfile } from "@/app/lib/bien-etre-profile";
+import { isEleveBienEtreProfile } from "@/app/lib/bien-etre-profile";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { isPublicVisitorPath } from "@/app/lib/public-site-paths";
 import { canUseTeamsChatOverlay } from "@/app/lib/teams-chat/roles";
 import type { TeamsChatStatus } from "@/app/lib/teams-chat/types";
@@ -27,8 +28,8 @@ export default function TeamsChatOverlayClient() {
     !isSignedIn ||
     isPublicVisitorPath(pathname) ||
     (pathname ?? "").toLowerCase().startsWith("/scolia-ai") ||
-    (user ? isEleveBienEtreProfile(intranetRolesFromUnknown(user.publicMetadata)) : false) ||
-    (user ? !canUseTeamsChatOverlay(intranetRolesFromUnknown(user.publicMetadata)) : true);
+    (user ? isEleveBienEtreProfile(rolesFromUserLike(user)) : false) ||
+    (user ? !canUseTeamsChatOverlay(rolesFromUserLike(user)) : true);
 
   useEffect(() => {
     if (skip) {

@@ -20,83 +20,25 @@ import {
 import { formatAbsencePeriod, type AbsencePeriodType } from "@/app/lib/absence-period";
 import {
   formatAbsenceHoursTreatment,
-  formatTransmissionSummary,
   getHoursTreatmentOptions,
   hoursTreatmentFieldLabel,
   validateHoursTreatmentForAbsence,
-  type AbsenceHoursTreatment,
 } from "@/app/lib/absence-hours-treatment";
 import { compareAbsenceRecordsAlphabetically } from "@/app/lib/absences-shared-utils";
-
-type AbsenceScope = "professeur" | "ogec";
-type Etablissement = "École" | "Collège" | "Lycée";
-type AbsenceWorkflowStatus = "OUVERTE" | "JUSTIFICATIF_DEPOSE" | "CLOTUREE";
-type AbsenceDecision = "EN_ATTENTE" | "VALIDEE" | "REFUSEE";
-type AbsenceItem = {
-  id: string;
-  createdAt: string;
-  updatedAt: string;
-  createdBy: {
-    userId: string;
-    name: string;
-    email: string;
-    roles: string[];
-  };
-  data: {
-    scope: AbsenceScope;
-    etablissement: Etablissement | null;
-    periodType?: AbsencePeriodType | null;
-    startDate: string;
-    endDate: string;
-    startTime?: string | null;
-    endTime?: string | null;
-    reason: string;
-    details: string;
-  };
-  workflowStatus: AbsenceWorkflowStatus;
-  managerDecision: AbsenceDecision;
-  closedAt?: string | null;
-  justification?: {
-    fileName: string;
-    fileUrl: string;
-    uploadedAt: string;
-    uploadedBy: string;
-  } | null;
-  managerNote?: string;
-  hoursTreatment?: AbsenceHoursTreatment | null;
-  justificatifRelanceAt?: string | null;
-};
+import {
+  isPendingAbsence,
+  itemDecision,
+  resolvedHoursTreatment,
+  transmissionLabel,
+  validationConfirmMessage,
+  type AbsenceDecision,
+  type AbsenceItem,
+  type AbsenceScope,
+  type AbsenceWorkflowStatus,
+  type Etablissement,
+} from "@/app/lib/absences-page-model";
 
 const norm = (s: string) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[_\s-]+/g, "");
-
-function itemDecision(item: AbsenceItem): AbsenceDecision {
-  return item.managerDecision ?? "EN_ATTENTE";
-}
-
-function isPendingAbsence(item: AbsenceItem) {
-  return itemDecision(item) === "EN_ATTENTE" && item.workflowStatus !== "CLOTUREE";
-}
-
-function validationConfirmMessage(item: AbsenceItem) {
-  const base =
-    "Êtes-vous sûr de valider cette absence ?\n\nCette action est définitive (sans retour possible).";
-  if (item.data.scope === "ogec") {
-    return `${base}\n\nL'absence sera transmise à la comptabilité.`;
-  }
-  if (item.data.etablissement === "École") {
-    return `${base}\n\nL'absence sera transmise au secrétariat.`;
-  }
-  return `${base}\n\nL'absence sera transmise au secrétariat.`;
-}
-
-function transmissionLabel(item: AbsenceItem) {
-  if (itemDecision(item) !== "VALIDEE") return null;
-  return formatTransmissionSummary(item.data.scope, item.data.etablissement, item.hoursTreatment);
-}
-
-function resolvedHoursTreatment(item: AbsenceItem, draft: Record<string, string>) {
-  return draft[item.id] ?? item.hoursTreatment ?? "";
-}
 
 export default function AbsencesPageClient({
   embeddedInRh = false,

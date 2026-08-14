@@ -41,14 +41,6 @@ export default async function SignInPage() {
             },
           },
         }}
-        localization={{
-          signIn: {
-            start: {
-              title: "Connexion",
-              subtitle: "Utilisez votre compte établissement",
-            },
-          },
-        }}
       />
     </div>
   );

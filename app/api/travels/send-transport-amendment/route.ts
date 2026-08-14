@@ -11,7 +11,7 @@ import {
   createTenantTransporter,
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
-import type { TravelsTrip } from "@/app/lib/travels-types";
+import type { TransportAmendment, TravelsTrip } from "@/app/lib/travels-types";
 import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
 
 type TripRecord = TravelsTrip;
@@ -128,7 +128,7 @@ export async function POST(req: Request) {
     }
 
     const now = new Date().toISOString();
-    const amendmentEntry = {
+    const amendmentEntry: TransportAmendment = {
       sentAt: now,
       previousEffectif: previousEffectif || null,
       newEffectif: currentEffectif,

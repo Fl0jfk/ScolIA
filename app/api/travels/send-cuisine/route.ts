@@ -5,6 +5,7 @@ import { loadAppConfig } from "@/app/lib/app-config";
 import { defaultNotifications } from "@/app/lib/app-config-defaults";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { assertTravelsTripAccess } from "@/app/lib/travels-rbac-server";
+import type { TravelsTrip } from "@/app/lib/travels-types";
 import { buildCuisineOrderPdfBase64 } from "@/app/lib/travels-cuisine-pdf";
 import { CUISINE_DAYS, cuisineDateRangeLabel, type CuisineTripPayload } from "@/app/lib/travels-cuisine-shared";
 import {
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Dossier introuvable" }, { status: 404 });
     }
 
-    const access = await assertTravelsTripAccess(trip, { requireOwnerOrDirection: true });
+    const access = await assertTravelsTripAccess(trip as TravelsTrip, { requireOwnerOrDirection: true });
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
     const details = trip.data.piqueNiqueDetails;

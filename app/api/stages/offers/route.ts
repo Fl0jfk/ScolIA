@@ -12,14 +12,14 @@ import {
   type StageOfferKind,
 } from "@/app/lib/stage-types";
 
-function displayName(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
+function displayName(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
   const first = user?.firstName?.trim() || "";
   const last = user?.lastName?.trim() || "";
   const full = `${first} ${last}`.trim();
   return full || user?.primaryEmailAddress?.emailAddress?.split("@")[0] || "Parent";
 }
 
-function userEmail(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
+function userEmail(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
   return user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
 }
 

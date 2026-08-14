@@ -25,8 +25,9 @@ export async function savePortesOuvertesRegistrations(rows: PortesOuvertesRegist
 
 export async function addPortesOuvertesRegistration(
   row: Omit<PortesOuvertesRegistration, "id" | "createdAt">,
+  existing?: PortesOuvertesRegistration[],
 ): Promise<PortesOuvertesRegistration> {
-  const list = await listPortesOuvertesRegistrations();
+  const list = existing ? [...existing] : await listPortesOuvertesRegistrations();
   const entry: PortesOuvertesRegistration = {
     ...row,
     id: `po-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,

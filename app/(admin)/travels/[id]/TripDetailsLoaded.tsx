@@ -6,13 +6,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useTravelsPermissions } from "@/app/hooks/useTravelsPermissions";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
-import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSelect";
-import {
-  CUISINE_DAYS_UI,
-  CUISINE_ROWS_UI,
-  emptyCuisineDetails,
-  getTotalMeals,
-} from "@/app/lib/travels-cuisine-form";
+import { emptyCuisineDetails } from "@/app/lib/travels-cuisine-form";
 import {
   busLogisticsActive,
   complexNeedsBus,
@@ -31,31 +25,29 @@ import { getTripNextGuidance } from "@/app/lib/travels-next-guidance";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
 import { TripActionsPanel } from "@/app/components/travels/hub/TripActionsPanel";
 import { TripAmendmentJournal } from "@/app/components/travels/hub/TripAmendmentJournal";
+import { TripCuisineHubPanel } from "@/app/components/travels/hub/TripCuisineHubPanel";
+import { TripDecisionHubPanel } from "@/app/components/travels/hub/TripDecisionHubPanel";
+import { TripDetailsModals } from "@/app/components/travels/hub/TripDetailsModals";
+import { TripDocumentsHubPanel } from "@/app/components/travels/hub/TripDocumentsHubPanel";
 import { TripElevesListPanel } from "@/app/components/travels/hub/TripElevesListPanel";
 import { TripHubNav } from "@/app/components/travels/hub/TripHubNav";
+import { TripInternalThreadPanel } from "@/app/components/travels/hub/TripInternalThreadPanel";
+import { TripOverviewFieldsPanel } from "@/app/components/travels/hub/TripOverviewFieldsPanel";
 import { TripParentComPanel } from "@/app/components/travels/hub/TripParentComPanel";
 import { TripRemindersBanner } from "@/app/components/travels/hub/TripRemindersBanner";
 import { TripNextStepBanner } from "@/app/components/travels/hub/TripNextStepBanner";
+import { TripTransportHubPanel } from "@/app/components/travels/hub/TripTransportHubPanel";
 import TravelsOwnerRepairSection from "@/app/components/travels/TravelsOwnerRepairSection";
 import TravelsComptaSheetForm from "@/app/components/travels/TravelsComptaSheetForm";
 import type { TravelsComptaSheet } from "@/app/lib/travels-compta-sheet";
 import { comptaDocumentsFingerprint, comptaDefinitiveCostPerStudent, computeComptaSheetDerived } from "@/app/lib/travels-compta-sheet";
 import {
   TripAlert,
-  TripBusQuoteCard,
   TripButton,
-  TripDecisionPanel,
-  TripDocumentChip,
-  TripField,
-  TripFieldActions,
-  TripFieldValue,
   TripHeroHeader,
-  TripInput,
   TripLoadingOverlay,
   TripPageShell,
   TripQuickStats,
-  TripSection,
-  TripTextarea,
   TripWorkflowStepper,
 } from "@/app/components/travels/TripDetailUI";
 
@@ -149,8 +141,6 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     canReassignTripOwner,
     isGlobalAdmin,
   } = perms;
-  const CUISINE_DAYS = CUISINE_DAYS_UI;
-  const CUISINE_ROWS = CUISINE_ROWS_UI;
   useEffect(() => {
     const withBus = complexNeedsBus(trip);
     const hasCuisine = Boolean(trip.data?.piqueNiqueDetails?.active);
@@ -308,7 +298,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           ...(trip.history || []),
           {
             date: new Date().toISOString(),
-            user: user?.fullName,
+            user: user?.fullName ?? undefined,
             action: "CIRCULAIRE_REGENEREE",
             note: hasExisting ? "Circulaire remplacée." : "Circulaire régénérée.",
           },
@@ -466,7 +456,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       data: finalData,
       history: [
         ...(source.history || []),
-        { date: new Date().toISOString(), user: user?.fullName, action: newStatus, note: note },
+        { date: new Date().toISOString(), user: user?.fullName ?? undefined, action: newStatus, note: note },
       ],
     };
     const saved = await saveUpdates(updatedTrip);
@@ -830,7 +820,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         ...(trip.history || []),
         {
           date: new Date().toISOString(),
-          user: user?.fullName,
+          user: user?.fullName ?? undefined,
           action: "CUISINE_MODIFIEE",
           note: wasActive ? "Commande cuisine modifiée." : "Commande cuisine ajoutée au dossier.",
         },
@@ -887,7 +877,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         ...(trip.history || []),
         {
           date: new Date().toISOString(),
-          user: user?.fullName,
+          user: user?.fullName ?? undefined,
           action: "BUDGET_MODIFIE",
           note: `Budget prévisionnel : ${Math.round(prev)} € → ${Math.round(coutTotal)} €`,
         },
@@ -914,14 +904,14 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       return alert("Aucun changement.");
     }
 
-    const updatedTrip = {
+    const updatedTrip: TravelsTrip = {
       ...trip,
       data: { ...trip.data, nbEleves, nbAccompagnateurs: nbAcc, nomsAccompagnateurs },
       history: [
         ...(trip.history || []),
         {
           date: new Date().toISOString(),
-          user: user?.fullName,
+          user: user?.fullName ?? undefined,
           action: "EFFECTIF_MODIFIE",
           note: `Effectif : ${prevEleves}+${prevAcc} → ${nbEleves}+${nbAcc} (élèves + accomp.)${nomsAccompagnateurs !== prevNoms ? " · noms accomp. mis à jour" : ""}`,
         },
@@ -1002,7 +992,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         ...(trip.history || []),
         {
           date: new Date().toISOString(),
-          user: user?.fullName,
+          user: user?.fullName ?? undefined,
           action: "DATES_MODIFIEES",
           note: `Horaires/dates mis à jour`,
         },
@@ -1378,9 +1368,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       )}
 
       <TripHeroHeader
-        title={trip.data.title}
+        title={trip.data.title ?? ""}
         typeLabel={trip.type === "COMPLEX" ? "Voyage scolaire" : "Sortie de proximité"}
-        ownerName={trip.ownerName}
+        ownerName={trip.ownerName ?? ""}
         etablissement={trip.data.etablissement}
         seriesLabel={
           isRecurrenceTrip && seriesIndex != null && seriesTotal != null
@@ -1504,902 +1494,108 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           L&apos;étape logistique (devis transporteurs) est ignorée pour ce voyage.
         </TripAlert>
       )}
+
       {hubTab === "transport" && withBusLogistics && (
-        <TripSection
-          title="Devis transport"
-          subtitle="Offres reçues par e-mail ou ajoutées manuellement"
-          icon="🚌"
-          accent="amber"
-          action={
-            canRequestAmendedQuote ? (
-              <TripButton
-                variant="warning"
-                size="sm"
-                onClick={() => requestAmendedBusQuote()}
-                disabled={loadingAction === "amendment-quote"}
-              >
-                {loadingAction === "amendment-quote" ? "Envoi…" : "Devis rectifié (effectif)"}
-              </TripButton>
-            ) : undefined
-          }
-        >
-          {trip.data.transportPhaseBypassedAt && (
-            <TripAlert tone="info" title="Étape transport contournée" icon="ℹ️">
-              <p className="text-xs leading-relaxed">
-                La direction a validé le passage aux finances sans devis bus signé
-                {trip.data.transportPhaseBypassedBy ? ` (${trip.data.transportPhaseBypassedBy})` : ""}.
-                {trip.data.transportPhaseBypassNote ? (
-                  <>
-                    <br />
-                    <span className="italic">{trip.data.transportPhaseBypassNote}</span>
-                  </>
-                ) : null}
-              </p>
-            </TripAlert>
-          )}
-          {trip.data.pendingAmendedQuote && trip.status === "PROF_LOGISTICS" && (
-            <TripAlert tone="warning" title="Devis rectifié en attente" icon="⏳">
-              <p className="text-xs leading-relaxed">
-                Une demande de devis (avenant) a été envoyée aux transporteurs. Si le devis n&apos;est plus
-                nécessaire, la direction peut passer aux finances sans attendre.
-              </p>
-              {canSign && (
-                <TripButton
-                  variant="warning"
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => void skipTransportToCompta()}
-                  disabled={!!loadingAction}
-                >
-                  Passer aux finances sans devis signé
-                </TripButton>
-              )}
-            </TripAlert>
-          )}
-          {trip.data.transportProviderConfirmation && (
-            <TripAlert tone="success" title="Confirmation transporteur reçue" icon="✅">
-              <p className="text-xs leading-relaxed">{trip.data.transportProviderConfirmation.summary}</p>
-              {trip.data.transportProviderConfirmation.receivedAt && (
-                <p className="text-[10px] text-emerald-800/80 mt-1">
-                  {new Date(trip.data.transportProviderConfirmation.receivedAt).toLocaleString("fr-FR")}
-                  {trip.data.transportProviderConfirmation.providerName
-                    ? ` · ${trip.data.transportProviderConfirmation.providerName}`
-                    : ""}
-                </p>
-              )}
-              {trip.data.transportProviderConfirmation.pdfUrl && (
-                <TripButton
-                  variant="ghost"
-                  size="sm"
-                  type="button"
-                  className="mt-2"
-                  onClick={() =>
-                    openSecureFile(
-                      trip.data.transportProviderConfirmation!.pdfUrl!,
-                      trip.data.transportProviderConfirmation!.s3KeyIncoming,
-                    )
-                  }
-                >
-                  Voir le PDF de confirmation
-                </TripButton>
-              )}
-            </TripAlert>
-          )}
-          {(effectifChanged || datesChanged) && (
-            <TripAlert tone="warning" title="Dossier modifié depuis la dernière demande transport">
-              <span className="text-xs">
-                Dernier envoi : {snapshotEffectifTotal} pers. · Actuel : {currentEffectifTotal} pers.
-                {trip.data?.selectedBusQuote
-                  ? ` → avenant vers ${trip.data.selectedBusQuote.providerName} uniquement.`
-                  : " → avenant vers tous les transporteurs."}
-              </span>
-            </TripAlert>
-          )}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
-            <div className="space-y-3">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">Offres reçues</p>
-              {trip.receivedDevis && trip.receivedDevis.length > 0 ? (
-                trip.receivedDevis.map((quote: any, idx: number) => {
-                  const reviewBus =
-                    quote.matchReviewRequired === true ||
-                    (quote.source === "email" &&
-                      quote.matchConfidence &&
-                      quote.matchConfidence !== "high");
-                  const borderSelected = trip.data.selectedBusQuote?.fileUrl === quote.fileUrl;
-                  return (
-                  <TripBusQuoteCard
-                    key={quote.id || idx}
-                    selected={borderSelected}
-                    review={reviewBus}
-                    actions={
-                      <>
-                        <div className="flex gap-2">
-                          <TripButton
-                            variant="ghost"
-                            size="sm"
-                            type="button"
-                            onClick={() => openSecureFile(quote.fileUrl, quote.s3KeyIncoming)}
-                          >
-                            Voir PDF
-                          </TripButton>
-                          {isOwner && !canSign && trip.status === "PROF_LOGISTICS" && (
-                            <TripButton variant="primary" size="sm" onClick={() => selectBusQuote(quote)}>
-                              Choisir
-                            </TripButton>
-                          )}
-                          {canSign && trip.status === "PROF_LOGISTICS" && (
-                            <TripButton
-                              variant="success"
-                              size="sm"
-                              onClick={() => selectAndSignBusQuote(quote)}
-                              disabled={!!loadingAction}
-                            >
-                              Choisir et signer
-                            </TripButton>
-                          )}
-                        </div>
-                        {canSign && (
-                          <button
-                            type="button"
-                            onClick={() => deleteBusQuote(quote)}
-                            disabled={!!loadingAction}
-                            className="text-[10px] font-bold text-rose-600 hover:text-rose-800 disabled:opacity-50 text-center"
-                          >
-                            {loadingAction === `delete-quote-${quote.id}` ? "Suppression…" : "Supprimer"}
-                          </button>
-                        )}
-                      </>
-                    }
-                  >
-                      <p className="font-bold text-slate-900">{quote.providerName}</p>
-                      <p className="text-indigo-600 font-semibold text-xs mt-0.5">
-                        Devis reçu
-                        {quote.source === "email" ? " · e-mail" : quote.source === "manual" ? " · manuel" : ""}
-                      </p>
-                      {reviewBus && (
-                        <p className="mt-1 text-[10px] font-bold text-orange-800 uppercase tracking-wide">
-                          À vérifier — rattachement automatique ({quote.matchConfidence || "?"})
-                        </p>
-                      )}
-                      {quote.matchMotif && reviewBus && (
-                        <p className="mt-0.5 text-[10px] text-orange-900/90 leading-snug">{quote.matchMotif}</p>
-                      )}
-                      {(quote.extractedPrice || quote.extractedCompany) && (
-                        <p className="mt-1 text-[11px] text-slate-600">
-                          {quote.extractedCompany ? <span className="font-medium">{quote.extractedCompany}</span> : null}
-                          {quote.extractedCompany && quote.extractedPrice ? " · " : null}
-                          {quote.extractedPrice ? <span className="font-semibold text-slate-800">{quote.extractedPrice}</span> : null}
-                        </p>
-                      )}
-                      {(() => {
-                        const to = orderEmailForQuote(quote);
-                        return to ? (
-                          <p className="mt-1.5 text-[10px] text-slate-700">
-                            <span className="font-bold text-slate-500">Commande →</span>{" "}
-                            <span className="font-mono">{to}</span>
-                            {quote.extractedContactEmail?.trim() ? (
-                              <span className="text-emerald-700 font-semibold"> (sur le devis)</span>
-                            ) : quote.providerEmail?.trim() ? (
-                              <span className="text-slate-500">
-                                {" "}
-                                ({quote.source === "manual" ? "saisi à la main" : "expéditeur mail"})
-                              </span>
-                            ) : null}
-                          </p>
-                        ) : (
-                          <p className="mt-1.5 text-[10px] font-bold text-rose-700">
-                            Aucun e-mail pour la commande — renseigner ou vérifier le devis.
-                          </p>
-                        );
-                      })()}
-                  </TripBusQuoteCard>
-                  );
-                })
-              ) : (
-                <p className="text-sm text-slate-400 italic py-4 text-center rounded-xl border border-dashed border-amber-200">
-                  En attente de devis par e-mail…
-                </p>
-              )}
-              {canAddDocuments && (
-                <form onSubmit={addManualBusQuote} className="mt-4 p-4 rounded-xl border border-dashed border-amber-300 bg-amber-50/50 space-y-3 text-left">
-                  <p className="text-xs font-bold text-amber-900 uppercase tracking-wide">Ajout manuel</p>
-                  <p className="text-[11px] text-amber-900/70 leading-snug">
-                    Déposez le PDF et l&apos;e-mail du transporteur si le devis n&apos;arrive pas par la boîte dédiée.
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <label className="block text-[11px] font-semibold text-slate-600">
-                      Transporteur
-                      <TripInput
-                        className="mt-1"
-                        value={manualDevisName}
-                        onChange={(ev) => setManualDevisName(ev.target.value)}
-                        placeholder="ex. Cars Dupont"
-                        disabled={manualDevisBusy}
-                      />
-                    </label>
-                    <label className="block text-[11px] font-semibold text-slate-600">
-                      E-mail (commande)
-                      <TripInput
-                        type="email"
-                        required
-                        className="mt-1"
-                        value={manualDevisEmail}
-                        onChange={(ev) => setManualDevisEmail(ev.target.value)}
-                        placeholder="contact@transporteur.fr"
-                        disabled={manualDevisBusy}
-                      />
-                    </label>
-                  </div>
-                  <label className="block text-[11px] font-semibold text-slate-600">
-                    PDF du devis
-                    <input
-                      name="manualDevisPdf"
-                      type="file"
-                      accept="application/pdf"
-                      className="mt-1 block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-amber-100 file:font-semibold file:text-amber-900"
-                      disabled={manualDevisBusy}
-                    />
-                  </label>
-                  <TripButton type="submit" variant="warning" size="sm" disabled={manualDevisBusy}>
-                    {manualDevisBusy ? "Envoi…" : "Ajouter ce devis"}
-                  </TripButton>
-                </form>
-              )}
-            </div>
-            <div className="rounded-xl border border-amber-200 bg-white p-6 flex flex-col justify-center min-h-[12rem]">
-              {trip.data.selectedBusQuote ? (
-                <div className="text-center space-y-4">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Devis retenu</p>
-                    <p className="text-lg font-bold text-slate-900 mt-1">{trip.data.selectedBusQuote.providerName}</p>
-                    {orderEmailForQuote(trip.data.selectedBusQuote) && (
-                      <p className="text-xs text-slate-500 mt-1 font-mono">{orderEmailForQuote(trip.data.selectedBusQuote)}</p>
-                    )}
-                  </div>
-                  {canSign && trip.status === "EN_ATTENTE_BUS_SIGNATURE" && (
-                    <div className="flex flex-col gap-3 w-full">
-                      <TripButton
-                        variant="success"
-                        size="lg"
-                        onClick={() => signBusQuote()}
-                        disabled={!!loadingAction}
-                        className="w-full"
-                      >
-                        ✍️ Signer et commander
-                      </TripButton>
-                      <TripButton
-                        variant="warning"
-                        size="sm"
-                        onClick={() => void skipTransportToCompta()}
-                        disabled={!!loadingAction}
-                        className="w-full"
-                      >
-                        Passer aux finances sans signer
-                      </TripButton>
-                      <button
-                        type="button"
-                        onClick={() => { const n = prompt("Pourquoi refusez-vous ce devis ?"); if (n) handleAction("PROF_LOGISTICS", n); }}
-                        className="text-xs font-bold text-rose-600 hover:underline"
-                      >
-                        Refuser ce choix
-                      </button>
-                    </div>
-                  )}
-                  {isOwner && !canSign && trip.status === "EN_ATTENTE_BUS_SIGNATURE" && (
-                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-                      Devis choisi — en attente de signature par la direction.
-                    </p>
-                  )}
-                  {(trip.status === "EN_ATTENTE_COMPTA" || trip.status === "EN_ATTENTE_DIR_FINAL" || trip.status === "VALIDE") && (
-                    <p className="inline-flex items-center gap-2 text-emerald-700 font-bold text-sm bg-emerald-50 px-4 py-2 rounded-full">
-                      ✓ Commandé et signé
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-400 italic text-center">
-                  Le créateur choisira un devis à l&apos;étape logistique.
-                </p>
-              )}
-            </div>
-          </div>
-          {((Array.isArray(trip.data.transportEmailMessages) && trip.data.transportEmailMessages.length > 0) ||
-            busLogisticsActive(trip)) && (
-            <div className="mt-6 pt-6 border-t border-amber-200/80">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800 mb-3">
-                Messagerie transporteur (e-mail)
-              </p>
-              {Array.isArray(trip.data.transportEmailMessages) && trip.data.transportEmailMessages.length > 0 && (
-              <div className="space-y-3">
-                {trip.data.transportEmailMessages.map((msg: {
-                  id: string;
-                  messageType?: string;
-                  summary?: string;
-                  subject?: string;
-                  fromEmail?: string;
-                  toEmail?: string;
-                  direction?: string;
-                  driverName?: string | null;
-                  driverPhone?: string | null;
-                  details?: string | null;
-                  pdfUrl?: string | null;
-                  s3KeyIncoming?: string | null;
-                  receivedAt?: string;
-                  matchConfidence?: string | null;
-                }) => {
-                  const isOut = msg.direction === "outbound";
-                  const typeLabel = isOut
-                    ? "Envoyé"
-                    : msg.messageType === "confirmation_commande"
-                      ? "Confirmation"
-                      : msg.messageType === "info_transport"
-                        ? "Info transport"
-                        : msg.messageType === "devis_pdf"
-                          ? "Devis"
-                          : "Message reçu";
-                  return (
-                    <div
-                      key={msg.id}
-                      className={`rounded-xl border px-4 py-3 text-sm ${
-                        isOut
-                          ? "border-indigo-100 bg-indigo-50/50 text-slate-800"
-                          : "border-amber-100 bg-amber-50/40 text-slate-800"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center gap-2 mb-1">
-                        <span
-                          className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${
-                            isOut ? "text-indigo-800 bg-indigo-100" : "text-amber-800 bg-amber-100"
-                          }`}
-                        >
-                          {typeLabel}
-                        </span>
-                        {msg.receivedAt && (
-                          <span className="text-[10px] text-slate-500">
-                            {new Date(msg.receivedAt).toLocaleString("fr-FR")}
-                          </span>
-                        )}
-                        {!isOut && msg.matchConfidence && msg.matchConfidence !== "high" && (
-                          <span className="text-[10px] text-amber-700 font-semibold">À vérifier</span>
-                        )}
-                      </div>
-                      {msg.summary && <p className="leading-snug whitespace-pre-wrap">{msg.summary}</p>}
-                      {(msg.driverName || msg.driverPhone) && (
-                        <p className="mt-2 text-xs text-slate-700">
-                          {msg.driverName && <span className="font-semibold">Chauffeur : {msg.driverName}</span>}
-                          {msg.driverName && msg.driverPhone ? " · " : null}
-                          {msg.driverPhone && <span className="font-mono">{msg.driverPhone}</span>}
-                        </p>
-                      )}
-                      {msg.details && msg.details !== msg.summary && (
-                        <p className="mt-2 text-xs text-slate-600 whitespace-pre-wrap">{msg.details}</p>
-                      )}
-                      {msg.pdfUrl && (
-                        <TripButton
-                          variant="ghost"
-                          size="sm"
-                          type="button"
-                          className="mt-2"
-                          onClick={() => openSecureFile(msg.pdfUrl!, msg.s3KeyIncoming)}
-                        >
-                          Voir la pièce jointe PDF
-                        </TripButton>
-                      )}
-                      <p className="mt-2 text-[10px] text-slate-500 truncate" title={msg.subject}>
-                        {isOut
-                          ? `À ${msg.toEmail || "—"} — ${msg.subject || ""}`
-                          : `${msg.fromEmail} — ${msg.subject || ""}`}
-                      </p>
-                      {!isOut && msg.fromEmail && (
-                        <TripButton
-                          variant="ghost"
-                          size="sm"
-                          type="button"
-                          className="mt-2"
-                          onClick={() => {
-                            setTransportReplyTo(msg.fromEmail || "");
-                            setTransportReplyBody("");
-                          }}
-                        >
-                          Répondre à {msg.fromEmail}
-                        </TripButton>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-              )}
-              <div className="mt-4 rounded-xl border border-slate-200 bg-white/80 p-4 space-y-3">
-                <p className="text-xs font-bold text-slate-800">Répondre au transporteur</p>
-                <TripInput
-                  type="email"
-                  placeholder="Adresse e-mail du transporteur"
-                  value={transportReplyTo}
-                  onChange={(e) => setTransportReplyTo(e.target.value)}
-                />
-                <TripTextarea
-                  rows={4}
-                  placeholder="Votre message…"
-                  value={transportReplyBody}
-                  onChange={(e) => setTransportReplyBody(e.target.value)}
-                />
-                <TripButton
-                  type="button"
-                  disabled={transportReplyBusy || !transportReplyTo.trim() || transportReplyBody.trim().length < 2}
-                  onClick={async () => {
-                    if (!trip?.id) return;
-                    setTransportReplyBusy(true);
-                    try {
-                      const res = await fetch("/api/travels/reply-transport-email", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          tripId: trip.id,
-                          toEmail: transportReplyTo.trim(),
-                          bodyText: transportReplyBody.trim(),
-                        }),
-                      });
-                      const payload = await res.json().catch(() => ({}));
-                      if (!res.ok) {
-                        alert(payload.error || "Échec de l'envoi");
-                        return;
-                      }
-                      if (payload.trip) setTrip(payload.trip);
-                      setTransportReplyBody("");
-                    } catch {
-                      alert("Erreur réseau");
-                    } finally {
-                      setTransportReplyBusy(false);
-                    }
-                  }}
-                >
-                  {transportReplyBusy ? "Envoi…" : "Envoyer l'e-mail"}
-                </TripButton>
-              </div>
-            </div>
-          )}
-        </TripSection>
+        <TripTransportHubPanel
+          trip={trip}
+          setTrip={setTrip}
+          loadingAction={loadingAction}
+          canRequestAmendedQuote={canRequestAmendedQuote}
+          requestAmendedBusQuote={requestAmendedBusQuote}
+          canSign={canSign}
+          skipTransportToCompta={skipTransportToCompta}
+          openSecureFile={openSecureFile}
+          effectifChanged={effectifChanged}
+          datesChanged={datesChanged}
+          snapshotEffectifTotal={snapshotEffectifTotal}
+          currentEffectifTotal={currentEffectifTotal}
+          isOwner={isOwner}
+          selectBusQuote={selectBusQuote}
+          selectAndSignBusQuote={selectAndSignBusQuote}
+          deleteBusQuote={deleteBusQuote}
+          canAddDocuments={canAddDocuments}
+          addManualBusQuote={addManualBusQuote}
+          manualDevisName={manualDevisName}
+          setManualDevisName={setManualDevisName}
+          manualDevisEmail={manualDevisEmail}
+          setManualDevisEmail={setManualDevisEmail}
+          manualDevisBusy={manualDevisBusy}
+          signBusQuote={signBusQuote}
+          handleAction={handleAction}
+          transportReplyTo={transportReplyTo}
+          setTransportReplyTo={setTransportReplyTo}
+          transportReplyBody={transportReplyBody}
+          setTransportReplyBody={setTransportReplyBody}
+          transportReplyBusy={transportReplyBusy}
+          setTransportReplyBusy={setTransportReplyBusy}
+        />
       )}
       {hubTab === "overview" && (
-      <TripSection title="Détails du dossier" subtitle="Informations logistiques et pédagogiques" icon="📋">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-6">
-          <TripField label="Destination" span={2}>
-            <TripFieldValue value={trip.data.destination} multiline />
-          </TripField>
-          <TripField label="Classes concernées">
-            {isEditing ? (
-              <TripClassesMultiSelect
-                value={String(editedData.classes || "")}
-                options={classOptions}
-                onChange={(classes) => setEditedData({ ...editedData, classes })}
-              />
-            ) : (
-              <TripFieldValue value={trip.data.classes} />
-            )}
-          </TripField>
-          <TripField label="Accompagnateurs">
-            {isEditing ? (
-              <TripInput value={editedData.nomsAccompagnateurs} onChange={(e) => setEditedData({ ...editedData, nomsAccompagnateurs: e.target.value })} />
-            ) : (
-              <>
-                <TripFieldValue value={trip.data.nomsAccompagnateurs || "—"} />
-                {canEditEffectif && (
-                  <TripFieldActions>
-                    <button
-                      type="button"
-                      onClick={openEffectifModal}
-                      className="text-xs font-bold text-indigo-600 hover:underline"
-                    >
-                      Modifier effectifs &amp; accompagnateurs
-                    </button>
-                  </TripFieldActions>
-                )}
-              </>
-            )}
-          </TripField>
-          <TripField label="Effectifs">
-            {isEditing ? (
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <span className="text-[9px] text-slate-400">Élèves</span>
-                  <TripInput type="number" value={editedData.nbEleves} onChange={(e) => setEditedData({ ...editedData, nbEleves: e.target.value })} />
-                </div>
-                <div className="flex-1">
-                  <span className="text-[9px] text-slate-400">Accomp.</span>
-                  <TripInput type="number" value={editedData.nbAccompagnateurs} onChange={(e) => setEditedData({ ...editedData, nbAccompagnateurs: Number(e.target.value) })} />
-                </div>
-              </div>
-            ) : (
-              <>
-                <TripFieldValue value={`${trip.data.nbEleves} élèves · ${trip.data.nbAccompagnateurs || "0"} accompagnateurs`} />
-                {(canEditEffectif ||
-                  (withBusLogistics && effectifChanged) ||
-                  (cuisineOrderSent && trip.data?.piqueNiqueDetails?.active && cuisineChanged)) && (
-                  <TripFieldActions>
-                    {canEditEffectif && (
-                      <button
-                        type="button"
-                        onClick={openEffectifModal}
-                        className="text-xs font-bold text-indigo-600 hover:underline"
-                      >
-                        Modifier l&apos;effectif
-                      </button>
-                    )}
-                    {withBusLogistics && effectifChanged && (
-                      <button
-                        type="button"
-                        onClick={() => requestAmendedBusQuote()}
-                        disabled={loadingAction === "amendment-quote"}
-                        className="text-xs font-bold text-amber-700 hover:underline disabled:opacity-50"
-                      >
-                        Demander un devis rectifié (transport)
-                      </button>
-                    )}
-                    {cuisineOrderSent && trip.data?.piqueNiqueDetails?.active && cuisineChanged && (
-                      <button
-                        type="button"
-                        onClick={() => sendCuisineAmendment()}
-                        disabled={loadingAction === "cuisine-amendment"}
-                        className="text-xs font-bold text-emerald-700 hover:underline disabled:opacity-50"
-                      >
-                        Renvoyer commande cuisine (annule et remplace)
-                      </button>
-                    )}
-                  </TripFieldActions>
-                )}
-              </>
-            )}
-          </TripField>
-          <TripField label="Dates">
-            {isEditing ? (
-              <div className="flex gap-2 flex-wrap">
-                <TripInput type="date" value={editedData.startDate || editedData.date || ""} onChange={(e) => setEditedData({ ...editedData, startDate: e.target.value, date: e.target.value })} />
-                {trip.type === "COMPLEX" && (
-                  <TripInput type="date" value={editedData.endDate || ""} onChange={(e) => setEditedData({ ...editedData, endDate: e.target.value })} />
-                )}
-              </div>
-            ) : (
-              <>
-                <TripFieldValue value={dateLabel} />
-                {(canEditDates || datesChanged) && (
-                  <TripFieldActions>
-                    {canEditDates && (
-                      <button type="button" onClick={openDateModal} className="text-xs font-bold text-indigo-600 hover:underline">
-                        Modifier dates & horaires
-                      </button>
-                    )}
-                    {datesChanged && (
-                      <p className="text-[10px] text-amber-700 font-semibold">Dates modifiées depuis le dernier envoi transport</p>
-                    )}
-                  </TripFieldActions>
-                )}
-              </>
-            )}
-          </TripField>
-          <TripField label="Horaires">
-            {isEditing ? (
-              <div className="flex gap-2">
-                <TripInput placeholder="Départ" value={editedData.startTime} onChange={(e) => setEditedData({ ...editedData, startTime: e.target.value })} />
-                <TripInput placeholder="Retour" value={editedData.endTime} onChange={(e) => setEditedData({ ...editedData, endTime: e.target.value })} />
-              </div>
-            ) : (
-              <TripFieldValue value={`Départ ${trip.data.startTime || "—"} · Retour ${trip.data.endTime || "—"}`} />
-            )}
-          </TripField>
-          <TripField label="Budget">
-            {isEditing ? (
-              <div className="flex items-center gap-2">
-                <TripInput type="number" className="max-w-[8rem]" value={editedData.coutTotal} onChange={(e) => setEditedData({ ...editedData, coutTotal: Number(e.target.value) })} />
-                <span className="text-xs font-bold text-slate-500">€ total</span>
-              </div>
-            ) : (
-              <div>
-                <TripFieldValue value={`${Math.round(Number(trip.data.coutTotal))} € prévisionnel`} />
-                {trip.data.finalTotalCost && (
-                  <p className="text-emerald-700 font-bold text-sm mt-1">
-                    Validé compta : {trip.data.finalTotalCost} € ({trip.data.costPerStudent} €/élève)
-                  </p>
-                )}
-                {canAccessComptaTab && (
-                  <button
-                    type="button"
-                    onClick={() => setHubTab("compta")}
-                    className="text-xs font-bold text-indigo-600 hover:underline mt-1 block"
-                  >
-                    Ouvrir l&apos;onglet Compta
-                  </button>
-                )}
-                {canEditEffectif && (
-                  <TripFieldActions>
-                    <button
-                      type="button"
-                      onClick={openBudgetModal}
-                      className="text-xs font-bold text-indigo-600 hover:underline"
-                    >
-                      Modifier le budget prévisionnel
-                    </button>
-                  </TripFieldActions>
-                )}
-              </div>
-            )}
-          </TripField>
-          <TripField label="Restauration">
-            {isEditing ? (
-              <button
-                type="button"
-                onClick={openCuisineModalFromEdit}
-                className={`w-full p-4 rounded-xl border-2 flex items-center justify-between transition-all text-left ${
-                  editedData?.piqueNiqueDetails?.active ? "border-emerald-400 bg-emerald-50" : "border-slate-200 bg-slate-50"
-                }`}
-              >
-                <div>
-                  <p className="font-bold text-slate-900 text-sm">Commande restauration</p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {editedData?.piqueNiqueDetails?.active
-                      ? `${getTotalMeals(editedData.piqueNiqueDetails)} repas configurés`
-                      : "Configurer"}
-                  </p>
-                </div>
-                <span className="text-xl">🥪</span>
-              </button>
-            ) : (
-              <div>
-                <TripFieldValue value={trip.data.piqueNiqueDetails?.active ? "Commande cuisine configurée" : "Pas de commande cuisine"} />
-                {trip.data.piqueNiqueDetails?.active && (
-                  <>
-                    <span className="inline-block mt-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">
-                      {getTotalMeals(trip.data.piqueNiqueDetails)} repas ·{" "}
-                      {Object.values(trip.data.piqueNiqueDetails.daysSelection || {}).filter(Boolean).length} jour(s)
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setHubTab("cuisine")}
-                      className="mt-2 block text-xs font-bold text-emerald-700 hover:underline"
-                    >
-                      Voir le détail restauration →
-                    </button>
-                  </>
-                )}
-                {canEditEffectif && (
-                  <TripFieldActions>
-                    <button
-                      type="button"
-                      onClick={openCuisineModalForOwner}
-                      className="text-xs font-bold text-indigo-600 hover:underline"
-                    >
-                      {trip.data.piqueNiqueDetails?.active
-                        ? "Modifier la commande cuisine"
-                        : "Configurer une commande cuisine"}
-                    </button>
-                  </TripFieldActions>
-                )}
-              </div>
-            )}
-          </TripField>
-          <TripField label="Objectifs pédagogiques" span={2}>
-            {isEditing ? (
-              <TripTextarea value={editedData.objectifs} onChange={(e) => setEditedData({ ...editedData, objectifs: e.target.value })} />
-            ) : (
-              <TripFieldValue value={trip.data.objectifs || "Aucun objectif renseigné."} multiline />
-            )}
-          </TripField>
-        </div>
-        {documentCount > 0 && (
-          <p className="mt-6 text-xs text-slate-500">
-            {documentCount} document{documentCount > 1 ? "s" : ""} dans le dossier —{" "}
-            <button type="button" onClick={() => setHubTab("documents")} className="font-bold text-indigo-600 hover:underline">
-              voir l&apos;onglet Documents
-            </button>
-          </p>
-        )}
-      </TripSection>
+        <TripOverviewFieldsPanel
+          trip={trip}
+          isEditing={isEditing}
+          editedData={editedData}
+          setEditedData={setEditedData}
+          classOptions={classOptions}
+          canEditEffectif={canEditEffectif}
+          openEffectifModal={openEffectifModal}
+          withBusLogistics={withBusLogistics}
+          effectifChanged={effectifChanged}
+          cuisineOrderSent={Boolean(cuisineOrderSent)}
+          cuisineChanged={cuisineChanged}
+          loadingAction={loadingAction}
+          requestAmendedBusQuote={requestAmendedBusQuote}
+          sendCuisineAmendment={sendCuisineAmendment}
+          dateLabel={dateLabel}
+          canEditDates={canEditDates}
+          datesChanged={datesChanged}
+          openDateModal={openDateModal}
+          canAccessComptaTab={canAccessComptaTab}
+          setHubTab={setHubTab}
+          openBudgetModal={openBudgetModal}
+          openCuisineModalFromEdit={openCuisineModalFromEdit}
+          openCuisineModalForOwner={openCuisineModalForOwner}
+          documentCount={documentCount}
+        />
       )}
 
       {hubTab === "cuisine" && hasCuisineOrder && (
-        <TripSection
-          title="Commande restauration"
-          subtitle="Bon de commande envoyé au chef ou en préparation"
-          icon="🍽️"
-          accent="emerald"
-          action={
-            cuisineOrderSent && (isOwner || canSign) ? (
-              <TripButton
-                variant="warning"
-                size="sm"
-                onClick={() => sendCuisineAmendment()}
-                disabled={loadingAction === "cuisine-amendment"}
-              >
-                {loadingAction === "cuisine-amendment" ? "Envoi…" : "Annule et remplace"}
-              </TripButton>
-            ) : undefined
-          }
-        >
-          {(() => {
-            const details = trip.data.piqueNiqueDetails as {
-              deliveryTime?: string;
-              deliveryPlace?: string;
-              daysSelection?: Record<string, boolean>;
-              orders?: Record<string, Record<string, string>>;
-            };
-            const selectedDayKeys = CUISINE_DAYS.filter((d) => details?.daysSelection?.[d.key]);
-            return (
-              <div className="space-y-5">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                  <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-4">
-                    <p className="text-[10px] font-bold uppercase text-emerald-700">Livraison</p>
-                    <p className="font-bold text-slate-900 mt-1">
-                      {details?.deliveryPlace || "—"} à {details?.deliveryTime || "—"}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
-                    <p className="text-[10px] font-bold uppercase text-slate-500">Repas commandés</p>
-                    <p className="font-bold text-slate-900 mt-1">{getTotalMeals(trip.data.piqueNiqueDetails)} au total</p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
-                    <p className="text-[10px] font-bold uppercase text-slate-500">Envoi au chef</p>
-                    <p className="font-bold text-slate-900 mt-1">
-                      {cuisineOrderSent
-                        ? `Envoyé le ${new Date(cuisineOrderSentAt!).toLocaleDateString("fr-FR")}`
-                        : trip.status === "VALIDE"
-                          ? "Statut validé — envoi cuisine non tracé dans le dossier"
-                          : "Pas encore envoyé (validation finale)"}
-                    </p>
-                    {(trip.data.cuisineAmendments?.length || 0) > 0 && (
-                      <p className="text-[10px] text-amber-700 mt-1">{trip.data.cuisineAmendments!.length} rectification(s)</p>
-                    )}
-                  </div>
-                </div>
-                {cuisineChanged && (
-                  <TripAlert tone="warning" title="Effectif modifié depuis la dernière commande">
-                    <button
-                      type="button"
-                      onClick={() => sendCuisineAmendment()}
-                      className="text-xs font-bold text-emerald-800 underline mt-1"
-                    >
-                      Renvoyer la commande au chef
-                    </button>
-                  </TripAlert>
-                )}
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-xs border-collapse min-w-[520px]">
-                    <thead>
-                      <tr className="bg-emerald-600 text-white">
-                        <th className="text-left p-2.5 font-semibold">Désignation</th>
-                        {selectedDayKeys.map((d) => (
-                          <th key={d.key} className="p-2.5 text-center font-semibold">{d.label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {CUISINE_ROWS.map((row, rowIdx) => (
-                        <tr key={row.key} className={rowIdx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                          <td className="p-2 font-medium text-slate-700">{row.label}</td>
-                          {selectedDayKeys.map((d) => (
-                            <td key={d.key} className="p-2 text-center text-slate-600">
-                              {details?.orders?.[d.key]?.[row.key] || "—"}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <p className="text-[10px] text-slate-500 italic">
-                  Effectif dossier : {trip.data.nbEleves} élèves, {trip.data.nbAccompagnateurs || 0} accompagnateurs — {dateLabel}
-                </p>
-              </div>
-            );
-          })()}
-        </TripSection>
+        <TripCuisineHubPanel
+          trip={trip}
+          cuisineOrderSent={Boolean(cuisineOrderSent)}
+          cuisineOrderSentAt={cuisineOrderSentAt}
+          isOwner={isOwner}
+          canSign={canSign}
+          loadingAction={loadingAction}
+          sendCuisineAmendment={sendCuisineAmendment}
+          cuisineChanged={cuisineChanged}
+          dateLabel={dateLabel}
+        />
       )}
 
       {hubTab === "documents" && (
-        <TripSection title="Documents du dossier" subtitle="Pièces jointes, devis transport et circulaire" icon="📁">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-            <p className="text-sm text-slate-600">{documentCount} document{documentCount > 1 ? "s" : ""} au total</p>
-            <div className="flex flex-wrap gap-2">
-              {trip.status === "VALIDE" && (canSign || isOwner) && (
-                <TripButton variant="secondary" size="sm" onClick={handleRegenerateCircular} disabled={!!loadingAction}>
-                  {loadingAction === "regenerate-circular" ? "Génération…" : "Régénérer circulaire"}
-                </TripButton>
-              )}
-              {canAddDocuments && (
-                <>
-                  <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
-                  <TripButton variant="primary" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                    {uploading ? "Upload…" : "+ Document"}
-                  </TripButton>
-                </>
-              )}
-            </div>
-          </div>
-
-          {documentCount === 0 ? (
-            <p className="text-sm text-slate-400 italic py-8 text-center">Aucun document dans ce dossier.</p>
-          ) : (
-            <div className="space-y-8">
-              {((isEditing ? editedData.attachments : trip.data.attachments) || []).length > 0 && (
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-3">Pièces jointes</p>
-                  <div className="flex flex-wrap gap-2">
-                    {((isEditing ? editedData.attachments : trip.data.attachments) || []).map((file: {
-                      name: string;
-                      url: string;
-                      s3Key?: string;
-                    }, idx: number) => (
-                      <TripDocumentChip
-                        key={`att_${idx}`}
-                        name={file.name}
-                        onOpen={() => openSecureFile(file.url, file.s3Key)}
-                        onZeendoc={canSeeTravelDocHoverActions ? () => prepareSendToZeendoc(file) : undefined}
-                        zeendocBusy={zeendocSendingUrl === file.url}
-                        showZeendoc={canSeeTravelDocHoverActions}
-                        onRemove={canManageFiles ? () => removeFile(idx) : undefined}
-                        canRemove={canManageFiles}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {withBusLogistics && ((trip.receivedDevis?.length || 0) > 0 || trip.data.signedQuoteUrl) && (
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-3">Devis transport bus</p>
-                  <div className="flex flex-wrap gap-2">
-                    {(trip.receivedDevis || []).map((quote: {
-                      id?: string;
-                      providerName?: string;
-                      fileUrl?: string;
-                      s3KeyIncoming?: string;
-                    }, idx: number) => {
-                      const selected = trip.data.selectedBusQuote?.fileUrl === quote.fileUrl;
-                      const label = `🚌 ${quote.providerName || "Transporteur"}${selected ? " (retenu)" : ""}`;
-                      return (
-                        <TripDocumentChip
-                          key={quote.id || `devis_${idx}`}
-                          name={label}
-                          onOpen={() => quote.fileUrl && openSecureFile(quote.fileUrl, quote.s3KeyIncoming)}
-                          onZeendoc={
-                            quote.fileUrl && canSeeTravelDocHoverActions
-                              ? () => prepareSendToZeendoc({ name: label, url: quote.fileUrl! })
-                              : undefined
-                          }
-                          zeendocBusy={zeendocSendingUrl === quote.fileUrl}
-                          showZeendoc={canSeeTravelDocHoverActions}
-                          onRemove={canSign && quote.id ? () => deleteBusQuote(quote) : undefined}
-                          canRemove={canSign}
-                        />
-                      );
-                    })}
-                    {trip.data.signedQuoteUrl && (
-                      <TripDocumentChip
-                        key="signed_bus"
-                        name="🚌 Devis bus signé"
-                        onOpen={() => openSecureFile(trip.data.signedQuoteUrl!)}
-                        onZeendoc={
-                          canSeeTravelDocHoverActions
-                            ? () =>
-                                prepareSendToZeendoc({
-                                  name: "Devis bus signé",
-                                  url: trip.data.signedQuoteUrl!,
-                                })
-                            : undefined
-                        }
-                        zeendocBusy={zeendocSendingUrl === trip.data.signedQuoteUrl}
-                        showZeendoc={canSeeTravelDocHoverActions}
-                      />
-                    )}
-                  </div>
-                  {(trip.receivedDevis?.length || 0) > 0 && (
-                    <p className="text-[10px] text-slate-500 mt-2">
-                      Choix et validation des devis : onglet Transport.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </TripSection>
+        <TripDocumentsHubPanel
+          trip={trip}
+          isEditing={isEditing}
+          editedData={editedData}
+          documentCount={documentCount}
+          canSign={canSign}
+          isOwner={isOwner}
+          loadingAction={loadingAction}
+          handleRegenerateCircular={handleRegenerateCircular}
+          canAddDocuments={canAddDocuments}
+          fileInputRef={fileInputRef}
+          handleFileUpload={handleFileUpload}
+          uploading={uploading}
+          openSecureFile={openSecureFile}
+          canSeeTravelDocHoverActions={canSeeTravelDocHoverActions}
+          prepareSendToZeendoc={prepareSendToZeendoc}
+          zeendocSendingUrl={zeendocSendingUrl}
+          canManageFiles={canManageFiles}
+          removeFile={removeFile}
+          withBusLogistics={withBusLogistics}
+          deleteBusQuote={deleteBusQuote}
+        />
       )}
 
       {hubTab === "journal" && <TripAmendmentJournal trip={trip} />}
@@ -2417,47 +1613,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       )}
 
       {(hubTab === "overview" || hubTab === "messages") && canUseInternalThread && (
-        <TripSection
-          title="Fil interne"
-          subtitle="Échanges entre créateur, direction et comptabilité"
-          icon="💬"
-          action={
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              {(trip.messages || []).length} message{(trip.messages || []).length > 1 ? "s" : ""}
-            </span>
-          }
-        >
-          <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/80 p-4 space-y-3 mb-4">
-            {(trip.messages || []).length === 0 ? (
-              <p className="text-sm text-slate-400 italic text-center py-6">Aucun message pour le moment.</p>
-            ) : (
-              [...(trip.messages || [])]
-                .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
-                .map((msg: any) => (
-                  <div key={msg.id || `${msg.user}_${msg.date}`} className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs font-bold text-slate-800">
-                        {msg.user}{" "}
-                        <span className="text-slate-400 font-medium">· {msg.role || "—"}</span>
-                      </p>
-                      <p className="text-[10px] text-slate-400">{new Date(msg.date).toLocaleString("fr-FR")}</p>
-                    </div>
-                    <p className="text-sm text-slate-700 mt-2 whitespace-pre-wrap leading-relaxed">{msg.text}</p>
-                  </div>
-                ))
-            )}
-          </div>
-          <TripTextarea
-            value={draftMessage}
-            onChange={(e) => setDraftMessage(e.target.value)}
-            placeholder="Message interne… (ex. : proposer une alternative d'hébergement)"
-          />
-          <div className="flex justify-end mt-3">
-            <TripButton onClick={postInternalMessage} disabled={!draftMessage.trim()}>
-              Envoyer
-            </TripButton>
-          </div>
-        </TripSection>
+        <TripInternalThreadPanel
+          trip={trip}
+          draftMessage={draftMessage}
+          setDraftMessage={setDraftMessage}
+          postInternalMessage={postInternalMessage}
+        />
       )}
 
       {hubTab === "compta" && canAccessComptaTab && !isEditing && (
@@ -2473,120 +1634,28 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       )}
 
       {hubTab === "overview" && (isDirection || isCompta) && !isEditing && trip.status !== "BESOIN_MODIFICATION" && trip.status !== "SEANCE_ANNULEE" && trip.status !== "ANNULE" && (
-        <TripDecisionPanel title="Espace décisionnaire">
-          <div className="flex flex-wrap gap-2 items-center lg:flex-1">
-            {isDirection && !canSign && (
-              <div className="w-full sm:max-w-md rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-sm text-slate-300">
-                <p className="font-bold text-white text-xs uppercase tracking-wide mb-1">Lecture seule</p>
-                Dossier <span className="text-amber-300 font-semibold">{etabForSign || "groupe scolaire"}</span> — validation réservée à la direction concernée.
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2 justify-end">
-            {((canSign && (trip.status === "EN_ATTENTE_DIR_INITIAL" || trip.status === "EN_ATTENTE_BUS_SIGNATURE" || trip.status === "EN_ATTENTE_DIR_FINAL")) || (isCompta && trip.status === "EN_ATTENTE_COMPTA")) && (
-              <>
-                {canSign && (
-                  <TripButton variant="danger" size="sm" onClick={() => { const n = prompt("Motif du refus définitif :"); if (n) handleAction("REJETE", n); }}>
-                    Refus définitif
-                  </TripButton>
-                )}
-                <TripButton
-                  variant="warning"
-                  size="sm"
-                  onClick={() => {
-                    const n = prompt("Précisez les changements attendus :");
-                    if (n) {
-                      const returnTo = trip.status === "EN_ATTENTE_DIR_FINAL" ? "EN_ATTENTE_COMPTA" : trip.status;
-                      handleAction("BESOIN_MODIFICATION", n, { previousStatus: returnTo });
-                    }
-                  }}
-                >
-                  Demander des modifs
-                </TripButton>
-              </>
-            )}
-            {canSign && trip.status === "EN_ATTENTE_DIR_INITIAL" && trip.type === "COMPLEX" && (
-              <TripButton
-                variant="primary"
-                size="sm"
-                onClick={() =>
-                  handleAction(
-                    withBusLogistics ? "PROF_LOGISTICS" : "EN_ATTENTE_COMPTA",
-                    withBusLogistics ? "Pédagogie validée" : "Pédagogie validée (sans transport bus)",
-                  )
-                }
-              >
-                Valider pédagogie
-              </TripButton>
-            )}
-            {(isOwner || canSign) && trip.type === "COMPLEX" && !withBusLogistics && trip.status === "PROF_LOGISTICS" && (
-              <TripButton variant="primary" size="sm" onClick={() => handleAction("EN_ATTENTE_COMPTA", "Sans bus — étape logistique non requise")}>
-                Passer aux finances
-              </TripButton>
-            )}
-            {canSign &&
-              withBusLogistics &&
-              (trip.status === "PROF_LOGISTICS" || trip.status === "EN_ATTENTE_BUS_SIGNATURE") && (
-                <TripButton variant="warning" size="sm" onClick={() => void skipTransportToCompta()} disabled={!!loadingAction}>
-                  Passer aux finances sans devis signé
-                </TripButton>
-              )}
-            {canSign && trip.status === "EN_ATTENTE_DIR_INITIAL" && trip.type !== "COMPLEX" && !seriesId && (
-              <TripButton variant="primary" size="sm" onClick={() => handleAction("EN_ATTENTE_COMPTA", "Pédagogie validée")}>
-                Valider pédagogie
-              </TripButton>
-            )}
-            {canSign && trip.status === "EN_ATTENTE_DIR_INITIAL" && trip.type !== "COMPLEX" && seriesId && (
-              <TripButton variant="primary" size="sm" onClick={validateSeriesPedagogy}>
-                {loadingAction ? "Validation série…" : "Valider toute la série"}
-              </TripButton>
-            )}
-            {canSign && trip.status === "EN_ATTENTE_DIR_FINAL" && (
-              <TripButton variant="success" size="sm" onClick={handleFinalValidation}>
-                {loadingAction ? "Finalisation…" : "Validation finale"}
-              </TripButton>
-            )}
-            {trip.status === "VALIDE" && (canSign || isOwner) && (
-              <TripButton variant="success" size="sm" onClick={handleRegenerateCircular} disabled={!!loadingAction}>
-                {loadingAction === "regenerate-circular" ? "Génération…" : "Régénérer circulaire"}
-              </TripButton>
-            )}
-            {canSign && trip.status === "VALIDE" && reopenStepOptions.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white/5 border border-white/10 px-3 py-2">
-                <label htmlFor="reopen-step-select" className="text-xs text-slate-300 shrink-0">
-                  Réouvrir :
-                </label>
-                <select
-                  id="reopen-step-select"
-                  value={selectedReopenStep}
-                  onChange={(e) => setReopenStep(e.target.value)}
-                  className="bg-slate-800 text-white text-sm font-medium rounded-lg px-2 py-1.5 border border-slate-600 outline-none focus:ring-2 focus:ring-indigo-400 min-w-[8rem]"
-                >
-                  {reopenStepOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <TripButton
-                  variant="dark"
-                  size="sm"
-                  onClick={() => {
-                    const opt = reopenStepOptions.find((o) => o.value === selectedReopenStep);
-                    if (opt) handleReopenDossier(opt.value, opt.label);
-                  }}
-                >
-                  {loadingAction ? "…" : "Réouvrir"}
-                </TripButton>
-              </div>
-            )}
-            {canCancelRecurrenceSession && canSign && (
-              <TripButton variant="secondary" size="sm" onClick={cancelRecurrenceSession}>
-                Annuler cette séance
-              </TripButton>
-            )}
-          </div>
-        </TripDecisionPanel>
+        <TripDecisionHubPanel
+          trip={trip}
+          isDirection={isDirection}
+          canSign={canSign}
+          etabForSign={etabForSign || ""}
+          isCompta={isCompta}
+          handleAction={handleAction}
+          withBusLogistics={withBusLogistics}
+          isOwner={isOwner}
+          skipTransportToCompta={skipTransportToCompta}
+          loadingAction={loadingAction}
+          seriesId={seriesId}
+          validateSeriesPedagogy={validateSeriesPedagogy}
+          handleFinalValidation={handleFinalValidation}
+          handleRegenerateCircular={handleRegenerateCircular}
+          reopenStepOptions={reopenStepOptions}
+          selectedReopenStep={selectedReopenStep}
+          setReopenStep={setReopenStep}
+          handleReopenDossier={handleReopenDossier}
+          canCancelRecurrenceSession={canCancelRecurrenceSession}
+          cancelRecurrenceSession={cancelRecurrenceSession}
+        />
       )}
 
       {canCancelRecurrenceSession && !isEditing && !canSign && isOwner && trip.status !== "SEANCE_ANNULEE" && (
@@ -2602,432 +1671,52 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           Retirer uniquement ce créneau sans modifier les autres dossiers de la série.
         </TripAlert>
       )}
-      {showEffectifModal && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[75] p-4">
-          <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl">
-            <h2 className="text-xl font-bold text-slate-900 mb-1">Modifier effectifs &amp; accompagnateurs</h2>
-            <p className="text-sm text-slate-500 mb-6">
-              Créateur ou direction — mise à jour sans rouvrir tout le dossier.
-            </p>
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Élèves</label>
-                <TripInput
-                  type="number"
-                  min={0}
-                  value={draftNbEleves}
-                  onChange={(e) => setDraftNbEleves(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Nb accompagnateurs</label>
-                <TripInput
-                  type="number"
-                  min={0}
-                  value={draftNbAccompagnateurs}
-                  onChange={(e) => setDraftNbAccompagnateurs(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="mb-6">
-              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Noms des accompagnateurs</label>
-              <TripTextarea
-                value={draftNomsAccompagnateurs}
-                onChange={(e) => setDraftNomsAccompagnateurs(e.target.value)}
-                placeholder="Ex. Mme Dupont, M. Martin…"
-              />
-            </div>
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg p-3 mb-6">
-              Si un devis transport ou une commande cuisine a déjà été envoyé(e), vous pourrez déclencher les relances juste après l&apos;enregistrement.
-            </p>
-            <div className="flex gap-3">
-              <TripButton variant="secondary" className="flex-1" onClick={() => setShowEffectifModal(false)}>
-                Annuler
-              </TripButton>
-              <TripButton variant="primary" className="flex-1" onClick={saveEffectifChange}>
-                Enregistrer
-              </TripButton>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {effectifFollowUp && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[80] p-4">
-          <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-lg w-full shadow-2xl">
-            <h2 className="text-xl font-bold text-slate-900 mb-1">Effectif enregistré</h2>
-            <p className="text-sm text-slate-500 mb-5">Souhaitez-vous notifier les prestataires du changement ?</p>
-            <div className="space-y-3 mb-6">
-              {effectifFollowUp.sendTransport && (
-                <label className="flex items-start gap-3 p-3 rounded-xl border border-amber-100 bg-amber-50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={effectifFollowUp.sendTransport}
-                    onChange={(e) =>
-                      setEffectifFollowUp({ ...effectifFollowUp, sendTransport: e.target.checked })
-                    }
-                  />
-                  <span className="text-sm text-slate-700">
-                    <strong>Demander un nouveau devis transport</strong>
-                    <br />
-                    <span className="text-xs text-slate-500">
-                      {effectifFollowUp.savedTrip.data?.selectedBusQuote
-                        ? `Uniquement ${effectifFollowUp.savedTrip.data.selectedBusQuote.providerName}.`
-                        : "À tous les transporteurs référencés."}
-                    </span>
-                  </span>
-                </label>
-              )}
-              {effectifFollowUp.sendCuisine && (
-                <label className="flex items-start gap-3 p-3 rounded-xl border border-emerald-100 bg-emerald-50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={effectifFollowUp.sendCuisine}
-                    onChange={(e) =>
-                      setEffectifFollowUp({ ...effectifFollowUp, sendCuisine: e.target.checked })
-                    }
-                  />
-                  <span className="text-sm text-slate-700">
-                    <strong>Renvoyer la commande cuisine (annule et remplace)</strong>
-                    <br />
-                    <span className="text-xs text-slate-500">
-                      Mail au chef avec formules de politesse et nouvelle commande en pièce jointe.
-                    </span>
-                  </span>
-                </label>
-              )}
-            </div>
-            <div className="flex gap-3">
-              <TripButton variant="secondary" className="flex-1" onClick={() => setEffectifFollowUp(null)}>
-                Plus tard
-              </TripButton>
-              <TripButton
-                variant="primary"
-                className="flex-1"
-                onClick={runEffectifFollowUp}
-                disabled={
-                  !effectifFollowUp.sendTransport && !effectifFollowUp.sendCuisine
-                }
-              >
-                Envoyer les relances
-              </TripButton>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showBudgetModal && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[75] p-4">
-          <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl">
-            <h2 className="text-xl font-bold text-slate-900 mb-1">Modifier le budget prévisionnel</h2>
-            <p className="text-sm text-slate-500 mb-6">
-              Montant total estimé au départ du projet (hors validation compta).
-            </p>
-            <div className="flex items-center gap-2 mb-6">
-              <TripInput
-                type="number"
-                min={0}
-                className="flex-1"
-                value={draftCoutTotal}
-                onChange={(e) => setDraftCoutTotal(e.target.value)}
-              />
-              <span className="text-sm font-bold text-slate-500">€</span>
-            </div>
-            <div className="flex gap-3">
-              <TripButton variant="secondary" className="flex-1" onClick={() => setShowBudgetModal(false)}>
-                Annuler
-              </TripButton>
-              <TripButton variant="primary" className="flex-1" onClick={saveBudgetChange}>
-                Enregistrer
-              </TripButton>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {cuisineFollowUp && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[80] p-4">
-          <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-lg w-full shadow-2xl">
-            <h2 className="text-xl font-bold text-slate-900 mb-1">Commande cuisine enregistrée</h2>
-            <p className="text-sm text-slate-500 mb-5">
-              {cuisineFollowUp.mode === "initial"
-                ? "Souhaitez-vous envoyer la commande au chef maintenant ?"
-                : "Une commande avait déjà été envoyée — renvoyer au chef (annule et remplace) ?"}
-            </p>
-            <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg p-3 mb-6">
-              {cuisineFollowUp.mode === "initial"
-                ? "Un PDF sera joint au mail (chef + copies direction et organisateur)."
-                : "Le mail précisera qu'il s'agit de la dernière commande en date."}
-            </p>
-            <div className="flex gap-3">
-              <TripButton variant="secondary" className="flex-1" onClick={() => setCuisineFollowUp(null)}>
-                Plus tard
-              </TripButton>
-              <TripButton variant="primary" className="flex-1" onClick={runCuisineFollowUp}>
-                {cuisineFollowUp.mode === "initial" ? "Envoyer au chef" : "Renvoyer (avenant)"}
-              </TripButton>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDateModal && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[75] p-4">
-          <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl">
-            <h2 className="text-xl font-bold text-slate-900 mb-1">Modifier dates & horaires</h2>
-            <p className="text-sm text-slate-500 mb-6">Créateur ou direction — relances transport/cuisine proposées après enregistrement.</p>
-            <div className="space-y-4 mb-6">
-              <div className="flex gap-2 flex-wrap">
-                <div className="flex-1 min-w-[8rem]">
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Date début</label>
-                  <TripInput type="date" value={draftStartDate} onChange={(e) => setDraftStartDate(e.target.value)} />
-                </div>
-                {trip.type === "COMPLEX" && (
-                  <div className="flex-1 min-w-[8rem]">
-                    <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Date fin</label>
-                    <TripInput type="date" value={draftEndDate} onChange={(e) => setDraftEndDate(e.target.value)} />
-                  </div>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Départ</label>
-                  <TripInput type="time" value={draftStartTime} onChange={(e) => setDraftStartTime(e.target.value)} />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Retour</label>
-                  <TripInput type="time" value={draftEndTime} onChange={(e) => setDraftEndTime(e.target.value)} />
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <TripButton variant="secondary" className="flex-1" onClick={() => setShowDateModal(false)}>Annuler</TripButton>
-              <TripButton variant="primary" className="flex-1" onClick={saveDateChange}>Enregistrer</TripButton>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {dateFollowUp && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[80] p-4">
-          <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-lg w-full shadow-2xl">
-            <h2 className="text-xl font-bold text-slate-900 mb-1">Dates enregistrées</h2>
-            <p className="text-sm text-slate-500 mb-5">Notifier les prestataires du changement de planning ?</p>
-            <div className="space-y-3 mb-6">
-              {dateFollowUp.sendTransport && (
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-amber-100 bg-amber-50">
-                  <input type="checkbox" checked={dateFollowUp.sendTransport} onChange={(e) => setDateFollowUp({ ...dateFollowUp, sendTransport: e.target.checked })} />
-                  <span className="text-sm"><strong>Relancer le transporteur</strong> (avenant dates)</span>
-                </label>
-              )}
-              {dateFollowUp.sendCuisine && (
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-emerald-100 bg-emerald-50">
-                  <input type="checkbox" checked={dateFollowUp.sendCuisine} onChange={(e) => setDateFollowUp({ ...dateFollowUp, sendCuisine: e.target.checked })} />
-                  <span className="text-sm"><strong>Renvoyer commande cuisine</strong></span>
-                </label>
-              )}
-            </div>
-            <div className="flex gap-3">
-              <TripButton variant="secondary" className="flex-1" onClick={() => setDateFollowUp(null)}>Plus tard</TripButton>
-              <TripButton variant="primary" className="flex-1" onClick={runDateFollowUp} disabled={!dateFollowUp.sendTransport && !dateFollowUp.sendCuisine}>Envoyer</TripButton>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showCuisineModal && (isEditing || cuisineModalStandalone) && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[70] p-4">
-          <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-5xl w-full shadow-2xl overflow-y-auto max-h-[90vh]">
-            <div className="flex justify-between items-start mb-6 border-b border-slate-100 pb-4">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900">Bon de commande cuisine</h2>
-                <p className="text-slate-500 text-sm mt-0.5">
-                  {cuisineModalStandalone
-                    ? "Ajouter ou modifier la commande — envoi au chef proposé après enregistrement."
-                    : "Configuration de la commande restauration"}
-                </p>
-              </div>
-              <TripButton
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setShowCuisineModal(false);
-                  setCuisineModalStandalone(false);
-                }}
-              >
-                ✕
-              </TripButton>
-            </div>
-            <div className="space-y-5">
-              {cuisineModalStandalone && (
-                <label className="flex items-center gap-3 p-4 rounded-xl border-2 border-slate-200 bg-slate-50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!!activeCuisineDetails?.active}
-                    onChange={(e) =>
-                      patchCuisineDetails((prev) => ({
-                        ...prev,
-                        active: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span className="text-sm font-bold text-slate-800">Commander une restauration (pique-nique / self)</span>
-                </label>
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-2xl">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Heure récupération / livraison</label>
-                  <input
-                    type="time"
-                    className="w-full p-2 border rounded-lg"
-                    value={activeCuisineDetails?.deliveryTime || ""}
-                    disabled={cuisineModalStandalone && !activeCuisineDetails?.active}
-                    onChange={(e) =>
-                      patchCuisineDetails((prev) => ({
-                        ...prev,
-                        active: true,
-                        deliveryTime: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Lieu de récupération</label>
-                  <select
-                    className="w-full p-2 border rounded-lg"
-                    value={activeCuisineDetails?.deliveryPlace || "Self"}
-                    disabled={cuisineModalStandalone && !activeCuisineDetails?.active}
-                    onChange={(e) =>
-                      patchCuisineDetails((prev) => ({
-                        ...prev,
-                        active: true,
-                        deliveryPlace: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="Self">Au self</option>
-                    <option value="Bosco">Église Bosco</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-slate-500 mb-2 text-center">Jours concernés</label>
-                  <div className="flex gap-1.5 justify-center">
-                    {CUISINE_DAYS.map(({ key: dayKey, label }) => {
-                      const isSelected = !!activeCuisineDetails?.daysSelection?.[dayKey];
-                      return (
-                        <button
-                          key={dayKey}
-                          type="button"
-                          disabled={cuisineModalStandalone && !activeCuisineDetails?.active}
-                          onClick={() =>
-                            patchCuisineDetails((prev) => ({
-                              ...prev,
-                              active: true,
-                              daysSelection: {
-                                ...(prev.daysSelection || emptyCuisineDetails().daysSelection),
-                                [dayKey]: !isSelected,
-                              },
-                            }))
-                          }
-                          className={`w-9 h-9 rounded-lg text-[11px] font-black transition-all ${isSelected ? 'bg-indigo-600 text-white shadow-md' : 'bg-white border-2 text-slate-400 hover:border-indigo-300'}`}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-              <div className="overflow-x-auto rounded-xl border border-slate-200">
-                <table className="w-full text-xs border-collapse min-w-[620px]">
-                  <thead>
-                    <tr className="bg-indigo-600 text-white">
-                      <th className="text-left p-2.5 font-semibold w-52">Désignation</th>
-                      {CUISINE_DAYS.map(({ key: dayKey, label }) => (
-                        <th key={dayKey} className={`p-2.5 text-center font-semibold transition-opacity ${activeCuisineDetails?.daysSelection?.[dayKey] ? "opacity-100" : "opacity-30"}`}>{label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {CUISINE_ROWS.map(({ key: rowKey, label, type }, rowIdx) => (
-                      <tr key={rowKey} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                        <td className={`p-2 font-medium text-slate-700 whitespace-nowrap ${rowKey === 'picnicNoPork' || rowKey === 'picnicVeg' ? 'pl-5 text-slate-500 italic' : ''}`}>{label}</td>
-                        {CUISINE_DAYS.map(({ key: dayKey }) => {
-                          const isActive = !!activeCuisineDetails?.daysSelection?.[dayKey];
-                          const val = activeCuisineDetails?.orders?.[dayKey]?.[rowKey] ?? "";
-                          return (
-                            <td key={dayKey} className="p-1">
-                              <input
-                                type={type}
-                                disabled={!isActive || (cuisineModalStandalone && !activeCuisineDetails?.active)}
-                                value={val}
-                                onChange={(e) =>
-                                  patchCuisineDetails((prev) => ({
-                                    ...prev,
-                                    active: true,
-                                    orders: {
-                                      ...(prev.orders || emptyCuisineDetails().orders),
-                                      [dayKey]: {
-                                        ...((prev.orders || emptyCuisineDetails().orders)[dayKey]),
-                                        [rowKey]: e.target.value,
-                                      },
-                                    },
-                                  }))
-                                }
-                                className={`w-full p-1.5 border rounded text-center transition-all ${isActive ? 'bg-white hover:border-indigo-300 focus:border-indigo-500 outline-none' : 'bg-slate-100 text-slate-300 cursor-not-allowed border-transparent'}`}
-                              />
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-[10px] text-slate-500 italic bg-amber-50 border border-amber-100 p-2.5 rounded-lg">⚠️ Rappel : fournir la liste des élèves/adultes 15 jours avant, et l’affiner 24h avant.</p>
-            </div>
-            <div className="flex gap-3 mt-8 pt-4 border-t border-slate-100">
-              {isEditing && !cuisineModalStandalone && (
-                <TripButton
-                  variant="danger"
-                  className="flex-1"
-                  onClick={() => {
-                    patchCuisineDetails((prev) => ({ ...prev, active: false }));
-                    setShowCuisineModal(false);
-                  }}
-                >
-                  Annuler la commande
-                </TripButton>
-              )}
-              <TripButton
-                variant="secondary"
-                className="flex-1"
-                onClick={() => {
-                  setShowCuisineModal(false);
-                  setCuisineModalStandalone(false);
-                }}
-              >
-                Fermer
-              </TripButton>
-              <TripButton
-                variant="primary"
-                className="flex-[2]"
-                onClick={() => {
-                  if (cuisineModalStandalone) {
-                    void saveCuisineFromOwnerModal();
-                  } else {
-                    setShowCuisineModal(false);
-                  }
-                }}
-              >
-                {cuisineModalStandalone ? "Enregistrer la commande" : "Enregistrer le bon"}
-              </TripButton>
-            </div>
-          </div>
-        </div>
-      )}
+      <TripDetailsModals
+        trip={trip}
+        showEffectifModal={showEffectifModal}
+        setShowEffectifModal={setShowEffectifModal}
+        draftNbEleves={draftNbEleves}
+        setDraftNbEleves={setDraftNbEleves}
+        draftNbAccompagnateurs={draftNbAccompagnateurs}
+        setDraftNbAccompagnateurs={setDraftNbAccompagnateurs}
+        draftNomsAccompagnateurs={draftNomsAccompagnateurs}
+        setDraftNomsAccompagnateurs={setDraftNomsAccompagnateurs}
+        saveEffectifChange={saveEffectifChange}
+        effectifFollowUp={effectifFollowUp}
+        setEffectifFollowUp={setEffectifFollowUp}
+        runEffectifFollowUp={runEffectifFollowUp}
+        showBudgetModal={showBudgetModal}
+        setShowBudgetModal={setShowBudgetModal}
+        draftCoutTotal={draftCoutTotal}
+        setDraftCoutTotal={setDraftCoutTotal}
+        saveBudgetChange={saveBudgetChange}
+        cuisineFollowUp={cuisineFollowUp}
+        setCuisineFollowUp={setCuisineFollowUp}
+        runCuisineFollowUp={runCuisineFollowUp}
+        showDateModal={showDateModal}
+        setShowDateModal={setShowDateModal}
+        draftStartDate={draftStartDate}
+        setDraftStartDate={setDraftStartDate}
+        draftEndDate={draftEndDate}
+        setDraftEndDate={setDraftEndDate}
+        draftStartTime={draftStartTime}
+        setDraftStartTime={setDraftStartTime}
+        draftEndTime={draftEndTime}
+        setDraftEndTime={setDraftEndTime}
+        saveDateChange={saveDateChange}
+        dateFollowUp={dateFollowUp}
+        setDateFollowUp={setDateFollowUp}
+        runDateFollowUp={runDateFollowUp}
+        showCuisineModal={showCuisineModal}
+        isEditing={isEditing}
+        cuisineModalStandalone={cuisineModalStandalone}
+        setShowCuisineModal={setShowCuisineModal}
+        setCuisineModalStandalone={setCuisineModalStandalone}
+        activeCuisineDetails={activeCuisineDetails}
+        patchCuisineDetails={patchCuisineDetails}
+        saveCuisineFromOwnerModal={saveCuisineFromOwnerModal}
+      />
     </TripPageShell>
   );
 }

@@ -18,6 +18,7 @@ import {
   PERSONNEL_DROP_ACCEPT,
 } from "@/app/lib/personnel-upload-client";
 import PersonnelDropZone from "@/app/components/personnel/PersonnelDropZone";
+import { StaffDossierTabBar, staffDossierTabs, type StaffDossierTabId } from "@/app/components/personnel/StaffDossierTabBar";
 
 type Props = {
   record: PersonnelRecord;
@@ -30,9 +31,7 @@ type Props = {
 type ModalKind = "medecine" | "entretien-plan" | "entretien-realise" | null;
 
 export default function StaffDossier({ record, canManage, sharedDocs = [], onRefresh, backHref }: Props) {
-  const [tab, setTab] = useState<
-    "identite" | "docs" | "formations" | "habilitations" | "medecine" | "entretiens" | "onboarding" | "offboarding"
-  >("identite");
+  const [tab, setTab] = useState<StaffDossierTabId>("identite");
   const [signEmails, setSignEmails] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [depositBusy, setDepositBusy] = useState(false);
@@ -101,16 +100,10 @@ export default function StaffDossier({ record, canManage, sharedDocs = [], onRef
 
   const p = record.profile;
 
-  const tabs = [
-    { id: "identite" as const, label: "Identité & contrat" },
-    { id: "docs" as const, label: "Documents" },
-    { id: "formations" as const, label: "Formations" },
-    { id: "habilitations" as const, label: "Habilitations" },
-    { id: "medecine" as const, label: "Médecine du travail" },
-    { id: "entretiens" as const, label: "Entretiens" },
-    ...(record.onboarding ? [{ id: "onboarding" as const, label: "Onboarding" }] : []),
-    ...(record.offboarding || canManage ? [{ id: "offboarding" as const, label: "Offboarding" }] : []),
-  ];
+  const tabs = staffDossierTabs({
+    hasOnboarding: Boolean(record.onboarding),
+    showOffboarding: Boolean(record.offboarding || canManage),
+  });
 
   const renderSignatures = (kind: "onboarding" | "offboarding", signatures: OnboardingSignature[]) => {
     if (!signatures) return null;
@@ -213,20 +206,7 @@ export default function StaffDossier({ record, canManage, sharedDocs = [], onRef
         <p className={`text-sm font-medium ${msg.includes("rangé") ? "text-emerald-600" : "text-rose-600"}`}>{msg}</p>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-              tab === t.id ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <StaffDossierTabBar tabs={tabs} tab={tab} onChange={setTab} />
 
       {tab === "identite" && (
         <div className="bg-white rounded-2xl border p-5 space-y-6">

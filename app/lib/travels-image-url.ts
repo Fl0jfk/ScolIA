@@ -7,13 +7,14 @@ export function normalizeTravelImageUrl(url: string | undefined | null): string 
   return normalizePublicImageUrl(trimmed);
 }
 
-export function normalizeTripImageFields<T extends { imageUrl?: string; data?: { imageUrl?: string } }>(
+export function normalizeTripImageFields<T extends { imageUrl?: string; data?: object }>(
   trip: T,
 ): T {
+  const data = trip.data as { imageUrl?: string } | undefined;
   const top = normalizeTravelImageUrl(trip.imageUrl);
-  const nested = trip.data?.imageUrl ? normalizeTravelImageUrl(trip.data.imageUrl) : undefined;
+  const nested = data?.imageUrl ? normalizeTravelImageUrl(data.imageUrl) : undefined;
 
-  if (top === trip.imageUrl && nested === trip.data?.imageUrl) return trip;
+  if (top === trip.imageUrl && nested === data?.imageUrl) return trip;
 
   return {
     ...trip,

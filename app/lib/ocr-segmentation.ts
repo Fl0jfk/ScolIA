@@ -321,7 +321,7 @@ export function mergeAdjacentSegments(segments: OcrDocumentSegment[]): OcrDocume
 }
 
 /**
- * Repli si Mistral dépasse le timeout Amplify (~30 s).
+ * Repli si Mistral dépasse le timeout hébergeur (~30 s).
  * Export Charlemagne : souvent 1 bulletin = 1 page, ou 2 pages si INE identique.
  */
 export function heuristicClassSegments(

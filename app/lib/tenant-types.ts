@@ -57,7 +57,7 @@ export type TenantSecrets = {
       linkedAt?: string;
     };
   };
-  /** Données S3 : roleArn (recommandé) ou clés dédiées ; sinon repli IAM plateforme Amplify. */
+  /** Données S3 : roleArn (recommandé) ou clés dédiées ; sinon repli IAM plateforme. */
   aws?: {
     roleArn?: string;
     accessKeyId?: string;

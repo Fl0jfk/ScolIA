@@ -86,7 +86,7 @@ export async function POST(req: Request) {
     const sealed = sealBienEtreSession(session);
     const res = NextResponse.json({
       answer: BIEN_ETRE_OFF_TOPIC_REPLY,
-      suggestSignalement: session.analysis.suggestSignalement,
+      suggestSignalement: session.analysis?.suggestSignalement ?? false,
       messages: session.messages,
     });
     res.cookies.set(bienEtreSessionCookieOptions(sealed));

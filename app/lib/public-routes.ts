@@ -59,6 +59,9 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/certificates/verify(.*)",
   "/api/certificates/verify(.*)",
   "/souscrire(.*)",
+  "/api/platform/signup-requests",
+  "/api/platform/signup-requests/status",
+  "/api/billing/easytransac/checkout",
   "/api/billing/easytransac/webhook",
 ] as const;
 

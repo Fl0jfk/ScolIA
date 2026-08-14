@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-08-14",
+  "tsc": {
+    "ignoreBuildErrors": false,
+    "command": "npx tsc --noEmit",
+    "note": "Corrigé module par module (lib → api → pages) avant désactivation de ignoreBuildErrors."
+  },
+  "knip": "npm run audit:knip — rapport seulement, aucune suppression automatique",
+  "monoliths": [
+    { "path": "app/(admin)/travels/[id]/TripDetailsLoaded.tsx", "lines": 1732, "action": "extrait", "note": "Onglets transport/overview/cuisine/documents/fil/décision + modales → app/components/travels/hub/" },
+    { "path": "app/(admin)/agentIAOCR/page.tsx", "lines": 8, "action": "extrait", "note": "UI dans AgentIAOCRPageClient.tsx (~2284)" },
+    { "path": "app/(admin)/documents/page.tsx", "lines": 8, "action": "extrait", "note": "UI dans DocumentsPageClient.tsx (~1962)" },
+    { "path": "app/(admin)/parametres/page.tsx", "lines": 8, "action": "extrait", "note": "UI dans ParametresPageClient.tsx (~1534)" },
+    { "path": "app/(admin)/requests/page.tsx", "lines": 8, "action": "extrait", "note": "UI dans RequestsPageClient.tsx (~1345)" },
+    { "path": "app/(admin)/stages/page.tsx", "lines": 8, "action": "extrait", "note": "UI dans StagesPageClient.tsx (~1245)" },
+    { "path": "app/lib/ocr-batch-process.ts", "lines": 1385, "action": "garder", "note": "Métier worker OCR — pas d’UI à découper" },
+    { "path": "app/lib/travels-compta-sheet.ts", "lines": 1311, "action": "ignorer", "note": "Métier compta — ne pas toucher au-delà des types" },
+    { "path": "app/components/personnel/RhPlanningPanel.tsx", "lines": 803, "action": "extrait", "note": "Éditeurs → RhPlanningEditors.tsx" },
+    { "path": "app/components/ChatbotBubble.tsx", "lines": 1178, "action": "garder", "note": "Bulle unique, pas de rewrite visuel" },
+    { "path": "app/components/travels/TravelsComptaSheetForm.tsx", "lines": 1173, "action": "garder", "note": "Formulaire métier déjà isolé" },
+    { "path": "app/components/absences/AbsencesCalendar.tsx", "lines": 853, "action": "extrait", "note": "Impression → AbsencesCalendarPrint.tsx" },
+    { "path": "app/lib/dashboard-signals.ts", "lines": 1040, "action": "garder", "note": "Lib métier" },
+    { "path": "app/lib/fournitures-engine.ts", "lines": 1020, "action": "garder", "note": "Lib métier" },
+    { "path": "app/lib/travel-email-ingest.ts", "lines": 978, "action": "garder", "note": "Lib métier" },
+    { "path": "app/lib/documents-cloud.ts", "lines": 942, "action": "garder", "note": "Lib métier" },
+    { "path": "app/components/rgpd/RgpdQuestionnaireWizard.tsx", "lines": 907, "action": "garder", "note": "Wizard parcours inchangé" },
+    { "path": "app/lib/requests.ts", "lines": 891, "action": "garder", "note": "Lib métier" },
+    { "path": "app/(admin)/absences/AbsencesPageClient.tsx", "lines": 820, "action": "extrait", "note": "Types/helpers → absences-page-model.ts" },
+    { "path": "app/components/onboarding/OnboardingWizard.tsx", "lines": 876, "action": "garder", "note": "Wizard parcours inchangé" },
+    { "path": "app/components/personnel/StaffDossier.tsx", "lines": 820, "action": "extrait", "note": "Onglets → StaffDossierTabBar.tsx" }
+  ],
+  "v1": {
+    "chatbotIp": "clientIpFromRequest",
+    "publicSouscrireApis": ["/api/platform/signup-requests", "/api/platform/signup-requests/status", "/api/billing/easytransac/checkout"],
+    "rateLimitTokenApis": ["rh/onboarding/public", "stages/public/candidater", "stages/public/sign", "class-allocation/public/auth/request", "class-allocation/public/submit", "class-allocation/public/auth/verify"],
+    "bienEtreRoles": "rolesFromUserLike",
+    "scalewayWorkflow": "commentaires sanitisés — commit séparé"
+  }
+}

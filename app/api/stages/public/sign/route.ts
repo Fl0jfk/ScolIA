@@ -5,6 +5,12 @@ import { loadReferentSignatureBytes } from "@/app/lib/stage-signature-store";
 import { getSignTokenRef, getStageConvention } from "@/app/lib/stage-storage";
 import { scheduleSummary } from "@/app/lib/stage-schedule";
 import { STAGE_SIGNER_ROLE_LABELS } from "@/app/lib/stage-types";
+import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
+
+const signPublicLimiter = createMemoryRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+});
 
 export async function GET(req: Request) {
   try {
@@ -62,6 +68,13 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    if (!signPublicLimiter.allow(clientIpFromRequest(req))) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez dans quelques minutes." },
+        { status: 429 },
+      );
+    }
+
     const body = await req.json();
     const token = String(body.token ?? "").trim();
     const signerName = String(body.signerName ?? "").trim();

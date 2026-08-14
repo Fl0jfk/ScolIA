@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     await flushOcrJobTraces(jobId);
   };
 
-  // delay=0 : exécution synchrone — after() seul ne démarre souvent pas le worker sur Amplify.
+  // delay=0 : exécution synchrone — after() seul ne démarre souvent pas le worker en serverless.
   if (delayMs === 0) {
     try {
       await execute();

@@ -8,7 +8,7 @@ export async function getTenantBucketName(): Promise<string> {
   return getBucketName();
 }
 
-/** Clé Mistral : secrets tenant → repli MISTRAL_API_KEY Amplify. */
+/** Clé Mistral : secrets tenant → repli MISTRAL_API_KEY (Scaleway / env). */
 export async function getMistralApiKey(): Promise<string | undefined> {
   try {
     const tenant = await getTenant();

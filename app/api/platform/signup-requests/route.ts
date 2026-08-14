@@ -10,30 +10,12 @@ import {
   type CreateSignupRequestInput,
 } from "@/app/lib/platform-signup-request";
 import { isPlatformStorageWritable } from "@/app/lib/platform-storage";
+import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 
-const RATE_LIMIT = new Map<string, { count: number; resetAt: number }>();
-const RATE_MAX = 5;
-const RATE_WINDOW_MS = 60 * 60 * 1000;
-
-function clientIp(req: Request): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    req.headers.get("x-real-ip")?.trim() ||
-    "unknown"
-  );
-}
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const hit = RATE_LIMIT.get(ip);
-  if (!hit || hit.resetAt < now) {
-    RATE_LIMIT.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (hit.count >= RATE_MAX) return false;
-  hit.count += 1;
-  return true;
-}
+const signupLimiter = createMemoryRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+});
 
 export async function GET() {
   const gate = await requirePlatformMaster();
@@ -56,8 +38,8 @@ export async function POST(req: Request) {
     );
   }
 
-  const ip = clientIp(req);
-  if (!checkRateLimit(ip)) {
+  const ip = clientIpFromRequest(req);
+  if (!signupLimiter.allow(ip)) {
     return NextResponse.json({ error: "Trop de demandes. Réessayez plus tard." }, { status: 429 });
   }
 

@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { resolveOfferByCandidatureToken, submitOfferCandidature } from "@/app/lib/stage-candidature";
 import { listOfferApplications } from "@/app/lib/stage-storage";
 import { STAGE_OFFER_KIND_LABELS } from "@/app/lib/stage-types";
+import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
+
+const candidaterLimiter = createMemoryRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+});
 
 export async function GET(req: Request) {
   try {
@@ -38,6 +44,13 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    if (!candidaterLimiter.allow(clientIpFromRequest(req))) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez dans quelques minutes." },
+        { status: 429 },
+      );
+    }
+
     const body = await req.json();
     const token = String(body.token ?? "").trim();
     if (!token) return NextResponse.json({ error: "Jeton manquant." }, { status: 400 });

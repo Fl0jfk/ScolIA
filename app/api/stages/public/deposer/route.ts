@@ -8,8 +8,14 @@ import {
   notifyStageConventionDeposited,
   notifyStageDepositPaperRejected,
 } from "@/app/lib/stage-notify";
+import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 
 export const maxDuration = 120;
+
+const stageDepositLimiter = createMemoryRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+});
 
 export async function GET() {
   const templateUrl = await resolveStagesConventionTemplateUrl();
@@ -25,6 +31,13 @@ function isPdfFile(file: File) {
 
 export async function POST(req: Request) {
   try {
+    if (!stageDepositLimiter.allow(clientIpFromRequest(req))) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez plus tard." },
+        { status: 429 },
+      );
+    }
+
     const formData = await req.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) {

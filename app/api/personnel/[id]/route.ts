@@ -220,9 +220,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       if (!sig) return NextResponse.json({ error: "Signature introuvable." }, { status: 404 });
 
       const token = generatePersonnelSignToken();
-      const updatedFlow = attachSignatureToken(flow, sigId, token, email);
-      if (kind === "offboarding") record.offboarding = updatedFlow;
-      else record.onboarding = updatedFlow;
+      if (kind === "offboarding" && record.offboarding) {
+        record.offboarding = attachSignatureToken(record.offboarding, sigId, token, email);
+      } else if (record.onboarding) {
+        record.onboarding = attachSignatureToken(record.onboarding, sigId, token, email);
+      }
 
       await savePersonnelSignatureRef(token, {
         personnelId: record.id,

@@ -14,7 +14,7 @@ import { flushOcrJobTraces } from "@/app/lib/ocr-job-trace-store";
 
 export const maxDuration = 60;
 
-/** Origine HTTP réelle (derrière le proxy Amplify) pour l'auto-relance serveur. */
+/** Origine HTTP réelle (derrière le reverse-proxy) pour l'auto-relance serveur. */
 function resolveRequestOrigin(req: Request): string | undefined {
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
   if (host) {
@@ -102,7 +102,7 @@ export async function POST(req: Request) {
     items: items.map((i) => ({ fileName: i.fileName, mode: i.mode, s3Key: i.s3Key, tempPath: i.tempPath })),
   });
 
-  // Double démarrage : after() local + chaîne HTTP (after() seul est peu fiable sur Amplify).
+  // Double démarrage : after() local + chaîne HTTP (after() seul est peu fiable en serverless).
   after(async () => {
     try {
       ocrTrace(jobId, "api", "create-after", "worker via after() à la création");

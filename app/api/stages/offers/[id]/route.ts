@@ -6,9 +6,9 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { canModerateOffers } from "@/app/lib/stage-access";
 import { ensureOfferCandidatureToken } from "@/app/lib/stage-candidature";
 import { getStageOffer, saveStageOffer } from "@/app/lib/stage-storage";
-import type { StageOfferStatus } from "@/app/lib/stage-types";
+import type { StageOffer, StageOfferStatus } from "@/app/lib/stage-types";
 
-function displayName(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
+function displayName(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
   const first = user?.firstName?.trim() || "";
   const last = user?.lastName?.trim() || "";
   return `${first} ${last}`.trim() || "Direction";
@@ -49,7 +49,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     }
 
     const now = new Date().toISOString();
-    let next = {
+    let next: StageOffer = {
       ...offer,
       status,
       reviewedAt: now,

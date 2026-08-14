@@ -7,7 +7,13 @@ import {
   listPortesOuvertesRegistrations,
 } from "@/app/lib/portes-ouvertes-storage";
 import { buildPortesOuvertesIcs } from "@/app/lib/portes-ouvertes-ics";
+import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
+
+const portesOuvertesLimiter = createMemoryRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+});
 
 async function sendPoMail(params: {
   to: string;
@@ -34,6 +40,13 @@ async function sendPoMail(params: {
 
 export async function POST(req: Request) {
   try {
+    if (!portesOuvertesLimiter.allow(clientIpFromRequest(req))) {
+      return NextResponse.json(
+        { error: "Trop de tentatives. Réessayez dans quelques minutes." },
+        { status: 429 },
+      );
+    }
+
     const toolbox = await getToolboxConfig();
     const po = toolbox.tools["portes-ouvertes"];
     if (!po.enabled) {
@@ -41,6 +54,10 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
+    const honeypot = String(body.website || body.company || "").trim();
+    if (honeypot) {
+      return NextResponse.json({ success: true });
+    }
     const slotId = String(body.slotId || "").trim();
     const firstName = String(body.firstName || "").trim();
     const lastName = String(body.lastName || "").trim();
@@ -61,22 +78,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Créneau invalide." }, { status: 400 });
     }
 
+    const registrations = await listPortesOuvertesRegistrations();
     if (slot.maxPlaces) {
-      const counts = countRegistrationsBySlot(await listPortesOuvertesRegistrations());
+      const counts = countRegistrationsBySlot(registrations);
       if ((counts[slotId] || 0) >= slot.maxPlaces) {
         return NextResponse.json({ error: "Ce créneau est complet." }, { status: 409 });
       }
     }
 
-    const entry = await addPortesOuvertesRegistration({
-      slotId,
-      firstName,
-      lastName,
-      email,
-      phone,
-      childrenInfo,
-      consent,
-    });
+    const entry = await addPortesOuvertesRegistration(
+      {
+        slotId,
+        firstName,
+        lastName,
+        email,
+        phone,
+        childrenInfo,
+        consent,
+      },
+      registrations,
+    );
 
     const ics = buildPortesOuvertesIcs({
       title: `${po.title} — ${slot.label}`,

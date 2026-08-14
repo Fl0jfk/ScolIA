@@ -11,11 +11,24 @@ import {
   isValidParentEmail,
   normalizeParentEmail,
 } from "@/app/lib/eleves-parent-emails";
+import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
+
+const parentAuthRequestLimiter = createMemoryRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 10,
+});
 
 const GENERIC_OK =
   "Si cette adresse est enregistrée comme responsable légal, vous recevrez un code par e-mail dans quelques instants.";
 
 export async function POST(req: Request) {
+  if (!parentAuthRequestLimiter.allow(clientIpFromRequest(req))) {
+    return NextResponse.json(
+      { error: "Trop de tentatives. Réessayez dans quelques minutes." },
+      { status: 429 },
+    );
+  }
+
   const campaign = await loadCampaignConfig();
   if (!campaign.isOpen) {
     return NextResponse.json({ error: "La campagne est fermée." }, { status: 400 });

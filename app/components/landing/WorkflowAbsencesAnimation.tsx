@@ -197,13 +197,7 @@ export default function WorkflowAbsencesAnimation() {
                         <ul className="space-y-1 text-[10px] text-rose-100/80">
                           <li className="flex justify-between rounded bg-white/5 px-2 py-1">
                             <span>Invitation envoyée</span>
-                            <span
-                              className={
-                                phase !== "switch" ? "text-[#4ADE80]" : "text-white/30"
-                              }
-                            >
-                              {phase !== "switch" ? "✓" : "—"}
-                            </span>
+                            <span className="text-[#4ADE80]">✓</span>
                           </li>
                           <li className="flex justify-between rounded bg-white/5 px-2 py-1">
                             <span>Documents à fournir</span>

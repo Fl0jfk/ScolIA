@@ -19,9 +19,13 @@ function compactCsp(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function contentSecurityPolicyDirectives(options: { scriptStyleHttpsWildcard: boolean }): string {
+function contentSecurityPolicyDirectives(options: {
+  scriptStyleHttpsWildcard: boolean;
+  nonce?: string;
+}): string {
   const scriptExtra = options.scriptStyleHttpsWildcard ? "https:" : CLERK_SCRIPT_STYLE_HOSTS;
   const styleExtra = options.scriptStyleHttpsWildcard ? "https:" : CLERK_SCRIPT_STYLE_HOSTS;
+  const noncePart = options.nonce ? ` 'nonce-${options.nonce}'` : "";
   return `
   default-src 'self' https://login.microsoftonline.com/;
   base-uri 'self';
@@ -65,23 +69,24 @@ function contentSecurityPolicyDirectives(options: { scriptStyleHttpsWildcard: bo
   worker-src 'self' blob:;
   form-action 'self' https://*.s3.fr-par.scw.cloud https://s3.fr-par.scw.cloud;
   img-src 'self' https://img.clerk.com https://clerk.scolia.fr https://clerk.lpnb.scolia.fr https://clerk.docslapro.com https://clerk.lp.docslapro.com https: data:;
-  script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} ${scriptExtra};
-  style-src 'self' 'unsafe-inline' ${styleExtra};
+  script-src 'self' 'unsafe-inline'${noncePart}${isDev ? " 'unsafe-eval'" : ""} ${scriptExtra};
+  style-src 'self' 'unsafe-inline'${noncePart} ${styleExtra};
   font-src 'self' https: data:;
 `;
 }
 
-/** CSP enforce : `unsafe-inline` conservé ; wildcard `https:` scripts/styles conservé. */
-export function contentSecurityPolicyHeaderValue(): string {
-  return compactCsp(contentSecurityPolicyDirectives({ scriptStyleHttpsWildcard: true }));
+/** CSP enforce : `unsafe-inline` conservé ; wildcard `https:` scripts/styles conservé. Nonce optionnel (pipeline Next/Clerk). */
+export function contentSecurityPolicyHeaderValue(nonce?: string): string {
+  return compactCsp(contentSecurityPolicyDirectives({ scriptStyleHttpsWildcard: true, nonce }));
 }
 
 /**
  * Politique cible plus stricte (sans wildcard `https:` sur script/style).
  * Report-only : n’applique pas, sert à mesurer les violations Clerk / CDN.
+ * `unsafe-inline` n’est retiré qu’après une période Report-Only à zéro violation.
  */
-export function contentSecurityPolicyReportOnlyHeaderValue(): string {
-  return compactCsp(contentSecurityPolicyDirectives({ scriptStyleHttpsWildcard: false }));
+export function contentSecurityPolicyReportOnlyHeaderValue(nonce?: string): string {
+  return compactCsp(contentSecurityPolicyDirectives({ scriptStyleHttpsWildcard: false, nonce }));
 }
 
 /** Popups OAuth Microsoft (MSAL loginPopup / acquireTokenSilent iframe). */

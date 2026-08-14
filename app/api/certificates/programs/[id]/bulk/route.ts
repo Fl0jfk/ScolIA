@@ -92,7 +92,7 @@ export async function GET(req: Request, { params }: Params) {
   }
 
   const filename = safeFileNamePart(program.title || "parcours");
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="certificats-${filename}.zip"`,

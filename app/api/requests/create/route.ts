@@ -20,8 +20,14 @@ import {
 import { deletePendingRequestPrefix, generatePendingRequestToken, savePendingRequestWithFiles } from "@/app/lib/request-pending-verify";
 import { RH_REQUEST_ROUTE_ID } from "@/app/lib/requests-routing-defaults";
 import { getTenantSmtpConfig } from "@/app/lib/tenant-mail";
+import { clientIpFromRequest, createSlidingWindowRateLimiter } from "@/app/lib/memory-rate-limit";
 
 export const runtime = "nodejs";
+
+const anonymousCreateLimiter = createSlidingWindowRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 8,
+});
 
 /** Routes que le client peut forcer (formulaire module RH). */
 const ALLOWED_FORCE_ROUTE_IDS = new Set([RH_REQUEST_ROUTE_ID]);
@@ -40,6 +46,7 @@ function parseCreatePayload(
   userId: string | null;
   forceRouteId: string | null;
   files: File[];
+  honeypot: string;
 } {
   if (form) {
     const g = (k: string) => {
@@ -58,6 +65,7 @@ function parseCreatePayload(
       userId: null,
       forceRouteId,
       files: rawFiles.slice(0, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD),
+      honeypot: String(form.get("website") || form.get("company") || "").trim(),
     };
   }
   const b = bodyJson as Record<string, unknown>;
@@ -73,6 +81,7 @@ function parseCreatePayload(
     userId: typeof b?.userId === "string" ? b.userId : null,
     forceRouteId,
     files: [],
+    honeypot: String(b?.website || b?.company || "").trim(),
   };
 }
 
@@ -90,6 +99,22 @@ export async function POST(req: Request) {
       payload = parseCreatePayload(contentType, body, null);
     }
     payload.userId = userId ?? null;
+    if (!userId) {
+      if (!anonymousCreateLimiter.allow(clientIpFromRequest(req))) {
+        return NextResponse.json(
+          { error: "Trop de tentatives. Réessayez plus tard." },
+          { status: 429 },
+        );
+      }
+      if (payload.honeypot) {
+        return NextResponse.json({
+          success: true,
+          needsEmailVerification: true,
+          message:
+            "Un e-mail de confirmation vient de vous être envoyé si l’adresse est valide.",
+        });
+      }
+    }
     const validated = validateRequestInput({
       firstName: payload.firstName,
       lastName: payload.lastName,

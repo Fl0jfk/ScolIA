@@ -12,6 +12,7 @@ import {
   type StageSignature,
 } from "@/app/lib/stage-types";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
+import { loadAppConfig } from "@/app/lib/app-config";
 
 async function signLink(token: string) {
   return tenantAbsolutePath(`/stages/signer?token=${encodeURIComponent(token)}`);

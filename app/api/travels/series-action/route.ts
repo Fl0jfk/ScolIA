@@ -2,7 +2,7 @@ import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { NextResponse } from "next/server";
 
 import { isTripOwner } from "@/app/lib/travels-direction-permissions";
-import { notifyComptaTravelsPhase } from "@/app/lib/travels-notify";
+import { notifyComptaTravelsPhase, type TravelsTripForNotify } from "@/app/lib/travels-notify";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { canSignTravelsDirectionForEtab } from "@/app/lib/establishments";
@@ -97,15 +97,16 @@ export async function POST(req: Request) {
       for (const tripId of ids) {
         const hit = await getJson<Record<string, unknown>>(`travels/${tripId}.json`);
         if (!hit?.data) continue;
-        const trip = hit.data as Record<string, unknown> & {
+        const trip = hit.data as TravelsTripForNotify & {
           type?: string;
           status?: string;
-          data?: { recurrenceSeriesId?: string };
+          updatedAt?: string;
+          data?: TravelsTripForNotify["data"] & { recurrenceSeriesId?: string };
           history?: unknown[];
         };
         if (trip.type !== "SIMPLE" || trip.status !== "EN_ATTENTE_DIR_INITIAL") continue;
         if (trip.data?.recurrenceSeriesId !== seriesId) continue;
-        const statusBefore = trip.status;
+        const statusBefore: string = String(trip.status);
         trip.status = "EN_ATTENTE_COMPTA";
         trip.updatedAt = now;
         trip.history = [

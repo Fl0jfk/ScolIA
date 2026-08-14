@@ -109,12 +109,12 @@ export async function applyPersonnelSignature(params: {
   return { ok: true as const, record, kind: ctx.ref.kind };
 }
 
-export function attachSignatureToken(
-  flow: PersonnelOnboarding | PersonnelOffboarding,
+export function attachSignatureToken<T extends PersonnelOnboarding | PersonnelOffboarding>(
+  flow: T,
   sigId: string,
   token: string,
   email: string,
-) {
+): T {
   const signatures = flow.signatures.map((s) =>
     s.id === sigId
       ? { ...s, signToken: token, signEmail: email, signSentAt: new Date().toISOString() }
