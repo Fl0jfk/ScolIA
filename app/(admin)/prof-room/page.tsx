@@ -33,6 +33,25 @@ const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 
 const fieldClass =
   "w-full rounded-xl border border-[color:var(--dash-border)] bg-white/80 px-4 py-3 text-sm font-semibold text-[var(--dash-ink)] outline-none shadow-sm transition focus:border-[var(--dash-primary)]";
+const selectClass = `${fieldClass} cursor-pointer appearance-none pr-10`;
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <span className={`mb-1.5 block ${dash.fieldLabel}`}>{children}</span>;
+}
+
+function SelectShell({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="relative block">
+      {children}
+      <span
+        className={`pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-[10px] ${dash.textMid}`}
+        aria-hidden
+      >
+        ▾
+      </span>
+    </span>
+  );
+}
 
 function ProfRoomPageContent() {
   const searchParams = useSearchParams();
@@ -486,17 +505,19 @@ function ProfRoomPageContent() {
               bodyClassName="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"
             >
               <div className="flex w-full flex-col items-stretch gap-3 sm:flex-row sm:items-center md:w-1/2">
-                <select
-                  value={selectedRoom}
-                  onChange={(e) => setSelectedRoom(e.target.value)}
-                  className={`${fieldClass} cursor-pointer text-center`}
-                >
-                  {rooms.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
+                <SelectShell>
+                  <select
+                    value={selectedRoom}
+                    onChange={(e) => setSelectedRoom(e.target.value)}
+                    className={`${selectClass} text-center`}
+                  >
+                    {rooms.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </SelectShell>
                 <div className="flex w-full items-center justify-between rounded-xl border border-[color:var(--dash-border)] bg-white/60">
                   {!isMobile ? (
                     <button
@@ -541,7 +562,7 @@ function ProfRoomPageContent() {
                 </div>
               </div>
               <div className="flex w-full items-center justify-between gap-3 md:w-1/2 md:justify-end">
-                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-full border border-[color:var(--dash-border)] bg-white/80 px-3 py-1.5 shadow-sm">
+                <label className="flex h-11 min-w-0 flex-1 cursor-pointer items-center gap-2 overflow-hidden rounded-full border border-[color:var(--dash-border)] bg-white/80 px-3 shadow-sm">
                   <span className="flex-shrink-0 text-sm" aria-hidden>
                     📅
                   </span>
@@ -559,8 +580,12 @@ function ProfRoomPageContent() {
               </div>
             </ProfRoomGlassCard>
 
-            <ProfRoomGlassCard data-tour="prof-room-calendar">
-              <div className={`grid border-b border-[color:var(--dash-border)] ${dash.bgSoft50} ${isMobile ? "grid-cols-2" : "grid-cols-6"}`}>
+            <ProfRoomGlassCard data-tour="prof-room-calendar" className="overflow-hidden">
+              <div
+                className="pointer-events-none absolute -right-10 -top-12 z-0 h-44 w-44 rounded-full bg-[color:var(--dash-soft)]/80 blur-3xl"
+                aria-hidden
+              />
+              <div className={`relative z-[1] grid border-b border-[color:var(--dash-border)] ${dash.bgSoft50} ${isMobile ? "grid-cols-2" : "grid-cols-6"}`}>
                 <div className={`p-4 text-center text-[11px] font-semibold uppercase tracking-wide ${dash.textMid}`}>
                   Heure
                 </div>
@@ -576,7 +601,7 @@ function ProfRoomPageContent() {
                   </div>
                 ))}
               </div>
-              <div className="divide-y divide-[color:var(--dash-border)]">
+              <div className="relative z-[1] divide-y divide-[color:var(--dash-border)]">
                 {HOURS.map((h) => (
                   <div key={h} className={`grid min-h-[95px] ${isMobile ? "grid-cols-2" : "grid-cols-6"}`}>
                     <div className={`flex items-center justify-center text-[12px] font-semibold italic ${dash.bgSoft50} ${dash.textMid}`}>
@@ -713,11 +738,16 @@ function ProfRoomPageContent() {
               </ProfRoomGlassCard>
             ) : null}
 
-            <ProfRoomGlassCard id="form-section" data-tour="prof-room-form" bodyClassName="p-4 md:p-8">
-              <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <ProfRoomGlassCard id="form-section" data-tour="prof-room-form" className="overflow-hidden" bodyClassName="p-5 sm:p-6 md:p-7">
+              <div
+                className="pointer-events-none absolute -right-10 -top-12 z-0 h-36 w-36 rounded-full bg-[color:var(--dash-soft)]/70 blur-3xl"
+                aria-hidden
+              />
+              <div className="relative z-[1]">
+              <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
                   <div
-                    className={`shrink-0 rounded-2xl px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white ${
+                    className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white ${
                       isEditing ? "bg-amber-500" : dash.bgPrimary
                     }`}
                   >
@@ -733,142 +763,160 @@ function ProfRoomPageContent() {
                   </ModuleButton>
                 ) : null}
               </div>
-              <div className="grid grid-cols-1 gap-8">
-                <div className="space-y-4">
-                  <label className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
-                    Professeur & cours
+
+              <div className={`mb-5 flex flex-wrap items-center gap-3 rounded-2xl border bg-white/70 px-4 py-3 ${dash.borderSoft}`}>
+                <span className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
+                  Identité
+                </span>
+                <span className={`text-sm font-semibold ${dash.textPrimary}`}>
+                  {user.firstName} {lastName}
+                </span>
+                {canBookForOthers ? (
+                  <label className={`ml-auto flex cursor-pointer items-center gap-2 text-sm font-semibold ${dash.ink}`}>
+                    <input
+                      type="checkbox"
+                      checked={bookForOther}
+                      onChange={(e) => setBookForOther(e.target.checked)}
+                      className="rounded border-slate-300"
+                    />
+                    Pour une autre personne
                   </label>
-                  <div className={`rounded-xl border bg-white/70 p-4 text-sm font-semibold ${dash.borderSoft}`}>
-                    <p className={`mb-1 text-[10px] uppercase tracking-wide ${dash.textMid}`}>Identité Clerk :</p>
-                    <span className={dash.textPrimary}>
-                      {user.firstName} {lastName}
-                    </span>
-                  </div>
-                  {canBookForOthers ? (
-                    <label className={`flex cursor-pointer items-center gap-2 text-sm font-semibold ${dash.ink}`}>
-                      <input
-                        type="checkbox"
-                        checked={bookForOther}
-                        onChange={(e) => setBookForOther(e.target.checked)}
-                        className="rounded border-slate-300"
-                      />
-                      Réserver pour une autre personne
-                    </label>
-                  ) : null}
-                  {canBookForOthers && bookForOther ? (
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="Prénom"
-                        value={targetFirstName}
-                        onChange={(e) => setTargetFirstName(e.target.value)}
-                        className={`${fieldClass} flex-1`}
-                      />
-                      <input
-                        type="text"
-                        placeholder="NOM"
-                        value={targetLastName}
-                        onChange={(e) => setTargetLastName(e.target.value.toUpperCase())}
-                        className={`${fieldClass} flex-1`}
-                      />
-                    </div>
-                  ) : null}
-                  <select value={subject} onChange={(e) => setSubject(e.target.value)} className={`${fieldClass} cursor-pointer`}>
-                    <option value="">-- MATIÈRE --</option>
-                    {Object.keys(SUBJECT_COLORS).map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="flex gap-2">
-                    <select value={level} onChange={(e) => setLevel(e.target.value)} className={`${fieldClass} flex-1 cursor-pointer`}>
-                      <option value="">NIVEAU</option>
+                ) : null}
+              </div>
+              {canBookForOthers && bookForOther ? (
+                <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="block min-w-0">
+                    <FieldLabel>Prénom</FieldLabel>
+                    <input
+                      type="text"
+                      placeholder="Prénom"
+                      value={targetFirstName}
+                      onChange={(e) => setTargetFirstName(e.target.value)}
+                      className={fieldClass}
+                    />
+                  </label>
+                  <label className="block min-w-0">
+                    <FieldLabel>Nom</FieldLabel>
+                    <input
+                      type="text"
+                      placeholder="NOM"
+                      value={targetLastName}
+                      onChange={(e) => setTargetLastName(e.target.value.toUpperCase())}
+                      className={fieldClass}
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label className="block min-w-0">
+                  <FieldLabel>Matière</FieldLabel>
+                  <SelectShell>
+                    <select value={subject} onChange={(e) => setSubject(e.target.value)} className={selectClass}>
+                      <option value="">Choisir une matière</option>
+                      {Object.keys(SUBJECT_COLORS).map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </SelectShell>
+                </label>
+                <label className="block min-w-0">
+                  <FieldLabel>Date</FieldLabel>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    min={todayStr}
+                    max={maxDateStr}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className={`${fieldClass} block text-[16px]`}
+                  />
+                </label>
+                <label className="block min-w-0">
+                  <FieldLabel>Niveau</FieldLabel>
+                  <SelectShell>
+                    <select value={level} onChange={(e) => setLevel(e.target.value)} className={selectClass}>
+                      <option value="">Choisir un niveau</option>
                       {Object.keys(CLASSES_DATA).map((l) => (
                         <option key={l} value={l}>
                           {l}
                         </option>
                       ))}
                     </select>
+                  </SelectShell>
+                </label>
+                <label className="block min-w-0">
+                  <FieldLabel>Classe</FieldLabel>
+                  <SelectShell>
                     <select
                       value={className}
                       onChange={(e) => setClassName(e.target.value)}
-                      className={`${fieldClass} flex-1 cursor-pointer`}
+                      className={selectClass}
                     >
-                      <option value="">CLASSE</option>
+                      <option value="">Choisir une classe</option>
                       {level && CLASSES_DATA[level].map((c) => (
                         <option key={c} value={c}>
                           {c}
                         </option>
                       ))}
                     </select>
+                  </SelectShell>
+                </label>
+                <div className="md:col-span-2">
+                  <FieldLabel>Heure</FieldLabel>
+                  <div className="grid grid-cols-5 gap-2">
+                    {HOURS.map((h) => {
+                      const hourPrefix = `${selectedDate}T${h.toString().padStart(2, "0")}`;
+                      const isTaken = reservations.some(
+                        (r) =>
+                          r.roomId === selectedRoom &&
+                          r.startsAt.startsWith(hourPrefix) &&
+                          r.status !== "CANCELLED" &&
+                          r.id !== editingRes?.id,
+                      );
+                      return (
+                        <button
+                          key={h}
+                          type="button"
+                          disabled={isTaken}
+                          onClick={() => setSelectedHours([h])}
+                          className={`rounded-xl px-2 py-2.5 text-xs font-semibold transition ${
+                            selectedHours.includes(h)
+                              ? `${dash.bgPrimary} text-white shadow-sm`
+                              : isTaken
+                                ? "cursor-not-allowed border border-rose-200 bg-rose-50 text-rose-400"
+                                : `cursor-pointer border bg-white/80 ${dash.borderSoft} ${dash.ink} ${dash.hoverBgSoft}`
+                          }`}
+                        >
+                          {h}h30
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-                <div className="space-y-4">
-                  <label className={`w-full text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
-                    Calendrier
-                  </label>
-                  <div className="w-full overflow-hidden">
-                    <input
-                      type="date"
-                      value={selectedDate}
-                      min={todayStr}
-                      max={maxDateStr}
-                      onChange={(e) => setSelectedDate(e.target.value)}
-                      className={`${fieldClass} block text-[16px]`}
-                    />
-                  </div>
-                  <div className={`rounded-xl border bg-white/55 p-4 ${dash.borderSoft}`}>
-                    <p className={`mb-2 text-[10px] font-semibold uppercase tracking-wide ${dash.textMid}`}>
-                      Choisir l&apos;heure :
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {HOURS.map((h) => {
-                        const hourPrefix = `${selectedDate}T${h.toString().padStart(2, "0")}`;
-                        const isTaken = reservations.some(
-                          (r) =>
-                            r.roomId === selectedRoom &&
-                            r.startsAt.startsWith(hourPrefix) &&
-                            r.status !== "CANCELLED" &&
-                            r.id !== editingRes?.id,
-                        );
-                        return (
-                          <button
-                            key={h}
-                            type="button"
-                            disabled={isTaken}
-                            onClick={() => setSelectedHours([h])}
-                            className={`relative rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
-                              selectedHours.includes(h)
-                                ? `${dash.bgPrimary} z-10 scale-110 text-white shadow-md`
-                                : isTaken
-                                  ? "cursor-not-allowed border border-rose-200 bg-rose-50 text-rose-400"
-                                  : `cursor-pointer border bg-white/80 ${dash.borderSoft} ${dash.ink} ${dash.hoverBgSoft}`
-                            }`}
-                          >
-                            {h}h30
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <label className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
-                    Notes & répétition
-                  </label>
+                <label className="block min-w-0 md:col-span-2">
+                  <FieldLabel>Commentaire</FieldLabel>
                   <textarea
-                    placeholder="Commentaire (ex: Valise PC)"
+                    placeholder="Ex. Valise PC"
                     value={comment}
                     onChange={(e) => setComment(e.target.value)}
                     className={`${fieldClass} h-20 resize-none`}
                   />
-                  <select value={recurrence} onChange={(e) => setRecurrence(e.target.value)} className={`${fieldClass} cursor-pointer`}>
-                    <option value="none">Une seule fois</option>
-                    <option value="weekly">Toutes les semaines</option>
-                    <option value="biweekly">Toutes les 2 semaines</option>
-                  </select>
-                  {recurrence !== "none" ? (
+                </label>
+                <label className="block min-w-0">
+                  <FieldLabel>Répétition</FieldLabel>
+                  <SelectShell>
+                    <select value={recurrence} onChange={(e) => setRecurrence(e.target.value)} className={selectClass}>
+                      <option value="none">Une seule fois</option>
+                      <option value="weekly">Toutes les semaines</option>
+                      <option value="biweekly">Toutes les 2 semaines</option>
+                    </select>
+                  </SelectShell>
+                </label>
+                {recurrence !== "none" ? (
+                  <label className="block min-w-0">
+                    <FieldLabel>Jusqu&apos;au</FieldLabel>
                     <input
                       type="date"
                       value={untilDate}
@@ -877,8 +925,10 @@ function ProfRoomPageContent() {
                       onChange={(e) => setUntilDate(e.target.value)}
                       className={`${fieldClass} border-amber-200 bg-amber-50/70 text-amber-900`}
                     />
-                  ) : null}
-                </div>
+                  </label>
+                ) : (
+                  <div className="hidden md:block" />
+                )}
               </div>
               {isEditing && editingRes?.groupId ? (
                 <div className={`mt-6 flex items-center gap-3 rounded-2xl border p-4 ${dash.borderSoft} ${dash.bgSoft}`}>
@@ -894,7 +944,7 @@ function ProfRoomPageContent() {
                   </label>
                 </div>
               ) : null}
-              <div className="mt-10 flex gap-4 sm:max-md:flex-col">
+              <div className="mt-8 flex gap-4 sm:max-md:flex-col">
                 <ModuleButton onClick={handleConfirm} className="flex-1 py-4 text-base">
                   {isEditing ? "Enregistrer les modifications" : "Confirmer la réservation"}
                 </ModuleButton>
@@ -912,6 +962,7 @@ function ProfRoomPageContent() {
                 >
                   Annuler
                 </ModuleButton>
+              </div>
               </div>
             </ProfRoomGlassCard>
           </>
