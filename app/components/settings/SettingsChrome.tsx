@@ -75,18 +75,21 @@ export function SettingsField({
   hint,
   children,
   className = "",
+  as = "label",
 }: {
   label: string;
   hint?: string;
   children: ReactNode;
   className?: string;
+  as?: "label" | "div";
 }) {
+  const Tag = as;
   return (
-    <label className={`block ${className}`}>
+    <Tag className={`block ${className}`}>
       <span className={`block text-[11px] font-semibold uppercase tracking-[0.14em] ${dash.textMid}`}>{label}</span>
       {hint ? <span className={`mt-0.5 block text-xs font-normal normal-case tracking-normal ${dash.textMid}`}>{hint}</span> : null}
       {children}
-    </label>
+    </Tag>
   );
 }
 

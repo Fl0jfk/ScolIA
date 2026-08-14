@@ -20,6 +20,8 @@ import {
   ESTABLISHMENT_KIND_OPTIONS,
   ESTABLISHMENT_KIND_PRESETS,
   establishmentKindEmoji,
+  establishmentVisualFromHex,
+  hexToRgba,
   inferEstablishmentKind,
   resolveEstablishmentColorHex,
 } from "@/app/lib/establishment-visual";
@@ -103,15 +105,23 @@ export default function SettingsEstablishmentsPanel({
           </div>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {uniqueActiveKinds.map((k) => (
-              <span
-                key={k.value}
-                className="inline-flex items-center gap-1.5 rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-sm font-semibold text-[var(--dash-ink)] shadow-sm backdrop-blur"
-              >
-                <span aria-hidden>{establishmentKindEmoji(k.value)}</span>
-                {k.label}
-              </span>
-            ))}
+            {uniqueActiveKinds.map((k) => {
+              const visual = establishmentVisualFromHex(DEFAULT_ESTABLISHMENT_KIND_COLORS[k.value]);
+              return (
+                <span
+                  key={k.value}
+                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold shadow-sm backdrop-blur"
+                  style={{
+                    backgroundColor: visual.washBg,
+                    borderColor: visual.borderColor,
+                    color: visual.textColor,
+                  }}
+                >
+                  <span aria-hidden>{establishmentKindEmoji(k.value)}</span>
+                  {k.label}
+                </span>
+              );
+            })}
           </div>
         )}
         <p className={`text-[11px] ${dash.textMid}`}>
@@ -123,30 +133,35 @@ export default function SettingsEstablishmentsPanel({
       {establishments.map((est, idx) => {
         const kind = inferEstablishmentKind(est);
         const color = resolveEstablishmentColorHex(est);
+        const visual = establishmentVisualFromHex(color);
         return (
           <motion.article
             key={est.id || idx}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.04 * idx, ease: [0.22, 1, 0.36, 1] }}
-            className="relative overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/55 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
+            className="relative overflow-hidden rounded-[1.5rem] border shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
+            style={{
+              backgroundColor: hexToRgba(color, est.active ? 0.16 : 0.07),
+              borderColor: visual.borderColor,
+            }}
           >
             <div
-              className="absolute inset-y-0 left-0 w-1.5"
-              style={{ backgroundColor: color }}
+              className="pointer-events-none absolute -right-10 -top-12 h-44 w-44 rounded-full blur-3xl"
+              style={{ backgroundColor: visual.orbBg }}
               aria-hidden
             />
             <div
-              className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full blur-3xl"
-              style={{ backgroundColor: `${color}33` }}
+              className="pointer-events-none absolute -left-16 bottom-0 h-40 w-40 rounded-full blur-3xl"
+              style={{ backgroundColor: hexToRgba(color, 0.14) }}
               aria-hidden
             />
             <div className="relative space-y-4 p-5 sm:p-6">
               <header className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <span
-                    className="flex h-12 w-12 items-center justify-center rounded-2xl text-xl shadow-sm ring-1 ring-white/80"
-                    style={{ backgroundColor: `${color}22`, color }}
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl text-xl shadow-sm ring-1 ring-white/70"
+                    style={{ backgroundColor: visual.badgeBg, color: visual.textColor }}
                     aria-hidden
                   >
                     {establishmentKindEmoji(kind)}
@@ -361,24 +376,34 @@ export default function SettingsEstablishmentsPanel({
 
       <SettingsSection icon="➕" title="Ajouter un établissement">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {ESTABLISHMENT_KIND_PRESETS.map((p) => (
-            <button
-              key={p.kind}
-              type="button"
-              className="flex flex-col items-center gap-2 rounded-2xl border border-white/70 bg-white/45 px-3 py-4 text-center transition hover:-translate-y-0.5 hover:bg-white/80"
-              onClick={() => {
-                const ids = new Set(establishments.map((e) => e.id));
-                setEstablishments([...establishments, formFromPreset(p.kind, ids)]);
-              }}
-            >
-              <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/80 text-xl shadow-sm ring-1 ring-white/80">
-                {establishmentKindEmoji(p.kind)}
-              </span>
-              <span className={`text-sm font-semibold ${dash.ink}`}>
-                {p.kind === "custom" ? "Autre" : p.label}
-              </span>
-            </button>
-          ))}
+          {ESTABLISHMENT_KIND_PRESETS.map((p) => {
+            const visual = establishmentVisualFromHex(DEFAULT_ESTABLISHMENT_KIND_COLORS[p.kind]);
+            return (
+              <button
+                key={p.kind}
+                type="button"
+                className="flex flex-col items-center gap-2 rounded-2xl border px-3 py-4 text-center transition hover:-translate-y-0.5"
+                style={{
+                  backgroundColor: visual.washBg,
+                  borderColor: visual.borderColor,
+                }}
+                onClick={() => {
+                  const ids = new Set(establishments.map((e) => e.id));
+                  setEstablishments([...establishments, formFromPreset(p.kind, ids)]);
+                }}
+              >
+                <span
+                  className="flex h-11 w-11 items-center justify-center rounded-2xl text-xl shadow-sm ring-1 ring-white/70"
+                  style={{ backgroundColor: visual.badgeBg, color: visual.textColor }}
+                >
+                  {establishmentKindEmoji(p.kind)}
+                </span>
+                <span className="text-sm font-semibold" style={{ color: visual.textColor }}>
+                  {p.kind === "custom" ? "Autre" : p.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </SettingsSection>
 

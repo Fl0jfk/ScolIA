@@ -20,6 +20,7 @@ import {
   settingsPillClass,
 } from "@/app/components/settings/SettingsChrome";
 import { dash } from "@/app/lib/dashboard-brand";
+import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 import {
   listToLines,
   linesToList,
@@ -58,10 +59,6 @@ const SettingsRequestsRoutingPanel = dynamic(
   () => import("@/app/components/settings/SettingsRequestsRoutingPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
-const SettingsToolboxPanel = dynamic(
-  () => import("@/app/components/settings/SettingsToolboxPanel"),
-  { ssr: false, loading: () => <ModuleTabFallback /> },
-);
 const SchoolRosterPanel = dynamic(
   () => import("@/app/components/settings/SchoolRosterPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
@@ -84,7 +81,6 @@ const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
   { id: "notifications", label: "Notifications", icon: "✉️" },
   { id: "integrations", label: "Intégrations", icon: "🔌" },
   { id: "dashboard-links", label: "Raccourcis tableau de bord", icon: "🔗" },
-  { id: "toolbox", label: "Boîte à outils", icon: "🧰" },
 ];
 
 export default function ParametresPage() {
@@ -125,7 +121,6 @@ export default function ParametresPage() {
       t === "requests-routing" ||
       t === "travels" ||
       t === "integrations" ||
-      t === "toolbox" ||
       t === "dashboard-links" ||
       t === "utilisateurs" ||
       t === "membres"
@@ -226,7 +221,7 @@ export default function ParametresPage() {
   }, [isOrgAdmin]);
 
   useEffect(() => {
-    if (!isOrgAdmin || (tab !== "prof-room" && tab !== "requests-routing" && tab !== "establishments")) return;
+    if (!isOrgAdmin || (tab !== "prof-room" && tab !== "requests-routing" && tab !== "establishments" && tab !== "notifications")) return;
     let cancelled = false;
     (async () => {
       setMembersLoading(true);
@@ -252,9 +247,22 @@ export default function ParametresPage() {
     return new Set(
       establishments
         .filter((e) => e.active)
-        .map((e) => (e.kind || e.id).toLowerCase())
-        .filter((k) => k === "ecole" || k === "college" || k === "lycee"),
+        .map((e) => inferEstablishmentKind(e))
+        .filter((k): k is "ecole" | "college" | "lycee" => k === "ecole" || k === "college" || k === "lycee"),
     );
+  }, [establishments]);
+
+  const activeCycleLabels = useMemo(() => {
+    const labels: Partial<Record<"ecole" | "college" | "lycee", string[]>> = {};
+    for (const e of establishments) {
+      if (!e.active) continue;
+      const kind = inferEstablishmentKind(e);
+      if (kind !== "ecole" && kind !== "college" && kind !== "lycee") continue;
+      const list = labels[kind] ?? [];
+      if (e.label.trim()) list.push(e.label.trim());
+      labels[kind] = list;
+    }
+    return labels;
   }, [establishments]);
 
   const uploadHeaderLogo = async (file: File) => {
@@ -561,6 +569,8 @@ export default function ParametresPage() {
             notifications={notifications}
             setNotifications={setNotifications}
             activeEstablishmentKinds={activeEstablishmentKinds}
+            clerkMembers={clerkMembers}
+            membersLoading={membersLoading}
             saving={saving}
             saveSection={saveSection}
           />
@@ -582,6 +592,7 @@ export default function ParametresPage() {
             saving={saving}
             saveSection={saveSection}
             activeEstablishmentKinds={activeEstablishmentKinds}
+            activeCycleLabels={activeCycleLabels}
           />
         )}
 
@@ -628,8 +639,6 @@ export default function ParametresPage() {
         {tab === "dashboard-links" && <DashboardQuickLinksPanel />}
 
         {tab === "utilisateurs" && <MembresPanel />}
-
-        {tab === "toolbox" && <SettingsToolboxPanel />}
         </div>
       </ModulePageShell>
     </RequireOrgAdmin>

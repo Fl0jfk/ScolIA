@@ -7,7 +7,6 @@ export type Tab =
   | "requests-routing"
   | "travels"
   | "integrations"
-  | "toolbox"
   | "referentiel"
   | "dashboard-links"
   | "utilisateurs";

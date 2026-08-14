@@ -2,283 +2,271 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
-import { SettingsSection, settingsInputClass } from "@/app/components/settings/SettingsChrome";
+import ClerkPersonSelect, {
+  ClerkPeopleSelect,
+  clerkMemberLabel,
+} from "@/app/components/settings/ClerkPersonSelect";
+import type { ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import { SettingsField, SettingsSection, settingsInputClass } from "@/app/components/settings/SettingsChrome";
+import { dash } from "@/app/lib/dashboard-brand";
+
+type NotifyPerson = { label?: string; email: string };
+
+function asNotify(value: unknown): NotifyPerson | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const email = String((value as { email?: string }).email || "").trim();
+  if (!email) return undefined;
+  return {
+    label: String((value as { label?: string }).label || "").trim() || undefined,
+    email,
+  };
+}
+
+function emailsOf(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((s) => String(s).trim()).filter(Boolean) : [];
+}
 
 export default function SettingsNotificationsPanel({
   notifications,
   setNotifications,
   activeEstablishmentKinds,
+  clerkMembers,
+  membersLoading,
   saving,
   saveSection,
 }: {
   notifications: Record<string, unknown>;
   setNotifications: Dispatch<SetStateAction<Record<string, unknown>>>;
   activeEstablishmentKinds: Set<string>;
+  clerkMembers: ClerkMemberOption[];
+  membersLoading: boolean;
   saving: boolean;
   saveSection: (section: string, body: unknown) => Promise<void>;
 }) {
+  const patch = (next: Record<string, unknown>) => setNotifications({ ...notifications, ...next });
+
+  const setPersonEmail = (key: string, member: ClerkMemberOption | null) => {
+    patch({ [key]: member?.email.trim() || undefined });
+  };
+
+  const setNotifyPerson = (key: string, member: ClerkMemberOption | null) => {
+    if (!member) {
+      patch({ [key]: undefined });
+      return;
+    }
+    patch({
+      [key]: { label: clerkMemberLabel(member), email: member.email.trim() },
+    });
+  };
+
+  const internat = (notifications.internatRollCallRecipients as Record<string, string> | undefined) || {};
+  const patchInternat = (field: string, member: ClerkMemberOption | null) => {
+    patch({
+      internatRollCallRecipients: {
+        ...internat,
+        [field]: member?.email.trim() || undefined,
+      },
+    });
+  };
+
+  const profEcole =
+    asNotify(notifications.absencesNotifyProfEcole);
+  const profCollege =
+    asNotify(notifications.absencesNotifyProfCollege) || asNotify(notifications.absencesNotifyProfCollegeLycee);
+  const profLycee =
+    asNotify(notifications.absencesNotifyProfLycee) || asNotify(notifications.absencesNotifyProfCollegeLycee);
+
+  const showInternat = activeEstablishmentKinds.has("college") || activeEstablishmentKinds.has("lycee");
+
   return (
-    <SettingsSection icon="✉️" title="Notifications" className="space-y-4">
-      <label className="block text-sm font-bold">Emails compta voyages (séparés par virgule)</label>
-      <input
-        className={settingsInputClass}
-        value={Array.isArray(notifications.travelsCompta) ? (notifications.travelsCompta as string[]).join(", ") : ""}
-        onChange={(e) =>
-          setNotifications({
-            ...notifications,
-            travelsCompta: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-          })
-        }
-      />
-      <label className="block text-sm font-bold">Email cuisine / restauration</label>
-      <input
-        className={settingsInputClass}
-        value={String(notifications.travelsCuisine || "")}
-        onChange={(e) => setNotifications({ ...notifications, travelsCuisine: e.target.value })}
-      />
-      <label className="block text-sm font-bold">Gestionnaire HSE (e-mail)</label>
-      <input
-        className={settingsInputClass}
-        value={String(notifications.hseOps || "")}
-        onChange={(e) => setNotifications({ ...notifications, hseOps: e.target.value })}
-      />
-      <label className="block text-sm font-bold">Gestionnaire photocopies couleur (e-mail)</label>
-      <input
-        className={settingsInputClass}
-        value={String(notifications.photocopiesOps || "")}
-        onChange={(e) => setNotifications({ ...notifications, photocopiesOps: e.target.value })}
-      />
-      <label className="block text-sm font-bold">Email Zeendoc / envoi PDF voyages</label>
-      <input
-        className={settingsInputClass}
-        value={String(notifications.travelsZeendoc || "")}
-        onChange={(e) => setNotifications({ ...notifications, travelsZeendoc: e.target.value })}
-      />
-      <hr className="border-slate-200" />
-      <p className="text-sm font-black text-slate-800">Absences — notifications après validation direction</p>
-      {activeEstablishmentKinds.has("ecole") && (
-        <>
-          <label className="block text-sm font-bold">Professeurs — école (nom)</label>
-          <input
-            className={`${settingsInputClass} mb-2`}
-            value={String((notifications.absencesNotifyProfEcole as { label?: string })?.label || "")}
-            onChange={(e) =>
-              setNotifications({
-                ...notifications,
-                absencesNotifyProfEcole: {
-                  ...((notifications.absencesNotifyProfEcole as object) || {}),
-                  label: e.target.value,
-                  email: String((notifications.absencesNotifyProfEcole as { email?: string })?.email || ""),
-                },
-              })
-            }
-          />
-          <label className="block text-sm font-bold">Professeurs — école (e-mail)</label>
-          <input
-            className={settingsInputClass}
-            type="email"
-            value={String((notifications.absencesNotifyProfEcole as { email?: string })?.email || "")}
-            onChange={(e) =>
-              setNotifications({
-                ...notifications,
-                absencesNotifyProfEcole: {
-                  label: String((notifications.absencesNotifyProfEcole as { label?: string })?.label || ""),
-                  email: e.target.value,
-                },
-              })
-            }
-          />
-        </>
-      )}
-      {activeEstablishmentKinds.has("college") && (
-        <>
-          <label className="block text-sm font-bold">Professeurs — collège (nom)</label>
-          <input
-            className={`${settingsInputClass} mb-2`}
-            value={String((notifications.absencesNotifyProfCollege as { label?: string })?.label || (notifications.absencesNotifyProfCollegeLycee as { label?: string })?.label || "")}
-            onChange={(e) =>
-              setNotifications({
-                ...notifications,
-                absencesNotifyProfCollege: {
-                  label: e.target.value,
-                  email: String((notifications.absencesNotifyProfCollege as { email?: string })?.email || (notifications.absencesNotifyProfCollegeLycee as { email?: string })?.email || ""),
-                },
-              })
-            }
-          />
-          <label className="block text-sm font-bold">Professeurs — collège (e-mail)</label>
-          <input
-            className={settingsInputClass}
-            type="email"
-            value={String((notifications.absencesNotifyProfCollege as { email?: string })?.email || (notifications.absencesNotifyProfCollegeLycee as { email?: string })?.email || "")}
-            onChange={(e) =>
-              setNotifications({
-                ...notifications,
-                absencesNotifyProfCollege: {
-                  label: String((notifications.absencesNotifyProfCollege as { label?: string })?.label || (notifications.absencesNotifyProfCollegeLycee as { label?: string })?.label || ""),
-                  email: e.target.value,
-                },
-              })
-            }
-          />
-        </>
-      )}
-      {activeEstablishmentKinds.has("lycee") && (
-        <>
-          <label className="block text-sm font-bold">Professeurs — lycée (nom)</label>
-          <input
-            className={`${settingsInputClass} mb-2`}
-            value={String((notifications.absencesNotifyProfLycee as { label?: string })?.label || (notifications.absencesNotifyProfCollegeLycee as { label?: string })?.label || "")}
-            onChange={(e) =>
-              setNotifications({
-                ...notifications,
-                absencesNotifyProfLycee: {
-                  label: e.target.value,
-                  email: String((notifications.absencesNotifyProfLycee as { email?: string })?.email || (notifications.absencesNotifyProfCollegeLycee as { email?: string })?.email || ""),
-                },
-              })
-            }
-          />
-          <label className="block text-sm font-bold">Professeurs — lycée (e-mail)</label>
-          <input
-            className={settingsInputClass}
-            type="email"
-            value={String((notifications.absencesNotifyProfLycee as { email?: string })?.email || (notifications.absencesNotifyProfCollegeLycee as { email?: string })?.email || "")}
-            onChange={(e) =>
-              setNotifications({
-                ...notifications,
-                absencesNotifyProfLycee: {
-                  label: String((notifications.absencesNotifyProfLycee as { label?: string })?.label || (notifications.absencesNotifyProfCollegeLycee as { label?: string })?.label || ""),
-                  email: e.target.value,
-                },
-              })
-            }
-          />
-        </>
-      )}
-      <label className="block text-sm font-bold">Personnel OGEC, administratif & RH (e-mails séparés par virgule)</label>
-      <input
-        className={settingsInputClass}
-        value={
-          Array.isArray(notifications.absencesNotifyOgecCompta)
-            ? (notifications.absencesNotifyOgecCompta as string[]).join(", ")
-            : ""
-        }
-        onChange={(e) =>
-          setNotifications({
-            ...notifications,
-            absencesNotifyOgecCompta: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-          })
-        }
-      />
-      <hr className="border-slate-200" />
-      <p className="text-sm font-black text-slate-800">Internat — appel du soir (validation)</p>
-      <label className="block text-sm font-bold">Qui reçoit l&apos;appel ? (e-mail)</label>
-      <input
-        className={settingsInputClass}
-        value={String(
-          (notifications.internatRollCallRecipients as { appelContact?: string; directionLycee?: string })?.appelContact ||
-            (notifications.internatRollCallRecipients as { directionLycee?: string })?.directionLycee ||
-            "",
-        )}
-        onChange={(e) =>
-          setNotifications({
-            ...notifications,
-            internatRollCallRecipients: {
-              ...((notifications.internatRollCallRecipients as object) || {}),
-              appelContact: e.target.value,
-            },
-          })
-        }
-      />
-      <label className="block text-sm font-bold">CPE lycée (optionnel)</label>
-      <input
-        className={settingsInputClass}
-        value={String((notifications.internatRollCallRecipients as { cpeLycee?: string })?.cpeLycee || "")}
-        onChange={(e) =>
-          setNotifications({
-            ...notifications,
-            internatRollCallRecipients: {
-              ...((notifications.internatRollCallRecipients as object) || {}),
-              cpeLycee: e.target.value,
-            },
-          })
-        }
-      />
-      <label className="block text-sm font-bold">CPE collège (optionnel)</label>
-      <input
-        className={settingsInputClass}
-        value={String((notifications.internatRollCallRecipients as { cpeCollege?: string })?.cpeCollege || "")}
-        onChange={(e) =>
-          setNotifications({
-            ...notifications,
-            internatRollCallRecipients: {
-              ...((notifications.internatRollCallRecipients as object) || {}),
-              cpeCollege: e.target.value,
-            },
-          })
-        }
-      />
-      <label className="block text-sm font-bold">Internat — alertes urgence (emails séparés par virgule)</label>
-      <input
-        className={settingsInputClass}
-        value={
-          Array.isArray(notifications.internatEmergencyRecipients)
-            ? (notifications.internatEmergencyRecipients as string[]).join(", ")
-            : ""
-        }
-        onChange={(e) =>
-          setNotifications({
-            ...notifications,
-            internatEmergencyRecipients: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-          })
-        }
-      />
-      <label className="block text-sm font-bold">Stages — e-mails administratif (séparés par virgule)</label>
-      <input
-        className={settingsInputClass}
-        value={
-          Array.isArray(notifications.stagesAdminEmails)
-            ? (notifications.stagesAdminEmails as string[]).join(", ")
-            : ""
-        }
-        onChange={(e) =>
-          setNotifications({
-            ...notifications,
-            stagesAdminEmails: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-          })
-        }
-      />
-      <label className="block text-sm font-bold">Stages — e-mail direction (signature)</label>
-      <input
-        className={settingsInputClass}
-        type="email"
-        value={String(notifications.stagesDirectionEmail || "")}
-        onChange={(e) =>
-          setNotifications({ ...notifications, stagesDirectionEmail: e.target.value.trim() })
-        }
-        placeholder="directeur@… (sinon e-mail directeur par établissement)"
-      />
-      <label className="block text-sm font-bold">Stages — modèle convention vierge (URL PDF)</label>
-      <input
-        className={settingsInputClass}
-        type="url"
-        value={String(notifications.stagesConventionTemplateUrl || "")}
-        onChange={(e) =>
-          setNotifications({ ...notifications, stagesConventionTemplateUrl: e.target.value.trim() })
-        }
-        placeholder="https://…/convention-stage-vierge.pdf"
-      />
-      <p className="text-xs text-slate-500">
-        PDF remplissable (Adobe) hébergé sur S3 ou autre — lien affiché sur /stages/deposer.
-      </p>
-      <ModuleButton
-        variant="primary"
-        disabled={saving}
-        onClick={() => saveSection("notifications", notifications)}
+    <div className="space-y-4">
+      <SettingsSection
+        icon="✉️"
+        title="Destinataires"
+        description="Choisissez les personnes dans le personnel : l’e-mail principal Clerk est utilisé pour les notifications."
       >
-        Enregistrer les notifications
-      </ModuleButton>
-    </SettingsSection>
+        <p className={`text-xs ${dash.textMid}`}>
+          Plus besoin de saisir un nom ou une adresse à la main.
+        </p>
+      </SettingsSection>
+
+      <SettingsSection icon="🚌" title="Voyages">
+        <SettingsField label="Comptabilité" hint="Une ou plusieurs personnes." as="div">
+          <ClerkPeopleSelect
+            members={clerkMembers}
+            loading={membersLoading}
+            selectedEmails={emailsOf(notifications.travelsCompta)}
+            onChange={(emails) => patch({ travelsCompta: emails })}
+          />
+        </SettingsField>
+        <SettingsField label="Cuisine / restauration" as="div">
+          <ClerkPersonSelect
+            members={clerkMembers}
+            loading={membersLoading}
+            selectedEmail={String(notifications.travelsCuisine || "")}
+            onChange={(member) => setPersonEmail("travelsCuisine", member)}
+          />
+        </SettingsField>
+        <SettingsField label="Zeendoc / envoi PDF" as="div">
+          <ClerkPersonSelect
+            members={clerkMembers}
+            loading={membersLoading}
+            selectedEmail={String(notifications.travelsZeendoc || "")}
+            onChange={(member) => setPersonEmail("travelsZeendoc", member)}
+          />
+        </SettingsField>
+      </SettingsSection>
+
+      <SettingsSection icon="🛡️" title="HSE et photocopies">
+        <SettingsField label="Gestionnaire HSE" as="div">
+          <ClerkPersonSelect
+            members={clerkMembers}
+            loading={membersLoading}
+            selectedEmail={String(notifications.hseOps || "")}
+            onChange={(member) => setPersonEmail("hseOps", member)}
+          />
+        </SettingsField>
+        <SettingsField label="Gestionnaire photocopies couleur" as="div">
+          <ClerkPersonSelect
+            members={clerkMembers}
+            loading={membersLoading}
+            selectedEmail={String(notifications.photocopiesOps || "")}
+            onChange={(member) => setPersonEmail("photocopiesOps", member)}
+          />
+        </SettingsField>
+      </SettingsSection>
+
+      <SettingsSection
+        icon="🗓️"
+        title="Absences"
+        description="Notifications après validation direction."
+      >
+        {activeEstablishmentKinds.has("ecole") ? (
+          <SettingsField label="Professeurs — école" as="div">
+            <ClerkPersonSelect
+              members={clerkMembers}
+              loading={membersLoading}
+              selectedEmail={profEcole?.email}
+              onChange={(member) => setNotifyPerson("absencesNotifyProfEcole", member)}
+            />
+          </SettingsField>
+        ) : null}
+        {activeEstablishmentKinds.has("college") ? (
+          <SettingsField label="Professeurs — collège" as="div">
+            <ClerkPersonSelect
+              members={clerkMembers}
+              loading={membersLoading}
+              selectedEmail={profCollege?.email}
+              onChange={(member) => setNotifyPerson("absencesNotifyProfCollege", member)}
+            />
+          </SettingsField>
+        ) : null}
+        {activeEstablishmentKinds.has("lycee") ? (
+          <SettingsField label="Professeurs — lycée" as="div">
+            <ClerkPersonSelect
+              members={clerkMembers}
+              loading={membersLoading}
+              selectedEmail={profLycee?.email}
+              onChange={(member) => setNotifyPerson("absencesNotifyProfLycee", member)}
+            />
+          </SettingsField>
+        ) : null}
+        <SettingsField label="Personnel OGEC, administratif & RH" as="div">
+          <ClerkPeopleSelect
+            members={clerkMembers}
+            loading={membersLoading}
+            selectedEmails={emailsOf(notifications.absencesNotifyOgecCompta)}
+            onChange={(emails) => patch({ absencesNotifyOgecCompta: emails })}
+          />
+        </SettingsField>
+      </SettingsSection>
+
+      {showInternat ? (
+        <SettingsSection icon="🌙" title="Internat" description="Appel du soir et alertes urgence.">
+          <SettingsField label="Qui reçoit l’appel ?" as="div">
+            <ClerkPersonSelect
+              members={clerkMembers}
+              loading={membersLoading}
+              selectedEmail={internat.appelContact || internat.directionLycee || ""}
+              onChange={(member) => patchInternat("appelContact", member)}
+            />
+          </SettingsField>
+          {activeEstablishmentKinds.has("lycee") ? (
+            <SettingsField label="CPE lycée (optionnel)" as="div">
+              <ClerkPersonSelect
+                members={clerkMembers}
+                loading={membersLoading}
+                selectedEmail={internat.cpeLycee || ""}
+                onChange={(member) => patchInternat("cpeLycee", member)}
+              />
+            </SettingsField>
+          ) : null}
+          {activeEstablishmentKinds.has("college") ? (
+            <SettingsField label="CPE collège (optionnel)" as="div">
+              <ClerkPersonSelect
+                members={clerkMembers}
+                loading={membersLoading}
+                selectedEmail={internat.cpeCollege || ""}
+                onChange={(member) => patchInternat("cpeCollege", member)}
+              />
+            </SettingsField>
+          ) : null}
+          <SettingsField label="Alertes urgence" as="div">
+            <ClerkPeopleSelect
+              members={clerkMembers}
+              loading={membersLoading}
+              selectedEmails={emailsOf(notifications.internatEmergencyRecipients)}
+              onChange={(emails) => patch({ internatEmergencyRecipients: emails })}
+            />
+          </SettingsField>
+        </SettingsSection>
+      ) : null}
+
+      <SettingsSection icon="📄" title="Stages">
+        <SettingsField label="Administratif" as="div">
+          <ClerkPeopleSelect
+            members={clerkMembers}
+            loading={membersLoading}
+            selectedEmails={emailsOf(notifications.stagesAdminEmails)}
+            onChange={(emails) => patch({ stagesAdminEmails: emails })}
+          />
+        </SettingsField>
+        <SettingsField
+          label="Direction (signature)"
+          hint="Sinon, e-mail du directeur de l’établissement de l’élève."
+          as="div"
+        >
+          <ClerkPersonSelect
+            members={clerkMembers}
+            loading={membersLoading}
+            selectedEmail={String(notifications.stagesDirectionEmail || "")}
+            onChange={(member) => setPersonEmail("stagesDirectionEmail", member)}
+          />
+        </SettingsField>
+        <SettingsField label="Modèle de convention vierge (URL PDF)">
+          <input
+            className={settingsInputClass}
+            type="url"
+            value={String(notifications.stagesConventionTemplateUrl || "")}
+            onChange={(e) => patch({ stagesConventionTemplateUrl: e.target.value.trim() })}
+            placeholder="https://…/convention-stage-vierge.pdf"
+          />
+        </SettingsField>
+        <p className={`text-xs ${dash.textMid}`}>
+          PDF remplissable (Adobe) hébergé sur S3 ou autre — lien affiché sur /stages/deposer.
+        </p>
+      </SettingsSection>
+
+      <div className="flex justify-end">
+        <ModuleButton
+          variant="primary"
+          disabled={saving}
+          className="rounded-2xl px-5 shadow-[0_12px_28px_-16px_rgba(15,23,42,0.55)]"
+          onClick={() => saveSection("notifications", notifications)}
+        >
+          {saving ? "Enregistrement…" : "Enregistrer les notifications"}
+        </ModuleButton>
+      </div>
+    </div>
   );
 }
