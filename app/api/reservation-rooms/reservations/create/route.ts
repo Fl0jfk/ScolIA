@@ -1,8 +1,10 @@
 import { NextResponse, NextRequest } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { isProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
+import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { isListedProfRoomAdmin, isProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { loadAppConfig } from "@/app/lib/app-config";
+import { reservationWhoLabel } from "@/app/lib/prof-room-reservation-label";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
@@ -39,8 +41,8 @@ export async function POST(req: NextRequest) {
       comment,
       recurrence,
       untilDate,
-      firstName,
-      lastName,
+      firstName: firstNameBody,
+      lastName: lastNameBody,
       email,
     } = body;
 
@@ -59,6 +61,19 @@ export async function POST(req: NextRequest) {
     const newReservationsAdded: any[] = [];
     const conflictLabels: string[] = [];
     let skippedBeyondHorizon = 0;
+    const clerkUser = await safeCurrentUser();
+    const canBookForOther = await isListedProfRoomAdmin();
+    const bookedByFirstName = String(clerkUser?.firstName || "").trim();
+    const bookedByLastName = String(clerkUser?.lastName || "").trim().toUpperCase();
+    const requestedFirst = String(firstNameBody || "").trim();
+    const requestedLast = String(lastNameBody || "").trim().toUpperCase();
+    const bookedForOther =
+      canBookForOther &&
+      Boolean(requestedFirst && requestedLast) &&
+      (`${requestedFirst} ${requestedLast}`.trim().toLowerCase() !==
+        `${bookedByFirstName} ${bookedByLastName}`.trim().toLowerCase());
+    const firstName = bookedForOther ? requestedFirst : bookedByFirstName;
+    const lastName = bookedForOther ? requestedLast : bookedByLastName;
     const isAdmin = await isProfRoomModuleAdmin();
     const limitDate = new Date();
     limitDate.setHours(23, 59, 59, 999);
@@ -88,7 +103,7 @@ export async function POST(req: NextRequest) {
             String(r.endsAt).substring(0, 19) > startsAt,
         );
         if (conflict) {
-          const who = [conflict.firstName, conflict.lastName].filter(Boolean).join(" ").trim();
+          const who = reservationWhoLabel(conflict);
           const subj = conflict.subject ? ` — ${conflict.subject}` : "";
           conflictLabels.push(
             `${slotLabel(startsAt)} déjà pris${who ? ` (${who}${subj})` : subj}`,
@@ -101,6 +116,9 @@ export async function POST(req: NextRequest) {
             userId,
             firstName,
             lastName,
+            bookedByFirstName,
+            bookedByLastName,
+            bookedForOther,
             email,
             subject,
             className,
@@ -186,6 +204,9 @@ export async function POST(req: NextRequest) {
               <p>Vos créneaux ont été enregistrés pour la salle <strong>${roomId}</strong> :</p>
               <ul>${datesList}</ul>
               <p>Matière : ${subject} (${className})</p>
+              <p>Réservé par : <strong>${bookedByFirstName} ${bookedByLastName}</strong>${
+                bookedForOther ? ` pour <strong>${firstName} ${lastName}</strong>` : ""
+              }</p>
             </div>
           </div>
         `,

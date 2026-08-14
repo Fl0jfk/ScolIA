@@ -14,6 +14,11 @@ import ProfRoomGlassCard from "@/app/components/prof-room/ProfRoomGlassCard";
 import ProfRoomSettingsTab from "@/app/components/prof-room/ProfRoomSettingsTab";
 import { DEFAULT_PROF_ROOM_SUBJECT_COLORS } from "@/app/lib/prof-room-defaults";
 import { getSubjectColorPresentation } from "@/app/lib/prof-room-subject-colors";
+import {
+  isReservationBookedForOther,
+  reservationWhoCompact,
+  reservationWhoLabel,
+} from "@/app/lib/prof-room-reservation-label";
 import { dash } from "@/app/lib/dashboard-brand";
 
 const FALLBACK_CLASSES: Record<string, string[]> = {
@@ -57,6 +62,7 @@ function ProfRoomPageContent() {
   const [updateAllSeries, setUpdateAllSeries] = useState(false);
   const [targetFirstName, setTargetFirstName] = useState("");
   const [targetLastName, setTargetLastName] = useState("");
+  const [bookForOther, setBookForOther] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<"reservation" | "settings">("reservation");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,6 +77,7 @@ function ProfRoomPageContent() {
   const isModuleListedAdmin = user?.id ? adminClerkUserIds.includes(user.id) : false;
   const canAccessSettings = isGlobalAdmin || isModuleListedAdmin;
   const isAdmin = canAccessSettings;
+  const canBookForOthers = isModuleListedAdmin;
   const todayStr = new Date().toISOString().split("T")[0];
   const maxDateLimit = new Date();
   maxDateLimit.setDate(maxDateLimit.getDate() + (appCtx?.profRoom?.bookingHorizonDays ?? 56));
@@ -148,10 +155,21 @@ function ProfRoomPageContent() {
     setLevel("");
     setClassName("");
     setComment("");
+    setBookForOther(false);
     requestAnimationFrame(() => {
       document.getElementById("form-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }, [searchParams, todayStr]);
+
+  const clerkFirstName = user?.firstName || "";
+  const clerkLastName = (user?.lastName || "").toUpperCase();
+  useEffect(() => {
+    if (!clerkFirstName && !clerkLastName) return;
+    if (isEditing || bookForOther) return;
+    setTargetFirstName(clerkFirstName);
+    setTargetLastName(clerkLastName);
+  }, [clerkFirstName, clerkLastName, isEditing, bookForOther]);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleCellClick = (dateStr: string, hour: number, resExist?: any) => {
     setUpdateAllSeries(false);
@@ -169,6 +187,7 @@ function ProfRoomPageContent() {
         setComment(resExist.comment || "");
         setTargetFirstName(resExist.firstName);
         setTargetLastName(resExist.lastName);
+        setBookForOther(canBookForOthers && isReservationBookedForOther(resExist));
         document.getElementById("form-section")?.scrollIntoView({ behavior: "smooth" });
       }
     } else {
@@ -178,6 +197,7 @@ function ProfRoomPageContent() {
       setSelectedHours([hour]);
       setTargetFirstName(user?.firstName || "");
       setTargetLastName(lastName);
+      setBookForOther(false);
       document.getElementById("form-section")?.scrollIntoView({ behavior: "smooth" });
     }
   };
@@ -202,12 +222,17 @@ function ProfRoomPageContent() {
     setComment(clipboard.comment || "");
     setTargetFirstName(user?.firstName || "");
     setTargetLastName(lastName);
+    setBookForOther(false);
     setContextMenu(null);
     document.getElementById("form-section")?.scrollIntoView({ behavior: "smooth" });
   };
   async function handleConfirm() {
     if (!selectedRoom || !selectedDate || selectedHours.length === 0 || !subject || !className) {
       alert("Veuillez remplir tous les champs obligatoires.");
+      return;
+    }
+    if (canBookForOthers && bookForOther && (!targetFirstName.trim() || !targetLastName.trim())) {
+      alert("Indiquez le prénom et le nom de la personne pour qui vous réservez.");
       return;
     }
     const endpoint = isEditing
@@ -226,8 +251,8 @@ function ProfRoomPageContent() {
       recurrence,
       untilDate,
       updateAllSeries,
-      firstName: isAdmin ? targetFirstName : user?.firstName,
-      lastName: isAdmin ? targetLastName.toUpperCase() : lastName,
+      firstName: canBookForOthers && bookForOther ? targetFirstName : user?.firstName,
+      lastName: canBookForOthers && bookForOther ? targetLastName.toUpperCase() : lastName,
       email: userEmail,
     };
 
@@ -600,7 +625,9 @@ function ProfRoomPageContent() {
                                   ) : null}
                                 </div>
                                 <div className="mt-1 flex items-end justify-between">
-                                  <span className="font-semibold uppercase opacity-80">{res.lastName}</span>
+                                  <span className="line-clamp-2 font-semibold uppercase leading-tight opacity-80">
+                                    {reservationWhoCompact(res)}
+                                  </span>
                                   {canModify ? <span className="text-[10px] sm:hidden">✎</span> : null}
                                 </div>
                               </div>
@@ -613,7 +640,7 @@ function ProfRoomPageContent() {
                                   {res.subject} - {res.className}
                                 </p>
                                 <p className={`mb-3 text-sm font-semibold ${dash.ink}`}>
-                                  Par : {res.firstName} {res.lastName}
+                                  Par : {reservationWhoLabel(res)}
                                 </p>
                                 {res.comment ? (
                                   <div className={`rounded-lg border p-3 ${dash.borderSoft} ${dash.bgSoft50}`}>
@@ -674,6 +701,11 @@ function ProfRoomPageContent() {
                         <span className={`block ${dash.textMid}`}>
                           📚 {res.subject} ({res.className})
                         </span>
+                        {isReservationBookedForOther(res) ? (
+                          <span className="mt-1 block truncate opacity-80">
+                            {reservationWhoCompact(res)}
+                          </span>
+                        ) : null}
                       </div>
                     </button>
                   ))}
@@ -706,7 +738,24 @@ function ProfRoomPageContent() {
                   <label className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
                     Professeur & cours
                   </label>
-                  {isAdmin ? (
+                  <div className={`rounded-xl border bg-white/70 p-4 text-sm font-semibold ${dash.borderSoft}`}>
+                    <p className={`mb-1 text-[10px] uppercase tracking-wide ${dash.textMid}`}>Identité Clerk :</p>
+                    <span className={dash.textPrimary}>
+                      {user.firstName} {lastName}
+                    </span>
+                  </div>
+                  {canBookForOthers ? (
+                    <label className={`flex cursor-pointer items-center gap-2 text-sm font-semibold ${dash.ink}`}>
+                      <input
+                        type="checkbox"
+                        checked={bookForOther}
+                        onChange={(e) => setBookForOther(e.target.checked)}
+                        className="rounded border-slate-300"
+                      />
+                      Réserver pour une autre personne
+                    </label>
+                  ) : null}
+                  {canBookForOthers && bookForOther ? (
                     <div className="flex gap-2">
                       <input
                         type="text"
@@ -723,14 +772,7 @@ function ProfRoomPageContent() {
                         className={`${fieldClass} flex-1`}
                       />
                     </div>
-                  ) : (
-                    <div className={`rounded-xl border bg-white/70 p-4 text-sm font-semibold ${dash.borderSoft}`}>
-                      <p className={`mb-1 text-[10px] uppercase tracking-wide ${dash.textMid}`}>Identité Clerk :</p>
-                      <span className={dash.textPrimary}>
-                        {user.firstName} {lastName}
-                      </span>
-                    </div>
-                  )}
+                  ) : null}
                   <select value={subject} onChange={(e) => setSubject(e.target.value)} className={`${fieldClass} cursor-pointer`}>
                     <option value="">-- MATIÈRE --</option>
                     {Object.keys(SUBJECT_COLORS).map((s) => (

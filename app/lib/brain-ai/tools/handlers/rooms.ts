@@ -1,6 +1,7 @@
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import { loadAppConfig } from "@/app/lib/app-config";
-import { isProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
+import { isListedProfRoomAdmin, isProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
+import { reservationWhoLabel } from "@/app/lib/prof-room-reservation-label";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   choicesResult,
@@ -174,7 +175,7 @@ export async function handleCheckAvailability(
         String(r.endsAt).substring(0, 19) > startsAt,
     );
     if (conflict) {
-      const who = [conflict.firstName, conflict.lastName].filter(Boolean).join(" ").trim();
+      const who = reservationWhoLabel(conflict);
       conflicts.push(`${hour}h30${who ? ` (${who})` : ""}`);
     } else {
       free.push(hour);
@@ -206,8 +207,18 @@ export async function handleCreateReservation(
   const recurrence =
     recurrenceRaw === "weekly" || recurrenceRaw === "biweekly" ? recurrenceRaw : "none";
   const untilDate = String(args.untilDate || "").trim() || undefined;
-  const firstName = String(args.firstName || ctx.firstName || "").trim() || undefined;
-  const lastName = String(args.lastName || ctx.lastName || "").trim() || undefined;
+  const bookedByFirstName = String(ctx.firstName || "").trim() || undefined;
+  const bookedByLastName = String(ctx.lastName || "").trim().toUpperCase() || undefined;
+  const canBookForOther = await isListedProfRoomAdmin();
+  const requestedFirst = String(args.firstName || "").trim() || undefined;
+  const requestedLast = String(args.lastName || "").trim().toUpperCase() || undefined;
+  const bookedForOther =
+    canBookForOther &&
+    Boolean(requestedFirst && requestedLast) &&
+    `${requestedFirst} ${requestedLast}`.trim().toLowerCase() !==
+      `${bookedByFirstName || ""} ${bookedByLastName || ""}`.trim().toLowerCase();
+  const firstName = bookedForOther ? requestedFirst : bookedByFirstName;
+  const lastName = bookedForOther ? requestedLast : bookedByLastName;
   const email = String(args.email || ctx.email || "").trim() || undefined;
 
   const hasSubjects = catalog.subjects.length > 0;
@@ -485,7 +496,7 @@ export async function handleCreateReservation(
           String(r.endsAt).substring(0, 19) > startsAt,
       );
       if (conflict) {
-        const who = [conflict.firstName, conflict.lastName].filter(Boolean).join(" ").trim();
+        const who = reservationWhoLabel(conflict);
         conflictLabels.push(`${dateStr} ${hour}h30${who ? ` (${who})` : ""}`);
       } else {
         const resObj: ReservationRow = {
@@ -495,6 +506,9 @@ export async function handleCreateReservation(
           userId: ctx.userId,
           firstName,
           lastName,
+          bookedByFirstName,
+          bookedByLastName,
+          bookedForOther,
           email,
           subject,
           className,

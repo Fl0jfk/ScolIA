@@ -8,14 +8,17 @@ export function normalizeProfRoomAdminClerkIds(ids: unknown[]): string[] {
   return [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
 }
 
-export async function isProfRoomModuleAdmin(): Promise<boolean> {
-  if (await isIntranetAdmin()) return true;
+export async function isListedProfRoomAdmin(): Promise<boolean> {
   const user = await safeCurrentUser();
   if (!user) return false;
-
   const config = await loadAppConfig();
   const adminIds = config.profRoom.adminClerkUserIds || [];
   return adminIds.includes(user.id);
+}
+
+export async function isProfRoomModuleAdmin(): Promise<boolean> {
+  if (await isIntranetAdmin()) return true;
+  return isListedProfRoomAdmin();
 }
 
 export async function requireProfRoomModuleAdmin(): Promise<
