@@ -49,9 +49,15 @@ export function countBookingsBySlot(
 ): Record<string, number> {
   const out: Record<string, number> = {};
   for (const r of rows) {
+    if (!isConfirmedInstallationBooking(r)) continue;
     out[r.slotStart] = (out[r.slotStart] || 0) + 1;
   }
   return out;
+}
+
+/** Absent ou `confirmed` : occupe le créneau. `pending` n’occupe pas. */
+export function isConfirmedInstallationBooking(row: InternatInstallationBooking): boolean {
+  return row.status !== "pending";
 }
 
 export function buildPublicInstallationSlots(

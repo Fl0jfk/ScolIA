@@ -31,7 +31,7 @@ export default function InstallationClient() {
   const [honeypot, setHoneypot] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [doneLabel, setDoneLabel] = useState<string | null>(null);
+  const [awaitingEmail, setAwaitingEmail] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,9 +88,12 @@ export default function InstallationClient() {
           website: honeypot,
         }),
       });
-      const json = (await res.json()) as { error?: string; slotLabel?: string };
+      const json = (await res.json()) as {
+        error?: string;
+        needsEmailVerification?: boolean;
+      };
       if (!res.ok) throw new Error(json.error || "Inscription impossible.");
-      setDoneLabel(json.slotLabel || "votre créneau");
+      setAwaitingEmail(true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Erreur");
       void load();
@@ -107,15 +110,18 @@ export default function InstallationClient() {
     );
   }
 
-  if (doneLabel) {
+  if (awaitingEmail) {
     return (
       <div className="mx-auto max-w-lg px-4 py-16 text-center space-y-3">
-        <h1 className="text-2xl font-black text-slate-900">Rendez-vous confirmé</h1>
+        <h1 className="text-2xl font-black text-slate-900">Consultez votre boîte mail</h1>
         <p className="text-slate-600 text-sm">
-          Créneau : <strong>{doneLabel}</strong>
-        </p>
-        <p className="text-slate-500 text-sm">
-          Un e-mail de confirmation avec un fichier calendrier (.ics) vous a été envoyé.
+          Un lien de confirmation vient de vous être envoyé{parentEmail ? (
+            <>
+              {" "}
+              à <strong>{parentEmail}</strong>
+            </>
+          ) : null}
+          . Le créneau n’est réservé qu’après ce clic (lien valable 2 heures).
         </p>
       </div>
     );
@@ -252,7 +258,7 @@ export default function InstallationClient() {
             disabled={busy || !slotStart}
             className="w-full rounded-full bg-indigo-700 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-800 disabled:opacity-50"
           >
-            {busy ? "Inscription…" : "Confirmer le rendez-vous"}
+            {busy ? "Envoi…" : "Recevoir le lien de confirmation"}
           </button>
         </form>
       )}

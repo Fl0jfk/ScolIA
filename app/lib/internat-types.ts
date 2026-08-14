@@ -407,6 +407,10 @@ export type InternatInstallationBooking = {
   parentPhone: string;
   parentEmail: string;
   createdAt: string;
+  /** Absent = confirmé (rétrocompat des RDV déjà pris). */
+  status?: "pending" | "confirmed";
+  confirmToken?: string;
+  expiresAt?: string;
 };
 
 export type InternatInstallationPublicSlot = {

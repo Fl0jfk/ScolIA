@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { loadAppConfig } from "@/app/lib/app-config";
-import { buildCalendarEventIcs } from "@/app/lib/calendar-ics";
 import {
   addInstallationBooking,
   deleteInstallationBooking,
+  generateInstallationConfirmToken,
   getInstallationConfig,
+  INSTALLATION_PENDING_TTL_MS,
   listInstallationBookings,
 } from "@/app/lib/internat-installation-storage";
 import {
@@ -14,6 +15,7 @@ import {
 } from "@/app/lib/internat-installation-slots";
 import { escapeHtml } from "@/app/lib/escape-html";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
+import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
 
 /** 10 POST / IP / 10 min — même famille que chatbot / portail parents. */
@@ -36,8 +38,7 @@ export async function POST(req: Request) {
     if (honeypot) {
       return NextResponse.json({
         success: true,
-        bookingId: "ignored",
-        slotLabel: "votre créneau",
+        needsEmailVerification: true,
       });
     }
 
@@ -60,6 +61,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Créneau invalide." }, { status: 400 });
     }
 
+    const smtp = await getTenantSmtpConfig();
+    const transporter = await createTenantTransporter();
+    if (!smtp || !transporter) {
+      return NextResponse.json(
+        {
+          error:
+            "La confirmation par e-mail n’est pas configurée. Contactez l’établissement.",
+        },
+        { status: 503 },
+      );
+    }
+
     const config = await getInstallationConfig();
     if (!config.enabled) {
       return NextResponse.json(
@@ -76,68 +89,48 @@ export async function POST(req: Request) {
       );
     }
 
+    const confirmToken = generateInstallationConfirmToken();
     const entry = await addInstallationBooking({
       slotStart,
       studentFirstName,
       studentLastName,
       parentPhone,
       parentEmail,
+      status: "pending",
+      confirmToken,
+      expiresAt: new Date(Date.now() + INSTALLATION_PENDING_TTL_MS).toISOString(),
     });
 
-    // Recontrôle après écriture (course simple) : si surcharge, on annule.
-    const after = await listInstallationBookings();
-    const sameSlot = after.filter((b) => b.slotStart === slotStart);
-    if (sameSlot.length > config.maxFamiliesPerSlot) {
-      await deleteInstallationBooking(entry.id);
-      return NextResponse.json(
-        { error: "Ce créneau vient d’être complet. Choisissez un autre horaire." },
-        { status: 409 },
-      );
-    }
-
-    const parsed = parseInstallationSlotKey(slotStart)!;
-    const slotLabel = formatInstallationSlotFr(slotStart);
-    const ics = buildCalendarEventIcs({
-      title: `${config.title} — ${studentFirstName} ${studentLastName}`,
-      description: config.intro,
-      location: config.location,
-      startDate: parsed.date,
-      startTime: parsed.time,
-      durationMinutes: config.slotDurationMinutes,
-      uid: `internat-install-${entry.id}@scola`,
-      prodId: "-//Scola//Installation internat//FR",
-    });
-
-    const smtp = await getTenantSmtpConfig();
-    const transporter = await createTenantTransporter();
-    if (smtp && transporter) {
+    try {
       const bundle = await loadAppConfig();
       const school = bundle.identity.shortName || bundle.identity.name;
-      const studentLabel = escapeHtml(`${studentFirstName} ${studentLastName}`);
+      const slotLabel = formatInstallationSlotFr(slotStart);
+      const confirmUrl = await tenantAbsolutePath(
+        `/api/internat/installation/confirm?token=${encodeURIComponent(confirmToken)}`,
+      );
       await transporter.sendMail({
         from: `"${school}" <${smtp.user}>`,
         to: parentEmail,
-        subject: `Confirmation — ${config.title}`,
+        subject: `Confirmez votre rendez-vous — ${config.title}`,
         html: `
           <p>Bonjour,</p>
-          <p>Votre rendez-vous d’installation internat est confirmé pour
-          <strong>${studentLabel}</strong>.</p>
-          <p><strong>Créneau :</strong> ${escapeHtml(slotLabel)}<br/>
-          ${config.location ? `<strong>Lieu :</strong> ${escapeHtml(config.location)}<br/>` : ""}
-          <strong>Téléphone indiqué :</strong> ${escapeHtml(parentPhone)}</p>
-          <p>Ajoutez l’événement à votre agenda via le fichier joint (.ics).</p>
+          <p>Pour réserver le créneau d’installation internat de
+          <strong>${escapeHtml(`${studentFirstName} ${studentLastName}`)}</strong>
+          (${escapeHtml(slotLabel)}), cliquez sur ce lien (valable 2 heures) :</p>
+          <p><a href="${escapeHtml(confirmUrl)}">${escapeHtml(confirmUrl)}</a></p>
+          <p>Le créneau n’est réservé qu’après ce clic. Si vous n’êtes pas à l’origine de ce message, ignorez-le.</p>
         `,
-        attachments: [
-          {
-            filename: "installation-internat.ics",
-            content: ics,
-            contentType: "text/calendar",
-          },
-        ],
       });
+    } catch (e) {
+      console.error("[internat/installation] pending mail", e);
+      await deleteInstallationBooking(entry.id);
+      return NextResponse.json(
+        { error: "Impossible d’envoyer l’e-mail de confirmation. Réessayez plus tard." },
+        { status: 500 },
+      );
     }
 
-    return NextResponse.json({ success: true, bookingId: entry.id, slotLabel });
+    return NextResponse.json({ success: true, needsEmailVerification: true });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Inscription impossible." },

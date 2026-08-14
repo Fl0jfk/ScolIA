@@ -50,6 +50,7 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/api/internat/outings/decision(.*)",
   "/api/internat/installation/public",
   "/api/internat/installation/register",
+  "/api/internat/installation/confirm",
   "/stages/eleve(.*)",
   "/stages/deposer(.*)",
   "/stages/signer(.*)",

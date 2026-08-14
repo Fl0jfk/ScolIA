@@ -38,7 +38,7 @@ import {
   intranetRolesFromSessionClaims,
   publicMetadataFromSessionClaims,
 } from '@/app/lib/intranet-roles';
-import { contentSecurityPolicyHeaderValue, crossOriginOpenerPolicyHeaderValue } from '@/app/lib/content-security-policy';
+import { contentSecurityPolicyHeaderValue, contentSecurityPolicyReportOnlyHeaderValue, crossOriginOpenerPolicyHeaderValue } from '@/app/lib/content-security-policy';
 import { isTenantAccessBlocked } from '@/app/lib/tenant-billing-types';
 import { PROXY_PUBLIC_ROUTE_MATCHERS } from '@/app/lib/public-routes';
 
@@ -110,6 +110,10 @@ function withTenantHeaders(
     pathname?.startsWith("/documents/rentree/");
   if (!omitCsp) {
     response.headers.set("Content-Security-Policy", contentSecurityPolicyHeaderValue());
+    response.headers.set(
+      "Content-Security-Policy-Report-Only",
+      contentSecurityPolicyReportOnlyHeaderValue(),
+    );
     response.headers.set("Cross-Origin-Opener-Policy", crossOriginOpenerPolicyHeaderValue());
   }
   return response;

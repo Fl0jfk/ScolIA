@@ -1,11 +1,14 @@
 import "server-only";
 
+import { randomBytes } from "crypto";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   INTERNAT_S3,
   type InternatInstallationBooking,
   type InternatInstallationConfig,
 } from "@/app/lib/internat-types";
+
+export const INSTALLATION_PENDING_TTL_MS = 2 * 60 * 60 * 1000;
 
 export const DEFAULT_INSTALLATION_CONFIG: InternatInstallationConfig = {
   enabled: false,
@@ -75,7 +78,8 @@ export async function saveInstallationConfig(
 
 export async function listInstallationBookings(): Promise<InternatInstallationBooking[]> {
   const hit = await getJson<InternatInstallationBooking[]>(INTERNAT_S3.installationBookings);
-  return Array.isArray(hit?.data) ? hit.data : [];
+  const list = Array.isArray(hit?.data) ? hit.data : [];
+  return purgeExpiredPendingBookings(list);
 }
 
 export async function saveInstallationBookings(
@@ -84,7 +88,51 @@ export async function saveInstallationBookings(
   await putJson(INTERNAT_S3.installationBookings, rows);
 }
 
-export { countBookingsBySlot } from "@/app/lib/internat-installation-slots";
+export { countBookingsBySlot, isConfirmedInstallationBooking } from "@/app/lib/internat-installation-slots";
+
+export function generateInstallationConfirmToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+async function purgeExpiredPendingBookings(
+  list: InternatInstallationBooking[],
+): Promise<InternatInstallationBooking[]> {
+  const now = Date.now();
+  const next = list.filter((b) => {
+    if (b.status !== "pending") return true;
+    const exp = b.expiresAt ? Date.parse(b.expiresAt) : NaN;
+    return Number.isFinite(exp) && exp > now;
+  });
+  if (next.length !== list.length) await saveInstallationBookings(next);
+  return next;
+}
+
+export async function findInstallationBookingByConfirmToken(
+  token: string,
+): Promise<InternatInstallationBooking | null> {
+  const trimmed = token.trim();
+  if (!trimmed) return null;
+  const list = await listInstallationBookings();
+  return list.find((b) => b.confirmToken === trimmed) ?? null;
+}
+
+export async function markInstallationBookingConfirmed(
+  id: string,
+): Promise<InternatInstallationBooking | null> {
+  const list = await listInstallationBookings();
+  const idx = list.findIndex((b) => b.id === id);
+  if (idx < 0) return null;
+  const current = list[idx];
+  if (!current) return null;
+  const updated: InternatInstallationBooking = {
+    ...current,
+    status: "confirmed",
+    expiresAt: undefined,
+  };
+  list[idx] = updated;
+  await saveInstallationBookings(list);
+  return updated;
+}
 
 export async function addInstallationBooking(
   row: Omit<InternatInstallationBooking, "id" | "createdAt">,

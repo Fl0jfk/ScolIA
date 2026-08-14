@@ -6,7 +6,7 @@ import type {
   InternatInstallationConfig,
   InternatInstallationDay,
 } from "@/app/lib/internat-types";
-import { formatInstallationSlotFr } from "@/app/lib/internat-installation-slots";
+import { formatInstallationSlotFr, isConfirmedInstallationBooking } from "@/app/lib/internat-installation-slots";
 
 const emptyDay = (): InternatInstallationDay => ({
   date: "",
@@ -324,7 +324,11 @@ export default function InternatInstallationPanel({ canManage }: { canManage: bo
                   year: "numeric",
                 })}
                 <span className="ml-2 font-normal text-slate-500">
-                  ({rows.length} RDV)
+                  ({rows.filter((r) => isConfirmedInstallationBooking(r)).length} RDV
+                  {rows.some((r) => r.status === "pending")
+                    ? ` · ${rows.filter((r) => r.status === "pending").length} en attente`
+                    : ""}
+                  )
                 </span>
               </div>
               <ul className="divide-y divide-slate-100">
@@ -336,6 +340,11 @@ export default function InternatInstallationPanel({ canManage }: { canManage: bo
                     <div>
                       <p className="font-semibold text-slate-900">
                         {b.slotStart.slice(11)} — {b.studentFirstName} {b.studentLastName}
+                        {b.status === "pending" ? (
+                          <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                            En attente e-mail
+                          </span>
+                        ) : null}
                       </p>
                       <p className="text-xs text-slate-500">
                         {b.parentPhone} · {b.parentEmail}
