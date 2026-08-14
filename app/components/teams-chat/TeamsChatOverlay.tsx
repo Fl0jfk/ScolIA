@@ -331,19 +331,18 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
   };
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[128]">
+    <>
       {open ? (
         <div
-          className="pointer-events-auto absolute inset-0 bg-slate-900/20 lg:hidden"
+          className="fixed inset-0 z-[128] bg-slate-900/20 lg:hidden"
           onClick={() => setOpen(false)}
           aria-hidden
         />
       ) : null}
 
+      {open ? (
       <div
-        className={`pointer-events-auto absolute inset-0 flex h-[100dvh] flex-col overflow-hidden border-0 bg-white/90 backdrop-blur-2xl transition-all duration-200 lg:inset-auto lg:bottom-20 lg:right-[5.5rem] lg:h-[580px] lg:w-[min(92vw,400px)] lg:rounded-[1.5rem] lg:border lg:border-white/55 lg:bg-white/70 lg:shadow-[0_24px_60px_-28px_rgba(15,23,42,0.4)] ${
-          open ? "opacity-100 scale-100" : "pointer-events-none scale-95 opacity-0"
-        }`}
+        className="fixed inset-0 z-[128] flex h-[100dvh] flex-col overflow-hidden border-0 bg-white/90 backdrop-blur-2xl lg:inset-auto lg:bottom-20 lg:right-[5.5rem] lg:h-[580px] lg:w-[min(92vw,400px)] lg:rounded-[1.5rem] lg:border lg:border-white/55 lg:bg-white/70 lg:shadow-[0_24px_60px_-28px_rgba(15,23,42,0.4)]"
       >
         <div className="flex items-center gap-2 border-b border-slate-200/70 px-3 py-2.5">
           {activeChat ? (
@@ -499,8 +498,9 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
           </>
         )}
       </div>
+      ) : null}
 
-      <div className="pointer-events-auto fixed bottom-4 right-[5.25rem] z-[129] flex flex-col-reverse items-center gap-2">
+      <div className="fixed bottom-4 right-[5.25rem] z-[129] flex flex-col-reverse items-center gap-2">
         <button
           type="button"
           onClick={() => {
@@ -513,7 +513,7 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
           }}
           onDragLeave={() => setDragOverDock(false)}
           onDrop={onDropOnDock}
-          className={`flex h-14 w-14 items-center justify-center rounded-full border shadow-[0_14px_34px_rgba(49,46,129,0.35)] backdrop-blur-xl transition-all hover:scale-[1.04] active:scale-[0.97] ${
+          className={`flex h-14 w-14 cursor-pointer items-center justify-center rounded-full border shadow-[0_14px_34px_rgba(49,46,129,0.35)] backdrop-blur-xl transition-all hover:scale-[1.04] active:scale-[0.97] ${
             dragOverDock
               ? "border-indigo-200 bg-indigo-600"
               : "border-indigo-300/40 bg-indigo-950/80 hover:border-indigo-200/50"
@@ -554,6 +554,6 @@ export default function TeamsChatOverlay({ initialStatus }: Props) {
           </button>
         ) : null}
       </div>
-    </div>
+    </>
   );
 }

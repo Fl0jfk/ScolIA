@@ -207,15 +207,14 @@ export default function ChatbotBubbleBienEtre() {
   if (!isLoaded || !isSignedIn) return null;
 
   return (
-    <div className="fixed inset-0 z-[120] pointer-events-none">
+    <>
       {open ? (
-        <div className="absolute inset-0 bg-violet-950/25 pointer-events-auto md:hidden" onClick={() => setOpen(false)} aria-hidden="true" />
+        <div className="fixed inset-0 z-[120] bg-violet-950/25 md:hidden" onClick={() => setOpen(false)} aria-hidden="true" />
       ) : null}
+      {open && mounted ? (
       <div
         ref={panelRef}
-        className={`absolute inset-0 h-[100dvh] rounded-none border-0 md:inset-auto md:right-4 md:bottom-20 md:w-[min(92vw,390px)] md:h-[570px] md:rounded-[30px] md:border md:border-violet-200/60 bg-white/22 backdrop-blur-3xl md:shadow-[0_30px_80px_rgba(88,28,135,0.25)] overflow-hidden transition-all duration-200 pointer-events-auto ${
-          open && mounted ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-95 translate-y-2 pointer-events-none"
-        }`}
+        className="fixed inset-0 z-[120] h-[100dvh] overflow-hidden rounded-none border-0 bg-white/22 backdrop-blur-3xl md:inset-auto md:right-4 md:bottom-20 md:h-[570px] md:w-[min(92vw,390px)] md:rounded-[30px] md:border md:border-violet-200/60 md:shadow-[0_30px_80px_rgba(88,28,135,0.25)]"
       >
         <div className="relative h-full flex flex-col">
           <div className="px-4 py-3 pt-[max(12px,env(safe-area-inset-top))] bg-gradient-to-r from-violet-900 via-violet-800 to-violet-900 text-white flex items-center justify-between border-b border-violet-400/30">
@@ -303,6 +302,7 @@ export default function ChatbotBubbleBienEtre() {
           )}
         </div>
       </div>
+      ) : null}
 
       {modalOpen ? (
         <div className="fixed inset-0 z-[130] flex items-end sm:items-center justify-center bg-black/40 p-4 pointer-events-auto">
@@ -342,12 +342,12 @@ export default function ChatbotBubbleBienEtre() {
           ref={buttonRef}
           type="button"
           onClick={() => setOpen(true)}
-          className="pointer-events-auto fixed bottom-4 right-4 w-14 h-14 rounded-full border-2 border-violet-300 bg-gradient-to-br from-violet-600 to-violet-800 text-white shadow-lg hover:scale-105 transition-transform flex items-center justify-center text-2xl"
+          className="fixed bottom-4 right-4 z-[130] flex h-14 w-14 cursor-pointer items-center justify-center rounded-full border-2 border-violet-300 bg-gradient-to-br from-violet-600 to-violet-800 text-2xl text-white shadow-lg transition-transform hover:scale-105"
           aria-label="Ouvrir le bot bien-être"
         >
           💜
         </button>
       ) : null}
-    </div>
+    </>
   );
 }

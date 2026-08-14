@@ -14,7 +14,7 @@ export const settingsPillClass =
 
 export function SettingsAtmosphere() {
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+    <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
       <div className="absolute -left-24 -top-28 h-[22rem] w-[22rem] rounded-full bg-[color:var(--dash-soft)]/80 blur-3xl" />
       <div className="absolute right-[-4rem] top-16 h-80 w-80 rounded-full bg-[color:var(--dash-bright)]/25 blur-3xl" />
       <div className="absolute bottom-10 left-1/3 h-56 w-56 rounded-full bg-[color:var(--dash-mid)]/15 blur-3xl" />
@@ -44,9 +44,9 @@ export function SettingsSection({
 }) {
   return (
     <section
-      className={`relative overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/55 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl ${className}`}
+      className={`relative isolate overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/55 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl ${className}`}
     >
-      <div className="pointer-events-none absolute -right-10 -top-12 h-36 w-36 rounded-full bg-[color:var(--dash-soft)]/70 blur-3xl" />
+      <div className="pointer-events-none absolute -right-10 -top-12 -z-10 h-36 w-36 rounded-full bg-[color:var(--dash-soft)]/70 blur-3xl" />
       <div className="relative space-y-4 p-5 sm:p-6">
         {(title || description) && (
           <header>

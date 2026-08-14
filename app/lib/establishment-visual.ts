@@ -105,10 +105,10 @@ export function establishmentVisualFromHex(hex: string): EstablishmentVisual {
   const color = normalizeColorHex(hex) || DEFAULT_ESTABLISHMENT_KIND_COLORS.custom;
   return {
     hex: color,
-    washBg: hexToRgba(color, 0.12),
-    orbBg: hexToRgba(color, 0.38),
-    borderColor: hexToRgba(color, 0.42),
-    badgeBg: hexToRgba(color, 0.2),
+    washBg: hexToRgba(color, 0.045),
+    orbBg: hexToRgba(color, 0.16),
+    borderColor: hexToRgba(color, 0.28),
+    badgeBg: hexToRgba(color, 0.72),
     textColor: mixToward(color, 0, 0.45),
   };
 }

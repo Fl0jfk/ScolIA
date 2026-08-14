@@ -143,6 +143,7 @@ function staffPlanningKey(personnelId: string) {
   return `rh/planning/staff/${personnelId}.json`;
 }
 
+/** Clé Scaleway (dataBucket du tenant) — pas de OneDrive RH. */
 export function planningKeyFor(kind: RhPlanningKind, personnelId: string) {
   return kind === "teacher" ? teacherPlanningKey(personnelId) : staffPlanningKey(personnelId);
 }

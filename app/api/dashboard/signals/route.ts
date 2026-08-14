@@ -265,14 +265,18 @@ export async function GET() {
       try {
         let doc: RhPlanningDoc | null = null;
         let leavePersonnelId: string | undefined;
-        const index = await getPersonnelIndex();
-        const self = index.find((e) => e.clerkUserId === userId && e.active !== false);
-        if (self) leavePersonnelId = self.id;
+        try {
+          const index = await getPersonnelIndex();
+          const self = index.find((e) => e.clerkUserId === userId && e.active !== false);
+          if (self) leavePersonnelId = self.id;
+        } catch {
+          leavePersonnelId = undefined;
+        }
 
         if (hasRole(roles, "professeur")) {
           doc = await readRhPlanning("teacher", userId);
-        } else if (self) {
-          doc = await readRhPlanning("staff", self.id);
+        } else {
+          doc = await readRhPlanning("staff", userId);
         }
         // Si pas de dossier OGEC mais compte prof-like déjà géré ; sinon tente teacher id
         let needsTeacherFallback = !doc;

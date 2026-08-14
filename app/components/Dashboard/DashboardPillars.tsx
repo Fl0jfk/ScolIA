@@ -272,10 +272,10 @@ function PillarCard({
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.06 * index, ease: [0.22, 1, 0.36, 1] }}
-      className="group relative flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/45 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
+      className="group relative isolate flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/45 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl"
     >
       <div
-        className={`pointer-events-none absolute -right-8 -top-10 h-36 w-36 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${PILLAR_ORB[pillar.id]}`}
+        className={`pointer-events-none absolute -right-8 -top-10 -z-10 h-36 w-36 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${PILLAR_ORB[pillar.id]}`}
         aria-hidden
       />
 

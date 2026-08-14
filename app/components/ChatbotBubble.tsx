@@ -1110,37 +1110,37 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
     );
   }
 
+  const windowOpen = open && mounted && layout === "window";
+
   return (
-    <div className="fixed inset-0 z-[120] pointer-events-none">
+    <>
       {open && layout === "expanded" ? (
-        <div className="absolute inset-0 pointer-events-auto bg-[radial-gradient(ellipse_at_top,_rgba(232,240,255,0.97)_0%,_rgba(248,250,252,0.98)_50%,_rgba(238,242,255,0.97)_100%)] backdrop-blur-xl">
+        <div className="fixed inset-0 z-[120] bg-[radial-gradient(ellipse_at_top,_rgba(232,240,255,0.97)_0%,_rgba(248,250,252,0.98)_50%,_rgba(238,242,255,0.97)_100%)] backdrop-blur-xl">
           <div className="mx-auto flex h-[100dvh] w-full max-w-5xl flex-col">{renderChatBody()}</div>
         </div>
       ) : null}
 
-      {open && layout === "window" ? (
+      {windowOpen ? (
         <div
-          className="absolute inset-0 bg-slate-900/20 pointer-events-auto lg:hidden"
+          className="fixed inset-0 z-[120] bg-slate-900/20 lg:hidden"
           onClick={() => setOpen(false)}
           aria-hidden
         />
       ) : null}
 
-      <div
-        ref={panelRef}
-        className={`absolute inset-0 h-[100dvh] rounded-none border-0 lg:inset-auto lg:right-4 lg:bottom-20 lg:h-[580px] lg:w-[min(92vw,400px)] lg:rounded-[1.5rem] lg:border lg:border-white/55 bg-white/55 backdrop-blur-2xl lg:shadow-[0_24px_60px_-28px_rgba(15,23,42,0.4)] overflow-hidden transition-all duration-200 pointer-events-auto ${
-          open && mounted && layout === "window"
-            ? "opacity-100 scale-100 translate-y-0"
-            : "opacity-0 scale-95 translate-y-2 pointer-events-none"
-        }`}
-      >
-        <div className="pointer-events-none absolute inset-0" aria-hidden>
-          <div className="absolute -left-10 -top-12 h-40 w-40 rounded-full bg-emerald-200/25 blur-3xl" />
-          <div className="absolute -right-8 bottom-0 h-36 w-36 rounded-full bg-sky-200/20 blur-3xl" />
-          <div className="absolute inset-[1px] rounded-none border border-white/40 lg:rounded-[calc(1.5rem-1px)]" />
+      {windowOpen ? (
+        <div
+          ref={panelRef}
+          className="fixed inset-0 z-[120] h-[100dvh] overflow-hidden rounded-none border-0 bg-white/55 backdrop-blur-2xl lg:inset-auto lg:right-4 lg:bottom-20 lg:h-[580px] lg:w-[min(92vw,400px)] lg:rounded-[1.5rem] lg:border lg:border-white/55 lg:shadow-[0_24px_60px_-28px_rgba(15,23,42,0.4)]"
+        >
+          <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
+            <div className="absolute -left-10 -top-12 h-40 w-40 rounded-full bg-emerald-200/25 blur-3xl" />
+            <div className="absolute -right-8 bottom-0 h-36 w-36 rounded-full bg-sky-200/20 blur-3xl" />
+            <div className="absolute inset-[1px] rounded-none border border-white/40 lg:rounded-[calc(1.5rem-1px)]" />
+          </div>
+          <div className="relative flex h-full flex-col">{renderChatBody()}</div>
         </div>
-        <div className="relative flex h-full flex-col">{renderChatBody()}</div>
-      </div>
+      ) : null}
 
       {/* Mobile/tablette : on ne monte pas l’icône si le chat est ouvert (sinon elle masque Envoyer). */}
       {!open || isDesktopChat ? (
@@ -1160,7 +1160,7 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
             setLayout("window");
             setOpen(true);
           }}
-          className="pointer-events-auto fixed bottom-4 right-4 z-[130] flex h-14 w-14 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-emerald-400/25 bg-[#052e1c]/78 shadow-[0_14px_34px_rgba(5,46,28,0.45)] backdrop-blur-xl transition-all hover:scale-[1.04] hover:border-emerald-300/40 hover:bg-[#064028]/82 active:scale-[0.97]"
+          className="fixed bottom-4 right-4 z-[130] flex h-14 w-14 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-emerald-400/25 bg-[#052e1c]/78 shadow-[0_14px_34px_rgba(5,46,28,0.45)] backdrop-blur-xl transition-all hover:scale-[1.04] hover:border-emerald-300/40 hover:bg-[#064028]/82 active:scale-[0.97]"
           aria-label={open ? `Réduire ${SCOLIA_AI_NAME}` : `Ouvrir ${SCOLIA_AI_NAME}`}
         >
           <span
@@ -1173,6 +1173,6 @@ export default function ChatbotBubble({ pageMode = false }: Props) {
           </span>
         </button>
       ) : null}
-    </div>
+    </>
   );
 }

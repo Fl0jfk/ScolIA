@@ -29,23 +29,56 @@
 body { font-family: Arial, Helvetica, sans-serif}
 
 /*
-  Tailwind v4 retire cursor:pointer des boutons (preflight).
-  Hors @layer + !important : survit au preflight et aux utilities,
-  y compris Next <Link> (= <a>) et leurs enfants.
+  Tailwind v4 aligne les boutons sur le UA (cursor: default).
+  :is() garde la spécificité réelle (contrairement à :where() = 0).
+  Règle hors @layer + :hover : Safari / overlay pointer-events:none.
 */
-html :where(
+@layer base {
+  :is(
+    a[href],
+    button:not(:disabled),
+    [role="link"],
+    [role="button"]:not([aria-disabled="true"]),
+    summary,
+    label[for],
+    select:not(:disabled),
+    input[type="button"]:not(:disabled),
+    input[type="submit"]:not(:disabled),
+    input[type="reset"]:not(:disabled)
+  ) {
+    cursor: pointer;
+  }
+
+  :is(
+    button:disabled,
+    [role="button"][aria-disabled="true"],
+    input:disabled,
+    select:disabled
+  ) {
+    cursor: default;
+  }
+}
+
+:is(
   a[href],
   button:not(:disabled),
   [role="link"],
   [role="button"]:not([aria-disabled="true"]),
   summary,
   label[for],
+  select:not(:disabled),
   input[type="button"]:not(:disabled),
   input[type="submit"]:not(:disabled),
-  input[type="reset"]:not(:disabled),
-  select:not(:disabled)
+  input[type="reset"]:not(:disabled)
 ),
-html :where(
+:is(
+  a[href],
+  button:not(:disabled),
+  [role="link"],
+  [role="button"]:not([aria-disabled="true"]),
+  summary
+):hover,
+:is(
   a[href],
   button:not(:disabled),
   [role="link"],
@@ -53,16 +86,6 @@ html :where(
   summary
 ) * {
   cursor: pointer !important;
-}
-
-html :where(
-  button:disabled,
-  [role="button"][aria-disabled="true"],
-  input:disabled,
-  select:disabled
-),
-html :where(button:disabled, [role="button"][aria-disabled="true"]) * {
-  cursor: default !important;
 }
 
 /* Fallback thème dashboard (surchargé par DashboardThemeRoot) */

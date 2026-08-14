@@ -66,12 +66,9 @@ export async function POST(req: Request) {
     if (!canManage && personnelId !== gate.ctx.userId) {
       return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
     }
-  } else {
+  } else if (!canManage && personnelId !== gate.ctx.userId) {
     const record = await getPersonnelRecord(personnelId);
-    if (!record || record.active === false) {
-      return NextResponse.json({ error: "Collaborateur introuvable." }, { status: 404 });
-    }
-    if (!canManage && record.clerkUserId !== gate.ctx.userId) {
+    if (!record || record.clerkUserId !== gate.ctx.userId) {
       return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
     }
   }
@@ -80,7 +77,7 @@ export async function POST(req: Request) {
     const bytes = Buffer.from(await file.arrayBuffer());
     let preferredStaffMode: "fixed" | "rotation" | undefined;
     if (kind === "staff") {
-      const record = await getPersonnelRecord(personnelId);
+      const record = await getPersonnelRecord(personnelId).catch(() => null);
       preferredStaffMode = record
         ? defaultStaffModeForCategory(record.category)
         : "fixed";

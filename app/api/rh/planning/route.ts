@@ -11,7 +11,9 @@ import {
   canAccessPersonnelModule,
   canManagePersonnel,
   canViewPersonnelDashboard,
+  inferCategoryFromRoles,
 } from "@/app/lib/personnel-types";
+import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { readRhPlanning, writeRhPlanning } from "@/app/lib/rh/planning-storage";
 import {
   defaultStaffModeForCategory,
@@ -27,6 +29,21 @@ import {
 
 function isTeacherRole(roles: string[]) {
   return hasRole(roles, "professeur");
+}
+
+function isStaffPlanningAudience(roles: string[]) {
+  if (isAnyDirectionRole(roles) || hasRole(roles, "admin")) return true;
+  return (
+    hasRole(roles, "administratif") ||
+    hasRole(roles, "comptabilite") ||
+    hasRole(roles, "education") ||
+    hasRole(roles, "cpe") ||
+    hasRole(roles, "maintenance")
+  );
+}
+
+function staffCategoryFromRoles(roles: string[]) {
+  return inferCategoryFromRoles(roles) || "administratif";
 }
 
 export async function GET(req: Request) {
@@ -70,13 +87,14 @@ export async function GET(req: Request) {
     if (!canManage && !canViewAll) {
       return NextResponse.json({ error: "Liste réservée à la RH.", status: 403 });
     }
-    const index = await getPersonnelIndex();
-    const people = index
-      .filter((e) => e.active !== false)
-      .map((e) => ({
-        id: e.id,
-        displayName: e.displayName || e.email,
-        category: e.category,
+    const members = await listClerkMembers();
+    const people = members
+      .filter((m) => m.clerkUserId && !m.pending)
+      .filter((m) => isStaffPlanningAudience(normalizeIntranetRoles(m.roles)))
+      .map((m) => ({
+        id: m.clerkUserId,
+        displayName: m.displayName || m.email,
+        category: staffCategoryFromRoles(normalizeIntranetRoles(m.roles)),
         jobTitle: null as string | null,
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
@@ -103,15 +121,10 @@ export async function GET(req: Request) {
       displayName = user.fullName || user.primaryEmailAddress?.emailAddress || "Moi";
       category = "professeur";
     } else {
-      const index = await getPersonnelIndex();
-      const self = index.find((e) => e.clerkUserId === gate.ctx.userId && e.active !== false);
-      if (!self) {
-        return NextResponse.json({ error: "Aucun dossier RH lié à votre compte." }, { status: 404 });
-      }
       kind = "staff";
-      subjectId = self.id;
-      displayName = self.displayName || self.email;
-      category = self.category;
+      subjectId = gate.ctx.userId;
+      displayName = user.fullName || user.primaryEmailAddress?.emailAddress || "Moi";
+      category = staffCategoryFromRoles(roles);
     }
   } else if (kind === "teacher") {
     const isSelf = subjectId === gate.ctx.userId;
@@ -123,18 +136,31 @@ export async function GET(req: Request) {
     displayName = m?.displayName || m?.email || subjectId;
     category = "professeur";
   } else {
-    const index = await getPersonnelIndex();
-    const entry = index.find((e) => e.id === subjectId && e.active !== false);
-    if (!entry) {
-      return NextResponse.json({ error: "Collaborateur introuvable." }, { status: 404 });
+    const members = await listClerkMembers();
+    const m = members.find((x) => x.clerkUserId === subjectId);
+    if (m) {
+      const isSelf = subjectId === gate.ctx.userId;
+      if (!isSelf && !canManage && !canViewAll) {
+        return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+      }
+      displayName = m.displayName || m.email;
+      category = staffCategoryFromRoles(normalizeIntranetRoles(m.roles));
+      kind = "staff";
+    } else {
+      const index = await getPersonnelIndex();
+      const entry = index.find((e) => e.id === subjectId && e.active !== false);
+      if (!entry) {
+        return NextResponse.json({ error: "Collaborateur introuvable." }, { status: 404 });
+      }
+      const isSelf = entry.clerkUserId === gate.ctx.userId;
+      if (!isSelf && !canManage && !canViewAll) {
+        return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+      }
+      displayName = entry.displayName || entry.email;
+      category = entry.category;
+      kind = "staff";
+      subjectId = entry.clerkUserId || entry.id;
     }
-    const isSelf = entry.clerkUserId === gate.ctx.userId;
-    if (!isSelf && !canManage && !canViewAll) {
-      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-    }
-    displayName = entry.displayName || entry.email;
-    category = entry.category;
-    kind = "staff";
   }
 
   let planning = await readRhPlanning(kind, subjectId);
@@ -150,10 +176,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const isSelf =
-    kind === "teacher"
-      ? subjectId === gate.ctx.userId
-      : (await getPersonnelRecord(subjectId))?.clerkUserId === gate.ctx.userId;
+  const isSelf = subjectId === gate.ctx.userId;
   const canEdit = canManage || !!isSelf;
 
   const balance =
@@ -214,15 +237,10 @@ export async function PUT(req: Request) {
   const kindHint = (raw as { kind?: string }).kind;
   const kind: RhPlanningKind = kindHint === "staff" ? "staff" : "teacher";
 
-  let allowed = false;
-  if (kind === "teacher") {
-    allowed = canManage || personnelId === gate.ctx.userId;
-  } else {
+  let allowed = canManage || personnelId === gate.ctx.userId;
+  if (!allowed && kind === "staff") {
     const record = await getPersonnelRecord(personnelId);
-    if (!record || record.active === false) {
-      return NextResponse.json({ error: "Collaborateur introuvable." }, { status: 404 });
-    }
-    allowed = canManage || record.clerkUserId === gate.ctx.userId;
+    allowed = !!record && record.clerkUserId === gate.ctx.userId;
   }
 
   if (!allowed) {

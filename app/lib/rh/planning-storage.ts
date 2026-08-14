@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getJson, putJson } from "@/app/lib/s3-storage";
+import { getPersonnelIndex } from "@/app/lib/personnel-storage";
 import {
   emptyStaffPlanning,
   emptyTeacherPlanning,
@@ -12,6 +13,12 @@ import {
   type StaffPlanningDoc,
   type TeacherPlanningDoc,
 } from "@/app/lib/rh/planning-types";
+
+function staffHasContent(doc: StaffPlanningDoc): boolean {
+  if (doc.fixedSlots.length > 0) return true;
+  if ((doc.exceptions?.length ?? 0) > 0) return true;
+  return doc.rotations.some((r) => r.slots.length > 0);
+}
 
 async function readTeacherPlanning(personnelId: string): Promise<TeacherPlanningDoc> {
   const hit = await getJson<unknown>(planningKeyFor("teacher", personnelId));
@@ -29,12 +36,41 @@ async function readStaffPlanning(personnelId: string): Promise<StaffPlanningDoc>
   return normalizeStaffPlanning(hit.data, personnelId);
 }
 
+/**
+ * Planning OGEC identifié par l’utilisateur Clerk (stockage Scaleway).
+ * Repli : ancienne clé dossier RH, si un JSON existait déjà.
+ */
+export async function readStaffPlanningForClerkUser(clerkUserId: string): Promise<StaffPlanningDoc> {
+  const id = clerkUserId.trim();
+  if (!id) return { ...emptyStaffPlanning(""), updatedAt: "" };
+
+  const primary = await readStaffPlanning(id);
+  if (primary.updatedAt || staffHasContent(primary)) {
+    return { ...primary, personnelId: id };
+  }
+
+  try {
+    const index = await getPersonnelIndex();
+    const self = index.find((e) => e.clerkUserId === id && e.active !== false);
+    if (self?.id && self.id !== id) {
+      const legacy = await readStaffPlanning(self.id);
+      if (legacy.updatedAt || staffHasContent(legacy)) {
+        return { ...legacy, personnelId: id };
+      }
+    }
+  } catch {
+    // Index RH optionnel — le planning ne dépend plus d’une fiche / OneDrive RH.
+  }
+
+  return { ...emptyStaffPlanning(id), updatedAt: "" };
+}
+
 export async function readRhPlanning(
   kind: RhPlanningKind,
   personnelId: string,
 ): Promise<RhPlanningDoc> {
   if (kind === "teacher") return readTeacherPlanning(personnelId);
-  return readStaffPlanning(personnelId);
+  return readStaffPlanningForClerkUser(personnelId);
 }
 
 export async function writeRhPlanning(doc: RhPlanningDoc): Promise<RhPlanningDoc> {
@@ -51,15 +87,4 @@ export async function writeRhPlanning(doc: RhPlanningDoc): Promise<RhPlanningDoc
   } as RhPlanningDoc;
   await putJson(key, next);
   return next;
-}
-
-function ensurePlanningShape(
-  kind: RhPlanningKind,
-  personnelId: string,
-  updatedBy: string,
-  staffMode: "fixed" | "rotation" = "fixed",
-): RhPlanningDoc {
-  return kind === "teacher"
-    ? emptyTeacherPlanning(personnelId, updatedBy)
-    : emptyStaffPlanning(personnelId, staffMode, updatedBy);
 }
