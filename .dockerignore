@@ -1,0 +1,37 @@
+# Dépendances
+node_modules
+
+# Dossiers de build locaux (reconstruits dans le container)
+.next
+out
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Secrets — NE JAMAIS baker dans l'image
+.env
+.env.*
+*.env
+*.env.*
+
+# Dev / IDE
+.cursor
+.vscode
+*.log
+npm-debug.log*
+
+# Tests / CI
+coverage
+.github
+*.test.ts
+*.spec.ts
+__tests__
+
+# Divers
+Dockerfile
+.dockerignore
+README.md
+*.md
+amplify.yml

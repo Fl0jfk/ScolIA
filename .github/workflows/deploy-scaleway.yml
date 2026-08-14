@@ -10,7 +10,7 @@
 #
 # Recommandés :
 #   SCW_CONTAINER_ID               UUID du conteneur Scaleway (pas le namespace)
-#                                  → spécifique Scaleway ; pas besoin sur Amplify/AWS
+#                                  → spécifique Scaleway
 #   REGION                         ex. fr-par (défaut fr-par)
 #   REGISTRY                       ex. rg.fr-par.scw.cloud
 #   IMAGE_NAME                     ex. scolia/docslapro
@@ -20,7 +20,11 @@
 #   NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST
 #
 # Runtime conteneur (console cloud, pas GitHub) :
-#   PLATFORM_CLERK_SECRET_KEY, ACCESS_KEY_ID, SECRET_ACCESS_KEY, MISTRAL_API_KEY, …
+#   PLATFORM_CLERK_SECRET_KEY, ACCESS_KEY_ID, SECRET_ACCESS_KEY, MISTRAL_API_KEY,
+#   EASYTRANSAC_API_KEY, EASYTRANSAC_ENV=production, EASYTRANSAC_WEBHOOK_SECRET,
+#   MAILER_* (SMTP Scaleway TEM + IMAP), TRAVEL_EMAIL_INGEST_SECRET, OCR_WORKER_SECRET
+# EasyTransac notification URL : /api/billing/easytransac/webhook
+# Polling e-mail voyages : Cron → POST /api/travels/poll-email
 
 name: Deploy container
 
@@ -73,20 +77,26 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Scaleway attend un login sur registry/namespace (ex. rg.fr-par.scw.cloud/scolia).
       - name: Login container registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: nologin
-          password: ${{ secrets.SECRET_ACCESS_KEY }}
+        env:
+          SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          # IMAGE_NAME = namespace/repo (ex. scolia/docslapro) → login sur namespace
+          NS="${IMAGE_NAME%%/*}"
+          echo "${SECRET_ACCESS_KEY}" | docker login "${REGISTRY}/${NS}" -u nologin --password-stdin
 
-      - name: Build & push
+      # Build local puis push classique : contourne le bug BuildKit
+      # « invalid content range » au push chunké vers rg.*.scw.cloud.
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
-          push: true
+          load: true
+          push: false
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
@@ -103,6 +113,34 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
+          sbom: false
+
+      - name: Push image
+        run: |
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+
+          push_with_retry() {
+            local ref="$1"
+            local attempt=1
+            local max=4
+            while true; do
+              echo "Push ${ref} (essai ${attempt}/${max})"
+              if docker push "${ref}"; then
+                return 0
+              fi
+              if [ "${attempt}" -ge "${max}" ]; then
+                echo "::error::Échec push après ${max} essais : ${ref}"
+                return 1
+              fi
+              sleep $((attempt * 8))
+              attempt=$((attempt + 1))
+            done
+          }
+
+          # Un tag à la fois : évite les courses de blobs entre :sha et :latest
+          push_with_retry "${IMAGE}:${GITHUB_SHA}"
+          push_with_retry "${IMAGE}:latest"
 
       - name: Redeploy container
         env:
