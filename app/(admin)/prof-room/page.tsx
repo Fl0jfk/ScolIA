@@ -31,6 +31,23 @@ const FALLBACK_CLASSES: Record<string, string[]> = {
 const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i);
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 
+function localYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function parseLocalYmd(value: string): Date {
+  const [y, m, d] = value.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+function shiftDate(base: Date, days: number): Date {
+  const next = new Date(base.getFullYear(), base.getMonth(), base.getDate() + days);
+  return next;
+}
+
 const fieldClass =
   "w-full rounded-xl border border-[color:var(--dash-border)] bg-white/80 px-4 py-3 text-sm font-semibold text-[var(--dash-ink)] outline-none shadow-sm transition focus:border-[var(--dash-primary)]";
 const selectClass = `${fieldClass} cursor-pointer appearance-none pr-10`;
@@ -97,10 +114,10 @@ function ProfRoomPageContent() {
   const canAccessSettings = isGlobalAdmin || isModuleListedAdmin;
   const isAdmin = canAccessSettings;
   const canBookForOthers = isModuleListedAdmin;
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = localYmd(new Date());
   const maxDateLimit = new Date();
   maxDateLimit.setDate(maxDateLimit.getDate() + (appCtx?.profRoom?.bookingHorizonDays ?? 56));
-  const maxDateStr = isAdmin ? "" : maxDateLimit.toISOString().split("T")[0];
+  const maxDateStr = isAdmin ? "" : localYmd(maxDateLimit);
   const myUpcomingReservations = useMemo(() => {
     return reservations.filter(r => r.userId === user?.id && r.status !== "CANCELLED" && r.startsAt >= new Date().toISOString()).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).slice(0, 5);
   }, [reservations, user?.id]);
@@ -131,18 +148,19 @@ function ProfRoomPageContent() {
     if (!isMobile) {
       return weekDays.map((date, i) => ({ date, label: DAYS[i] }));
     }
-    const today = new Date();
-    const todayIndex = weekDays.findIndex((date) => date.toDateString() === today.toDateString());
-    if (todayIndex >= 0) {
-      return [{ date: weekDays[todayIndex], label: DAYS[todayIndex] }];
+    const selectedIndex = weekDays.findIndex(
+      (date) => date.toDateString() === currentDate.toDateString(),
+    );
+    if (selectedIndex >= 0) {
+      return [{ date: weekDays[selectedIndex], label: DAYS[selectedIndex] }];
     }
     return [
       {
-        date: today,
-        label: today.toLocaleDateString("fr-FR", { weekday: "long" }),
+        date: currentDate,
+        label: currentDate.toLocaleDateString("fr-FR", { weekday: "long" }),
       },
     ];
-  }, [isMobile, weekDays]);
+  }, [isMobile, weekDays, currentDate]);
   useEffect(() => {
     async function load() {
       try {
@@ -519,24 +537,22 @@ function ProfRoomPageContent() {
                   </select>
                 </SelectShell>
                 <div className="flex w-full items-center justify-between rounded-xl border border-[color:var(--dash-border)] bg-white/60">
-                  {!isMobile ? (
-                    <button
-                      type="button"
-                      onClick={() => setCurrentDate(new Date(currentDate.setDate(currentDate.getDate() - 7)))}
-                      className={`cursor-pointer rounded-lg p-2 py-3 ${dash.textMid} hover:bg-white/80`}
-                    >
-                      ◀
-                    </button>
-                  ) : (
-                    <span className="w-8" aria-hidden />
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentDate(shiftDate(currentDate, isMobile ? -1 : -7))}
+                    className={`cursor-pointer rounded-lg p-2 py-3 ${dash.textMid} hover:bg-white/80`}
+                  >
+                    ◀
+                  </button>
                   <div className={`px-4 text-center text-[11px] font-semibold uppercase tracking-wide ${dash.ink}`}>
                     {isMobile ? (
                       <>
-                        Aujourd&apos;hui
+                        {currentDate.toDateString() === new Date().toDateString()
+                          ? "Aujourd'hui"
+                          : currentDate.toLocaleDateString("fr-FR", { weekday: "long" })}
                         <br />
                         <span className={dash.textPrimary}>
-                          {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "short" })}
+                          {currentDate.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
                         </span>
                       </>
                     ) : (
@@ -548,17 +564,13 @@ function ProfRoomPageContent() {
                       </>
                     )}
                   </div>
-                  {!isMobile ? (
-                    <button
-                      type="button"
-                      onClick={() => setCurrentDate(new Date(currentDate.setDate(currentDate.getDate() + 7)))}
-                      className={`cursor-pointer rounded-lg p-2 ${dash.textMid} hover:bg-white/80`}
-                    >
-                      ▶
-                    </button>
-                  ) : (
-                    <span className="w-8" aria-hidden />
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentDate(shiftDate(currentDate, isMobile ? 1 : 7))}
+                    className={`cursor-pointer rounded-lg p-2 ${dash.textMid} hover:bg-white/80`}
+                  >
+                    ▶
+                  </button>
                 </div>
               </div>
               <div className="flex w-full items-center justify-between gap-3 md:w-1/2 md:justify-end">
@@ -568,7 +580,8 @@ function ProfRoomPageContent() {
                   </span>
                   <input
                     type="date"
-                    onChange={(e) => setCurrentDate(new Date(e.target.value))}
+                    value={localYmd(currentDate)}
+                    onChange={(e) => setCurrentDate(parseLocalYmd(e.target.value))}
                     className={`min-w-0 w-full flex-1 bg-transparent text-[15px] font-semibold outline-none ${dash.ink}`}
                   />
                 </label>
@@ -580,19 +593,25 @@ function ProfRoomPageContent() {
               </div>
             </ProfRoomGlassCard>
 
-            <ProfRoomGlassCard data-tour="prof-room-calendar" className="overflow-hidden">
+            <ProfRoomGlassCard
+              data-tour="prof-room-calendar"
+              className="overflow-hidden"
+              bodyClassName="overflow-hidden rounded-[1.5rem]"
+            >
               <div
                 className="pointer-events-none absolute -right-10 -top-12 z-0 h-44 w-44 rounded-full bg-[color:var(--dash-soft)]/80 blur-3xl"
                 aria-hidden
               />
               <div className={`relative z-[1] grid border-b border-[color:var(--dash-border)] ${dash.bgSoft50} ${isMobile ? "grid-cols-2" : "grid-cols-6"}`}>
-                <div className={`p-4 text-center text-[11px] font-semibold uppercase tracking-wide ${dash.textMid}`}>
+                <div className={`rounded-tl-[1.5rem] p-4 text-center text-[11px] font-semibold uppercase tracking-wide ${dash.textMid}`}>
                   Heure
                 </div>
                 {displayDays.map((day, i) => (
                   <div
                     key={`${day.label}-${i}`}
                     className={`border-l border-[color:var(--dash-border)] p-4 text-center ${
+                      i === displayDays.length - 1 ? "rounded-tr-[1.5rem]" : ""
+                    } ${
                       day.date.toDateString() === new Date().toDateString() ? dash.bgSoft : ""
                     }`}
                   >
@@ -609,7 +628,7 @@ function ProfRoomPageContent() {
                     </div>
                     {displayDays.map((day, i) => {
                       const date = day.date;
-                      const dateStr = date.toISOString().split("T")[0];
+                      const dateStr = localYmd(date);
                       const hourPrefix = `${dateStr}T${h.toString().padStart(2, "0")}`;
                       const res = reservations.find(
                         (r) =>
