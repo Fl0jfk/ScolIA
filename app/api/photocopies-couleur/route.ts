@@ -10,6 +10,8 @@ import { loadAppConfig, getEstablishmentByLabel } from "@/app/lib/app-config";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson, putJson, getObjectBytes } from "@/app/lib/s3-storage";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
+import { matchEstablishment } from "@/app/lib/establishment-catalog";
+import type { Establishment } from "@/app/lib/app-config-schemas";
 import {
   canCreatePhotocopiesDemand,
   canManagePhotocopiesDemand,
@@ -22,7 +24,7 @@ const INDEX_KEY = "photocopies-couleur/index.json";
 /** Réception des demandes acceptées ; surclassable par PHOTOCOPIES_COULEUR_OPS_EMAIL. */
 const DEFAULT_PHOTOCOPIES_OPS_EMAIL = "carine.perier@ac-normandie.fr";
 
-export type PhotoCopieEtablissement = "École" | "Collège" | "Lycée";
+export type PhotoCopieEtablissement = string;
 
 type PhotoCopieRecord = {
   id: string;
@@ -83,8 +85,8 @@ async function loadDocumentAttachment(record: PhotoCopieRecord) {
   };
 }
 
-function isValidEtab(v: string): v is PhotoCopieEtablissement {
-  return v === "École" || v === "Collège" || v === "Lycée";
+function isValidEtab(v: string, establishments: Establishment[]): boolean {
+  return Boolean(matchEstablishment(establishments, v));
 }
 
 export async function GET() {
@@ -97,14 +99,17 @@ export async function GET() {
 
   if (!canCreatePhotocopiesDemand(roles)) {
     const f = getPhotocopiesRoleFlags(roles);
-    if (!f.isDirectionEcole && !f.isDirectionCollege && !f.isDirectionLycee) {
+    if (!f.isDirection) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
   }
 
   try {
     const all = await getIndex();
-    const filtered = all.filter((r) => canViewPhotocopiesDemand(r, userId, roles));
+    const bundle = await loadAppConfig();
+    const filtered = all.filter((r) =>
+      canViewPhotocopiesDemand(r, userId, roles, bundle.establishments),
+    );
     filtered.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
     return NextResponse.json({ items: filtered });
   } catch (e) {
@@ -138,8 +143,9 @@ export async function POST(req: Request) {
   }
 
   const etablissement = String(body.etablissement || "").trim();
-  if (!isValidEtab(etablissement)) {
-    return NextResponse.json({ error: "Établissement invalide (École, Collège ou Lycée)." }, { status: 400 });
+  const bundle = await loadAppConfig();
+  if (!isValidEtab(etablissement, bundle.establishments)) {
+    return NextResponse.json({ error: "Établissement invalide. Choisissez un site configuré." }, { status: 400 });
   }
 
   const motif = String(body.motif || "").trim();
@@ -271,7 +277,8 @@ export async function PATCH(req: Request) {
     if (idx < 0) return NextResponse.json({ error: "Demande introuvable." }, { status: 404 });
 
     const current = all[idx];
-    if (!canManagePhotocopiesDemand(current, roles)) {
+    const bundle = await loadAppConfig();
+    if (!canManagePhotocopiesDemand(current, roles, bundle.establishments, userId)) {
       return NextResponse.json({ error: "Décision réservée à la direction concernée." }, { status: 403 });
     }
     if (current.status !== "EN_ATTENTE") {

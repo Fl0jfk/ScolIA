@@ -11,8 +11,12 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
+import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
+import { useAppContext } from "@/app/hooks/useAppContext";
+import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import {
   canChooseDeclarationScope,
+  canManageAbsence,
   canManageAbsenceAttachment,
   canViewAbsenceAttachment,
   canViewCalendar,
@@ -56,11 +60,13 @@ export default function AbsencesPageClient({
   embeddedInRh?: boolean;
 } = {}) {
   const { user, isLoaded } = useUser();
+  const { data: appCtx } = useAppContext();
+  const establishments = appCtx?.establishments ?? [];
   const [items, setItems] = useState<AbsenceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [etablissement, setEtablissement] = useState<Etablissement>("Collège");
+  const [etablissement, setEtablissement] = useState<Etablissement>("");
   const [periodType, setPeriodType] = useState<AbsencePeriodType>("multi_day");
   const [singleDayDate, setSingleDayDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -74,16 +80,13 @@ export default function AbsencesPageClient({
   const [managerHoursTreatment, setManagerHoursTreatment] = useState<Record<string, string>>({});
   const [uploadingJustificationId, setUploadingJustificationId] = useState<string | null>(null);
   const roles = rolesFromUserLike(user);
-  const isDirectionEcole = roles.some((r) => norm(r).includes("directionecole"));
-  const isDirectionCollege = roles.some((r) => norm(r).includes("directioncollege"));
-  const isDirectionLycee = roles.some((r) => norm(r).includes("directionlycee"));
   const canChooseScope = canChooseDeclarationScope(roles);
   const [declareScope, setDeclareScope] = useState<AbsenceScope>("ogec");
   const effectiveScope = canChooseScope ? declareScope : resolveSelfDeclarationScope(roles);
   const router = useRouter();
   const searchParams = useSearchParams();
   const showCalendar = canViewCalendar(roles);
-  const canTreat = isDirectionEcole || isDirectionCollege || isDirectionLycee;
+  const canTreat = isAnyDirectionRole(roles);
 
   const asRecord = (item: AbsenceItem) => item as unknown as AbsenceRecord;
 
@@ -217,13 +220,11 @@ export default function AbsencesPageClient({
     } finally { setSaving(false);
     }
   };
-  const canManageItem = (item: AbsenceItem) => {
-    if (item.data.scope === "ogec") return isDirectionLycee;
-    if (item.data.etablissement === "École") return isDirectionEcole;
-    if (item.data.etablissement === "Collège") return isDirectionCollege;
-    if (item.data.etablissement === "Lycée") return isDirectionLycee;
-    return false;
-  };
+  const canManageItem = (item: AbsenceItem) =>
+    canManageAbsence(asRecord(item), roles, {
+      establishments,
+      userId: user?.id,
+    });
   const updateWorkflow = async (id: string, action: "VALIDER" | "REFUSER" | "RELANCER_JUSTIFICATIF", item?: AbsenceItem) => {
     if (action === "VALIDER" && item) {
       const treatmentCheck = validateHoursTreatmentForAbsence(
@@ -308,8 +309,12 @@ export default function AbsencesPageClient({
     if (newScope === "ogec") {
       etablissement = null;
     } else if (!etablissement) {
-      const picked = prompt("Établissement pour cette absence professeur (École, Collège ou Lycée) :", "Collège");
-      if (!picked || !["École", "Collège", "Lycée"].includes(picked)) return;
+      const labels = establishments.map((e) => e.label);
+      const picked = prompt(
+        `Établissement pour cette absence professeur (${labels.join(", ") || "aucun site configuré"}) :`,
+        labels[0] || "",
+      );
+      if (!picked || !labels.includes(picked)) return;
       etablissement = picked as Etablissement;
     }
     if (!confirm(`Reclasser cette absence en « ${newScope === "ogec" ? "Personnel OGEC" : "Professeur"} » ?`)) return;
@@ -472,11 +477,13 @@ export default function AbsencesPageClient({
             {effectiveScope === "professeur" && (
               <div>
                 <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">Établissement</label>
-                <select value={etablissement} onChange={(e) => setEtablissement(e.target.value as Etablissement)} className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white">
-                  <option>École</option>
-                  <option>Collège</option>
-                  <option>Lycée</option>
-                </select>
+                <EstablishmentSelect
+                  value={etablissement}
+                  onChange={setEtablissement}
+                  establishments={establishments}
+                  includeGroupe={false}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"
+                />
               </div>
             )}
             <div>

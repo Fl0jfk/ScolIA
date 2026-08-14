@@ -14,6 +14,8 @@ import {
   buildHseAcceptancePdf,
   hseAcceptancePdfFilename,
 } from "@/app/lib/hse-acceptance-pdf";
+import { matchEstablishment } from "@/app/lib/establishment-catalog";
+import type { Establishment } from "@/app/lib/app-config-schemas";
 import {
   canAccessHseModule,
   canCreateHseDemand,
@@ -72,8 +74,8 @@ async function saveIndex( rows: HseRecord[]) {
   await putJson(INDEX_KEY, rows);
 }
 
-function isValidEtab(v: string): v is HseEtablissement {
-  return v === "École" || v === "Collège" || v === "Lycée";
+function isValidEtab(v: string, establishments: Establishment[]): boolean {
+  return Boolean(matchEstablishment(establishments, v));
 }
 
 function parseNombreHeures(raw: unknown): { ok: true; value: number } | { ok: false; error: string } {
@@ -113,7 +115,8 @@ export async function GET() {
 
   try {
     const all = await getIndex();
-    const filtered = all.filter((r) => canViewHseDemand(r, userId, roles));
+    const bundle = await loadAppConfig();
+    const filtered = all.filter((r) => canViewHseDemand(r, userId, roles, bundle.establishments));
     filtered.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
     return NextResponse.json({ items: filtered });
   } catch (e) {
@@ -147,8 +150,9 @@ export async function POST(req: Request) {
   }
 
   const etablissement = String(body.etablissement || "").trim();
-  if (!isValidEtab(etablissement)) {
-    return NextResponse.json({ error: "Établissement invalide (École, Collège ou Lycée)." }, { status: 400 });
+  const bundle = await loadAppConfig();
+  if (!isValidEtab(etablissement, bundle.establishments)) {
+    return NextResponse.json({ error: "Établissement invalide. Choisissez un site configuré." }, { status: 400 });
   }
 
   const resumeDemande = String(body.resumeDemande ?? "").trim();
@@ -316,7 +320,8 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true });
     }
 
-    if (!canManageHseDemand(current, roles)) {
+    const bundle = await loadAppConfig();
+    if (!canManageHseDemand(current, roles, bundle.establishments, userId)) {
       return NextResponse.json({ error: "Décision réservée à la direction concernée." }, { status: 403 });
     }
 

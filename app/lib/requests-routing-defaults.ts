@@ -1,4 +1,6 @@
-import type { RequestsRoutingConfig, RoutingAssignment, RoutingTask } from "@/app/lib/app-config-schemas";
+import type { Establishment, RequestsRoutingConfig, RoutingAssignment, RoutingTask } from "@/app/lib/app-config-schemas";
+import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
+import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 
 const BRANCH_TO_SERVICE: Record<string, string> = {
   corbeille: "etablissement",
@@ -21,6 +23,10 @@ const BRANCH_TO_SERVICE: Record<string, string> = {
 /** File ticketing dédiée aux demandes ouvertes depuis le module RH. */
 export const RH_REQUEST_ROUTE_ID = "rh_personnel";
 export const RH_REQUEST_SUBJECT_PREFIX = "[Demande RH]";
+
+export function isManualOnlyDirectionRoute(id: string): boolean {
+  return id.startsWith("direction_");
+}
 
 function uid(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -46,21 +52,21 @@ const DEFAULT_TASKS: RoutingTask[] = [
     label: "Administratif — école",
     hint: "Demandes administratives école",
     keywords: ["école", "maternelle", "élémentaire"],
-    active: true,
+    active: false,
   },
   {
     id: "admin_college",
     label: "Administratif — collège",
     hint: "Demandes administratives collège",
     keywords: ["collège", "6e", "5e", "4e", "3e"],
-    active: true,
+    active: false,
   },
   {
     id: "admin_lycee",
     label: "Administratif — lycée",
     hint: "Demandes administratives lycée",
     keywords: ["lycée", "2nde", "1ère", "terminale"],
-    active: true,
+    active: false,
   },
   {
     id: "comptabilite",
@@ -137,3 +143,72 @@ function buildAssignmentsFromStaffRows(
 }
 
 export { BRANCH_TO_SERVICE };
+
+const BUILTIN_ADMIN: Record<"ecole" | "college" | "lycee", string> = {
+  ecole: "admin_ecole",
+  college: "admin_college",
+  lycee: "admin_lycee",
+};
+const BUILTIN_DIRECTION: Record<"ecole" | "college" | "lycee", string> = {
+  ecole: "direction_ecole",
+  college: "direction_college",
+  lycee: "direction_lycee",
+};
+
+/** Active / génère les files admin_* et direction_* selon les sites, sans supprimer les files custom. */
+export function syncRequestsRoutingWithEstablishments(
+  routing: RequestsRoutingConfig,
+  establishments: Establishment[],
+): RequestsRoutingConfig {
+  const active = getActiveEstablishments(establishments);
+  const kinds = new Set(active.map((e) => inferEstablishmentKind(e)));
+  const defaults = defaultRequestsRouting();
+  let tasks = routing.tasks.map((t) => {
+    for (const kind of ["ecole", "college", "lycee"] as const) {
+      if (t.id === BUILTIN_ADMIN[kind]) return { ...t, active: kinds.has(kind) };
+      if (t.id === BUILTIN_DIRECTION[kind]) return { ...t, active: kinds.has(kind) ? t.active : false };
+    }
+    return t;
+  });
+
+  for (const kind of ["ecole", "college", "lycee"] as const) {
+    if (!kinds.has(kind)) continue;
+    if (!tasks.some((t) => t.id === BUILTIN_ADMIN[kind])) {
+      const d = defaults.tasks.find((t) => t.id === BUILTIN_ADMIN[kind]);
+      if (d) tasks.push({ ...d, active: true });
+    }
+    if (!tasks.some((t) => t.id === BUILTIN_DIRECTION[kind])) {
+      const d = defaults.tasks.find((t) => t.id === BUILTIN_DIRECTION[kind]);
+      if (d) tasks.push({ ...d });
+    }
+  }
+
+  for (const est of active) {
+    const kind = inferEstablishmentKind(est);
+    if (kind !== "custom") continue;
+    const adminId = `admin_${est.id}`;
+    const dirId = `direction_${est.id}`;
+    if (!tasks.some((t) => t.id === adminId)) {
+      tasks.push({
+        id: adminId,
+        label: `Administratif — ${est.label}`,
+        hint: `Demandes administratives ${est.label}`,
+        keywords: [est.label],
+        active: true,
+      });
+    } else {
+      tasks = tasks.map((t) => (t.id === adminId ? { ...t, active: true } : t));
+    }
+    if (!tasks.some((t) => t.id === dirId)) {
+      tasks.push({
+        id: dirId,
+        label: `Direction — ${est.label}`,
+        hint: `Transfert manuel vers la direction ${est.label}`,
+        keywords: [`direction ${est.label}`],
+        active: false,
+      });
+    }
+  }
+
+  return { ...routing, tasks };
+}

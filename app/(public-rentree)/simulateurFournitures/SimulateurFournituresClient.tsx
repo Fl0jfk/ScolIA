@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
-import { SCHOOL } from "@/app/lib/school";
 import type { FournituresStage, FournituresToolConfig } from "@/app/lib/fournitures-types";
 import {
   LYCEE_SPEC_LABELS,
@@ -234,7 +233,7 @@ function SimulateurFournituresContent({ config }: { config: FournituresToolConfi
           <div className="flex items-start justify-between gap-6 flex-wrap">
             <div className="min-w-[240px]">
               <h2 className="text-3xl md:text-4xl font-black uppercase tracking-tighter text-slate-900">{config.title}</h2>
-              <p className="text-sm font-bold text-blue-600 mt-2">{SCHOOL.shortName} • Rentrée {config.schoolYear}</p>
+              <p className="text-sm font-bold text-blue-600 mt-2">Rentrée {config.schoolYear}</p>
             </div>
             <div className="flex items-center gap-3">
               <button

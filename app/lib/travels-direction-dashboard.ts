@@ -83,18 +83,18 @@ function formatDateLabel(trip: TripDashboardRow) {
   return start.toLocaleDateString("fr-FR");
 }
 
-export function resolveDirectionEtab(roles: string[]): string | null {
-  const norm = (s: string) =>
-    s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[_\s-]+/g, "");
-  const n = roles.map((r) => norm(String(r)));
-  if (roles.includes("direction_ecole") || n.some((r) => r.includes("directionecole") || (r.includes("direction") && r.includes("ecole")))) {
-    return "École";
-  }
-  if (roles.includes("direction_college") || n.some((r) => r.includes("directioncollege") || (r.includes("direction") && r.includes("college")))) {
-    return "Collège";
-  }
-  if (roles.includes("direction_lycee") || n.some((r) => r.includes("directionlycee") || (r.includes("direction") && r.includes("lycee")))) {
-    return "Lycée";
+import type { Establishment } from "@/app/lib/app-config-schemas";
+import { directionRolesMatchEstablishmentRef } from "@/app/lib/establishment-catalog";
+
+export function resolveDirectionEtab(
+  roles: string[],
+  establishments: Establishment[] = [],
+): string | null {
+  for (const est of establishments) {
+    if (est.active === false) continue;
+    if (directionRolesMatchEstablishmentRef(roles, est.label, establishments)) {
+      return est.label;
+    }
   }
   return null;
 }

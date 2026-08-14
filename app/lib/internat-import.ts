@@ -3,7 +3,8 @@ import { loadMefSecteurMap, normMefCode } from "@/app/lib/mef-secteurs";
 import { resolveEleveSecteur } from "@/app/lib/onedrive-eleves";
 import { normalizeParentContact } from "@/app/lib/internat-outing";
 import type { InternatEtablissement, InternatStudent } from "@/app/lib/internat-types";
-import { etablissementFromSecteur, newId } from "@/app/lib/internat-types";
+import { internatEtablissementFromRaw, newId } from "@/app/lib/internat-types";
+import { loadAppConfig } from "@/app/lib/app-config";
 
 export const INTERNAT_ROSTER_KEY = "internat/roster.json";
 
@@ -81,8 +82,8 @@ export function validateInternatRoster(
     };
 
     if (o.sexe === "F" || o.sexe === "M") entry.sexe = o.sexe;
-    if (o.etablissement === "Collège" || o.etablissement === "Lycée") {
-      entry.etablissement = o.etablissement;
+    if (typeof o.etablissement === "string" && o.etablissement.trim()) {
+      entry.etablissement = o.etablissement.trim();
     }
     const p1 = normalizeParentContact(o.parent1);
     const p2 = normalizeParentContact(o.parent2);
@@ -103,21 +104,15 @@ export function validateInternatRoster(
 async function resolveInternatEtablissement(
   entry: InternatRosterEntry,
 ): Promise<InternatEtablissement> {
-  if (entry.etablissement === "Collège" || entry.etablissement === "Lycée") {
-    return entry.etablissement;
+  const bundle = await loadAppConfig();
+  if (entry.etablissement?.trim()) {
+    return internatEtablissementFromRaw(entry.etablissement, bundle.establishments) || entry.etablissement.trim();
   }
 
   const mefMap = await loadMefSecteurMap();
   const secteur = resolveEleveSecteur(entry as EleveSecteurInput, mefMap);
-  if (secteur === "college") return "Collège";
-  if (secteur === "lycee") return "Lycée";
-
-  const mefOrSecteur = entry.mef || entry.formation || entry.secteur || "";
-  if (mefOrSecteur) {
-    return etablissementFromSecteur(mefOrSecteur);
-  }
-
-  return etablissementFromSecteur(entry.folderName);
+  const fromSecteur = internatEtablissementFromRaw(secteur || entry.mef || entry.formation || entry.folderName, bundle.establishments);
+  return fromSecteur || internatEtablissementFromRaw(entry.folderName, bundle.establishments) || "Lycée";
 }
 
 function inferClasse(entry: InternatRosterEntry): string {

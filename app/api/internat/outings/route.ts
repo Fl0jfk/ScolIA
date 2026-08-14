@@ -175,7 +175,7 @@ export async function PATCH(req: Request) {
 
   if (action === "direction_decision") {
     if (!decision) return NextResponse.json({ error: "Décision requise." }, { status: 400 });
-    const etablissement = body.etablissement === "Collège" ? "Collège" : body.etablissement === "Lycée" ? "Lycée" : null;
+    const etablissement = String(body.etablissement || "").trim() || null;
     if (!etablissement) return NextResponse.json({ error: "Établissement requis." }, { status: 400 });
     try {
       const { outing: updated } = await applyOutingDecision({

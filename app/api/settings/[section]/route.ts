@@ -2,6 +2,7 @@ import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { NextResponse } from "next/server";
 
 import {
+  loadAllEstablishments,
   loadAppConfig,
   saveEstablishments,
   saveIntegrations,
@@ -21,6 +22,10 @@ import {
 import { requireAdmin } from "@/app/lib/intranet-auth";
 import { normalizeProfRoomAdminClerkIds } from "@/app/lib/prof-room-auth";
 import { ensureSiteAddressCoordinates } from "@/app/lib/site-address-coordinates";
+import {
+  syncEstablishmentDirectorRoles,
+  withDerivedClerkRoleSlugs,
+} from "@/app/lib/establishment-director-sync";
 
 const ALLOWED = new Set([
   "site",
@@ -50,7 +55,22 @@ export async function PUT(req: Request, ctx: { params: Promise<{ section: string
         await saveOnboardingStep(body.onboardingStep);
       }
     } else if (section === "establishments") {
-      await saveEstablishments(parseEstablishmentsFile(body));
+      const previous = await loadAllEstablishments();
+      const parsed = parseEstablishmentsFile(body).map(withDerivedClerkRoleSlugs);
+      await saveEstablishments(parsed);
+      await syncEstablishmentDirectorRoles(previous, parsed);
+      try {
+        const { getRequestsRoutingConfig, saveRequestsRoutingConfig } = await import(
+          "@/app/lib/requests-routing-config"
+        );
+        const { syncRequestsRoutingWithEstablishments } = await import(
+          "@/app/lib/requests-routing-defaults"
+        );
+        const routing = await getRequestsRoutingConfig();
+        await saveRequestsRoutingConfig(syncRequestsRoutingWithEstablishments(routing, parsed));
+      } catch (e) {
+        console.error("[settings] sync requests routing with establishments", e);
+      }
     } else if (section === "notifications") {
       await saveNotifications(parseNotifications(body));
     } else if (section === "prof-room") {

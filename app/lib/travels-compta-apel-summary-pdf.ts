@@ -12,7 +12,6 @@ import {
   pdfFormatEuroAmount,
 } from "@/app/lib/pdf-format-numbers";
 import {
-  COMPTA_APEL_ETABLISSEMENTS,
   type ComptaApelSummary,
   type ComptaApelTripCommitment,
 } from "@/app/lib/travels-compta-apel-summary";
@@ -62,11 +61,10 @@ export async function buildComptaApelSummaryPdfBase64(summary: ComptaApelSummary
 
   let y = 64;
 
-  const synthBody = COMPTA_APEL_ETABLISSEMENTS.map((etab) => {
-    const group = summary.byEtablissement.find((g) => g.etablissement === etab);
-    const t = group?.totals;
+  const synthBody = summary.byEtablissement.map((group) => {
+    const t = group.totals;
     return [
-      etab,
+      group.etablissement,
       euroPlain(t?.apelCollective ?? 0),
       euroPlain(t?.aidesIndividuelles ?? 0),
       euroPlain(t?.totalApel ?? 0),

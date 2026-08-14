@@ -13,7 +13,7 @@ import {
 } from "@/app/lib/pdf-branding";
 import { resolveDirectionSignatureImageUrl } from "@/app/lib/stage-config";
 
-export type HseEtablissement = "École" | "Collège" | "Lycée";
+export type HseEtablissement = string;
 
 export type HseAcceptanceRecord = {
   id: string;
@@ -55,9 +55,7 @@ function formatDateLong(iso: string): string {
 }
 
 function hseEtabToLevelHint(etab: HseEtablissement): string {
-  if (etab === "École") return "école";
-  if (etab === "Collège") return "collège";
-  return "lycée";
+  return etab || "établissement";
 }
 
 function drawSignatureBlock(

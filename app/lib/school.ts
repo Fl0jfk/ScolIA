@@ -1,3 +1,7 @@
+/**
+ * Données nominatives La Providence (seed / migration uniquement).
+ * Ne pas importer ce fichier au runtime applicatif.
+ */
 import { scolaImageUrl } from "@/app/lib/scola-image";
 export const SCHOOL = {
   name: "Groupe Scolaire La Providence Nicolas Barré",

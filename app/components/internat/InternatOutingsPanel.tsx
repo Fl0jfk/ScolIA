@@ -102,7 +102,7 @@ export default function InternatOutingsPanel({
 
   const directionDecision = async (
     outingId: string,
-    etablissement: "Collège" | "Lycée",
+    etablissement: string,
     decision: "approve" | "refuse",
   ) => {
     if (decision === "refuse" && !confirm(`Refuser la validation ${etablissement} ?`)) return;

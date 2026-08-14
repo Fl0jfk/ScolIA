@@ -1,7 +1,8 @@
 import type { AppConfigBundle, Establishment } from "@/app/lib/app-config-schemas";
 import { shouldShowGroupeScolaire } from "@/app/lib/app-config-establishments";
+import { GROUPE_SCOLAIRE_LABEL, matchEstablishment } from "@/app/lib/establishment-catalog";
 
-export const GROUPE_SCOLAIRE_LABEL = "Groupe Scolaire";
+export { GROUPE_SCOLAIRE_LABEL };
 
 type TravelsEstablishmentOption = {
   id: string;
@@ -36,7 +37,7 @@ function resolveEstablishmentFromTrip(
   }
   const label = trip.etablissement?.trim();
   if (!label || label === GROUPE_SCOLAIRE_LABEL) return null;
-  return config.establishments.find((e) => e.label === label) ?? null;
+  return matchEstablishment(config.establishments, label);
 }
 
 function tripEstablishmentLabel(

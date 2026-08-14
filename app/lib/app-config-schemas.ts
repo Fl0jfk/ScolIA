@@ -296,7 +296,7 @@ export function parseSiteIdentity(raw: unknown, opts?: { allowEmptyName?: boolea
   const onboardingStep = Number(o.onboardingStep);
   const assistanceEmail = str(o.assistanceEmail).trim();
   return {
-    name: name || "Mon établissement",
+    name: name || (opts?.allowEmptyName ? "" : "Mon établissement"),
     shortName: str(o.shortName) || undefined,
     organizationKind,
     onboardingCompleted:

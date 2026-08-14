@@ -20,8 +20,10 @@ type CertificateStudentOption = {
 function toCertificateSecteur(
   secteur: ReturnType<typeof resolveEleveSecteur>,
 ): CertificateSecteur {
-  if (secteur === "ecole" || secteur === "college" || secteur === "lycee") return secteur;
-  return "college";
+  if (secteur === "ecole" || secteur === "college" || secteur === "lycee" || secteur === "custom") {
+    return secteur;
+  }
+  return "custom";
 }
 
 export async function loadCertificateStudents(opts?: {

@@ -12,6 +12,7 @@ import { studentDisplayName } from "@/app/lib/internat-types";
 import type { InternatOuting, InternatRollCall, InternatStudent } from "@/app/lib/internat-types";
 import { rollCallAbsentStudents, rollCallStudentsByMark } from "@/app/lib/internat-stats";
 import { INTERNAT_ROLL_MARK_LABELS } from "@/app/lib/internat-types";
+import { internatEligibleEstablishments } from "@/app/lib/establishment-catalog";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 
 async function getInternatMailer() {
@@ -49,8 +50,9 @@ export async function notifyInternatRollCallValidated(params: {
   };
   const recipients = parseRollCallRecipients(notif.internatRollCallRecipients);
   if (recipients.length === 0) {
-    const lyceeDir = bundle.establishments.find((e) => e.id === "lycee")?.directorEmail;
-    if (lyceeDir) recipients.push(lyceeDir);
+    const internatSites = internatEligibleEstablishments(bundle.establishments);
+    const fallback = internatSites[internatSites.length - 1]?.directorEmail;
+    if (fallback) recipients.push(fallback);
   }
   if (recipients.length === 0) {
     console.warn("[internat-notify] Aucun destinataire appel internat.");
@@ -69,11 +71,17 @@ export async function notifyInternatRollCallValidated(params: {
       (params.rollCall.girls.marks[s.id] === "present" || params.rollCall.girls.marks[s.id] === "activite"),
   );
   const absents = rollCallAbsentStudents(params.rollCall, params.students);
-  const absentsCollege = absents.filter((a) => a.student.etablissement === "Collège");
-  const absentsLycee = absents.filter((a) => a.student.etablissement === "Lycée");
   const activities = rollCallStudentsByMark(params.rollCall, params.students, "activite");
-  const activitiesCollege = activities.filter((a) => a.student.etablissement === "Collège");
-  const activitiesLycee = activities.filter((a) => a.student.etablissement === "Lycée");
+  const groupByEtab = <T extends { student: InternatStudent }>(items: T[]) => {
+    const map = new Map<string, T[]>();
+    for (const item of items) {
+      const label = item.student.etablissement || "Établissement";
+      const list = map.get(label) || [];
+      list.push(item);
+      map.set(label, list);
+    }
+    return [...map.entries()];
+  };
 
   const link = await tenantAbsolutePath("/gestion-internat?tab=appel");
   const dateLabel = new Date(params.rollCall.date).toLocaleDateString("fr-FR", {
@@ -90,29 +98,27 @@ export async function notifyInternatRollCallValidated(params: {
     "",
     `Présents : ${presentBoys.length} garçon(s), ${presentGirls.length} fille(s).`,
     "",
-    activitiesCollege.length
-      ? `Activité extérieure — Collège :\n${activitiesCollege.map((a) => `• ${studentDisplayName(a.student)}`).join("\n")}`
-      : null,
-    activitiesLycee.length
-      ? `Activité extérieure — Lycée :\n${activitiesLycee.map((a) => `• ${studentDisplayName(a.student)}`).join("\n")}`
-      : null,
+    ...groupByEtab(activities).map(
+      ([label, list]) =>
+        `Activité extérieure — ${label} :\n${list.map((a) => `• ${studentDisplayName(a.student)}`).join("\n")}`,
+    ),
     "",
-    absentsCollege.length
-      ? `Absents / excusés — Collège :\n${absentsCollege.map((a) => `• ${studentDisplayName(a.student)} — ${INTERNAT_ROLL_MARK_LABELS[a.mark]}`).join("\n")}`
-      : "Aucun absent collège.",
-    "",
-    absentsLycee.length
-      ? `Absents / excusés — Lycée :\n${absentsLycee.map((a) => `• ${studentDisplayName(a.student)} — ${INTERNAT_ROLL_MARK_LABELS[a.mark]}`).join("\n")}`
-      : "Aucun absent lycée.",
+    ...groupByEtab(absents).map(
+      ([label, list]) =>
+        `Absents / excusés — ${label} :\n${list.map((a) => `• ${studentDisplayName(a.student)} — ${INTERNAT_ROLL_MARK_LABELS[a.mark]}`).join("\n")}`,
+    ),
+    absents.length === 0 ? "Aucun absent." : null,
     "",
     `Consulter le détail : ${link}`,
     "",
     "Cordialement,",
     bundle.identity.shortName || bundle.identity.name,
-  ].join("\n");
+  ]
+    .filter((line) => line != null)
+    .join("\n");
 
   await transporter.sendMail({
-    from: `"Internat ${bundle.identity.shortName || "La Providence"}" <${smtp.user}>`,
+    from: `"Internat ${bundle.identity.shortName || bundle.identity.name || "Établissement"}" <${smtp.user}>`,
     to: recipients.join(", "),
     subject: `Appel internat — ${params.rollCall.date}`,
     text,
@@ -190,8 +196,9 @@ export async function notifyInternatRollCallIncomplete(params: {
   };
   const recipients = parseRollCallRecipients(notif.internatRollCallRecipients);
   if (recipients.length === 0) {
-    const lyceeDir = bundle.establishments.find((e) => e.id === "lycee")?.directorEmail;
-    if (lyceeDir) recipients.push(lyceeDir);
+    const internatSites = internatEligibleEstablishments(bundle.establishments);
+    const fallback = internatSites[internatSites.length - 1]?.directorEmail;
+    if (fallback) recipients.push(fallback);
   }
   if (recipients.length === 0) {
     return { sent: false, reason: "no_recipients" };

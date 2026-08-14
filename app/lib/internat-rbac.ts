@@ -1,3 +1,4 @@
+import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { hasRole } from "@/app/lib/absences-types";
 import { hasGlobalAdminRole, intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 
@@ -7,8 +8,7 @@ export function canAccessInternatModule(roles: string[]) {
     hasRole(roles, "education") ||
     hasRole(roles, "cpe") ||
     hasRole(roles, "administratif") ||
-    hasRole(roles, "directioncollege") ||
-    hasRole(roles, "directionlycee")
+    isAnyDirectionRole(roles)
   );
 }
 
@@ -28,8 +28,7 @@ export function canManageInternatConfig(roles: string[]) {
     hasRole(roles, "education") ||
     hasRole(roles, "cpe") ||
     hasRole(roles, "administratif") ||
-    hasRole(roles, "directioncollege") ||
-    hasRole(roles, "directionlycee")
+    isAnyDirectionRole(roles)
   );
 }
 

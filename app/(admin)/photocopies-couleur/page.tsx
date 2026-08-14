@@ -6,13 +6,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
+import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
+import { useAppContext } from "@/app/hooks/useAppContext";
 import {
   canCreatePhotocopiesDemand,
   canManagePhotocopiesDemand,
   getPhotocopiesRoleFlags,
 } from "@/app/lib/photocopies-couleur-access";
 
-type Etablissement = "École" | "Collège" | "Lycée";
+type Etablissement = string;
 type PhotoCopieStatus = "EN_ATTENTE" | "ACCEPTEE" | "REFUSEE";
 
 type PhotoCopieItem = {
@@ -45,11 +47,13 @@ function statusLabel(s: PhotoCopieStatus) {
 
 export default function PhotocopiesCouleurPage() {
   const { user, isLoaded } = useUser();
+  const { data: appCtx } = useAppContext();
+  const establishments = appCtx?.establishments ?? [];
   const [items, setItems] = useState<PhotoCopieItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [etablissement, setEtablissement] = useState<Etablissement>("Collège");
+  const [etablissement, setEtablissement] = useState<Etablissement>("");
   const [motif, setMotif] = useState("");
   const [classesOuMatiere, setClassesOuMatiere] = useState("");
   const [nombrePhotocopies, setNombrePhotocopies] = useState("");
@@ -60,7 +64,7 @@ export default function PhotocopiesCouleurPage() {
   const roles = rolesFromUserLike(user);
   const creator = canCreatePhotocopiesDemand(roles);
   const dirFlags = getPhotocopiesRoleFlags(roles);
-  const directionAny = dirFlags.isDirectionEcole || dirFlags.isDirectionCollege || dirFlags.isDirectionLycee;
+  const directionAny = dirFlags.isDirection;
   const userEmail = user?.primaryEmailAddress?.emailAddress?.trim() ?? "";
 
   const fetchItems = useCallback(async () => {
@@ -100,7 +104,7 @@ export default function PhotocopiesCouleurPage() {
   const directionPending = useMemo(
     () =>
       [...items]
-        .filter((i) => i.status === "EN_ATTENTE" && canManagePhotocopiesDemand(i, roles))
+        .filter((i) => i.status === "EN_ATTENTE" && canManagePhotocopiesDemand(i, roles, establishments, user?.id))
         .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt)),
     [items, roles],
   );
@@ -108,7 +112,7 @@ export default function PhotocopiesCouleurPage() {
   const directionHistory = useMemo(
     () =>
       [...items]
-        .filter((i) => i.status !== "EN_ATTENTE" && canManagePhotocopiesDemand(i, roles))
+        .filter((i) => i.status !== "EN_ATTENTE" && canManagePhotocopiesDemand(i, roles, establishments, user?.id))
         .sort((a, b) => +new Date(b.decidedAt || b.updatedAt) - +new Date(a.decidedAt || a.updatedAt)),
     [items, roles],
   );
@@ -248,15 +252,13 @@ export default function PhotocopiesCouleurPage() {
             <div className="space-y-4">
               <div>
                 <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">Établissement</label>
-                <select
+                <EstablishmentSelect
                   value={etablissement}
-                  onChange={(e) => setEtablissement(e.target.value as Etablissement)}
+                  onChange={setEtablissement}
+                  establishments={establishments}
+                  includeGroupe={false}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"
-                >
-                  <option>École</option>
-                  <option>Collège</option>
-                  <option>Lycée</option>
-                </select>
+                />
               </div>
               <div>
                 <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">Motif</label>

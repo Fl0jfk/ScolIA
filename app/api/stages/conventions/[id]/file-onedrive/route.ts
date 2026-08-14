@@ -5,7 +5,7 @@ import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { canFileConventionToOneDrive } from "@/app/lib/stage-access";
 import { fileSignedConventionToOneDrive } from "@/app/lib/stage-onedrive-filing";
-import { getOneDriveProfileForClerkUser } from "@/app/lib/onedrive-user-profiles";
+import { resolveOneDriveProfileForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
 
 function displayName(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
   const first = user?.firstName?.trim() || "";
@@ -24,12 +24,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return NextResponse.json({ error: "Réservé à l'administratif." }, { status: 403 });
     }
 
-    const odProfile = user ? getOneDriveProfileForClerkUser(user) : null;
+    const odProfile = user ? await resolveOneDriveProfileForClerkUserServer(user) : null;
     if (!odProfile) {
       return NextResponse.json(
         {
           error:
-            "Profil OneDrive inconnu pour votre compte Clerk. Configurez onedrive-user-profiles.ts (comme pour l'agent OCR).",
+            "Profil OneDrive inconnu pour votre compte. Paramètres → Intégrations → associez votre e-mail (ou nom) à un cycle.",
         },
         { status: 403 },
       );

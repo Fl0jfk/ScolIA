@@ -13,6 +13,8 @@ import { pickExactCurrentWeekSheet } from "@/app/lib/dashboard-week-sheet-active
 import type { WeekSheetData, WeekSheetEvent } from "@/app/lib/dashboard-week-sheet-types";
 import { WEEK_DAYS, type WeekDayKey } from "@/app/lib/dashboard-week-sheet-types";
 import { canAccessHseModule, getHseRoleFlags, type HseRecordLike } from "@/app/lib/demandes-hse-access";
+import { directionRolesMatchEstablishmentRef } from "@/app/lib/establishment-catalog";
+import type { Establishment } from "@/app/lib/app-config-schemas";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import { canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
@@ -123,6 +125,7 @@ type DashboardSignalsInput = {
     start: string;
     end: string;
   } | null;
+  establishments?: Establishment[];
 };
 
 function weekDayFromDateKey(dateKey: string): WeekDayKey | null {
@@ -147,8 +150,7 @@ function formatEventTime(ev: WeekSheetEvent): string | undefined {
 }
 
 function isDirectionRole(roles: string[]): boolean {
-  const f = getRoleFlags(roles);
-  return f.isDirectionEcole || f.isDirectionCollege || f.isDirectionLycee;
+  return getRoleFlags(roles).isDirection;
 }
 
 function isCompta(roles: string[]): boolean {
@@ -165,12 +167,16 @@ function canSeeTodayTripHighlight(roles: string[]): boolean {
   );
 }
 
-function photocopieEtabForDirection(roles: string[]): string | null {
-  const f = getHseRoleFlags(roles);
-  if (f.isDirectionEcole) return "École";
-  if (f.isDirectionCollege) return "Collège";
-  if (f.isDirectionLycee) return "Lycée";
-  return null;
+function photocopiePendingForDirection(
+  roles: string[],
+  photocopies: Array<{ status: string; etablissement?: string }>,
+  establishments: Establishment[],
+): number {
+  return photocopies.filter(
+    (p) =>
+      p.status === "EN_ATTENTE" &&
+      directionRolesMatchEstablishmentRef(roles, p.etablissement, establishments),
+  ).length;
 }
 
 function slotTimeLabel(startsAt: string): string {
@@ -266,6 +272,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     stagesPendingSignatures = 0,
     internatRollCallStatus = null,
     weekSheet = null,
+    establishments = [],
   } = input;
 
   const shortcuts: DashboardShortcut[] = [];
@@ -342,7 +349,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
       }
     } else if (isDirectionRole(roles)) {
-      const etab = resolveDirectionEtab(roles);
+      const etab = resolveDirectionEtab(roles, establishments);
       const pending = trips.filter((t) => {
         if (t.status !== "EN_ATTENTE_DIR_INITIAL" && t.status !== "EN_ATTENTE_DIR_FINAL") return false;
         if (!etab) return true;
@@ -708,8 +715,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     // HSE
     if (has("rh") && canAccessHseModule(roles)) {
       const hseFlags = getHseRoleFlags(roles);
-      const isDir =
-        hseFlags.isDirectionEcole || hseFlags.isDirectionCollege || hseFlags.isDirectionLycee;
+      const isDir = hseFlags.isDirection;
       if (isDir) {
         const pending = hse.filter((h) => h.status === "EN_ATTENTE").length;
         if (pending > 0) {
@@ -933,11 +939,9 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   // —— Services : Photocopies (alertes direction uniquement — entrée via Boîte à outils) ——
   if (has("photocopies-couleur")) {
     const photoHome = moduleHref("photocopies-couleur");
-    const etab = photocopieEtabForDirection(roles);
-    if (etab) {
-      const pending = photocopies.filter(
-        (p) => p.status === "EN_ATTENTE" && p.etablissement === etab,
-      ).length;
+    const etab = photocopiePendingForDirection(roles, photocopies, establishments);
+    if (etab > 0) {
+      const pending = etab;
       if (pending > 0) {
         shortcuts.push({
           id: "photo-dir",

@@ -8,10 +8,20 @@ import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import { choicesResult } from "@/app/lib/brain-ai/choice-options";
 import { wizardStep } from "@/app/lib/brain-ai/wizard";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
+import {
+  canCreatePhotocopiesDemand,
+  canViewPhotocopiesDemand,
+  getPhotocopiesRoleFlags,
+} from "@/app/lib/photocopies-couleur-access";
+import {
+  establishmentChoiceOptions,
+  isAnyDirectionRole,
+  matchEstablishment,
+} from "@/app/lib/establishment-catalog";
 
 const INDEX_KEY = "photocopies-couleur/index.json";
 
-type PhotoCopieEtablissement = "École" | "Collège" | "Lycée";
+type PhotoCopieEtablissement = string;
 
 type PhotoCopieRecord = {
   id: string;
@@ -35,45 +45,12 @@ function isValidDocumentKey(key: string): boolean {
   );
 }
 
-const norm = (s: string) =>
-  String(s || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[_\s-]+/g, "");
-
-function getRoleFlags(roles: string[]) {
-  const n = roles.map(norm);
+async function loadEtabOptions() {
+  const bundle = await loadAppConfig();
   return {
-    isDirectionEcole: n.some((r) => r.includes("direction") && r.includes("ecole")),
-    isDirectionCollege: n.some((r) => r.includes("direction") && r.includes("college")),
-    isDirectionLycee: n.some((r) => r.includes("direction") && r.includes("lycee")),
-    isAdministratif: n.some((r) => r.includes("administratif")),
-    isProfesseur: n.some((r) => r.includes("professeur")),
-    isEducation: n.some((r) => r.includes("education") || r === "cpe"),
+    establishments: bundle.establishments,
+    choices: establishmentChoiceOptions(bundle.establishments),
   };
-}
-
-function canCreateDemand(roles: string[]) {
-  const f = getRoleFlags(roles);
-  return f.isProfesseur || f.isAdministratif || f.isEducation;
-}
-
-function canManageDemand(rec: PhotoCopieRecord, roles: string[]) {
-  const f = getRoleFlags(roles);
-  if (rec.etablissement === "École") return f.isDirectionEcole;
-  if (rec.etablissement === "Collège") return f.isDirectionCollege;
-  if (rec.etablissement === "Lycée") return f.isDirectionLycee;
-  return false;
-}
-
-function canViewDemand(rec: PhotoCopieRecord, userId: string, roles: string[]) {
-  if (rec.createdBy.userId === userId) return true;
-  return canManageDemand(rec, roles);
-}
-
-function isValidEtab(v: string): v is PhotoCopieEtablissement {
-  return v === "École" || v === "Collège" || v === "Lycée";
 }
 
 async function getIndex(): Promise<PhotoCopieRecord[]> {
@@ -88,13 +65,9 @@ export async function handleListPhotocopies(
   if (!ctx.userId) {
     return { ok: false, error: "Connexion requise.", code: "AUTH_REQUIRED" };
   }
-  const f = getRoleFlags(ctx.roles);
-  if (
-    !canCreateDemand(ctx.roles) &&
-    !f.isDirectionEcole &&
-    !f.isDirectionCollege &&
-    !f.isDirectionLycee
-  ) {
+  const { establishments } = await loadEtabOptions();
+  const f = getPhotocopiesRoleFlags(ctx.roles);
+  if (!canCreatePhotocopiesDemand(ctx.roles) && !f.isDirection && !isAnyDirectionRole(ctx.roles)) {
     return { ok: false, error: "Accès réservé aux photocopies couleur.", code: "MODULE_FORBIDDEN" };
   }
 
@@ -102,7 +75,7 @@ export async function handleListPhotocopies(
   const limit = Math.min(Math.max(Number(args.limit) || 15, 1), 40);
   const all = await getIndex();
   let items = all
-    .filter((r) => canViewDemand(r, ctx.userId!, ctx.roles))
+    .filter((r) => canViewPhotocopiesDemand(r, ctx.userId!, ctx.roles, establishments))
     .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
   if (statusFilter) {
     items = items.filter((r) => r.status === statusFilter);
@@ -143,7 +116,7 @@ export async function handleCreatePhotocopie(
   if (!ctx.userId) {
     return { ok: false, error: "Connexion requise.", code: "AUTH_REQUIRED" };
   }
-  if (!canCreateDemand(ctx.roles)) {
+  if (!canCreatePhotocopiesDemand(ctx.roles)) {
     return {
       ok: false,
       error: "Seuls les enseignants, la vie scolaire et l'administratif peuvent créer une demande.",
@@ -173,19 +146,18 @@ export async function handleCreatePhotocopie(
     ...(documentKey ? { documentKey, documentFileName, documentContentType } : {}),
   });
 
-  if (!isValidEtab(etablissement)) {
+  const { establishments, choices } = await loadEtabOptions();
+  const matched = matchEstablishment(establishments, etablissement);
+  if (!matched) {
     return choicesResult(
       "create_photocopie_demand",
       "etablissement",
       wizardStep(step, total, "Demande de photocopies couleur — pour quel établissement ?"),
-      [
-        { value: "École", label: "École" },
-        { value: "Collège", label: "Collège" },
-        { value: "Lycée", label: "Lycée" },
-      ],
+      choices,
       draft(),
     );
   }
+  etablissement = matched.label;
   step += 1;
 
   if (!motif) {

@@ -2,6 +2,7 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import { SettingsSection, settingsInputClass } from "@/app/components/settings/SettingsChrome";
 
 export default function SettingsNotificationsPanel({
   notifications,
@@ -17,10 +18,10 @@ export default function SettingsNotificationsPanel({
   saveSection: (section: string, body: unknown) => Promise<void>;
 }) {
   return (
-    <div className="bg-white rounded-2xl border p-6 space-y-4">
+    <SettingsSection icon="✉️" title="Notifications" className="space-y-4">
       <label className="block text-sm font-bold">Emails compta voyages (séparés par virgule)</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={Array.isArray(notifications.travelsCompta) ? (notifications.travelsCompta as string[]).join(", ") : ""}
         onChange={(e) =>
           setNotifications({
@@ -31,25 +32,25 @@ export default function SettingsNotificationsPanel({
       />
       <label className="block text-sm font-bold">Email cuisine / restauration</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={String(notifications.travelsCuisine || "")}
         onChange={(e) => setNotifications({ ...notifications, travelsCuisine: e.target.value })}
       />
       <label className="block text-sm font-bold">Gestionnaire HSE (e-mail)</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={String(notifications.hseOps || "")}
         onChange={(e) => setNotifications({ ...notifications, hseOps: e.target.value })}
       />
       <label className="block text-sm font-bold">Gestionnaire photocopies couleur (e-mail)</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={String(notifications.photocopiesOps || "")}
         onChange={(e) => setNotifications({ ...notifications, photocopiesOps: e.target.value })}
       />
       <label className="block text-sm font-bold">Email Zeendoc / envoi PDF voyages</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={String(notifications.travelsZeendoc || "")}
         onChange={(e) => setNotifications({ ...notifications, travelsZeendoc: e.target.value })}
       />
@@ -59,7 +60,7 @@ export default function SettingsNotificationsPanel({
         <>
           <label className="block text-sm font-bold">Professeurs — école (nom)</label>
           <input
-            className="w-full border rounded-xl p-3 mb-2"
+            className={`${settingsInputClass} mb-2`}
             value={String((notifications.absencesNotifyProfEcole as { label?: string })?.label || "")}
             onChange={(e) =>
               setNotifications({
@@ -74,7 +75,7 @@ export default function SettingsNotificationsPanel({
           />
           <label className="block text-sm font-bold">Professeurs — école (e-mail)</label>
           <input
-            className="w-full border rounded-xl p-3"
+            className={settingsInputClass}
             type="email"
             value={String((notifications.absencesNotifyProfEcole as { email?: string })?.email || "")}
             onChange={(e) =>
@@ -93,7 +94,7 @@ export default function SettingsNotificationsPanel({
         <>
           <label className="block text-sm font-bold">Professeurs — collège (nom)</label>
           <input
-            className="w-full border rounded-xl p-3 mb-2"
+            className={`${settingsInputClass} mb-2`}
             value={String((notifications.absencesNotifyProfCollege as { label?: string })?.label || (notifications.absencesNotifyProfCollegeLycee as { label?: string })?.label || "")}
             onChange={(e) =>
               setNotifications({
@@ -107,7 +108,7 @@ export default function SettingsNotificationsPanel({
           />
           <label className="block text-sm font-bold">Professeurs — collège (e-mail)</label>
           <input
-            className="w-full border rounded-xl p-3"
+            className={settingsInputClass}
             type="email"
             value={String((notifications.absencesNotifyProfCollege as { email?: string })?.email || (notifications.absencesNotifyProfCollegeLycee as { email?: string })?.email || "")}
             onChange={(e) =>
@@ -126,7 +127,7 @@ export default function SettingsNotificationsPanel({
         <>
           <label className="block text-sm font-bold">Professeurs — lycée (nom)</label>
           <input
-            className="w-full border rounded-xl p-3 mb-2"
+            className={`${settingsInputClass} mb-2`}
             value={String((notifications.absencesNotifyProfLycee as { label?: string })?.label || (notifications.absencesNotifyProfCollegeLycee as { label?: string })?.label || "")}
             onChange={(e) =>
               setNotifications({
@@ -140,7 +141,7 @@ export default function SettingsNotificationsPanel({
           />
           <label className="block text-sm font-bold">Professeurs — lycée (e-mail)</label>
           <input
-            className="w-full border rounded-xl p-3"
+            className={settingsInputClass}
             type="email"
             value={String((notifications.absencesNotifyProfLycee as { email?: string })?.email || (notifications.absencesNotifyProfCollegeLycee as { email?: string })?.email || "")}
             onChange={(e) =>
@@ -157,7 +158,7 @@ export default function SettingsNotificationsPanel({
       )}
       <label className="block text-sm font-bold">Personnel OGEC, administratif & RH (e-mails séparés par virgule)</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={
           Array.isArray(notifications.absencesNotifyOgecCompta)
             ? (notifications.absencesNotifyOgecCompta as string[]).join(", ")
@@ -174,7 +175,7 @@ export default function SettingsNotificationsPanel({
       <p className="text-sm font-black text-slate-800">Internat — appel du soir (validation)</p>
       <label className="block text-sm font-bold">Qui reçoit l&apos;appel ? (e-mail)</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={String(
           (notifications.internatRollCallRecipients as { appelContact?: string; directionLycee?: string })?.appelContact ||
             (notifications.internatRollCallRecipients as { directionLycee?: string })?.directionLycee ||
@@ -192,7 +193,7 @@ export default function SettingsNotificationsPanel({
       />
       <label className="block text-sm font-bold">CPE lycée (optionnel)</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={String((notifications.internatRollCallRecipients as { cpeLycee?: string })?.cpeLycee || "")}
         onChange={(e) =>
           setNotifications({
@@ -206,7 +207,7 @@ export default function SettingsNotificationsPanel({
       />
       <label className="block text-sm font-bold">CPE collège (optionnel)</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={String((notifications.internatRollCallRecipients as { cpeCollege?: string })?.cpeCollege || "")}
         onChange={(e) =>
           setNotifications({
@@ -220,7 +221,7 @@ export default function SettingsNotificationsPanel({
       />
       <label className="block text-sm font-bold">Internat — alertes urgence (emails séparés par virgule)</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={
           Array.isArray(notifications.internatEmergencyRecipients)
             ? (notifications.internatEmergencyRecipients as string[]).join(", ")
@@ -235,7 +236,7 @@ export default function SettingsNotificationsPanel({
       />
       <label className="block text-sm font-bold">Stages — e-mails administratif (séparés par virgule)</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={
           Array.isArray(notifications.stagesAdminEmails)
             ? (notifications.stagesAdminEmails as string[]).join(", ")
@@ -250,7 +251,7 @@ export default function SettingsNotificationsPanel({
       />
       <label className="block text-sm font-bold">Stages — e-mail direction (signature)</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         type="email"
         value={String(notifications.stagesDirectionEmail || "")}
         onChange={(e) =>
@@ -260,7 +261,7 @@ export default function SettingsNotificationsPanel({
       />
       <label className="block text-sm font-bold">Stages — modèle convention vierge (URL PDF)</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         type="url"
         value={String(notifications.stagesConventionTemplateUrl || "")}
         onChange={(e) =>
@@ -278,6 +279,6 @@ export default function SettingsNotificationsPanel({
       >
         Enregistrer les notifications
       </ModuleButton>
-    </div>
+    </SettingsSection>
   );
 }

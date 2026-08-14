@@ -8,8 +8,9 @@ import {
   validateRoomCapacity,
 } from "@/app/lib/internat-storage";
 import { normalizeParentContact } from "@/app/lib/internat-outing";
+import { loadAppConfig } from "@/app/lib/app-config";
 import {
-  etablissementFromSecteur,
+  internatEtablissementFromRaw,
   newId,
   type InternatStudent,
 } from "@/app/lib/internat-types";
@@ -32,6 +33,7 @@ export async function POST(req: Request) {
     const picks = Array.isArray(body.eleves) ? (body.eleves as EleveConfig[]) : [];
     const students = await getInternatStudents();
     const rooms = await getInternatRooms();
+    const bundle = await loadAppConfig();
     const now = new Date().toISOString();
     const added: InternatStudent[] = [];
 
@@ -56,7 +58,8 @@ export async function POST(req: Request) {
           prenom: e.prenom,
         },
         sexe: body.defaultSexe === "F" ? "F" : "M",
-        etablissement: etablissementFromSecteur(e.secteur || e.mef),
+        etablissement:
+          internatEtablissementFromRaw(e.secteur || e.mef, bundle.establishments) || "Lycée",
         classe: String(body.defaultClasse || e.folderName.split("—").pop() || "").trim() || "—",
         actif: true,
         createdAt: now,
@@ -80,6 +83,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Nom et prénom requis." }, { status: 400 });
   }
 
+  const bundle = await loadAppConfig();
+  const etablissement =
+    internatEtablissementFromRaw(body.etablissement, bundle.establishments) ||
+    String(body.etablissement || "").trim();
+  if (!etablissement) {
+    return NextResponse.json({ error: "Établissement internat requis (configurez un collège, lycée ou site personnalisé)." }, { status: 400 });
+  }
+
   const roomId = body.roomId ? String(body.roomId) : null;
   const draft: InternatStudent = {
     id: newId("stu"),
@@ -90,7 +101,7 @@ export async function POST(req: Request) {
       ine: body.ine ? String(body.ine) : undefined,
     },
     sexe: body.sexe === "F" ? "F" : "M",
-    etablissement: body.etablissement === "Collège" ? "Collège" : "Lycée",
+    etablissement,
     classe: String(body.classe || "").trim() || "—",
     roomId,
     actif: true,
@@ -128,7 +139,11 @@ export async function PATCH(req: Request) {
   const updated: InternatStudent = {
     ...prev,
     sexe: body.sexe === "F" || body.sexe === "M" ? body.sexe : prev.sexe,
-    etablissement: body.etablissement === "Collège" ? "Collège" : body.etablissement === "Lycée" ? "Lycée" : prev.etablissement,
+    etablissement:
+      body.etablissement !== undefined
+        ? internatEtablissementFromRaw(body.etablissement, (await loadAppConfig()).establishments) ||
+          prev.etablissement
+        : prev.etablissement,
     classe: body.classe !== undefined ? String(body.classe || "").trim() || prev.classe : prev.classe,
     roomId,
     parent1: body.parent1 !== undefined ? normalizeParentContact(body.parent1) : prev.parent1,

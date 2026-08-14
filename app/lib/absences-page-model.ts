@@ -5,7 +5,7 @@ import {
 } from "@/app/lib/absence-hours-treatment";
 
 export type AbsenceScope = "professeur" | "ogec";
-export type Etablissement = "École" | "Collège" | "Lycée";
+export type Etablissement = string;
 export type AbsenceWorkflowStatus = "OUVERTE" | "JUSTIFICATIF_DEPOSE" | "CLOTUREE";
 export type AbsenceDecision = "EN_ATTENTE" | "VALIDEE" | "REFUSEE";
 export type AbsenceItem = {
@@ -57,7 +57,7 @@ export function validationConfirmMessage(item: AbsenceItem) {
   if (item.data.scope === "ogec") {
     return `${base}\n\nL'absence sera transmise à la comptabilité.`;
   }
-  if (item.data.etablissement === "École") {
+  if (item.data.etablissement) {
     return `${base}\n\nL'absence sera transmise au secrétariat.`;
   }
   return `${base}\n\nL'absence sera transmise au secrétariat.`;

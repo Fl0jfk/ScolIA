@@ -1,4 +1,5 @@
 import { hasRole } from "@/app/lib/absences-types";
+import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { defaultPersonnelProfile, normalizePersonnelProfile, type PersonnelProfile } from "@/app/lib/personnel-profile";
 
 /** Phase pilote : accès ouvert à tous les utilisateurs connectés. À restreindre plus tard. */
@@ -236,10 +237,8 @@ function getPersonnelRoleFlags(roles: string[]) {
     isMaintenance: hasRole(roles, "maintenance"),
     isEducation: hasRole(roles, "education"),
     isCpe: hasRole(roles, "cpe"),
-    isDirectionEcole: hasRole(roles, "direction_ecole"),
-    isDirectionCollege: hasRole(roles, "direction_college"),
-    isDirectionLycee: hasRole(roles, "direction_lycee"),
-    isOgecStaff: OGEC_STAFF_ROLES.some((r) => hasRole(roles, r)),
+    isDirection: isAnyDirectionRole(roles),
+    isOgecStaff: OGEC_STAFF_ROLES.some((r) => hasRole(roles, r)) || isAnyDirectionRole(roles),
     isTeacher: hasRole(roles, "professeur"),
   };
 }
@@ -260,10 +259,7 @@ export function canViewPersonnelDashboard(_roles: string[]) {
   if (PERSONNEL_OPEN_ACCESS) return true;
   const f = getPersonnelRoleFlags(_roles);
   return (
-    canManagePersonnel(_roles) ||
-    f.isDirectionEcole ||
-    f.isDirectionCollege ||
-    f.isDirectionLycee
+    canManagePersonnel(_roles) || f.isDirection
   );
 }
 

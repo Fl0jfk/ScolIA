@@ -125,7 +125,7 @@ export async function GET() {
             Array<{
               id: string;
               status: string;
-              etablissement: "École" | "Collège" | "Lycée";
+              etablissement: string;
               createdBy: { userId: string };
             }>
           >("demandes-hse/index.json")
@@ -353,6 +353,7 @@ export async function GET() {
       weekSheet,
       moodPulseSubmittedToday,
       planningNow,
+      establishments: (await loadAppConfig()).establishments,
     });
 
     return NextResponse.json(signals);

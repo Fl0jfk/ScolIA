@@ -2,7 +2,9 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import { SettingsSection, settingsInputClass } from "@/app/components/settings/SettingsChrome";
 import type { SettingsTravelsConfig } from "@/app/lib/settings-page-model";
+import { dash } from "@/app/lib/dashboard-brand";
 
 export default function SettingsTravelsPanel({
   travelsCfg,
@@ -16,11 +18,10 @@ export default function SettingsTravelsPanel({
   saveSection: (section: string, body: unknown) => Promise<void>;
 }) {
   return (
-    <div className="bg-white rounded-2xl border p-6 space-y-4">
-      <p className="text-sm text-slate-600">Transporteurs et pied de page des PDF de sorties scolaires.</p>
+    <SettingsSection icon="🚌" title="Sorties scolaires" description="Transporteurs et pied de page des PDF.">
       <label className="block text-sm font-bold">Texte pied de page PDF</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={travelsCfg.pdfFooterText || ""}
         onChange={(e) => setTravelsCfg({ ...travelsCfg, pdfFooterText: e.target.value })}
       />
@@ -28,7 +29,7 @@ export default function SettingsTravelsPanel({
       {travelsCfg.transportProviders.map((p, idx) => (
         <div key={idx} className="grid grid-cols-2 gap-2">
           <input
-            className="border rounded-lg p-2 text-sm"
+            className={settingsInputClass}
             placeholder="Nom"
             value={p.name}
             onChange={(e) => {
@@ -38,7 +39,7 @@ export default function SettingsTravelsPanel({
             }}
           />
           <input
-            className="border rounded-lg p-2 text-sm"
+            className={settingsInputClass}
             placeholder="E-mail"
             type="email"
             value={p.email}
@@ -52,7 +53,7 @@ export default function SettingsTravelsPanel({
       ))}
       <button
         type="button"
-        className="text-indigo-600 text-sm font-bold"
+        className={`text-sm font-semibold ${dash.textPrimary}`}
         onClick={() =>
           setTravelsCfg({
             ...travelsCfg,
@@ -69,6 +70,6 @@ export default function SettingsTravelsPanel({
       >
         Enregistrer sorties scolaires
       </ModuleButton>
-    </div>
+    </SettingsSection>
   );
 }

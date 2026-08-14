@@ -3,13 +3,15 @@
 import { useUser } from "@clerk/nextjs";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
+import { useAppContext } from "@/app/hooks/useAppContext";
 import {
   canCreateHseDemand,
   canManageHseDemand,
   getHseRoleFlags,
 } from "@/app/lib/demandes-hse-access";
 
-type Etablissement = "École" | "Collège" | "Lycée";
+type Etablissement = string;
 type HseStatus = "EN_ATTENTE" | "ACCEPTEE" | "REFUSEE" | "ANNULEE";
 
 type HseItem = {
@@ -30,8 +32,8 @@ type HseItem = {
 };
 
 
-function canManageItem(item: HseItem, roles: string[]) {
-  return canManageHseDemand(item, roles);
+function canManageItem(item: HseItem, roles: string[], establishments: import("@/app/lib/app-config-schemas").Establishment[], userId?: string | null) {
+  return canManageHseDemand(item, roles, establishments, userId);
 }
 
 function statusBadgeClass(s: HseStatus) {
@@ -71,11 +73,13 @@ export default function DemandesHsePanel({
   embeddedInRh?: boolean;
 } = {}) {
   const { user, isLoaded } = useUser();
+  const { data: appCtx } = useAppContext();
+  const establishments = appCtx?.establishments ?? [];
   const [items, setItems] = useState<HseItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [etablissement, setEtablissement] = useState<Etablissement>("Collège");
+  const [etablissement, setEtablissement] = useState<Etablissement>("");
   const [resumeDemande, setResumeDemande] = useState("");
   const [nombreHeures, setNombreHeures] = useState("");
   const [classe, setClasse] = useState("");
@@ -87,7 +91,7 @@ export default function DemandesHsePanel({
   const roles = rolesFromUserLike(user);
   const creator = canCreateHseDemand(roles);
   const dirFlags = getHseRoleFlags(roles);
-  const directionAny = dirFlags.isDirectionEcole || dirFlags.isDirectionCollege || dirFlags.isDirectionLycee;
+  const directionAny = dirFlags.isDirection;
   const userEmail = user?.primaryEmailAddress?.emailAddress?.trim() ?? "";
 
   const fetchItems = useCallback(async () => {
@@ -127,7 +131,7 @@ export default function DemandesHsePanel({
   const directionPending = useMemo(
     () =>
       [...items]
-        .filter((i) => i.status === "EN_ATTENTE" && canManageItem(i, roles))
+        .filter((i) => i.status === "EN_ATTENTE" && canManageItem(i, roles, establishments, user?.id))
         .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt)),
     [items, roles],
   );
@@ -137,7 +141,7 @@ export default function DemandesHsePanel({
       [...items]
         .filter(
           (i) =>
-            (i.status === "ACCEPTEE" || i.status === "REFUSEE") && canManageItem(i, roles),
+            (i.status === "ACCEPTEE" || i.status === "REFUSEE") && canManageItem(i, roles, establishments, user?.id),
         )
         .sort((a, b) => +new Date(b.decidedAt || b.updatedAt) - +new Date(a.decidedAt || a.updatedAt)),
     [items, roles],
@@ -286,15 +290,13 @@ export default function DemandesHsePanel({
             <div className="space-y-4">
               <div>
                 <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">Établissement</label>
-                <select
+                <EstablishmentSelect
                   value={etablissement}
-                  onChange={(e) => setEtablissement(e.target.value as Etablissement)}
+                  onChange={setEtablissement}
+                  establishments={establishments}
+                  includeGroupe={false}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"
-                >
-                  <option>École</option>
-                  <option>Collège</option>
-                  <option>Lycée</option>
-                </select>
+                />
               </div>
               <div>
                 <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">

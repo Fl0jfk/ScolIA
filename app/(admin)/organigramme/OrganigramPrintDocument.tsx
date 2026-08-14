@@ -3,7 +3,7 @@
 import Image from "next/image";
 import type { ReactNode } from "react";
 import { useMemo } from "react";
-import { SCHOOL } from "@/app/lib/school";
+import { useAppContext } from "@/app/hooks/useAppContext";
 import type { OrganigramPerson } from "@/app/lib/organigramme";
 import type { OrganigramView } from "@/app/lib/organigramme-resolve";
 
@@ -191,6 +191,8 @@ function poleTone(id: string): PrintTone {
 }
 
 export function OrganigramPrintDocument({ view }: { view: OrganigramView }) {
+  const { data } = useAppContext();
+  const siteName = data?.identity?.shortName || data?.identity?.name || "Établissement";
   const printedAt = useMemo(
     () =>
       new Intl.DateTimeFormat("fr-FR", {
@@ -210,8 +212,7 @@ export function OrganigramPrintDocument({ view }: { view: OrganigramView }) {
         <h1 className="m-0 text-[11.5pt] font-black tracking-tight leading-tight text-slate-800">
           Annuaire de l&apos;établissement
         </h1>
-        <p className="m-0 mt-0.5 text-[8.5pt] font-semibold text-slate-700">{SCHOOL.shortName}</p>
-        <p className="m-0 mt-0.5 text-[6.5pt] text-slate-600">{SCHOOL.address.fullCompact}</p>
+        <p className="m-0 mt-0.5 text-[8.5pt] font-semibold text-slate-700">{siteName}</p>
         <p className="m-0 mt-1 text-[6pt] text-slate-500">Document du {printedAt} — usage interne</p>
       </header>
 

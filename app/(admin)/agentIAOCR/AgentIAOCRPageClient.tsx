@@ -1,10 +1,10 @@
 'use client';
-import { Suspense, useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import * as msal from "@azure/msal-browser";
 import { consumeDashboardUpload } from "@/app/lib/dashboard-upload-bridge";
-import { getOneDriveProfileForClerkUser } from "@/app/lib/onedrive-user-profiles";
+import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
@@ -68,10 +68,25 @@ async function restoreOneDriveToken(account: msal.AccountInfo): Promise<string |
 function OneDriveUpDocsOCRAIContent() {
   const searchParams = useSearchParams();
   const { user: clerkUser } = useUser();
-  const oneDriveProfile = useMemo(
-    () => (clerkUser ? getOneDriveProfileForClerkUser(clerkUser) : null),
-    [clerkUser],
-  );
+  const [oneDriveProfile, setOneDriveProfile] = useState<OneDriveUserProfile | null>(null);
+  useEffect(() => {
+    if (!clerkUser) {
+      setOneDriveProfile(null);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/onedrive/profile")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setOneDriveProfile(j.profile || null);
+      })
+      .catch(() => {
+        if (!cancelled) setOneDriveProfile(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clerkUser]);
   const [account, setAccount] = useState<msal.AccountInfo | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [error, setError] = useState("");

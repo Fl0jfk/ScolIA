@@ -2,6 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import {
+  SettingsLoading,
+  SettingsNotice,
+  SettingsSection,
+  settingsInputClass,
+} from "@/app/components/settings/SettingsChrome";
+import { dash } from "@/app/lib/dashboard-brand";
 
 type ClerkUser = { clerkUserId: string; email: string; displayName: string };
 type Assignment = { className: string; clerkUserId: string; name: string; email: string };
@@ -142,30 +149,24 @@ export default function SchoolRosterPanel() {
     setCustomClass("");
   }
 
-  if (loading) return <p className="text-sm text-slate-500">Chargement du référentiel…</p>;
+  if (loading) return <SettingsLoading label="Chargement du référentiel…" />;
 
   return (
-    <div className="space-y-8">
-      <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-5">
-        <h2 className="text-lg font-black text-slate-900">Référentiel scolaire global</h2>
-        <p className="mt-2 text-sm text-slate-600 max-w-3xl">
-          Une seule source de vérité pour tout le SaaS : listes élèves, professeurs par classe et catalogue profs.
-          Les modules <strong>Stages</strong>, <strong>Certificats</strong>, <strong>Répartition des classes</strong>,{" "}
-          <strong>Documents IA</strong> et autres s&apos;appuient sur ces données pour identifier les élèves de façon fiable.
-        </p>
-        {elevesCount != null && (
-          <p className="mt-3 text-sm font-bold text-indigo-900">{elevesCount} élève(s) dans eleves.json</p>
-        )}
-      </div>
+    <div className="space-y-4">
+      <SettingsSection
+        icon="🎒"
+        title="Référentiel scolaire global"
+        description="Une seule source de vérité : listes élèves, professeurs par classe et catalogue profs. Stages, certificats, répartition des classes et Documents IA s’appuient sur ces données."
+      >
+        {elevesCount != null ? (
+          <p className={`text-sm font-semibold ${dash.textPrimary}`}>{elevesCount} élève(s) dans eleves.json</p>
+        ) : null}
+      </SettingsSection>
 
-      {err && <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{err}</p>}
-      {msg && <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{msg}</p>}
+      {err ? <SettingsNotice tone="error">{err}</SettingsNotice> : null}
+      {msg ? <SettingsNotice tone="ok">{msg}</SettingsNotice> : null}
 
-      <section className="rounded-2xl border bg-white p-6 space-y-4">
-        <h3 className="text-base font-bold text-slate-900">1 — Liste des élèves (Excel → eleves.json)</h3>
-        <p className="text-sm text-slate-600">
-          Import fusionné : élèves reconnus (INE ou nom + prénom) mis à jour, nouveaux ajoutés, les autres conservés.
-        </p>
+      <SettingsSection icon="1️⃣" title="Liste des élèves (Excel → eleves.json)" description="Import fusionné : élèves reconnus (INE ou nom + prénom) mis à jour, nouveaux ajoutés, les autres conservés.">
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950 space-y-1">
           <p className="font-bold">Colonnes attendues : Nom, Prénom, Classe, INE, MEF, e-mail élève, e-mails responsables légaux (parent 1 et parent 2).</p>
           <p>Export Pronote ou École Directe — même logique que l&apos;ancien import Documents IA.</p>
@@ -187,7 +188,7 @@ export default function SchoolRosterPanel() {
             type="button"
             disabled={busy}
             onClick={() => elevesInputRef.current?.click()}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+            className="rounded-2xl bg-[var(--dash-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             Importer Excel élèves
           </button>
@@ -203,21 +204,19 @@ export default function SchoolRosterPanel() {
             e.target.value = "";
           }}
         />
-      </section>
+      </SettingsSection>
 
-      <section className="rounded-2xl border bg-white p-6 space-y-4">
-        <h3 className="text-base font-bold text-slate-900">2 — Professeurs par classe</h3>
-        <p className="text-sm text-slate-600">
-          Définit qui voit quels élèves pour <strong>préparer la classe</strong> (saisie interne répartition) et les
-          référents stages. Un professeur principal ne voit que les élèves de sa ou ses classes assignées ici.
-          Synchronisé automatiquement avec Stages.
-        </p>
+      <SettingsSection
+        icon="2️⃣"
+        title="Professeurs par classe"
+        description="Définit qui voit quels élèves pour préparer la classe et les référents stages. Un professeur principal ne voit que les élèves de ses classes. Synchronisé avec Stages."
+      >
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             disabled={busy}
             onClick={() => teachersInputRef.current?.click()}
-            className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-900 disabled:opacity-50"
+            className="rounded-2xl border border-white/70 bg-white/70 px-4 py-2 text-sm font-semibold text-[var(--dash-primary)] shadow-sm disabled:opacity-50"
           >
             Importer Excel profs / classes
           </button>
@@ -269,27 +268,26 @@ export default function SchoolRosterPanel() {
             </label>
           ))}
         </div>
-      </section>
+      </SettingsSection>
 
-      <section className="rounded-2xl border bg-white p-6 space-y-4">
-        <h3 className="text-base font-bold text-slate-900">3 — Catalogue professeurs (résolution IA)</h3>
-        <p className="text-sm text-slate-600">
-          Liste interne utilisée par l&apos;IA pour rattacher les noms tapés librement par les parents (vœux prof).
-          Les parents ne voient jamais cette liste sur le formulaire public.
-        </p>
+      <SettingsSection
+        icon="3️⃣"
+        title="Catalogue professeurs (résolution IA)"
+        description="Liste interne utilisée par l’IA pour rattacher les noms tapés librement par les parents (vœux prof). Les parents ne voient jamais cette liste."
+      >
         <textarea
-          className="min-h-[120px] w-full rounded-xl border px-3 py-2 text-sm"
+          className={`${settingsInputClass} min-h-[120px]`}
           placeholder="Un nom par ligne (ex. Mme Dupont, M. Martin…)"
           value={teacherCatalogText}
           onChange={(e) => setTeacherCatalogText(e.target.value)}
         />
-      </section>
+      </SettingsSection>
 
       <button
         type="button"
         disabled={busy}
         onClick={() => void saveRoster()}
-        className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+        className="rounded-2xl bg-[var(--dash-primary)] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_12px_28px_-16px_rgba(15,23,42,0.55)] disabled:opacity-50"
       >
         {busy ? "Enregistrement…" : "Enregistrer le référentiel"}
       </button>

@@ -48,11 +48,13 @@ import {
 import { normalizeDomainPlanningModule } from "@/app/lib/domain-planning-defaults";
 import { withDefaultProfRoomSubjects } from "@/app/lib/prof-room-defaults";
 import { getActiveEstablishments, shouldShowGroupeScolaire } from "@/app/lib/app-config-establishments";
+import { matchEstablishment } from "@/app/lib/establishment-catalog";
 import { PLATFORM_ASSISTANCE_EMAIL } from "@/app/lib/platform-assistance-email";
 import { getJson, putJson } from "@/app/lib/s3-storage";
+import { saveOrganigramConfig, laprovidenceOrganigramConfig } from "@/app/lib/organigramme-config";
 
 const CACHE_MS = 45_000;
-let cache: { at: number; bundle: AppConfigBundle } | null = null;
+let cache: { at: number; bundle: AppConfigBundle; allEstablishments: Establishment[] } | null = null;
 
 export function invalidateAppConfigCache() {
   cache = null;
@@ -219,7 +221,9 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
     getJson<unknown>("settings/external-links.json"),
   ]);
 
-  let identity = identityRaw?.data ? parseSiteIdentity(identityRaw.data) : defaultSiteIdentity();
+  let identity = identityRaw?.data
+    ? parseSiteIdentity(identityRaw.data, { allowEmptyName: true })
+    : defaultSiteIdentity();
   const allEstablishments = await maybeBackfillLegacyEstablishments(estRaw, identity);
   identity = await maybeMigrateLegacyOnboarding(identityRaw, identity, allEstablishments);
   identity = withInferredOrganizationKind(identity, allEstablishments);
@@ -259,13 +263,23 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
     externalLinks,
     classAllocation: defaultClassAllocationSettings(),
   };
-  cache = { at: Date.now(), bundle };
+  cache = { at: Date.now(), bundle, allEstablishments };
   return bundle;
 }
 
-export async function saveSiteIdentity(data: SiteIdentity) {
+/** Tous les sites (actifs et inactifs) — pour l’UI Paramètres / onboarding. */
+export async function loadAllEstablishments(): Promise<Establishment[]> {
+  if (cache && Date.now() - cache.at < CACHE_MS) return cache.allEstablishments;
+  await loadAppConfig();
+  return cache?.allEstablishments ?? [];
+}
+
+export async function saveSiteIdentity(data: SiteIdentity, opts?: { allowEmptyName?: boolean }) {
   const { normalizeHeaderLogoRefForStorage } = await import("@/app/lib/branding-logo");
-  const parsed = parseSiteIdentity({ ...data, assistanceEmail: PLATFORM_ASSISTANCE_EMAIL });
+  const parsed = parseSiteIdentity(
+    { ...data, assistanceEmail: PLATFORM_ASSISTANCE_EMAIL },
+    opts,
+  );
   const logoKey = await normalizeHeaderLogoRefForStorage(parsed.headerLogoUrl);
   if (logoKey) parsed.headerLogoUrl = logoKey;
   else delete parsed.headerLogoUrl;
@@ -346,8 +360,7 @@ export async function saveOnboardingStep(step: number) {
 }
 
 export function getEstablishmentByLabel(bundle: AppConfigBundle, label: string): Establishment | null {
-  const t = label.trim();
-  return bundle.establishments.find((e) => e.label === t) ?? null;
+  return matchEstablishment(bundle.establishments, label);
 }
 
 function getEstablishmentById(bundle: AppConfigBundle, id: string): Establishment | null {
@@ -355,7 +368,7 @@ function getEstablishmentById(bundle: AppConfigBundle, id: string): Establishmen
 }
 
 export async function seedAppSettingsFromDefaults() {
-  await saveSiteIdentity(defaultSiteIdentity());
+  await saveSiteIdentity(defaultSiteIdentity(), { allowEmptyName: true });
   await saveEstablishments(defaultEstablishments());
   await saveNotifications(defaultNotifications());
   await saveStaffDirectory(defaultStaffDirectory());
@@ -383,4 +396,5 @@ export async function seedAppSettingsFromLaProvidence() {
   await saveInternatModule(defaultInternatModule());
   await saveIntegrations(laprovidenceIntegrations());
   await saveExternalLinks(laprovidenceExternalLinks());
+  await saveOrganigramConfig(laprovidenceOrganigramConfig());
 }

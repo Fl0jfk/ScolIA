@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { InternatBuilding, InternatRoom, InternatStudent } from "@/app/lib/internat-types";
 import { roomLocationLabel, studentDisplayName } from "@/app/lib/internat-types";
+import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
+import { useAppContext } from "@/app/hooks/useAppContext";
+import { internatEligibleEstablishments } from "@/app/lib/establishment-catalog";
 
 type RosterPreviewRow = {
   nom: string;
@@ -39,6 +42,9 @@ export default function InternatStudentsPanel({
   onRefresh: () => Promise<void>;
 }) {
   const searchParams = useSearchParams();
+  const { data: appCtx } = useAppContext();
+  const internatSites = internatEligibleEstablishments(appCtx?.establishments || []);
+  const defaultInternatEtab = internatSites[0]?.label || "";
   const [showRoster, setShowRoster] = useState(false);
   const [rosterEntries, setRosterEntries] = useState<RosterPreviewRow[]>([]);
   const [rosterMeta, setRosterMeta] = useState<RosterMeta | null>(null);
@@ -72,7 +78,7 @@ export default function InternatStudentsPanel({
     prenom: "",
     classe: "",
     sexe: "M" as "M" | "F",
-    etablissement: "Lycée" as "Collège" | "Lycée",
+    etablissement: defaultInternatEtab,
     roomId: "",
   });
 
@@ -159,7 +165,7 @@ export default function InternatStudentsPanel({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Création impossible");
-      setManual({ nom: "", prenom: "", classe: "", sexe: "M", etablissement: "Lycée", roomId: "" });
+      setManual({ nom: "", prenom: "", classe: "", sexe: "M", etablissement: defaultInternatEtab, roomId: "" });
       await onRefresh();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Erreur");
@@ -392,10 +398,12 @@ export default function InternatStudentsPanel({
               <option value="M">Garçon</option>
               <option value="F">Fille</option>
             </select>
-            <select className="border rounded-xl px-3 py-2 text-sm" value={manual.etablissement} onChange={(e) => setManual({ ...manual, etablissement: e.target.value as "Collège" | "Lycée" })}>
-              <option value="Lycée">Lycée</option>
-              <option value="Collège">Collège</option>
-            </select>
+            <EstablishmentSelect
+              className="border rounded-xl px-3 py-2 text-sm"
+              value={manual.etablissement}
+              onChange={(label) => setManual({ ...manual, etablissement: label })}
+              kinds={["college", "lycee", "custom"]}
+            />
             <select className="border rounded-xl px-3 py-2 text-sm" value={manual.roomId} onChange={(e) => setManual({ ...manual, roomId: e.target.value })}>
               <option value="">Chambre —</option>
               {rooms.map((r) => (

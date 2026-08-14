@@ -1,9 +1,11 @@
+import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
+
 export type OgecHoursTreatment = "RATTRAPAGE" | "DEDUCTION_SALAIRE";
 export type ProfHoursTreatment = "RATTRAPAGE_INTERNE" | "DECLARATION_ONISE" | "DECLARATION_RECTORAT";
 export type AbsenceHoursTreatment = OgecHoursTreatment | ProfHoursTreatment;
 
 type AbsenceScope = "professeur" | "ogec";
-type Etablissement = "École" | "Collège" | "Lycée";
+type Etablissement = string | null;
 
 const RATTRAPAGE_INTERNE_OPTION = {
   value: "RATTRAPAGE_INTERNE" as const,
@@ -17,7 +19,7 @@ export function getHoursTreatmentOptions(scope: AbsenceScope, etablissement: Eta
       { value: "DEDUCTION_SALAIRE" as const, label: "Heures déduites du salaire" },
     ];
   }
-  if (etablissement === "École") {
+  if (inferEstablishmentKind({ label: etablissement || "" }) === "ecole") {
     return [
       RATTRAPAGE_INTERNE_OPTION,
       { value: "DECLARATION_ONISE" as const, label: "À déclarer auprès de l'ONISE (instance)" },
@@ -122,6 +124,8 @@ export function formatTransmissionSummary(
   }
   if (treatment === "DECLARATION_ONISE") return "Transmise au secrétariat — déclaration ONISE.";
   if (treatment === "DECLARATION_RECTORAT") return "Transmise au secrétariat — déclaration rectorat.";
-  if (etablissement === "École") return "Transmise au secrétariat — déclaration ONISE.";
+  if (inferEstablishmentKind({ label: etablissement || "" }) === "ecole") {
+    return "Transmise au secrétariat — déclaration ONISE.";
+  }
   return "Transmise au secrétariat — déclaration rectorat.";
 }

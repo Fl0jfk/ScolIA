@@ -14,6 +14,18 @@ export const ESTABLISHMENT_KIND_OPTIONS: { value: EstablishmentKind; label: stri
   { value: "custom", label: "Autre" },
 ];
 
+export const ESTABLISHMENT_KIND_PRESETS: {
+  kind: EstablishmentKind;
+  id: string;
+  label: string;
+  grades: string;
+}[] = [
+  { kind: "ecole", id: "ecole", label: "École", grades: "Maternelle & Élémentaire" },
+  { kind: "college", id: "college", label: "Collège", grades: "6ème · 5ème · 4ème · 3ème" },
+  { kind: "lycee", id: "lycee", label: "Lycée", grades: "2nde · 1ère · Terminale" },
+  { kind: "custom", id: "principal", label: "Établissement", grades: "" },
+];
+
 export const ESTABLISHMENT_COLOR_SWATCHES = [
   { id: "ecole", label: "Ambre (école)", hex: DEFAULT_ESTABLISHMENT_KIND_COLORS.ecole },
   { id: "college", label: "Bleu (collège)", hex: DEFAULT_ESTABLISHMENT_KIND_COLORS.college },

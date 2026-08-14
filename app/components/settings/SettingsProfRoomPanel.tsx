@@ -2,6 +2,7 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import { SettingsSection } from "@/app/components/settings/SettingsChrome";
 import ProfRoomAdminPicker, { type ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 
 export default function SettingsProfRoomPanel({
@@ -20,12 +21,11 @@ export default function SettingsProfRoomPanel({
   saveSection: (section: string, body: unknown) => Promise<void>;
 }) {
   return (
-    <div className="bg-white rounded-2xl border p-6 space-y-4">
-      <h2 className="text-lg font-bold text-slate-900">Administrateurs du module réservation de salles</h2>
-      <p className="text-sm text-slate-500">
-        Sélectionnez les personnes dans Clerk. Elles auront le mode administrateur dans l&apos;espace réservation
-        de salles et pourront gérer le paramétrage (salles, matières, couleurs).
-      </p>
+    <SettingsSection
+      icon="🚪"
+      title="Administrateurs du module réservation de salles"
+      description="Sélectionnez les personnes dans Clerk. Elles auront le mode administrateur dans l’espace réservation de salles et pourront gérer le paramétrage (salles, matières, couleurs)."
+    >
       <ProfRoomAdminPicker
         members={clerkMembers}
         selectedIds={profRoomAdminIds}
@@ -43,6 +43,6 @@ export default function SettingsProfRoomPanel({
       >
         Enregistrer les administrateurs salles
       </ModuleButton>
-    </div>
+    </SettingsSection>
   );
 }

@@ -40,15 +40,11 @@ export const COMPTA_APEL_ETABLISSEMENTS = [
   "Groupe Scolaire",
 ] as const;
 
-export type ComptaApelEtablissement = (typeof COMPTA_APEL_ETABLISSEMENTS)[number];
+export type ComptaApelEtablissement = string;
 
 function normalizeApelEtablissement(raw: string | null | undefined): ComptaApelEtablissement {
   const s = String(raw || "").trim();
-  if (s === "École" || s === "Ecole") return "École";
-  if (s === "Collège" || s === "College") return "Collège";
-  if (s === "Lycée" || s === "Lycee") return "Lycée";
-  if (s === "Groupe Scolaire" || s === "Groupe scolaire") return "Groupe Scolaire";
-  return "Groupe Scolaire";
+  return s || "Groupe Scolaire";
 }
 
 export type ComptaApelTotals = {
@@ -115,10 +111,14 @@ function computeApelTotals(rows: ComptaApelTripCommitment[]): ComptaApelTotals {
 }
 
 function buildApelGroupsByEtablissement(rows: ComptaApelTripCommitment[]): ComptaApelEtablissementGroup[] {
-  return COMPTA_APEL_ETABLISSEMENTS.map((etablissement) => {
+  const order: string[] = [];
+  for (const row of rows) {
+    if (!order.includes(row.etablissement)) order.push(row.etablissement);
+  }
+  return order.map((etablissement) => {
     const trips = rows.filter((row) => row.etablissement === etablissement);
     return { etablissement, trips, totals: computeApelTotals(trips) };
-  }).filter((group) => group.trips.length > 0);
+  });
 }
 
 function apelCommitmentFromSheet(sheet: TravelsComptaSheet | null | undefined): {

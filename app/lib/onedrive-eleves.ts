@@ -1,12 +1,6 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { normMefCode } from "@/app/lib/mef-secteurs";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
-import {
-  getOneDriveProfileForClerkLastName,
-  getOneDriveProfileForClerkUser,
-  getOneDriveProfileForUser,
-  ONEDRIVE_USER_BASES,
-} from "@/app/lib/onedrive-user-profiles";
 
 export type { Secteur } from "@/app/lib/onedrive-eleves-types";
 

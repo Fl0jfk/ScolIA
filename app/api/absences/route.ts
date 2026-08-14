@@ -8,6 +8,8 @@ import {
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
 import { loadAppConfig, getEstablishmentByLabel } from "@/app/lib/app-config";
+import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
+import { matchEstablishment } from "@/app/lib/establishment-catalog";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
@@ -61,15 +63,15 @@ function recordKey(id: string) {
 async function resolveDecisionTarget(scope: AbsenceScope, etablissement: Etablissement | null) {
   const bundle = await loadAppConfig();
   if (scope === "ogec") {
-    const lycee =
-      bundle.establishments.find((e) => e.id === "lycee") || bundle.establishments[bundle.establishments.length - 1];
+    const dirs = bundle.establishments.filter((e) => e.active !== false);
+    const fallback = dirs[dirs.length - 1];
     return {
-      roleLabel: lycee ? `Direction ${lycee.label}` : "Direction",
-      name: lycee?.directorName || bundle.identity.name,
-      email: lycee?.directorEmail || "",
+      roleLabel: fallback ? `Direction ${fallback.label}` : "Direction",
+      name: fallback?.directorName || bundle.identity.name,
+      email: fallback?.directorEmail || "",
     };
   }
-  const est = etablissement ? getEstablishmentByLabel(bundle, etablissement) : null;
+  const est = etablissement ? matchEstablishment(bundle.establishments, etablissement) : null;
   if (est) {
     return {
       roleLabel: `Direction ${est.label}`,
@@ -89,18 +91,21 @@ async function getMailer() {
 }
 
 async function resolveValidationRecipients(record: AbsenceRecord) {
-  const n = (await loadAppConfig()).notifications;
+  const bundle = await loadAppConfig();
+  const n = bundle.notifications;
   if (record.data.scope === "ogec") {
     return [...n.absencesNotifyOgecCompta].filter(Boolean);
   }
-  if (record.data.etablissement === "École") {
+  const est = matchEstablishment(bundle.establishments, record.data.etablissement);
+  const kind = est ? inferEstablishmentKind(est) : inferEstablishmentKind({ label: record.data.etablissement || "" });
+  if (kind === "ecole") {
     return n.absencesNotifyProfEcole?.email ? [n.absencesNotifyProfEcole.email] : [];
   }
-  if (record.data.etablissement === "Collège") {
+  if (kind === "college") {
     const email = n.absencesNotifyProfCollege?.email || n.absencesNotifyProfCollegeLycee?.email;
     return email ? [email] : [];
   }
-  if (record.data.etablissement === "Lycée") {
+  if (kind === "lycee") {
     const email = n.absencesNotifyProfLycee?.email || n.absencesNotifyProfCollegeLycee?.email;
     return email ? [email] : [];
   }
@@ -142,7 +147,9 @@ export async function GET(req: Request) {
     if (calendarOnly || todayOnly) {
       index = await mergeLegacyConvocationsForCalendar(index);
     }
-    let visible = index.filter((a) => canViewAbsence(a, userId, roles));
+    const bundle = await loadAppConfig();
+    const ctx = { establishments: bundle.establishments, userId };
+    let visible = index.filter((a) => canViewAbsence(a, userId, roles, ctx));
     if (calendarOnly) {
       visible = visible.filter((a) => isAbsenceVisibleOnCalendar(a, userId, roles));
     }
@@ -355,7 +362,11 @@ export async function PATCH(req: Request) {
 
     const actor = user?.fullName || user?.firstName || "Direction";
     const isOwner = current.createdBy.userId === userId;
-    const canManage = canManageAbsence(current, roles);
+    const bundle = await loadAppConfig();
+    const canManage = canManageAbsence(current, roles, {
+      establishments: bundle.establishments,
+      userId,
+    });
 
     if (action === "DEPOSER_JUSTIFICATIF" && !isOwner && !canManage) {
       return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
@@ -742,7 +753,8 @@ export async function DELETE(req: Request) {
   try {
     const record = await getAbsenceOrLegacyRecord(id);
     if (!record) return NextResponse.json({ error: "Absence introuvable" }, { status: 404 });
-    if (!canManageAbsence(record, roles)) {
+    const bundle = await loadAppConfig();
+    if (!canManageAbsence(record, roles, { establishments: bundle.establishments, userId: user?.id })) {
       return NextResponse.json({ error: "Suppression non autorisée." }, { status: 403 });
     }
 

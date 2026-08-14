@@ -10,6 +10,7 @@ import type {
   InternatStudent,
 } from "@/app/lib/internat-types";
 import { studentDisplayName } from "@/app/lib/internat-types";
+import { matchEstablishment } from "@/app/lib/establishment-catalog";
 
 function generateOutingToken(): string {
   return randomBytes(32).toString("base64url");
@@ -33,8 +34,7 @@ function directorEmailForEtab(
   etablissement: InternatEtablissement,
   establishments: Establishment[],
 ): string | undefined {
-  const id = etablissement === "Collège" ? "college" : "lycee";
-  return establishments.find((e) => e.id === id)?.directorEmail?.trim() || undefined;
+  return matchEstablishment(establishments, etablissement)?.directorEmail?.trim() || undefined;
 }
 
 export function outingIndexEntry(outing: InternatOuting): InternatOutingIndexEntry {

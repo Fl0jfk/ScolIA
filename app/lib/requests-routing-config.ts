@@ -6,7 +6,7 @@ import {
   type RoutingTask,
 } from "@/app/lib/app-config-schemas";
 import { saveStaffDirectory, loadAppConfig } from "@/app/lib/app-config";
-import { defaultRequestsRouting, RH_REQUEST_ROUTE_ID } from "@/app/lib/requests-routing-defaults";
+import { defaultRequestsRouting, RH_REQUEST_ROUTE_ID, isManualOnlyDirectionRoute } from "@/app/lib/requests-routing-defaults";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import type { ResolvedRequestRouting } from "@/app/lib/requests";
 import {
@@ -14,8 +14,6 @@ import {
   tagsMatchSecteur,
   type RequestEleveContext,
 } from "@/app/lib/requests-eleve-context";
-
-const MANUAL_ONLY_DIRECTION_IDS = new Set(["direction_ecole", "direction_college", "direction_lycee"]);
 
 const ROUTING_KEY = "settings/requests-routing.json";
 const CACHE_MS = 45_000;
@@ -577,6 +575,6 @@ export function listActiveTasksForPicker(config: RequestsRoutingConfig) {
 
 export function listDirectionQueuesForTransmit(config: RequestsRoutingConfig) {
   return config.directionQueues
-    .filter((q) => q.active && MANUAL_ONLY_DIRECTION_IDS.has(q.id))
+    .filter((q) => q.active && isManualOnlyDirectionRoute(q.id))
     .map((q) => ({ id: q.id, label: q.label, category: "Direction" }));
 }

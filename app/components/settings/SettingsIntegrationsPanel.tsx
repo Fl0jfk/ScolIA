@@ -2,27 +2,35 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import { SettingsSection, settingsInputClass, settingsSelectClass } from "@/app/components/settings/SettingsChrome";
 
 export default function SettingsIntegrationsPanel({
   integrations,
   setIntegrations,
   saving,
   saveSection,
+  activeEstablishmentKinds,
 }: {
   integrations: Record<string, unknown>;
   setIntegrations: Dispatch<SetStateAction<Record<string, unknown>>>;
   saving: boolean;
   saveSection: (section: string, body: unknown) => Promise<void>;
+  activeEstablishmentKinds?: Set<string>;
 }) {
   return (
-    <div className="bg-white rounded-2xl border p-6 space-y-4">
-      <p className="text-sm text-slate-600">
-        Paramètres <strong>métier</strong> (pas les raccourcis du tableau de bord — voir l&apos;onglet{" "}
-        <strong>Raccourcis tableau de bord</strong>).
-      </p>
+    <SettingsSection
+      icon="🔌"
+      title="Intégrations"
+      description={
+        <>
+          Paramètres métier (pas les raccourcis du tableau de bord — voir l&apos;onglet{" "}
+          <strong>Raccourcis tableau de bord</strong>).
+        </>
+      }
+    >
       <label className="block text-sm font-bold">Zeendoc activé</label>
       <select
-        className="w-full border rounded-xl p-3"
+        className={settingsSelectClass}
         value={(integrations.zeendoc as { enabled?: boolean })?.enabled ? "yes" : "no"}
         onChange={(e) =>
           setIntegrations({
@@ -40,7 +48,7 @@ export default function SettingsIntegrationsPanel({
       </select>
       <label className="block text-sm font-bold">E-mail destination Zeendoc / envoi PDF</label>
       <input
-        className="w-full border rounded-xl p-3"
+        className={settingsInputClass}
         value={String((integrations.zeendoc as { destinationEmail?: string })?.destinationEmail || "")}
         onChange={(e) =>
           setIntegrations({
@@ -51,7 +59,7 @@ export default function SettingsIntegrationsPanel({
       />
       <label className="block text-sm font-bold">OneDrive / OCR activé</label>
       <select
-        className="w-full border rounded-xl p-3"
+        className={settingsSelectClass}
         value={(integrations.microsoftOneDrive as { enabled?: boolean })?.enabled ? "yes" : "no"}
         onChange={(e) =>
           setIntegrations({
@@ -82,11 +90,14 @@ export default function SettingsIntegrationsPanel({
           });
         const setBase = (secteur: "ecole" | "college" | "lycee", basePath: string) =>
           setOd({ basesBySecteur: { ...bases, [secteur]: { ...(bases[secteur] || {}), basePath } } });
-        const cycles: Array<{ key: "ecole" | "college" | "lycee"; label: string; placeholder: string }> = [
+        const allCycles: Array<{ key: "ecole" | "college" | "lycee"; label: string; placeholder: string }> = [
           { key: "ecole", label: "École", placeholder: "Dossier élèves/École" },
           { key: "college", label: "Collège", placeholder: "Dossier élèves/Collège" },
           { key: "lycee", label: "Lycée", placeholder: "Dossier élèves/Lycée" },
         ];
+        const cycles = activeEstablishmentKinds?.size
+          ? allCycles.filter((c) => activeEstablishmentKinds.has(c.key))
+          : allCycles;
         return (
           <div className="space-y-4 border-t pt-4">
             <div>
@@ -100,7 +111,7 @@ export default function SettingsIntegrationsPanel({
                   <div key={c.key} className="flex items-center gap-2">
                     <span className="w-20 text-sm">{c.label}</span>
                     <input
-                      className="flex-1 border rounded-xl p-2 text-sm"
+                      className={`flex-1 ${settingsInputClass} mt-0`}
                       placeholder={c.placeholder}
                       value={bases[c.key]?.basePath || ""}
                       onChange={(e) => setBase(c.key, e.target.value)}
@@ -120,7 +131,7 @@ export default function SettingsIntegrationsPanel({
                 {userSecteurs.map((row, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <input
-                      className="flex-1 border rounded-xl p-2 text-sm"
+                      className={`flex-1 ${settingsInputClass} mt-0`}
                       placeholder="email ou nom de famille"
                       value={row.match}
                       onChange={(e) => {
@@ -130,7 +141,7 @@ export default function SettingsIntegrationsPanel({
                       }}
                     />
                     <select
-                      className="border rounded-xl p-2 text-sm"
+                      className={`${settingsSelectClass} mt-0 w-auto`}
                       value={row.secteur}
                       onChange={(e) => {
                         const next = [...userSecteurs];
@@ -155,7 +166,7 @@ export default function SettingsIntegrationsPanel({
                 <button
                   type="button"
                   onClick={() => setOd({ userSecteurs: [...userSecteurs, { match: "", secteur: "college" }] })}
-                  className="text-sm text-indigo-600 font-semibold"
+                  className="text-sm font-semibold text-[var(--dash-primary)]"
                 >
                   + Ajouter un mapping
                 </button>
@@ -172,6 +183,6 @@ export default function SettingsIntegrationsPanel({
       >
         Enregistrer intégrations
       </ModuleButton>
-    </div>
+    </SettingsSection>
   );
 }

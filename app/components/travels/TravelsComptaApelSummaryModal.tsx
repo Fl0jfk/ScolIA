@@ -5,7 +5,6 @@ import { TripButton } from "@/app/components/travels/TripDetailUI";
 import { formatEuroDisplay } from "@/app/lib/travels-compta-sheet";
 import type { TravelsComptaSheet } from "@/app/lib/travels-compta-sheet";
 import {
-  COMPTA_APEL_ETABLISSEMENTS,
   type ComptaApelEtablissementGroup,
   type ComptaApelSummary,
   type ComptaApelTripCommitment,
@@ -147,9 +146,9 @@ export default function TravelsComptaApelSummaryModal({
                     </tr>
                   </thead>
                   <tbody>
-                    {COMPTA_APEL_ETABLISSEMENTS.map((etab) => {
-                      const group = summary.byEtablissement.find((g) => g.etablissement === etab);
-                      const t = group?.totals;
+                    {summary.byEtablissement.map((group) => {
+                      const etab = group.etablissement;
+                      const t = group.totals;
                       return (
                         <tr key={etab} className="border-b border-emerald-50">
                           <td className="p-3 font-medium text-slate-800">

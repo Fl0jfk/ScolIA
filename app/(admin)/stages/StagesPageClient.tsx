@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import { useOneDriveConnection } from "@/app/hooks/useOneDriveConnection";
-import { getOneDriveProfileForClerkUser } from "@/app/lib/onedrive-user-profiles";
+import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import type { StageConvention, StageOffer } from "@/app/lib/stage-types";
 import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
 import StagePendingSignaturesPanel from "@/app/components/stages/StagePendingSignaturesPanel";
@@ -63,10 +63,25 @@ function emptyOfferForm(): StagesOfferForm {
 function StagesContent() {
   const searchParams = useSearchParams();
   const { user: clerkUser } = useUser();
-  const oneDriveProfile = useMemo(
-    () => (clerkUser ? getOneDriveProfileForClerkUser(clerkUser) : null),
-    [clerkUser],
-  );
+  const [oneDriveProfile, setOneDriveProfile] = useState<OneDriveUserProfile | null>(null);
+  useEffect(() => {
+    if (!clerkUser) {
+      setOneDriveProfile(null);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/onedrive/profile")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setOneDriveProfile(j.profile || null);
+      })
+      .catch(() => {
+        if (!cancelled) setOneDriveProfile(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clerkUser]);
   const od = useOneDriveConnection();
   const [board, setBoard] = useState<StagesHubBoard | null>(null);
   const [offers, setOffers] = useState<StageOffer[]>([]);

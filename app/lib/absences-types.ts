@@ -1,8 +1,13 @@
 import type { AbsenceHoursTreatment } from "@/app/lib/absence-hours-treatment";
 import type { AbsencePeriodType } from "@/app/lib/absence-period";
+import type { Establishment } from "@/app/lib/app-config-schemas";
+import {
+  directionRolesMatchEstablishmentRef,
+  isAnyDirectionRole,
+} from "@/app/lib/establishment-catalog";
 
 export type AbsenceScope = "professeur" | "ogec";
-export type Etablissement = "École" | "Collège" | "Lycée";
+export type Etablissement = string;
 export type AbsenceWorkflowStatus = "OUVERTE" | "JUSTIFICATIF_DEPOSE" | "CLOTUREE";
 export type AbsenceDecision = "EN_ATTENTE" | "VALIDEE" | "REFUSEE";
 export type AbsenceSource = "self" | "admin_manual" | "admin_pdf";
@@ -95,9 +100,7 @@ function isOgecStaffRole(roles: string[]) {
     flags.isAdministratif ||
     flags.isCompta ||
     flags.isEducation ||
-    flags.isDirectionEcole ||
-    flags.isDirectionCollege ||
-    flags.isDirectionLycee
+    flags.isDirection
   );
 }
 
@@ -117,13 +120,20 @@ export function canChooseDeclarationScope(roles: string[]) {
   return isTeacherRole(roles) && isOgecStaffRole(roles);
 }
 
+export type DirectionAuthCtx = {
+  establishments?: Establishment[];
+  userId?: string | null;
+};
+
 export function getRoleFlags(roles: string[]) {
   const spaced = roles.map((r) => normRoleSpaced(r));
   const hasToken = (token: string) => spaced.some((n) => n.includes(token));
+  const isDirection = isAnyDirectionRole(roles);
   return {
     isDirectionEcole: hasToken("direction ecole") || hasRole(roles, "directionecole"),
     isDirectionCollege: hasToken("direction college") || hasRole(roles, "directioncollege"),
     isDirectionLycee: hasToken("direction lycee") || hasRole(roles, "directionlycee"),
+    isDirection,
     isCompta: hasToken("compta") || hasToken("comptabilite") || hasRole(roles, "comptabilite"),
     isAdministratif: hasToken("administratif"),
     isEducation: hasToken("education") || hasRole(roles, "cpe"),
@@ -136,7 +146,7 @@ export function canViewCalendar(roles: string[]) {
   if (flags.isCompta) return true;
   const normalized = roles.map((r) => normRoleSpaced(r));
   return normalized.some((r) =>
-    ["administratif", "direction ecole", "direction college", "direction lycee", "education", "cpe"].some((allowed) =>
+    ["administratif", "direction ecole", "direction college", "direction lycee", "direction", "education", "cpe"].some((allowed) =>
       r.includes(allowed),
     ),
   );
@@ -157,13 +167,7 @@ export function resolveAbsenceScope(abs: AbsenceRecord): AbsenceScope {
 /** Qui peut consulter les absences du personnel OGEC (hors les siennes). */
 function canViewOgecAbsences(roles: string[]) {
   const flags = getRoleFlags(roles);
-  return (
-    flags.isAdministratif ||
-    flags.isCompta ||
-    flags.isDirectionEcole ||
-    flags.isDirectionCollege ||
-    flags.isDirectionLycee
-  );
+  return flags.isAdministratif || flags.isCompta || flags.isDirection;
 }
 
 /** Visible sur le calendrier pour le viewer. */
@@ -183,22 +187,27 @@ export function isAbsenceVisibleOnCalendar(
 function canViewOgecAbsenceAttachments(roles: string[]) {
   const flags = getRoleFlags(roles);
   if (flags.isCompta) return true;
-  return flags.isDirectionEcole || flags.isDirectionCollege || flags.isDirectionLycee;
+  return flags.isDirection;
 }
 
 /** Pièces jointes absences professeurs : administratif et direction de l'établissement. */
 /** Pièces jointes absences : jamais exposées dans l’UI (données sensibles). */
 const ABSENCE_ATTACHMENTS_DISABLED = true;
 
-function canViewProfAbsenceAttachments(abs: AbsenceRecord, roles: string[]) {
+function canViewProfAbsenceAttachments(
+  abs: AbsenceRecord,
+  roles: string[],
+  ctx?: DirectionAuthCtx,
+) {
   if (ABSENCE_ATTACHMENTS_DISABLED) return false;
   const flags = getRoleFlags(roles);
   if (flags.isAdministratif) return true;
-  const etab = abs.data.etablissement;
-  if (etab === "École" && flags.isDirectionEcole) return true;
-  if (etab === "Collège" && flags.isDirectionCollege) return true;
-  if (etab === "Lycée" && flags.isDirectionLycee) return true;
-  return false;
+  return directionRolesMatchEstablishmentRef(
+    roles,
+    abs.data.etablissement,
+    ctx?.establishments,
+    ctx?.userId,
+  );
 }
 
 export function canViewAbsenceAttachment(abs: AbsenceRecord, viewerUserId: string, roles: string[]) {
@@ -236,7 +245,12 @@ export function filterAbsenceForViewer(abs: AbsenceRecord, viewerUserId: string,
   return redactAbsenceAttachments(abs);
 }
 
-export function canViewAbsence(abs: AbsenceRecord, viewerUserId: string, roles: string[]) {
+export function canViewAbsence(
+  abs: AbsenceRecord,
+  viewerUserId: string,
+  roles: string[],
+  ctx?: DirectionAuthCtx,
+) {
   if (abs.createdBy.userId === viewerUserId) return true;
   const flags = getRoleFlags(roles);
   const scope = resolveAbsenceScope(abs);
@@ -244,20 +258,24 @@ export function canViewAbsence(abs: AbsenceRecord, viewerUserId: string, roles: 
     return canViewOgecAbsences(roles);
   }
   if (flags.isAdministratif || flags.isEducation) return true;
-  if (abs.data.etablissement === "École") return flags.isDirectionEcole;
-  if (abs.data.etablissement === "Collège") return flags.isDirectionCollege;
-  if (abs.data.etablissement === "Lycée") return flags.isDirectionLycee;
-  return false;
+  return directionRolesMatchEstablishmentRef(
+    roles,
+    abs.data.etablissement,
+    ctx?.establishments,
+    viewerUserId,
+  );
 }
 
-export function canManageAbsence(abs: AbsenceRecord, roles: string[]) {
+export function canManageAbsence(abs: AbsenceRecord, roles: string[], ctx?: DirectionAuthCtx) {
   const flags = getRoleFlags(roles);
   const scope = resolveAbsenceScope(abs);
-  if (scope === "ogec") return flags.isDirectionLycee;
-  if (abs.data.etablissement === "École") return flags.isDirectionEcole;
-  if (abs.data.etablissement === "Collège") return flags.isDirectionCollege;
-  if (abs.data.etablissement === "Lycée") return flags.isDirectionLycee;
-  return false;
+  if (scope === "ogec") return flags.isDirection;
+  return directionRolesMatchEstablishmentRef(
+    roles,
+    abs.data.etablissement,
+    ctx?.establishments,
+    ctx?.userId,
+  );
 }
 
 /** File « À traiter » : décision en attente, hors saisie admin, pas sa propre déclaration. */
@@ -265,11 +283,12 @@ export function isAbsencePendingForManager(
   abs: AbsenceRecord,
   viewerUserId: string,
   roles: string[],
+  ctx?: DirectionAuthCtx,
 ): boolean {
   if (abs.createdBy.userId === viewerUserId) return false;
   if (abs.managerDecision !== "EN_ATTENTE" || abs.workflowStatus === "CLOTUREE") return false;
   if (abs.source === "admin_manual" || abs.source === "admin_pdf") return false;
-  return canManageAbsence(abs, roles);
+  return canManageAbsence(abs, roles, { ...ctx, userId: viewerUserId });
 }
 
 export function parseLocalDateTime(dateStr: string, timeStr: string): Date | null {
@@ -441,8 +460,11 @@ export function buildAdminAbsenceRecord(params: {
 }
 
 export function normalizeEtablissement(value: string): Etablissement {
-  const n = normRoleSpaced(value);
-  if (n.includes("ecole")) return "École";
+  const raw = String(value || "").trim();
+  if (!raw) return raw;
+  const n = normRoleSpaced(raw);
+  if (n.includes("ecole") && !n.includes("college") && !n.includes("lycee")) return "École";
+  if (n.includes("college")) return "Collège";
   if (n.includes("lycee")) return "Lycée";
-  return "Collège";
+  return raw;
 }

@@ -49,7 +49,7 @@ export default function ModuleTabNav<T extends string>({
             className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold cursor-pointer transition-colors ${
               isActive
                 ? `${dash.bgPrimary} text-white shadow-md`
-                : `bg-white ${dash.ink} border ${dash.border} ${dash.hoverBorder}`
+                : `bg-white/55 backdrop-blur-xl ${dash.ink} border border-white/70 ${dash.hoverBorder}`
             }`}
           >
             {tab.icon ? <span>{tab.icon}</span> : null}

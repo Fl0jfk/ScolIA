@@ -1,31 +1,20 @@
 /** Aligné sur la logique « canSign » de la fiche voyage (direction par établissement). */
 
 import type { ClerkLikeUser } from "@/app/lib/clerk-user-types";
-
-const norm = (v: string) =>
-  v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[_\s-]+/g, "");
+import { directionRolesMatchEstablishmentRef } from "@/app/lib/establishment-catalog";
+import { userRoleSlugs } from "@/app/lib/establishment-sign-permissions";
 
 export function canSignTravelsDirectionForEtab(
   user: ClerkLikeUser | null | undefined,
   etablissement: string | null | undefined,
 ): boolean {
-  if (!user?.publicMetadata) return false;
-  const rawRoles = user.publicMetadata.role;
-  const userRoles: string[] = Array.isArray(rawRoles) ? (rawRoles as string[]) : rawRoles ? [String(rawRoles)] : [];
-  const normalizedRoles = userRoles.map((r) => norm(String(r)));
-  const isDirectionLycee = userRoles.includes("direction_lycee");
-  const isDirectionCollege = userRoles.includes("direction collège");
-  const isDirectionEcole = userRoles.includes("direction école");
-  const isEcoleDir = normalizedRoles.some(
-    (r) => r.includes("directionecole") || r.includes("directionecol") || (r.includes("direction") && r.includes("ecole"))
+  if (!user) return false;
+  return directionRolesMatchEstablishmentRef(
+    userRoleSlugs(user),
+    etablissement,
+    [],
+    user.id,
   );
-  const isCollegeDir = normalizedRoles.some((r) => r.includes("directioncollege") || (r.includes("direction") && r.includes("college")));
-  const isLyceeDir = normalizedRoles.some((r) => r.includes("directionlycee") || (r.includes("direction") && r.includes("lycee")));
-  const etabForSign = etablissement || "";
-  if (etabForSign === "École") return isDirectionEcole || isEcoleDir;
-  if (etabForSign === "Collège") return isDirectionCollege || isCollegeDir;
-  if (etabForSign === "Lycée") return isDirectionLycee || isLyceeDir;
-  return isDirectionLycee || isLyceeDir;
 }
 
 export function isTripOwner(tripOwnerId: string | null | undefined, clerkUserId: string | null | undefined): boolean {

@@ -14,6 +14,10 @@ import type {
   SiteIdentity,
   TravelsModuleConfig,
 } from "@/app/lib/app-config-schemas";
+import { ESTABLISHMENT_KIND_PRESETS } from "@/app/lib/establishment-visual";
+import { clerkRoleSlugsForEstablishment, directionRoleForKind } from "@/app/lib/establishment-catalog";
+import ClerkPersonSelect from "@/app/components/settings/ClerkPersonSelect";
+import type { ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 
 const TOTAL_STEPS = 12;
 
@@ -27,13 +31,11 @@ function normalizeOnboardingStep(saved: number): number {
   return Math.min(saved - 1, 12);
 }
 
-type EstablishmentDraft = Establishment & { clerkRoleSlugsText: string };
+type EstablishmentDraft = Establishment;
 
-const ESTABLISHMENT_PRESETS: { kind: EstablishmentKind; id: string; label: string; grades: string; roles: string }[] = [
-  { kind: "ecole", id: "ecole", label: "École", grades: "Maternelle & Élémentaire", roles: "direction_ecole" },
-  { kind: "college", id: "college", label: "Collège", grades: "6ème · 5ème · 4ème · 3ème", roles: "direction_college" },
-  { kind: "lycee", id: "lycee", label: "Lycée", grades: "2nde · 1ère · Terminale", roles: "direction_lycee" },
-];
+function memberDisplayName(m: ClerkMemberOption): string {
+  return m.displayName || `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || m.email;
+}
 
 function Help({ children }: { children: React.ReactNode }) {
   return (
@@ -74,6 +76,8 @@ export default function OnboardingWizard() {
   const [wantQuickLinks, setWantQuickLinks] = useState(false);
   const [hasInternat, setHasInternat] = useState(false);
   const [existingConfigDetected, setExistingConfigDetected] = useState(false);
+  const [clerkMembers, setClerkMembers] = useState<ClerkMemberOption[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
 
   const loadConfig = useCallback(async () => {
     setLoading(true);
@@ -83,10 +87,7 @@ export default function OnboardingWizard() {
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Chargement impossible");
       const cfg = j.config;
-      const loadedEstablishments = (cfg.establishments || []).map((e: Establishment) => ({
-        ...e,
-        clerkRoleSlugsText: (e.clerkRoleSlugs || []).join(", "),
-      }));
+      const loadedEstablishments = (cfg.establishments || []) as Establishment[];
       const identityCfg = cfg.identity || {};
       const activeCount = loadedEstablishments.filter((e: EstablishmentDraft) => e.active !== false).length;
       const hasRealName = Boolean(identityCfg.name?.trim() && identityCfg.name.trim() !== "Mon établissement");
@@ -143,6 +144,25 @@ export default function OnboardingWizard() {
     loadConfig();
   }, [loadConfig]);
 
+  useEffect(() => {
+    if (step !== 3) return;
+    let cancelled = false;
+    setMembersLoading(true);
+    fetch("/api/members")
+      .then((res) => res.json().then((j) => ({ ok: res.ok, j })))
+      .then(({ ok, j }) => {
+        if (cancelled) return;
+        if (ok) setClerkMembers((j.users || []) as ClerkMemberOption[]);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setMembersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [step]);
+
   const saveSite = async (patch: Partial<SiteIdentity>, nextStep?: number) => {
     const payload = { ...identity, ...patch, ...(nextStep ? { onboardingStep: nextStep } : {}) };
     const res = await fetch("/api/settings/site", {
@@ -162,8 +182,9 @@ export default function OnboardingWizard() {
       kind: e.kind,
       directorName: e.directorName,
       directorEmail: e.directorEmail,
+      directorClerkUserId: e.directorClerkUserId,
       grades: e.grades,
-      clerkRoleSlugs: e.clerkRoleSlugsText.split(",").map((s) => s.trim()).filter(Boolean),
+      clerkRoleSlugs: clerkRoleSlugsForEstablishment(e),
       active: e.active !== false,
     }));
     const res = await fetch("/api/settings/establishments", {
@@ -376,7 +397,7 @@ export default function OnboardingWizard() {
 
   const goPrev = () => setStep((s) => Math.max(1, s - 1));
 
-  const addPresetEstablishment = (preset: (typeof ESTABLISHMENT_PRESETS)[number]) => {
+  const addPresetEstablishment = (preset: (typeof ESTABLISHMENT_KIND_PRESETS)[number]) => {
     if (establishments.some((e) => e.id === preset.id)) return;
     if (identity.organizationKind === "standalone" && establishments.length >= 1) return;
     setEstablishments((prev) => [
@@ -388,7 +409,8 @@ export default function OnboardingWizard() {
         grades: preset.grades,
         directorName: "",
         directorEmail: "",
-        clerkRoleSlugsText: preset.roles,
+        directorClerkUserId: "",
+        clerkRoleSlugs: clerkRoleSlugsForEstablishment(preset),
         active: true,
       },
     ]);
@@ -495,11 +517,11 @@ export default function OnboardingWizard() {
           {step === 3 && (
             <>
               <Help>
-                Ajoutez les établissements actifs. Pour un groupe scolaire, activez école, collège et/ou lycée. Les
-                e-mails de direction serviront aux validations et notifications.
+                Ajoutez les établissements actifs (liste vide au départ). Choisissez le responsable dans le
+                personnel Clerk : le rôle direction correspondant est assigné automatiquement à l&apos;enregistrement.
               </Help>
               <div className="flex flex-wrap gap-2 mb-4">
-                {ESTABLISHMENT_PRESETS.filter((p) => !establishments.some((e) => e.id === p.id)).map((p) => (
+                {ESTABLISHMENT_KIND_PRESETS.filter((p) => !establishments.some((e) => e.id === p.id)).map((p) => (
                   <button
                     key={p.id}
                     type="button"
@@ -513,8 +535,11 @@ export default function OnboardingWizard() {
               </div>
               {identity.organizationKind === "standalone" && (
                 <p className="text-xs text-stone-500 mb-4">
-                  Établissement unique : un seul niveau (école, collège ou lycée).
+                  Établissement unique : un seul niveau (école, collège, lycée ou autre).
                 </p>
+              )}
+              {establishments.length === 0 && (
+                <p className="text-sm text-stone-500 mb-4">Aucun établissement pour l&apos;instant. Utilisez les boutons ci-dessus.</p>
               )}
               {establishments.map((e, idx) => (
                 <div key={e.id} className="mb-6 p-4 rounded-xl border border-stone-200 bg-stone-50/50">
@@ -524,7 +549,31 @@ export default function OnboardingWizard() {
                       Retirer
                     </button>
                   </div>
-                  <Field label="Directeur(trice)">
+                  <p className="text-xs text-stone-500 mb-3">
+                    Rôle Clerk : {directionRoleForKind(e.kind || e.id)}
+                  </p>
+                  <Field label="Responsable (Clerk)">
+                    <ClerkPersonSelect
+                      members={clerkMembers}
+                      selectedId={e.directorClerkUserId || ""}
+                      loading={membersLoading}
+                      onChange={(member) => {
+                        const copy = [...establishments];
+                        if (!member) {
+                          copy[idx] = { ...copy[idx], directorClerkUserId: "" };
+                        } else {
+                          copy[idx] = {
+                            ...copy[idx],
+                            directorClerkUserId: member.clerkUserId,
+                            directorName: memberDisplayName(member),
+                            directorEmail: member.email,
+                          };
+                        }
+                        setEstablishments(copy);
+                      }}
+                    />
+                  </Field>
+                  <Field label="Nom affiché (PDF)">
                     <input className={inputClass} value={e.directorName || ""} onChange={(ev) => {
                       const copy = [...establishments];
                       copy[idx] = { ...copy[idx], directorName: ev.target.value };

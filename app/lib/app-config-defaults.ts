@@ -15,8 +15,8 @@ import { DEFAULT_PROF_ROOM_SUBJECT_COLORS } from "@/app/lib/prof-room-defaults";
 
 export function defaultSiteIdentity(): SiteIdentity {
   return {
-    name: "Mon établissement",
-    shortName: "Mon établissement",
+    name: "",
+    shortName: "",
     organizationKind: "standalone",
     onboardingCompleted: false,
     onboardingStep: 1,
@@ -24,15 +24,7 @@ export function defaultSiteIdentity(): SiteIdentity {
 }
 
 export function defaultEstablishments(): Establishment[] {
-  return [
-    {
-      id: "principal",
-      label: "Mon établissement",
-      kind: "custom",
-      active: true,
-      clerkRoleSlugs: ["direction_lycee"],
-    },
-  ];
+  return [];
 }
 
 export function defaultNotifications(): NotificationsConfig {

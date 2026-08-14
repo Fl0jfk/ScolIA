@@ -1,3 +1,7 @@
+/**
+ * Organigramme nominatif La Providence (seed uniquement).
+ * Le runtime construit les slots direction depuis les établissements.
+ */
 import { scolaImageUrl } from "@/app/lib/scola-image";
 import { SCHOOL } from "@/app/lib/school";
 

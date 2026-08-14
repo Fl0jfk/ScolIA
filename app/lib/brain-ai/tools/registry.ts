@@ -232,7 +232,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
         reason: { type: "string" },
         details: { type: "string" },
         scope: { type: "string", enum: ["professeur", "ogec"] },
-        etablissement: { type: "string", enum: ["École", "Collège", "Lycée"] },
+        etablissement: { type: "string" },
       },
       required: [],
       additionalProperties: false,
@@ -279,7 +279,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     parameters: {
       type: "object",
       properties: {
-        etablissement: { type: "string", enum: ["École", "Collège", "Lycée"] },
+        etablissement: { type: "string" },
         motif: { type: "string" },
         classesOuMatiere: { type: "string" },
         nombrePhotocopies: { type: "number" },
@@ -321,7 +321,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     parameters: {
       type: "object",
       properties: {
-        etablissement: { type: "string", enum: ["École", "Collège", "Lycée"] },
+        etablissement: { type: "string" },
         resumeDemande: { type: "string" },
         nombreHeures: { type: "number" },
         classe: { type: "string" },

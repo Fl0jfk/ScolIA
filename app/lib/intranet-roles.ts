@@ -8,6 +8,7 @@ export const INTRANET_ROLE_OPTIONS: { slug: string; label: string }[] = [
   { slug: "direction_ecole", label: "Direction école" },
   { slug: "direction_college", label: "Direction collège" },
   { slug: "direction_lycee", label: "Direction lycée" },
+  { slug: "direction", label: "Direction" },
   { slug: "comptabilite", label: "Comptabilité" },
   { slug: "maintenance", label: "Maintenance" },
   { slug: "infirmerie", label: "Infirmerie" },
@@ -22,6 +23,7 @@ export const INTRANET_DIRECTION_SLUGS = [
   "direction_ecole",
   "direction_college",
   "direction_lycee",
+  "direction",
 ] as const;
 
 /** Tous les rôles intranet sauf les parents (QR, salons, feuille de semaine…). */
@@ -44,6 +46,7 @@ function canonicalIntranetRole(raw: string): string | null {
   if (n.includes("direction") && n.includes("ecole")) return "direction_ecole";
   if (n.includes("direction") && n.includes("college")) return "direction_college";
   if (n.includes("direction") && n.includes("lycee")) return "direction_lycee";
+  if (n === "direction") return "direction";
   return null;
 }
 

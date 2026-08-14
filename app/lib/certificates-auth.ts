@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getClerkUserRoles } from "@/app/lib/clerk-users";
+import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import {
@@ -17,13 +18,7 @@ function rolesOf(user: ClerkActor | null | undefined): string[] {
 export function canAccessCertificatesModule(user: ClerkActor | null | undefined): boolean {
   const roles = rolesOf(user);
   if (hasGlobalAdminRole(roles)) return true;
-  return (
-    hasRole(roles, "professeur") ||
-    hasRole(roles, "administratif") ||
-    hasRole(roles, "direction_ecole") ||
-    hasRole(roles, "direction_college") ||
-    hasRole(roles, "direction_lycee")
-  );
+  return hasRole(roles, "professeur") || hasRole(roles, "administratif") || isAnyDirectionRole(roles);
 }
 
 function isProgramOwner(program: CertificateProgram, userId: string): boolean {

@@ -8,31 +8,23 @@ export type OneDriveUserProfile = {
   label: string;
 };
 
-/** Clé = nom de famille Clerk (majuscules, sans accents). */
+/** Repli générique (surchargé par les libellés d’établissements côté serveur). */
+export const DEFAULT_ONEDRIVE_BASE_BY_SECTEUR: Record<
+  Secteur,
+  { basePath: string; label: string }
+> = {
+  ecole: { basePath: "Dossier élèves/École", label: "École" },
+  college: { basePath: "Dossier élèves/Collège", label: "Collège" },
+  lycee: { basePath: "Dossier élèves/Lycée", label: "Lycée" },
+};
+
+/** Mapping utilisateur → cycle : désormais uniquement via Paramètres → Intégrations (userSecteurs). */
 export const ONEDRIVE_USER_BASES: Record<
   string,
   { basePath: string; secteur: Secteur; label: string }
-> = {
-  "HACQUEVILLE-MATHI": {
-    basePath: "Dossier élèves/Lycée",
-    secteur: "lycee",
-    label: "Lycée",
-  },
-  VILLIER: { basePath: "Dossier élèves/Collège", secteur: "college", label: "Collège" },
-  VILLIERS: { basePath: "Dossier élèves/Collège", secteur: "college", label: "Collège" },
-  BUNO: { basePath: "Dossier élèves/Collège", secteur: "college", label: "Collège" },
-  LEBLOND: { basePath: "Dossier élèves/École", secteur: "ecole", label: "École" },
-};
+> = {};
 
-const ONEDRIVE_EMAIL_TO_BASE_KEY: Record<string, keyof typeof ONEDRIVE_USER_BASES> = {
-  "sarah.buno@ac-normandie.fr": "VILLIER",
-  "sarah@laprovidence-nicolasbarre.fr": "VILLIER",
-  "florian@h-me.fr": "HACQUEVILLE-MATHI",
-  "florian.hacqueville-mathi@ac-normandie.fr": "HACQUEVILLE-MATHI",
-  "m.leblond@laprovidence-nicolasbarre.fr": "LEBLOND",
-  "pauline.leblond@ac-normandie.fr": "LEBLOND",
-  "0762041f@ac-normandie.fr": "LEBLOND",
-};
+const ONEDRIVE_EMAIL_TO_BASE_KEY: Record<string, string> = {};
 
 export function getOneDriveProfileForClerkLastName(lastName: string): OneDriveUserProfile | null {
   const key = lastName
@@ -67,11 +59,9 @@ export function getOneDriveProfileForUser(input: {
 }
 
 /** Premier profil configuré pour un secteur (Lycée, Collège, École). */
-export function getOneDriveProfileForSecteur(secteur: Secteur): OneDriveUserProfile | null {
-  for (const [key, v] of Object.entries(ONEDRIVE_USER_BASES)) {
-    if (v.secteur === secteur) return { key, ...v };
-  }
-  return null;
+export function getOneDriveProfileForSecteur(secteur: Secteur): OneDriveUserProfile {
+  const def = DEFAULT_ONEDRIVE_BASE_BY_SECTEUR[secteur];
+  return { key: secteur, secteur, basePath: def.basePath, label: def.label };
 }
 
 export function getOneDriveProfileForClerkUser(user: ClerkLikeUser): OneDriveUserProfile | null {

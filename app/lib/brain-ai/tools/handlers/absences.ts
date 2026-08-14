@@ -12,6 +12,7 @@ import {
   saveAbsenceIndex,
   saveOrMergeAbsenceRecord,
 } from "@/app/lib/absences-storage";
+import { loadAppConfig } from "@/app/lib/app-config";
 import { choicesResult } from "@/app/lib/brain-ai/choice-options";
 import {
   buildDateQuickOptions,
@@ -21,6 +22,7 @@ import {
 } from "@/app/lib/brain-ai/wizard";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
+import { establishmentChoiceOptions, matchEstablishment } from "@/app/lib/establishment-catalog";
 
 const COMMON_REASONS = [
   "Maladie",
@@ -44,12 +46,11 @@ export async function handleCreateAbsence(
 
   const scopeHint = typeof args.scope === "string" ? args.scope : undefined;
   const scope: AbsenceScope = resolveSelfDeclarationScope(ctx.roles, scopeHint);
+  const bundle = await loadAppConfig();
+  const etabChoices = establishmentChoiceOptions(bundle.establishments);
   const etablissementRaw = typeof args.etablissement === "string" ? args.etablissement : null;
-  let etablissement = (
-    ["École", "Collège", "Lycée"].includes(String(etablissementRaw))
-      ? etablissementRaw
-      : null
-  ) as Etablissement | null;
+  const matchedEtab = matchEstablishment(bundle.establishments, etablissementRaw);
+  let etablissement = (matchedEtab?.label || null) as Etablissement | null;
 
   let startDate = String(args.date || args.startDate || "").trim();
   let endDate = String(args.endDate || "").trim();
@@ -188,11 +189,7 @@ export async function handleCreateAbsence(
       "create_absence",
       "etablissement",
       label("Pour quel établissement (votre service) ?"),
-      [
-        { value: "École", label: "École" },
-        { value: "Collège", label: "Collège" },
-        { value: "Lycée", label: "Lycée" },
-      ],
+      etabChoices,
       draft(),
     );
   }

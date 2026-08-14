@@ -1,5 +1,5 @@
 import { getJson, putJson } from "@/app/lib/s3-storage";
-import { SCHOOL } from "@/app/lib/school";
+import { ESTABLISHMENT_KIND_PRESETS } from "@/app/lib/establishment-visual";
 import {
   ORGANIGRAM_ACCOUNTING,
   ORGANIGRAM_ADMIN,
@@ -163,12 +163,6 @@ function seedOrganigramConfig(): OrganigramConfig {
   }));
 
   const slots: OrganigramSlot[] = [
-    ...ORGANIGRAM_DIRECTORS.map((p, i) =>
-      personToSlot(p, "direction", i, {
-        establishmentId:
-          p.id === "dir-ecole" ? "ecole" : p.id === "dir-college" ? "college" : "lycee",
-      }),
-    ),
     ...ORGANIGRAM_ADMIN.people.map((p, i) => personToSlot(p, "admin", i)),
     ...ORGANIGRAM_ACCOUNTING.people.map((p, i) => personToSlot(p, "accounting", i)),
     ...ORGANIGRAM_POLES.flatMap((pole) =>
@@ -188,12 +182,24 @@ function seedOrganigramConfig(): OrganigramConfig {
 
   // Labels pôles depuis SCHOOL si besoin de refresh
   for (const pole of poles) {
-    if (pole.id === "pole-ecole") pole.label = SCHOOL.ecole.label;
-    if (pole.id === "pole-college") pole.label = SCHOOL.college.label;
-    if (pole.id === "pole-lycee") pole.label = SCHOOL.lycee.label;
+    if (pole.id === "pole-ecole") pole.label = ESTABLISHMENT_KIND_PRESETS.find((p) => p.kind === "ecole")?.label || pole.label;
+    if (pole.id === "pole-college") pole.label = ESTABLISHMENT_KIND_PRESETS.find((p) => p.kind === "college")?.label || pole.label;
+    if (pole.id === "pole-lycee") pole.label = ESTABLISHMENT_KIND_PRESETS.find((p) => p.kind === "lycee")?.label || pole.label;
   }
 
   return { version: 1, sections, poles, slots };
+}
+
+/** Seed La Providence uniquement : directions nominatives (PLANTEC, DUMOUCHEL, DONA). */
+export function laprovidenceOrganigramConfig(): OrganigramConfig {
+  const base = seedOrganigramConfig();
+  const directorSlots = ORGANIGRAM_DIRECTORS.map((p, i) =>
+    personToSlot(p, "direction", i, {
+      establishmentId:
+        p.id === "dir-ecole" ? "ecole" : p.id === "dir-college" ? "college" : "lycee",
+    }),
+  );
+  return { ...base, slots: [...directorSlots, ...base.slots] };
 }
 
 function asString(v: unknown): string {

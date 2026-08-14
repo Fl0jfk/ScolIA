@@ -8,7 +8,7 @@ import {
   batchFileSignedConventionsToOneDrive,
   previewBatchOneDriveFiling,
 } from "@/app/lib/stage-onedrive-filing";
-import { getOneDriveProfileForClerkUser } from "@/app/lib/onedrive-user-profiles";
+import { resolveOneDriveProfileForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
 
 function displayName(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
   const first = user?.firstName?.trim() || "";
@@ -28,7 +28,7 @@ export async function GET() {
       return NextResponse.json({ error: "Réservé à l'administratif." }, { status: 403 });
     }
 
-    const odProfile = user ? getOneDriveProfileForClerkUser(user) : null;
+    const odProfile = user ? await resolveOneDriveProfileForClerkUserServer(user) : null;
     const preview = await previewBatchOneDriveFiling(odProfile);
 
     return NextResponse.json({
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const odProfile = user ? getOneDriveProfileForClerkUser(user) : null;
+    const odProfile = user ? await resolveOneDriveProfileForClerkUserServer(user) : null;
     const result = await batchFileSignedConventionsToOneDrive({
       accessToken,
       odProfile,

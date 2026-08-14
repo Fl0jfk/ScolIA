@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ExternalQuickLinkConfig } from "@/app/lib/app-config-schemas";
 import { QuickLinkIcon } from "@/app/components/Dashboard/ExternalQuickLinks";
+import {
+  SettingsLoading,
+  SettingsNotice,
+  SettingsSection,
+  settingsInputClass,
+} from "@/app/components/settings/SettingsChrome";
+import { dash } from "@/app/lib/dashboard-brand";
 import { clearDashboardLinksCache } from "@/app/lib/dashboard-links-cache";
 import { dashboardQuickLinksFromExternalLinks } from "@/app/lib/dashboard-external-links";
 import { DEFAULT_QUICK_LINK_ROLES, newQuickLinkSlot } from "@/app/lib/dashboard-quick-links";
@@ -86,26 +93,27 @@ export default function DashboardQuickLinksPanel() {
   }
 
   if (loading) {
-    return <p className="text-sm text-slate-500">Chargement des raccourcis…</p>;
+    return <SettingsLoading label="Chargement des raccourcis…" />;
   }
 
   return (
-    <div className="rounded-2xl border bg-white p-6 space-y-5">
-      <div>
-        <h2 className="text-lg font-bold text-slate-900">Raccourcis tableau de bord</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Liens affichés en haut à droite du tableau de bord pour <strong>tout l&apos;établissement</strong> (selon les
-          rôles cochés). La personnalisation individuelle du dashboard ne gère plus ces raccourcis.
-        </p>
-        <p className="mt-2 text-xs text-slate-500">
-          Source unique : <code className="text-[11px]">settings/external-links.json</code> sur le tenant.
-          Les intégrations (Zeendoc, OneDrive) ne créent plus de raccourcis ici — configurez-les dans l&apos;onglet{" "}
-          <strong>Intégrations</strong> pour le métier (sorties scolaires, OCR…).
-        </p>
-      </div>
+    <SettingsSection
+      icon="🔗"
+      title="Raccourcis tableau de bord"
+      description={
+        <>
+          Liens affichés en haut à droite du tableau de bord pour <strong>tout l&apos;établissement</strong>{" "}
+          (selon les rôles cochés).
+        </>
+      }
+    >
+      <p className={`text-xs ${dash.textMid}`}>
+        Source unique : <code className="text-[11px]">settings/external-links.json</code>. Les intégrations
+        (Zeendoc, OneDrive) se configurent dans l&apos;onglet <strong>Intégrations</strong>.
+      </p>
 
       {links.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+        <div className="rounded-2xl border border-white/70 bg-white/45 px-4 py-3">
           <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Aperçu affiché sur le dashboard</p>
           <ul className="mt-2 space-y-1 text-sm text-slate-700">
             {dashboardQuickLinksFromExternalLinks(links).map((l) => (
@@ -119,17 +127,15 @@ export default function DashboardQuickLinksPanel() {
         </div>
       )}
 
-      {error && <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</p>}
-      {msg && (
-        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{msg}</p>
-      )}
+      {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
+      {msg ? <SettingsNotice tone="ok">{msg}</SettingsNotice> : null}
 
       <div className="space-y-4">
         {links.length === 0 ? (
           <p className="text-sm text-slate-500">Aucun raccourci configuré.</p>
         ) : (
           links.map((row, index) => (
-            <div key={row.id || index} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
+            <div key={row.id || index} className="space-y-3 rounded-2xl border border-white/70 bg-white/45 p-4">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-bold uppercase text-slate-500">Raccourci {index + 1}</span>
                 <button
@@ -144,20 +150,20 @@ export default function DashboardQuickLinksPanel() {
                 <QuickLinkIcon src={row.img || ""} name={row.name} />
                 <div className="min-w-0 flex-1 space-y-2">
                   <input
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={`${settingsInputClass} mt-0`}
                     placeholder="Nom (ex. Arena Ac-Normandie)"
                     value={row.name}
                     onChange={(e) => patchLink(index, { name: e.target.value })}
                   />
                   <input
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={`${settingsInputClass} mt-0`}
                     placeholder="https://…"
                     type="url"
                     value={row.link}
                     onChange={(e) => patchLink(index, { link: e.target.value })}
                   />
                   <input
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className={`${settingsInputClass} mt-0`}
                     placeholder="URL de l'image (optionnel)"
                     type="url"
                     value={row.img || ""}
@@ -175,8 +181,8 @@ export default function DashboardQuickLinksPanel() {
                         key={role.slug}
                         className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-semibold ${
                           checked
-                            ? "border-indigo-300 bg-indigo-50 text-indigo-900"
-                            : "border-slate-200 bg-white text-slate-600"
+                            ? "border-[color:var(--dash-primary)]/35 bg-[color:var(--dash-soft)] text-[var(--dash-ink)]"
+                            : "border-white/70 bg-white/60 text-slate-600"
                         }`}
                       >
                         <input
@@ -200,7 +206,7 @@ export default function DashboardQuickLinksPanel() {
         <button
           type="button"
           onClick={() => setLinks((prev) => [...prev, newQuickLinkSlot(prev.length)])}
-          className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-900"
+          className="rounded-2xl border border-white/70 bg-white/70 px-4 py-2 text-sm font-semibold text-[var(--dash-primary)] shadow-sm"
         >
           + Ajouter un raccourci
         </button>
@@ -208,11 +214,11 @@ export default function DashboardQuickLinksPanel() {
           type="button"
           disabled={saving}
           onClick={() => void save()}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+          className="rounded-2xl bg-[var(--dash-primary)] px-4 py-2 text-sm font-semibold text-white shadow-[0_12px_28px_-16px_rgba(15,23,42,0.55)] disabled:opacity-50"
         >
           {saving ? "Enregistrement…" : "Enregistrer"}
         </button>
       </div>
-    </div>
+    </SettingsSection>
   );
 }

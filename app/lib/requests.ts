@@ -11,6 +11,7 @@ import { getFirstBranchForStaffEmailFromDirectory } from "@/app/lib/staff-direct
 import { ensureRequestRoutes, getRouteById } from "@/app/lib/requests-routes-cache";
 import type { RequestRouteDef } from "@/app/lib/requests-types";
 import { resolveRoutingFromCatalog } from "@/app/lib/requests-routing-config";
+import { isManualOnlyDirectionRoute } from "@/app/lib/requests-routing-defaults";
 import { getTenantAppUrl, tenantAbsolutePath } from "@/app/lib/tenant-context";
 
 export type RequestStatus = "NOUVELLE" | "EN_COURS" | "EN_ATTENTE" | "TERMINEE";
@@ -353,6 +354,8 @@ function normalizeForMatch(input: string) {
 const ROUTING_CONFIDENCE_MIN = 0.52;
 
 /** Jamais assignées automatiquement — réservées au transfert manuel admin. */
+export { isManualOnlyDirectionRoute };
+
 export const MANUAL_ONLY_DIRECTION_IDS = new Set(["direction_ecole", "direction_college", "direction_lycee"]);
 
 const DIRECTION_TO_ADMIN_QUEUE: Record<string, string> = {
@@ -363,9 +366,9 @@ const DIRECTION_TO_ADMIN_QUEUE: Record<string, string> = {
 
 async function applyDirectionGate(routing: ResolvedRequestRouting): Promise<ResolvedRequestRouting> {
   const assignedRoute = routing.assignedTo.routeId ?? routing.assignedTo.unit;
-  const hintId = MANUAL_ONLY_DIRECTION_IDS.has(assignedRoute)
+  const hintId = isManualOnlyDirectionRoute(assignedRoute)
     ? assignedRoute
-    : routing.suggestedRouteId && MANUAL_ONLY_DIRECTION_IDS.has(routing.suggestedRouteId)
+    : routing.suggestedRouteId && isManualOnlyDirectionRoute(routing.suggestedRouteId)
       ? routing.suggestedRouteId
       : null;
   if (!hintId) return routing;
@@ -378,11 +381,13 @@ async function applyDirectionGate(routing: ResolvedRequestRouting): Promise<Reso
     reason: routing.reason,
   };
 
-  if (!MANUAL_ONLY_DIRECTION_IDS.has(assignedRoute)) {
+  if (!isManualOnlyDirectionRoute(assignedRoute)) {
     return { ...routing, directionHint };
   }
 
-  const adminId = DIRECTION_TO_ADMIN_QUEUE[hintId];
+  const adminId =
+    DIRECTION_TO_ADMIN_QUEUE[hintId] ||
+    (hintId.startsWith("direction_") ? `admin_${hintId.slice("direction_".length)}` : undefined);
   const adminDef = adminId ? await getRouteById(adminId) : null;
   if (!adminDef) return { ...routing, directionHint };
   return {
@@ -443,7 +448,7 @@ async function listRequestRoutesForPicker(): Promise<Array<{ id: string; label: 
 
 async function listRequestRoutesForTransmit(): Promise<Array<{ id: string; label: string; category: string }>> {
   const { routes } = await ensureRequestRoutes();
-  return routes.filter((r) => r.id !== "corbeille" && MANUAL_ONLY_DIRECTION_IDS.has(r.id)).map((r) => ({
+  return routes.filter((r) => r.id !== "corbeille" && isManualOnlyDirectionRoute(r.id)).map((r) => ({
     id: r.id,
     label: r.roleLabel,
     category: r.category,

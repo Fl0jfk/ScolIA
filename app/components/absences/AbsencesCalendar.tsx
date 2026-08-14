@@ -16,6 +16,8 @@ import {
   dedupeCalendarEventsForDisplay,
   type CalendarEvent,
 } from "@/app/lib/absences-calendar";
+import { useAppContext } from "@/app/hooks/useAppContext";
+import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
 import { PaperclipIcon, PrinterIcon, printDaySummary } from "@/app/components/absences/AbsencesCalendarPrint";
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -56,7 +58,7 @@ function recordToEditForm(record: AbsenceRecord) {
     displayName: record.displayName,
     reason: d.reason,
     scope,
-    etablissement: (d.etablissement || "Collège") as Etablissement,
+    etablissement: (d.etablissement || "") as Etablissement,
     periodType,
     startDate: d.startDate || d.startAt.slice(0, 10),
     endDate: d.endDate || d.endAt.slice(0, 10),
@@ -74,6 +76,8 @@ type AbsencesCalendarProps = {
 
 export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarProps) {
   const { user, isLoaded: userLoaded } = useUser();
+  const { data: appCtx } = useAppContext();
+  const establishments = appCtx?.establishments ?? [];
   const [items, setItems] = useState<AbsenceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [attachingPdf, setAttachingPdf] = useState(false);
@@ -108,8 +112,9 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
   }, []);
 
   const canManageSlot = useMemo(() => {
-    return (item: AbsenceRecord) => canManageAbsence(item, roles);
-  }, [roles]);
+    return (item: AbsenceRecord) =>
+      canManageAbsence(item, roles, { establishments, userId: user?.id });
+  }, [roles, establishments, user?.id]);
 
   const fetchAbsences = async () => {
     try {
@@ -741,20 +746,13 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
             {editForm.scope === "professeur" && (
               <label className="block text-sm">
                 <span className="font-bold text-slate-700">Établissement</span>
-                <select
-                  className="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                <EstablishmentSelect
                   value={editForm.etablissement}
-                  onChange={(e) =>
-                    setEditForm({
-                      ...editForm,
-                      etablissement: e.target.value as Etablissement,
-                    })
-                  }
-                >
-                  <option value="École">École</option>
-                  <option value="Collège">Collège</option>
-                  <option value="Lycée">Lycée</option>
-                </select>
+                  onChange={(v) => setEditForm({ ...editForm, etablissement: v })}
+                  establishments={establishments}
+                  includeGroupe={false}
+                  className="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                />
               </label>
             )}
             <label className="block text-sm">

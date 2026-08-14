@@ -7,6 +7,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import { useTravelsPermissions } from "@/app/hooks/useTravelsPermissions";
 import { useAppContext } from "@/app/hooks/useAppContext";
+import { matchEstablishment } from "@/app/lib/establishment-catalog";
 import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
 import { emptyCuisineDetails } from "@/app/lib/travels-cuisine-form";
 import {
@@ -1141,7 +1142,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
     setLoadingAction("signing");
     const etab = trip.data?.etablissement || "";
-    let sigType = etab === "École" ? "ecole" : etab === "Collège" ? "college" : "lycee";
+    const sigType = matchEstablishment(appCtx?.establishments || [], etab)?.id || "";
     if (!sigType) return alert("Erreur de rôle.");
     try {
       const signRes = await fetch('/api/travels/sign-pdf', {

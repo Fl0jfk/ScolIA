@@ -1,6 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  SettingsLoading,
+  SettingsNotice,
+  SettingsSection,
+  settingsInputClass,
+  settingsSelectClass,
+} from "@/app/components/settings/SettingsChrome";
+import { dash } from "@/app/lib/dashboard-brand";
 
 type RoleOption = { slug: string; label: string };
 
@@ -47,8 +55,10 @@ function RoleCheckboxes({
             key={opt.slug}
             type="button"
             onClick={() => toggle(opt.slug)}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${
-              on ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:border-indigo-300"
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+              on
+                ? "bg-[var(--dash-primary)] text-white border-[var(--dash-primary)]"
+                : "bg-white/70 text-slate-600 border-white/80 hover:border-[color:var(--dash-primary)]/35"
             }`}
           >
             {opt.label}
@@ -210,17 +220,17 @@ export default function MembresPanel() {
     }
   };
 
-  if (loading) return <p className="text-center text-slate-500 py-8">Chargement…</p>;
+  if (loading) return <SettingsLoading label="Chargement des utilisateurs…" />;
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-500">
+      <p className={`text-sm ${dash.textMid}`}>
         Gestion directe via Clerk (invitations, rôles, suppression). Une instance = une application Clerk.
       </p>
 
-      {error && <p className="text-red-600 text-sm bg-red-50 border border-red-100 rounded-xl p-3">{error}</p>}
+      {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
 
-      <section className="bg-white rounded-2xl border p-4 space-y-3 shadow-sm sticky top-2 z-10">
+      <SettingsSection className="sticky top-2 z-10">
         <div className="flex flex-wrap gap-3 items-end">
           <label className="flex-1 min-w-[200px]">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Rechercher</span>
@@ -229,7 +239,7 @@ export default function MembresPanel() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Nom, prénom, e-mail…"
-              className="mt-1 w-full border rounded-xl p-2.5 text-sm"
+              className={`${settingsInputClass} mt-1`}
             />
           </label>
           <label className="min-w-[160px]">
@@ -237,7 +247,7 @@ export default function MembresPanel() {
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
-              className="mt-1 w-full border rounded-xl p-2.5 text-sm"
+              className={`${settingsSelectClass} mt-1`}
             >
               <option value="">Tous les rôles</option>
               {roleOptions.map((o) => (
@@ -252,7 +262,7 @@ export default function MembresPanel() {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as SortKey)}
-              className="mt-1 w-full border rounded-xl p-2.5 text-sm"
+              className={`${settingsSelectClass} mt-1`}
             >
               <option value="name">Nom</option>
               <option value="email">E-mail</option>
@@ -260,24 +270,24 @@ export default function MembresPanel() {
             </select>
           </label>
         </div>
-        <p className="text-xs text-slate-400">
+        <p className={`text-xs ${dash.textMid}`}>
           {filteredUsers.length} affiché{filteredUsers.length > 1 ? "s" : ""} sur {users.length}
         </p>
-      </section>
+      </SettingsSection>
 
       <div className="flex justify-between items-center">
-        <h2 className="text-lg font-bold text-slate-800">Liste</h2>
+        <h2 className={`text-lg font-semibold ${dash.ink}`}>Liste</h2>
         <button
           type="button"
           onClick={() => setShowAddForm((v) => !v)}
-          className="text-sm font-bold text-indigo-600 hover:underline"
+          className={`text-sm font-semibold ${dash.textPrimary} hover:underline`}
         >
           {showAddForm ? "Masquer le formulaire" : "+ Ajouter"}
         </button>
       </div>
 
       {showAddForm && (
-        <form onSubmit={sendInvite} className="bg-white rounded-2xl border p-6 space-y-4 shadow-sm">
+        <form onSubmit={sendInvite} className="relative overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/55 p-6 space-y-4 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl">
           <h3 className="font-bold text-slate-800">Nouvel utilisateur</h3>
           <div className="grid gap-3 sm:grid-cols-2">
             <label>
@@ -285,7 +295,7 @@ export default function MembresPanel() {
               <input
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                className="mt-1 w-full border rounded-xl p-3"
+                className={settingsInputClass}
               />
             </label>
             <label>
@@ -293,7 +303,7 @@ export default function MembresPanel() {
               <input
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                className="mt-1 w-full border rounded-xl p-3"
+                className={settingsInputClass}
               />
             </label>
           </div>
@@ -304,7 +314,7 @@ export default function MembresPanel() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full border rounded-xl p-3"
+              className={settingsInputClass}
             />
           </label>
           <div>
@@ -314,7 +324,7 @@ export default function MembresPanel() {
           <button
             type="submit"
             disabled={sending}
-            className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-bold disabled:opacity-50"
+            className="px-6 py-3 rounded-2xl bg-[var(--dash-primary)] text-white font-semibold disabled:opacity-50"
           >
             {sending ? "En cours…" : "Enregistrer"}
           </button>
@@ -329,20 +339,20 @@ export default function MembresPanel() {
             const key = u.clerkUserId || u.email;
             const name = labelFor(u);
             return (
-              <li key={key} className="border border-slate-100 rounded-xl p-4 bg-white hover:border-slate-200">
+              <li key={key} className="rounded-2xl border border-white/55 bg-white/55 p-4 backdrop-blur-xl hover:bg-white/75">
                 <div className="flex flex-wrap justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-bold text-slate-900 truncate">{name}</p>
                     <p className="text-sm text-slate-500 truncate">{u.email}</p>
                     {editingKey !== key && (
-                      <p className="text-xs text-indigo-700/80 mt-1 font-medium">{roleLabels(u.roles)}</p>
+                      <p className={`mt-1 text-xs font-medium ${dash.textPrimary}`}>{roleLabels(u.roles)}</p>
                     )}
                     {u.pending && <span className="text-xs text-amber-600 font-bold">Invitation en attente</span>}
                   </div>
                   <div className="flex gap-3 shrink-0">
                     {editingKey !== key && (
                       <>
-                        <button type="button" onClick={() => startEdit(u)} className="text-sm font-bold text-indigo-600">
+                        <button type="button" onClick={() => startEdit(u)} className={`text-sm font-semibold ${dash.textPrimary}`}>
                           Modifier
                         </button>
                         <button type="button" onClick={() => removeUser(u)} className="text-sm font-bold text-red-600">
@@ -360,7 +370,7 @@ export default function MembresPanel() {
                         type="button"
                         onClick={() => saveEdit(u)}
                         disabled={savingEdit}
-                        className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold"
+                        className="px-4 py-2 rounded-xl bg-[var(--dash-primary)] text-white text-sm font-semibold"
                       >
                         Enregistrer
                       </button>

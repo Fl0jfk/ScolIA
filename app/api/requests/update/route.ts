@@ -2,7 +2,7 @@ import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { REQUEST_STATUSES, RequestAttachment, RequestComment, RequestRecord, RequestStatus, assertEligibleRequestAttachment, finalizeRequestPurgeMetadata, getDefaultRequestBranchForStaffEmail, getRequestPoolEmails, getRequestsIndex, isLeaderForRequestBranch, isUserInRequestPool, notifyRequesterOnly, notifyRequestStatusMilestone, resolveRequestRouteById, saveRequestFile, saveRequestsIndex, uploadBuffersAsRequestAttachments, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD, MANUAL_ONLY_DIRECTION_IDS} from "@/app/lib/requests";
+import { REQUEST_STATUSES, RequestAttachment, RequestComment, RequestRecord, RequestStatus, assertEligibleRequestAttachment, finalizeRequestPurgeMetadata, getDefaultRequestBranchForStaffEmail, getRequestPoolEmails, getRequestsIndex, isLeaderForRequestBranch, isUserInRequestPool, notifyRequesterOnly, notifyRequestStatusMilestone, resolveRequestRouteById, saveRequestFile, saveRequestsIndex, uploadBuffersAsRequestAttachments, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD, isManualOnlyDirectionRoute} from "@/app/lib/requests";
 import { isCorbeilleBranchId, normalizeRequestBranchId, normalizeRequestEmail} from "@/app/lib/requests-board";
 import { canAccessRequestsStaffBoard } from "@/app/lib/requests-staff-access";
 import { isStaffInBranchPool } from "@/app/lib/staff-directory";
@@ -262,7 +262,7 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: "Réservé au personnel habilité." }, { status: 403 });
       }
       const directionId = assignRouteIdRaw || current.routing?.directionHint?.suggestedQueueId || "";
-      if (!MANUAL_ONLY_DIRECTION_IDS.has(directionId)) {
+      if (!isManualOnlyDirectionRoute(directionId)) {
         return NextResponse.json({ error: "Corbeille direction invalide." }, { status: 400 });
       }
       const resolved = await resolveRequestRouteById(directionId);

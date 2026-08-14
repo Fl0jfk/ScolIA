@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
 
 type ManualFormState = {
   firstName: string;
@@ -37,7 +38,7 @@ export default function AbsencesDeclareOther({ onSuccess }: Props) {
       lastName: "",
       examType: "",
       scope: "professeur",
-      etablissement: "Collège",
+      etablissement: "",
       startDate: t,
       endDate: t,
       startTime: "08:00",
@@ -262,16 +263,13 @@ export default function AbsencesDeclareOther({ onSuccess }: Props) {
           {manualForm.scope === "professeur" && (
             <label className="block max-w-xs">
               <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">Établissement</span>
-              <select
+              <EstablishmentSelect
                 className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800"
                 value={manualForm.etablissement}
-                onChange={(e) => setManualForm((p) => ({ ...p, etablissement: e.target.value }))}
+                onChange={(label) => setManualForm((p) => ({ ...p, etablissement: label }))}
+                required
                 disabled={savingManual}
-              >
-                <option value="École">École</option>
-                <option value="Collège">Collège</option>
-                <option value="Lycée">Lycée</option>
-              </select>
+              />
             </label>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

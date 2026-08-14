@@ -1,4 +1,11 @@
-export type InternatEtablissement = "Collège" | "Lycée";
+import type { Establishment } from "@/app/lib/app-config-schemas";
+import {
+  internatEligibleEstablishments,
+  matchEstablishment,
+} from "@/app/lib/establishment-catalog";
+import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
+
+export type InternatEtablissement = string;
 export type InternatSexe = "M" | "F";
 export type InternatWing = "garcons" | "filles" | "mixte";
 export type InternatRollMark = "present" | "absent" | "excuse" | "activite";
@@ -317,7 +324,26 @@ export function etablissementFromSecteur(secteur?: string): InternatEtablissemen
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
   if (s.includes("college") || s.includes("colleg")) return "Collège";
-  return "Lycée";
+  if (s.includes("ecole") || s.includes("primaire") || s.includes("elementaire")) return "École";
+  if (s.includes("lycee") || s.includes("lyc")) return "Lycée";
+  return String(secteur || "").trim() || "Lycée";
+}
+
+export function internatEtablissementFromRaw(
+  raw: unknown,
+  establishments: Establishment[],
+): InternatEtablissement | null {
+  const eligible = internatEligibleEstablishments(establishments);
+  const s = String(raw || "").trim();
+  if (s) {
+    const hit = matchEstablishment(eligible, s);
+    if (hit) return hit.label;
+    if (inferEstablishmentKind({ label: s }) === "ecole") {
+      return eligible[0]?.label ?? null;
+    }
+    if (eligible.length === 0) return s;
+  }
+  return eligible[0]?.label ?? (s || null);
 }
 
 function emptyRollSection(): InternatRollSection {

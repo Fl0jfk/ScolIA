@@ -1,3 +1,6 @@
+import type { EstablishmentKind } from "@/app/lib/app-config-schemas";
+import { DIRECTION_ROLE_BY_KIND } from "@/app/lib/establishment-catalog";
+
 export type CertificateProgramStatus = "draft" | "signing" | "completed";
 export type StudentAwardStatus =
   | "draft"
@@ -6,7 +9,7 @@ export type StudentAwardStatus =
   | "direction_signed"
   | "issued";
 
-export type CertificateSecteur = "ecole" | "college" | "lycee";
+export type CertificateSecteur = EstablishmentKind;
 
 export type CertificateHistoryEntry = {
   at: string;
@@ -129,20 +132,18 @@ export const CERTIFICATE_SECTEUR_LABELS: Record<CertificateSecteur, string> = {
   ecole: "École",
   college: "Collège",
   lycee: "Lycée",
+  custom: "Établissement",
 };
 
 export const CERTIFICATE_DIRECTION_LABELS: Record<CertificateSecteur, string> = {
   ecole: "Direction de l'école",
   college: "Direction du collège",
   lycee: "Direction du lycée",
+  custom: "Direction",
 };
 
-/** Rôle Clerk requis pour signer en tant que direction, selon le cycle de l'élève. */
-export const CERTIFICATE_DIRECTION_ROLE_BY_SECTEUR: Record<CertificateSecteur, string> = {
-  ecole: "direction_ecole",
-  college: "direction_college",
-  lycee: "direction_lycee",
-};
+export const CERTIFICATE_DIRECTION_ROLE_BY_SECTEUR: Record<CertificateSecteur, string> =
+  DIRECTION_ROLE_BY_KIND;
 
 export function certificateUid(prefix = "cert") {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;

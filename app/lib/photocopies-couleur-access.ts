@@ -1,21 +1,21 @@
-import { hasRole, normRole } from "@/app/lib/intranet-role-utils";
-
-type PhotocopiesEtablissement = "École" | "Collège" | "Lycée";
+import type { Establishment } from "@/app/lib/app-config-schemas";
+import {
+  directionRolesMatchEstablishmentRef,
+  isAnyDirectionRole,
+} from "@/app/lib/establishment-catalog";
+import { hasRole } from "@/app/lib/intranet-role-utils";
 
 type PhotocopiesRecordLike = {
-  etablissement: PhotocopiesEtablissement | string;
+  etablissement: string;
   createdBy: { userId: string };
 };
 
 export function getPhotocopiesRoleFlags(roles: string[]) {
-  const n = roles.map(normRole);
   return {
-    isDirectionEcole: n.some((r) => r.includes("direction") && r.includes("ecole")),
-    isDirectionCollege: n.some((r) => r.includes("direction") && r.includes("college")),
-    isDirectionLycee: n.some((r) => r.includes("direction") && r.includes("lycee")),
-    isAdministratif: n.some((r) => r.includes("administratif")) || hasRole(roles, "administratif"),
-    isProfesseur: n.some((r) => r.includes("professeur")),
-    isEducation: n.some((r) => r.includes("education") || r === "cpe"),
+    isDirection: isAnyDirectionRole(roles),
+    isAdministratif: hasRole(roles, "administratif"),
+    isProfesseur: hasRole(roles, "professeur"),
+    isEducation: hasRole(roles, "education") || hasRole(roles, "cpe"),
   };
 }
 
@@ -24,15 +24,21 @@ export function canCreatePhotocopiesDemand(roles: string[]) {
   return f.isProfesseur || f.isAdministratif || f.isEducation;
 }
 
-export function canManagePhotocopiesDemand(rec: PhotocopiesRecordLike, roles: string[]) {
-  const f = getPhotocopiesRoleFlags(roles);
-  if (rec.etablissement === "École") return f.isDirectionEcole;
-  if (rec.etablissement === "Collège") return f.isDirectionCollege;
-  if (rec.etablissement === "Lycée") return f.isDirectionLycee;
-  return false;
+export function canManagePhotocopiesDemand(
+  rec: PhotocopiesRecordLike,
+  roles: string[],
+  establishments: Establishment[] = [],
+  userId?: string | null,
+) {
+  return directionRolesMatchEstablishmentRef(roles, rec.etablissement, establishments, userId);
 }
 
-export function canViewPhotocopiesDemand(rec: PhotocopiesRecordLike, userId: string, roles: string[]) {
+export function canViewPhotocopiesDemand(
+  rec: PhotocopiesRecordLike,
+  userId: string,
+  roles: string[],
+  establishments: Establishment[] = [],
+) {
   if (rec.createdBy.userId === userId) return true;
-  return canManagePhotocopiesDemand(rec, roles);
+  return canManagePhotocopiesDemand(rec, roles, establishments, userId);
 }

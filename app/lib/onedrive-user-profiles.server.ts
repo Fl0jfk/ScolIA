@@ -1,19 +1,31 @@
 import "server-only";
 
 import { loadAppConfig } from "@/app/lib/app-config";
+import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
 import type { ClerkLikeUser } from "@/app/lib/clerk-user-types";
+import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import {
-  getOneDriveProfileForClerkUser,
+  DEFAULT_ONEDRIVE_BASE_BY_SECTEUR,
   type OneDriveUserProfile,
 } from "@/app/lib/onedrive-user-profiles";
 
-/** Dossiers racine par défaut (repli si la config tenant ne surcharge pas). */
-const DEFAULT_BASE_BY_SECTEUR: Record<Secteur, { basePath: string; label: string }> = {
-  ecole: { basePath: "Dossier élèves/École", label: "École" },
-  college: { basePath: "Dossier élèves/Collège", label: "Collège" },
-  lycee: { basePath: "Dossier élèves/Lycée", label: "Lycée" },
-};
+function defaultBaseBySecteur(
+  establishments: Awaited<ReturnType<typeof loadAppConfig>>["establishments"],
+): Record<Secteur, { basePath: string; label: string }> {
+  const fallback: Record<Secteur, { basePath: string; label: string }> = {
+    ecole: { ...DEFAULT_ONEDRIVE_BASE_BY_SECTEUR.ecole },
+    college: { ...DEFAULT_ONEDRIVE_BASE_BY_SECTEUR.college },
+    lycee: { ...DEFAULT_ONEDRIVE_BASE_BY_SECTEUR.lycee },
+  };
+  for (const e of getActiveEstablishments(establishments)) {
+    const kind = inferEstablishmentKind(e);
+    if (kind === "ecole" || kind === "college" || kind === "lycee") {
+      fallback[kind] = { basePath: `Dossier élèves/${e.label}`, label: e.label };
+    }
+  }
+  return fallback;
+}
 
 function normalizeMatch(value: string): string {
   return value
@@ -37,22 +49,25 @@ function collectUserIdentifiers(user: ClerkLikeUser): string[] {
 
 /**
  * Résout le profil OneDrive (dossier racine + cycle) d'un utilisateur en combinant :
- *  1. le mapping en dur historique (rétro-compat) ;
- *  2. le mapping utilisateur → cycle configurable par établissement ;
- *  3. la surcharge des dossiers racine par cycle (config tenant).
+ *  1. le mapping utilisateur → cycle configurable (Paramètres → Intégrations) ;
+ *  2. la surcharge des dossiers racine par cycle (config tenant).
  */
 export async function resolveOneDriveProfileForClerkUserServer(
   user: ClerkLikeUser,
 ): Promise<OneDriveUserProfile | null> {
-  let profile = getOneDriveProfileForClerkUser(user);
+  let profile: OneDriveUserProfile | null = null;
 
   let od: Awaited<ReturnType<typeof loadAppConfig>>["integrations"]["microsoftOneDrive"];
+  let establishments: Awaited<ReturnType<typeof loadAppConfig>>["establishments"] = [];
   try {
     const config = await loadAppConfig();
     od = config.integrations.microsoftOneDrive;
+    establishments = config.establishments;
   } catch {
     od = undefined;
   }
+
+  const defaults = defaultBaseBySecteur(establishments);
 
   if (!profile && od?.userSecteurs?.length) {
     const identifiers = collectUserIdentifiers(user);
@@ -61,7 +76,7 @@ export async function resolveOneDriveProfileForClerkUserServer(
       return identifiers.some((id) => id === target || id.includes(target) || target.includes(id));
     });
     if (hit) {
-      const def = DEFAULT_BASE_BY_SECTEUR[hit.secteur];
+      const def = defaults[hit.secteur];
       profile = { key: hit.secteur, secteur: hit.secteur, basePath: def.basePath, label: def.label };
     }
   }

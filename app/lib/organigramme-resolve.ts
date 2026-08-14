@@ -1,5 +1,6 @@
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import type { RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
+import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
 import type {
   OrganigramConfig,
   OrganigramSectionId,
@@ -131,8 +132,40 @@ function blockFromSlots(
   };
 }
 
+function mergeDirectionSlotsFromEstablishments(
+  config: OrganigramConfig,
+  establishments: Establishment[],
+): OrganigramConfig {
+  const active = getActiveEstablishments(establishments);
+  if (active.length === 0) return config;
+  const slots = [...config.slots];
+  for (const est of active) {
+    const existing = slots.find(
+      (s) =>
+        s.sectionId === "direction" &&
+        !s.hidden &&
+        (s.establishmentId === est.id || s.establishmentId === est.kind),
+    );
+    if (existing) continue;
+    const n = splitName(est.directorName || "");
+    slots.push({
+      id: `dir-${est.id}`,
+      sectionId: "direction",
+      order: slots.filter((s) => s.sectionId === "direction").length,
+      establishmentId: est.id,
+      firstName: n.firstName,
+      lastName: n.lastName,
+      email: est.directorEmail,
+      role: `Direction — ${est.label}`,
+      missions: [],
+    });
+  }
+  return { ...config, slots };
+}
+
 export function buildOrganigramView(config: OrganigramConfig, ctx: ResolveCtx = {}): OrganigramView {
-  const directors = config.slots
+  const merged = mergeDirectionSlotsFromEstablishments(config, ctx.establishments || []);
+  const directors = merged.slots
     .filter((s) => s.sectionId === "direction" && !s.hidden)
     .sort((a, b) => a.order - b.order)
     .map((s) => resolveSlotPerson(s, ctx));

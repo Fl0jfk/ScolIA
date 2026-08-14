@@ -14,6 +14,13 @@ import type { RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { useIsPlatformMaster } from "@/app/hooks/useIsPlatformMaster";
 import {
+  SettingsAtmosphere,
+  SettingsLoading,
+  SettingsNotice,
+  settingsPillClass,
+} from "@/app/components/settings/SettingsChrome";
+import { dash } from "@/app/lib/dashboard-brand";
+import {
   listToLines,
   linesToList,
   type SettingsEstablishmentForm,
@@ -69,15 +76,15 @@ const MembresPanel = dynamic(
 );
 
 const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
-  { id: "site", label: "Établissement" },
-  { id: "establishments", label: "Sites / directions" },
-  { id: "utilisateurs", label: "Utilisateurs" },
-  { id: "referentiel", label: "Liste des élèves" },
-  { id: "mef", label: "Formations MEF" },
-  { id: "notifications", label: "Notifications" },
-  { id: "integrations", label: "Intégrations" },
-  { id: "dashboard-links", label: "Raccourcis tableau de bord" },
-  { id: "toolbox", label: "Boîte à outils" },
+  { id: "site", label: "Établissement", icon: "🏫" },
+  { id: "establishments", label: "Sites / directions", icon: "🗺️" },
+  { id: "utilisateurs", label: "Utilisateurs", icon: "👥" },
+  { id: "referentiel", label: "Liste des élèves", icon: "🎒" },
+  { id: "mef", label: "Formations MEF", icon: "📚" },
+  { id: "notifications", label: "Notifications", icon: "✉️" },
+  { id: "integrations", label: "Intégrations", icon: "🔌" },
+  { id: "dashboard-links", label: "Raccourcis tableau de bord", icon: "🔗" },
+  { id: "toolbox", label: "Boîte à outils", icon: "🧰" },
 ];
 
 export default function ParametresPage() {
@@ -447,37 +454,55 @@ export default function ParametresPage() {
     }
   };
 
-  if (loading) return <p className="p-10 text-center text-slate-500">Chargement des paramètres…</p>;
+  if (loading) {
+    return (
+      <RequireOrgAdmin>
+        <ModulePageShell maxWidthClass="max-w-5xl" className="relative space-y-6">
+          <SettingsAtmosphere />
+          <div className="relative">
+            <SettingsLoading label="Chargement des paramètres…" />
+          </div>
+        </ModulePageShell>
+      </RequireOrgAdmin>
+    );
+  }
 
   return (
     <RequireOrgAdmin>
-      <ModulePageShell maxWidthClass="max-w-4xl" className="space-y-6">
+      <ModulePageShell maxWidthClass="max-w-5xl" className="relative space-y-6">
+        <SettingsAtmosphere />
+        <div className="relative space-y-6">
         <ModulePageHeader
-          eyebrow="Établissement"
-          title="Paramètres"
-          description="Réglages globaux du SaaS : établissement, utilisateurs, liste des élèves. Les réglages métier (salles, ticketing, transporteurs…) restent dans chaque module."
-          actions={
+          eyebrow="Configuration"
+          title={
             <>
-              <a href="/onboarding?review=1" className="text-sm text-indigo-600 font-medium hover:underline">
-                Relancer l&apos;assistant de configuration
-              </a>
-              {isPlatformMaster && (
-                <a href="/platform/setup" className="text-sm text-violet-700 font-medium hover:underline">
-                  Configuration plateforme (Master)
-                </a>
-              )}
+              Paramètres{" "}
+              <span className={dash.gradientText}>globaux</span>
             </>
           }
+          description="Identité, sites, utilisateurs et référentiels. Les réglages métier (salles, ticketing, transporteurs…) restent dans chaque module."
+          actions={
+            <div className="flex flex-wrap items-center gap-2">
+              <a href="/onboarding?review=1" className={settingsPillClass}>
+                Assistant de configuration
+              </a>
+              {isPlatformMaster && (
+                <a href="/platform/setup" className={settingsPillClass}>
+                  Plateforme (Master)
+                </a>
+              )}
+            </div>
+          }
         />
-        {error && <p className="text-red-600 text-sm">{error}</p>}
-        <ModuleTabNav tabs={SETTINGS_NAV_TABS} active={tab} onChange={setTab} />
+        {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
+        <ModuleTabNav tabs={SETTINGS_NAV_TABS} active={tab} onChange={setTab} scroll />
 
         {(tab === "travels" || tab === "prof-room" || tab === "requests-routing") && (
-          <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+          <SettingsNotice tone="info">
             {tab === "travels" ? (
               <>
                 Transporteurs : désormais dans{" "}
-                <a href="/travels?tab=settings" className="font-bold underline">
+                <a href="/travels?tab=settings" className="font-semibold underline">
                   Sorties scolaires → Paramétrage
                 </a>
                 .
@@ -486,7 +511,7 @@ export default function ParametresPage() {
             {tab === "prof-room" ? (
               <>
                 Admins salles : désormais dans{" "}
-                <a href="/prof-room" className="font-bold underline">
+                <a href="/prof-room" className="font-semibold underline">
                   Réservation de salle → Paramétrage
                 </a>
                 .
@@ -495,13 +520,13 @@ export default function ParametresPage() {
             {tab === "requests-routing" ? (
               <>
                 Routage ticketing : désormais dans{" "}
-                <a href="/requests" className="font-bold underline">
+                <a href="/requests" className="font-semibold underline">
                   Demandes → Réglages
                 </a>
                 .
               </>
             ) : null}
-          </div>
+          </SettingsNotice>
         )}
 
         {tab === "site" && (
@@ -556,6 +581,7 @@ export default function ParametresPage() {
             setIntegrations={setIntegrations}
             saving={saving}
             saveSection={saveSection}
+            activeEstablishmentKinds={activeEstablishmentKinds}
           />
         )}
 
@@ -571,6 +597,7 @@ export default function ParametresPage() {
             saving={saving}
             onSave={saveMef}
             onImportJson={importMefJson}
+            activeEstablishmentKinds={activeEstablishmentKinds}
           />
         )}
 
@@ -596,17 +623,14 @@ export default function ParametresPage() {
           />
         )}
 
-        {tab === "referentiel" && (
-          <div className="bg-white rounded-2xl border p-6">
-            <SchoolRosterPanel />
-          </div>
-        )}
+        {tab === "referentiel" && <SchoolRosterPanel />}
 
         {tab === "dashboard-links" && <DashboardQuickLinksPanel />}
 
         {tab === "utilisateurs" && <MembresPanel />}
 
         {tab === "toolbox" && <SettingsToolboxPanel />}
+        </div>
       </ModulePageShell>
     </RequireOrgAdmin>
   );

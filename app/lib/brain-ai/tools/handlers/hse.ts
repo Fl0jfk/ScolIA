@@ -14,6 +14,7 @@ import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import { choicesResult } from "@/app/lib/brain-ai/choice-options";
 import { wizardStep } from "@/app/lib/brain-ai/wizard";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
+import { establishmentChoiceOptions, matchEstablishment } from "@/app/lib/establishment-catalog";
 
 const INDEX_KEY = "demandes-hse/index.json";
 
@@ -31,9 +32,6 @@ type HseRecord = {
   details: string;
 };
 
-function isValidEtab(v: string): v is HseEtablissement {
-  return v === "École" || v === "Collège" || v === "Lycée";
-}
 
 function parseNombreHeures(raw: unknown): { ok: true; value: number } | { ok: false; error: string } {
   const n =
@@ -72,9 +70,10 @@ export async function handleListHseDemands(
 
   const statusFilter = typeof args.status === "string" ? args.status.trim().toUpperCase() : "";
   const limit = Math.min(Math.max(Number(args.limit) || 15, 1), 40);
+  const bundle = await loadAppConfig();
   const all = await getIndex();
   let items = all
-    .filter((r) => canViewHseDemand(r, ctx.userId!, ctx.roles))
+    .filter((r) => canViewHseDemand(r, ctx.userId!, ctx.roles, bundle.establishments))
     .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
   if (statusFilter) items = items.filter((r) => r.status === statusFilter);
 
@@ -144,19 +143,19 @@ export async function handleCreateHseDemand(
     ...(detailsResolved ? { detailsResolved: true } : {}),
   });
 
-  if (!isValidEtab(etablissement)) {
+  const bundle = await loadAppConfig();
+  const choices = establishmentChoiceOptions(bundle.establishments);
+  const matched = matchEstablishment(bundle.establishments, etablissement);
+  if (!matched) {
     return choicesResult(
       "create_hse_demand",
       "etablissement",
       wizardStep(step, total, "Demande HSE — pour quel établissement ?"),
-      [
-        { value: "École", label: "École" },
-        { value: "Collège", label: "Collège" },
-        { value: "Lycée", label: "Lycée" },
-      ],
+      choices,
       draft(),
     );
   }
+  etablissement = matched.label;
   step += 1;
 
   if (!resumeDemande) {

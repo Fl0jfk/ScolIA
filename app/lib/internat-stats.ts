@@ -6,6 +6,7 @@ import type {
   InternatStudent,
 } from "@/app/lib/internat-types";
 import { studentDisplayName } from "@/app/lib/internat-types";
+import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 import { buildRoomInsights, buildWingOccupancy } from "@/app/lib/internat-room-insights";
 
 export type InternatDashboardStats = {
@@ -241,8 +242,8 @@ export function buildDashboardStats(params: {
     students: {
       boys: active.filter((s) => s.sexe === "M").length,
       girls: active.filter((s) => s.sexe === "F").length,
-      college: active.filter((s) => s.etablissement === "Collège").length,
-      lycee: active.filter((s) => s.etablissement === "Lycée").length,
+      college: active.filter((s) => inferEstablishmentKind({ label: s.etablissement }) === "college").length,
+      lycee: active.filter((s) => inferEstablishmentKind({ label: s.etablissement }) === "lycee").length,
       withoutRoom: active.filter((s) => !s.roomId).length,
     },
     roomCount: rooms.length,
