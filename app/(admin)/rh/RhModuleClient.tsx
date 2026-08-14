@@ -13,7 +13,6 @@ import RhPersonnelHome from "@/app/components/personnel/RhPersonnelHome";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import { canAccessHseModule } from "@/app/lib/demandes-hse-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import type { PersonnelDashboardData } from "@/app/lib/personnel-dashboard";
@@ -143,12 +142,11 @@ export default function RhModuleClient() {
   if (!dashboard) return null;
 
   return (
-    <ModulePageShell maxWidthClass="max-w-7xl">
+    <ModulePageShell maxWidthClass="max-w-7xl" tourModuleId="rh">
       <ModulePageHeader
         eyebrow="RH"
         title="Module RH"
         description="Portail RH unifié — personnel, absences, HSE (sans paie ni coffre bulletins)."
-        actions={<ReplayModuleTourButton moduleId="rh" />}
       />
 
       <RhHubNav

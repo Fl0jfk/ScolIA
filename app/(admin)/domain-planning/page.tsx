@@ -6,7 +6,6 @@ import { useUser } from "@clerk/nextjs";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { canAccessDomainPlanningSettingsFromRoles } from "@/app/lib/intranet-role-utils";
 import TransversalSessionsTab from "@/app/components/domain-planning/TransversalSessionsTab";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
@@ -48,11 +47,10 @@ function DomainPlanningPageContent() {
   }
 
   return (
-    <ModulePageShell maxWidthClass="max-w-6xl">
+    <ModulePageShell maxWidthClass="max-w-6xl" tourModuleId="domain-planning">
       <ModulePageHeader
         eyebrow="Services"
         title="Enseignements transversaux — EVARS"
-        actions={<ReplayModuleTourButton moduleId="domain-planning" />}
       />
 
       <ModuleTabNav

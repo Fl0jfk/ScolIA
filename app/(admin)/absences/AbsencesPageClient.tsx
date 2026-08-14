@@ -6,7 +6,6 @@ import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { useUser } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 import AbsencesCalendar from "@/app/components/absences/AbsencesCalendar";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
@@ -839,11 +838,10 @@ export default function AbsencesPageClient({
   }
 
   return (
-    <ModulePageShell maxWidthClass="max-w-7xl">
+    <ModulePageShell maxWidthClass="max-w-7xl" tourModuleId="absences">
       <ModulePageHeader
         title="Absences"
         description="Déclaration, suivi et calendrier des absences."
-        actions={<ReplayModuleTourButton moduleId="absences" />}
       />
       {body}
     </ModulePageShell>

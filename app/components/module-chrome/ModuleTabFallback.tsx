@@ -5,7 +5,7 @@ import { dash } from "@/app/lib/dashboard-brand";
 
 export default function ModuleTabFallback() {
   return (
-    <ModuleCard className="p-8 flex items-center justify-center gap-3">
+    <ModuleCard bodyClassName="flex items-center justify-center gap-3 p-8">
       <span
         className={`h-5 w-5 rounded-full border-2 border-t-transparent animate-spin ${dash.spinner}`}
       />

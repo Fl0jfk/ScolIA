@@ -2,8 +2,11 @@
 
 import { useUser } from "@clerk/nextjs";
 import { useEffect, useRef, useState } from "react";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import { dash } from "@/app/lib/dashboard-brand";
 
 const MAX_FILES = 8;
 
@@ -88,18 +91,18 @@ export default function AssistancePage() {
         description="Signalez un problème sur le tableau de bord ou un module de l'intranet. Votre message sera transmis à l'équipe technique avec les pièces jointes éventuelles."
       />
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 md:p-8 shadow-sm space-y-6">
+      <ModuleCard bodyClassName="space-y-6 p-6 md:p-8">
         {loading ? (
-          <p className="text-sm text-slate-500">Chargement…</p>
+          <p className={`text-sm ${dash.textMid}`}>Chargement…</p>
         ) : (
           <>
             <div>
-              <label htmlFor="assistance-scope" className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label htmlFor="assistance-scope" className={`mb-1.5 block text-sm font-semibold ${dash.ink}`}>
                 Où avez-vous rencontré le problème ?
               </label>
               <select
                 id="assistance-scope"
-                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                className={`${dash.field} cursor-pointer`}
                 value={scope}
                 onChange={(e) => setScope(e.target.value)}
               >
@@ -112,25 +115,25 @@ export default function AssistancePage() {
             </div>
 
             <div>
-              <label htmlFor="assistance-desc" className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label htmlFor="assistance-desc" className={`mb-1.5 block text-sm font-semibold ${dash.ink}`}>
                 Description du problème
               </label>
               <textarea
                 id="assistance-desc"
                 rows={7}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm resize-y min-h-[140px]"
+                className={`${dash.field} min-h-[140px] resize-y`}
                 placeholder="Décrivez ce qui ne fonctionne pas, les étapes pour reproduire le bug, le message d'erreur éventuel…"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
-              <p className="mt-1 text-xs text-slate-400">Minimum 15 caractères.</p>
+              <p className={`mt-1 text-xs ${dash.textMid}`}>Minimum 15 caractères.</p>
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              <label className={`mb-1.5 block text-sm font-semibold ${dash.ink}`}>
                 Pièces jointes (optionnel)
               </label>
-              <p className="text-xs text-slate-500 mb-2">
+              <p className={`mb-2 text-xs ${dash.textMid}`}>
                 PDF, photos (JPG, PNG…) — {MAX_FILES} fichiers max, 12 Mo chacun.
               </p>
               <input
@@ -138,7 +141,7 @@ export default function AssistancePage() {
                 type="file"
                 multiple
                 accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx"
-                className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:font-semibold file:text-indigo-700"
+                className={`block w-full text-sm ${dash.textMid} file:mr-3 file:rounded-lg file:border-0 file:bg-[color:var(--dash-soft)] file:px-3 file:py-2 file:font-semibold file:text-[var(--dash-primary)]`}
                 onChange={(e) => onPickFiles(e.target.files)}
               />
               {files.length > 0 && (
@@ -146,13 +149,13 @@ export default function AssistancePage() {
                   {files.map((f, i) => (
                     <li
                       key={`${f.name}-${i}`}
-                      className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm"
+                      className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm ${dash.bgSoft50}`}
                     >
-                      <span className="truncate text-slate-700">{f.name}</span>
+                      <span className={`truncate ${dash.ink}`}>{f.name}</span>
                       <button
                         type="button"
                         onClick={() => removeFile(i)}
-                        className="shrink-0 text-xs font-bold text-red-600 hover:underline"
+                        className="shrink-0 cursor-pointer text-xs font-semibold text-rose-700 hover:underline"
                       >
                         Retirer
                       </button>
@@ -163,7 +166,7 @@ export default function AssistancePage() {
             </div>
 
             {error && (
-              <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <p className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                 {error}
               </p>
             )}
@@ -174,17 +177,12 @@ export default function AssistancePage() {
               </p>
             )}
 
-            <button
-              type="button"
-              disabled={!canSubmit}
-              onClick={() => void submit()}
-              className="w-full sm:w-auto rounded-xl bg-indigo-600 px-6 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50 transition"
-            >
+            <ModuleButton disabled={!canSubmit} onClick={() => void submit()} className="w-full px-6 py-3 sm:w-auto">
               {submitting ? "Envoi en cours…" : "Envoyer la demande"}
-            </button>
+            </ModuleButton>
           </>
         )}
-      </div>
+      </ModuleCard>
     </ModulePageShell>
   );
 }

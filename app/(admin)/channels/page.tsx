@@ -3,7 +3,9 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useUser } from "@clerk/nextjs";
 import Image from "next/image";
+import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
+import { dash } from "@/app/lib/dashboard-brand";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
 type Channel = {
@@ -264,19 +266,26 @@ export default function ProfChatPage() {
     } catch (err) { console.error(err); }
   };
 
-  if (!isLoaded) return <div className="p-10 text-center">Chargement...</div>;
+  if (!isLoaded) {
+    return (
+      <DashboardThemeRoot>
+        <div className={`p-10 text-center text-sm ${dash.textMid}`}>Chargement...</div>
+      </DashboardThemeRoot>
+    );
+  }
   const currentChannel = channels.find(c => c.id === activeChannel);
   const isCreator = currentChannel?.creatorId === user?.id;
 
   return (
-    <main className="flex h-screen bg-gray-100 p-2 md:p-4 gap-4 relative overflow-hidden">
+    <DashboardThemeRoot>
+    <main className="relative flex h-screen gap-4 overflow-hidden p-2 md:p-4">
       
       <div
         data-tour="channels-list"
         className={`
         ${isSidebarOpen ? "translate-x-0" : "-translate-x-[110%]"} 
         md:translate-x-0 fixed md:static inset-y-4 left-4 z-40
-        w-64 bg-white rounded-3xl shadow-xl md:shadow-sm border border-gray-200 
+        w-64 rounded-[1.5rem] border border-white/55 bg-white/50 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl md:shadow-sm 
         flex flex-col overflow-hidden transition-transform duration-300 ease-in-out
         md:flex
       `}>
@@ -300,7 +309,7 @@ export default function ProfChatPage() {
               }}
               className={`w-full text-left px-4 py-3 rounded-2xl text-sm font-medium transition-all flex items-center justify-between ${
                 activeChannel === c.id 
-                ? "bg-blue-600 text-white shadow-md shadow-blue-200" 
+                ? `${dash.bgPrimary} text-white shadow-md` 
                 : "text-gray-600 hover:bg-gray-50"
               }`}
             >
@@ -318,7 +327,7 @@ export default function ProfChatPage() {
         <div  className="fixed inset-0 bg-black/20 z-30 md:hidden"  onClick={() => setIsSidebarOpen(false)}/>
       )}
 
-      <div className="flex-1 bg-white rounded-3xl shadow-sm border border-gray-200 flex flex-col overflow-hidden relative">
+      <div className="relative flex flex-1 flex-col overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/50 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl">
         <div className="p-4 md:p-5 border-b bg-white flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button 
@@ -393,7 +402,7 @@ export default function ProfChatPage() {
                     </div>
                     <div className={`px-4 py-3 rounded-2xl text-sm shadow-sm break-words w-full ${
                       isMe 
-                      ? "bg-blue-600 text-white rounded-tr-none" 
+                      ? `${dash.bgPrimary} rounded-tr-none text-white` 
                       : "bg-white text-gray-800 border border-gray-100 rounded-tl-none"
                     }`}>
                       {m.content.startsWith("[IMG]") ? (
@@ -424,7 +433,7 @@ export default function ProfChatPage() {
           )}
         </div>
         <div data-tour="channels-compose" className="p-3 md:p-4 bg-white border-t">
-          <div className="bg-gray-100 rounded-2xl p-2">
+          <div className={`rounded-2xl p-2 ${dash.bgSoft50}`}>
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -447,7 +456,7 @@ export default function ProfChatPage() {
                 </button>
                 <button 
                   onClick={() => handleSend(false)}
-                  className="px-4 md:px-6 py-2 bg-blue-600 text-white text-[10px] md:text-xs font-bold rounded-xl hover:bg-blue-700 shadow-lg"
+                  className={`px-4 py-2 text-[10px] font-semibold text-white shadow-lg md:px-6 md:text-xs rounded-xl ${dash.bgPrimary}`}
                   disabled={isUploading}
                 >
                   Envoyer
@@ -487,7 +496,7 @@ export default function ProfChatPage() {
                     >
                       <Image src={user.avatar} className="w-8 h-8 rounded-full border border-gray-200" width={100} height={100} alt="" />
                       <span className="text-sm flex-1 truncate">{user.name}</span>
-                      <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${selectedMembers.includes(user.id) ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
+                      <div className={`flex h-5 w-5 items-center justify-center rounded-full border ${selectedMembers.includes(user.id) ? `${dash.bgPrimary} border-[var(--dash-primary)]` : "border-gray-300"}`}>
                         {selectedMembers.includes(user.id) && <span className="text-white text-[10px]">✓</span>}
                       </div>
                     </div>
@@ -497,7 +506,7 @@ export default function ProfChatPage() {
             )}
             <div className="flex gap-3 mt-auto">
               <button onClick={() => { setShowModal(false); setNameError(false); }} className="flex-1 py-3 text-gray-500 font-semibold hover:bg-gray-100 rounded-2xl transition-all">Annuler</button>
-              <button onClick={handleCreateChannel} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700">Créer</button>
+              <button onClick={handleCreateChannel} className={`flex-1 rounded-2xl py-3 font-semibold text-white ${dash.bgPrimary}`}>Créer</button>
             </div>
           </div>
         </div>
@@ -524,7 +533,7 @@ export default function ProfChatPage() {
                       <p className="text-sm font-semibold text-gray-800 truncate">{user.name}</p>
                       <p className="text-[10px] text-gray-500">{isMember ? "A accès au salon" : "Pas d'accès"}</p>
                     </div>
-                    <div className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${isMember ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                    <div className={`relative h-6 w-10 rounded-full transition-colors duration-200 ${isMember ? dash.bgPrimary : "bg-gray-300"}`}>
                       <div className={`absolute top-1 bg-white w-4 h-4 rounded-full transition-all duration-200 ${isMember ? 'left-5' : 'left-1'}`} />
                     </div>
                   </div>
@@ -540,7 +549,10 @@ export default function ProfChatPage() {
           </div>
         </div>
       )}
-      <ReplayModuleTourButton moduleId="channels" />
+      <div className="mt-12 border-t border-white/60 pt-4">
+        <ReplayModuleTourButton moduleId="channels" />
+      </div>
     </main>
+    </DashboardThemeRoot>
   );
 }

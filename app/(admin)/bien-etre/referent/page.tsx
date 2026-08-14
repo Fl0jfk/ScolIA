@@ -4,6 +4,11 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { BienEtreSignalement, BienEtreSignalementIndexEntry } from "@/app/lib/bien-etre-types";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import { dash } from "@/app/lib/dashboard-brand";
 
 const STATUS_LABELS: Record<string, string> = {
   nouveau: "Nouveau",
@@ -73,35 +78,36 @@ function ReferentContent() {
   };
 
   return (
-    <main className="max-w-5xl mx-auto p-6 md:p-10">
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-black text-slate-900">Signalements bien-être</h1>
-          <p className="text-slate-500 mt-1">Transmis par les élèves au psychologue</p>
-        </div>
-        <Link href="/bien-etre/config" className="text-sm font-bold text-violet-700 underline">
-          Configuration →
-        </Link>
-      </div>
+    <ModulePageShell maxWidthClass="max-w-5xl">
+      <ModulePageHeader
+        eyebrow="Élèves"
+        title="Signalements bien-être"
+        description="Transmis par les élèves au psychologue."
+        actions={
+          <Link href="/bien-etre/config" className={`text-sm font-semibold underline ${dash.textPrimary}`}>
+            Configuration →
+          </Link>
+        }
+      />
 
-      {error ? <p className="text-red-600 mb-4">{error}</p> : null}
-      {loading ? <p className="text-slate-500">Chargement…</p> : null}
+      {error ? <p className="mb-4 text-sm text-rose-700">{error}</p> : null}
+      {loading ? <p className={`text-sm ${dash.textMid}`}>Chargement…</p> : null}
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        <section className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <h2 className="font-black text-lg px-4 py-3 border-b bg-slate-50">Liste</h2>
-          <ul className="divide-y max-h-[32rem] overflow-y-auto">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ModuleCard>
+          <h2 className={`border-b border-white/60 px-4 py-3 text-lg font-semibold ${dash.ink}`}>Liste</h2>
+          <ul className="max-h-[32rem] divide-y divide-white/50 overflow-y-auto">
             {items.length === 0 ? (
-              <li className="p-4 text-sm text-slate-500">Aucun signalement.</li>
+              <li className={`p-4 text-sm ${dash.textMid}`}>Aucun signalement.</li>
             ) : (
               items.map((it) => (
                 <li key={it.id}>
                   <Link
                     href={`/bien-etre/referent?id=${encodeURIComponent(it.id)}`}
-                    className={`block px-4 py-3 hover:bg-violet-50 ${selectedId === it.id ? "bg-violet-50" : ""}`}
+                    className={`block px-4 py-3 ${dash.hoverBgSoft} ${selectedId === it.id ? dash.bgSoft : ""}`}
                   >
-                    <p className="font-bold text-slate-900">{it.prenom}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className={`font-semibold ${dash.ink}`}>{it.prenom}</p>
+                    <p className={`text-xs ${dash.textMid}`}>
                       {new Date(it.createdAt).toLocaleString("fr-FR")} · {STATUS_LABELS[it.status] || it.status} ·{" "}
                       {it.severity}
                     </p>
@@ -110,75 +116,70 @@ function ReferentContent() {
               ))
             )}
           </ul>
-        </section>
+        </ModuleCard>
 
-        <section className="rounded-3xl border border-slate-200 bg-white shadow-sm p-5">
+        <ModuleCard bodyClassName="p-5">
           {detail ? (
             <div className="space-y-4">
-              <h2 className="text-xl font-black">{detail.prenom}</h2>
-              <p className="text-sm text-slate-500">
+              <h2 className={`text-xl font-semibold ${dash.ink}`}>{detail.prenom}</h2>
+              <p className={`text-sm ${dash.textMid}`}>
                 {new Date(detail.createdAt).toLocaleString("fr-FR")}
                 {detail.classe ? ` · ${detail.classe}` : ""}
               </p>
               <p>
-                <span className="text-xs font-bold uppercase text-slate-400">Gravité</span> — {detail.severity}
+                <span className={dash.fieldLabel}>Gravité</span> — {detail.severity}
               </p>
               <p>
-                <span className="text-xs font-bold uppercase text-slate-400">Catégories</span> —{" "}
-                {detail.categories.join(", ") || "—"}
+                <span className={dash.fieldLabel}>Catégories</span> — {detail.categories.join(", ") || "—"}
               </p>
               <div>
-                <p className="text-xs font-bold uppercase text-slate-400 mb-1">Résumé</p>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap bg-slate-50 rounded-xl p-3">
+                <p className={`mb-1 ${dash.fieldLabel}`}>Résumé</p>
+                <p className={`whitespace-pre-wrap rounded-xl p-3 text-sm leading-relaxed ${dash.bgSoft50}`}>
                   {detail.summary}
                 </p>
               </div>
               {detail.complement ? (
                 <div>
-                  <p className="text-xs font-bold uppercase text-slate-400 mb-1">Complément élève</p>
-                  <p className="text-sm whitespace-pre-wrap">{detail.complement}</p>
+                  <p className={`mb-1 ${dash.fieldLabel}`}>Complément élève</p>
+                  <p className="whitespace-pre-wrap text-sm">{detail.complement}</p>
                 </div>
               ) : null}
-              <label className="block text-sm font-semibold">
+              <label className={`block text-sm font-semibold ${dash.ink}`}>
                 Note interne
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={3}
-                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  className={`mt-1 ${dash.field} text-sm`}
                 />
               </label>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => updateStatus("en_cours")}
-                  className="rounded-xl bg-amber-100 text-amber-900 font-bold px-4 py-2 text-sm"
-                >
+                <ModuleButton variant="secondary" disabled={saving} onClick={() => updateStatus("en_cours")}>
                   En cours
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => updateStatus("cloture")}
-                  className="rounded-xl bg-slate-200 font-bold px-4 py-2 text-sm"
-                >
+                </ModuleButton>
+                <ModuleButton disabled={saving} onClick={() => updateStatus("cloture")}>
                   Clôturer
-                </button>
+                </ModuleButton>
               </div>
             </div>
           ) : (
-            <p className="text-slate-500 text-sm">Sélectionnez un signalement dans la liste.</p>
+            <p className={`text-sm ${dash.textMid}`}>Sélectionnez un signalement dans la liste.</p>
           )}
-        </section>
+        </ModuleCard>
       </div>
-    </main>
+    </ModulePageShell>
   );
 }
 
 export default function BienEtreReferentPage() {
   return (
-    <Suspense fallback={<p className="p-8 text-slate-500">Chargement…</p>}>
+    <Suspense
+      fallback={
+        <ModulePageShell maxWidthClass="max-w-5xl">
+          <p className={`text-sm ${dash.textMid}`}>Chargement…</p>
+        </ModulePageShell>
+      }
+    >
       <ReferentContent />
     </Suspense>
   );

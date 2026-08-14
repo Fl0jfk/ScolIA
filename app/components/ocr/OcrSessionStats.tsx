@@ -24,7 +24,7 @@ export default function OcrSessionStats({
   onStartFreshSession: () => void;
 }) {
   return (
-    <ModuleCard className="p-6 shadow-lg mb-8">
+    <ModuleCard className="mb-8" bodyClassName="p-6">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h4 className="font-bold text-gray-800">📊 Session actuelle</h4>
         {canStartFreshSession ? (

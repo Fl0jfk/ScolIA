@@ -42,7 +42,7 @@ export default function NewCertificateProgramPage() {
   return (
     <ModulePageShell maxWidthClass="max-w-lg" className="space-y-6">
       <ModulePageHeader eyebrow="Élèves" title="Nouveau parcours" />
-      <ModuleCard className="space-y-4 p-5">
+      <ModuleCard bodyClassName="space-y-4 p-5">
         <label className="block space-y-1">
           <span className="text-sm font-bold text-slate-700">Titre du certificat / parcours</span>
           <input

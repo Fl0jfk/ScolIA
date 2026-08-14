@@ -16,7 +16,6 @@ import type {
   StagesHubBoard,
   StagesOfferForm,
 } from "@/app/components/stages/stages-hub-types";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
@@ -445,11 +444,10 @@ function StagesContent() {
     permissions?.canFileToOneDrive && detail?.convention.status === "signed";
 
   return (
-    <ModulePageShell maxWidthClass="max-w-6xl">
+    <ModulePageShell maxWidthClass="max-w-6xl" tourModuleId="stages">
       <ModulePageHeader
         title="Stages & conventions"
         description="Les élèves déposent leur convention signée en PDF sur une page publique. L'IA extrait entreprise, SIRET et classe — vous validez dans la file d'attente."
-        actions={<ReplayModuleTourButton moduleId="stages" />}
       />
 
       {permissions?.canFileToOneDrive && od.oneDriveEnabled && (

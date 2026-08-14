@@ -9,7 +9,6 @@ import InternatHubNav, { type InternatTab } from "@/app/components/internat/Inte
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import {
   canAccessInternatFromMetadata,
@@ -151,12 +150,11 @@ export default function GestionInternatClient() {
   }
 
   return (
-    <ModulePageShell maxWidthClass="max-w-6xl">
+    <ModulePageShell maxWidthClass="max-w-6xl" tourModuleId="internat">
       <ModulePageHeader
         eyebrow="Élèves"
         title="Gestion internat"
         description="Chambres, internes, appel du soir, activités et alertes — équipe éducation / direction."
-        actions={<ReplayModuleTourButton moduleId="internat" />}
       />
 
       <InternatHubNav active={activeTab} onChange={setTab} />

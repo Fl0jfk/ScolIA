@@ -6,10 +6,15 @@ import { useAppContext } from "@/app/hooks/useAppContext";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { hasGlobalAdminRole } from "@/app/lib/intranet-role-utils";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
+import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
+import ProfRoomGlassCard from "@/app/components/prof-room/ProfRoomGlassCard";
 import ProfRoomSettingsTab from "@/app/components/prof-room/ProfRoomSettingsTab";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import { DEFAULT_PROF_ROOM_SUBJECT_COLORS } from "@/app/lib/prof-room-defaults";
 import { getSubjectColorPresentation } from "@/app/lib/prof-room-subject-colors";
+import { dash } from "@/app/lib/dashboard-brand";
 
 const FALLBACK_CLASSES: Record<string, string[]> = {
   "ÉCOLE": ["CP", "CE1", "CE2", "CM1", "CM2"],
@@ -20,6 +25,9 @@ const FALLBACK_CLASSES: Record<string, string[]> = {
 
 const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i);
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
+
+const fieldClass =
+  "w-full rounded-xl border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-[var(--dash-ink)] outline-none shadow-sm transition focus:border-[var(--dash-primary)]";
 
 function ProfRoomPageContent() {
   const searchParams = useSearchParams();
@@ -384,317 +392,502 @@ function ProfRoomPageContent() {
       );
     }
   }
-  if (!isLoaded || !user) return <div className="p-20 text-center font-bold">Initialisation...</div>;
+  if (!isLoaded || !user) {
+    return (
+      <ModulePageShell maxWidthClass="max-w-6xl">
+        <p className={`text-sm ${dash.textMid}`}>Initialisation…</p>
+      </ModulePageShell>
+    );
+  }
+
   return (
-    <div className="px-0 py-4 md:px-4 pb-0 sm:pb-4 max-w-6xl mx-auto">
-      {contextMenu && (
-        <div className="fixed z-[100] bg-white shadow-2xl border rounded-xl p-1 min-w-[180px] text-xs font-bold overflow-hidden" style={{ top: contextMenu.y, left: contextMenu.x }}>
-          {contextMenu.res ? (
-            <button onClick={() => copyReservation(contextMenu.res)} className="w-full text-left p-3 hover:bg-blue-50 flex items-center gap-2 rounded-lg transition-colors">
-              <span>📋</span> Copier ce créneau
-            </button>
-          ) : clipboard ? (
-            <button onClick={() => pasteReservation(contextMenu.dateStr!, contextMenu.hour!)} className="w-full text-left p-3 hover:bg-green-50 flex items-center gap-2 rounded-lg transition-colors">
-              <span>📥</span> Coller : {clipboard.subject} ({clipboard.className})
-            </button>
-          ) : (
-            <div className="p-3 text-gray-400 italic">Rien à coller...</div>
-          )}
+    <ModulePageShell maxWidthClass="max-w-6xl" tourModuleId="prof-room">
+      <div className="relative space-y-4">
+        <div className="pointer-events-none absolute -inset-10 -z-10 overflow-hidden" aria-hidden>
+          <div className="absolute -left-24 top-0 h-[22rem] w-[22rem] rounded-full bg-[color:var(--dash-soft)]/80 blur-3xl" />
+          <div className="absolute right-0 top-24 h-[18rem] w-[18rem] rounded-full bg-[color:var(--dash-bright)]/20 blur-3xl" />
+          <div className="absolute bottom-10 left-1/3 h-[14rem] w-[14rem] rounded-full bg-[color:var(--dash-mid)]/15 blur-3xl" />
         </div>
-      )}
-      <h1 className="text-4xl font-black text-slate-900 tracking-tight p-4">Réservation de salles</h1>
-      <div className="flex flex-wrap gap-2 px-4 pb-4">
-        <button
-          type="button"
-          data-prof-room-tab="reservation"
-          onClick={() => setActiveTab("reservation")}
-          className={`px-5 py-2.5 rounded-xl text-sm font-black ${activeTab === "reservation" ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"}`}
-        >
-          Réservation
-        </button>
-        {canAccessSettings && (
-          <button
-            type="button"
-            onClick={() => setActiveTab("settings")}
-            className={`px-5 py-2.5 rounded-xl text-sm font-black ${activeTab === "settings" ? "bg-purple-600 text-white" : "bg-slate-100 text-slate-700"}`}
+
+        {contextMenu ? (
+          <div
+            className="fixed z-[100] min-w-[180px] overflow-hidden rounded-xl border border-white/70 bg-white/90 p-1 text-xs font-semibold shadow-xl backdrop-blur-xl"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
           >
-            Paramétrage
-          </button>
-        )}
-      </div>
-      {activeTab === "settings" && canAccessSettings ? (
-        <ProfRoomSettingsTab />
-      ) : (
-      <>
-      <div data-tour="prof-room-room-select" className="bg-white rounded-2xl p-4 flex flex-col md:flex-row md:justify-between md:items-center gap-3 w-full">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-1/2">
-          <select
-            value={selectedRoom}
-            onChange={(e) => setSelectedRoom(e.target.value)}
-            className="bg-blue-600 w-full text-center text-white font-black px-4 p-3 rounded-xl outline-none"
-          >
-            {rooms.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          <div className="flex items-center bg-gray-100 rounded-xl w-full justify-between">
-            {!isMobile ? (
-              <button onClick={() => setCurrentDate(new Date(currentDate.setDate(currentDate.getDate() - 7)))} className="p-2 py-3 hover:bg-white rounded-lg">◀</button>
+            {contextMenu.res ? (
+              <button
+                type="button"
+                onClick={() => copyReservation(contextMenu.res)}
+                className={`flex w-full cursor-pointer items-center gap-2 rounded-lg p-3 text-left ${dash.ink} ${dash.hoverBgSoft}`}
+              >
+                <span>📋</span> Copier ce créneau
+              </button>
+            ) : clipboard ? (
+              <button
+                type="button"
+                onClick={() => pasteReservation(contextMenu.dateStr!, contextMenu.hour!)}
+                className={`flex w-full cursor-pointer items-center gap-2 rounded-lg p-3 text-left ${dash.ink} ${dash.hoverBgSoft}`}
+              >
+                <span>📥</span> Coller : {clipboard.subject} ({clipboard.className})
+              </button>
             ) : (
-              <span className="w-8" aria-hidden />
-            )}
-            <div className="px-4 text-[12px] font-black uppercase text-center">
-              {isMobile ? (
-                <>
-                  Aujourd&apos;hui
-                  <br />
-                  <span className="text-blue-600">
-                    {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "short" })}
-                  </span>
-                </>
-              ) : (
-                <>
-                  Semaine du <br />
-                  <span className="text-blue-600">
-                    {startOfWeek.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
-                  </span>
-                </>
-              )}
-            </div>
-            {!isMobile ? (
-              <button onClick={() => setCurrentDate(new Date(currentDate.setDate(currentDate.getDate() + 7)))} className="p-2 hover:bg-white rounded-lg">▶</button>
-            ) : (
-              <span className="w-8" aria-hidden />
+              <div className={`p-3 italic ${dash.textMid}`}>Rien à coller...</div>
             )}
           </div>
-        </div>
-        <div className="flex items-center justify-between md:justify-end w-full md:w-1/2 gap-3">
-          <label className="flex items-center gap-2 flex-1 min-w-0 bg-white border-2 border-blue-100 rounded-full px-3 py-1 cursor-pointer">
-            <span className="text-blue-400 text-sm flex-shrink-0">📅</span>
-            <input type="date" onChange={(e) => setCurrentDate(new Date(e.target.value))} className="flex-1 min-w-0 w-full text-[15px] bg-transparent outline-none text-slate-600 font-semibold"/>
-          </label>
-          {isAdmin && <span className="bg-purple-600 text-white text-[15px] font-black px-3 py-1 rounded-full tracking-tighter whitespace-nowrap">ADMIN MODE</span>}
-        </div>
-      </div>
-      <div data-tour="prof-room-calendar" className="bg-white rounded-3xl overflow-hidden">
-        <div className={`grid ${isMobile ? "grid-cols-2" : "grid-cols-6"} bg-gray-50 border-b`}>
-          <div className="p-4 text-[13px] font-black text-gray-400 uppercase text-center">Heure</div>
-          {displayDays.map((day, i) => (
-            <div key={`${day.label}-${i}`} className={`p-4 text-center border-l ${day.date.toDateString() === new Date().toDateString() ? "bg-blue-50" : ""}`}>
-              <p className="text-[10px] uppercase font-bold text-gray-400">{day.label}</p>
-              <p className="text-xl font-black">{day.date.getDate()}</p>
-            </div>
-          ))}
-        </div>
-        <div className="divide-y">
-          {HOURS.map(h => (
-            <div key={h} className={`grid ${isMobile ? "grid-cols-2" : "grid-cols-6"} min-h-[95px]`}>
-              <div className="text-[13px] font-black text-gray-400 flex items-center justify-center bg-gray-50/50 italic">{h}h30</div>
-              {displayDays.map((day, i) => {
-                const date = day.date;
-                const dateStr = date.toISOString().split("T")[0];
-                const hourPrefix = `${dateStr}T${h.toString().padStart(2, "0")}`;
-                const res = reservations.find(r => r.roomId === selectedRoom && r.startsAt.startsWith(hourPrefix) && r.status !== "CANCELLED");
-                const isOwn = res?.userId === user.id;
-                const canModify = isAdmin || isOwn;
-                const colorValue = res ? (SUBJECT_COLORS[res.subject] || "bg-slate-600 text-white") : "";
-                const colorPresentation = res ? getSubjectColorPresentation(colorValue) : null;
-                return (
-                  <div key={i} onClick={() => handleCellClick(dateStr, h, res)} onContextMenu={(e) => handleContextMenu(e, dateStr, h, res)} className={`border-l relative p-1 transition-all sm:h-[120px] group ${!res ? 'hover:bg-green-50' : 'cursor-pointer'}`}>
-                    {res ? (
+        ) : null}
+
+        <ModulePageHeader
+          eyebrow="Services"
+          title="Réservation de salles"
+          description="Planning des salles, créneaux et demandes du personnel."
+        />
+
+        <ModuleTabNav
+          className="mb-2"
+          tabs={[
+            { id: "reservation", label: "Réservation", dataAttrs: { "data-prof-room-tab": "reservation" } },
+            { id: "settings", label: "Paramétrage", hidden: !canAccessSettings },
+          ]}
+          active={activeTab}
+          onChange={setActiveTab}
+        />
+
+        {activeTab === "settings" && canAccessSettings ? (
+          <ProfRoomSettingsTab />
+        ) : (
+          <>
+            <ProfRoomGlassCard
+              data-tour="prof-room-room-select"
+              bodyClassName="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between"
+            >
+              <div className="flex w-full flex-col items-stretch gap-3 sm:flex-row sm:items-center md:w-1/2">
+                <select
+                  value={selectedRoom}
+                  onChange={(e) => setSelectedRoom(e.target.value)}
+                  className={`${fieldClass} cursor-pointer text-center`}
+                >
+                  {rooms.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex w-full items-center justify-between rounded-xl border border-white/70 bg-white/60">
+                  {!isMobile ? (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentDate(new Date(currentDate.setDate(currentDate.getDate() - 7)))}
+                      className={`cursor-pointer rounded-lg p-2 py-3 ${dash.textMid} hover:bg-white/80`}
+                    >
+                      ◀
+                    </button>
+                  ) : (
+                    <span className="w-8" aria-hidden />
+                  )}
+                  <div className={`px-4 text-center text-[11px] font-semibold uppercase tracking-wide ${dash.ink}`}>
+                    {isMobile ? (
                       <>
-                        <div
-                          className={`h-full w-full rounded-xl p-2 text-[11px] flex flex-col justify-between ${colorPresentation?.className || ""} ${isOwn ? "ring-2 ring-blue-400 ring-inset" : ""}`}
-                          style={colorPresentation?.style}
-                        >
-                          <div>
-                            <div className="flex justify-between items-start sm:flex-col">
-                              <p className="font-black uppercase leading-none truncate">{res.subject}</p>
-                              <span className="bg-white/20 px-1 rounded text-[11px] font-bold">{res.className}</span>
-                            </div>
-                            {res.comment && (
-                              <p className="mt-1 italic opacity-90 leading-tight border-t border-white/10 pt-1 whitespace-normal break-words sm:line-clamp-3">
-                                &apos;{res.comment}&apos;
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex justify-between items-end mt-1">
-                            <span className="font-bold opacity-80 uppercase ">{res.lastName}</span>
-                            {canModify && <span className="text-[10px] sm:hidden">✎</span>}
-                          </div>
-                        </div>
-                        <div className={`absolute left-1/2 -translate-x-1/2 w-72 bg-slate-900 text-white p-4 rounded-xl shadow-2xl  opacity-0 group-hover:opacity-100 pointer-events-none transition-all z-[100] ${h <= 10 ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
-                          <p className="text-[16px] font-black text-blue-400 uppercase mb-1 break-words leading-tight">{res.subject} - {res.className}</p>
-                          <p className="text-[15px] font-bold mb-3 opacity-90">Par : {res.firstName} {res.lastName}</p>
-                          {res.comment && (
-                            <div className="bg-white/10 p-3 rounded-lg border border-white/5">
-                              <p className="text-[14px] leading-relaxed italic text-slate-200 whitespace-normal break-words">&apos;{res.comment}&apos;</p>
-                            </div>
-                          )}
-                          <div className={`absolute left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 rotate-45 ${h <= 10 ? '-top-1.5' : '-bottom-1.5'}`}></div>
-                        </div> 
+                        Aujourd&apos;hui
+                        <br />
+                        <span className={dash.textPrimary}>
+                          {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "short" })}
+                        </span>
                       </>
                     ) : (
-                      <div className="h-full w-full flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                        <span className="text-[10px] font-black text-green-600">+ LIBRE</span>
-                      </div>
+                      <>
+                        Semaine du <br />
+                        <span className={dash.textPrimary}>
+                          {startOfWeek.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                        </span>
+                      </>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-      </div>
-      {myUpcomingReservations.length > 0 && (
-        <div data-tour="prof-room-upcoming" className="bg-white border-2 border-blue-100 rounded-3xl p-6 shadow-lg">
-          <h3 className="text-sm font-black text-blue-600 uppercase mb-4 flex items-center gap-2">📅 Mes 5 prochaines réservations</h3>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            {myUpcomingReservations.map((res) => (
-              <div 
-                key={res.id} 
-                onClick={() => {
-                    const dStr = res.startsAt.split("T")[0];
-                    const hNum = parseInt(res.startsAt.split("T")[1].split(":")[0]);
-                    handleCellClick(dStr, hNum, res);
-                }}
-                className="bg-gray-50 hover:bg-blue-50 border border-gray-100 rounded-2xl p-3 cursor-pointer transition-all"
-              >
-                <p className="text-[10px] font-black text-gray-400 uppercase">
-                  {new Date(res.startsAt).toLocaleDateString("fr-FR", { weekday: 'short', day: 'numeric', month: 'short' })}
-                </p>
-                <p className="text-xs font-black text-blue-700">{res.startsAt.split("T")[1].substring(0, 5).replace(":", "h")}</p>
-                <div className="mt-2 text-[10px] font-bold">
-                  <span className="block truncate">📍 {rooms.find(r => r.id === res.roomId)?.name || "Salle"}</span>
-                  <span className="block text-gray-500">📚 {res.subject} ({res.className})</span>
+                  {!isMobile ? (
+                    <button
+                      type="button"
+                      onClick={() => setCurrentDate(new Date(currentDate.setDate(currentDate.getDate() + 7)))}
+                      className={`cursor-pointer rounded-lg p-2 ${dash.textMid} hover:bg-white/80`}
+                    >
+                      ▶
+                    </button>
+                  ) : (
+                    <span className="w-8" aria-hidden />
+                  )}
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-      <div id="form-section" data-tour="prof-room-form" className="bg-slate-900 rounded-b-none sm:rounded-b-[40px] rounded-[40px] p-4 md:p-8 text-white shadow-2xl mt-6">
-        <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4 mb-8">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className={`p-2 md:p-3 rounded-2xl flex-shrink-0 ${isEditing ? 'bg-orange-500' : 'bg-green-500'}`}>
-              <span className="text-base md:text-xl font-bold">{isEditing ? 'MODIFIER' : 'RÉSERVER'}</span>
-            </div>
-            <h2 className="text-xl md:text-2xl font-black uppercase italic tracking-tighter leading-tight">{isEditing ? "Détails du créneau" : "Nouvelle demande"}</h2>
-          </div>
-          {isEditing && (
-            <button onClick={handleDelete} className="w-full md:w-auto bg-red-600 hover:bg-red-500 text-white text-xs font-black px-6 py-3 rounded-2xl shadow-lg transition-transform active:scale-90">🗑️ SUPPRIMER CE CRÉNEAU</button>
-          )}
-        </div>
-        <div className="grid grid-cols-1 gap-8">
-          <div className="space-y-4">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Professeur & Cours</label>
-            {isAdmin ? (
-              <div className="flex gap-2">
-                <input type="text" placeholder="Prénom" value={targetFirstName} onChange={(e) => setTargetFirstName(e.target.value)} className="flex-1 bg-slate-800 border-none rounded-xl p-3 text-xs font-bold text-blue-400" />
-                <input type="text" placeholder="NOM" value={targetLastName} onChange={(e) => setTargetLastName(e.target.value.toUpperCase())} className="flex-1 bg-slate-800 border-none rounded-xl p-3 text-xs font-bold text-blue-400" />
+              <div className="flex w-full items-center justify-between gap-3 md:w-1/2 md:justify-end">
+                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-full border border-white/70 bg-white/80 px-3 py-1.5 shadow-sm">
+                  <span className="flex-shrink-0 text-sm" aria-hidden>
+                    📅
+                  </span>
+                  <input
+                    type="date"
+                    onChange={(e) => setCurrentDate(new Date(e.target.value))}
+                    className={`min-w-0 w-full flex-1 bg-transparent text-[15px] font-semibold outline-none ${dash.ink}`}
+                  />
+                </label>
+                {isAdmin ? (
+                  <span className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide text-white ${dash.bgPrimary}`}>
+                    Mode admin
+                  </span>
+                ) : null}
               </div>
-            ) : (
-              <div className="bg-slate-800 p-4 rounded-xl text-sm font-bold border border-slate-700">
-                <p className="text-[10px] text-slate-500 uppercase mb-1">Identité Clerk :</p>
-                <span className="text-blue-400">{user.firstName} {lastName}</span>
+            </ProfRoomGlassCard>
+
+            <ProfRoomGlassCard data-tour="prof-room-calendar">
+              <div className={`grid border-b border-white/60 ${dash.bgSoft50} ${isMobile ? "grid-cols-2" : "grid-cols-6"}`}>
+                <div className={`p-4 text-center text-[11px] font-semibold uppercase tracking-wide ${dash.textMid}`}>
+                  Heure
+                </div>
+                {displayDays.map((day, i) => (
+                  <div
+                    key={`${day.label}-${i}`}
+                    className={`border-l border-white/50 p-4 text-center ${
+                      day.date.toDateString() === new Date().toDateString() ? dash.bgSoft : ""
+                    }`}
+                  >
+                    <p className={`text-[10px] font-semibold uppercase tracking-wide ${dash.textMid}`}>{day.label}</p>
+                    <p className={`text-xl font-semibold tracking-tight ${dash.ink}`}>{day.date.getDate()}</p>
+                  </div>
+                ))}
               </div>
-            )}
-            <select value={subject} onChange={(e) => setSubject(e.target.value)} className="w-full bg-slate-800 border-none rounded-xl p-4 text-sm font-bold focus:ring-2 ring-blue-500">
-              <option value="">-- MATIÈRE --</option>
-              {Object.keys(SUBJECT_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <div className="flex gap-2">
-              <select value={level} onChange={(e) => setLevel(e.target.value)} className="flex-1 bg-slate-800 border-none rounded-xl p-4 text-xs font-bold">
-                <option value="">NIVEAU</option>
-                {Object.keys(CLASSES_DATA).map(l => <option key={l} value={l}>{l}</option>)}
-              </select>
-              <select value={className} onChange={(e) => setClassName(e.target.value)} className="flex-1 bg-slate-800 border-none rounded-xl p-4 text-xs font-bold">
-                <option value="">CLASSE</option>
-                {level && CLASSES_DATA[level].map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <label className="text-[10px] font-black text-slate-500 w-full uppercase tracking-widest">Calendrier</label>
-            <div className="w-full overflow-hidden">
-              <input type="date" value={selectedDate} min={todayStr} max={maxDateStr} onChange={(e) => setSelectedDate(e.target.value)} className="w-full block bg-slate-800 border-none rounded-xl px-4 py-3 text-[16px] font-bold text-white" style={{ colorScheme: "dark" }} />
-            </div>
-            <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
-              <p className="text-[10px] font-bold text-slate-500 mb-2">Choisir l&apos;heure :</p>
-              <div className="flex flex-wrap gap-2">
-                {HOURS.map(h => {
-                  const hourPrefix = `${selectedDate}T${h.toString().padStart(2, "0")}`;
-                  const isTaken = reservations.some(r => 
-                    r.roomId === selectedRoom && 
-                    r.startsAt.startsWith(hourPrefix) && 
-                    r.status !== "CANCELLED" &&
-                    r.id !== editingRes?.id
-                  );
-                  return (
-                    <button
-                      key={h}
-                      type="button"
-                      disabled={isTaken}
-                      onClick={() => setSelectedHours([h])}
-                      className={`relative px-3 py-1 rounded-lg font-black text-xs transition-all ${
-                        selectedHours.includes(h) 
-                        ? "bg-blue-600 text-white shadow-lg scale-110 z-10" 
-                        : isTaken 
-                          ? "bg-red-900/50 text-red-200 cursor-not-allowed border border-red-700/70" 
-                          : "bg-slate-700 text-slate-400 hover:bg-slate-600"
-                      }`}
-                    >
+              <div className="divide-y divide-white/50">
+                {HOURS.map((h) => (
+                  <div key={h} className={`grid min-h-[95px] ${isMobile ? "grid-cols-2" : "grid-cols-6"}`}>
+                    <div className={`flex items-center justify-center text-[12px] font-semibold italic ${dash.bgSoft50} ${dash.textMid}`}>
                       {h}h30
-                    </button>
-                  );
-                })}
+                    </div>
+                    {displayDays.map((day, i) => {
+                      const date = day.date;
+                      const dateStr = date.toISOString().split("T")[0];
+                      const hourPrefix = `${dateStr}T${h.toString().padStart(2, "0")}`;
+                      const res = reservations.find(
+                        (r) =>
+                          r.roomId === selectedRoom &&
+                          r.startsAt.startsWith(hourPrefix) &&
+                          r.status !== "CANCELLED",
+                      );
+                      const isOwn = res?.userId === user.id;
+                      const canModify = isAdmin || isOwn;
+                      const colorValue = res ? SUBJECT_COLORS[res.subject] || "bg-slate-600 text-white" : "";
+                      const colorPresentation = res ? getSubjectColorPresentation(colorValue) : null;
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => handleCellClick(dateStr, h, res)}
+                          onContextMenu={(e) => handleContextMenu(e, dateStr, h, res)}
+                          className={`group relative cursor-pointer border-l border-white/50 p-1 transition-all sm:h-[120px] ${
+                            !res ? "hover:bg-[color:var(--dash-soft)]/45" : ""
+                          }`}
+                        >
+                          {res ? (
+                            <>
+                              <div
+                                className={`flex h-full w-full flex-col justify-between rounded-xl p-2 text-[11px] ${colorPresentation?.className || ""} ${
+                                  isOwn ? "ring-2 ring-[color:var(--dash-bright)]/70 ring-inset" : ""
+                                }`}
+                                style={colorPresentation?.style}
+                              >
+                                <div>
+                                  <div className="flex items-start justify-between sm:flex-col">
+                                    <p className="truncate font-semibold uppercase leading-none">{res.subject}</p>
+                                    <span className="rounded bg-white/20 px-1 text-[11px] font-semibold">{res.className}</span>
+                                  </div>
+                                  {res.comment ? (
+                                    <p className="mt-1 whitespace-normal break-words border-t border-white/10 pt-1 italic leading-tight opacity-90 sm:line-clamp-3">
+                                      &apos;{res.comment}&apos;
+                                    </p>
+                                  ) : null}
+                                </div>
+                                <div className="mt-1 flex items-end justify-between">
+                                  <span className="font-semibold uppercase opacity-80">{res.lastName}</span>
+                                  {canModify ? <span className="text-[10px] sm:hidden">✎</span> : null}
+                                </div>
+                              </div>
+                              <div
+                                className={`pointer-events-none absolute left-1/2 z-[100] w-72 -translate-x-1/2 rounded-xl border border-white/70 bg-white/95 p-4 opacity-0 shadow-xl backdrop-blur-xl transition-all group-hover:opacity-100 ${
+                                  h <= 10 ? "top-full mt-2" : "bottom-full mb-2"
+                                }`}
+                              >
+                                <p className={`mb-1 break-words text-[15px] font-semibold uppercase leading-tight ${dash.textPrimary}`}>
+                                  {res.subject} - {res.className}
+                                </p>
+                                <p className={`mb-3 text-sm font-semibold ${dash.ink}`}>
+                                  Par : {res.firstName} {res.lastName}
+                                </p>
+                                {res.comment ? (
+                                  <div className={`rounded-lg border p-3 ${dash.borderSoft} ${dash.bgSoft50}`}>
+                                    <p className={`whitespace-normal break-words text-sm italic leading-relaxed ${dash.textMid}`}>
+                                      &apos;{res.comment}&apos;
+                                    </p>
+                                  </div>
+                                ) : null}
+                                <div
+                                  className={`absolute left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-white/70 bg-white/95 ${
+                                    h <= 10 ? "-top-1.5 border-l border-t" : "-bottom-1.5 border-b border-r"
+                                  }`}
+                                />
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center opacity-0 transition-opacity hover:opacity-100">
+                              <span className={`text-[10px] font-semibold ${dash.textPrimary}`}>+ Libre</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Notes & Répétition</label>
-            <textarea placeholder="Commentaire (ex: Valise PC)" value={comment} onChange={(e) => setComment(e.target.value)} className="w-full bg-slate-800 border-none rounded-xl p-4 text-sm font-bold h-20 resize-none focus:ring-2 ring-blue-500" />
-            <select value={recurrence} onChange={(e) => setRecurrence(e.target.value)} className="w-full bg-slate-800 border-none rounded-xl p-4 text-xs font-bold">
-              <option value="none">Une seule fois</option>
-              <option value="weekly">Toutes les semaines</option>
-              <option value="biweekly">Toutes les 2 semaines</option>
-            </select>
-            {recurrence !== "none" && (
-              <input type="date" value={untilDate} min={selectedDate} max={maxDateStr} onChange={(e) => setUntilDate(e.target.value)} className="w-full bg-orange-900/30 border border-orange-500/50 rounded-xl p-3 text-xs font-bold text-orange-400" />
-            )}
-          </div>
-        </div>
-        {isEditing && editingRes?.groupId && (
-          <div className="mt-6 p-4 bg-blue-900/30 border border-blue-500/50 rounded-2xl flex items-center gap-3">
-            <input 
-              type="checkbox" 
-              id="updateSeries" 
-              checked={updateAllSeries} 
-              onChange={(e) => setUpdateAllSeries(e.target.checked)}
-              className="w-5 h-5 rounded border-slate-700 bg-slate-800 text-blue-600 focus:ring-blue-500"
-            />
-            <label htmlFor="updateSeries" className="text-sm font-bold text-blue-400 cursor-pointer">🔄 Appliquer les modifications à TOUTE la série de réservations</label>
-          </div>
+            </ProfRoomGlassCard>
+
+            {myUpcomingReservations.length > 0 ? (
+              <ProfRoomGlassCard data-tour="prof-room-upcoming" bodyClassName="p-5 sm:p-6">
+                <h3 className={`mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
+                  📅 Mes 5 prochaines réservations
+                </h3>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+                  {myUpcomingReservations.map((res) => (
+                    <button
+                      type="button"
+                      key={res.id}
+                      onClick={() => {
+                        const dStr = res.startsAt.split("T")[0];
+                        const hNum = parseInt(res.startsAt.split("T")[1].split(":")[0]);
+                        handleCellClick(dStr, hNum, res);
+                      }}
+                      className={`cursor-pointer rounded-xl border bg-white/70 p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:bg-white ${dash.borderSoft} ${dash.hoverBorder}`}
+                    >
+                      <p className={`text-[10px] font-semibold uppercase tracking-wide ${dash.textMid}`}>
+                        {new Date(res.startsAt).toLocaleDateString("fr-FR", {
+                          weekday: "short",
+                          day: "numeric",
+                          month: "short",
+                        })}
+                      </p>
+                      <p className={`text-xs font-semibold ${dash.textPrimary}`}>
+                        {res.startsAt.split("T")[1].substring(0, 5).replace(":", "h")}
+                      </p>
+                      <div className={`mt-2 text-[10px] font-semibold ${dash.ink}`}>
+                        <span className="block truncate">📍 {rooms.find((r) => r.id === res.roomId)?.name || "Salle"}</span>
+                        <span className={`block ${dash.textMid}`}>
+                          📚 {res.subject} ({res.className})
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </ProfRoomGlassCard>
+            ) : null}
+
+            <ProfRoomGlassCard id="form-section" data-tour="prof-room-form" bodyClassName="p-4 md:p-8">
+              <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div
+                    className={`shrink-0 rounded-2xl px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white ${
+                      isEditing ? "bg-amber-500" : dash.bgPrimary
+                    }`}
+                  >
+                    {isEditing ? "Modifier" : "Réserver"}
+                  </div>
+                  <h2 className={`text-xl font-semibold tracking-tight md:text-2xl ${dash.ink}`}>
+                    {isEditing ? "Détails du créneau" : "Nouvelle demande"}
+                  </h2>
+                </div>
+                {isEditing ? (
+                  <ModuleButton variant="danger" onClick={handleDelete} className="w-full md:w-auto">
+                    🗑️ Supprimer ce créneau
+                  </ModuleButton>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-1 gap-8">
+                <div className="space-y-4">
+                  <label className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
+                    Professeur & cours
+                  </label>
+                  {isAdmin ? (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Prénom"
+                        value={targetFirstName}
+                        onChange={(e) => setTargetFirstName(e.target.value)}
+                        className={`${fieldClass} flex-1`}
+                      />
+                      <input
+                        type="text"
+                        placeholder="NOM"
+                        value={targetLastName}
+                        onChange={(e) => setTargetLastName(e.target.value.toUpperCase())}
+                        className={`${fieldClass} flex-1`}
+                      />
+                    </div>
+                  ) : (
+                    <div className={`rounded-xl border bg-white/70 p-4 text-sm font-semibold ${dash.borderSoft}`}>
+                      <p className={`mb-1 text-[10px] uppercase tracking-wide ${dash.textMid}`}>Identité Clerk :</p>
+                      <span className={dash.textPrimary}>
+                        {user.firstName} {lastName}
+                      </span>
+                    </div>
+                  )}
+                  <select value={subject} onChange={(e) => setSubject(e.target.value)} className={`${fieldClass} cursor-pointer`}>
+                    <option value="">-- MATIÈRE --</option>
+                    {Object.keys(SUBJECT_COLORS).map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex gap-2">
+                    <select value={level} onChange={(e) => setLevel(e.target.value)} className={`${fieldClass} flex-1 cursor-pointer`}>
+                      <option value="">NIVEAU</option>
+                      {Object.keys(CLASSES_DATA).map((l) => (
+                        <option key={l} value={l}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={className}
+                      onChange={(e) => setClassName(e.target.value)}
+                      className={`${fieldClass} flex-1 cursor-pointer`}
+                    >
+                      <option value="">CLASSE</option>
+                      {level && CLASSES_DATA[level].map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <label className={`w-full text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
+                    Calendrier
+                  </label>
+                  <div className="w-full overflow-hidden">
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      min={todayStr}
+                      max={maxDateStr}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className={`${fieldClass} block text-[16px]`}
+                    />
+                  </div>
+                  <div className={`rounded-xl border bg-white/55 p-4 ${dash.borderSoft}`}>
+                    <p className={`mb-2 text-[10px] font-semibold uppercase tracking-wide ${dash.textMid}`}>
+                      Choisir l&apos;heure :
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {HOURS.map((h) => {
+                        const hourPrefix = `${selectedDate}T${h.toString().padStart(2, "0")}`;
+                        const isTaken = reservations.some(
+                          (r) =>
+                            r.roomId === selectedRoom &&
+                            r.startsAt.startsWith(hourPrefix) &&
+                            r.status !== "CANCELLED" &&
+                            r.id !== editingRes?.id,
+                        );
+                        return (
+                          <button
+                            key={h}
+                            type="button"
+                            disabled={isTaken}
+                            onClick={() => setSelectedHours([h])}
+                            className={`relative rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                              selectedHours.includes(h)
+                                ? `${dash.bgPrimary} z-10 scale-110 text-white shadow-md`
+                                : isTaken
+                                  ? "cursor-not-allowed border border-rose-200 bg-rose-50 text-rose-400"
+                                  : `cursor-pointer border bg-white/80 ${dash.borderSoft} ${dash.ink} ${dash.hoverBgSoft}`
+                            }`}
+                          >
+                            {h}h30
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <label className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
+                    Notes & répétition
+                  </label>
+                  <textarea
+                    placeholder="Commentaire (ex: Valise PC)"
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    className={`${fieldClass} h-20 resize-none`}
+                  />
+                  <select value={recurrence} onChange={(e) => setRecurrence(e.target.value)} className={`${fieldClass} cursor-pointer`}>
+                    <option value="none">Une seule fois</option>
+                    <option value="weekly">Toutes les semaines</option>
+                    <option value="biweekly">Toutes les 2 semaines</option>
+                  </select>
+                  {recurrence !== "none" ? (
+                    <input
+                      type="date"
+                      value={untilDate}
+                      min={selectedDate}
+                      max={maxDateStr}
+                      onChange={(e) => setUntilDate(e.target.value)}
+                      className={`${fieldClass} border-amber-200 bg-amber-50/70 text-amber-900`}
+                    />
+                  ) : null}
+                </div>
+              </div>
+              {isEditing && editingRes?.groupId ? (
+                <div className={`mt-6 flex items-center gap-3 rounded-2xl border p-4 ${dash.borderSoft} ${dash.bgSoft}`}>
+                  <input
+                    type="checkbox"
+                    id="updateSeries"
+                    checked={updateAllSeries}
+                    onChange={(e) => setUpdateAllSeries(e.target.checked)}
+                    className="h-5 w-5 rounded border-[color:var(--dash-border)] text-[var(--dash-primary)] focus:ring-[color:var(--dash-bright)]/30"
+                  />
+                  <label htmlFor="updateSeries" className={`cursor-pointer text-sm font-semibold ${dash.ink}`}>
+                    🔄 Appliquer les modifications à TOUTE la série de réservations
+                  </label>
+                </div>
+              ) : null}
+              <div className="mt-10 flex gap-4 sm:max-md:flex-col">
+                <ModuleButton onClick={handleConfirm} className="flex-1 py-4 text-base">
+                  {isEditing ? "Enregistrer les modifications" : "Confirmer la réservation"}
+                </ModuleButton>
+                <ModuleButton
+                  variant="secondary"
+                  onClick={() => {
+                    setIsEditing(false);
+                    setEditingRes(null);
+                    setSubject("");
+                    setClassName("");
+                    setComment("");
+                    setLevel("");
+                  }}
+                  className="px-8 sm:py-4"
+                >
+                  Annuler
+                </ModuleButton>
+              </div>
+            </ProfRoomGlassCard>
+          </>
         )}
-        <div className="mt-10 flex gap-4 sm:max-md:flex-col">
-          <button onClick={handleConfirm} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-2xl shadow-xl transition-all active:scale-95 text-lg">
-            {isEditing ? "ENREGISTRER LES MODIFICATIONS" : "CONFIRMER LA RÉSERVATION"}
-          </button>
-          <button onClick={() => { setIsEditing(false); setEditingRes(null); setSubject(""); setClassName(""); setComment(""); setLevel(""); }} className="bg-slate-700 px-8 rounded-2xl font-bold hover:bg-slate-600 transition-colors sm:py-4">ANNULER</button>
-        </div>
       </div>
-      </>
-      )}
-      <ReplayModuleTourButton moduleId="prof-room" />
-    </div>
+    </ModulePageShell>
   );
 }
 
 export default function ProfRoomPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-slate-500 text-sm">Chargement des salles…</div>}>
+    <Suspense
+      fallback={
+        <ModulePageShell maxWidthClass="max-w-6xl">
+          <p className={`text-sm ${dash.textMid}`}>Chargement des salles…</p>
+        </ModulePageShell>
+      }
+    >
       <ProfRoomPageContent />
     </Suspense>
   );

@@ -4,8 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import RequireOrgAdmin from "@/app/components/RequireOrgAdmin";
 import ToolboxModal from "@/app/components/toolbox/ToolboxModal";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import { dash } from "@/app/lib/dashboard-brand";
 import {
   renderToolboxAdminIcon,
   renderToolboxHubIcon,
@@ -31,7 +34,7 @@ function Toggle({
   return (
     <label className="flex items-center gap-3 cursor-pointer">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4" />
-      <span className="text-sm font-semibold text-slate-800">{label}</span>
+      <span className={`text-sm font-semibold ${dash.ink}`}>{label}</span>
     </label>
   );
 }
@@ -138,112 +141,94 @@ export default function ToolboxAdminPage() {
       )}
 
       <section className="mb-10 grid gap-4 sm:grid-cols-2">
-        <Link
-          href="/qrcreator"
-          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md"
-        >
-          <div className="flex items-start gap-4">
-            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-800">
-              {renderToolboxIcon("qrcreator", "w-8 h-8")}
-            </span>
-            <div>
-              <h2 className="font-bold text-slate-900">QR Code</h2>
-              <p className="mt-1 text-xs text-slate-500">
-                Créer un QR code personnalisé avec le logo de l&apos;établissement.
-              </p>
-              <span className="mt-2 inline-block text-xs font-bold text-slate-700 underline">
-                Ouvrir →
-              </span>
-            </div>
-          </div>
-        </Link>
-
-        {TOOLBOX_HUB_LINKS.map((link) => (
-          <Link
-            key={link.id}
-            href={link.adminPath}
-            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md"
-          >
+        <Link href="/qrcreator">
+          <ModuleCard bodyClassName="p-5 transition hover:-translate-y-0.5">
             <div className="flex items-start gap-4">
-              <span
-                className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${link.bg} ${link.color}`}
-              >
-                {renderToolboxHubIcon(link.id, "w-8 h-8")}
+              <span className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${dash.bgSoft} ${dash.ink}`}>
+                {renderToolboxIcon("qrcreator", "w-8 h-8")}
               </span>
               <div>
-                <h2 className="font-bold text-slate-900">{link.label}</h2>
-                <p className="mt-1 text-xs text-slate-500">{link.description}</p>
-                <span className="mt-2 inline-block text-xs font-bold text-slate-700 underline">
+                <h2 className={`font-semibold ${dash.ink}`}>QR Code</h2>
+                <p className={`mt-1 text-xs ${dash.textMid}`}>
+                  Créer un QR code personnalisé avec le logo de l&apos;établissement.
+                </p>
+                <span className={`mt-2 inline-block text-xs font-semibold underline ${dash.textPrimary}`}>
                   Ouvrir →
                 </span>
               </div>
             </div>
+          </ModuleCard>
+        </Link>
+
+        {TOOLBOX_HUB_LINKS.map((link) => (
+          <Link key={link.id} href={link.adminPath}>
+            <ModuleCard bodyClassName="p-5 transition hover:-translate-y-0.5">
+              <div className="flex items-start gap-4">
+                <span
+                  className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${link.bg} ${link.color}`}
+                >
+                  {renderToolboxHubIcon(link.id, "w-8 h-8")}
+                </span>
+                <div>
+                  <h2 className={`font-semibold ${dash.ink}`}>{link.label}</h2>
+                  <p className={`mt-1 text-xs ${dash.textMid}`}>{link.description}</p>
+                  <span className={`mt-2 inline-block text-xs font-semibold underline ${dash.textPrimary}`}>
+                    Ouvrir →
+                  </span>
+                </div>
+              </div>
+            </ModuleCard>
           </Link>
         ))}
 
         {(repartitionEnabled || isOrgAdmin) && (
-          <Link
-            href="/toolbox/repartition-classes"
-            className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 shadow-sm transition hover:border-indigo-200 hover:shadow-md sm:col-span-2"
-          >
-            <div className="flex items-start gap-4">
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-800">
-                {renderToolboxIcon("repartition-classes", "w-8 h-8")}
-              </span>
-              <div>
-                <h2 className="font-bold text-slate-900">Répartition des classes</h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  Préparer la classe, vœux parents et moteur de répartition.
-                </p>
-                <span className="mt-2 inline-block text-xs font-bold text-indigo-800 underline">
-                  Ouvrir →
+          <Link href="/toolbox/repartition-classes" className="sm:col-span-2">
+            <ModuleCard bodyClassName="p-5 transition hover:-translate-y-0.5">
+              <div className="flex items-start gap-4">
+                <span className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${dash.bgSoft} ${dash.textPrimary}`}>
+                  {renderToolboxIcon("repartition-classes", "w-8 h-8")}
                 </span>
+                <div>
+                  <h2 className={`font-semibold ${dash.ink}`}>Répartition des classes</h2>
+                  <p className={`mt-1 text-xs ${dash.textMid}`}>
+                    Préparer la classe, vœux parents et moteur de répartition.
+                  </p>
+                  <span className={`mt-2 inline-block text-xs font-semibold underline ${dash.textPrimary}`}>
+                    Ouvrir →
+                  </span>
+                </div>
               </div>
-            </div>
+            </ModuleCard>
           </Link>
         )}
       </section>
 
       {isOrgAdmin ? (
         <RequireOrgAdmin>
-          <div className="border-t border-slate-200 pt-8">
+          <div className={`border-t pt-8 ${dash.divider}`}>
             <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  Administration
-                </p>
-                <h2 className="text-xl font-black text-slate-900">Activation des outils</h2>
-                <p className="mt-1 text-sm text-slate-600 max-w-xl">
+                <p className={dash.fieldLabel}>Administration</p>
+                <h2 className={`text-xl font-semibold ${dash.ink}`}>Activation des outils</h2>
+                <p className={`mt-1 max-w-xl text-sm ${dash.textMid}`}>
                   Rentrée / fournitures →{" "}
-                  <Link href="/etablissement/evenements" className="font-bold text-slate-900 underline">
+                  <Link href="/etablissement/evenements" className={`font-semibold underline ${dash.ink}`}>
                     Événements
                   </Link>
                   . Tarifs →{" "}
-                  <Link
-                    href="/etablissement/communication"
-                    className="font-bold text-slate-900 underline"
-                  >
+                  <Link href="/etablissement/communication" className={`font-semibold underline ${dash.ink}`}>
                     Communication
                   </Link>
                   .
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPreviewOpen(true)}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                >
+                <ModuleButton variant="secondary" onClick={() => setPreviewOpen(true)}>
                   Aperçu modal
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void save()}
-                  disabled={saving || loading || !config}
-                  className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-                >
+                </ModuleButton>
+                <ModuleButton onClick={() => void save()} disabled={saving || loading || !config}>
                   {saving ? "Enregistrement…" : "Enregistrer"}
-                </button>
+                </ModuleButton>
               </div>
             </header>
 
@@ -254,7 +239,7 @@ export default function ToolboxAdminPage() {
             )}
 
             {loading || !config ? (
-              <p className="text-slate-500 text-sm">Chargement de la configuration…</p>
+              <p className={`text-sm ${dash.textMid}`}>Chargement de la configuration…</p>
             ) : (
               <section className="grid gap-4 sm:grid-cols-2">
                 {TOOLBOX_TOOLS_META.map((meta) => {
@@ -266,10 +251,7 @@ export default function ToolboxAdminPage() {
                         ? tool.enabled
                         : false;
                   return (
-                    <div
-                      key={meta.id}
-                      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-                    >
+                    <ModuleCard key={meta.id} bodyClassName="p-5">
                       <div className="flex items-start gap-4">
                         <span
                           className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${meta.bg} ${meta.color}`}
@@ -278,7 +260,7 @@ export default function ToolboxAdminPage() {
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
-                            <h3 className="font-bold text-slate-900">{meta.label}</h3>
+                            <h3 className={`font-semibold ${dash.ink}`}>{meta.label}</h3>
                             <Toggle
                               checked={enabled}
                               onChange={(v) => {
@@ -288,13 +270,13 @@ export default function ToolboxAdminPage() {
                               label=""
                             />
                           </div>
-                          <p className="mt-1 text-xs text-slate-500">{meta.description}</p>
+                          <p className={`mt-1 text-xs ${dash.textMid}`}>{meta.description}</p>
                           {meta.publicPath && enabled && (
                             <a
                               href={`${publicOrigin}${meta.publicPath}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="mt-2 inline-block break-all text-xs font-bold text-blue-600 underline"
+                              className={`mt-2 inline-block break-all text-xs font-semibold underline ${dash.textPrimary}`}
                             >
                               Page publique → {publicOrigin}
                               {meta.publicPath}
@@ -302,32 +284,28 @@ export default function ToolboxAdminPage() {
                           )}
                         </div>
                       </div>
-                    </div>
+                    </ModuleCard>
                   );
                 })}
 
                 <div className="sm:col-span-2">
-                  <h3 className="mb-3 text-sm font-black uppercase tracking-widest text-slate-500">
-                    Raccourcis admin
-                  </h3>
+                  <h3 className={`mb-3 ${dash.fieldLabel}`}>Raccourcis admin</h3>
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {TOOLBOX_ADMIN_LINKS.map((link) => (
-                      <Link
-                        key={link.id}
-                        href={link.adminPath}
-                        className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md"
-                      >
-                        <div className="flex items-start gap-4">
-                          <span
-                            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${link.bg} ${link.color}`}
-                          >
-                            {renderToolboxAdminIcon(link.id, "w-8 h-8")}
-                          </span>
-                          <div className="min-w-0">
-                            <h4 className="font-bold text-slate-900">{link.label}</h4>
-                            <p className="mt-1 text-xs text-slate-500">{link.description}</p>
+                      <Link key={link.id} href={link.adminPath}>
+                        <ModuleCard bodyClassName="p-5 transition hover:-translate-y-0.5">
+                          <div className="flex items-start gap-4">
+                            <span
+                              className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${link.bg} ${link.color}`}
+                            >
+                              {renderToolboxAdminIcon(link.id, "w-8 h-8")}
+                            </span>
+                            <div className="min-w-0">
+                              <h4 className={`font-semibold ${dash.ink}`}>{link.label}</h4>
+                              <p className={`mt-1 text-xs ${dash.textMid}`}>{link.description}</p>
+                            </div>
                           </div>
-                        </div>
+                        </ModuleCard>
                       </Link>
                     ))}
                   </div>

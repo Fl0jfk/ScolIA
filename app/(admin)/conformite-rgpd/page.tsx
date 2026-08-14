@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import RgpdDashboard from "@/app/components/rgpd/RgpdDashboard";
 import RgpdDisclaimer from "@/app/components/rgpd/RgpdDisclaimer";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -99,6 +98,7 @@ export default function ConformiteRgpdPage() {
     <ModulePageShell
       maxWidthClass={tab === "documents" ? "max-w-7xl" : "max-w-5xl"}
       className="space-y-6"
+      tourModuleId="conformite-rgpd"
     >
       <div data-tour="rgpd-module">
         <ModulePageHeader
@@ -113,7 +113,6 @@ export default function ConformiteRgpdPage() {
               <RgpdDisclaimer className="mt-2" />
             </>
           }
-          actions={<ReplayModuleTourButton moduleId="conformite-rgpd" />}
         />
 
         <ModuleTabNav tabs={TABS} active={tab} onChange={setTab} className="mb-6" />

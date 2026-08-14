@@ -91,7 +91,7 @@ function ShortcutSlidesCarousel({
     >
       <Link
         href={linkHref}
-        className="group relative block cursor-pointer overflow-hidden rounded-xl border border-white/70 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5"
+        className="group relative block cursor-pointer rounded-xl border border-white/70 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5"
       >
         {highlight ? (
           <motion.span
@@ -200,7 +200,7 @@ function ShortcutTile({
     >
       <Link
         href={item.href}
-        className={`group relative flex cursor-pointer items-center gap-2 overflow-hidden rounded-xl border transition hover:-translate-y-0.5 ${
+        className={`group relative flex cursor-pointer items-center gap-2 rounded-xl border transition hover:-translate-y-0.5 ${
           item.rich
             ? "border-white/70 bg-white/80 px-2.5 py-2.5 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] hover:bg-white"
             : "border-transparent bg-white/40 px-2 py-2 hover:border-white/70 hover:bg-white/70"

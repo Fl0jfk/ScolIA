@@ -21,7 +21,6 @@ import {
   inferEstablishmentKind,
   visualForEstablishmentLabel,
 } from "@/app/lib/establishment-visual";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleEmptyState from "@/app/components/module-chrome/ModuleEmptyState";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -180,7 +179,7 @@ function TripDashboardContent() {
     }
   };
   return (
-    <ModulePageShell maxWidthClass="max-w-7xl">
+    <ModulePageShell maxWidthClass="max-w-7xl" tourModuleId="travels">
       <ModulePageHeader
         title="Module Voyage"
         description={
@@ -199,14 +198,11 @@ function TripDashboardContent() {
           </p>
         }
         actions={
-          <>
-            {mainTab === "dossiers" ? (
-              <ModuleButton data-tour="travels-create" onClick={() => setShowModal(true)}>
-                + Nouvelle demande
-              </ModuleButton>
-            ) : null}
-            <ReplayModuleTourButton moduleId="travels" />
-          </>
+          mainTab === "dossiers" ? (
+            <ModuleButton data-tour="travels-create" onClick={() => setShowModal(true)}>
+              + Nouvelle demande
+            </ModuleButton>
+          ) : undefined
         }
       />
 

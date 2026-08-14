@@ -3,9 +3,11 @@
 import { useUser } from "@clerk/nextjs";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
+import { dash } from "@/app/lib/dashboard-brand";
 import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import {
@@ -231,12 +233,11 @@ export default function PhotocopiesCouleurPage() {
   if (!isLoaded || !user) return null;
 
   return (
-    <ModulePageShell maxWidthClass="max-w-7xl">
+    <ModulePageShell maxWidthClass="max-w-7xl" tourModuleId="photocopies-couleur">
       <ModulePageHeader
         eyebrow="Services"
         title="Photocopies couleur"
         description="Demande destinée au service impressions : la direction de l’établissement choisi valide avant traitement opérationnel."
-        actions={<ReplayModuleTourButton moduleId="photocopies-couleur" />}
       />
 
       {creator && !userEmail && (
@@ -247,11 +248,11 @@ export default function PhotocopiesCouleurPage() {
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {creator ? (
-          <div data-tour="photocopies-new" className="xl:col-span-1 bg-white border border-slate-200 rounded-3xl p-6 h-fit">
-            <h2 className="text-xl font-black text-slate-900 mb-4">Nouvelle demande</h2>
+          <ModuleCard data-tour="photocopies-new" className="xl:col-span-1 h-fit" bodyClassName="p-6">
+            <h2 className={`mb-4 text-xl font-semibold ${dash.ink}`}>Nouvelle demande</h2>
             <div className="space-y-4">
               <div>
-                <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">Établissement</label>
+                <label className={`mb-2 block ${dash.fieldLabel}`}>Établissement</label>
                 <EstablishmentSelect
                   value={etablissement}
                   onChange={setEtablissement}
@@ -261,27 +262,27 @@ export default function PhotocopiesCouleurPage() {
                 />
               </div>
               <div>
-                <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">Motif</label>
+                <label className={`mb-2 block ${dash.fieldLabel}`}>Motif</label>
                 <textarea
                   value={motif}
                   onChange={(e) => setMotif(e.target.value)}
                   rows={4}
                   placeholder="Contexte ou usage prévu..."
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2"
+                  className={dash.field}
                 />
               </div>
               <div>
-                <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">Classes ou matière</label>
+                <label className={`mb-2 block ${dash.fieldLabel}`}>Classes ou matière</label>
                 <input
                   value={classesOuMatiere}
                   onChange={(e) => setClassesOuMatiere(e.target.value)}
                   type="text"
                   placeholder="Ex. : 4e B, latin, cours de…"
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2"
+                  className={dash.field}
                 />
               </div>
               <div>
-                <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">
+                <label className={`mb-2 block ${dash.fieldLabel}`}>
                   Nombre de photocopies
                 </label>
                 <input
@@ -290,11 +291,11 @@ export default function PhotocopiesCouleurPage() {
                   type="number"
                   min={1}
                   placeholder="Entier strictement positif"
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2"
+                  className={dash.field}
                 />
               </div>
               <div>
-                <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">
+                <label className={`mb-2 block ${dash.fieldLabel}`}>
                   Document à imprimer (PDF)
                 </label>
                 <input
@@ -308,16 +309,11 @@ export default function PhotocopiesCouleurPage() {
                 </p>
               </div>
               {error && <div className="text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">{error}</div>}
-              <button
-                type="button"
-                onClick={() => void submit()}
-                disabled={saving || !userEmail}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl disabled:opacity-60"
-              >
+              <ModuleButton onClick={() => void submit()} disabled={saving || !userEmail} className="w-full py-3">
                 {saving ? "Envoi..." : "Envoyer la demande"}
-              </button>
+              </ModuleButton>
             </div>
-          </div>
+          </ModuleCard>
         ) : (
           error &&
           !directionAny && (
@@ -328,20 +324,20 @@ export default function PhotocopiesCouleurPage() {
         <div className={`space-y-6 ${creator ? "xl:col-span-2" : "xl:col-span-3"}`}>
           {creator && (
             <>
-              <div data-tour="photocopies-mine" className="bg-white border border-slate-200 rounded-3xl p-4">
-                <h3 className="font-black text-slate-900">Mes demandes</h3>
+              <div data-tour="photocopies-mine" className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-4 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl">
+                <h3 className="font-semibold text-[var(--dash-ink)]">Mes demandes</h3>
                 <p className="text-xs text-slate-500 mt-1">Historique personnel (y compris en attente de traitement).</p>
               </div>
               {loading ? (
-                <div className="bg-white border border-slate-200 rounded-3xl p-8 text-slate-500">Chargement…</div>
+                <div className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-8 text-[var(--dash-mid)] shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl">Chargement…</div>
               ) : mine.length === 0 ? (
-                <div className="bg-white border border-dashed border-slate-300 rounded-3xl p-8 text-slate-500">Aucune demande encore.</div>
+                <div className="relative rounded-[1.5rem] border border-dashed border-white/70 bg-white/40 p-8 text-[var(--dash-mid)]">Aucune demande encore.</div>
               ) : (
                 mine.map((item) => (
-                  <div key={item.id} className="bg-white border border-slate-200 rounded-3xl p-5">
+                  <div key={item.id} className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-5 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl">
                     <div className="flex flex-wrap gap-3 items-center justify-between mb-3">
                       <div>
-                        <p className="font-black text-slate-900">
+                        <p className="font-semibold text-[var(--dash-ink)]">
                           {item.etablissement} · {item.nombrePhotocopies} copie(s)
                         </p>
                         <p className="text-xs text-slate-500">
@@ -380,8 +376,8 @@ export default function PhotocopiesCouleurPage() {
           {directionAny && (
             <div data-tour="photocopies-queue">
             <>
-              <div className="bg-white border border-slate-200 rounded-3xl p-4">
-                <h3 className="font-black text-slate-900">File de votre pôle</h3>
+              <div className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-4 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl">
+                <h3 className="font-semibold text-[var(--dash-ink)]">File de votre pôle</h3>
                 <p className="text-xs text-slate-500 mt-1">
                   Demandes pour l’établissement dont vous assurez la direction — en attente ou déjà traitées sur votre périmètre.
                 </p>
@@ -391,20 +387,20 @@ export default function PhotocopiesCouleurPage() {
               </div>
 
               {loading ? (
-                <div className="bg-white border border-slate-200 rounded-3xl p-8 text-slate-500">Chargement…</div>
+                <div className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-8 text-[var(--dash-mid)] shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl">Chargement…</div>
               ) : (
                 <>
-                  <h4 className="text-sm font-black text-slate-700 uppercase tracking-wide px-1">À traiter</h4>
+                  <h4 className={`px-1 text-sm font-semibold uppercase tracking-wide ${dash.ink}`}>À traiter</h4>
                   {directionPending.length === 0 ? (
-                    <div className="bg-white border border-dashed border-slate-300 rounded-3xl p-6 text-slate-500 text-sm">
+                    <div className="rounded-[1.5rem] border border-dashed border-white/70 bg-white/40 p-6 text-sm text-[var(--dash-mid)]">
                       Aucune demande en attente pour votre périmètre.
                     </div>
                   ) : (
                     directionPending.map((item) => (
-                      <div key={item.id} className="bg-white border border-slate-200 rounded-3xl p-5">
+                      <div key={item.id} className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-5 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl">
                         <div className="flex flex-wrap gap-3 items-center justify-between mb-3">
                           <div>
-                            <p className="font-black text-slate-900">
+                            <p className="font-semibold text-[var(--dash-ink)]">
                               {item.createdBy.name} — {item.etablissement}
                             </p>
                             <p className="text-xs text-slate-500">
@@ -425,7 +421,7 @@ export default function PhotocopiesCouleurPage() {
                         {item.documentFileName ? (
                           <p className="text-xs text-indigo-700 mb-3">PDF joint : {item.documentFileName}</p>
                         ) : null}
-                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">
+                        <label className={`mb-2 block ${dash.fieldLabel}`}>
                           Note pour le demandeur (optionnel)
                         </label>
                         <textarea
@@ -457,16 +453,16 @@ export default function PhotocopiesCouleurPage() {
                     ))
                   )}
 
-                  <h4 className="text-sm font-black text-slate-700 uppercase tracking-wide px-1 pt-4">Traitées (pôle)</h4>
+                  <h4 className={`px-1 pt-4 text-sm font-semibold uppercase tracking-wide ${dash.ink}`}>Traitées (pôle)</h4>
                   {directionHistory.length === 0 ? (
-                    <div className="bg-white border border-dashed border-slate-300 rounded-3xl p-6 text-slate-500 text-sm">
+                    <div className="rounded-[1.5rem] border border-dashed border-white/70 bg-white/40 p-6 text-sm text-[var(--dash-mid)]">
                       Pas encore d’historique de décision sur votre périmètre.
                     </div>
                   ) : (
                     directionHistory.map((item) => (
-                      <div key={item.id} className="bg-white border border-slate-200 rounded-3xl p-5 opacity-95">
+                      <div key={item.id} className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-5 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl opacity-95">
                         <div className="flex flex-wrap gap-3 items-center justify-between mb-2">
-                          <p className="font-black text-slate-900">
+                          <p className="font-semibold text-[var(--dash-ink)]">
                             {item.createdBy.name} — {item.etablissement}
                           </p>
                           <span className={`text-xs font-black px-3 py-1.5 rounded-xl border ${statusBadgeClass(item.status)}`}>
@@ -492,7 +488,7 @@ export default function PhotocopiesCouleurPage() {
           )}
 
           {!creator && !directionAny && !loading && (
-            <div className="bg-white border border-slate-200 rounded-3xl p-8 text-slate-600">
+            <div className="rounded-[1.5rem] border border-white/55 bg-white/50 p-8 text-[var(--dash-mid)] backdrop-blur-xl">
               Votre profil ne permet pas d’accéder à cette page. Contactez l’administrateur si vous pensez qu’il s’agit d’une erreur.
             </div>
           )}

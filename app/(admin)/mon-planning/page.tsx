@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useUser } from "@clerk/nextjs";
 import PlanningWeekCalendar from "@/app/components/personnel/PlanningWeekCalendar";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
+import { dash } from "@/app/lib/dashboard-brand";
 import { hasGlobalAdminRole, intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import {
   canManagePersonnel,
@@ -115,7 +117,7 @@ export default function MonPlanningClient() {
   if (!isLoaded || loading) {
     return (
       <ModulePageShell maxWidthClass="max-w-6xl">
-        <p className="text-center text-slate-500">Chargement du planning…</p>
+        <p className={`text-center text-sm ${dash.textMid}`}>Chargement du planning…</p>
       </ModulePageShell>
     );
   }
@@ -149,16 +151,14 @@ export default function MonPlanningClient() {
       ) : (
         <div className="space-y-4">
           {nowActivity ? (
-            <div className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">
-                En ce moment
-              </p>
-              <p className="text-lg font-black text-indigo-950 mt-0.5">{nowActivity.title}</p>
-              <p className="text-sm text-indigo-900/80">
+            <ModuleCard bodyClassName={`px-4 py-3 ${dash.bgSoft}`}>
+              <p className={dash.fieldLabel}>En ce moment</p>
+              <p className={`mt-0.5 text-lg font-semibold ${dash.ink}`}>{nowActivity.title}</p>
+              <p className={`text-sm ${dash.textMid}`}>
                 {nowActivity.detail}
                 {nowActivity.start !== "—" ? ` · ${nowActivity.start}–${nowActivity.end}` : ""}
               </p>
-            </div>
+            </ModuleCard>
           ) : null}
 
           {error ? (
@@ -170,13 +170,13 @@ export default function MonPlanningClient() {
               </p>
             </div>
           ) : planning ? (
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+            <ModuleCard bodyClassName="p-4">
               <PlanningWeekCalendar
                 planning={planning}
                 leaves={leaves}
                 schoolHolidayZone={schoolHolidayZone}
               />
-            </div>
+            </ModuleCard>
           ) : (
             <p className="text-sm text-slate-500 italic">Aucun planning enregistré.</p>
           )}

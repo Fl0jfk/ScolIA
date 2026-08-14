@@ -13,7 +13,6 @@ import PeerPicker from "@/app/components/documents/PeerPicker";
 import ShareSidebarContextMenu from "@/app/components/documents/ShareSidebarContextMenu";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import {
   buildAccessPeople,
   collectDroppedFiles,
@@ -596,13 +595,12 @@ export default function DocumentsPage() {
   const isDeletingEntireShare = scope === "shared" && !currentFolderRel;
 
   return (
-    <ModulePageShell className="flex flex-col gap-5">
+    <ModulePageShell className="flex flex-col gap-5" tourModuleId="documents">
       <div data-tour="documents-intro">
         <ModulePageHeader
           eyebrow="Services"
           title="Documents"
           description="Cloud personnel et dossiers partagés avec le personnel Clerk."
-          actions={<ReplayModuleTourButton moduleId="documents" />}
         />
       </div>
 

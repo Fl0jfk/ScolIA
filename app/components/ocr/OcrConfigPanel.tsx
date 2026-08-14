@@ -142,7 +142,7 @@ export default function OcrConfigPanel({
             ) : null}
           </div>
           {syncReport ? (
-            <ModuleCard className="p-4 text-sm text-slate-700 space-y-3">
+            <ModuleCard bodyClassName="space-y-3 p-4 text-sm text-slate-700">
               <div>
                 <p className="font-bold text-slate-900">
                   {syncReport.secteurLabel} — {syncReport.basePath}

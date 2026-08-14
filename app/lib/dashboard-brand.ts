@@ -47,4 +47,7 @@ export const dash = {
   tileBorderHover: "hover:border-[color:var(--dash-primary)]/35",
   editZone: "border-dashed border-[color:var(--dash-border)] bg-[color:var(--dash-soft-muted)]/30",
   connectorDone: "bg-[var(--dash-bright)]",
+  field:
+    "w-full rounded-xl border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-[var(--dash-ink)] outline-none shadow-sm transition focus:border-[var(--dash-primary)]",
+  fieldLabel: "text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--dash-mid)]",
 } as const;

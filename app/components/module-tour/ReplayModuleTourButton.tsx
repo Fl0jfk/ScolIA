@@ -12,7 +12,7 @@ export default function ReplayModuleTourButton({ moduleId }: { moduleId: string 
     <button
       type="button"
       onClick={() => requestReplay(moduleId)}
-      className="mt-8 text-xs font-semibold text-slate-500 hover:text-emerald-700 underline"
+      className="text-xs font-semibold text-slate-500 hover:text-emerald-700 underline"
     >
       Revoir le tutoriel de ce module
     </button>

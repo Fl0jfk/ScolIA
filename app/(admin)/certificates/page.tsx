@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import CertificatePendingSignaturesPanel from "@/app/components/certificates/CertificatePendingSignaturesPanel";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import { dash } from "@/app/lib/dashboard-brand";
 import { currentCertificateSchoolYear } from "@/app/lib/certificates-types";
 
 type ProgramEntry = {
@@ -38,7 +41,7 @@ export default function CertificatesListPage() {
   if (loading) {
     return (
       <ModulePageShell maxWidthClass="max-w-5xl">
-        <p className="text-center font-bold text-slate-600">Chargement…</p>
+        <p className={`text-center text-sm ${dash.textMid}`}>Chargement…</p>
       </ModulePageShell>
     );
   }
@@ -50,17 +53,11 @@ export default function CertificatesListPage() {
         description="Créez des parcours, ajoutez des élèves, des lignes personnalisées et signez en fin d'année."
         actions={
           <>
-            <Link
-              href="/certificates/my-signature"
-              className="rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-black text-slate-700"
-            >
-              Ma signature
+            <Link href="/certificates/my-signature">
+              <ModuleButton variant="secondary">Ma signature</ModuleButton>
             </Link>
-            <Link
-              href="/certificates/new"
-              className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-black text-white shadow-lg"
-            >
-              Nouveau parcours
+            <Link href="/certificates/new">
+              <ModuleButton>Nouveau parcours</ModuleButton>
             </Link>
           </>
         }
@@ -68,23 +65,24 @@ export default function CertificatesListPage() {
 
       <CertificatePendingSignaturesPanel />
 
-      <section>
-        <h2 className="text-lg font-black text-slate-900 mb-3">Mes parcours</h2>
+      <section className="space-y-3">
+        <h2 className={`text-lg font-semibold ${dash.ink}`}>Mes parcours</h2>
         {mine.length === 0 ? (
-          <p className="text-sm text-slate-500">Aucun parcours créé.</p>
+          <p className={`text-sm ${dash.textMid}`}>Aucun parcours créé.</p>
         ) : (
           <div className="grid gap-3">
             {mine.map((p) => (
-              <Link
-                key={p.id}
-                href={`/certificates/${p.id}`}
-                className="block rounded-2xl border border-slate-200 bg-white p-4 hover:border-indigo-300 transition"
-              >
-                <div className="flex justify-between gap-2">
-                  <p className="font-black text-slate-900">{p.title}</p>
-                  <span className="text-xs text-slate-500">{p.schoolYear}</span>
-                </div>
-                <p className="text-xs text-slate-500 mt-1">Créateur : {p.ownerName}</p>
+              <Link key={p.id} href={`/certificates/${p.id}`}>
+                <ModuleCard
+                  bodyClassName={`p-4 transition hover:-translate-y-0.5 ${dash.hoverBorder}`}
+                  className="block"
+                >
+                  <div className="flex justify-between gap-2">
+                    <p className={`font-semibold ${dash.ink}`}>{p.title}</p>
+                    <span className={`text-xs ${dash.textMid}`}>{p.schoolYear}</span>
+                  </div>
+                  <p className={`mt-1 text-xs ${dash.textMid}`}>Créateur : {p.ownerName}</p>
+                </ModuleCard>
               </Link>
             ))}
           </div>
@@ -92,27 +90,25 @@ export default function CertificatesListPage() {
       </section>
 
       {shared.length > 0 && (
-        <section>
-          <h2 className="text-lg font-black text-slate-900 mb-3">Parcours partagés avec moi</h2>
+        <section className="mt-6 space-y-3">
+          <h2 className={`text-lg font-semibold ${dash.ink}`}>Parcours partagés avec moi</h2>
           <div className="grid gap-3">
             {shared.map((p) => (
-              <Link
-                key={p.id}
-                href={`/certificates/${p.id}`}
-                className="block rounded-2xl border border-slate-200 bg-white p-4 hover:border-violet-300 transition"
-              >
-                <div className="flex justify-between gap-2">
-                  <p className="font-black text-slate-900">{p.title}</p>
-                  <span className="text-xs text-slate-500">{p.schoolYear}</span>
-                </div>
-                <p className="text-xs text-slate-500 mt-1">Créateur : {p.ownerName}</p>
+              <Link key={p.id} href={`/certificates/${p.id}`}>
+                <ModuleCard bodyClassName="p-4 transition hover:-translate-y-0.5" className="block">
+                  <div className="flex justify-between gap-2">
+                    <p className={`font-semibold ${dash.ink}`}>{p.title}</p>
+                    <span className={`text-xs ${dash.textMid}`}>{p.schoolYear}</span>
+                  </div>
+                  <p className={`mt-1 text-xs ${dash.textMid}`}>Créateur : {p.ownerName}</p>
+                </ModuleCard>
               </Link>
             ))}
           </div>
         </section>
       )}
 
-      <p className="text-xs text-slate-400">Année scolaire en cours : {currentCertificateSchoolYear()}</p>
+      <p className={`mt-6 text-xs ${dash.textMid}`}>Année scolaire en cours : {currentCertificateSchoolYear()}</p>
     </ModulePageShell>
   );
 }

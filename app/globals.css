@@ -54,10 +54,18 @@ button:not(:disabled) *,
 summary * {
   cursor: pointer !important;
 }
+a[href],
+a[href] *,
 button:not(:disabled),
-[role="button"]:not([aria-disabled="true"]) {
+button:not(:disabled) *,
+[role="button"]:not([aria-disabled="true"]),
+[role="button"]:not([aria-disabled="true"]) * {
   -webkit-user-select: none;
   user-select: none;
+}
+html.force-pointer,
+html.force-pointer * {
+  cursor: pointer !important;
 }
 button:disabled,
 [role="button"][aria-disabled="true"],

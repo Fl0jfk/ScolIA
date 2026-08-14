@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import { dash } from "@/app/lib/dashboard-brand";
 
 type IngestUpdate = {
   domain: string;
@@ -104,37 +107,32 @@ export default function ChatbotKnowledgePage() {
         title="Brain AI (training engine)"
         description="Injectez du texte ou des PDF. Le système classe automatiquement vers le bon JSON knowledge sur S3."
       />
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 mb-6">
-        <h2 className="font-bold mb-3">Injection texte</h2>
+      <ModuleCard className="mb-6" bodyClassName="p-5">
+        <h2 className={`mb-3 font-semibold ${dash.ink}`}>Injection texte</h2>
         <input
           value={source}
           onChange={(e) => setSource(e.target.value)}
           placeholder="Source (ex: Circulaire voyage avril)"
-          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm mb-3"
+          className={`${dash.field} mb-3`}
         />
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Collez ici le texte à injecter..."
-          className="w-full min-h-[180px] rounded-xl border border-slate-300 px-3 py-2 text-sm"
+          className={`${dash.field} min-h-[180px]`}
         />
-      </section>
+      </ModuleCard>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 mb-6">
-        <h2 className="font-bold mb-3">Injection PDF + OCR</h2>
-        <input
-          type="file"
-          accept="application/pdf"
-          onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
-          className="text-sm"
-        />
-      </section>
-      <div className="flex items-center gap-3 mb-4">
-        <label className="text-sm font-medium">Audience</label>
+      <ModuleCard className="mb-6" bodyClassName="p-5">
+        <h2 className={`mb-3 font-semibold ${dash.ink}`}>Injection PDF + OCR</h2>
+        <input type="file" accept="application/pdf" onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)} className={`text-sm ${dash.textMid}`} />
+      </ModuleCard>
+      <div className="mb-4 flex items-center gap-3">
+        <label className={`text-sm font-medium ${dash.ink}`}>Audience</label>
         <select
           value={audience}
           onChange={(e) => setAudience(e.target.value as "public" | "private" | "both")}
-          className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+          className={`${dash.field} w-auto cursor-pointer px-2 py-1`}
         >
           <option value="both">Public + privé</option>
           <option value="public">Public</option>
@@ -142,42 +140,32 @@ export default function ChatbotKnowledgePage() {
         </select>
       </div>
       <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={submitManual}
-          disabled={loading}
-          className="rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-bold disabled:opacity-50"
-        >
+        <ModuleButton onClick={submitManual} disabled={loading}>
           Injecter texte
-        </button>
-        <button
-          type="button"
-          onClick={submitPdfWithOcr}
-          disabled={loading || !pdfFile}
-          className="rounded-xl bg-sky-600 text-white px-4 py-2 text-sm font-bold disabled:opacity-50"
-        >
+        </ModuleButton>
+        <ModuleButton variant="secondary" onClick={submitPdfWithOcr} disabled={loading || !pdfFile}>
           OCR + Injecter PDF
-        </button>
+        </ModuleButton>
       </div>
-      {status ? <p className="mt-4 text-sm text-slate-700">{status}</p> : null}
+      {status ? <p className={`mt-4 text-sm ${dash.ink}`}>{status}</p> : null}
       {lastUpdates.length > 0 ? (
-        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
-          <h2 className="font-bold mb-3">Dernier classement IA</h2>
+        <ModuleCard className="mt-6" bodyClassName="p-5">
+          <h2 className={`mb-3 font-semibold ${dash.ink}`}>Dernier classement IA</h2>
           <div className="space-y-3">
             {lastUpdates.map((u, i) => (
-              <div key={`${u.domain}-${i}`} className="rounded-xl border border-slate-200 p-3">
-                <p className="text-sm font-bold text-slate-900">{u.title}</p>
-                <p className="text-xs text-slate-500 mt-1">
+              <div key={`${u.domain}-${i}`} className={`rounded-xl border bg-white/70 p-3 ${dash.borderSoft}`}>
+                <p className={`text-sm font-semibold ${dash.ink}`}>{u.title}</p>
+                <p className={`mt-1 text-xs ${dash.textMid}`}>
                   Domaine: <span className="font-semibold">{u.domain}</span>
                   {u.file ? ` • Fichier: ${u.file}` : ""}
                 </p>
                 {u.contentPreview ? (
-                  <p className="text-sm text-slate-700 mt-2 whitespace-pre-wrap">{u.contentPreview}</p>
+                  <p className={`mt-2 whitespace-pre-wrap text-sm ${dash.ink}`}>{u.contentPreview}</p>
                 ) : null}
               </div>
             ))}
           </div>
-        </section>
+        </ModuleCard>
       ) : null}
     </ModulePageShell>
   );

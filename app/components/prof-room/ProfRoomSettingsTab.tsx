@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_PROF_ROOM_SUBJECT_COLORS } from "@/app/lib/prof-room-defaults";
 import { PROF_ROOM_COLOR_PRESETS } from "@/app/lib/prof-room-subject-colors";
+import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ProfRoomAdminPicker, { type ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import ProfRoomGlassCard from "@/app/components/prof-room/ProfRoomGlassCard";
+import { dash } from "@/app/lib/dashboard-brand";
 import SubjectColorEditor from "./SubjectColorEditor";
 
 type Room = { id: string; name: string; building?: string };
@@ -233,16 +236,21 @@ export default function ProfRoomSettingsTab() {
   };
 
   if (loading) {
-    return <p className="p-10 text-center text-slate-500 font-bold">Chargement du paramétrage…</p>;
+    return <p className={`p-10 text-center text-sm ${dash.textMid}`}>Chargement du paramétrage…</p>;
   }
 
-  return (
-    <div className="space-y-8 px-4">
-      {error && <p className="text-red-600 text-sm font-bold bg-red-50 p-3 rounded-xl">{error}</p>}
+  const fieldClass =
+    "w-full rounded-xl border border-white/70 bg-white/80 px-4 py-3 text-sm font-semibold text-[var(--dash-ink)] outline-none shadow-sm transition focus:border-[var(--dash-primary)]";
 
-      <section className="bg-white rounded-3xl border p-6 space-y-4">
-        <h2 className="text-lg font-black text-slate-900">Administrateurs du module</h2>
-        <p className="text-sm text-slate-500">
+  return (
+    <div className="space-y-4">
+      {error ? (
+        <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{error}</p>
+      ) : null}
+
+      <ProfRoomGlassCard bodyClassName="space-y-4 p-5 sm:p-6">
+        <h2 className={`text-lg font-semibold tracking-tight ${dash.ink}`}>Administrateurs du module</h2>
+        <p className={`text-sm ${dash.textMid}`}>
           Ajoutez ou retirez des personnes depuis Clerk. Elles auront le mode administrateur dans la réservation
           de salles et pourront modifier ce paramétrage.
         </p>
@@ -252,15 +260,13 @@ export default function ProfRoomSettingsTab() {
             {selectedAdmins.map((m) => (
               <span
                 key={m.clerkUserId}
-                className="inline-flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-900 px-3 py-1.5 rounded-full text-xs font-bold"
+                className={`inline-flex items-center gap-2 rounded-full border bg-white/80 px-3 py-1.5 text-xs font-semibold ${dash.borderSoft} ${dash.ink}`}
               >
-                <span className="truncate max-w-[12rem]">
-                  {m.displayName || m.email}
-                </span>
+                <span className="max-w-[12rem] truncate">{m.displayName || m.email}</span>
                 <button
                   type="button"
                   onClick={() => removeAdmin(m.clerkUserId)}
-                  className="text-indigo-500 hover:text-rose-600"
+                  className={`cursor-pointer ${dash.textMid} hover:text-rose-600`}
                   title="Retirer cet administrateur"
                 >
                   ×
@@ -269,7 +275,7 @@ export default function ProfRoomSettingsTab() {
             ))}
           </div>
         ) : (
-          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             Aucun administrateur Clerk sélectionné. Les administrateurs org Clerk conservent l&apos;accès.
           </p>
         )}
@@ -282,23 +288,18 @@ export default function ProfRoomSettingsTab() {
           footerHint="Cochez ou décochez pour ajouter ou retirer un administrateur. Enregistrez pour appliquer."
         />
 
-        <button
-          type="button"
-          disabled={saving || membersLoading}
-          onClick={saveAdmins}
-          className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold disabled:opacity-50"
-        >
+        <ModuleButton disabled={saving || membersLoading} onClick={saveAdmins}>
           Enregistrer les administrateurs
-        </button>
-      </section>
+        </ModuleButton>
+      </ProfRoomGlassCard>
 
-      <section className="bg-white rounded-3xl border p-6 space-y-4">
-        <h2 className="text-lg font-black text-slate-900">Salles</h2>
-        <p className="text-sm text-slate-500">Ajoutez ou modifiez les salles disponibles à la réservation.</p>
+      <ProfRoomGlassCard bodyClassName="space-y-4 p-5 sm:p-6">
+        <h2 className={`text-lg font-semibold tracking-tight ${dash.ink}`}>Salles</h2>
+        <p className={`text-sm ${dash.textMid}`}>Ajoutez ou modifiez les salles disponibles à la réservation.</p>
         {rooms.map((room, idx) => (
           <div key={room.id || idx} className="flex gap-2">
             <input
-              className="flex-1 border rounded-xl p-3 text-sm font-bold"
+              className={`${fieldClass} flex-1`}
               placeholder="Nom de la salle (ex: Salle informatique)"
               value={room.name}
               onChange={(e) => {
@@ -310,7 +311,7 @@ export default function ProfRoomSettingsTab() {
             <button
               type="button"
               onClick={() => setRooms(rooms.filter((_, i) => i !== idx))}
-              className="text-red-600 text-sm font-bold px-3 shrink-0"
+              className="shrink-0 cursor-pointer px-3 text-sm font-semibold text-rose-700 hover:text-rose-800"
             >
               Supprimer
             </button>
@@ -319,27 +320,20 @@ export default function ProfRoomSettingsTab() {
         <div className="flex flex-wrap items-center gap-4 pt-1">
           <button
             type="button"
-            className="text-blue-600 font-bold text-sm"
-            onClick={() =>
-              setRooms([...rooms, { id: `salle-${Date.now()}`, name: "" }])
-            }
+            className={`cursor-pointer text-sm font-semibold ${dash.textPrimary}`}
+            onClick={() => setRooms([...rooms, { id: `salle-${Date.now()}`, name: "" }])}
           >
             + Ajouter une salle
           </button>
-          <button
-            type="button"
-            disabled={saving}
-            onClick={saveRooms}
-            className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold disabled:opacity-50"
-          >
+          <ModuleButton disabled={saving} onClick={saveRooms}>
             Enregistrer les salles
-          </button>
+          </ModuleButton>
         </div>
-      </section>
+      </ProfRoomGlassCard>
 
-      <section className="bg-white rounded-3xl border p-6 space-y-4">
-        <h2 className="text-lg font-black text-slate-900">Matières & couleurs</h2>
-        <p className="text-sm text-slate-500">
+      <ProfRoomGlassCard bodyClassName="space-y-4 p-5 sm:p-6">
+        <h2 className={`text-lg font-semibold tracking-tight ${dash.ink}`}>Matières & couleurs</h2>
+        <p className={`text-sm ${dash.textMid}`}>
           Choisissez un preset ou une couleur personnalisée via le sélecteur ({Object.keys(config.subjectColors).length}{" "}
           matières).
         </p>
@@ -359,53 +353,42 @@ export default function ProfRoomSettingsTab() {
             />
           ))}
         </div>
-        <div className="flex flex-col gap-3 pt-2 border-t">
+        <div className={`flex flex-col gap-3 border-t pt-3 ${dash.divider}`}>
           <input
-            className="w-full border rounded-xl p-3 text-sm font-bold uppercase"
+            className={`${fieldClass} uppercase`}
             placeholder="Nouvelle matière"
             value={newSubject}
             onChange={(e) => setNewSubject(e.target.value)}
           />
-          <SubjectColorEditor
-            label="Aperçu"
-            value={newSubjectColor}
-            onChange={setNewSubjectColor}
-          />
-          <button
-            type="button"
-            onClick={addSubject}
-            className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm self-start"
-          >
+          <SubjectColorEditor label="Aperçu" value={newSubjectColor} onChange={setNewSubjectColor} />
+          <ModuleButton variant="secondary" onClick={addSubject} className="self-start">
             Ajouter la matière
-          </button>
+          </ModuleButton>
         </div>
-        <button
-          type="button"
-          disabled={saving}
-          onClick={saveModuleConfig}
-          className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold disabled:opacity-50"
-        >
+        <ModuleButton disabled={saving} onClick={saveModuleConfig}>
           Enregistrer matières & classes
-        </button>
-      </section>
+        </ModuleButton>
+      </ProfRoomGlassCard>
 
-      <section className="bg-white rounded-3xl border p-6 space-y-4">
-        <h2 className="text-lg font-black text-slate-900">Classes par pôle</h2>
-        <p className="text-sm text-slate-500">Organisez les classes proposées selon le niveau (École, Collège, Lycée…).</p>
+      <ProfRoomGlassCard bodyClassName="space-y-4 p-5 sm:p-6">
+        <h2 className={`text-lg font-semibold tracking-tight ${dash.ink}`}>Classes par pôle</h2>
+        <p className={`text-sm ${dash.textMid}`}>
+          Organisez les classes proposées selon le niveau (École, Collège, Lycée…).
+        </p>
         {Object.entries(config.classesByPole).map(([pole, classes]) => (
-          <div key={pole} className="border rounded-2xl p-4 space-y-3">
-            <p className="font-black text-sm text-slate-700 uppercase">{pole}</p>
+          <div key={pole} className={`space-y-3 rounded-2xl border bg-white/55 p-4 ${dash.borderSoft}`}>
+            <p className={`text-sm font-semibold uppercase tracking-wide ${dash.ink}`}>{pole}</p>
             <div className="flex flex-wrap gap-2">
               {classes.map((cls) => (
                 <span
                   key={cls}
-                  className="inline-flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg text-xs font-bold"
+                  className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold ${dash.bgSoft} ${dash.ink}`}
                 >
                   {cls}
                   <button
                     type="button"
                     onClick={() => removeClassFromPole(pole, cls)}
-                    className="text-red-500 hover:text-red-700"
+                    className="cursor-pointer text-rose-500 hover:text-rose-700"
                   >
                     ×
                   </button>
@@ -414,7 +397,7 @@ export default function ProfRoomSettingsTab() {
             </div>
             <div className="flex gap-2">
               <input
-                className="flex-1 border rounded-lg p-2 text-sm font-bold uppercase"
+                className={`${fieldClass} flex-1 uppercase`}
                 placeholder="Nouvelle classe"
                 value={newClassByPole[pole] || ""}
                 onChange={(e) => setNewClassByPole({ ...newClassByPole, [pole]: e.target.value })}
@@ -423,44 +406,38 @@ export default function ProfRoomSettingsTab() {
               <button
                 type="button"
                 onClick={() => addClassToPole(pole)}
-                className="text-blue-600 font-bold text-sm px-3"
+                className={`cursor-pointer px-3 text-sm font-semibold ${dash.textPrimary}`}
               >
                 + Classe
               </button>
             </div>
           </div>
         ))}
-        <div className="flex gap-2 pt-2 border-t">
+        <div className={`flex gap-2 border-t pt-3 ${dash.divider}`}>
           <input
-            className="flex-1 border rounded-xl p-3 text-sm font-bold uppercase"
+            className={`${fieldClass} flex-1 uppercase`}
             placeholder="Nouveau pôle (ex: COLLÈGE)"
             value={newPoleName}
             onChange={(e) => setNewPoleName(e.target.value)}
           />
-          <button
-            type="button"
-            onClick={addPole}
-            className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm"
-          >
+          <ModuleButton variant="secondary" onClick={addPole}>
             Ajouter pôle
-          </button>
+          </ModuleButton>
         </div>
         <div className="pt-2">
-          <label className="block text-sm font-bold text-slate-600 mb-1">
+          <label className={`mb-1 block text-[11px] font-semibold uppercase tracking-wide ${dash.textMid}`}>
             Horizon de réservation (jours, professeurs)
           </label>
           <input
             type="number"
             min={7}
             max={365}
-            className="w-32 border rounded-xl p-3 text-sm font-bold"
+            className={`${fieldClass} w-32`}
             value={config.bookingHorizonDays}
-            onChange={(e) =>
-              setConfig({ ...config, bookingHorizonDays: parseInt(e.target.value, 10) || 56 })
-            }
+            onChange={(e) => setConfig({ ...config, bookingHorizonDays: parseInt(e.target.value, 10) || 56 })}
           />
         </div>
-      </section>
+      </ProfRoomGlassCard>
     </div>
   );
 }

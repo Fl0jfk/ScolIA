@@ -2,8 +2,10 @@
 
 import { useUser } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import { dash } from "@/app/lib/dashboard-brand";
 import type { CovoiturageDirection, CovoiturageStatus } from "@/app/lib/covoiturage-types";
 import { directionLabel } from "@/app/lib/covoiturage-types";
 
@@ -212,12 +214,12 @@ export default function CovoituragePage() {
       ) : null}
 
       {profile ? (
-        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <ModuleCard className="mb-6" bodyClassName="p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">Mon profil</p>
-              <p className="text-lg font-black text-slate-900 mt-1">{profile.displayName}</p>
-              <p className="text-sm text-slate-600">{profile.email}</p>
+              <p className={`text-xs font-semibold uppercase tracking-wide ${dash.textMid}`}>Mon profil</p>
+              <p className={`mt-1 text-lg font-semibold ${dash.ink}`}>{profile.displayName}</p>
+              <p className={`text-sm ${dash.textMid}`}>{profile.email}</p>
             </div>
             <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border ${statusBadge(profile.status)}`}>
               {statusLabel(profile.status)}
@@ -251,7 +253,7 @@ export default function CovoituragePage() {
                 type="button"
                 disabled={saving}
                 onClick={() => void postAction({ action: "complete" })}
-                className="text-xs font-bold px-3 py-2 rounded-xl bg-sky-600 text-white disabled:opacity-50"
+                className={`rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:opacity-50 ${dash.bgPrimary}`}
               >
                 Mon covoiturage est complet
               </button>
@@ -260,7 +262,7 @@ export default function CovoituragePage() {
                 type="button"
                 disabled={saving}
                 onClick={() => void postAction({ action: "reactivate" })}
-                className="text-xs font-bold px-3 py-2 rounded-xl bg-emerald-600 text-white disabled:opacity-50"
+                className={`rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:opacity-50 ${dash.bgPrimary}`}
               >
                 Réactiver ma recherche
               </button>
@@ -277,12 +279,12 @@ export default function CovoituragePage() {
               Me désinscrire
             </button>
           </div>
-        </section>
+        </ModuleCard>
       ) : null}
 
       {(profile?.status === "active" || !profile) && (
-        <section className="mb-8 rounded-2xl border border-teal-100 bg-gradient-to-b from-teal-50/60 to-white p-5">
-          <h2 className="text-lg font-black text-slate-900">
+        <ModuleCard className="mb-8" bodyClassName="p-5">
+          <h2 className={`text-lg font-semibold ${dash.ink}`}>
             {profile ? "Modifier mon inscription" : "S'inscrire au covoiturage"}
           </h2>
           <p className="text-xs text-slate-600 mt-1">
@@ -395,17 +397,17 @@ export default function CovoituragePage() {
               type="button"
               disabled={saving || zones.length === 0}
               onClick={registerOrUpdate}
-              className="w-full py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-black text-sm disabled:opacity-50"
+              className={`w-full rounded-2xl py-3 text-sm font-semibold text-white disabled:opacity-50 ${dash.bgPrimary}`}
             >
               {profile ? "Enregistrer les modifications" : "M'inscrire au covoiturage"}
             </button>
           </div>
-        </section>
+        </ModuleCard>
       )}
 
       {profile && profile.status === "active" ? (
         <section className="space-y-4">
-          <h2 className="text-lg font-black text-slate-900">Mes mises en relation</h2>
+          <h2 className={`text-lg font-semibold ${dash.ink}`}>Mes mises en relation</h2>
 
           {pendingMatches.length === 0 && revealedMatches.length === 0 ? (
             <p className="text-sm text-slate-500 rounded-xl border border-dashed border-slate-200 p-6 text-center">
@@ -432,7 +434,7 @@ export default function CovoituragePage() {
                     type="button"
                     disabled={saving}
                     onClick={() => void matchAction(m.id, "accept")}
-                    className="text-xs font-bold px-3 py-2 rounded-xl bg-emerald-600 text-white disabled:opacity-50"
+                    className={`rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:opacity-50 ${dash.bgPrimary}`}
                   >
                     Oui, échanger mes coordonnées
                   </button>

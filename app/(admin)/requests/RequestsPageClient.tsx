@@ -15,7 +15,6 @@ import { useBoardPointerDnd } from "@/app/lib/requests-board-dnd";
 import { useMobileBoardUi } from "@/app/hooks/useMobileBoardUi";
 import type { VisualColumnKey } from "@/app/lib/request-board-move";
 import { getViewerServiceLabel } from "@/app/lib/requests-view-utils";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
@@ -716,7 +715,7 @@ export default function RequestsPage() {
   }
 
   return (
-    <ModulePageShell maxWidthClass="max-w-[1500px]" className="relative">
+    <ModulePageShell maxWidthClass="max-w-[1500px]" className="relative" tourModuleId="requests-staff">
       <ModulePageHeader
         title="Demandes"
         description={
@@ -727,19 +726,16 @@ export default function RequestsPage() {
               : `Tableau de traitement — ${serviceLabel}`
         }
         actions={
-          <>
-            {mainTab === "board" ? (
-              <ModuleButton
-                data-tour="requests-new"
-                onClick={() => setCreateModalOpen(true)}
-                className="inline-flex items-center gap-2 shadow-lg"
-              >
-                <span className="text-lg leading-none">+</span>
-                Faire une demande
-              </ModuleButton>
-            ) : null}
-            <ReplayModuleTourButton moduleId="requests-staff" />
-          </>
+          mainTab === "board" ? (
+            <ModuleButton
+              data-tour="requests-new"
+              onClick={() => setCreateModalOpen(true)}
+              className="inline-flex items-center gap-2 shadow-lg"
+            >
+              <span className="text-lg leading-none">+</span>
+              Faire une demande
+            </ModuleButton>
+          ) : undefined
         }
       />
 

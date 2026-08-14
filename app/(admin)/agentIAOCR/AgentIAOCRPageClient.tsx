@@ -5,7 +5,6 @@ import { useUser } from "@clerk/nextjs";
 import * as msal from "@azure/msal-browser";
 import { consumeDashboardUpload } from "@/app/lib/dashboard-upload-bridge";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
-import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import OcrBatchProgress from "@/app/components/ocr/OcrBatchProgress";
@@ -1112,12 +1111,11 @@ function OneDriveUpDocsOCRAIContent() {
   });
 
   return (
-    <ModulePageShell>
+    <ModulePageShell tourModuleId="agent-ia-ocr">
       <ModulePageHeader
         eyebrow="Élèves"
         title="Ajout de documents IA"
         description="Numérisez et rangez vos PDF dans les dossiers élèves sur OneDrive."
-        actions={<ReplayModuleTourButton moduleId="agent-ia-ocr" />}
       />
 
       {error ? (
