@@ -174,7 +174,7 @@ function ComplexTripFormContent() {
   };
   if (!isLoaded) return <div className="p-10 text-center font-medium">Chargement...</div>;
   return (
-    <ModulePageShell maxWidthClass="max-w-5xl" className="pb-24">
+    <ModulePageShell maxWidthClass="max-w-[1280px]" className="pb-24">
       <ModulePageHeader
         eyebrow="Voyages"
         title="Nouveau Voyage Scolaire"

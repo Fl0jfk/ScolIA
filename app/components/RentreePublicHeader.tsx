@@ -75,7 +75,7 @@ export default function RentreePublicHeader() {
 
   return (
     <header className="bg-white/90 backdrop-blur-md sticky top-0 z-50 border-b border-slate-100">
-      <div className="max-w-[1200px] mx-auto px-6 h-14 flex items-center justify-between gap-4">
+      <div className="max-w-[1400px] mx-auto px-6 h-14 flex items-center justify-between gap-4">
         <PublicHeaderLogo identity={siteIdentity} ready={logoReady} />
 
         <nav className="hidden md:flex gap-6 text-sm font-bold text-slate-600">

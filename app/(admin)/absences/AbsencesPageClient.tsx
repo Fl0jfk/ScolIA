@@ -838,7 +838,7 @@ export default function AbsencesPageClient({
   }
 
   return (
-    <ModulePageShell maxWidthClass="max-w-7xl" tourModuleId="absences">
+    <ModulePageShell maxWidthClass="max-w-[1500px]" tourModuleId="absences">
       <ModulePageHeader
         title="Absences"
         description="Déclaration, suivi et calendrier des absences."

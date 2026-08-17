@@ -179,7 +179,7 @@ function TripDashboardContent() {
     }
   };
   return (
-    <ModulePageShell maxWidthClass="max-w-7xl" tourModuleId="travels">
+    <ModulePageShell maxWidthClass="max-w-[1500px]" tourModuleId="travels">
       <ModulePageHeader
         title="Module Voyage"
         description={
@@ -457,7 +457,7 @@ export default function TripDashboard() {
   return (
     <Suspense
       fallback={
-        <ModulePageShell maxWidthClass="max-w-7xl">
+        <ModulePageShell maxWidthClass="max-w-[1500px]">
           <p className="text-slate-500 text-sm">Chargement des sorties…</p>
         </ModulePageShell>
       }

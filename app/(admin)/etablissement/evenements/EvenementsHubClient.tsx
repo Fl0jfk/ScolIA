@@ -149,7 +149,7 @@ export default function EvenementsHubClient() {
 
   if (loading || !config) {
     return (
-      <ModulePageShell maxWidthClass="max-w-5xl">
+      <ModulePageShell maxWidthClass="max-w-[1280px]">
         <p className="text-slate-500">{loading ? "Chargement…" : "Configuration indisponible."}</p>
       </ModulePageShell>
     );
@@ -159,7 +159,7 @@ export default function EvenementsHubClient() {
 
   return (
     <RequireOrgAdmin>
-      <ModulePageShell maxWidthClass="max-w-5xl" className="space-y-6">
+      <ModulePageShell maxWidthClass="max-w-[1280px]" className="space-y-6">
         <ModulePageHeader
           eyebrow="Établissement"
           title="Événements"

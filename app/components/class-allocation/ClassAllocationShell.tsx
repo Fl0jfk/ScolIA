@@ -17,7 +17,7 @@ export function ClassAllocationShell({
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-indigo-50/40">
       <div className="border-b border-slate-200/80 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4">
+        <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-4 py-4">
           <div>
             {badge && (
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-600">{badge}</p>
@@ -35,7 +35,7 @@ export function ClassAllocationShell({
           )}
         </div>
       </div>
-      <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+      <main className="mx-auto max-w-[1280px] px-4 py-8">{children}</main>
     </div>
   );
 }

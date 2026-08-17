@@ -256,7 +256,7 @@ export default function DemandesHsePanel({
   if (!isLoaded || !user) return null;
 
   return (
-    <div className={embeddedInRh ? "space-y-4" : "max-w-7xl mx-auto p-6"}>
+    <div className={embeddedInRh ? "space-y-4" : "max-w-[1500px] mx-auto p-6"}>
       <div className={embeddedInRh ? "mb-4" : "mb-8"}>
         {embeddedInRh ? (
           <>

@@ -143,14 +143,14 @@ export default function GestionInternatClient() {
 
   if (!isLoaded || !allowed) {
     return (
-      <ModulePageShell maxWidthClass="max-w-6xl">
+      <ModulePageShell maxWidthClass="max-w-[1400px]">
         <p className="text-slate-500 text-sm">Chargement…</p>
       </ModulePageShell>
     );
   }
 
   return (
-    <ModulePageShell maxWidthClass="max-w-6xl" tourModuleId="internat">
+    <ModulePageShell maxWidthClass="max-w-[1400px]" tourModuleId="internat">
       <ModulePageHeader
         eyebrow="Élèves"
         title="Gestion internat"

@@ -40,14 +40,14 @@ export default function CertificatesListPage() {
 
   if (loading) {
     return (
-      <ModulePageShell maxWidthClass="max-w-5xl">
+      <ModulePageShell maxWidthClass="max-w-[1280px]">
         <p className={`text-center text-sm ${dash.textMid}`}>Chargement…</p>
       </ModulePageShell>
     );
   }
 
   return (
-    <ModulePageShell maxWidthClass="max-w-5xl">
+    <ModulePageShell maxWidthClass="max-w-[1280px]">
       <ModulePageHeader
         title="Parcours & certificats"
         description="Créez des parcours, ajoutez des élèves, des lignes personnalisées et signez en fin d'année."

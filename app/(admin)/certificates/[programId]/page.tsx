@@ -276,7 +276,7 @@ export default function CertificateProgramPage() {
   if (!program) return <div className="p-20 text-center text-red-600">Parcours introuvable.</div>;
 
   return (
-    <div className="px-4 py-6 max-w-5xl mx-auto space-y-6">
+    <div className="px-4 py-6 max-w-[1280px] mx-auto space-y-6">
       <Link href="/certificates" className="text-sm font-bold text-indigo-600">
         ← Tous les parcours
       </Link>

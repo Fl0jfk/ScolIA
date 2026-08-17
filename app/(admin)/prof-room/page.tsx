@@ -456,14 +456,14 @@ function ProfRoomPageContent() {
   }
   if (!isLoaded || !user) {
     return (
-      <ModulePageShell maxWidthClass="max-w-6xl">
+      <ModulePageShell maxWidthClass="max-w-[1400px]">
         <p className={`text-sm ${dash.textMid}`}>Initialisation…</p>
       </ModulePageShell>
     );
   }
 
   return (
-    <ModulePageShell maxWidthClass="max-w-6xl" tourModuleId="prof-room">
+    <ModulePageShell maxWidthClass="max-w-[1400px]" tourModuleId="prof-room">
       <div className="relative space-y-4">
         <div className="pointer-events-none absolute -inset-10 -z-10 overflow-hidden" aria-hidden>
           <div className="absolute -left-24 top-0 h-[22rem] w-[22rem] rounded-full bg-[color:var(--dash-soft)]/80 blur-3xl" />
@@ -995,7 +995,7 @@ export default function ProfRoomPage() {
   return (
     <Suspense
       fallback={
-        <ModulePageShell maxWidthClass="max-w-6xl">
+        <ModulePageShell maxWidthClass="max-w-[1400px]">
           <p className={`text-sm ${dash.textMid}`}>Chargement des salles…</p>
         </ModulePageShell>
       }

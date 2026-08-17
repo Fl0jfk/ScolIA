@@ -44,7 +44,7 @@ export default function RhDossierPage() {
   if (!record) return <p className="p-10 text-center text-slate-500">Dossier introuvable.</p>;
 
   return (
-    <div className="max-w-5xl mx-auto p-4 sm:p-6">
+    <div className="max-w-[1280px] mx-auto p-4 sm:p-6">
       <StaffDossier record={record} canManage={canManage} onRefresh={load} backHref="/rh" />
     </div>
   );

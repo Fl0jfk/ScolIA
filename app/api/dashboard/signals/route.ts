@@ -100,6 +100,13 @@ export async function GET() {
             subject?: string;
             className?: string;
             status?: string;
+            userId?: string;
+            email?: string;
+            bookedForOther?: boolean;
+            firstName?: string;
+            lastName?: string;
+            bookedByFirstName?: string;
+            bookedByLastName?: string;
           }>
         >("reservation-rooms/reservations.json")
       : Promise.resolve(null);

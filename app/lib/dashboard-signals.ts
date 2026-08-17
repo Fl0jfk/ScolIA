@@ -20,7 +20,7 @@ import { hasRole } from "@/app/lib/intranet-role-utils";
 import { canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
 import { resolveDirectionEtab } from "@/app/lib/travels-direction-dashboard";
 import { normalizeRequestEmail } from "@/app/lib/requests-board";
-import { subjectColorToHex } from "@/app/lib/prof-room-subject-colors";
+import { isReservationBookedForOther } from "@/app/lib/prof-room-reservation-label";
 
 export type DashboardShortcutTone = "neutral" | "info" | "action" | "warn";
 
@@ -93,6 +93,13 @@ type DashboardSignalsInput = {
     subject?: string;
     className?: string;
     status?: string;
+    userId?: string;
+    email?: string;
+    bookedForOther?: boolean;
+    firstName?: string;
+    lastName?: string;
+    bookedByFirstName?: string;
+    bookedByLastName?: string;
   }>;
   rooms?: Array<{ id: string; name: string }>;
   /** Couleurs matières (valeur Tailwind ou hex) pour le carrousel salles. */
@@ -227,6 +234,26 @@ function isReservationLiveNow(
   const start = reservationComparable(r.startsAt);
   const end = reservationEndsAt(r);
   return start <= nowLocal && nowLocal < end;
+}
+
+/** Signal dashboard : uniquement mes créneaux (pas ceux d’un collègue, ni une résa faite pour un autre). */
+function isOwnRoomReservation(
+  r: {
+    userId?: string;
+    email?: string;
+    bookedForOther?: boolean;
+    firstName?: string;
+    lastName?: string;
+    bookedByFirstName?: string;
+    bookedByLastName?: string;
+  },
+  userId: string,
+  emailNorm: string,
+): boolean {
+  if (isReservationBookedForOther(r)) return false;
+  if (r.userId && r.userId === userId) return true;
+  if (emailNorm && normalizeRequestEmail(r.email || "") === emailNorm) return true;
+  return false;
 }
 
 function buildTodayNewsFromWeekSheet(
@@ -773,7 +800,12 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     const nowLocal = parisNowLocalIso();
     const roomNameById = new Map(rooms.map((r) => [r.id, r.name]));
     const todayRes = reservations
-      .filter((r) => r.status !== "CANCELLED" && r.startsAt.startsWith(todayKey))
+      .filter(
+        (r) =>
+          r.status !== "CANCELLED" &&
+          r.startsAt.startsWith(todayKey) &&
+          isOwnRoomReservation(r, userId, emailNorm),
+      )
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
     const liveNow = todayRes.filter((r) => isReservationLiveNow(r, nowLocal));
 
@@ -789,7 +821,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         detail:
           liveNow.length === 1
             ? `${liveNow[0]!.roomName || roomNameById.get(liveNow[0]!.roomId) || "Salle"} · ${liveNow[0]!.subject || "Réservée"}`
-            : `${liveNow.length} salles occupées maintenant`,
+            : `${liveNow.length} de vos salles en cours`,
         tone: "info",
         slides: liveNow.map((r) => {
           const name = r.roomName || roomNameById.get(r.roomId) || "Salle";
@@ -819,10 +851,10 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         pillarId: "services",
         moduleId: "prof-room",
         href: roomsHome,
-        label: name,
+        label: "Réservation de salle",
         rich: true,
         badge: slotTimeLabel(r.startsAt),
-        detail: r.subject || "Réservée aujourd'hui",
+        detail: `${name}${r.subject ? ` · ${r.subject}` : ""}`,
         tone: "info",
       });
     } else if (todayRes.length > 1) {
@@ -835,8 +867,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         href: roomsHome,
         label: "Réservation de salle",
         rich: true,
-        badge: `${todayRes.length} salles`,
-        detail: `Prochaine : ${name} · ${slotTimeLabel(next.startsAt)}`,
+        badge: `${todayRes.length} créneaux`,
+        detail: `Prochain : ${name} · ${slotTimeLabel(next.startsAt)}`,
         tone: "info",
       });
     } else {
@@ -847,7 +879,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         href: roomsHome,
         label: "Réservation de salle",
         rich: true,
-        detail: "Aucune salle réservée aujourd'hui",
+        detail: "Aucune réservation pour vous aujourd'hui",
         // Neutre = demi-tuile (pas pleine largeur) tout en gardant le détail.
         tone: "neutral",
       });

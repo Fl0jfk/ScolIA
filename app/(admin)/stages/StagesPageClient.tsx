@@ -444,7 +444,7 @@ function StagesContent() {
     permissions?.canFileToOneDrive && detail?.convention.status === "signed";
 
   return (
-    <ModulePageShell maxWidthClass="max-w-6xl" tourModuleId="stages">
+    <ModulePageShell maxWidthClass="max-w-[1400px]" tourModuleId="stages">
       <ModulePageHeader
         title="Stages & conventions"
         description="Les élèves déposent leur convention signée en PDF sur une page publique. L'IA extrait entreprise, SIRET et classe — vous validez dans la file d'attente."
@@ -873,7 +873,7 @@ export default function StagesPage() {
   return (
     <Suspense
       fallback={
-        <ModulePageShell maxWidthClass="max-w-6xl">
+        <ModulePageShell maxWidthClass="max-w-[1400px]">
           <p>Chargement…</p>
         </ModulePageShell>
       }

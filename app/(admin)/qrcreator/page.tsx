@@ -51,7 +51,7 @@ export default function QRCreator() {
     }
   };
   return (
-    <ModulePageShell maxWidthClass="max-w-[1000px]">
+    <ModulePageShell maxWidthClass="max-w-[1200px]">
       <ModulePageHeader
         eyebrow="Services"
         title="Création de QR Code"

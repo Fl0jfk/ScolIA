@@ -295,7 +295,7 @@ export default function Header() {
           transition: "transform 0.48s cubic-bezier(0.32,0.72,0,1), opacity 0.3s ease",
         }}
       >
-        <div className="mx-auto max-w-[1200px] px-6 pt-4 pb-8">
+        <div className="mx-auto max-w-[1400px] px-6 pt-4 pb-8">
           <nav className="flex flex-col">
             {isSignedIn ? (
               <>

@@ -96,7 +96,7 @@ export default function ConformiteRgpdPage() {
 
   return (
     <ModulePageShell
-      maxWidthClass={tab === "documents" ? "max-w-7xl" : "max-w-5xl"}
+      maxWidthClass={tab === "documents" ? "max-w-[1500px]" : "max-w-[1280px]"}
       className="space-y-6"
       tourModuleId="conformite-rgpd"
     >

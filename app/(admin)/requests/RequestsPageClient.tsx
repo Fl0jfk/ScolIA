@@ -662,21 +662,21 @@ export default function RequestsPage() {
 
   if (!isLoaded) {
     return (
-      <ModulePageShell maxWidthClass="max-w-7xl">
+      <ModulePageShell maxWidthClass="max-w-[1500px]">
         <p className="text-sm text-slate-600">Chargement...</p>
       </ModulePageShell>
     );
   }
   if (!user) {
     return (
-      <ModulePageShell maxWidthClass="max-w-7xl">
+      <ModulePageShell maxWidthClass="max-w-[1500px]">
         <p className="text-sm text-slate-600">Connexion requise.</p>
       </ModulePageShell>
     );
   }
   if (loading) {
     return (
-      <ModulePageShell maxWidthClass="max-w-7xl">
+      <ModulePageShell maxWidthClass="max-w-[1500px]">
         <p className="text-sm text-slate-600">Chargement des demandes…</p>
       </ModulePageShell>
     );
@@ -756,7 +756,7 @@ export default function RequestsPage() {
       ) : null}
 
       {mainTab === "tags" && isOrgAdmin ? (
-        <div className="mt-6 max-w-5xl">
+        <div className="mt-6 max-w-[1280px]">
           <RequestPersonnelTagsPanel />
         </div>
       ) : mainTab === "routing" && isOrgAdmin ? (

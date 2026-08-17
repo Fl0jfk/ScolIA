@@ -127,7 +127,7 @@ export default function ToolboxAdminPage() {
       : false;
 
   return (
-    <ModulePageShell maxWidthClass="max-w-5xl">
+    <ModulePageShell maxWidthClass="max-w-[1280px]">
       <ModulePageHeader
         eyebrow="Services"
         title="Boîte à outils"

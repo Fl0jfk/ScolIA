@@ -64,7 +64,7 @@ export default function TravelsTransportSettingsPanel() {
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4 max-w-2xl">
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4 max-w-5xl">
       <div>
         <h2 className="text-lg font-black text-slate-900">Paramétrage transporteurs</h2>
         <p className="mt-1 text-sm text-slate-600">

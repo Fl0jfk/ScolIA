@@ -465,7 +465,7 @@ export default function ParametresPage() {
   if (loading) {
     return (
       <RequireOrgAdmin>
-        <ModulePageShell maxWidthClass="max-w-5xl" className="relative space-y-6">
+        <ModulePageShell maxWidthClass="max-w-[1280px]" className="relative space-y-6">
           <SettingsAtmosphere />
           <div className="relative">
             <SettingsLoading label="Chargement des paramètres…" />
@@ -477,7 +477,7 @@ export default function ParametresPage() {
 
   return (
     <RequireOrgAdmin>
-      <ModulePageShell maxWidthClass="max-w-5xl" className="relative space-y-6">
+      <ModulePageShell maxWidthClass="max-w-[1280px]" className="relative space-y-6">
         <SettingsAtmosphere />
         <div className="relative space-y-6">
         <ModulePageHeader

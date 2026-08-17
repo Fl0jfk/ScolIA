@@ -6,7 +6,7 @@ import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTou
 
 export default function ModulePageShell({
   children,
-  maxWidthClass = "max-w-[1200px]",
+  maxWidthClass = "max-w-[1400px]",
   className = "",
   tourModuleId,
 }: {

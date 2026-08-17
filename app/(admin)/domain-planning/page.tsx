@@ -47,7 +47,7 @@ function DomainPlanningPageContent() {
   }
 
   return (
-    <ModulePageShell maxWidthClass="max-w-6xl" tourModuleId="domain-planning">
+    <ModulePageShell maxWidthClass="max-w-[1400px]" tourModuleId="domain-planning">
       <ModulePageHeader
         eyebrow="Services"
         title="Enseignements transversaux — EVARS"

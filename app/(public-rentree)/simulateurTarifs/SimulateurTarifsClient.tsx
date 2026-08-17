@@ -87,7 +87,7 @@ export default function SimulateurTarifsClient({ siteName, tarifs }: Props) {
   return (
     <>
       <RentreePublicHeader />
-      <div className="max-w-4xl mx-auto p-4 md:p-8 bg-white border border-slate-200 rounded-3xl shadow-2xl my-4 font-sans text-slate-800">
+      <div className="max-w-[1400px] mx-auto p-4 md:p-8 bg-white border border-slate-200 rounded-3xl shadow-2xl my-4 font-sans text-slate-800">
         <div className="flex items-end justify-between mb-4">
           <div>
             <h2 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Simulateur de Tarifs</h2>

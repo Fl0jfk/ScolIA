@@ -331,7 +331,7 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
   }, [items, selectedYear]);
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
+    <div className="max-w-[1500px] mx-auto p-6 space-y-6">
       <input
         ref={attachPdfRef}
         type="file"

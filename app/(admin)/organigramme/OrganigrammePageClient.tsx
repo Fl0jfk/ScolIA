@@ -139,7 +139,7 @@ export default function OrganigrammePageClient() {
 
   if (loading) {
     return (
-      <ModulePageShell maxWidthClass="max-w-6xl" className="min-h-screen flex items-center justify-center">
+      <ModulePageShell maxWidthClass="max-w-[1400px]" className="min-h-screen flex items-center justify-center">
         <p className="text-slate-500 text-sm">Chargement de l&apos;annuaire…</p>
       </ModulePageShell>
     );
@@ -147,7 +147,7 @@ export default function OrganigrammePageClient() {
 
   if (error || !view) {
     return (
-      <ModulePageShell maxWidthClass="max-w-6xl" className="min-h-screen flex flex-col items-center justify-center gap-3">
+      <ModulePageShell maxWidthClass="max-w-[1400px]" className="min-h-screen flex flex-col items-center justify-center gap-3">
         <p className="text-red-600 text-sm">{error || "Annuaire indisponible"}</p>
         <button
           type="button"
@@ -165,7 +165,7 @@ export default function OrganigrammePageClient() {
 
   return (
     <ModulePageShell
-      maxWidthClass="max-w-6xl"
+      maxWidthClass="max-w-[1400px]"
       className="relative min-h-screen pb-16 pt-[4vh] overflow-x-clip print:max-w-none print:mx-0 print:px-4 print:pb-0 print:pt-2 print:overflow-visible"
     >
       <div className="print:hidden">

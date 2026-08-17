@@ -228,7 +228,7 @@ function SimulateurFournituresContent({ config }: { config: FournituresToolConfi
   return (
     <>
       <RentreePublicHeader />
-      <div className="max-w-6xl mx-auto px-4 md:px-8 py-8">
+      <div className="max-w-[1400px] mx-auto px-4 md:px-8 py-8">
         <div className="bg-white border border-slate-200 rounded-[2rem] shadow-2xl p-6 md:p-10">
           <div className="flex items-start justify-between gap-6 flex-wrap">
             <div className="min-w-[240px]">

@@ -102,7 +102,7 @@ export default function ChatbotKnowledgePage() {
     } finally {setLoading(false)}
   };
   return (
-    <ModulePageShell maxWidthClass="max-w-4xl">
+    <ModulePageShell maxWidthClass="max-w-[1100px]">
       <ModulePageHeader
         title="Brain AI (training engine)"
         description="Injectez du texte ou des PDF. Le système classe automatiquement vers le bon JSON knowledge sur S3."

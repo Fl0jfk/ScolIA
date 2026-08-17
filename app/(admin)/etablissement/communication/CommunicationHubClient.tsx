@@ -97,7 +97,7 @@ export default function CommunicationHubClient() {
   if (loading) {
     return (
       <RequireOrgAdmin>
-        <ModulePageShell maxWidthClass="max-w-5xl">
+        <ModulePageShell maxWidthClass="max-w-[1280px]">
           <p className="text-slate-500">Chargement…</p>
         </ModulePageShell>
       </RequireOrgAdmin>
@@ -108,7 +108,7 @@ export default function CommunicationHubClient() {
 
   return (
     <RequireOrgAdmin>
-      <ModulePageShell maxWidthClass="max-w-5xl">
+      <ModulePageShell maxWidthClass="max-w-[1280px]">
         <ModulePageHeader
           eyebrow="Établissement"
           title="Communication"

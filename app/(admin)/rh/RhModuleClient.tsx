@@ -142,7 +142,7 @@ export default function RhModuleClient() {
   if (!dashboard) return null;
 
   return (
-    <ModulePageShell maxWidthClass="max-w-7xl" tourModuleId="rh">
+    <ModulePageShell maxWidthClass="max-w-[1500px]" tourModuleId="rh">
       <ModulePageHeader
         eyebrow="RH"
         title="Module RH"

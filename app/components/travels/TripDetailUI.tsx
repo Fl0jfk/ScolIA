@@ -42,7 +42,7 @@ function TripStatusBadge({ status, pulse }: { status: string; pulse?: boolean })
 export function TripPageShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-50/80">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">{children}</div>
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">{children}</div>
     </div>
   );
 }

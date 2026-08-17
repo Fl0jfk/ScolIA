@@ -237,7 +237,7 @@ function RentreePageContent({
     return (
       <div className="min-h-screen bg-white">
         <RentreePublicHeader />
-        <main className="max-w-[1200px] mx-auto px-6 py-16 text-center text-slate-500">
+        <main className="max-w-[1400px] mx-auto px-6 py-16 text-center text-slate-500">
           Aucun contenu de rentrée configuré pour le moment.
         </main>
       </div>
@@ -248,7 +248,7 @@ function RentreePageContent({
     <div className="bg-white min-h-screen">
       <RentreePublicHeader />
       <section className={`relative overflow-hidden bg-gradient-to-b ${a.hero}`}>
-        <div className="max-w-[1200px] mx-auto px-6 pt-14 pb-12">
+        <div className="max-w-[1400px] mx-auto px-6 pt-14 pb-12">
           <div className="flex flex-col gap-5">
             <div>
               <p className="text-white/90 font-bold uppercase tracking-widest text-xs">Informations familles</p>
@@ -290,7 +290,7 @@ function RentreePageContent({
           </div>
         </div>
       </section>
-      <main className="max-w-[1200px] mx-auto px-6 pb-12">
+      <main className="max-w-[1400px] mx-auto px-6 pb-12">
         <div className="flex items-center justify-between gap-4 flex-wrap mb-8 mt-8">
           <h2 className="text-3xl font-black text-slate-900">{active.label}</h2>
         </div>
@@ -345,7 +345,7 @@ function RentreePageFallback() {
   return (
     <div className="bg-white min-h-screen">
       <RentreePublicHeader />
-      <div className="max-w-[1200px] mx-auto px-6 py-16 animate-pulse">
+      <div className="max-w-[1400px] mx-auto px-6 py-16 animate-pulse">
         <div className="h-40 rounded-3xl bg-slate-100 mb-8" />
         <div className="h-8 w-48 rounded-lg bg-slate-100 mb-6" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -49,6 +49,7 @@ function ShortcutSlidesCarousel({
   slides,
   href,
   highlight,
+  title,
   chip = "En cours",
   emoji = "🚪",
   fallbackColor = "#475569",
@@ -56,6 +57,7 @@ function ShortcutSlidesCarousel({
   slides: DashboardShortcutSlide[];
   href: string;
   highlight?: boolean;
+  title: string;
   chip?: string;
   emoji?: string;
   fallbackColor?: string;
@@ -91,17 +93,17 @@ function ShortcutSlidesCarousel({
     >
       <Link
         href={linkHref}
-        className="group relative block cursor-pointer rounded-xl border border-white/70 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5"
+        className="group relative block cursor-pointer overflow-hidden rounded-xl border border-white/70 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] transition hover:-translate-y-0.5"
       >
         {highlight ? (
           <motion.span
-            className="pointer-events-none absolute inset-0 bg-white/25 z-10"
+            className="pointer-events-none absolute inset-0 z-10 bg-white/25"
             initial={{ opacity: 0.8 }}
             animate={{ opacity: 0 }}
             transition={{ duration: 1.4 }}
           />
         ) : null}
-        <div className="relative min-h-[3.25rem] px-2.5 py-2" style={{ backgroundColor: bg, color: fg }}>
+        <div className="relative min-h-[3.25rem] overflow-hidden rounded-xl px-2.5 py-2" style={{ backgroundColor: bg, color: fg }}>
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={slide.id}
@@ -120,19 +122,17 @@ function ShortcutSlidesCarousel({
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <p className="truncate text-[12px] font-black uppercase tracking-tight">{slide.label}</p>
+                  <p className="truncate text-[12px] font-semibold tracking-tight">{title}</p>
                   <span
-                    className="shrink-0 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide"
+                    className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide"
                     style={{ backgroundColor: "rgba(255,255,255,0.22)" }}
                   >
                     {chip}
                   </span>
                 </div>
-                {slide.detail ? (
-                  <p className="mt-0.5 truncate text-[10px] font-semibold leading-snug opacity-90">
-                    {slide.detail}
-                  </p>
-                ) : null}
+                <p className="mt-0.5 truncate text-[10px] font-semibold leading-snug opacity-90">
+                  {[slide.label, slide.detail].filter(Boolean).join(" · ")}
+                </p>
               </div>
               {slide.badge ? (
                 <span
@@ -181,6 +181,7 @@ function ShortcutTile({
         slides={item.slides}
         href={item.href}
         highlight={highlight}
+        title={item.label}
         chip={isTravels ? "Aujourd'hui" : "En cours"}
         emoji={item.emoji || MODULE_EMOJI[item.moduleId] || (isTravels ? "🚌" : "🚪")}
         fallbackColor={isTravels ? "#0284c7" : "#475569"}

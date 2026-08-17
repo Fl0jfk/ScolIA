@@ -233,7 +233,7 @@ export default function PhotocopiesCouleurPage() {
   if (!isLoaded || !user) return null;
 
   return (
-    <ModulePageShell maxWidthClass="max-w-7xl" tourModuleId="photocopies-couleur">
+    <ModulePageShell maxWidthClass="max-w-[1500px]" tourModuleId="photocopies-couleur">
       <ModulePageHeader
         eyebrow="Services"
         title="Photocopies couleur"

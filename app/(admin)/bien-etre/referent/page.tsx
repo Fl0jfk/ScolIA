@@ -78,7 +78,7 @@ function ReferentContent() {
   };
 
   return (
-    <ModulePageShell maxWidthClass="max-w-5xl">
+    <ModulePageShell maxWidthClass="max-w-[1280px]">
       <ModulePageHeader
         eyebrow="Élèves"
         title="Signalements bien-être"
@@ -175,7 +175,7 @@ export default function BienEtreReferentPage() {
   return (
     <Suspense
       fallback={
-        <ModulePageShell maxWidthClass="max-w-5xl">
+        <ModulePageShell maxWidthClass="max-w-[1280px]">
           <p className={`text-sm ${dash.textMid}`}>Chargement…</p>
         </ModulePageShell>
       }

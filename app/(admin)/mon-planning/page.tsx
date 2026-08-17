@@ -116,14 +116,14 @@ export default function MonPlanningClient() {
 
   if (!isLoaded || loading) {
     return (
-      <ModulePageShell maxWidthClass="max-w-6xl">
+      <ModulePageShell maxWidthClass="max-w-[1400px]">
         <p className={`text-center text-sm ${dash.textMid}`}>Chargement du planning…</p>
       </ModulePageShell>
     );
   }
 
   return (
-    <ModulePageShell maxWidthClass="max-w-6xl">
+    <ModulePageShell maxWidthClass="max-w-[1400px]">
       <ModulePageHeader
         eyebrow="RH"
         title="Mon planning"

@@ -303,7 +303,7 @@ function SimpleTripFormContent() {
     }
   };
   return (
-    <ModulePageShell maxWidthClass="max-w-4xl">
+    <ModulePageShell maxWidthClass="max-w-[1100px]">
       <ModulePageHeader
         eyebrow="Voyages"
         title={editId ? "Modifier la sortie" : "Nouvelle Sortie Simple"}
