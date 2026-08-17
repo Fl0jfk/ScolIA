@@ -4,9 +4,48 @@ import { Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
+import RentreeSubmissionCard from "@/app/components/rentree/RentreeSubmissionCard";
 import { isInternatRentreeSection } from "@/app/lib/rentree-defaults";
 import { rentreeAccentClasses } from "@/app/lib/rentree-accent-styles";
-import type { RentreeEstablishmentPage } from "@/app/lib/rentree-types";
+import type { RentreeEstablishmentPage, RentreeLinkItem, RentreeSection } from "@/app/lib/rentree-types";
+
+function isVisiblePublicItem(item: RentreeLinkItem): boolean {
+  if (item.kind === "submission") {
+    return Boolean(item.id && (item.submission?.recipientEmails.length ?? 0) > 0);
+  }
+  return Boolean(item.href);
+}
+
+function SectionItemCard({
+  item,
+  establishmentId,
+  variant,
+}: {
+  item: RentreeLinkItem;
+  establishmentId: string;
+  variant?: "default" | "internat";
+}) {
+  if (item.kind === "submission" && item.id) {
+    return (
+      <RentreeSubmissionCard
+        title={item.title}
+        description={item.description}
+        establishmentId={establishmentId}
+        itemId={item.id}
+        variant={variant}
+      />
+    );
+  }
+  return (
+    <LinkCard
+      title={item.title}
+      description={item.description}
+      href={item.href}
+      kind={item.kind === "pdf" || item.kind === "link" ? item.kind : undefined}
+      variant={variant}
+    />
+  );
+}
 
 function LinkCard({
   title,
@@ -67,10 +106,12 @@ function LinkCard({
 function RentreeSectionPanel({
   section,
   accent,
+  establishmentId,
   variant = "default",
 }: {
-  section: { title: string; items: Array<{ title: string; description?: string; href: string; kind?: "pdf" | "link" }> };
+  section: RentreeSection;
   accent: ReturnType<typeof rentreeAccentClasses>;
+  establishmentId: string;
   variant?: "default" | "internat";
 }) {
   if (variant === "internat") {
@@ -88,19 +129,19 @@ function RentreeSectionPanel({
                 <p className="text-sm text-slate-300 mt-1">Documents et informations spécifiques à l&apos;internat.</p>
               </div>
             </div>
-            <span className="text-xs font-bold text-amber-200/80">{section.items.length} document(s)</span>
+            <span className="text-xs font-bold text-amber-200/80">
+              {section.items.filter(isVisiblePublicItem).length} document(s)
+            </span>
           </div>
-          {section.items.length === 0 ? (
+          {section.items.filter(isVisiblePublicItem).length === 0 ? (
             <p className="text-sm text-slate-400">Aucun document pour le moment.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {section.items.map((it) => (
-                <LinkCard
-                  key={`${section.title}-${it.title}-${it.href}`}
-                  title={it.title}
-                  description={it.description}
-                  href={it.href}
-                  kind={it.kind}
+              {section.items.filter(isVisiblePublicItem).map((it) => (
+                <SectionItemCard
+                  key={`${section.title}-${it.id || it.title}-${it.href || "depot"}`}
+                  item={it}
+                  establishmentId={establishmentId}
                   variant="internat"
                 />
               ))}
@@ -115,19 +156,19 @@ function RentreeSectionPanel({
     <section className="bg-slate-50 rounded-[2.5rem] p-6 md:p-8 border border-slate-100">
       <div className="flex items-center justify-between gap-4 mb-6">
         <h3 className={`text-xl md:text-2xl font-black ${accent.sectionTitle}`}>{section.title}</h3>
-        <span className="text-xs font-bold text-slate-400">{section.items.length} lien(s)</span>
+        <span className="text-xs font-bold text-slate-400">
+          {section.items.filter(isVisiblePublicItem).length} lien(s)
+        </span>
       </div>
-      {section.items.length === 0 ? (
+      {section.items.filter(isVisiblePublicItem).length === 0 ? (
         <p className="text-sm text-slate-500">Aucun document pour le moment.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {section.items.map((it) => (
-            <LinkCard
-              key={`${section.title}-${it.title}-${it.href}`}
-              title={it.title}
-              description={it.description}
-              href={it.href}
-              kind={it.kind}
+          {section.items.filter(isVisiblePublicItem).map((it) => (
+            <SectionItemCard
+              key={`${section.title}-${it.id || it.title}-${it.href || "depot"}`}
+              item={it}
+              establishmentId={establishmentId}
             />
           ))}
         </div>
@@ -180,8 +221,8 @@ function RentreePageContent({
   );
   const hasVisibleContent = useMemo(
     () =>
-      mainSections.some((s) => s.items.length > 0) ||
-      Boolean(internatSection && internatSection.items.length > 0),
+      mainSections.some((s) => s.items.some(isVisiblePublicItem)) ||
+      Boolean(internatSection && internatSection.items.some(isVisiblePublicItem)),
     [mainSections, internatSection],
   );
 
@@ -256,10 +297,20 @@ function RentreePageContent({
         {hasVisibleContent ? (
           <div className="space-y-10">
             {mainSections.map((section) => (
-              <RentreeSectionPanel key={section.title} section={section} accent={a} />
+              <RentreeSectionPanel
+                key={section.title}
+                section={section}
+                accent={a}
+                establishmentId={active.establishmentId}
+              />
             ))}
-            {internatSection && internatSection.items.length > 0 ? (
-              <RentreeSectionPanel section={internatSection} accent={a} variant="internat" />
+            {internatSection && internatSection.items.some(isVisiblePublicItem) ? (
+              <RentreeSectionPanel
+                section={internatSection}
+                accent={a}
+                establishmentId={active.establishmentId}
+                variant="internat"
+              />
             ) : null}
           </div>
         ) : (

@@ -7,12 +7,19 @@ import {
   RENTREE_SECTION_INTERNAT,
   rentreeAccentClasses,
 } from "@/app/lib/rentree-defaults";
-import { RENTREE_ACCENT_OPTIONS } from "@/app/lib/rentree-types";
-import type { RentreeEstablishmentPage, RentreeLinkItem, RentreeSection } from "@/app/lib/rentree-types";
+import {
+  parseRentreeRecipientEmails,
+  RENTREE_ACCENT_OPTIONS,
+  newRentreeItemId,
+  type RentreeEstablishmentPage,
+  type RentreeLinkItem,
+  type RentreeLinkKind,
+  type RentreeSection,
+} from "@/app/lib/rentree-types";
 import type { RentreeToolConfig } from "@/app/lib/toolbox-types";
 
 function emptyItem(): RentreeLinkItem {
-  return { title: "", description: "", href: "", kind: "pdf" };
+  return { id: newRentreeItemId(), title: "", description: "", href: "", kind: "pdf" };
 }
 
 function emptySection(): RentreeSection {
@@ -276,7 +283,7 @@ export default function RentreeEditor({ rentree, establishments, onChange, onPag
               <div>
                 <h3 className="font-black text-slate-900">Rubriques et liens</h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Calendrier, Infos pratiques et {RENTREE_SECTION_INTERNAT} — chargez les documents séparément par rubrique.
+                  Calendrier, Infos pratiques et {RENTREE_SECTION_INTERNAT} — documents, liens ou dépôts familles (ex. assurances).
                 </p>
               </div>
               <button
@@ -334,7 +341,7 @@ export default function RentreeEditor({ rentree, establishments, onChange, onPag
                       <div className="grid gap-2 sm:grid-cols-2">
                         <input
                           className="rounded-lg border px-2 py-1.5 text-sm"
-                          placeholder="Titre du lien"
+                          placeholder="Titre (ex. Assurance scolaire)"
                           value={item.title}
                           onChange={(e) =>
                             updateItem(activePage.establishmentId, sIdx, iIdx, { title: e.target.value })
@@ -343,14 +350,23 @@ export default function RentreeEditor({ rentree, establishments, onChange, onPag
                         <select
                           className="rounded-lg border px-2 py-1.5 text-sm"
                           value={item.kind || "link"}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const kind = e.target.value as RentreeLinkKind;
                             updateItem(activePage.establishmentId, sIdx, iIdx, {
-                              kind: e.target.value as "pdf" | "link",
-                            })
-                          }
+                              kind,
+                              id: item.id || newRentreeItemId(),
+                              ...(kind === "submission"
+                                ? {
+                                    href: "",
+                                    submission: item.submission ?? { recipientEmails: [] },
+                                  }
+                                : {}),
+                            });
+                          }}
                         >
                           <option value="pdf">PDF / document</option>
                           <option value="link">Lien web</option>
+                          <option value="submission">Dépôt famille (e-mail)</option>
                         </select>
                       </div>
                       <input
@@ -361,6 +377,38 @@ export default function RentreeEditor({ rentree, establishments, onChange, onPag
                           updateItem(activePage.establishmentId, sIdx, iIdx, { description: e.target.value })
                         }
                       />
+                      {item.kind === "submission" ? (
+                        <div className="space-y-2">
+                          <input
+                            className="w-full rounded-lg border px-2 py-1.5 text-sm"
+                            placeholder="Destinataire(s) — e-mails séparés par une virgule"
+                            value={(item.submission?.recipientEmails ?? []).join(", ")}
+                            onChange={(e) =>
+                              updateItem(activePage.establishmentId, sIdx, iIdx, {
+                                submission: {
+                                  recipientEmails: e.target.value ? [e.target.value] : [],
+                                },
+                              })
+                            }
+                          />
+                          <p className="text-[11px] text-slate-500 leading-relaxed">
+                            Les familles déposent un fichier et indiquent leur e-mail. Rien n’est transmis tant
+                            qu’elles n’ont pas cliqué le lien de confirmation. Ex. assurances → compta@…
+                          </p>
+                          {parseRentreeRecipientEmails(item.submission?.recipientEmails).length === 0 ? (
+                            <p className="text-[11px] font-bold text-amber-700">
+                              Ajoutez au moins un e-mail destinataire pour publier ce dépôt.
+                            </p>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => removeItem(activePage.establishmentId, sIdx, iIdx)}
+                            className="text-xs font-bold text-rose-600"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
                       <div className="flex flex-wrap gap-2 items-center">
                         <input
                           className="flex-1 min-w-[12rem] rounded-lg border px-2 py-1.5 text-sm font-mono text-xs"
@@ -392,6 +440,7 @@ export default function RentreeEditor({ rentree, establishments, onChange, onPag
                           ✕
                         </button>
                       </div>
+                      )}
                       </div>
                     </div>
                   );
@@ -402,7 +451,7 @@ export default function RentreeEditor({ rentree, establishments, onChange, onPag
                   onClick={() => addItem(activePage.establishmentId, sIdx)}
                   className="text-xs font-bold text-indigo-600"
                 >
-                  + Ajouter un lien
+                  + Ajouter un élément
                 </button>
               </div>
             ))}

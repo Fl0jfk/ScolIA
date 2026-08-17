@@ -18,6 +18,7 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/api/toolbox/public",
   "/api/toolbox/class-allocation/public(.*)",
   "/api/rentree/file",
+  "/api/rentree/submissions(.*)",
   "/api/fournitures/file",
   "/api/portes-ouvertes/register",
   "/faire-une-demande(.*)",

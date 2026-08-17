@@ -118,7 +118,7 @@ function extractRentreeKeyFromS3Url(href: string): string | null {
 /** Transforme chemins S3 / URLs bucket privé en route publique signée. */
 async function resolveRentreePublicHref(
   href: string,
-  kind?: "pdf" | "link",
+  kind?: "pdf" | "link" | "submission",
 ): Promise<string> {
   const trimmed = href.trim();
   if (!trimmed) return trimmed;
@@ -163,7 +163,7 @@ async function resolveRentreePublicHref(
   return trimmed;
 }
 
-function rentreePublicHrefForKey(key: string, _kind?: "pdf" | "link"): string {
+function rentreePublicHrefForKey(key: string, _kind?: "pdf" | "link" | "submission"): string {
   return rentreePublicDocumentPathUrl(key);
 }
 
@@ -179,7 +179,7 @@ export async function resolveRentreePagesPublicHrefs(
           items: await Promise.all(
             section.items.map(async (item) => ({
               ...item,
-              href: await resolveRentreePublicHref(item.href, item.kind),
+              href: item.kind === "submission" ? "" : await resolveRentreePublicHref(item.href, item.kind),
             })),
           ),
         })),

@@ -1,7 +1,16 @@
 import type { Establishment, EstablishmentKind } from "@/app/lib/app-config-schemas";
 import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
 import { DEFAULT_RENTREE_SECTIONS, emptyRentreePage, normalizeRentreeSections, RENTREE_LINKS } from "@/app/lib/rentree-defaults";
-import type { RentreeAccent, RentreeEstablishmentPage, RentreeLevel, RentreeLinkItem, RentreeLinksByLevel, RentreeSection } from "@/app/lib/rentree-types";
+import {
+  parseRentreeRecipientEmails,
+  type RentreeAccent,
+  type RentreeEstablishmentPage,
+  type RentreeLevel,
+  type RentreeLinkItem,
+  type RentreeLinkKind,
+  type RentreeLinksByLevel,
+  type RentreeSection,
+} from "@/app/lib/rentree-types";
 
 function defaultAccentForKind(kind?: EstablishmentKind): RentreeAccent {
   if (kind === "ecole") return "yellow";
@@ -100,6 +109,36 @@ function parseRentreeAccent(raw: unknown, fallback: RentreeAccent = "violet"): R
   return accents.includes(raw as RentreeAccent) ? (raw as RentreeAccent) : fallback;
 }
 
+function parseRentreeLinkKind(raw: unknown): RentreeLinkKind | undefined {
+  if (raw === "pdf" || raw === "link" || raw === "submission") return raw;
+  return undefined;
+}
+
+function parseRentreeItem(row: Record<string, unknown>): RentreeLinkItem | null {
+  const title = String(row.title || "").trim();
+  if (!title) return null;
+  const kind = parseRentreeLinkKind(row.kind);
+  const id = String(row.id || "").trim() || undefined;
+  const description = String(row.description || "").trim() || undefined;
+
+  if (kind === "submission") {
+    const subRaw = row.submission && typeof row.submission === "object" ? (row.submission as Record<string, unknown>) : {};
+    const recipientEmails = parseRentreeRecipientEmails(subRaw.recipientEmails ?? row.recipientEmails);
+    return {
+      id,
+      title,
+      href: "",
+      description,
+      kind: "submission",
+      submission: { recipientEmails },
+    };
+  }
+
+  const href = String(row.href || "").trim();
+  if (!href) return null;
+  return { id, title, href, description, kind };
+}
+
 function parseRentreeSections(raw: unknown): RentreeSection[] {
   if (!Array.isArray(raw)) return [];
   const sections: RentreeSection[] = [];
@@ -108,16 +147,8 @@ function parseRentreeSections(raw: unknown): RentreeSection[] {
     const items: RentreeLinkItem[] = Array.isArray(sec.items)
       ? sec.items.flatMap((it) => {
           const row = it && typeof it === "object" ? (it as Record<string, unknown>) : {};
-          const href = String(row.href || "").trim();
-          const title = String(row.title || "").trim();
-          if (!title || !href) return [];
-          const item: RentreeLinkItem = {
-            title,
-            href,
-            description: String(row.description || "").trim() || undefined,
-            kind: row.kind === "pdf" ? "pdf" : row.kind === "link" ? "link" : undefined,
-          };
-          return [item];
+          const item = parseRentreeItem(row);
+          return item ? [item] : [];
         })
       : [];
     const title = String(sec.title || "").trim();
@@ -125,6 +156,21 @@ function parseRentreeSections(raw: unknown): RentreeSection[] {
     sections.push({ title, items });
   }
   return sections;
+}
+
+export function findRentreeSubmissionItem(
+  pages: RentreeEstablishmentPage[],
+  params: { establishmentId: string; itemId?: string },
+): { page: RentreeEstablishmentPage; section: RentreeSection; item: RentreeLinkItem } | null {
+  const page = pages.find((p) => p.establishmentId === params.establishmentId);
+  if (!page) return null;
+  const itemId = params.itemId?.trim();
+  if (!itemId) return null;
+  for (const section of page.sections) {
+    const item = section.items.find((it) => it.kind === "submission" && it.id === itemId);
+    if (item) return { page, section, item };
+  }
+  return null;
 }
 
 export function parseRentreePages(raw: unknown): RentreeEstablishmentPage[] {
