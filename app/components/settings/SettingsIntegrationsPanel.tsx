@@ -2,15 +2,24 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
+import ClerkPersonSelect, { clerkMemberLabel } from "@/app/components/settings/ClerkPersonSelect";
 import {
   SettingsNotice,
   SettingsSection,
   settingsInputClass,
   settingsSelectClass,
 } from "@/app/components/settings/SettingsChrome";
+import type { ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import { DEFAULT_ONEDRIVE_BASE_BY_SECTEUR } from "@/app/lib/onedrive-user-profiles";
 
 type OneDriveCycle = "ecole" | "college" | "lycee";
+
+type OneDriveUserSecteurRow = {
+  clerkUserId?: string;
+  match: string;
+  displayName?: string;
+  secteur: OneDriveCycle;
+};
 
 const ALL_ONEDRIVE_CYCLES: Array<{ key: OneDriveCycle; label: string }> = [
   { key: "ecole", label: "École" },
@@ -25,6 +34,8 @@ export default function SettingsIntegrationsPanel({
   saveSection,
   activeEstablishmentKinds,
   activeCycleLabels,
+  clerkMembers,
+  membersLoading,
 }: {
   integrations: Record<string, unknown>;
   setIntegrations: Dispatch<SetStateAction<Record<string, unknown>>>;
@@ -32,6 +43,8 @@ export default function SettingsIntegrationsPanel({
   saveSection: (section: string, body: unknown) => Promise<void>;
   activeEstablishmentKinds?: Set<string>;
   activeCycleLabels?: Partial<Record<OneDriveCycle, string[]>>;
+  clerkMembers: ClerkMemberOption[];
+  membersLoading?: boolean;
 }) {
   return (
     <SettingsSection
@@ -95,7 +108,7 @@ export default function SettingsIntegrationsPanel({
         const od = (integrations.microsoftOneDrive as {
           enabled?: boolean;
           basesBySecteur?: Partial<Record<OneDriveCycle, { basePath?: string; label?: string }>>;
-          userSecteurs?: Array<{ match: string; secteur: OneDriveCycle }>;
+          userSecteurs?: OneDriveUserSecteurRow[];
         }) || {};
         const bases = od.basesBySecteur || {};
         const userSecteurs = od.userSecteurs || [];
@@ -106,6 +119,16 @@ export default function SettingsIntegrationsPanel({
           });
         const setBase = (secteur: OneDriveCycle, basePath: string) =>
           setOd({ basesBySecteur: { ...bases, [secteur]: { ...(bases[secteur] || {}), basePath } } });
+        const updateUserSecteur = (index: number, patch: Partial<OneDriveUserSecteurRow>) => {
+          const next = userSecteurs.map((row, i) => (i === index ? { ...row, ...patch } : row));
+          setOd({ userSecteurs: next });
+        };
+        const removeUserSecteur = (index: number) => {
+          setOd({ userSecteurs: userSecteurs.filter((_, j) => j !== index) });
+        };
+        const assignedClerkIds = new Set(
+          userSecteurs.map((r) => r.clerkUserId?.trim()).filter(Boolean) as string[],
+        );
         const cycles = activeEstablishmentKinds
           ? ALL_ONEDRIVE_CYCLES.filter((c) => activeEstablishmentKinds.has(c.key))
           : ALL_ONEDRIVE_CYCLES;
@@ -150,59 +173,93 @@ export default function SettingsIntegrationsPanel({
             <div>
               <p className="text-sm font-bold">Comptes → cycle (classement OCR)</p>
               <p className="text-xs text-slate-500 mb-2">
-                Associe un e-mail (ou nom de famille) au cycle dont la personne gère le classement.
-                Utile pour les secrétariats non câblés en dur.
+                Choisissez une personne du personnel Clerk et le cycle (école, collège ou lycée) dont elle
+                gère le classement OneDrive. Chaque personne ne peut être assignée qu&apos;à un seul cycle.
               </p>
               {cycles.length === 0 ? (
                 <p className="text-xs text-slate-500">Disponible dès qu&apos;un cycle école / collège / lycée est actif.</p>
+              ) : membersLoading ? (
+                <p className="text-xs text-slate-500">Chargement du personnel Clerk…</p>
+              ) : clerkMembers.length === 0 ? (
+                <SettingsNotice tone="warn">
+                  Aucun membre Clerk trouvé. Vérifiez l&apos;onglet Utilisateurs ou les invitations Clerk.
+                </SettingsNotice>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-4">
                   {userSecteurs.map((row, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <input
-                        className={`flex-1 ${settingsInputClass} mt-0`}
-                        placeholder="email ou nom de famille"
-                        value={row.match}
-                        onChange={(e) => {
-                          const next = [...userSecteurs];
-                          next[i] = { ...row, match: e.target.value };
-                          setOd({ userSecteurs: next });
+                    <div
+                      key={row.clerkUserId || `row-${i}`}
+                      className="rounded-2xl border border-white/70 bg-white/50 p-4 space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                          Responsable classement {i + 1}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => removeUserSecteur(i)}
+                          className="text-red-600 px-1 text-lg leading-none shrink-0"
+                          aria-label="Supprimer"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <ClerkPersonSelect
+                        members={clerkMembers.filter(
+                          (m) =>
+                            m.clerkUserId === row.clerkUserId ||
+                            !assignedClerkIds.has(m.clerkUserId),
+                        )}
+                        selectedId={row.clerkUserId}
+                        selectedEmail={row.match}
+                        loading={membersLoading}
+                        onChange={(member) => {
+                          if (!member) {
+                            removeUserSecteur(i);
+                            return;
+                          }
+                          updateUserSecteur(i, {
+                            clerkUserId: member.clerkUserId,
+                            match: member.email.trim(),
+                            displayName: clerkMemberLabel(member),
+                          });
                         }}
                       />
-                      <select
-                        className={`${settingsSelectClass} mt-0 w-auto`}
-                        value={cycles.some((c) => c.key === row.secteur) ? row.secteur : defaultSecteur}
-                        onChange={(e) => {
-                          const next = [...userSecteurs];
-                          next[i] = { ...row, secteur: e.target.value as OneDriveCycle };
-                          setOd({ userSecteurs: next });
-                        }}
-                      >
-                        {cycles.map((c) => (
-                          <option key={c.key} value={c.key}>
-                            {activeCycleLabels?.[c.key]?.[0] || c.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => setOd({ userSecteurs: userSecteurs.filter((_, j) => j !== i) })}
-                        className="text-red-600 px-2 text-lg leading-none"
-                        aria-label="Supprimer"
-                      >
-                        ×
-                      </button>
+                      <label className="block text-xs font-semibold text-slate-600">
+                        Cycle géré
+                        <select
+                          className={`${settingsSelectClass} mt-1`}
+                          value={cycles.some((c) => c.key === row.secteur) ? row.secteur : defaultSecteur}
+                          onChange={(e) =>
+                            updateUserSecteur(i, { secteur: e.target.value as OneDriveCycle })
+                          }
+                        >
+                          {cycles.map((c) => (
+                            <option key={c.key} value={c.key}>
+                              {activeCycleLabels?.[c.key]?.[0] || c.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
                   ))}
                   <button
                     type="button"
                     onClick={() =>
-                      setOd({ userSecteurs: [...userSecteurs, { match: "", secteur: defaultSecteur }] })
+                      setOd({
+                        userSecteurs: [...userSecteurs, { match: "", secteur: defaultSecteur }],
+                      })
                     }
                     className="text-sm font-semibold text-[var(--dash-primary)]"
                   >
-                    + Ajouter un mapping
+                    + Ajouter une personne
                   </button>
+                  {userSecteurs.length === 0 && (
+                    <p className="text-xs text-slate-500 italic">
+                      Aucune personne assignée — le classement OCR ne fonctionnera que pour les comptes déjà
+                      configurés ailleurs.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

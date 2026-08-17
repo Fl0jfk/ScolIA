@@ -70,6 +70,17 @@ export async function resolveOneDriveProfileForClerkUserServer(
   const defaults = defaultBaseBySecteur(establishments);
 
   if (!profile && od?.userSecteurs?.length) {
+    const clerkId = user.id?.trim();
+    if (clerkId) {
+      const byId = od.userSecteurs.find((m) => m.clerkUserId?.trim() === clerkId);
+      if (byId) {
+        const def = defaults[byId.secteur];
+        profile = { key: byId.secteur, secteur: byId.secteur, basePath: def.basePath, label: def.label };
+      }
+    }
+  }
+
+  if (!profile && od?.userSecteurs?.length) {
     const identifiers = collectUserIdentifiers(user);
     const hit = od.userSecteurs.find((m) => {
       const target = normalizeMatch(m.match);

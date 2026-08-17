@@ -81,9 +81,14 @@ type OneDriveSecteurBase = {
   label?: string;
 };
 
-/** Associe un utilisateur (email ou nom) à un cycle, pour le classement OCR/stages. */
+/** Associe un utilisateur Clerk (ou e-mail / nom) à un cycle, pour le classement OCR/stages. */
 type OneDriveUserSecteur = {
+  /** Identifiant Clerk — préféré pour le matching. */
+  clerkUserId?: string;
+  /** E-mail (repli et affichage). */
   match: string;
+  /** Nom affiché dans les paramètres. */
+  displayName?: string;
   secteur: OneDriveSecteur;
 };
 
@@ -540,9 +545,14 @@ function parseOneDriveIntegration(raw: Record<string, unknown>): MicrosoftOneDri
     const list: OneDriveUserSecteur[] = [];
     for (const item of raw.userSecteurs) {
       if (!item || typeof item !== "object") continue;
-      const match = str((item as Record<string, unknown>).match);
-      const secteur = parseOneDriveSecteur((item as Record<string, unknown>).secteur);
-      if (match && secteur) list.push({ match, secteur });
+      const row = item as Record<string, unknown>;
+      const clerkUserId = str(row.clerkUserId) || undefined;
+      const match = str(row.match);
+      const displayName = str(row.displayName) || undefined;
+      const secteur = parseOneDriveSecteur(row.secteur);
+      if (secteur && (clerkUserId || match)) {
+        list.push({ clerkUserId, match: match || clerkUserId, displayName, secteur });
+      }
     }
     if (list.length > 0) result.userSecteurs = list;
   }

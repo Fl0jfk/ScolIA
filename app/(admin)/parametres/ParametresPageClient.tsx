@@ -221,7 +221,7 @@ export default function ParametresPage() {
   }, [isOrgAdmin]);
 
   useEffect(() => {
-    if (!isOrgAdmin || (tab !== "prof-room" && tab !== "requests-routing" && tab !== "establishments" && tab !== "notifications")) return;
+    if (!isOrgAdmin || (tab !== "prof-room" && tab !== "requests-routing" && tab !== "establishments" && tab !== "notifications" && tab !== "integrations")) return;
     let cancelled = false;
     (async () => {
       setMembersLoading(true);
@@ -593,6 +593,8 @@ export default function ParametresPage() {
             saveSection={saveSection}
             activeEstablishmentKinds={activeEstablishmentKinds}
             activeCycleLabels={activeCycleLabels}
+            clerkMembers={clerkMembers}
+            membersLoading={membersLoading}
           />
         )}
 
