@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useUser } from "@clerk/nextjs";
 import DashboardGlobalNotifications from "@/app/components/Dashboard/DashboardGlobalNotifications";
@@ -23,6 +23,7 @@ import type {
   DashboardShortcut,
   DashboardTodayNewsItem,
 } from "@/app/lib/dashboard-signals";
+import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
 import { hasGlobalAdminRole, intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 
 function fingerprint(
@@ -42,13 +43,36 @@ export default function Home() {
   const isOrgAdmin = useIsOrgAdmin();
   const data = useData();
 
-  const [shortcuts, setShortcuts] = useState<DashboardShortcut[]>([]);
-  const [todayNews, setTodayNews] = useState<DashboardTodayNewsItem[]>([]);
-  const [notifications, setNotifications] = useState<DashboardNotification[]>([]);
-  const [hasCurrentWeek, setHasCurrentWeek] = useState(false);
-  const [signalsLoading, setSignalsLoading] = useState(true);
   const [pulseKey, setPulseKey] = useState("");
   const prevFp = useRef("");
+
+  const onSignalsFetched = useCallback(
+    (payload: {
+      shortcuts: DashboardShortcut[];
+      todayNews: DashboardTodayNewsItem[];
+      notifications: DashboardNotification[];
+    }) => {
+      const fp = fingerprint(payload.shortcuts, payload.todayNews, payload.notifications);
+      if (prevFp.current && prevFp.current !== fp) {
+        const changed = payload.shortcuts
+          .filter((s) => s.rich)
+          .map((s) => s.id)
+          .join(",");
+        setPulseKey(`${Date.now()}:${changed}`);
+      }
+      prevFp.current = fp;
+    },
+    [],
+  );
+
+  const {
+    shortcuts,
+    todayNews,
+    notifications,
+    hasCurrentWeek,
+    loading: signalsLoading,
+    refresh: loadSignals,
+  } = useDashboardSignals({ onFetched: onSignalsFetched });
 
   const firstName =
     user?.firstName ||
@@ -84,68 +108,6 @@ export default function Home() {
     if (!user) return false;
     return isEleveBienEtreProfile(intranetRolesFromMetadata(user.publicMetadata));
   }, [user]);
-
-  const applySignals = useCallback(
-    (json: {
-      shortcuts?: DashboardShortcut[];
-      todayNews?: DashboardTodayNewsItem[];
-      hasCurrentWeek?: boolean;
-      notifications?: DashboardNotification[];
-    }) => {
-      const nextShortcuts = Array.isArray(json.shortcuts) ? json.shortcuts : [];
-      const nextNews = Array.isArray(json.todayNews) ? json.todayNews : [];
-      const nextNotifications = Array.isArray(json.notifications) ? json.notifications : [];
-      const fp = fingerprint(nextShortcuts, nextNews, nextNotifications);
-      if (prevFp.current && prevFp.current !== fp) {
-        const changed = nextShortcuts
-          .filter((s) => s.rich)
-          .map((s) => s.id)
-          .join(",");
-        setPulseKey(`${Date.now()}:${changed}`);
-      }
-      prevFp.current = fp;
-      setShortcuts(nextShortcuts);
-      setTodayNews(nextNews);
-      setNotifications(nextNotifications);
-      setHasCurrentWeek(Boolean(json.hasCurrentWeek));
-    },
-    [],
-  );
-
-  const loadSignals = useCallback(async () => {
-    if (!user) {
-      setSignalsLoading(false);
-      return;
-    }
-    try {
-      const res = await fetch("/api/dashboard/signals", { cache: "no-store" });
-      if (!res.ok) return;
-      applySignals(await res.json());
-    } catch {
-      /* ignore */
-    } finally {
-      setSignalsLoading(false);
-    }
-  }, [user, applySignals]);
-
-  useEffect(() => {
-    if (!isLoaded) return;
-    void loadSignals();
-  }, [isLoaded, loadSignals]);
-
-  // Live refresh — signaux dynamiques (absences, demandes, etc.)
-  useEffect(() => {
-    if (!isLoaded || !user) return;
-    const id = window.setInterval(() => {
-      void loadSignals();
-    }, 35000);
-    const onFocus = () => void loadSignals();
-    window.addEventListener("focus", onFocus);
-    return () => {
-      window.clearInterval(id);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [isLoaded, user, loadSignals]);
 
   const hasPillars = DASHBOARD_PILLARS.some((p) =>
     pillarHasVisibleModules(p, dashboardCategories),

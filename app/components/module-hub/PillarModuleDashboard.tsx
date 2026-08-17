@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import GlassLayer from "@/app/components/GlassLayer";
@@ -15,6 +15,7 @@ import {
 import { stageDashboardUpload } from "@/app/lib/dashboard-upload-bridge";
 import type { DashboardCategory } from "@/app/lib/intranet-modules";
 import type { DashboardShortcut } from "@/app/lib/dashboard-signals";
+import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
 import { MODULE_EMOJI, moduleHref } from "@/app/lib/pillar-module-routes";
 
 const PILLAR_ORB: Record<Exclude<DashboardPillarId, "rh">, string> = {
@@ -322,28 +323,7 @@ export default function PillarModuleDashboard({
   accessibleModuleIds,
 }: Props) {
   const pillar = DASHBOARD_PILLARS.find((p) => p.id === pillarId)!;
-  const [shortcuts, setShortcuts] = useState<DashboardShortcut[]>([]);
-  const [loadingSignals, setLoadingSignals] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoadingSignals(true);
-    fetch("/api/dashboard/signals", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => {
-        if (cancelled) return;
-        setShortcuts(Array.isArray(j.shortcuts) ? j.shortcuts : []);
-      })
-      .catch(() => {
-        if (!cancelled) setShortcuts([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingSignals(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { shortcuts, loading: loadingSignals } = useDashboardSignals({ pollIntervalMs: 0 });
 
   const modules = useMemo(() => {
     return categoriesForPillar(pillar, categories).filter((c) =>

@@ -4,6 +4,7 @@ import { useClerk } from "@clerk/nextjs";
 import { useCallback } from "react";
 import { clearBootstrapCache } from "@/app/lib/app-bootstrap-cache";
 import { clearDashboardLinksCache } from "@/app/lib/dashboard-links-cache";
+import { clearDashboardSignalsCache } from "@/app/lib/dashboard-signals-cache";
 import { clearOnboardingStatusCache } from "@/app/lib/onboarding-status-cache";
 import { clearLastPortalTenant } from "@/app/lib/tenant-portal-client";
 
@@ -24,6 +25,7 @@ export function useSignOutWithPortalReset() {
       clearLastPortalTenant();
       clearBootstrapCache();
       clearDashboardLinksCache();
+      clearDashboardSignalsCache();
       clearOnboardingStatusCache();
       void signOut({ redirectUrl: redirectUrl ?? signOutRedirectUrl() });
     },

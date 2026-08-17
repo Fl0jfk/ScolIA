@@ -550,8 +550,9 @@ function parseOneDriveIntegration(raw: Record<string, unknown>): MicrosoftOneDri
       const match = str(row.match);
       const displayName = str(row.displayName) || undefined;
       const secteur = parseOneDriveSecteur(row.secteur);
-      if (secteur && (clerkUserId || match)) {
-        list.push({ clerkUserId, match: match || clerkUserId, displayName, secteur });
+      const resolvedMatch = match || clerkUserId;
+      if (secteur && resolvedMatch) {
+        list.push({ clerkUserId, match: resolvedMatch, displayName, secteur });
       }
     }
     if (list.length > 0) result.userSecteurs = list;

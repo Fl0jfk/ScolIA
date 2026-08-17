@@ -70,7 +70,7 @@ export type DashboardNotification = {
   detail: string;
 };
 
-type DashboardSignals = {
+export type DashboardSignals = {
   shortcuts: DashboardShortcut[];
   todayNews: DashboardTodayNewsItem[];
   hasCurrentWeek: boolean;
