@@ -24,15 +24,64 @@ function normalize(str: string): string {
     .trim();
 }
 
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const curr = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    prev = curr;
+  }
+  return prev[b.length];
+}
+
+/**
+ * Proximité stricte entre deux chaînes normalisées.
+ * Tolère 1 erreur pour ≤6 chars, 2 pour ≤12 chars, 3 au-delà.
+ */
+function closeness(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 0;
+  const dist = levenshtein(a, b);
+  const maxAllowed = maxLen <= 6 ? 1 : maxLen <= 12 ? 2 : 3;
+  if (dist > maxAllowed) return 0;
+  return 1 - dist / maxLen;
+}
+
+/**
+ * Score de similarité nom/prénom strict.
+ * Exige NOM et PRÉNOM présents et matchant tous les deux (seuil closeness >= 0.88).
+ * Score max = 4.0. Seuil de match recommandé : >= 3.2.
+ */
 function nameSimilarity(aNom: string, aPrenom: string, bNom: string, bPrenom: string): number {
   const an = normalize(aNom);
   const ap = normalize(aPrenom);
   const bn = normalize(bNom);
   const bp = normalize(bPrenom);
-  let score = 0;
-  if (an && bn && (an === bn || bn.includes(an) || an.includes(bn))) score += 2;
-  if (ap && bp && (ap === bp || bp.includes(ap) || ap.includes(bp))) score += 2;
-  return score;
+
+  if (!an || !ap || !bn || !bp) return 0;
+
+  const cNom = closeness(an, bn);
+  const cPrenom = closeness(ap, bp);
+
+  if (cNom < 0.88 || cPrenom < 0.88) {
+    // Tenter inversion nom/prénom
+    const cNomInv = closeness(an, bp);
+    const cPrenomInv = closeness(ap, bn);
+    if (cNomInv >= 0.88 && cPrenomInv >= 0.88) {
+      return cNomInv + cPrenomInv; // ≤ 2.0 : score insuffisant pour auto-match
+    }
+    return 0;
+  }
+
+  return 2 * cNom + 2 * cPrenom;
 }
 
 async function loadEleves(): Promise<EleveConfig[]> {
@@ -85,7 +134,7 @@ export async function resolveConventionSecteur(
         e.prenom,
       ),
     }))
-    .filter((s) => s.score >= 3)
+    .filter((s) => s.score >= 3.2)
     .sort((a, b) => b.score - a.score);
 
   const best = scored[0]?.eleve;
@@ -163,7 +212,7 @@ export async function matchEleveForConvention(
         e.prenom,
       ),
     }))
-    .filter((s) => s.score > 0)
+    .filter((s) => s.score >= 3.2)
     .sort((a, b) => b.score - a.score);
 
   const best = scored[0]?.eleve ?? null;

@@ -77,19 +77,32 @@ function levenshtein(a: string, b: string): number {
   return prev[b.length];
 }
 
-/** Proximité 0→1 entre deux chaînes (1 = identiques). */
+/**
+ * Proximité 0→1 entre deux chaînes (1 = identiques).
+ * Tolérance OCR stricte : max 1 caractère différent pour les noms courts,
+ * 1-2 pour les plus longs. Seuil interne relevé à 0.88.
+ */
 function closeness(a: string, b: string): number {
   if (!a || !b) return 0;
   if (a === b) return 1;
-  if (a.includes(b) || b.includes(a)) return 0.9;
+  // Inclusion seulement si l'un est préfixe/suffixe ET assez long (évite "AR" dans "MARTIN")
+  const shorter = a.length < b.length ? a : b;
+  const longer = a.length < b.length ? b : a;
+  if (shorter.length >= 4 && longer.startsWith(shorter)) return 0.88;
   const maxLen = Math.max(a.length, b.length);
   if (maxLen === 0) return 0;
-  return 1 - levenshtein(a, b) / maxLen;
+  // Tolérance : 1 erreur maxi pour ≤6 chars, 2 erreurs maxi pour 7-12 chars, 3 pour les plus longs
+  const dist = levenshtein(a, b);
+  const maxAllowed = maxLen <= 6 ? 1 : maxLen <= 12 ? 2 : 3;
+  if (dist > maxAllowed) return 0;
+  return 1 - dist / maxLen;
 }
 
 /**
- * Score de similarité nom/prénom, tolérant aux fautes d'OCR.
- * Accepte un appariement même si un seul des deux champs est exploitable.
+ * Score de similarité nom/prénom — strict.
+ * Exige que NOM et PRÉNOM soient tous les deux présents et matchent chacun.
+ * Score max = 4.0 (2 pts nom + 2 pts prénom). Seuil de match auto : >= 3.2.
+ * Si un seul champ est disponible (sans l'autre), on ne score pas : trop risqué.
  */
 function nameSimilarity(aNom: string, aPrenom: string, bNom: string, bPrenom: string): number {
   const an = normalize(aNom);
@@ -97,21 +110,26 @@ function nameSimilarity(aNom: string, aPrenom: string, bNom: string, bPrenom: st
   const bn = normalize(bNom);
   const bp = normalize(bPrenom);
 
-  let score = 0;
-  if (an && bn) {
-    const c = closeness(an, bn);
-    if (c >= 0.8) score += 2 * c;
+  // Exige que les deux champs soient non vides des deux côtés
+  const hasNomBothSides = Boolean(an && bn);
+  const hasPrenomBothSides = Boolean(ap && bp);
+  if (!hasNomBothSides || !hasPrenomBothSides) return 0;
+
+  const cNom = closeness(an, bn);
+  const cPrenom = closeness(ap, bp);
+
+  // Les deux doivent atteindre le seuil : un seul qui matche ne suffit pas
+  if (cNom < 0.88 || cPrenom < 0.88) {
+    // Tenter inversion nom/prénom (bulletins qui inversent parfois)
+    const cNomInv = closeness(an, bp);
+    const cPrenomInv = closeness(ap, bn);
+    if (cNomInv >= 0.88 && cPrenomInv >= 0.88) {
+      return (cNomInv + cPrenomInv); // score ≤ 2.0 → jamais auto-matché sans 2e appel IA
+    }
+    return 0;
   }
-  if (ap && bp) {
-    const c = closeness(ap, bp);
-    if (c >= 0.8) score += 2 * c;
-  }
-  // Inversion nom/prénom fréquente sur les bulletins.
-  if (an && bp && ap && bn) {
-    const cross = (closeness(an, bp) + closeness(ap, bn)) / 2;
-    if (cross >= 0.9) score = Math.max(score, 3.5);
-  }
-  return score;
+
+  return 2 * cNom + 2 * cPrenom;
 }
 
 type OcrAnalyzeResult = {
@@ -385,8 +403,8 @@ export async function analyzeDocMatchEleve(
       hasOneDriveProfile: Boolean(odProfile),
     };
     const { ine, nom, prénom } = extracted;
-    const hasNom = nom && nom !== "non_trouvé";
-    const hasPrenom = prénom && prénom !== "non_trouvé";
+    const hasNom = Boolean(nom && nom !== "non_trouvé" && normalize(nom).length >= 2);
+    const hasPrenom = Boolean(prénom && prénom !== "non_trouvé" && normalize(prénom).length >= 2);
     const ineNorm = ine && ine !== "non_trouvé" ? normalizeIne(ine) : "";
     const elevesWithIne = allEleves.filter((e) => e.ine && normalizeIne(e.ine)).length;
 
@@ -409,20 +427,22 @@ export async function analyzeDocMatchEleve(
       }
     }
 
-    // 2) Nom/prénom flou : d'abord le pool secteur, repli sur toute la liste si rien.
+    // 2) Nom + prénom : les DEUX champs doivent être présents et dépasser le seuil.
+    //    Si un seul champ est disponible, on ne matche pas automatiquement (trop risqué).
     let bestNameScore = 0;
-    if (!matchedEleve && (hasNom || hasPrenom)) {
+    if (!matchedEleve && hasNom && hasPrenom) {
       const scoreList = (list: typeof eleves) =>
         list
           .map((e) => ({
             eleve: e,
-            score: nameSimilarity(hasNom ? nom : "", hasPrenom ? prénom : "", e.nom, e.prenom),
+            score: nameSimilarity(nom, prénom, e.nom, e.prenom),
           }))
           .filter((s) => s.score > 0)
           .sort((a, b) => b.score - a.score);
-      let scored = scoreList(eleves).slice(0, 5);
+
+      let scored = scoreList(eleves).slice(0, 3);
       if (scored.length === 0 && eleves.length !== allEleves.length) {
-        scored = scoreList(allEleves).slice(0, 5);
+        scored = scoreList(allEleves).slice(0, 3);
       }
       bestNameScore = scored[0]?.score ?? 0;
       ocrTraceCtx(trace, "classify", "match-name-shortlist", "shortlist nom/prénom", {
@@ -432,33 +452,41 @@ export async function analyzeDocMatchEleve(
           score: Math.round(s.score * 100) / 100,
         })),
       });
-      if (segmentMode && scored.length > 0 && scored[0].score >= 1.4) {
+
+      // Auto-match (sans 2e appel IA) : score >= 3.2/4.0 = les deux champs matchent fortement
+      const AUTO_MATCH_THRESHOLD = 3.2;
+      if (scored.length > 0 && scored[0].score >= AUTO_MATCH_THRESHOLD) {
         matchedEleve = scored[0].eleve;
-        ocrTraceCtx(trace, "classify", "match-name-auto", "élève retenu par score (sans 2e appel Mistral)", {
+        ocrTraceCtx(trace, "classify", "match-name-auto", "élève retenu par score strict (sans 2e appel Mistral)", {
           score: Math.round(scored[0].score * 100) / 100,
           folderName: matchedEleve.folderName,
         });
-      } else if (scored.length > 0) {
+      } else if (scored.length > 0 && scored[0].score > 0) {
+        // Score insuffisant pour l'auto-match : on soumet à Mistral AVEC instruction stricte
         const shortlist = scored.map((s) => s.eleve);
         const shortlistDescription = shortlist
-          .map((e, idx) => `${idx + 1}. INE: ${e.ine}, Nom: ${e.nom}, Prénom: ${e.prenom}, Dossier: ${e.folderName}`)
+          .map((e, idx) => `${idx + 1}. INE: ${e.ine || "?"}, Nom: ${e.nom}, Prénom: ${e.prenom}`)
           .join("\n");
-        const selectionPrompt = `
-            Tu es un système qui associe un document scolaire à l'élève correspondant.
-            Voici le texte OCR brut du document :
-            ---
-            ${text}
-            ---
-            Voici une liste de quelques élèves possibles (shortlist) :
-            ${shortlistDescription}
-            Règles :
-            - Analyse le texte du document.
-            - Compare avec les informations de chaque élève (nom, prénom, INE si présent dans le texte).
-            - Choisis l'index de l'élève qui correspond le mieux au document.
-            - Si aucun élève ne correspond de manière raisonnable, répond "0".
-            Réponds UNIQUEMENT avec un JSON valide de la forme :
-            {"index": 0}
-            `;
+        const selectionPrompt = `Tu es un système de classement de documents scolaires. Tu DOIS être très strict.
+
+Texte OCR du document :
+---
+${text.slice(0, 3000)}
+---
+
+Élèves candidats (shortlist) :
+${shortlistDescription}
+
+Règles STRICTES :
+- Le NOM DE FAMILLE et le PRÉNOM extraits du document doivent correspondre exactement (ou quasi-exactement avec 1 caractère d'écart max) à ceux d'un élève de la liste.
+- Une simple similitude partielle (même début de nom, même lettre initiale) ne suffit PAS.
+- Si tu as le moindre doute, réponds 0.
+- Si aucun élève ne correspond avec certitude, réponds 0.
+- Ne tente pas de deviner.
+
+Réponds UNIQUEMENT avec ce JSON valide :
+{"index": 0}`;
+
         const selectionResponse = await fetch("https://api.mistral.ai/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -488,7 +516,7 @@ export async function analyzeDocMatchEleve(
               folderName: matchedEleve.folderName,
             });
           } else {
-            ocrTraceCtx(trace, "classify", "match-name-miss", "Mistral n'a pas choisi d'élève dans la shortlist", {
+            ocrTraceCtx(trace, "classify", "match-name-miss", "Mistral n'a pas retenu d'élève (doute ou aucun match)", {
               selectedIndex,
             }, "warn");
           }
@@ -497,7 +525,19 @@ export async function analyzeDocMatchEleve(
             status: selectionResponse.status,
           }, "warn");
         }
+      } else {
+        ocrTraceCtx(trace, "classify", "match-name-no-candidate", "aucun candidat avec nom+prénom valides", {
+          hasNom,
+          hasPrenom,
+        }, "warn");
       }
+    } else if (!matchedEleve && (hasNom || hasPrenom)) {
+      ocrTraceCtx(trace, "classify", "match-name-skip", "matching nom/prénom ignoré : un seul champ disponible", {
+        hasNom,
+        hasPrenom,
+        nom: hasNom ? nom : null,
+        prenom: hasPrenom ? prénom : null,
+      }, "warn");
     }
     matchDebug = {
       ...matchDebug,
