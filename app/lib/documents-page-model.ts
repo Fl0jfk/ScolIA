@@ -71,16 +71,73 @@ export function fileShareIdFromPath(relPath: string) {
   return relPath.slice(FILE_SHARE_REL_PREFIX.length).replace(/\/$/, "");
 }
 
+export type PeerSortKey = "lastName" | "firstName";
+
 export function peerFullName(p: Peer): string {
   const name = `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim();
   return name || "Nom non renseigné";
 }
 
+export function peerRoleChipLabel(slug: string): string {
+  if (slug === "education") return "Éducation";
+  const label = INTRANET_ROLE_OPTIONS.find((o) => o.slug === slug)?.label ?? slug;
+  return label.replace(/\s*\(.*\)\s*$/, "");
+}
+
 export function peerRoleLabels(p: Peer): string {
   if (!p.roles.length) return "Aucun rôle";
-  return p.roles
-    .map((slug) => INTRANET_ROLE_OPTIONS.find((o) => o.slug === slug)?.label ?? slug)
-    .join(", ");
+  return p.roles.map((slug) => peerRoleChipLabel(slug)).join(", ");
+}
+
+export function peerMatchesQuery(p: Peer, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    peerFullName(p).toLowerCase().includes(q) ||
+    peerRoleLabels(p).toLowerCase().includes(q) ||
+    p.email.toLowerCase().includes(q) ||
+    p.roles.some((r) => r.toLowerCase().includes(q) || peerRoleChipLabel(r).toLowerCase().includes(q))
+  );
+}
+
+function compareFilled(a: string, b: string, cmp: Intl.Collator): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return cmp.compare(a, b);
+}
+
+export function comparePeersByName(a: Peer, b: Peer, sortBy: PeerSortKey): number {
+  const cmp = new Intl.Collator("fr", { sensitivity: "base", numeric: true });
+  const aPrimary = (sortBy === "lastName" ? a.lastName : a.firstName)?.trim() ?? "";
+  const bPrimary = (sortBy === "lastName" ? b.lastName : b.firstName)?.trim() ?? "";
+  const primary = compareFilled(aPrimary, bPrimary, cmp);
+  if (primary !== 0) return primary;
+  const aSecondary = (sortBy === "lastName" ? a.firstName : a.lastName)?.trim() ?? "";
+  const bSecondary = (sortBy === "lastName" ? b.firstName : b.lastName)?.trim() ?? "";
+  const secondary = compareFilled(aSecondary, bSecondary, cmp);
+  if (secondary !== 0) return secondary;
+  return cmp.compare(a.email, b.email);
+}
+
+export function peerRoleFilters(peers: Peer[]): { slug: string; label: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const p of peers) {
+    for (const role of p.roles) {
+      counts.set(role, (counts.get(role) ?? 0) + 1);
+    }
+  }
+  const known = INTRANET_ROLE_OPTIONS.filter((opt) => (counts.get(opt.slug) ?? 0) > 0).map((opt) => ({
+    slug: opt.slug,
+    label: peerRoleChipLabel(opt.slug),
+    count: counts.get(opt.slug) ?? 0,
+  }));
+  const knownSlugs = new Set(INTRANET_ROLE_OPTIONS.map((o) => o.slug));
+  const extras = [...counts.keys()]
+    .filter((slug) => !knownSlugs.has(slug))
+    .sort((a, b) => a.localeCompare(b, "fr"))
+    .map((slug) => ({ slug, label: peerRoleChipLabel(slug), count: counts.get(slug) ?? 0 }));
+  return [...known, ...extras];
 }
 
 export function normalizeDocPath(path: string): string {

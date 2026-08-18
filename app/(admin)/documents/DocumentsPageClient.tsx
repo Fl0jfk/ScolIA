@@ -20,8 +20,6 @@ import {
   fileShareIdFromPath,
   INCOMING_SHARED_FILES_FOLDER,
   isVirtualFileSharePath,
-  peerFullName,
-  peerRoleLabels,
   resolveItemAccess,
   type AccessPerson,
   type DocumentItem,
@@ -57,7 +55,6 @@ export default function DocumentsPage() {
   const [newShareMembers, setNewShareMembers] = useState<string[]>([]);
   const [showShareManage, setShowShareManage] = useState(false);
   const [manageMembers, setManageMembers] = useState<string[]>([]);
-  const [peerSearch, setPeerSearch] = useState("");
   const [moveItem, setMoveItem] = useState<DocumentItem | null>(null);
   const [moveDestPath, setMoveDestPath] = useState("");
   const [moveDestFolders, setMoveDestFolders] = useState<DocumentItem[]>([]);
@@ -440,21 +437,6 @@ export default function DocumentsPage() {
     await refreshShares();
   };
 
-  const filteredPeers = useMemo(() => {
-    const q = peerSearch.trim().toLowerCase();
-    if (!q) return peers;
-    return peers.filter(
-      (p) =>
-        peerFullName(p).toLowerCase().includes(q) ||
-        peerRoleLabels(p).toLowerCase().includes(q) ||
-        p.email.toLowerCase().includes(q) ||
-        p.roles.some((r) => r.toLowerCase().includes(q)),
-    );
-  }, [peers, peerSearch]);
-
-  const toggleMember = (id: string, list: string[], setter: (v: string[]) => void) => {
-    setter(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
-  };
 
   const handleDeleteCurrentFolder = async () => {
     if (deleteFolderConfirm.trim().toLowerCase() !== "supprimer") {
@@ -813,11 +795,9 @@ export default function DocumentsPage() {
             Les personnes choisies verront ce fichier dans leur dossier « Fichiers partagés ».
           </p>
           <PeerPicker
-            peers={filteredPeers}
-            search={peerSearch}
-            onSearch={setPeerSearch}
+            peers={peers}
             selected={shareFileMembers}
-            onToggle={(id) => toggleMember(id, shareFileMembers, setShareFileMembers)}
+            onChangeSelected={setShareFileMembers}
           />
           <div className="flex justify-end gap-2 mt-4">
             <button
@@ -873,11 +853,9 @@ export default function DocumentsPage() {
             className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm mb-3"
           />
           <PeerPicker
-            peers={filteredPeers}
-            search={peerSearch}
-            onSearch={setPeerSearch}
+            peers={peers}
             selected={newShareMembers}
-            onToggle={(id) => toggleMember(id, newShareMembers, setNewShareMembers)}
+            onChangeSelected={setNewShareMembers}
           />
           <div className="flex justify-end gap-2 mt-4">
             <button type="button" onClick={() => setShowNewShare(false)} className="px-4 py-2 text-sm rounded-xl border">
@@ -939,11 +917,9 @@ export default function DocumentsPage() {
             Vous êtes propriétaire. Ajoutez ou retirez des personnes du personnel Clerk.
           </p>
           <PeerPicker
-            peers={filteredPeers}
-            search={peerSearch}
-            onSearch={setPeerSearch}
+            peers={peers}
             selected={manageMembers}
-            onToggle={(id) => toggleMember(id, manageMembers, setManageMembers)}
+            onChangeSelected={setManageMembers}
           />
           <div className="flex justify-end gap-2 mt-4">
             <button type="button" onClick={() => setShowShareManage(false)} className="px-4 py-2 text-sm rounded-xl border">
