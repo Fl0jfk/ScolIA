@@ -90,7 +90,7 @@ function SimpleTripFormContent() {
       }
     },
     description: "",
-    attachments: [] as { name: string; url: string }[]
+    attachments: [] as { name: string; url: string; s3Key?: string }[]
   });
   useEffect(() => {
     if (editId && isLoaded) {

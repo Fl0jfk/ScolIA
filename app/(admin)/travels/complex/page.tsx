@@ -54,7 +54,7 @@ function ComplexTripFormContent() {
       pickupPoint: "",
       stayOnSite: false,
       freeText: "", 
-      busProgramFile: null as { name: string, url: string } | null,
+      busProgramFile: null as { name: string, url: string, s3Key?: string } | null,
     },
     piqueNiqueDetails: {
       active: false,
@@ -72,7 +72,7 @@ function ComplexTripFormContent() {
     coutTotal: 0,
     partFamille: 0,
     partEtablissement: 0,
-    attachments: [] as { name: string, url: string }[]
+    attachments: [] as { name: string, url: string, s3Key?: string }[]
   });
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, isBusProgram = false) => {
