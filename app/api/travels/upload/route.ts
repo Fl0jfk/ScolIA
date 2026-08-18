@@ -17,10 +17,10 @@ function buildAttachmentKey(fileName: string): string {
 async function uploadFromFormData(req: Request) {
   const formData = await req.formData();
   const file = formData.get("file");
-  if (!(file instanceof File) && !(file instanceof Blob)) {
+  if (!(file instanceof File)) {
     return NextResponse.json({ error: "Fichier manquant." }, { status: 400 });
   }
-  const rawName = file instanceof File ? file.name : "document";
+  const rawName = file.name || "document";
   const fileKey = buildAttachmentKey(rawName);
   const buffer = Buffer.from(await file.arrayBuffer());
   await putObject(fileKey, buffer, file.type || "application/octet-stream");
