@@ -42,9 +42,9 @@ export async function POST(req: Request) {
   if (job.status === "completed") {
     return NextResponse.json({ ok: true, status: "completed" }, { status: 200 });
   }
-  if (job.status === "failed") {
+  if (job.status === "failed" || job.status === "cancelled") {
     return NextResponse.json(
-      { ok: false, status: "failed", error: job.error ?? null },
+      { ok: false, status: job.status, error: job.error ?? null },
       { status: 200 },
     );
   }

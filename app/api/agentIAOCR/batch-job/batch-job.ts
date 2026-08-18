@@ -7,6 +7,7 @@ export type OcrBatchJobStatus =
   | "processing"
   | "completed"
   | "failed"
+  | "cancelled"
   | "needs_token";
 
 export type OcrBatchItemMode = "standard" | "class";
@@ -179,6 +180,11 @@ export async function readBatchJob(jobId: string): Promise<OcrBatchJob | null> {
 }
 
 export async function writeBatchJob(job: OcrBatchJob) {
+  // Un lot annulé ne doit jamais être relancé par un worker déjà en vol.
+  const existing = await readBatchJob(job.jobId);
+  if (existing?.status === "cancelled" && job.status !== "cancelled") {
+    return;
+  }
   const s3Client = await getTenantDataS3Client();
   await s3Client.send(
     new PutObjectCommand({

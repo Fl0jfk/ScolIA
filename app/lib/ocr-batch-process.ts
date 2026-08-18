@@ -261,7 +261,7 @@ export function isBatchJobStale(job: OcrBatchJob): boolean {
 
 /** Relance depuis /status (avec anti-spam). */
 export function shouldKickWorkerFromStatus(job: OcrBatchJob): boolean {
-  if (job.status === "completed" || job.status === "failed" || job.status === "needs_token") {
+  if (isJobStopped(job) || job.status === "needs_token") {
     return false;
   }
   if (!isBatchJobStale(job)) return false;
@@ -292,10 +292,21 @@ async function deleteOcrCacheForJob(job: OcrBatchJob) {
 }
 
 import { buildBatchProgressView, computeProgress } from "@/app/lib/ocr-batch-progress";
+import {
+  isOcrBatchJobCancelled,
+  isOcrBatchJobFinished,
+  OCR_BATCH_CANCELLED_ERROR,
+} from "@/app/lib/ocr-page-model";
+
+function isJobStopped(job: { status: string; error?: string | null } | null | undefined): boolean {
+  if (!job) return true;
+  return isOcrBatchJobFinished(job.status) || isOcrBatchJobCancelled(job.status, job.error);
+}
 
 async function patchJob(jobId: string, patch: Partial<OcrBatchJob>) {
   const job = await readBatchJob(jobId);
   if (!job) return null;
+  if (job.status === "cancelled") return job;
   const next = { ...job, ...patch, updatedAt: new Date().toISOString() };
   await writeBatchJob(next);
   return next;
@@ -388,7 +399,7 @@ async function patchItem(
   extra?: Partial<OcrBatchJob>,
 ) {
   const job = await readBatchJob(jobId);
-  if (!job) return;
+  if (!job || job.status === "cancelled") return;
   await writeBatchJob({
     ...job,
     ...extra,
@@ -991,7 +1002,7 @@ export async function runOcrBatchJob(
     ocrTrace(jobId, "worker", "abort", "job introuvable", undefined, "warn");
     return;
   }
-  if (pre.status === "completed" || pre.status === "failed" || pre.status === "needs_token") {
+  if (isJobStopped(pre) || pre.status === "needs_token") {
     ocrTrace(jobId, "worker", "skip", "job déjà terminal", { status: pre.status });
     return;
   }
@@ -1026,7 +1037,7 @@ export async function runOcrBatchJob(
 
   try {
     let job = await readBatchJob(jobId);
-    if (!job || job.status === "completed" || job.status === "failed") return;
+    if (!job || isJobStopped(job)) return;
 
     const odProfile = await getOdProfileForUser(job.userId);
     const knownStudents = await loadKnownStudentsForSegmentation(odProfile);
@@ -1083,7 +1094,7 @@ export async function runOcrBatchJob(
       }
 
       job = await readBatchJob(jobId);
-      if (!job || job.status === "failed" || job.status === "completed" || job.status === "needs_token") {
+      if (!job || isJobStopped(job) || job.status === "needs_token") {
         return;
       }
 
@@ -1179,7 +1190,7 @@ export async function runOcrBatchJob(
 
         // outcome.kind === "result"
         const current = await readBatchJob(jobId);
-        if (!current) return;
+        if (!current || current.status === "cancelled") return;
         const newResults = outcome.results.filter((r) => {
           if (current.results.some((ex) => ex.fileName === r.fileName && ex.success)) {
             ocrTrace(jobId, "worker", "dedup", "doublon ignoré (déjà succès)", { fileName: r.fileName });
@@ -1240,7 +1251,7 @@ export async function runOcrBatchJob(
         }
         const message = err instanceof Error ? err.message : String(err);
         const current = await readBatchJob(jobId);
-        if (!current) return;
+        if (!current || current.status === "cancelled") return;
         const prevErrors = current.items[itemIndex]?.errorCount ?? 0;
         const errorCount = prevErrors + 1;
         if (errorCount < MAX_ITEM_ERRORS) {
@@ -1295,7 +1306,7 @@ export async function runOcrBatchJob(
       stack: error instanceof Error ? error.stack?.slice(0, 500) : undefined,
     }, "error");
     const j = await readBatchJob(jobId);
-    if (j && j.status !== "completed") {
+    if (j && !isJobStopped(j)) {
       await patchJob(jobId, {
         status: "failed",
         error: msg,
@@ -1361,7 +1372,7 @@ export async function resumeBatchJobWithToken(jobId: string, accessToken: string
 export async function refreshBatchJobAccessToken(jobId: string, accessToken: string) {
   const job = await readBatchJob(jobId);
   if (!job) return null;
-  if (job.status === "completed" || job.status === "failed") return job;
+  if (isJobStopped(job)) return job;
   await writeBatchJob({ ...job, accessToken });
   return job;
 }
@@ -1370,13 +1381,15 @@ export async function refreshBatchJobAccessToken(jobId: string, accessToken: str
 export async function cancelBatchJob(jobId: string): Promise<OcrBatchJob | null> {
   const job = await readBatchJob(jobId);
   if (!job) return null;
-  if (job.status === "completed" || job.status === "failed") return job;
+  if (job.status === "completed") return job;
+  if (job.status === "cancelled") return job;
 
   const cancelled: OcrBatchJob = {
     ...job,
-    status: "failed",
-    error: "Traitement annulé par l'utilisateur.",
+    status: "cancelled",
+    error: OCR_BATCH_CANCELLED_ERROR,
     label: "Traitement annulé",
+    nextRunAt: undefined,
     updatedAt: new Date().toISOString(),
   };
   await writeBatchJob(cancelled);

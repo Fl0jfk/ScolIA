@@ -37,7 +37,7 @@ export async function POST(req: Request) {
   }
 
   if (refreshOnly) {
-    if (job.status === "completed" || job.status === "failed") {
+    if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
       return NextResponse.json({ ok: true, status: job.status, skipped: true });
     }
     await refreshBatchJobAccessToken(jobId, accessToken);

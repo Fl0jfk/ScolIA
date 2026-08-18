@@ -101,6 +101,9 @@ function buildLabel(job: OcrBatchJob, item: OcrBatchJobItem | null, phase: OcrBa
     if (job.status === "completed") {
       return `Terminé — ${job.results.length} document${job.results.length > 1 ? "s" : ""} traité${job.results.length > 1 ? "s" : ""}`;
     }
+    if (job.status === "cancelled") {
+      return job.label || "Traitement annulé";
+    }
     return job.label || "Traitement en cours…";
   }
 

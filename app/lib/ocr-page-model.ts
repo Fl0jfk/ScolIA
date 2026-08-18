@@ -32,6 +32,31 @@ export const BATCH_JOB_STORAGE_KEY = "agentIAOCR-active-batch-job";
 /** Dernier lot terminé — conservé jusqu'au prochain dépôt de fichiers. */
 export const BATCH_JOB_LAST_RESULTS_KEY = "agentIAOCR-last-batch-job";
 
+export const OCR_BATCH_CANCELLED_ERROR = "Traitement annulé par l'utilisateur.";
+
+export function isOcrBatchJobActive(status?: string | null): boolean {
+  return status === "pending" || status === "processing" || status === "needs_token";
+}
+
+export function isOcrBatchJobCancelled(
+  status?: string | null,
+  error?: string | null,
+): boolean {
+  if (status === "cancelled") return true;
+  if (
+    status === "failed" &&
+    typeof error === "string" &&
+    /annul[ée] par l['’]utilisateur/i.test(error)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function isOcrBatchJobFinished(status?: string | null): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
 export type OcrProgressDetail = {
   percent: number;
   label: string;

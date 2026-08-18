@@ -30,6 +30,8 @@ import {
   BATCH_JOB_STORAGE_KEY,
   INITIAL_OCR_PROCESSING_STATUS,
   buildOcrProgressCaption,
+  isOcrBatchJobActive,
+  isOcrBatchJobCancelled,
   mergeOcrResultsForUi,
   ocrSuggestedEleves,
   type BatchJobStatusPayload,
@@ -327,6 +329,48 @@ function OneDriveUpDocsOCRAIContent() {
     localStorage.setItem(BATCH_JOB_LAST_RESULTS_KEY, jobId);
   }, []);
 
+  const forgetPersistedBatchJob = useCallback(() => {
+    localStorage.removeItem(BATCH_JOB_STORAGE_KEY);
+    localStorage.removeItem(BATCH_JOB_LAST_RESULTS_KEY);
+  }, []);
+
+  const postCancelBatchJob = useCallback(async (jobId: string): Promise<ProcessResult[] | null> => {
+    try {
+      const res = await fetch("/api/agentIAOCR/batch-job/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        results?: ProcessResult[];
+      };
+      if (!res.ok) return null;
+      return Array.isArray(data.results) ? data.results : [];
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const cancelOrphanActiveJobs = useCallback(
+    async (keepJobId?: string | null) => {
+      try {
+        const listRes = await fetch("/api/agentIAOCR/batch-job/list");
+        if (!listRes.ok) return;
+        const listData = await listRes.json();
+        const jobs =
+          (listData.jobs as Array<{ jobId: string; status: string }> | undefined) ?? [];
+        const ids = jobs
+          .filter((j) => isOcrBatchJobActive(j.status) && j.jobId !== keepJobId)
+          .map((j) => j.jobId);
+        await Promise.all(ids.map((id) => postCancelBatchJob(id)));
+      } catch {
+        /* ignore */
+      }
+    },
+    [postCancelBatchJob],
+  );
+
   const canAcceptNewOcrFiles = useCallback(() => {
     if (ocrProcessingRef.current || processingLockRef.current || activeBatchJobId) {
       setError(
@@ -480,41 +524,46 @@ function OneDriveUpDocsOCRAIContent() {
     abortOcrInFlight();
     ocrSessionIdRef.current += 1;
 
-    if (activeBatchJobId) {
-      try {
-        const res = await fetch("/api/agentIAOCR/batch-job/cancel", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId: activeBatchJobId }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setError(typeof data.error === "string" ? data.error : "Impossible d'annuler le traitement.");
-          return;
-        }
-        if (Array.isArray(data.results)) {
-          setOcrResults(data.results);
-          setOcrResultsSessionId((id) => id + 1);
-        }
-        persistFinishedBatchJob(activeBatchJobId);
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "Impossible d'annuler le traitement.");
-        return;
-      }
-    }
-
-    setOcrProcessing(false);
+    const knownJobId = activeBatchJobId;
+    // Couper le poll tout de suite : un statut encore « processing » ne doit plus réécrire l'UI.
     activeBatchJobIdRef.current = null;
     setActiveBatchJobId(null);
+    setOcrProcessing(false);
     setBatchJobNeedsToken(false);
     setProgressDetail(null);
-    localStorage.removeItem(BATCH_JOB_STORAGE_KEY);
+    forgetPersistedBatchJob();
     setProcessingStatus({
       ...INITIAL_OCR_PROCESSING_STATUS,
       label: "Traitement annulé",
     });
     setError("");
-  }, [abortOcrInFlight, activeBatchJobId, persistFinishedBatchJob]);
+
+    const ids = new Set<string>();
+    if (knownJobId) ids.add(knownJobId);
+    try {
+      const listRes = await fetch("/api/agentIAOCR/batch-job/list");
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        const jobs =
+          (listData.jobs as Array<{ jobId: string; status: string }> | undefined) ?? [];
+        for (const j of jobs) {
+          if (isOcrBatchJobActive(j.status)) ids.add(j.jobId);
+        }
+      }
+    } catch {
+      /* le job connu ci-dessous reste la cible principale */
+    }
+
+    let lastResults: ProcessResult[] | null = null;
+    for (const jobId of ids) {
+      const results = await postCancelBatchJob(jobId);
+      if (results && results.length > 0) lastResults = results;
+    }
+    if (lastResults) {
+      setOcrResults(lastResults);
+      setOcrResultsSessionId((id) => id + 1);
+    }
+  }, [abortOcrInFlight, activeBatchJobId, forgetPersistedBatchJob, postCancelBatchJob]);
 
   const resumeBatchWithOneDrive = useCallback(async () => {
     if (!activeBatchJobId) return;
@@ -568,6 +617,13 @@ function OneDriveUpDocsOCRAIContent() {
       }
       const st = (await stRes.json()) as BatchJobStatusPayload;
       applyBatchJobStatusToUi(st, jobId);
+      if (isOcrBatchJobCancelled(st.status, st.error)) {
+        setOcrProcessing(false);
+        activeBatchJobIdRef.current = null;
+        setActiveBatchJobId(null);
+        forgetPersistedBatchJob();
+        return;
+      }
       if (st.status === "completed" || st.status === "failed") {
         setOcrProcessing(false);
         activeBatchJobIdRef.current = null;
@@ -585,7 +641,7 @@ function OneDriveUpDocsOCRAIContent() {
       setBatchPollIssue("offline");
       setError("Connexion interrompue. Le traitement peut continuer côté serveur — réessayez dans un instant.");
     }
-  }, [applyBatchJobStatusToUi, persistFinishedBatchJob, triggerBatchWorker]);
+  }, [applyBatchJobStatusToUi, forgetPersistedBatchJob, persistFinishedBatchJob, triggerBatchWorker]);
 
   useEffect(() => {
     if (!clerkUser?.id) return;
@@ -594,15 +650,13 @@ function OneDriveUpDocsOCRAIContent() {
         const listRes = await fetch("/api/agentIAOCR/batch-job/list");
         if (!listRes.ok) return;
         const listData = await listRes.json();
-        const jobs = (listData.jobs as Array<{ jobId: string; status: string }> | undefined) ?? [];
-        const active = jobs.find(
-          (j) => j.status === "pending" || j.status === "processing" || j.status === "needs_token",
-        );
+        const jobs =
+          (listData.jobs as Array<{ jobId: string; status: string; error?: string | null }> | undefined) ??
+          [];
+        const active = jobs.find((j) => isOcrBatchJobActive(j.status));
         const storedActive = localStorage.getItem(BATCH_JOB_STORAGE_KEY);
         const storedLast = localStorage.getItem(BATCH_JOB_LAST_RESULTS_KEY);
-        const recentFinished = jobs.find((j) => j.status === "completed" || j.status === "failed");
-        const jobId =
-          active?.jobId || storedActive || storedLast || recentFinished?.jobId;
+        const jobId = active?.jobId || storedActive || storedLast;
         if (!jobId) return;
 
         const stRes = await fetch(
@@ -611,7 +665,12 @@ function OneDriveUpDocsOCRAIContent() {
         if (!stRes.ok) return;
         const st = (await stRes.json()) as BatchJobStatusPayload & { jobId?: string };
 
-        if (st.status === "pending" || st.status === "processing" || st.status === "needs_token") {
+        if (isOcrBatchJobCancelled(st.status, st.error)) {
+          forgetPersistedBatchJob();
+          return;
+        }
+
+        if (isOcrBatchJobActive(st.status)) {
           activeBatchJobIdRef.current = jobId;
           setActiveBatchJobId(jobId);
           setOcrProcessing(true);
@@ -633,7 +692,7 @@ function OneDriveUpDocsOCRAIContent() {
         /* ignore */
       }
     })();
-  }, [clerkUser?.id, applyBatchJobStatusToUi, persistFinishedBatchJob]);
+  }, [clerkUser?.id, applyBatchJobStatusToUi, forgetPersistedBatchJob, persistFinishedBatchJob]);
 
   useEffect(() => {
     if (!activeBatchJobId || batchJobNeedsToken) return;
@@ -723,6 +782,15 @@ function OneDriveUpDocsOCRAIContent() {
           return;
         }
 
+        if (isOcrBatchJobCancelled(st.status, st.error)) {
+          setOcrProcessing(false);
+          activeBatchJobIdRef.current = null;
+          setActiveBatchJobId(null);
+          forgetPersistedBatchJob();
+          setError("");
+          return;
+        }
+
         if (st.status === "completed" || st.status === "failed") {
           // Un état terminal peut être TRANSITOIRE (un worker concurrent côté serveur relance le
           // lot juste après). On confirme sur 2 sondages consécutifs avant d'arrêter le suivi —
@@ -736,7 +804,9 @@ function OneDriveUpDocsOCRAIContent() {
           activeBatchJobIdRef.current = null;
           setActiveBatchJobId(null);
           persistFinishedBatchJob(activeBatchJobId);
-          if (st.status === "failed" && st.error) setError(String(st.error));
+          if (st.status === "failed" && st.error && !isOcrBatchJobCancelled(st.status, st.error)) {
+            setError(String(st.error));
+          }
           return;
         }
         pendingTerminal = 0;
@@ -786,6 +856,7 @@ function OneDriveUpDocsOCRAIContent() {
     ensureOneDriveConnection,
     applyBatchJobStatusToUi,
     persistFinishedBatchJob,
+    forgetPersistedBatchJob,
     triggerBatchWorker,
   ]);
 
@@ -890,6 +961,12 @@ function OneDriveUpDocsOCRAIContent() {
       const jobId = created.jobId as string | undefined;
       if (!jobId) throw new Error("Impossible de créer le traitement serveur");
 
+      if (!isActiveOcrSession(sessionId) || signal.aborted) {
+        await postCancelBatchJob(jobId);
+        forgetPersistedBatchJob();
+        return;
+      }
+
       const serverRelays = Boolean(created.serverSelfRelays);
       setBatchServerSelfRelays(serverRelays);
 
@@ -911,8 +988,14 @@ function OneDriveUpDocsOCRAIContent() {
         sessionId,
       );
     } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      if (!isActiveOcrSession(sessionId)) return;
+      if (err instanceof DOMException && err.name === "AbortError") {
+        await cancelOrphanActiveJobs(activeBatchJobIdRef.current);
+        return;
+      }
+      if (!isActiveOcrSession(sessionId)) {
+        await cancelOrphanActiveJobs(activeBatchJobIdRef.current);
+        return;
+      }
       setOcrProcessing(false);
       setError(
         "Erreur lors de l'envoi ou du lancement : " +
@@ -979,10 +1062,8 @@ function OneDriveUpDocsOCRAIContent() {
 
   const handleStartFreshOcrSession = () => {
     if (ocrProcessingRef.current || processingLockRef.current) return;
-    abortOcrInFlight();
     ocrSessionIdRef.current += 1;
-    resetOcrSessionUi(true);
-    setPendingClassFiles([]);
+    prepareOcrSessionForNewBatch();
   };
 
   const handleSyncOneDriveFolders = async () => {
