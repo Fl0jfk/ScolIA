@@ -261,12 +261,17 @@ export function isBatchJobStale(job: OcrBatchJob): boolean {
 
 /** Relance depuis /status (avec anti-spam). */
 export function shouldKickWorkerFromStatus(job: OcrBatchJob): boolean {
+  if (job.status === "cancelled" || job.status === "needs_token") return false;
+  const last = job.lastWorkerKickAt ? new Date(job.lastWorkerKickAt).getTime() : 0;
+  const kickedRecently = !Number.isNaN(last) && Date.now() - last < KICK_DEBOUNCE_MS;
+  if ((job.status === "completed" || job.status === "failed") && !isOcrBatchJobFullyCovered(job)) {
+    return !kickedRecently;
+  }
   if (isJobStopped(job) || job.status === "needs_token") {
     return false;
   }
   if (!isBatchJobStale(job)) return false;
-  const last = job.lastWorkerKickAt ? new Date(job.lastWorkerKickAt).getTime() : 0;
-  if (!Number.isNaN(last) && Date.now() - last < KICK_DEBOUNCE_MS) return false;
+  if (kickedRecently) return false;
   return true;
 }
 
@@ -293,14 +298,28 @@ async function deleteOcrCacheForJob(job: OcrBatchJob) {
 
 import { buildBatchProgressView, computeProgress } from "@/app/lib/ocr-batch-progress";
 import {
+  allItemSegmentsCovered,
+  firstUnfinishedItemIndex,
+  firstUnfinishedSegmentIndex,
+  isOcrBatchJobFullyCovered,
+  mergeBatchResults,
+  reopenIncompleteOcrBatchJob,
+} from "@/app/lib/ocr-batch-merge";
+import {
   isOcrBatchJobCancelled,
-  isOcrBatchJobFinished,
   OCR_BATCH_CANCELLED_ERROR,
 } from "@/app/lib/ocr-page-model";
 
-function isJobStopped(job: { status: string; error?: string | null } | null | undefined): boolean {
+function isJobStopped(job: OcrBatchJob | { status: string; error?: string | null } | null | undefined): boolean {
   if (!job) return true;
-  return isOcrBatchJobFinished(job.status) || isOcrBatchJobCancelled(job.status, job.error);
+  if (job.status === "cancelled" || isOcrBatchJobCancelled(job.status, job.error)) return true;
+  if (job.status === "completed" || job.status === "failed") {
+    if ("items" in job && "results" in job) {
+      return isOcrBatchJobFullyCovered(job as OcrBatchJob);
+    }
+    return true;
+  }
+  return false;
 }
 
 async function patchJob(jobId: string, patch: Partial<OcrBatchJob>) {
@@ -412,37 +431,6 @@ function hasSuccessfulResult(job: OcrBatchJob, fileName: string): boolean {
   return job.results.some((r) => r.fileName === fileName && r.success);
 }
 
-/** Fusionne les résultats sans perdre un succès déjà enregistré (polls / écritures concurrentes). */
-function mergeBatchResults(existing: OcrBatchResult[], incoming: OcrBatchResult[]): OcrBatchResult[] {
-  const byName = new Map<string, OcrBatchResult>();
-  for (const r of existing) byName.set(r.fileName, r);
-  for (const r of incoming) {
-    const prev = byName.get(r.fileName);
-    if (!prev) {
-      byName.set(r.fileName, r);
-      continue;
-    }
-    if (r.success && !prev.success) byName.set(r.fileName, r);
-    else if (!r.success && prev.success) continue;
-    else byName.set(r.fileName, r);
-  }
-  const order = [...existing.map((r) => r.fileName), ...incoming.map((r) => r.fileName)];
-  const seen = new Set<string>();
-  const merged: OcrBatchResult[] = [];
-  for (const name of order) {
-    if (seen.has(name)) continue;
-    const row = byName.get(name);
-    if (row) {
-      merged.push(row);
-      seen.add(name);
-    }
-  }
-  for (const [name, row] of byName) {
-    if (!seen.has(name)) merged.push(row);
-  }
-  return merged;
-}
-
 /**
  * Empêche deux workers de traiter le même item en parallèle.
  * @returns proceed = on continue ; skip-advance = item déjà fini ; defer = autre worker actif.
@@ -455,12 +443,12 @@ async function resolveItemClaim(
   const item = job.items[itemIndex];
   if (!item) return "skip-advance";
 
-  if (item.status === "done" || item.status === "failed") {
-    ocrTrace(jobId, "item", "skip", `item déjà ${item.status}`, summarizeBatchItem(item));
+  if (allItemSegmentsCovered(item, job.results)) {
+    ocrTrace(jobId, "item", "skip", "item déjà entièrement couvert", summarizeBatchItem(item));
     return "skip-advance";
   }
 
-  if (hasSuccessfulResult(job, item.fileName)) {
+  if (!(item.segments && item.segments.length > 0) && hasSuccessfulResult(job, item.fileName)) {
     ocrTrace(jobId, "item", "skip", "item déjà en succès dans results", summarizeBatchItem(item));
     return "skip-advance";
   }
@@ -861,35 +849,23 @@ async function stepItem(
   }
 
   // phase === "segments"
-  const segments = item.segments ?? [];
-  const segIndex = item.segmentIndex ?? 0;
+  const live = (await readBatchJob(job.jobId)) ?? job;
+  const itemLive = live.items[itemIndex] ?? item;
+  const segments = itemLive.segments ?? [];
   const total = segments.length;
+  const segIndex = firstUnfinishedSegmentIndex(itemLive, live.results);
   if (segIndex >= total) {
-    ocrTrace(job.jobId, "item", "segments-done", "tous les segments traités", { total });
+    ocrTrace(job.jobId, "item", "segments-done", "tous les segments ont un résultat", { total });
     return { kind: "result", results: [], itemDone: true };
   }
 
   const seg = segments[segIndex];
   const label = `${item.fileName} [p.${seg.pageStart}-${seg.pageEnd}]`;
-  const isLast = segIndex + 1 >= total;
 
   ocrTrace(job.jobId, "item", "segment", `classement segment ${segIndex + 1}/${total}`, {
     label,
     pages: `${seg.pageStart}-${seg.pageEnd}`,
-    isLast,
   });
-
-  const freshForSeg = await readBatchJob(job.jobId);
-  if (freshForSeg && hasSuccessfulResult(freshForSeg, label)) {
-    ocrTrace(job.jobId, "item", "segment-skip", "segment déjà en succès", { label });
-    await patchItem(job.jobId, itemIndex, { segmentIndex: segIndex + 1 });
-    return {
-      kind: "result",
-      results: [],
-      itemDone: isLast,
-      label: `Segment ${segIndex + 1}/${total} — ${item.fileName}`,
-    };
-  }
 
   let segResult: OcrBatchResult;
 
@@ -928,7 +904,9 @@ async function stepItem(
     };
   }
 
-  if (isLast) {
+  const previewResults = mergeBatchResults(live.results, [segResult]);
+  const covered = allItemSegmentsCovered({ ...itemLive, segments }, previewResults);
+  if (covered) {
     const freshEnd = await readBatchJob(job.jobId);
     const segPrefix = `${item.fileName} [p.`;
     const priorSegFailures = (freshEnd?.results ?? job.results).some(
@@ -970,14 +948,17 @@ async function stepItem(
     label,
     success: segResult.success,
     error: segResult.error ?? null,
-    segmentIndex: segIndex + 1,
+    segmentIndex: firstUnfinishedSegmentIndex({ ...itemLive, segments }, previewResults),
     total,
+    covered,
   });
-  await patchItem(job.jobId, itemIndex, { segmentIndex: segIndex + 1 });
+  await patchItem(job.jobId, itemIndex, {
+    segmentIndex: firstUnfinishedSegmentIndex({ ...itemLive, segments }, previewResults),
+  });
   return {
     kind: "result",
     results: [segResult],
-    itemDone: isLast,
+    itemDone: covered,
     label: `Segment ${segIndex + 1}/${total} — ${item.fileName}`,
   };
 }
@@ -998,12 +979,30 @@ export async function runOcrBatchJob(
   const invokeStartedAt = Date.now();
   ocrTrace(jobId, "worker", "invoke", "runOcrBatchJob appelé", { selfChain });
 
-  const pre = await readBatchJob(jobId);
-  if (!pre) {
+  const preRaw = await readBatchJob(jobId);
+  if (!preRaw) {
     ocrTrace(jobId, "worker", "abort", "job introuvable", undefined, "warn");
     return;
   }
-  if (isJobStopped(pre) || pre.status === "needs_token") {
+  const reopened = reopenIncompleteOcrBatchJob(preRaw);
+  if (reopened) {
+    ocrTrace(jobId, "worker", "reopen", "lot marqué terminé trop tôt — reprise des documents manquants", {
+      status: preRaw.status,
+      results: preRaw.results.length,
+      items: preRaw.items.length,
+    }, "warn");
+    await writeBatchJob(reopened);
+  }
+  const pre = (await readBatchJob(jobId)) ?? reopened ?? preRaw;
+  if (pre.status === "cancelled" || isOcrBatchJobCancelled(pre.status, pre.error)) {
+    ocrTrace(jobId, "worker", "skip", "job déjà terminal", { status: pre.status });
+    return;
+  }
+  if (pre.status === "needs_token") {
+    ocrTrace(jobId, "worker", "skip", "job déjà terminal", { status: pre.status });
+    return;
+  }
+  if ((pre.status === "completed" || pre.status === "failed") && isOcrBatchJobFullyCovered(pre)) {
     ocrTrace(jobId, "worker", "skip", "job déjà terminal", { status: pre.status });
     return;
   }
@@ -1100,18 +1099,21 @@ export async function runOcrBatchJob(
       }
 
       if (job.currentItemIndex >= job.items.length) {
-        // Garde anti-complétion prématurée : ne JAMAIS marquer « terminé » s'il reste un document
-        // non clos (index avancé à tort par une écriture concurrente / un recalage). On recale
-        // l'index sur le premier item inachevé plutôt que de figer le lot trop tôt.
-        const firstUnfinished = job.items.findIndex(
-          (it) => it.status !== "done" && it.status !== "failed",
-        );
-        if (firstUnfinished >= 0) {
-          ocrTrace(jobId, "worker", "complete-guard", "fin de file mais document non terminé — recalage", {
-            firstUnfinished,
+        const unfinished = firstUnfinishedItemIndex(job);
+        if (unfinished >= 0) {
+          ocrTrace(jobId, "worker", "complete-guard", "fin de file mais documents non couverts — recalage", {
+            unfinished,
             itemStatuses: job.items.map((it) => it.status),
+            results: job.results.length,
           }, "warn");
-          await patchJob(jobId, { currentItemIndex: firstUnfinished });
+          await patchJob(jobId, { currentItemIndex: unfinished, status: "processing", error: undefined });
+          continue;
+        }
+        if (!isOcrBatchJobFullyCovered(job)) {
+          ocrTrace(jobId, "worker", "complete-guard", "couverture incomplète — reprise à 0", {
+            results: job.results.length,
+          }, "warn");
+          await patchJob(jobId, { currentItemIndex: 0, status: "processing", error: undefined });
           continue;
         }
         const completed = job.results.filter((r) => r.success).length;
@@ -1200,21 +1202,17 @@ export async function runOcrBatchJob(
           return true;
         });
         const nextResults = mergeBatchResults(current.results, newResults);
-        const nextIndex = outcome.itemDone ? itemIndex + 1 : itemIndex;
-        const itemSuccess =
-          outcome.itemDone &&
-          outcome.results.every(
-            (r) =>
-              r.success ||
-              current.results.some((ex) => ex.fileName === r.fileName && ex.success),
-          );
+        const currentItem = current.items[itemIndex];
+        const covered = currentItem
+          ? allItemSegmentsCovered(currentItem, nextResults)
+          : Boolean(outcome.itemDone);
+        const nextIndex = covered ? itemIndex + 1 : itemIndex;
         const prog = computeProgress({ ...current, results: nextResults, currentItemIndex: nextIndex });
         ocrTrace(jobId, "worker", "result", "résultats micro-étape enregistrés", {
           newResults: newResults.map((r) => ({ fileName: r.fileName, success: r.success, error: r.error })),
-          itemDone: outcome.itemDone,
+          itemDone: covered,
           nextItemIndex: nextIndex,
           percent: prog.percent,
-          itemSuccess,
         });
         await writeBatchJob({
           ...current,
@@ -1225,9 +1223,10 @@ export async function runOcrBatchJob(
               ? {
                   ...it,
                   errorCount: 0,
-                  ...(outcome.itemDone
-                    ? { status: itemSuccess ? ("done" as const) : ("failed" as const), itemClaimedAt: undefined }
-                    : {}),
+                  segmentIndex: firstUnfinishedSegmentIndex(it, nextResults),
+                  ...(covered
+                    ? { status: "done" as const, itemClaimedAt: undefined }
+                    : { status: "processing" as const }),
                 }
               : it,
           ),

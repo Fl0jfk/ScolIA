@@ -57,6 +57,19 @@ export function isOcrBatchJobFinished(status?: string | null): boolean {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
+/** Lot affiché « terminé » alors qu'il manque des documents — le worker doit reprendre. */
+export function isOcrBatchStatusFalseComplete(st: {
+  status?: string;
+  results?: { fileName?: string }[];
+  progress?: { documentsTotal?: number } | null;
+  totalItems?: number;
+}): boolean {
+  if (st.status !== "completed" && st.status !== "failed") return false;
+  const total = st.progress?.documentsTotal ?? st.totalItems ?? 0;
+  const processed = Array.isArray(st.results) ? st.results.length : 0;
+  return total > 0 && processed < total;
+}
+
 export type OcrProgressDetail = {
   percent: number;
   label: string;

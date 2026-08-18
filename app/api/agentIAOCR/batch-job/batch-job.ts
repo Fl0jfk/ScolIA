@@ -1,6 +1,7 @@
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName, sendS3WithConflictRetry } from "@/app/lib/s3-storage";
+import { mergeOcrBatchJobs } from "@/app/lib/ocr-batch-merge";
 
 export type OcrBatchJobStatus =
   | "pending"
@@ -183,23 +184,23 @@ export async function readBatchJob(jobId: string): Promise<OcrBatchJob | null> {
 }
 
 export async function writeBatchJob(job: OcrBatchJob) {
-  // Un lot annulé ne doit jamais être relancé par un worker déjà en vol.
-  const existing = await readBatchJob(job.jobId);
-  if (existing?.status === "cancelled" && job.status !== "cancelled") {
-    return;
-  }
   const s3Client = await getTenantDataS3Client();
   const bucket = await getBucketName();
-  await sendS3WithConflictRetry(() =>
-    s3Client.send(
+  await sendS3WithConflictRetry(async () => {
+    const existing = await readBatchJob(job.jobId);
+    if (existing?.status === "cancelled" && job.status !== "cancelled") {
+      return;
+    }
+    const merged = existing ? mergeOcrBatchJobs(existing, job) : job;
+    await s3Client.send(
       new PutObjectCommand({
         Bucket: bucket,
         Key: jobKey(job.jobId),
-        Body: JSON.stringify({ ...job, updatedAt: new Date().toISOString() }),
+        Body: JSON.stringify({ ...merged, updatedAt: new Date().toISOString() }),
         ContentType: "application/json",
       }),
-    ),
-  );
+    );
+  });
 }
 
 type UserJobIndex = { jobIds: string[]; updatedAt: string };

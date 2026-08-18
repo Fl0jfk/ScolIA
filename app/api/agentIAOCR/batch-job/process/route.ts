@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveSession } from "@/app/lib/intranet-session";
 import { readBatchJob } from "../batch-job";
 import { runOcrBatchJob } from "@/app/lib/ocr-batch-process";
+import { isOcrBatchJobFullyCovered } from "@/app/lib/ocr-batch-merge";
 import { ocrTrace, summarizeBatchJob } from "@/app/lib/ocr-trace";
 import { flushOcrJobTraces } from "@/app/lib/ocr-job-trace-store";
 
@@ -39,10 +40,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   }
 
-  if (job.status === "completed") {
+  if (job.status === "completed" && isOcrBatchJobFullyCovered(job)) {
     return NextResponse.json({ ok: true, status: "completed" }, { status: 200 });
   }
-  if (job.status === "failed" || job.status === "cancelled") {
+  if (job.status === "failed" && isOcrBatchJobFullyCovered(job)) {
+    return NextResponse.json(
+      { ok: false, status: "failed", error: job.error ?? null },
+      { status: 200 },
+    );
+  }
+  if (job.status === "cancelled") {
     return NextResponse.json(
       { ok: false, status: job.status, error: job.error ?? null },
       { status: 200 },

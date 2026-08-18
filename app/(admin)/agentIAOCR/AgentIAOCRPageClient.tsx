@@ -32,6 +32,7 @@ import {
   buildOcrProgressCaption,
   isOcrBatchJobActive,
   isOcrBatchJobCancelled,
+  isOcrBatchStatusFalseComplete,
   mergeOcrResultsForUi,
   ocrSuggestedEleves,
   type BatchJobStatusPayload,
@@ -624,6 +625,11 @@ function OneDriveUpDocsOCRAIContent() {
         forgetPersistedBatchJob();
         return;
       }
+      if (isOcrBatchStatusFalseComplete(st)) {
+        setOcrProcessing(true);
+        void triggerBatchWorker(jobId);
+        return;
+      }
       if (st.status === "completed" || st.status === "failed") {
         setOcrProcessing(false);
         activeBatchJobIdRef.current = null;
@@ -670,7 +676,7 @@ function OneDriveUpDocsOCRAIContent() {
           return;
         }
 
-        if (isOcrBatchJobActive(st.status)) {
+        if (isOcrBatchJobActive(st.status) || isOcrBatchStatusFalseComplete(st)) {
           activeBatchJobIdRef.current = jobId;
           setActiveBatchJobId(jobId);
           setOcrProcessing(true);
@@ -791,10 +797,14 @@ function OneDriveUpDocsOCRAIContent() {
           return;
         }
 
+        if (isOcrBatchStatusFalseComplete(st)) {
+          pendingTerminal = 0;
+          driveWorker(activeBatchJobId);
+          void tick();
+          return;
+        }
+
         if (st.status === "completed" || st.status === "failed") {
-          // Un état terminal peut être TRANSITOIRE (un worker concurrent côté serveur relance le
-          // lot juste après). On confirme sur 2 sondages consécutifs avant d'arrêter le suivi —
-          // sinon l'interface se figeait et proposait à tort de redéposer un fichier.
           pendingTerminal += 1;
           if (pendingTerminal < 2) {
             void tick();
