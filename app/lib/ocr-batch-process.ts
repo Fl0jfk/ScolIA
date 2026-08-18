@@ -48,6 +48,9 @@ const LOCK_TTL_MS = 75_000;
 const RUN_BUDGET_MS = 55_000;
 /** Délai entre deux tours de polling Textract. */
 const OCR_POLL_DELAY_MS = 2_000;
+/** Au-delà, un job Mistral en mémoire (autre instance) est considéré perdu. */
+const OCR_REHYDRATE_STALE_MS = 120_000;
+const OCR_REHYDRATE_MAX_FAILURES = 5;
 /** Un item claimé par un autre worker reste exclusif pendant cette durée. */
 const ITEM_CLAIM_TTL_MS = 60_000;
 /** Tentatives sur une erreur technique avant d'abandonner DÉFINITIVEMENT un document. */
@@ -303,7 +306,9 @@ import {
   firstUnfinishedSegmentIndex,
   isOcrBatchJobFullyCovered,
   mergeBatchResults,
+  ocrSegmentResultLabel,
   reopenIncompleteOcrBatchJob,
+  segmentHasResult,
 } from "@/app/lib/ocr-batch-merge";
 import {
   isOcrBatchJobCancelled,
@@ -650,6 +655,166 @@ async function analyzeAndFileSegment(
   };
 }
 
+function mistralOcrJobAgeMs(textractJobId: string): number | null {
+  const m = /^mistral-ocr-([0-9a-z]+)-/i.exec(textractJobId);
+  if (!m) return null;
+  const started = parseInt(m[1], 36);
+  if (!Number.isFinite(started) || started <= 0) return null;
+  return Date.now() - started;
+}
+
+function itemHasDownstreamOcrWork(item: OcrBatchJobItem, phase: string): boolean {
+  return (
+    (item.segments?.length ?? 0) > 0 ||
+    phase === "analyze" ||
+    phase === "segmenting" ||
+    phase === "segments"
+  );
+}
+
+async function failUnfinishedSegmentsAsOcrLost(
+  job: OcrBatchJob,
+  item: OcrBatchJobItem,
+  error: string,
+): Promise<StepOutcome> {
+  const live = (await readBatchJob(job.jobId)) ?? job;
+  const itemLive = live.items.find((i) => i.id === item.id) ?? item;
+  const segs = itemLive.segments ?? [];
+  if (segs.length === 0) {
+    return {
+      kind: "result",
+      itemDone: true,
+      results: [
+        {
+          success: false,
+          error,
+          fileName: item.fileName,
+          tempOneDrivePath: item.tempPath,
+        },
+      ],
+    };
+  }
+  const results: OcrBatchResult[] = segs
+    .filter((s) => !segmentHasResult(live.results, item.fileName, s))
+    .map((s) => ({
+      success: false,
+      error,
+      fileName: ocrSegmentResultLabel(item.fileName, s.pageStart, s.pageEnd),
+      tempOneDrivePath: item.tempPath,
+    }));
+  return { kind: "result", itemDone: true, results };
+}
+
+/**
+ * Cache OCR S3 disparu (ex. fausse complétion du lot) alors que le découpage existe encore.
+ * On relance Mistral sans resetter la phase en ocr_start — sinon la fusion remet
+ * « segments » et le worker boucle à vide.
+ */
+async function rehydrateMissingOcrCache(
+  job: OcrBatchJob,
+  item: OcrBatchJobItem,
+  itemIndex: number,
+  trace: OcrTraceCtx,
+): Promise<StepOutcome> {
+  const fileName = item.fileName;
+
+  if (item.textractJobId) {
+    const poll = await pollTextractOnce(item.textractJobId, trace);
+    if (poll.status === "IN_PROGRESS") {
+      const age = mistralOcrJobAgeMs(item.textractJobId);
+      if (age != null && age > OCR_REHYDRATE_STALE_MS) {
+        ocrTrace(
+          job.jobId,
+          "item",
+          "rehydrate-stale",
+          "job OCR mémoire trop vieux — relance Mistral",
+          { ...summarizeBatchItem(item), ageMs: age },
+          "warn",
+        );
+        const textractJobId = await startTextractForS3Key(item.s3Key, trace);
+        await patchItem(job.jobId, itemIndex, { textractJobId, ocrPagesRead: 0 });
+        return {
+          kind: "wait",
+          delayMs: OCR_POLL_DELAY_MS,
+          label: `Relecture OCR (cache perdu) — ${fileName}…`,
+        };
+      }
+      const pagesRead = Math.max(item.ocrPagesRead ?? 0, poll.pagesRead);
+      if (pagesRead !== item.ocrPagesRead) {
+        await patchItem(job.jobId, itemIndex, { ocrPagesRead: pagesRead });
+      }
+      ocrTrace(job.jobId, "item", "rehydrate-poll", "relecture OCR en cours (cache perdu)", {
+        textractJobId: item.textractJobId,
+        pagesRead,
+        pdfTotal: item.pdfPageCount ?? null,
+      });
+      const pdfTotal = item.pdfPageCount;
+      const label = pdfTotal
+        ? pagesRead > 0
+          ? `Relecture OCR (cache perdu) — ${fileName} : page ${pagesRead} / ${pdfTotal}…`
+          : `Relecture OCR (cache perdu) — ${fileName} : 0 / ${pdfTotal} page(s)…`
+        : `Relecture OCR (cache perdu) — ${fileName}`;
+      return { kind: "wait", delayMs: OCR_POLL_DELAY_MS, label };
+    }
+    if (poll.status === "FAILED") {
+      const errors = (item.errorCount ?? 0) + 1;
+      ocrTrace(
+        job.jobId,
+        "item",
+        "rehydrate-fail",
+        "relecture OCR échouée",
+        { fileName, errors, textractJobId: item.textractJobId },
+        "error",
+      );
+      if (errors >= OCR_REHYDRATE_MAX_FAILURES) {
+        return failUnfinishedSegmentsAsOcrLost(
+          job,
+          item,
+          "Relecture OCR impossible (cache perdu après une fausse fin de lot).",
+        );
+      }
+      await patchItem(job.jobId, itemIndex, { textractJobId: undefined, errorCount: errors });
+      return {
+        kind: "wait",
+        delayMs: 3_000,
+        label: `Nouvel essai OCR (${errors}/${OCR_REHYDRATE_MAX_FAILURES}) — ${fileName}`,
+      };
+    }
+    const cacheKey = item.ocrCacheKey || ocrCacheKey(job.jobId, item.id);
+    await writeOcrCache(cacheKey, poll.result);
+    await patchItem(job.jobId, itemIndex, {
+      ocrCacheKey: cacheKey,
+      pageCount: poll.result.pageCount,
+      ocrPagesRead: poll.result.pageCount,
+    });
+    ocrTrace(job.jobId, "item", "rehydrate-done", "cache OCR réécrit — reprise du classement", {
+      fileName,
+      pageCount: poll.result.pageCount,
+      cacheKey,
+    });
+    return {
+      kind: "continue",
+      label: `OCR récupéré — reprise du classement des pages manquantes (${fileName})`,
+    };
+  }
+
+  ocrTrace(
+    job.jobId,
+    "item",
+    "rehydrate-start",
+    "cache OCR absent — relance Mistral sans perdre le découpage",
+    summarizeBatchItem(item),
+    "warn",
+  );
+  const textractJobId = await startTextractForS3Key(item.s3Key, trace);
+  await patchItem(job.jobId, itemIndex, { textractJobId, ocrPagesRead: 0 });
+  return {
+    kind: "wait",
+    delayMs: OCR_POLL_DELAY_MS,
+    label: `Relecture OCR (cache perdu) — ${fileName}…`,
+  };
+}
+
 async function stepItem(
   ctx: WorkerCtx,
   job: OcrBatchJob,
@@ -773,9 +938,12 @@ async function stepItem(
 
   const ocr = item.ocrCacheKey ? await readOcrCache(item.ocrCacheKey) : null;
   if (!ocr) {
+    if (itemHasDownstreamOcrWork(item, phase)) {
+      return rehydrateMissingOcrCache(job, item, itemIndex, trace);
+    }
     ocrTrace(job.jobId, "item", "cache-miss", "cache OCR absent — retour ocr_start", summarizeBatchItem(item), "warn");
     await patchItem(job.jobId, itemIndex, { phase: "ocr_start", textractJobId: undefined });
-    return { kind: "continue" };
+    return { kind: "wait", delayMs: OCR_POLL_DELAY_MS, label: `Relance OCR — ${item.fileName}` };
   }
 
   if (phase === "analyze") {

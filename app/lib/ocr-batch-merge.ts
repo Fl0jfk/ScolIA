@@ -109,6 +109,25 @@ function preferPhase(
   return a ?? b;
 }
 
+function mergeTraceTails(
+  a: OcrBatchJob["traceTail"],
+  b: OcrBatchJob["traceTail"],
+): OcrBatchJob["traceTail"] {
+  if (!a?.length && !b?.length) return b ?? a;
+  const key = (e: NonNullable<OcrBatchJob["traceTail"]>[number]) =>
+    `${e.t}|${e.scope}|${e.phase}|${e.message}`;
+  const seen = new Set<string>();
+  const out: NonNullable<OcrBatchJob["traceTail"]> = [];
+  for (const e of [...(a ?? []), ...(b ?? [])]) {
+    const k = key(e);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(e);
+  }
+  out.sort((x, y) => x.t.localeCompare(y.t));
+  return out.length > 200 ? out.slice(-200) : out;
+}
+
 function mergeItem(ex: OcrBatchJobItem, inc: OcrBatchJobItem, results: OcrBatchResult[]): OcrBatchJobItem {
   const exSegs = ex.segments?.length ?? 0;
   const incSegs = inc.segments?.length ?? 0;
@@ -118,7 +137,8 @@ function mergeItem(ex: OcrBatchJobItem, inc: OcrBatchJobItem, results: OcrBatchR
     ...other,
     ...richer,
     ocrCacheKey: richer.ocrCacheKey || other.ocrCacheKey,
-    textractJobId: richer.textractJobId || other.textractJobId,
+    // Union : un reset cache-miss (textractJobId undefined) ne doit pas effacer une relance OCR.
+    textractJobId: inc.textractJobId || ex.textractJobId,
     phase: preferPhase(ex.phase, inc.phase),
     segments: (incSegs >= exSegs ? inc.segments : ex.segments) ?? richer.segments,
   };
@@ -191,6 +211,7 @@ export function mergeOcrBatchJobs(existing: OcrBatchJob, incoming: OcrBatchJob):
     status,
     currentItemIndex: allCovered ? items.length : Math.max(0, unfinished),
     error: status === "processing" || status === "pending" ? undefined : incoming.error ?? existing.error,
+    traceTail: mergeTraceTails(existing.traceTail, incoming.traceTail),
   };
 }
 

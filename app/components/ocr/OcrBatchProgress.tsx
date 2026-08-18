@@ -2,10 +2,13 @@
 
 import {
   formatOcrIdleHint,
+  formatOcrServerTraceLine,
   getOcrActivePhaseIndex,
   OCR_PHASE_STEPS,
+  ocrServerTraceLooksStuck,
   type OcrProcessingStatus,
   type OcrProgressDetail,
+  type OcrServerTraceEntry,
 } from "@/app/lib/ocr-page-model";
 import OcrProcessingSpinner from "./OcrProcessingSpinner";
 
@@ -23,6 +26,7 @@ export default function OcrBatchProgress({
   processingStatus,
   sessionDocTotal,
   sessionDocProcessed,
+  traceLog,
   onResumeBatchTracking,
   onResumeBatchWithOneDrive,
   onCancel,
@@ -40,12 +44,15 @@ export default function OcrBatchProgress({
   processingStatus: OcrProcessingStatus;
   sessionDocTotal: number | null;
   sessionDocProcessed: number;
+  traceLog?: OcrServerTraceEntry[];
   onResumeBatchTracking: () => void;
   onResumeBatchWithOneDrive: () => void;
   onCancel: () => void;
 }) {
   const activePhaseIndex = getOcrActivePhaseIndex(progressDetail);
   const idleHint = progressDetail ? formatOcrIdleHint(progressDetail.idleSeconds) : null;
+  const visibleTraces = (traceLog ?? []).slice(-12);
+  const stuckTrace = ocrServerTraceLooksStuck(traceLog);
 
   return (
     <>
@@ -398,6 +405,30 @@ export default function OcrBatchProgress({
             ) : null}
             {processingStatus.label ? (
               <p className="mt-3 text-center text-sm font-semibold text-blue-900/90">{processingStatus.label}</p>
+            ) : null}
+            {visibleTraces.length > 0 ? (
+              <div className="mt-4 w-full rounded-2xl border border-slate-200 bg-slate-950 text-left overflow-hidden">
+                <div className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-900 border-b border-slate-800">
+                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">
+                    Journal serveur
+                  </p>
+                  {stuckTrace ? (
+                    <span className="text-[10px] font-bold uppercase text-amber-400">
+                      Boucle suspecte
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-semibold text-slate-500">F12 → Console [OCR]</span>
+                  )}
+                </div>
+                {stuckTrace ? (
+                  <p className="px-3 py-2 text-[11px] text-amber-200 bg-amber-950/60 border-b border-amber-900/60 leading-relaxed">
+                    Le worker relit le même PDF sans avancer. Actualisez la page ou cliquez « Reprendre le suivi ».
+                  </p>
+                ) : null}
+                <pre className="px-3 py-2 text-[10px] leading-relaxed text-emerald-300/90 font-mono overflow-x-auto max-h-48 overflow-y-auto">
+                  {visibleTraces.map((entry) => formatOcrServerTraceLine(entry)).join("\n")}
+                </pre>
+              </div>
             ) : null}
           </div>
         </div>

@@ -101,6 +101,25 @@ export type OcrServerTraceEntry = {
   data?: Record<string, unknown>;
 };
 
+export function formatOcrServerTraceLine(entry: OcrServerTraceEntry): string {
+  const hhmmss = typeof entry.t === "string" && entry.t.length >= 19 ? entry.t.slice(11, 19) : "";
+  const lvl = entry.level && entry.level !== "info" ? ` ${entry.level.toUpperCase()}` : "";
+  return `${hhmmss}${lvl} [${entry.scope}/${entry.phase}] ${entry.message}`.trim();
+}
+
+/** Répétition cache-miss / retour ocr_start = le worker tourne sans avancer. */
+export function ocrServerTraceLooksStuck(entries: OcrServerTraceEntry[] | undefined): boolean {
+  if (!entries || entries.length < 4) return false;
+  const last = entries.slice(-8);
+  const loopish = last.filter(
+    (e) =>
+      e.phase === "cache-miss" ||
+      /cache OCR absent/i.test(e.message) ||
+      /retour ocr_start/i.test(e.message),
+  );
+  return loopish.length >= 4;
+}
+
 export type BatchJobStatusPayload = {
   jobId?: string;
   status?: string;
@@ -117,6 +136,34 @@ export type BatchJobStatusPayload = {
   traceLog?: OcrServerTraceEntry[];
   progress?: OcrProgressDetail;
 };
+
+export function logOcrBatchStatusToConsole(
+  st: BatchJobStatusPayload,
+  extra?: { jobId?: string | null; workerKick?: boolean },
+): void {
+  const traces = Array.isArray(st.traceLog) ? st.traceLog.slice(-6) : [];
+  const payload = {
+    jobId: extra?.jobId ?? st.jobId ?? null,
+    status: st.status,
+    percent: st.progress?.percent ?? st.percent,
+    label: st.progress?.label || st.label,
+    phase: st.progress?.phase,
+    fileName: st.progress?.fileName,
+    document:
+      st.progress?.segmentIndex != null && st.progress?.segmentTotal
+        ? `${st.progress.segmentIndex}/${st.progress.segmentTotal}`
+        : undefined,
+    docs: `${st.progress?.documentsProcessed ?? st.completed ?? "?"}/${st.progress?.documentsTotal ?? st.totalItems ?? "?"}`,
+    idleSeconds: st.progress?.idleSeconds,
+    workerKick: extra?.workerKick || undefined,
+    traces: traces.map(formatOcrServerTraceLine),
+  };
+  if (ocrServerTraceLooksStuck(st.traceLog)) {
+    console.warn("[OCR] le worker tourne sans avancer (cache OCR probablement perdu)", payload);
+  } else {
+    console.info("[OCR]", payload);
+  }
+}
 
 export type OcrSyncReport = {
   message?: string;

@@ -84,6 +84,54 @@ test("8 segments : une écriture périmée ne fait pas disparaître les document
   assert.equal(firstUnfinishedSegmentIndex(reopened.items[0]!, reopened.results), 2);
 });
 
+test("un reset ocr_start ne perd pas le découpage ni un job OCR de relance", () => {
+  const file = "SCAN.pdf";
+  const it = item(file, [
+    [1, 2],
+    [3, 4],
+    [5, 6],
+  ]);
+  const existing = job({
+    items: [{ ...it, textractJobId: "mistral-old", ocrCacheKey: "cache/x" }],
+    results: [ok(file, 1, 2)],
+  });
+  const incomingReset = job({
+    items: [{ ...it, phase: "ocr_start", textractJobId: undefined, ocrCacheKey: "cache/x" }],
+    results: [ok(file, 1, 2)],
+  });
+  const merged = mergeOcrBatchJobs(existing, incomingReset);
+  assert.equal(merged.items[0]!.phase, "segments");
+  assert.equal(merged.items[0]!.segments?.length, 3);
+  assert.equal(merged.items[0]!.textractJobId, "mistral-old");
+
+  const withNew = mergeOcrBatchJobs(
+    merged,
+    job({
+      items: [{ ...it, textractJobId: "mistral-new" }],
+      results: merged.results,
+    }),
+  );
+  assert.equal(withNew.items[0]!.phase, "segments");
+  assert.equal(withNew.items[0]!.textractJobId, "mistral-new");
+});
+
+test("une écriture sans journal ne fait pas disparaître les traces existantes", () => {
+  const file = "SCAN.pdf";
+  const it = item(file, [[1, 2]]);
+  const existing = job({
+    items: [it],
+    results: [ok(file, 1, 2)],
+    traceTail: [{ t: "t1", scope: "item", phase: "step", level: "info", message: "hello" }],
+  });
+  const incoming = job({
+    items: [it],
+    results: [ok(file, 1, 2)],
+  });
+  const merged = mergeOcrBatchJobs(existing, incoming);
+  assert.equal(merged.traceTail?.length, 1);
+  assert.equal(merged.traceTail?.[0]?.message, "hello");
+});
+
 test("un lot n'est complet que si chaque segment a un résultat", () => {
   const file = "SCAN.pdf";
   const it = item(file, [

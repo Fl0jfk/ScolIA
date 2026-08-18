@@ -33,11 +33,13 @@ import {
   isOcrBatchJobActive,
   isOcrBatchJobCancelled,
   isOcrBatchStatusFalseComplete,
+  logOcrBatchStatusToConsole,
   mergeOcrResultsForUi,
   ocrSuggestedEleves,
   type BatchJobStatusPayload,
   type OcrMefCounts,
   type OcrProgressDetail,
+  type OcrServerTraceEntry,
   type OcrSyncReport,
   type ProcessResult,
 } from "@/app/lib/ocr-page-model";
@@ -124,6 +126,7 @@ function OneDriveUpDocsOCRAIContent() {
   const [batchPollIssue, setBatchPollIssue] = useState<"offline" | "auth" | null>(null);
   const [batchServerSelfRelays, setBatchServerSelfRelays] = useState(false);
   const [progressDetail, setProgressDetail] = useState<OcrProgressDetail | null>(null);
+  const [batchTraceLog, setBatchTraceLog] = useState<OcrServerTraceEntry[]>([]);
   const [openingOneDrivePath, setOpeningOneDrivePath] = useState<string | null>(null);
 
   const applyOneDriveSession = useCallback((activeAccount: msal.AccountInfo | null, token: string | null) => {
@@ -276,6 +279,7 @@ function OneDriveUpDocsOCRAIContent() {
     if (clearResults) setOcrResults([]);
     setError("");
     setProgressDetail(null);
+    setBatchTraceLog([]);
     setProcessingStatus(INITIAL_OCR_PROCESSING_STATUS);
     if (classInputRef.current) classInputRef.current.value = "";
   }, []);
@@ -320,6 +324,10 @@ function OneDriveUpDocsOCRAIContent() {
         typeof failedCount === "number" ? Math.max(prev.failed, failedCount) : prev.failed,
     }));
     setProgressDetail(st.progress ?? null);
+    if (Array.isArray(st.traceLog)) {
+      setBatchTraceLog(st.traceLog.slice(-40));
+    }
+    logOcrBatchStatusToConsole(st, { jobId: incomingJobId });
     if (Array.isArray(st.results)) {
       setOcrResults((prev) => mergeOcrResultsForUi(prev, st.results!));
     }
@@ -532,6 +540,7 @@ function OneDriveUpDocsOCRAIContent() {
     setOcrProcessing(false);
     setBatchJobNeedsToken(false);
     setProgressDetail(null);
+    setBatchTraceLog([]);
     forgetPersistedBatchJob();
     setProcessingStatus({
       ...INITIAL_OCR_PROCESSING_STATUS,
@@ -714,6 +723,7 @@ function OneDriveUpDocsOCRAIContent() {
     const driveWorker = (id: string) => {
       if (workerInFlight || cancelled) return;
       workerInFlight = true;
+      console.info("[OCR] relance worker /process", { jobId: id, polls, serverManaged });
       void triggerBatchWorker(id).finally(() => {
         workerInFlight = false;
       });
@@ -886,6 +896,7 @@ function OneDriveUpDocsOCRAIContent() {
     activeBatchJobIdRef.current = null;
     setActiveBatchJobId(null);
     setProgressDetail(null);
+    setBatchTraceLog([]);
     localStorage.removeItem(BATCH_JOB_STORAGE_KEY);
     setProcessingStatus({
       ...INITIAL_OCR_PROCESSING_STATUS,
@@ -1251,6 +1262,7 @@ function OneDriveUpDocsOCRAIContent() {
         processingStatus={processingStatus}
         sessionDocTotal={sessionDocTotal}
         sessionDocProcessed={sessionDocProcessed}
+        traceLog={batchTraceLog}
         onResumeBatchTracking={() => void resumeBatchTracking()}
         onResumeBatchWithOneDrive={() => void resumeBatchWithOneDrive()}
         onCancel={() => void cancelOcrProcessing()}
