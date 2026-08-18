@@ -21,6 +21,7 @@ import { canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
 import { resolveDirectionEtab } from "@/app/lib/travels-direction-dashboard";
 import { normalizeRequestEmail } from "@/app/lib/requests-board";
 import { isReservationBookedForOther } from "@/app/lib/prof-room-reservation-label";
+import { subjectColorToHex } from "@/app/lib/prof-room-subject-colors";
 
 export type DashboardShortcutTone = "neutral" | "info" | "action" | "warn";
 
