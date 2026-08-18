@@ -307,6 +307,8 @@ import {
   isOcrBatchJobFullyCovered,
   mergeBatchResults,
   ocrSegmentResultLabel,
+  ocrSegmentTempFileName,
+  parseOcrSegmentLabel,
   reopenIncompleteOcrBatchJob,
   segmentHasResult,
 } from "@/app/lib/ocr-batch-merge";
@@ -575,6 +577,41 @@ async function analyzeAndMove(
 }
 
 /**
+ * Dépose l'extrait PDF d'un élève non identifié dans Temp, pour pouvoir
+ * l'ouvrir / le ranger même si le scan classe original a déjà été supprimé.
+ */
+async function depositUnmatchedSliceToTemp(
+  ctx: WorkerCtx,
+  pdfBytes: Uint8Array,
+  displayName: string,
+  fallbackPath: string,
+): Promise<string> {
+  const parsed = parseOcrSegmentLabel(displayName);
+  const fileName = parsed
+    ? ocrSegmentTempFileName(parsed.fileName, parsed.pageStart, parsed.pageEnd)
+    : `${displayName.replace(/\.pdf$/i, "").replace(/[<>:"/\\|?*[\]]/g, "_")}.pdf`;
+  const upload = await withToken(ctx, (token) =>
+    uploadBytesToOneDriveUnique(token, "Temp", fileName, pdfBytes),
+  );
+  if (!upload.ok) {
+    ocrTrace(
+      ctx.jobId,
+      "onedrive",
+      "unmatched-temp-fail",
+      "dépôt extrait Temp impossible — repli sur le PDF classe",
+      { displayName, detail: upload.detail.slice(0, 200) },
+      "warn",
+    );
+    return fallbackPath;
+  }
+  ocrTrace(ctx.jobId, "onedrive", "unmatched-temp-ok", "extrait non identifié déposé dans Temp", {
+    displayName,
+    path: upload.path,
+  });
+  return upload.path;
+}
+
+/**
  * Classe un segment découpé : texte OCR déjà en cache (pas de re-OCR),
  * PDF extrait depuis S3, dépôt direct dans le dossier élève.
  * Le PDF classe entier reste dans Temp (originalTempPath) jusqu'à la fin du lot.
@@ -599,22 +636,24 @@ async function analyzeAndFileSegment(
   const ai = await analyzeDocMatchEleve(text, ctx.odProfile, trace, { segmentMode: true, knownStudent });
 
   if (!ai?.fileName) {
+    const tempPath = await depositUnmatchedSliceToTemp(ctx, pdfBytes, displayName, originalTempPath);
     return {
       success: false,
       error: "Analyse IA incomplète.",
       fileName: displayName,
       result: ai,
-      tempOneDrivePath: originalTempPath,
+      tempOneDrivePath: tempPath,
     };
   }
   if (!ai.oneDriveFolderPath) {
+    const tempPath = await depositUnmatchedSliceToTemp(ctx, pdfBytes, displayName, originalTempPath);
     return {
       success: false,
       error:
-        "Élève non identifié — le PDF classe entier reste dans Temp pour traitement manuel.",
+        "Élève non identifié — l'extrait est dans Temp pour traitement manuel (ouvrir / ranger).",
       fileName: displayName,
       result: ai,
-      tempOneDrivePath: originalTempPath,
+      tempOneDrivePath: tempPath,
     };
   }
 
@@ -640,7 +679,7 @@ async function analyzeAndFileSegment(
       error: `Dépôt élève impossible : ${upload.detail.slice(0, 200)}`,
       fileName: displayName,
       result: ai,
-      tempOneDrivePath: originalTempPath,
+      tempOneDrivePath: await depositUnmatchedSliceToTemp(ctx, pdfBytes, displayName, originalTempPath),
     };
   }
 
@@ -1041,11 +1080,25 @@ async function stepItem(
     const slice = buildTextFromPages(ocr.pageTexts, seg.pageStart, seg.pageEnd, ocr.text);
     if (!slice.trim()) {
       ocrTrace(job.jobId, "item", "segment-empty", "texte segment vide", { label }, "warn");
+      let tempPath = item.tempPath;
+      try {
+        const pdfBytes = await extractPdfPagesBytes(item.s3Key, seg.pageStart, seg.pageEnd);
+        tempPath = await depositUnmatchedSliceToTemp(ctx, pdfBytes, label, item.tempPath);
+      } catch (extractErr) {
+        ocrTrace(
+          job.jobId,
+          "item",
+          "segment-empty-extract-fail",
+          "impossible d'extraire l'extrait vide vers Temp",
+          { error: extractErr instanceof Error ? extractErr.message : String(extractErr) },
+          "warn",
+        );
+      }
       segResult = {
         success: false,
-        error: "Texte du segment vide — PDF classe entier laissé dans Temp.",
+        error: "Texte du segment vide — extrait laissé dans Temp.",
         fileName: label,
-        tempOneDrivePath: item.tempPath,
+        tempOneDrivePath: tempPath,
       };
     } else {
       ocrTrace(job.jobId, "item", "segment-extract", "extraction pages PDF depuis S3 (OCR déjà fait)", {
@@ -1078,10 +1131,7 @@ async function stepItem(
     const freshEnd = await readBatchJob(job.jobId);
     const segPrefix = `${item.fileName} [p.`;
     const priorSegFailures = (freshEnd?.results ?? job.results).some(
-      (r) =>
-        r.fileName.startsWith(segPrefix) &&
-        !r.success &&
-        r.tempOneDrivePath === item.tempPath,
+      (r) => r.fileName.startsWith(segPrefix) && !r.success,
     );
     const keepOriginalInTemp = priorSegFailures || !segResult.success;
     if (keepOriginalInTemp) {

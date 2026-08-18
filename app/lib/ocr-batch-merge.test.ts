@@ -7,6 +7,8 @@ import {
   isOcrBatchJobFullyCovered,
   mergeOcrBatchJobs,
   ocrSegmentResultLabel,
+  ocrSegmentTempFileName,
+  parseOcrSegmentLabel,
   reopenIncompleteOcrBatchJob,
 } from "./ocr-batch-merge";
 
@@ -153,4 +155,11 @@ test("un lot n'est complet que si chaque segment a un résultat", () => {
   });
   assert.equal(isOcrBatchJobFullyCovered(complete), true);
   assert.equal(reopenIncompleteOcrBatchJob(complete), null);
+});
+
+test("libellé segment → pages et nom de fichier Temp", () => {
+  const parsed = parseOcrSegmentLabel("SCAN09.pdf [p.5-6]");
+  assert.deepEqual(parsed, { fileName: "SCAN09.pdf", pageStart: 5, pageEnd: 6 });
+  assert.equal(ocrSegmentTempFileName("SCAN09.pdf", 5, 6), "SCAN09_p5-6.pdf");
+  assert.equal(parseOcrSegmentLabel("SCAN09.pdf"), null);
 });

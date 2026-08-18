@@ -14,6 +14,25 @@ export function ocrSegmentResultLabel(
   return `${fileName} [p.${pageStart}-${pageEnd}]`;
 }
 
+export function parseOcrSegmentLabel(
+  label: string,
+): { fileName: string; pageStart: number; pageEnd: number } | null {
+  const m = /^(.*?)\s*\[p\.(\d+)-(\d+)\]\s*$/i.exec(String(label || "").trim());
+  if (!m) return null;
+  const pageStart = Number(m[2]);
+  const pageEnd = Number(m[3]);
+  if (!Number.isFinite(pageStart) || !Number.isFinite(pageEnd) || pageStart < 1 || pageEnd < pageStart) {
+    return null;
+  }
+  return { fileName: m[1].trim(), pageStart, pageEnd };
+}
+
+/** Nom de fichier Temp sans crochets (Graph 404 fréquents avec `[p.5-6]`). */
+export function ocrSegmentTempFileName(sourceFileName: string, pageStart: number, pageEnd: number): string {
+  const base = sourceFileName.replace(/\.pdf$/i, "").replace(/[<>:"/\\|?*[\]]/g, "_");
+  return `${base}_p${pageStart}-${pageEnd}.pdf`;
+}
+
 /** Fusionne les résultats sans perdre un succès déjà enregistré. */
 export function mergeBatchResults(
   existing: OcrBatchResult[],

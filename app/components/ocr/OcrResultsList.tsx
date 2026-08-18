@@ -17,13 +17,15 @@ export default function OcrResultsList({
   openingOneDrivePath,
   onOpenOneDrivePath,
   accessToken,
+  onEnsureTempSource,
   onManualFiled,
 }: {
   ocrResults: ProcessResult[];
   ocrResultsSessionId: number;
   openingOneDrivePath: string | null;
-  onOpenOneDrivePath: (path: string) => void;
+  onOpenOneDrivePath: (result: ProcessResult) => void;
   accessToken?: string | null;
+  onEnsureTempSource?: (result: ProcessResult) => Promise<{ path: string; webUrl?: string }>;
   onManualFiled?: (fileName: string, candidate: OcrSuggestedEleve, finalFileName: string) => void;
 }) {
   const failedResults = ocrResults.filter((r) => !r.success);
@@ -35,7 +37,11 @@ export default function OcrResultsList({
       setFileError((prev) => ({ ...prev, [result.fileName]: "Reconnectez OneDrive pour ranger." }));
       return;
     }
-    if (!result.tempOneDrivePath || !candidate.folderPath) {
+    if (!candidate.folderPath) {
+      setFileError((prev) => ({ ...prev, [result.fileName]: "Chemin OneDrive manquant." }));
+      return;
+    }
+    if (!result.tempOneDrivePath && !onEnsureTempSource) {
       setFileError((prev) => ({ ...prev, [result.fileName]: "Chemin OneDrive manquant." }));
       return;
     }
@@ -43,13 +49,21 @@ export default function OcrResultsList({
     setFilingKey(key);
     setFileError((prev) => ({ ...prev, [result.fileName]: "" }));
     try {
+      let sourcePath = result.tempOneDrivePath || "";
+      if (onEnsureTempSource) {
+        const ensured = await onEnsureTempSource(result);
+        if (ensured.path) sourcePath = ensured.path;
+      }
+      if (!sourcePath) {
+        throw new Error("Chemin OneDrive manquant.");
+      }
       const baseName = String(result.result?.fileName || result.fileName).replace(/\.pdf$/i, "");
       const res = await fetch("/api/agentIAOCR/move-file", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accessToken,
-          sourcePath: result.tempOneDrivePath,
+          sourcePath,
           targetFolderPath: candidate.folderPath,
           newFileName: `${baseName}.pdf`,
         }),
@@ -142,6 +156,16 @@ export default function OcrResultsList({
                       <span className="font-semibold">Temp / {tempOneDriveDisplayPath(r.tempOneDrivePath)}</span>
                     </p>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onOpenOneDrivePath(r)}
+                    disabled={openingOneDrivePath === r.fileName}
+                    className="mt-3 inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
+                  >
+                    {openingOneDrivePath === r.fileName
+                      ? "Ouverture…"
+                      : "Ouvrir le document source dans OneDrive"}
+                  </button>
                 </li>
               );
             })}
@@ -157,6 +181,8 @@ export default function OcrResultsList({
               .sort((a, b) => (a.success === b.success ? 0 : a.success ? 1 : -1))
               .map((result, index) => {
                 const sourcePath = String(result.result?.oneDriveItemPath || result.tempOneDrivePath || "");
+                const openKey = result.success ? sourcePath : result.fileName;
+                const canOpen = result.success ? Boolean(sourcePath) : true;
                 const category = ocrFailureCategory(result);
                 return (
                   <div
@@ -197,14 +223,14 @@ export default function OcrResultsList({
                         ) : null}
                       </>
                     )}
-                    {sourcePath ? (
+                    {canOpen ? (
                       <button
                         type="button"
-                        onClick={() => onOpenOneDrivePath(sourcePath)}
-                        disabled={openingOneDrivePath === sourcePath}
+                        onClick={() => onOpenOneDrivePath(result)}
+                        disabled={openingOneDrivePath === openKey}
                         className="mt-2 inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
                       >
-                        {openingOneDrivePath === sourcePath
+                        {openingOneDrivePath === openKey
                           ? "Ouverture…"
                           : "Ouvrir le document source dans OneDrive"}
                       </button>

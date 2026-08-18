@@ -117,6 +117,7 @@ function OneDriveUpDocsOCRAIContent() {
   const ocrProcessingRef = useRef(false);
   const processingLockRef = useRef(false);
   const activeBatchJobIdRef = useRef<string | null>(null);
+  const lastOcrJobIdRef = useRef<string | null>(null);
   /** Pics monotones par session : empêchent les compteurs UI de régresser (poll S3 en retard). */
   const progressPeakRef = useRef<{ percent: number; totalDocs: number }>({ percent: 0, totalDocs: 0 });
   const [checkingOneDrive, setCheckingOneDrive] = useState(false);
@@ -302,6 +303,7 @@ function OneDriveUpDocsOCRAIContent() {
   const applyBatchJobStatusToUi = useCallback((st: BatchJobStatusPayload, jobId?: string | null) => {
     const incomingJobId = jobId ?? st.jobId ?? null;
     if (incomingJobId && activeBatchJobIdRef.current !== incomingJobId) return;
+    if (incomingJobId) lastOcrJobIdRef.current = incomingJobId;
 
     const pct = st.progress?.percent ?? st.percent;
     const succeeded =
@@ -336,6 +338,7 @@ function OneDriveUpDocsOCRAIContent() {
   const persistFinishedBatchJob = useCallback((jobId: string) => {
     localStorage.removeItem(BATCH_JOB_STORAGE_KEY);
     localStorage.setItem(BATCH_JOB_LAST_RESULTS_KEY, jobId);
+    lastOcrJobIdRef.current = jobId;
   }, []);
 
   const forgetPersistedBatchJob = useCallback(() => {
@@ -696,6 +699,7 @@ function OneDriveUpDocsOCRAIContent() {
 
         if (st.status === "completed" || st.status === "failed") {
           persistFinishedBatchJob(jobId);
+          lastOcrJobIdRef.current = jobId;
           if (Array.isArray(st.results)) {
             setOcrResults(st.results);
             setOcrResultsSessionId((id) => id + 1);
@@ -1131,26 +1135,79 @@ function OneDriveUpDocsOCRAIContent() {
     }
   };
 
+  const rememberOcrTempPath = useCallback((fileName: string, path: string) => {
+    setOcrResults((prev) =>
+      prev.map((r) => (r.fileName === fileName ? { ...r, tempOneDrivePath: path } : r)),
+    );
+  }, []);
+
+  const ensureOcrTempSource = useCallback(
+    async (result: ProcessResult): Promise<{ path: string; webUrl?: string }> => {
+      const token = pickCachedAccessToken(oneDriveTokenRef.current) ?? (await ensureOneDriveConnection());
+      if (!token) throw new Error("Reconnectez OneDrive pour ouvrir le fichier.");
+      const jobId =
+        lastOcrJobIdRef.current ||
+        activeBatchJobIdRef.current ||
+        (typeof localStorage !== "undefined" ? localStorage.getItem(BATCH_JOB_LAST_RESULTS_KEY) : null);
+      const ensureRes = await fetch("/api/agentIAOCR/ensure-temp-source", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accessToken: token,
+          jobId: jobId || undefined,
+          fileName: result.fileName,
+          sourcePath: result.tempOneDrivePath || "",
+        }),
+      });
+      const ensured = (await ensureRes.json().catch(() => ({}))) as {
+        path?: string;
+        webUrl?: string;
+        error?: string;
+      };
+      if (!ensureRes.ok || !ensured.path) {
+        throw new Error(ensured.error || `OneDrive ${ensureRes.status}`);
+      }
+      rememberOcrTempPath(result.fileName, ensured.path);
+      return { path: ensured.path, webUrl: ensured.webUrl };
+    },
+    [ensureOneDriveConnection, rememberOcrTempPath],
+  );
+
   const openOneDrivePath = useCallback(
-    async (itemPath: string) => {
-      const cleanPath = String(itemPath || "").replace(/^\/+/, "");
-      if (!cleanPath) return;
-      setOpeningOneDrivePath(cleanPath);
+    async (result: ProcessResult) => {
+      const successPath = String(result.result?.oneDriveItemPath || "").replace(/^\/+/, "");
+      const openKey = result.success ? successPath || result.fileName : result.fileName;
+      setOpeningOneDrivePath(openKey);
       try {
         const token = pickCachedAccessToken(oneDriveTokenRef.current) ?? (await ensureOneDriveConnection());
         if (!token) return;
-        const res = await fetch(graphDriveRootItemUrl(cleanPath, "?$select=webUrl"), {
+
+        if (result.success && successPath) {
+          const res = await fetch(graphDriveRootItemUrl(successPath, "?$select=webUrl"), {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) throw new Error(`Graph ${res.status}`);
+          const data = (await res.json()) as { webUrl?: string };
+          if (!data.webUrl) throw new Error("Lien OneDrive introuvable");
+          window.open(data.webUrl, "_blank", "noopener,noreferrer");
+          return;
+        }
+
+        const ensured = await ensureOcrTempSource(result);
+        if (ensured.webUrl) {
+          window.open(ensured.webUrl, "_blank", "noopener,noreferrer");
+          return;
+        }
+        const res = await fetch(graphDriveRootItemUrl(ensured.path, "?$select=webUrl"), {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) {
-          throw new Error(`Graph ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`Graph ${res.status}`);
         const data = (await res.json()) as { webUrl?: string };
         if (!data.webUrl) throw new Error("Lien OneDrive introuvable");
         window.open(data.webUrl, "_blank", "noopener,noreferrer");
       } catch (e: unknown) {
         setError(
-          `Impossible d'ouvrir le document OneDrive (${cleanPath}) : ${
+          `Impossible d'ouvrir le document OneDrive (${result.fileName}) : ${
             e instanceof Error ? e.message : String(e)
           }`,
         );
@@ -1158,7 +1215,7 @@ function OneDriveUpDocsOCRAIContent() {
         setOpeningOneDrivePath(null);
       }
     },
-    [ensureOneDriveConnection],
+    [ensureOneDriveConnection, ensureOcrTempSource],
   );
 
   if (!msalReady) {
@@ -1295,7 +1352,8 @@ function OneDriveUpDocsOCRAIContent() {
         ocrResults={ocrResults}
         ocrResultsSessionId={ocrResultsSessionId}
         openingOneDrivePath={openingOneDrivePath}
-        onOpenOneDrivePath={(path) => void openOneDrivePath(path)}
+        onOpenOneDrivePath={(result) => void openOneDrivePath(result)}
+        onEnsureTempSource={ensureOcrTempSource}
         accessToken={accessToken}
         onManualFiled={(fileName, candidate, finalFileName) => {
           setOcrResults((prev) =>
