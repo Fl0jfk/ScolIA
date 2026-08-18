@@ -267,7 +267,7 @@ export function shouldKickWorkerFromStatus(job: OcrBatchJob): boolean {
   if ((job.status === "completed" || job.status === "failed") && !isOcrBatchJobFullyCovered(job)) {
     return !kickedRecently;
   }
-  if (isJobStopped(job) || job.status === "needs_token") {
+  if (isJobStopped(job)) {
     return false;
   }
   if (!isBatchJobStale(job)) return false;
