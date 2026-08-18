@@ -179,7 +179,7 @@ export function mergeOcrBatchJobs(existing: OcrBatchJob, incoming: OcrBatchJob):
   }
   if (!allCovered) {
     if (status === "completed" || status === "failed") status = "processing";
-  } else if (status !== "cancelled" && status !== "needs_token") {
+  } else if (status !== "needs_token") {
     status = "completed";
   }
 
