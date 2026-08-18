@@ -25,6 +25,37 @@ export function resolveEleveFolderName(eleve: {
   return buildEleveFolderName(eleve.nom, eleve.prenom);
 }
 
+/** Normalise une date de naissance vers AAAA-MM-JJ (Excel / Pronote / OCR). */
+export function normalizeEleveDateNaissance(raw: unknown): string {
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+    const y = raw.getFullYear();
+    const m = String(raw.getMonth() + 1).padStart(2, "0");
+    const d = String(raw.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const fr = s.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/);
+  if (fr) {
+    return `${fr[3]}-${fr[2].padStart(2, "0")}-${fr[1].padStart(2, "0")}`;
+  }
+  const serial = Number(s.replace(",", "."));
+  if (Number.isFinite(serial) && serial > 20000 && serial < 60000) {
+    const excelEpoch = Date.UTC(1899, 11, 30);
+    const ms = excelEpoch + Math.round(serial) * 86400000;
+    const dt = new Date(ms);
+    if (!Number.isNaN(dt.getTime())) {
+      const y = dt.getUTCFullYear();
+      const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+      const d = String(dt.getUTCDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+  }
+  return "";
+}
+
 export type EleveConfig = {
   ine: string;
   nom: string;
@@ -42,6 +73,8 @@ export type EleveConfig = {
   parentPhone?: string;
   parent1Phone?: string;
   parent2Phone?: string;
+  /** Date de naissance (AAAA-MM-JJ) — confirmation d’identité OCR (CNI, livret). */
+  dateNaissance?: string;
   /** Code ou libellé MEF / formation (export Pronote) — rattachement Lycée / Collège / École. */
   mef?: string;
   /** Alias de mef si l'export nomme la colonne « formation ». */
@@ -81,6 +114,7 @@ export function validateElevesJson(
     const parentPhone = String(o.parentPhone ?? "").trim();
     const parent1Phone = String(o.parent1Phone ?? "").trim();
     const parent2Phone = String(o.parent2Phone ?? "").trim();
+    const dateNaissance = normalizeEleveDateNaissance(o.dateNaissance ?? o.date_naissance ?? "");
     if (!nom || !prenom || !folderName) {
       return {
         ok: false,
@@ -107,6 +141,7 @@ export function validateElevesJson(
       ...(parentPhone ? { parentPhone } : {}),
       ...(parent1Phone ? { parent1Phone } : {}),
       ...(parent2Phone ? { parent2Phone } : {}),
+      ...(dateNaissance ? { dateNaissance } : {}),
       ...(mef ? { mef } : {}),
       ...(secteur ? { secteur } : {}),
     });

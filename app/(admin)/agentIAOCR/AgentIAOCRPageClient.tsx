@@ -31,6 +31,7 @@ import {
   INITIAL_OCR_PROCESSING_STATUS,
   buildOcrProgressCaption,
   mergeOcrResultsForUi,
+  ocrSuggestedEleves,
   type BatchJobStatusPayload,
   type OcrMefCounts,
   type OcrProgressDetail,
@@ -1084,6 +1085,7 @@ function OneDriveUpDocsOCRAIContent() {
   // ou écriture concurrente côté serveur) et provoquait les sauts 8→7→5 / le sous-comptage.
   const sessionDocSucceeded = ocrResults.filter((r) => r.success).length;
   const sessionDocFailed = ocrResults.filter((r) => !r.success).length;
+  const sessionDocReview = ocrResults.filter((r) => !r.success && ocrSuggestedEleves(r).length > 0).length;
   const sessionDocProcessed = sessionDocSucceeded + sessionDocFailed;
   const rawDocTotal =
     progressDetail?.phase === "segments" && progressDetail.segmentTotal
@@ -1180,6 +1182,7 @@ function OneDriveUpDocsOCRAIContent() {
         sessionDocProcessed={sessionDocProcessed}
         sessionDocSucceeded={sessionDocSucceeded}
         sessionDocFailed={sessionDocFailed}
+        sessionDocReview={sessionDocReview}
         canStartFreshSession={canStartFreshSession}
         onStartFreshSession={handleStartFreshOcrSession}
       />
@@ -1189,6 +1192,33 @@ function OneDriveUpDocsOCRAIContent() {
         ocrResultsSessionId={ocrResultsSessionId}
         openingOneDrivePath={openingOneDrivePath}
         onOpenOneDrivePath={(path) => void openOneDrivePath(path)}
+        accessToken={accessToken}
+        onManualFiled={(fileName, candidate, finalFileName) => {
+          setOcrResults((prev) =>
+            prev.map((r) =>
+              r.fileName === fileName && !r.success
+                ? {
+                    ...r,
+                    success: true,
+                    error: undefined,
+                    result: {
+                      ...r.result,
+                      fileName: finalFileName.replace(/\.pdf$/i, ""),
+                      oneDriveItemPath: candidate.folderPath
+                        ? `${candidate.folderPath}/${finalFileName}`
+                        : r.result?.oneDriveItemPath,
+                      matchedEleve: {
+                        nom: candidate.nom,
+                        prenom: candidate.prenom,
+                        folderName: candidate.folderName,
+                      },
+                      matchDebug: { ...r.result?.matchDebug, matchedBy: "manual", decision: "auto" },
+                    },
+                  }
+                : r,
+            ),
+          );
+        }}
       />
 
       <OcrConfigPanel

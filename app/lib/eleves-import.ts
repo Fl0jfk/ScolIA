@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import type { EleveConfig } from "@/app/lib/eleves-config";
-import { buildEleveFolderName, validateElevesJson } from "@/app/lib/eleves-config";
+import { buildEleveFolderName, normalizeEleveDateNaissance, validateElevesJson } from "@/app/lib/eleves-config";
 
 export type ElevesImportSource = "pronote" | "ecoledirecte" | "auto";
 
@@ -21,7 +21,8 @@ type FieldKey =
   | "parentPhone"
   | "parent1Phone"
   | "parent2Phone"
-  | "folderName";
+  | "folderName"
+  | "dateNaissance";
 
 const COLUMN_ALIASES: Record<FieldKey, string[]> = {
   nom: [
@@ -112,6 +113,21 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "parent 2 telephone",
   ],
   folderName: ["foldername", "dossier", "nom dossier", "nom du dossier"],
+  dateNaissance: [
+    "date naissance",
+    "date de naissance",
+    "datenaissance",
+    "ne le",
+    "né le",
+    "nee le",
+    "née le",
+    "ddn",
+    "date nais",
+    "birthdate",
+    "birth date",
+    "date of birth",
+    "dob",
+  ],
 };
 
 function normalizeHeader(value: unknown): string {
@@ -158,6 +174,7 @@ function matchColumn(header: string, source: ElevesImportSource): FieldKey | nul
           "parent1Email",
           "parent2Email",
           "folderName",
+          "dateNaissance",
         ]
       : [
           "nom",
@@ -170,6 +187,7 @@ function matchColumn(header: string, source: ElevesImportSource): FieldKey | nul
           "parent1Email",
           "parent2Email",
           "folderName",
+          "dateNaissance",
         ];
 
   for (const field of priority) {
@@ -261,6 +279,7 @@ function mergeEleveFields(existing: EleveConfig, incoming: EleveConfig): EleveCo
   if (incoming.parentPhone?.trim()) merged.parentPhone = incoming.parentPhone.trim();
   if (incoming.parent1Phone?.trim()) merged.parent1Phone = incoming.parent1Phone.trim();
   if (incoming.parent2Phone?.trim()) merged.parent2Phone = incoming.parent2Phone.trim();
+  if (incoming.dateNaissance?.trim()) merged.dateNaissance = incoming.dateNaissance.trim();
 
   return merged;
 }
@@ -350,6 +369,8 @@ function parseRowsToEleves(
     if (p1Tel) entry.parent1Phone = p1Tel;
     const p2Tel = cellStr(row, colMap.parent2Phone);
     if (p2Tel) entry.parent2Phone = p2Tel;
+    const dateNaissance = normalizeEleveDateNaissance(cellStr(row, colMap.dateNaissance));
+    if (dateNaissance) entry.dateNaissance = dateNaissance;
 
     eleves.push(entry);
   }

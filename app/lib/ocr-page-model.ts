@@ -169,9 +169,51 @@ export function ocrDropZoneClass(
     ${opts.ocrProcessing ? "ring-4 ring-blue-400/40 border-blue-500 bg-blue-50/80" : ""}`;
 }
 
+export type OcrSuggestedEleve = {
+  nom: string;
+  prenom: string;
+  classe?: string;
+  folderName: string;
+  folderPath?: string;
+  score?: number;
+  matchedBy?: string;
+};
+
+export function ocrSuggestedEleves(result: ProcessResult): OcrSuggestedEleve[] {
+  const raw = result.result?.matchCandidates ?? result.result?.matchDebug?.candidates ?? [];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((c: Record<string, unknown>) => ({
+      nom: String(c.nom || ""),
+      prenom: String(c.prenom || ""),
+      classe: c.classe ? String(c.classe) : undefined,
+      folderName: String(c.folderName || ""),
+      folderPath: c.folderPath ? String(c.folderPath) : undefined,
+      score: typeof c.score === "number" ? c.score : undefined,
+      matchedBy: c.matchedBy ? String(c.matchedBy) : undefined,
+    }))
+    .filter((c: OcrSuggestedEleve) => c.folderName && c.nom);
+}
+
+export function ocrExtractedSummary(result: ProcessResult): string | null {
+  const eleve = result.result?.eleve;
+  if (!eleve || typeof eleve !== "object") return null;
+  const nom = String(eleve.nom || "").trim();
+  const prenom = String(eleve.prénom || eleve.prenom || "").trim();
+  const classe = String(eleve.classe || "").trim();
+  const ine = String(eleve.ine || "").trim();
+  const origin = String(result.result?.matchDebug?.origin || "").trim();
+  const parts = [nom && prenom ? `${nom} ${prenom}` : nom || prenom, classe, ine ? `INE ${ine}` : "", origin]
+    .filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
 export function ocrFailureHint(result: ProcessResult): string {
   const err = (result.error || "").toLowerCase();
   if (err.includes("élève") || err.includes("eleve") || err.includes("identifi")) {
+    if (ocrSuggestedEleves(result).length > 0) {
+      return "L’identité n’est pas assez certaine pour ranger tout seul. Choisissez l’élève ci-dessous.";
+    }
     return "Le nom ou prénom de l'élève n'a pas été reconnu clairement dans le document.";
   }
   if (err.includes("incomplet") || err.includes("filename")) {
@@ -190,7 +232,10 @@ export function ocrFailureHint(result: ProcessResult): string {
 export function ocrFailureCategory(result: ProcessResult): { label: string; technical: boolean } {
   const err = (result.error || "").toLowerCase();
   if (err.includes("élève") || err.includes("eleve") || err.includes("identifi")) {
-    return { label: "Élève non trouvé", technical: false };
+    return {
+      label: ocrSuggestedEleves(result).length > 0 ? "À valider" : "Élève non trouvé",
+      technical: false,
+    };
   }
   if (err.includes("incomplet") || err.includes("filename")) {
     return { label: "Lecture incomplète", technical: false };

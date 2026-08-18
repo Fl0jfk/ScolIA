@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { EleveConfig } from "@/app/lib/eleves-config";
-import { resolveEleveFolderName } from "@/app/lib/eleves-config";
+import { normalizeEleveDateNaissance, resolveEleveFolderName } from "@/app/lib/eleves-config";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { loadMefSecteurMap } from "@/app/lib/mef-secteurs";
 import {
@@ -12,6 +12,11 @@ import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import { ocrTraceCtx, type OcrTraceCtx } from "@/app/lib/ocr-trace";
 import type { KnownStudent } from "@/app/lib/ocr-segmentation";
+import {
+  matchEleveFromDocument,
+  type EleveMatchCandidateView,
+  type ExtractedIdentity,
+} from "@/app/lib/ocr-eleve-match";
 
 async function getElevesFromS3(): Promise<EleveConfig[]> {
   return loadElevesRegistry();
@@ -59,77 +64,6 @@ function normalizeIne(str: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "");
-}
-
-function levenshtein(a: string, b: string): number {
-  if (a === b) return 0;
-  if (!a.length) return b.length;
-  if (!b.length) return a.length;
-  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    const curr = [i];
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
-    }
-    prev = curr;
-  }
-  return prev[b.length];
-}
-
-/**
- * Proximité 0→1 entre deux chaînes (1 = identiques).
- * Tolérance OCR stricte : max 1 caractère différent pour les noms courts,
- * 1-2 pour les plus longs. Seuil interne relevé à 0.88.
- */
-function closeness(a: string, b: string): number {
-  if (!a || !b) return 0;
-  if (a === b) return 1;
-  // Inclusion seulement si l'un est préfixe/suffixe ET assez long (évite "AR" dans "MARTIN")
-  const shorter = a.length < b.length ? a : b;
-  const longer = a.length < b.length ? b : a;
-  if (shorter.length >= 4 && longer.startsWith(shorter)) return 0.88;
-  const maxLen = Math.max(a.length, b.length);
-  if (maxLen === 0) return 0;
-  // Tolérance : 1 erreur maxi pour ≤6 chars, 2 erreurs maxi pour 7-12 chars, 3 pour les plus longs
-  const dist = levenshtein(a, b);
-  const maxAllowed = maxLen <= 6 ? 1 : maxLen <= 12 ? 2 : 3;
-  if (dist > maxAllowed) return 0;
-  return 1 - dist / maxLen;
-}
-
-/**
- * Score de similarité nom/prénom — strict.
- * Exige que NOM et PRÉNOM soient tous les deux présents et matchent chacun.
- * Score max = 4.0 (2 pts nom + 2 pts prénom). Seuil de match auto : >= 3.2.
- * Si un seul champ est disponible (sans l'autre), on ne score pas : trop risqué.
- */
-function nameSimilarity(aNom: string, aPrenom: string, bNom: string, bPrenom: string): number {
-  const an = normalize(aNom);
-  const ap = normalize(aPrenom);
-  const bn = normalize(bNom);
-  const bp = normalize(bPrenom);
-
-  // Exige que les deux champs soient non vides des deux côtés
-  const hasNomBothSides = Boolean(an && bn);
-  const hasPrenomBothSides = Boolean(ap && bp);
-  if (!hasNomBothSides || !hasPrenomBothSides) return 0;
-
-  const cNom = closeness(an, bn);
-  const cPrenom = closeness(ap, bp);
-
-  // Les deux doivent atteindre le seuil : un seul qui matche ne suffit pas
-  if (cNom < 0.88 || cPrenom < 0.88) {
-    // Tenter inversion nom/prénom (bulletins qui inversent parfois)
-    const cNomInv = closeness(an, bp);
-    const cPrenomInv = closeness(ap, bn);
-    if (cNomInv >= 0.88 && cPrenomInv >= 0.88) {
-      return (cNomInv + cPrenomInv); // score ≤ 2.0 → jamais auto-matché sans 2e appel IA
-    }
-    return 0;
-  }
-
-  return 2 * cNom + 2 * cPrenom;
 }
 
 type OcrAnalyzeResult = {
@@ -258,47 +192,42 @@ export async function analyzeDocMatchEleve(
   }
 
   const extractionPrompt = `
-      Analyse ce document scolaire (bulletin, relevé de notes, carte d'identité, certificat, attestation, diplôme, courrier, etc.)
-      et extrais UNIQUEMENT les informations clairement présentes dans le texte.
+      Analyse ce document scolaire ou administratif concernant un élève
+      (bulletin, relevé, carte d'identité, certificat, attestation, diplôme, courrier, CAF, mutuelle…).
+      Extrais UNIQUEMENT ce qui est clairement présent. Ne devine JAMAIS.
 
-      - titre_document : titre EXPLICITE et autonome pour nommer le fichier, SANS le nom/prénom de l'élève.
-        Doit préciser de quoi il s'agit (pas un mot seul trop vague).
-        Exemples selon le document :
-        · "Bulletin scolaire 2ème semestre 2A"
-        · "Relevé de notes Trimestre 1"
-        · "Carte d'identité"
-        · "Certificat de scolarité 2025-2026"
-        · "Attestation d'assurance scolaire"
-        · "Diplôme brevet 2024"
-        Interdit : un seul mot trop générique du type "Document", "Fichier", "PDF".
-      - type : catégorie courte (Bulletin, Relevé de notes, Carte d'identité, Certificat, Attestation, Diplôme, Courrier, Autre…)
-      - detail : précision utile si pas déjà dans le titre (matière, organisme, année, motif…) sinon "non_trouvé"
-      - Nom de famille de l'élève
-      - Prénom de l'élève
-      - INE (si présent)
-      - Date de naissance (si présente)
-      - Classe ou niveau tel qu'écrit (ex. "2A", "2GT-EO")
-      - Période (ex. "2ème semestre", "Trimestre 1", "Année 2025-2026") si indiquée
+      Distingue bien l'ÉLÈVE (enfant scolarisé) des PARENTS / ASSURÉS / TITULAIRES du document.
 
-      Si une information n'est PAS présente, écris exactement "non_trouvé" pour ce champ.
-      Ne devine JAMAIS, n'invente JAMAIS.
-      IMPORTANT : Réponds UNIQUEMENT avec du JSON valide, sans markdown ni commentaire.
-      Texte du document :
+      - titre_document : titre EXPLICITE pour nommer le fichier, SANS nom/prénom.
+        Ex. "Bulletin scolaire 2ème semestre 2A", "Carte d'identité", "Attestation d'assurance scolaire".
+        Interdit : "Document", "Fichier", "PDF".
+      - type : Bulletin, Relevé de notes, Carte d'identité, Certificat, Attestation, Diplôme, Courrier, Autre
+      - detail : précision utile sinon "non_trouvé"
+      - origine : "interne" si document de l'établissement (bulletin, relevé, certificat de scolarité, Pronote, Charlemagne),
+        "externe" si CNI, passeport, CAF, mutuelle, médecin, assurance, organisme extérieur.
+      - eleve : identité de l'enfant (pas du parent)
+      - parents : titulaires / responsables s'ils apparaissent, sinon []
+      - INE, date de naissance, classe, période si présents
+
+      Texte :
       ---
       ${text}
       ---
-      Format de réponse (JSON uniquement) :
+      JSON uniquement :
       {
         "titre_document": "...",
         "type": "...",
         "detail": "...",
+        "origine": "interne",
         "nom": "...",
         "prénom": "...",
         "ine": "...",
         "date_naissance": "...",
         "classe": "...",
-        "période": "..."
+        "période": "...",
+        "parents": [{"nom": "...", "prénom": "..."}]
       }
+      Si un champ est absent : "non_trouvé" (sauf parents = []).
     `;
 
   ocrTraceCtx(trace, "classify", "mistral-extract", "appel Mistral extraction", {
@@ -372,6 +301,7 @@ export async function analyzeDocMatchEleve(
 
   let oneDriveFolderPath: string | null = null;
   let matchedEleve: { ine: string; nom: string; prenom: string; folderName: string } | null = null;
+  let matchCandidates: EleveMatchCandidateView[] = [];
   let matchDebug: Record<string, unknown> = {};
 
   const knownStudent = options?.knownStudent;
@@ -384,7 +314,7 @@ export async function analyzeDocMatchEleve(
       folderName: knownStudent.folderName,
     };
     oneDriveFolderPath = oneDrivePathForEleve(odProfile.basePath, resolveEleveFolderName(matchedEleve));
-    matchDebug = { matchedBy: "segmentation-identity", folderName: knownStudent.folderName };
+    matchDebug = { matchedBy: "segmentation-identity", folderName: knownStudent.folderName, decision: "auto" };
     ocrTraceCtx(trace, "classify", "match-prematched", "élève fourni par le découpage (pas de matching IA)", {
       folderName: knownStudent.folderName,
     });
@@ -393,100 +323,70 @@ export async function analyzeDocMatchEleve(
     const mefMap = await loadMefSecteurMap();
     const allEleves = await getElevesFromS3();
     const { eleves, secteurFilterApplied } = buildElevesPoolForOcrMatching(allEleves, odProfile, mefMap);
-    matchDebug = {
-      totalEleves: allEleves.length,
-      elevesInPool: eleves.length,
-      secteurFilterApplied,
-      secteur: odProfile?.secteur ?? null,
-      secteurLabel: odProfile?.label ?? null,
-      mefCodesInTable: mefMap.size,
-      hasOneDriveProfile: Boolean(odProfile),
+    const pool = eleves.length > 0 ? eleves : allEleves;
+    const extractedIdentity: ExtractedIdentity = {
+      nom: cleanFieldValue(extracted.nom),
+      prenom: cleanFieldValue(extracted.prénom ?? extracted.prenom),
+      ine: cleanFieldValue(extracted.ine),
+      classe: cleanFieldValue(extracted.classe),
+      dateNaissance: normalizeEleveDateNaissance(cleanFieldValue(extracted.date_naissance)),
+      origine:
+        extracted.origine === "interne" || extracted.origine === "externe" ? extracted.origine : undefined,
+      parents: Array.isArray(extracted.parents)
+        ? extracted.parents
+            .map((p: { nom?: string; prénom?: string; prenom?: string }) => ({
+              nom: cleanFieldValue(p?.nom),
+              prenom: cleanFieldValue(p?.prénom ?? p?.prenom),
+            }))
+            .filter((p: { nom?: string; prenom?: string }) => p.nom || p.prenom)
+        : [],
     };
-    const { ine, nom, prénom } = extracted;
-    const hasNom = Boolean(nom && nom !== "non_trouvé" && normalize(nom).length >= 2);
-    const hasPrenom = Boolean(prénom && prénom !== "non_trouvé" && normalize(prénom).length >= 2);
-    const ineNorm = ine && ine !== "non_trouvé" ? normalizeIne(ine) : "";
-    const elevesWithIne = allEleves.filter((e) => e.ine && normalizeIne(e.ine)).length;
 
-    // 1) INE = identifiant national unique → recherché sur TOUTE la liste,
-    //    indépendamment du filtre secteur (sinon un élève hors pool est perdu).
-    let ineMatched = false;
-    if (ineNorm) {
-      const found = allEleves.find((e) => e.ine && normalizeIne(e.ine) === ineNorm);
-      if (found) {
-        matchedEleve = found;
-        ineMatched = true;
-        ocrTraceCtx(trace, "classify", "match-ine", "élève trouvé par INE", {
-          ine: ineNorm,
-          folderName: found.folderName,
-        });
-      } else {
-        ocrTraceCtx(trace, "classify", "match-ine-miss", "INE extrait mais absent de eleves.json", {
-          ine: ineNorm,
-        }, "warn");
-      }
+    let decision = matchEleveFromDocument({
+      text,
+      eleves: pool,
+      extracted: extractedIdentity,
+    });
+    if (decision.decision === "none" && pool.length !== allEleves.length) {
+      decision = matchEleveFromDocument({
+        text,
+        eleves: allEleves,
+        extracted: extractedIdentity,
+      });
     }
 
-    // 2) Nom + prénom : les DEUX champs doivent être présents et dépasser le seuil.
-    //    Si un seul champ est disponible, on ne matche pas automatiquement (trop risqué).
-    let bestNameScore = 0;
-    if (!matchedEleve && hasNom && hasPrenom) {
-      const scoreList = (list: typeof eleves) =>
-        list
-          .map((e) => ({
-            eleve: e,
-            score: nameSimilarity(nom, prénom, e.nom, e.prenom),
-          }))
-          .filter((s) => s.score > 0)
-          .sort((a, b) => b.score - a.score);
+    const withPaths = (list: EleveMatchCandidateView[]): EleveMatchCandidateView[] =>
+      list.map((c) => ({
+        ...c,
+        folderPath: odProfile ? oneDrivePathForEleve(odProfile.basePath, c.folderName) : undefined,
+      }));
 
-      let scored = scoreList(eleves).slice(0, 3);
-      if (scored.length === 0 && eleves.length !== allEleves.length) {
-        scored = scoreList(allEleves).slice(0, 3);
-      }
-      bestNameScore = scored[0]?.score ?? 0;
-      ocrTraceCtx(trace, "classify", "match-name-shortlist", "shortlist nom/prénom", {
-        candidates: scored.map((s) => ({
-          nom: s.eleve.nom,
-          prenom: s.eleve.prenom,
-          score: Math.round(s.score * 100) / 100,
-        })),
-      });
+    matchCandidates = withPaths(decision.candidates);
 
-      // Auto-match (sans 2e appel IA) : score >= 3.2/4.0 = les deux champs matchent fortement
-      const AUTO_MATCH_THRESHOLD = 3.2;
-      if (scored.length > 0 && scored[0].score >= AUTO_MATCH_THRESHOLD) {
-        matchedEleve = scored[0].eleve;
-        ocrTraceCtx(trace, "classify", "match-name-auto", "élève retenu par score strict (sans 2e appel Mistral)", {
-          score: Math.round(scored[0].score * 100) / 100,
-          folderName: matchedEleve.folderName,
-        });
-      } else if (scored.length > 0 && scored[0].score > 0) {
-        // Score insuffisant pour l'auto-match : on soumet à Mistral AVEC instruction stricte
-        const shortlist = scored.map((s) => s.eleve);
-        const shortlistDescription = shortlist
-          .map((e, idx) => `${idx + 1}. INE: ${e.ine || "?"}, Nom: ${e.nom}, Prénom: ${e.prenom}`)
-          .join("\n");
-        const selectionPrompt = `Tu es un système de classement de documents scolaires. Tu DOIS être très strict.
+    if (decision.decision === "review" && !segmentMode && decision.candidates.length > 0 && mistralKey) {
+      const shortlistDescription = decision.candidates
+        .map(
+          (c, idx) =>
+            `${idx + 1}. INE: ${c.ine || "?"}, Nom: ${c.nom}, Prénom: ${c.prenom}, Classe: ${c.classe || "?"}, score=${c.score}, via=${c.matchedBy}`,
+        )
+        .join("\n");
+      const selectionPrompt = `Tu valides un classement de document scolaire. Sois strict.
 
-Texte OCR du document :
+Texte OCR :
 ---
 ${text.slice(0, 3000)}
 ---
 
-Élèves candidats (shortlist) :
+Identité extraite : élève ${extractedIdentity.nom || "?"} ${extractedIdentity.prenom || "?"} / classe ${extractedIdentity.classe || "?"} / INE ${extractedIdentity.ine || "?"} / origine ${decision.origin}
+
+Candidats :
 ${shortlistDescription}
 
-Règles STRICTES :
-- Le NOM DE FAMILLE et le PRÉNOM extraits du document doivent correspondre exactement (ou quasi-exactement avec 1 caractère d'écart max) à ceux d'un élève de la liste.
-- Une simple similitude partielle (même début de nom, même lettre initiale) ne suffit PAS.
-- Si tu as le moindre doute, réponds 0.
-- Si aucun élève ne correspond avec certitude, réponds 0.
-- Ne tente pas de deviner.
-
-Réponds UNIQUEMENT avec ce JSON valide :
-{"index": 0}`;
-
+Règles :
+- Ne choisis un index que si NOM + PRÉNOM correspondent vraiment à l'élève du document (pas un parent).
+- En cas de doute, réponds 0.
+JSON uniquement : {"index":0,"confidence":0}`;
+      try {
         const selectionResponse = await fetch("https://api.mistral.ai/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -503,49 +403,68 @@ Réponds UNIQUEMENT avec ce JSON valide :
         if (selectionResponse.ok) {
           const selectionData = await selectionResponse.json();
           const content = (selectionData.choices?.[0]?.message?.content || "").trim();
-          let selectedIndex = 0;
-          try {
-            selectedIndex = JSON.parse(content).index ?? 0;
-          } catch {
-            selectedIndex = 0;
+          const parsed = JSON.parse(content) as { index?: number; confidence?: number };
+          const selectedIndex = Number(parsed.index ?? 0);
+          const confidence = Number(parsed.confidence ?? 0);
+          if (selectedIndex > 0 && selectedIndex <= decision.candidates.length && confidence >= 0.9) {
+            const chosen = decision.candidates[selectedIndex - 1];
+            const found =
+              allEleves.find((e) => e.folderName === chosen.folderName) ||
+              allEleves.find(
+                (e) =>
+                  e.nom.toLowerCase() === chosen.nom.toLowerCase() &&
+                  e.prenom.toLowerCase() === chosen.prenom.toLowerCase(),
+              );
+            if (found) {
+              decision = {
+                ...decision,
+                decision: "auto",
+                eleve: found,
+                confidence,
+                matchedBy: "mistral_shortlist",
+                reason: "mistral_valide_shortlist",
+              };
+            }
           }
-          if (selectedIndex > 0 && selectedIndex <= shortlist.length) {
-            matchedEleve = shortlist[selectedIndex - 1];
-            ocrTraceCtx(trace, "classify", "match-name-mistral", "élève choisi par Mistral shortlist", {
-              selectedIndex,
-              folderName: matchedEleve.folderName,
-            });
-          } else {
-            ocrTraceCtx(trace, "classify", "match-name-miss", "Mistral n'a pas retenu d'élève (doute ou aucun match)", {
-              selectedIndex,
-            }, "warn");
-          }
-        } else {
-          ocrTraceCtx(trace, "classify", "match-name-http-fail", "appel Mistral sélection élève échoué", {
-            status: selectionResponse.status,
-          }, "warn");
         }
-      } else {
-        ocrTraceCtx(trace, "classify", "match-name-no-candidate", "aucun candidat avec nom+prénom valides", {
-          hasNom,
-          hasPrenom,
-        }, "warn");
+      } catch {
+        ocrTraceCtx(trace, "classify", "match-name-http-fail", "arbitrage Mistral shortlist ignoré", undefined, "warn");
       }
-    } else if (!matchedEleve && (hasNom || hasPrenom)) {
-      ocrTraceCtx(trace, "classify", "match-name-skip", "matching nom/prénom ignoré : un seul champ disponible", {
-        hasNom,
-        hasPrenom,
-        nom: hasNom ? nom : null,
-        prenom: hasPrenom ? prénom : null,
+    }
+
+    if (decision.decision === "auto" && decision.eleve) {
+      matchedEleve = decision.eleve;
+      ocrTraceCtx(trace, "classify", "match-auto", "élève retenu par le moteur", {
+        matchedBy: decision.matchedBy,
+        reason: decision.reason,
+        origin: decision.origin,
+        folderName: decision.eleve.folderName,
+      });
+    } else {
+      ocrTraceCtx(trace, "classify", "match-pending", "pas d'auto-match", {
+        decision: decision.decision,
+        reason: decision.reason,
+        origin: decision.origin,
+        candidates: decision.candidates.length,
       }, "warn");
     }
+
     matchDebug = {
-      ...matchDebug,
-      ineProvided: Boolean(ineNorm),
-      elevesWithIne,
-      ineMatched,
-      bestNameScore: Math.round(bestNameScore * 100) / 100,
-      matchedBy: matchedEleve ? (ineMatched ? "ine" : "name") : null,
+      totalEleves: allEleves.length,
+      elevesInPool: pool.length,
+      secteurFilterApplied,
+      secteur: odProfile?.secteur ?? null,
+      secteurLabel: odProfile?.label ?? null,
+      mefCodesInTable: mefMap.size,
+      hasOneDriveProfile: Boolean(odProfile),
+      ineProvided: Boolean(extractedIdentity.ine),
+      extractedClass: extractedIdentity.classe || null,
+      origin: decision.origin,
+      decision: decision.decision,
+      matchedBy: decision.matchedBy,
+      reason: decision.reason,
+      confidence: decision.confidence,
+      candidates: matchCandidates,
     };
     if (matchedEleve && odProfile) {
       oneDriveFolderPath = oneDrivePathForEleve(odProfile.basePath, resolveEleveFolderName(matchedEleve));
@@ -602,6 +521,7 @@ Réponds UNIQUEMENT avec ce JSON valide :
     rawExtraction: extracted,
     oneDriveFolderPath,
     matchedEleve,
+    matchCandidates,
     matchDebug,
   };
 }

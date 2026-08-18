@@ -168,7 +168,7 @@ export default function SchoolRosterPanel() {
 
       <SettingsSection icon="1️⃣" title="Liste des élèves (Excel → eleves.json)" description="Import fusionné : élèves reconnus (INE ou nom + prénom) mis à jour, nouveaux ajoutés, les autres conservés.">
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950 space-y-1">
-          <p className="font-bold">Colonnes attendues : Nom, Prénom, Classe, INE, MEF, e-mail élève, e-mails responsables légaux (parent 1 et parent 2).</p>
+          <p className="font-bold">Colonnes attendues : Nom, Prénom, Classe, INE, Date de naissance, MEF, e-mail élève, e-mails responsables légaux (parent 1 et parent 2).</p>
           <p>Export Pronote ou École Directe — même logique que l&apos;ancien import Documents IA.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

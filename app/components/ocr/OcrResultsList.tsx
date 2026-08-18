@@ -1,9 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import {
+  ocrExtractedSummary,
   ocrFailureCategory,
   ocrFailureHint,
+  ocrSuggestedEleves,
   tempOneDriveDisplayPath,
+  type OcrSuggestedEleve,
   type ProcessResult,
 } from "@/app/lib/ocr-page-model";
 
@@ -12,13 +16,59 @@ export default function OcrResultsList({
   ocrResultsSessionId,
   openingOneDrivePath,
   onOpenOneDrivePath,
+  accessToken,
+  onManualFiled,
 }: {
   ocrResults: ProcessResult[];
   ocrResultsSessionId: number;
   openingOneDrivePath: string | null;
   onOpenOneDrivePath: (path: string) => void;
+  accessToken?: string | null;
+  onManualFiled?: (fileName: string, candidate: OcrSuggestedEleve, finalFileName: string) => void;
 }) {
   const failedResults = ocrResults.filter((r) => !r.success);
+  const [filingKey, setFilingKey] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<Record<string, string>>({});
+
+  async function fileToCandidate(result: ProcessResult, candidate: OcrSuggestedEleve) {
+    if (!accessToken) {
+      setFileError((prev) => ({ ...prev, [result.fileName]: "Reconnectez OneDrive pour ranger." }));
+      return;
+    }
+    if (!result.tempOneDrivePath || !candidate.folderPath) {
+      setFileError((prev) => ({ ...prev, [result.fileName]: "Chemin OneDrive manquant." }));
+      return;
+    }
+    const key = `${result.fileName}::${candidate.folderName}`;
+    setFilingKey(key);
+    setFileError((prev) => ({ ...prev, [result.fileName]: "" }));
+    try {
+      const baseName = String(result.result?.fileName || result.fileName).replace(/\.pdf$/i, "");
+      const res = await fetch("/api/agentIAOCR/move-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accessToken,
+          sourcePath: result.tempOneDrivePath,
+          targetFolderPath: candidate.folderPath,
+          newFileName: `${baseName}.pdf`,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string; finalFileName?: string };
+      if (!res.ok) {
+        throw new Error(data.error || `Déplacement impossible (${res.status})`);
+      }
+      onManualFiled?.(result.fileName, candidate, data.finalFileName || `${baseName}.pdf`);
+    } catch (e) {
+      setFileError((prev) => ({
+        ...prev,
+        [result.fileName]: e instanceof Error ? e.message : String(e),
+      }));
+    } finally {
+      setFilingKey(null);
+    }
+  }
+
   if (ocrResults.length === 0 && failedResults.length === 0) return null;
 
   return (
@@ -28,47 +78,73 @@ export default function OcrResultsList({
           <h3 className="text-lg font-black text-amber-950 mb-2 flex items-center gap-2">
             <span>📁</span>
             {failedResults.length} document
-            {failedResults.length > 1 ? "s" : ""} à traiter manuellement
+            {failedResults.length > 1 ? "s" : ""} à traiter
           </h3>
           <div className="text-sm text-amber-950 mb-4 leading-relaxed space-y-3">
             <p>
-              Ces fichiers n&apos;ont <strong>pas pu être rangés automatiquement</strong> dans le dossier d&apos;un
-              élève. Ils se trouvent dans le dossier <strong>Temp</strong>, à la{" "}
-              <strong>racine de votre OneDrive</strong> (même niveau que « Documents », « Images », etc.).
+              Ces fichiers n&apos;ont <strong>pas pu être rangés automatiquement</strong>. S&apos;il y a des
+              suggestions, un clic suffit. Sinon ils restent dans le dossier <strong>Temp</strong> de votre OneDrive.
             </p>
-            <p>
-              <strong>Pourquoi ?</strong> Le plus souvent : le nom de l&apos;élève n&apos;a pas été reconnu, le type de
-              document est ambigu, ou le texte du PDF est illisible.
-            </p>
-            <p>
-              <strong>Que faire ?</strong>
-            </p>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>
-                Ouvrez OneDrive → dossier <strong>Temp</strong> → déplacez le PDF dans le bon dossier élève ;
-              </li>
-              <li>
-                ou, si le document n&apos;a pas été reconnu, vérifiez qu&apos;il est lisible et que l&apos;élève figure
-                bien dans la liste, puis redéposez-le.
-              </li>
-            </ul>
           </div>
           <ul className="space-y-3">
-            {failedResults.map((r, index) => (
-              <li
-                key={`${ocrResultsSessionId}-fail-${r.fileName}-${index}`}
-                className="p-4 bg-white rounded-xl border border-amber-200"
-              >
-                <p className="font-bold text-slate-900">{r.fileName}</p>
-                <p className="text-sm text-slate-600 mt-1">{ocrFailureHint(r)}</p>
-                {r.tempOneDrivePath ? (
-                  <p className="text-sm text-slate-700 mt-2">
-                    Emplacement OneDrive :{" "}
-                    <span className="font-semibold">Temp / {tempOneDriveDisplayPath(r.tempOneDrivePath)}</span>
-                  </p>
-                ) : null}
-              </li>
-            ))}
+            {failedResults.map((r, index) => {
+              const suggestions = ocrSuggestedEleves(r);
+              const extracted = ocrExtractedSummary(r);
+              return (
+                <li
+                  key={`${ocrResultsSessionId}-fail-${r.fileName}-${index}`}
+                  className="p-4 bg-white rounded-xl border border-amber-200"
+                >
+                  <p className="font-bold text-slate-900">{r.fileName}</p>
+                  <p className="text-sm text-slate-600 mt-1">{ocrFailureHint(r)}</p>
+                  {extracted ? (
+                    <p className="text-xs text-slate-500 mt-1">Lu dans le document : {extracted}</p>
+                  ) : null}
+                  {suggestions.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs font-bold uppercase tracking-wide text-amber-900">Élèves possibles</p>
+                      {suggestions.map((c) => {
+                        const key = `${r.fileName}::${c.folderName}`;
+                        return (
+                          <div
+                            key={c.folderName}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                          >
+                            <div>
+                              <p className="text-sm font-bold text-slate-900">
+                                {c.nom} {c.prenom}
+                                {c.classe ? ` · ${c.classe}` : ""}
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                {c.folderName}
+                                {c.matchedBy ? ` · ${c.matchedBy}` : ""}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={!accessToken || filingKey === key || !c.folderPath}
+                              onClick={() => void fileToCandidate(r, c)}
+                              className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+                            >
+                              {filingKey === key ? "Rangement…" : "Ranger ici"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {fileError[r.fileName] ? (
+                    <p className="text-xs text-red-600 mt-2">{fileError[r.fileName]}</p>
+                  ) : null}
+                  {r.tempOneDrivePath ? (
+                    <p className="text-sm text-slate-700 mt-2">
+                      Emplacement OneDrive :{" "}
+                      <span className="font-semibold">Temp / {tempOneDriveDisplayPath(r.tempOneDrivePath)}</span>
+                    </p>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}

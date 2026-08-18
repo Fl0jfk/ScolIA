@@ -1,3 +1,5 @@
+import { extractInesFromText, normalizeIne, scanStudentsInText } from "@/app/lib/ocr-eleve-match";
+
 export type OcrDocumentSegment = {
   pageStart: number;
   pageEnd: number;
@@ -85,24 +87,6 @@ function pageFingerprint(pageText: string): string {
  * Une page sans identité détectée = continuation du document courant (on ne coupe JAMAIS dessus).
  */
 
-function normTextForMatch(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normAlnum(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "");
-}
-
 export type PageOwner = {
   key: string;
   ine?: string;
@@ -121,31 +105,23 @@ export type PageOwner = {
 export function detectPageOwner(pageText: string, students: KnownStudent[]): PageOwner | null {
   if (!pageText.trim() || students.length === 0) return null;
 
-  const alnum = normAlnum(pageText);
-  for (const s of students) {
-    if (s.ine && s.ine.length >= 8 && alnum.includes(s.ine)) {
-      return {
-        key: `ine:${s.ine}`,
-        ine: s.ine,
-        nom: s.nom,
-        prenom: s.prenom,
-        folderName: s.folderName,
-        via: "ine",
-      };
-    }
+  const ines = extractInesFromText(pageText);
+  const ineHits = students.filter((s) => s.ine && ines.includes(normalizeIne(s.ine)));
+  if (ineHits.length === 1) {
+    const s = ineHits[0];
+    return {
+      key: `ine:${s.ine}`,
+      ine: s.ine,
+      nom: s.nom,
+      prenom: s.prenom,
+      folderName: s.folderName,
+      via: "ine",
+    };
   }
 
-  // En-tête de page : c'est là que figure le nom du titulaire du bulletin.
-  const head = normTextForMatch(pageText.slice(0, 1000));
-  const hits = students.filter(
-    (s) =>
-      s.normNom.length >= 2 &&
-      s.normPrenom.length >= 2 &&
-      head.includes(s.normNom) &&
-      head.includes(s.normPrenom),
-  );
-  if (hits.length === 1) {
-    const s = hits[0];
+  const nameHits = scanStudentsInText(pageText.slice(0, 1400), students);
+  if (nameHits.length === 1) {
+    const s = nameHits[0];
     return {
       key: s.ine ? `ine:${s.ine}` : `stu:${s.folderName}`,
       ine: s.ine || undefined,

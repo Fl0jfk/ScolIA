@@ -11,6 +11,7 @@ export default function OcrSessionStats({
   sessionDocProcessed,
   sessionDocSucceeded,
   sessionDocFailed,
+  sessionDocReview = 0,
   canStartFreshSession,
   onStartFreshSession,
 }: {
@@ -20,6 +21,7 @@ export default function OcrSessionStats({
   sessionDocProcessed: number;
   sessionDocSucceeded: number;
   sessionDocFailed: number;
+  sessionDocReview?: number;
   canStartFreshSession: boolean;
   onStartFreshSession: () => void;
 }) {
@@ -59,12 +61,17 @@ export default function OcrSessionStats({
           </span>
         </div>
         <div className="p-3 bg-green-50 rounded-2xl text-center">
-          <span className="text-xs text-green-700 block">Succès</span>
+          <span className="text-xs text-green-700 block">Auto</span>
           <span className="font-black text-lg text-green-600">{sessionDocSucceeded}</span>
         </div>
-        <div className="p-3 bg-red-50 rounded-2xl text-center">
-          <span className="text-xs text-red-700 block">Échecs</span>
-          <span className="font-black text-lg text-red-600">{sessionDocFailed}</span>
+        <div className="p-3 bg-amber-50 rounded-2xl text-center">
+          <span className="text-xs text-amber-800 block">À valider / échecs</span>
+          <span className="font-black text-lg text-amber-700">
+            {sessionDocReview}
+            {sessionDocFailed > sessionDocReview ? (
+              <span className="text-sm font-bold text-red-500"> + {sessionDocFailed - sessionDocReview}</span>
+            ) : null}
+          </span>
         </div>
       </div>
       {sessionDocTotal && progressDetail?.phase === "segments" ? (

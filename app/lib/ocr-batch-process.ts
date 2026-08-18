@@ -527,7 +527,7 @@ async function analyzeAndMove(
     return {
       success: false,
       error:
-        "Élève non identifié — le fichier reste dans Temp. Rangez-le à la main ou repassez-le en mode Standard.",
+        "Élève non identifié — le fichier reste dans Temp. Utilisez les suggestions dans l'écran OCR, ou rangez-le à la main.",
       fileName: displayName,
       result: ai,
       tempOneDrivePath: sourcePath,

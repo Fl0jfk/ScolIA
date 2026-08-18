@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test:ocr-match": "npx tsx --test app/lib/ocr-eleve-match.test.ts",
     "audit:knip": "knip"
   },
   "engines": {
