@@ -16,12 +16,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "URL ou clé S3 manquante." }, { status: 400 });
     }
 
-    const key = await resolveTravelsS3ObjectKey(String(fileUrl || ""), explicitKey ? String(explicitKey) : null);
-    if (!key || !isAllowedTravelsDownloadKey(key)) {
+    const fileUrlStr = String(fileUrl || "");
+    const explicitKeyStr = explicitKey ? String(explicitKey) : null;
+    const key = await resolveTravelsS3ObjectKey(fileUrlStr, explicitKeyStr);
+    if (!key) {
       return NextResponse.json(
-        { error: "Fichier introuvable sur le stockage (clé S3 non résolue)." },
+        {
+          error:
+            "Fichier introuvable sur le stockage (clé S3 non résolue). Ré-uploadez le document si le problème persiste.",
+        },
         { status: 404 },
       );
+    }
+    if (!isAllowedTravelsDownloadKey(key)) {
+      return NextResponse.json({ error: "Accès refusé à ce fichier." }, { status: 403 });
     }
 
     const s3Client = await getTenantDataS3Client();

@@ -24,6 +24,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       uploadUrl,
       fileUrl: await publicS3UrlForKey(fileKey),
+      s3Key: fileKey,
     });
   } catch (error) {
     console.error(error);

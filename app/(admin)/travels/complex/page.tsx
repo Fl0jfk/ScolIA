@@ -88,7 +88,7 @@ function ComplexTripFormContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileName: file.name, fileType: file.type })
         });
-        const { uploadUrl, fileUrl } = await res.json();
+        const { uploadUrl, fileUrl, s3Key: uploadedKey } = await res.json();
         await fetch(uploadUrl, {
           method: 'PUT',
           body: file,
@@ -97,10 +97,13 @@ function ComplexTripFormContent() {
         if (isBusProgram) {
           setFormData(prev => ({
             ...prev,
-            transportRequest: { ...prev.transportRequest, busProgramFile: { name: file.name, url: fileUrl } }
+            transportRequest: {
+              ...prev.transportRequest,
+              busProgramFile: { name: file.name, url: fileUrl, s3Key: uploadedKey },
+            },
           }));
         } else {
-          newAttachments.push({ name: file.name, url: fileUrl });
+          newAttachments.push({ name: file.name, url: fileUrl, s3Key: uploadedKey });
         }
       } catch (error) {
         console.error("Erreur upload:", error);

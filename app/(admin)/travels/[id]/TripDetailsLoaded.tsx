@@ -277,7 +277,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const CIRCULAR_ATTACHMENT_NAME = "📄 Circulaire Parents";
   const isCircularAttachment = (file: { name?: string }) =>
     String(file.name || "").toLowerCase().includes("circulaire");
-  const generateCircularAttachment = async (): Promise<{ name: string; url: string }> => {
+  const generateCircularAttachment = async (): Promise<{ name: string; url: string; s3Key?: string }> => {
     const circRes = await fetch("/api/travels/generate-circular", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -297,7 +297,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       body: JSON.stringify({ fileName, fileType: "application/pdf" }),
     });
     if (!uploadRes.ok) throw new Error("Impossible de préparer l'enregistrement de la circulaire.");
-    const { uploadUrl, fileUrl } = await uploadRes.json();
+    const { uploadUrl, fileUrl, s3Key: uploadedKey } = await uploadRes.json();
     if (!uploadUrl || !fileUrl) throw new Error("Réponse upload circulaire invalide.");
     const base64Content = pdf.split(",")[1];
     const byteArray = new Uint8Array(atob(base64Content).split("").map((c) => c.charCodeAt(0)));
@@ -306,7 +306,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       body: new Blob([byteArray], { type: "application/pdf" }),
     });
     if (!putRes.ok) throw new Error("Enregistrement de la circulaire sur le serveur impossible.");
-    return { name: CIRCULAR_ATTACHMENT_NAME, url: fileUrl };
+    return { name: CIRCULAR_ATTACHMENT_NAME, url: fileUrl, s3Key: uploadedKey };
   };
   const mergeCircularIntoAttachments = (
     attachments: { name: string; url: string }[],
@@ -420,9 +420,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileName: file.name, fileType: file.type })
       });
-      const { uploadUrl, fileUrl } = await res.json();
+      const { uploadUrl, fileUrl, s3Key: uploadedKey } = await res.json();
       await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
-      const newAttachment = { name: file.name, url: fileUrl };
+      const newAttachment = { name: file.name, url: fileUrl, s3Key: uploadedKey };
       const currentAttachments = isEditing ? (editedData.attachments || []) : (trip.data.attachments || []);
       const updatedAttachments = [...currentAttachments, newAttachment];
       if (isEditing) { setEditedData((prev: any) => ({ ...prev, attachments: updatedAttachments }));
@@ -1093,7 +1093,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileName: file.name, fileType: "application/pdf" }),
       });
-      const { uploadUrl, fileUrl } = await res.json();
+      const { uploadUrl, fileUrl, s3Key: uploadedKey } = await res.json();
       if (!uploadUrl || !fileUrl) throw new Error("Réponse upload invalide");
       await fetch(uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": "application/pdf" } });
       const newQuote = {
@@ -1101,6 +1101,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         providerName: name,
         providerEmail: email,
         fileUrl,
+        s3KeyIncoming: uploadedKey,
         createdAt: new Date().toISOString(),
         source: "manual",
         originalFilename: file.name,
@@ -1157,7 +1158,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileName, fileType: "application/pdf" })
       });
-      const { uploadUrl, fileUrl } = await uploadRes.json();
+      const { uploadUrl, fileUrl, s3Key: uploadedKey } = await uploadRes.json();
       const byteArray = new Uint8Array(atob(signedPdfData.split(',')[1]).split("").map(c => c.charCodeAt(0)));
       await fetch(uploadUrl, { method: 'PUT', body: new Blob([byteArray], { type: 'application/pdf' }) });
       await fetch('/api/travels/send-order', {
@@ -1172,11 +1173,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           providerName: quote.providerName,
         })
       });
-      const newAttachment = { name: `✅ ${fileName}`, url: fileUrl };
+      const newAttachment = { name: `✅ ${fileName}`, url: fileUrl, s3Key: uploadedKey };
       handleAction("EN_ATTENTE_COMPTA", `Devis signé et commande envoyée`, {
         selectedBusQuote: quote,
         attachments: [...(trip.data.attachments || []), newAttachment],
         signedQuoteUrl: fileUrl,
+        signedQuoteS3Key: uploadedKey,
       });
     } catch (err) {
       alert("Erreur lors de la signature.");

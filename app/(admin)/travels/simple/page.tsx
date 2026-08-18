@@ -148,7 +148,7 @@ function SimpleTripFormContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileName: file.name, fileType: file.type })
       });
-      const { uploadUrl, fileUrl } = await res.json();
+      const { uploadUrl, fileUrl, s3Key: uploadedKey } = await res.json();
       await fetch(uploadUrl, {
         method: 'PUT',
         body: file,
@@ -156,7 +156,7 @@ function SimpleTripFormContent() {
       });
       setFormData(prev => ({
         ...prev,
-        attachments: [...(prev.attachments || []), { name: file.name, url: fileUrl }]
+        attachments: [...(prev.attachments || []), { name: file.name, url: fileUrl, s3Key: uploadedKey }]
       }));
     } catch (error) {
       console.error(error);

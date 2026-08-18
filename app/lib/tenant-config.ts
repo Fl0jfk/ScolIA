@@ -35,7 +35,7 @@ export async function getTenantAwsRegion(): Promise<string> {
   } catch {
     /* pas de contexte tenant */
   }
-  return process.env.REGION?.trim() || "eu-west-3";
+  return process.env.REGION?.trim() || "fr-par";
 }
 
 /** Bucket images (actualités…) — secrets tenant ou repli scola-image. */

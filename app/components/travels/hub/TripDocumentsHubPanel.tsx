@@ -116,7 +116,9 @@ export function TripDocumentsHubPanel(p: TripDocumentsHubPanelProps) {
                       <TripDocumentChip
                         key="signed_bus"
                         name="🚌 Devis bus signé"
-                        onOpen={() => openSecureFile(trip.data.signedQuoteUrl!)}
+                        onOpen={() =>
+                          openSecureFile(trip.data.signedQuoteUrl!, trip.data.signedQuoteS3Key)
+                        }
                         onZeendoc={
                           canSeeTravelDocHoverActions
                             ? () =>

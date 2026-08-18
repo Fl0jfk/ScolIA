@@ -26,6 +26,14 @@ function encodeS3KeyForUrl(key: string): string {
     .join("/");
 }
 
+function decodeS3Path(path: string): string {
+  try {
+    return decodeURIComponent(path.replace(/^\//, ""));
+  } catch {
+    return path.replace(/^\//, "");
+  }
+}
+
 export async function publicS3UrlForKey(key: string): Promise<string> {
   const bucket = await getTenantBucketName();
   const region = await getTenantAwsRegion();
@@ -49,88 +57,77 @@ export async function parseTravelsS3KeyFromUrl(fileUrl: string): Promise<string 
   if (!raw) return null;
 
   const bucket = await getTenantBucketName();
-  const region = await getTenantAwsRegion();
   if (!bucket) return null;
 
-  const decodePath = (path: string) => {
-    try {
-      return decodeURIComponent(path.replace(/^\//, ""));
-    } catch {
-      return path.replace(/^\//, "");
-    }
-  };
+  if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
+    return s3Key(raw.split("?")[0].split("#")[0]);
+  }
 
   try {
-    const u = new URL(raw);
-    const host = u.hostname;
-    const pathKey = decodePath(u.pathname);
+    const u = new URL(raw.split("?")[0].split("#")[0]);
+    const host = u.hostname.toLowerCase();
+    const bucketLower = bucket.toLowerCase();
+    const pathKey = decodeS3Path(u.pathname);
+    if (!pathKey) return null;
 
-    // Scaleway virtual-hosted
-    if (host === `${bucket}.s3.${region}.scw.cloud`) {
-      return pathKey || null;
-    }
-    // Scaleway path-style : s3.<region>.scw.cloud/<bucket>/…
-    if (host === `s3.${region}.scw.cloud` && pathKey.startsWith(`${bucket}/`)) {
-      return pathKey.slice(bucket.length + 1) || null;
-    }
-    // AWS legacy (conservé pour la période de transition)
-    if (host === `${bucket}.s3.${region}.amazonaws.com` || host === `${bucket}.s3.amazonaws.com`) {
-      return pathKey || null;
-    }
-    if (host === `s3.${region}.amazonaws.com` && pathKey.startsWith(`${bucket}/`)) {
-      return pathKey.slice(bucket.length + 1) || null;
-    }
-    if (host === "s3.amazonaws.com" && pathKey.startsWith(`${bucket}/`)) {
-      return pathKey.slice(bucket.length + 1) || null;
-    }
-
-    // Bucket AWS / Scaleway d’un autre nom (migration) : extraire la clé objet.
-    // Ex. docslapro.s3.eu-west-3.amazonaws.com/settings/branding/logo.png
-    // → settings/branding/logo.png (à signer sur le dataBucket courant).
     const isS3Host =
       host.endsWith(".amazonaws.com") ||
       host.endsWith(".scw.cloud") ||
       host === "s3.amazonaws.com";
-    if (isS3Host && pathKey) {
-      const pathStyle =
-        host.startsWith("s3.") || host === "s3.amazonaws.com" || host === "s3.fr-par.scw.cloud";
-      if (pathStyle) {
-        const slash = pathKey.indexOf("/");
-        if (slash > 0) {
-          const afterBucket = pathKey.slice(slash + 1);
-          if (afterBucket) return afterBucket;
-        }
-      } else if (pathKey.includes("/")) {
-        return pathKey;
+    if (!isS3Host) return null;
+
+    // Virtual-hosted : {bucket}.s3.* (toute région / endpoint)
+    if (host === `${bucketLower}.s3.amazonaws.com` || host.startsWith(`${bucketLower}.s3.`)) {
+      return pathKey;
+    }
+
+    // Path-style : s3.* /{bucket}/key (Scaleway, AWS, endpoint custom)
+    const pathStyle = host.startsWith("s3.") || host === "s3.amazonaws.com";
+    if (pathStyle) {
+      const parts = pathKey.split("/").filter(Boolean);
+      if (parts[0]?.toLowerCase() === bucketLower) {
+        return parts.slice(1).join("/") || null;
+      }
+      // Migration depuis un autre bucket : chemin après le 1er segment
+      if (parts.length > 1) {
+        return parts.slice(1).join("/") || null;
       }
     }
+
+    // Virtual-hosted autre bucket (legacy AWS → bucket tenant courant)
+    if (pathKey.includes("/")) {
+      return pathKey;
+    }
   } catch {
-    /* pas une URL absolue */
+    /* pas une URL absolue valide */
   }
 
+  const region = await getTenantAwsRegion();
   const markers = [
     `${bucket}.s3.${region}.scw.cloud/`,
     `s3.${region}.scw.cloud/${bucket}/`,
-    // AWS legacy (transition)
     `${bucket}.s3.${region}.amazonaws.com/`,
     `${bucket}.s3.amazonaws.com/`,
     `s3.${region}.amazonaws.com/${bucket}/`,
     `s3.amazonaws.com/${bucket}/`,
-    // Ancien bucket DocsLaPro (contenu déjà sync sur Scaleway)
     "docslapro.s3.eu-west-3.amazonaws.com/",
     "docslapro.s3.amazonaws.com/",
   ];
+  const endpoint = process.env.S3_ENDPOINT?.trim().replace(/\/$/, "");
+  if (endpoint) {
+    try {
+      markers.push(`${new URL(endpoint).hostname.toLowerCase()}/${bucket}/`);
+    } catch {
+      /* ignore */
+    }
+  }
   for (const marker of markers) {
     const idx = raw.indexOf(marker);
     if (idx !== -1) {
       const rest = raw.slice(idx + marker.length).split("?")[0].split("#")[0];
-      const key = decodePath(rest);
+      const key = decodeS3Path(rest);
       if (key) return key;
     }
-  }
-
-  if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
-    return s3Key(raw.split("?")[0].split("#")[0]);
   }
 
   return null;
@@ -191,10 +188,17 @@ export async function resolveTravelsS3ObjectKey(
   const bucket = await getTenantBucketName();
   if (!bucket) return null;
 
-  for (const key of await candidateTravelsS3Keys(fileUrl, explicitKey)) {
+  const candidates = (await candidateTravelsS3Keys(fileUrl, explicitKey)).filter(
+    isAllowedTravelsDownloadKey,
+  );
+  if (!candidates.length) return null;
+
+  for (const key of candidates) {
     if (await s3ObjectExists(bucket, key)) return key;
   }
-  return null;
+
+  // HeadObject peut être refusé par la politique IAM alors que GetObject signé fonctionne.
+  return candidates[0] ?? null;
 }
 
 export async function fetchTravelsPdfBytes(
@@ -206,10 +210,13 @@ export async function fetchTravelsPdfBytes(
 
   if (key && bucket) {
     const client = await getTenantDataS3Client();
-    const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-    const bytes = await res.Body?.transformToByteArray();
-    if (!bytes?.length) throw new Error("Fichier PDF vide ou introuvable sur S3.");
-    return Buffer.from(bytes);
+    try {
+      const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+      const bytes = await res.Body?.transformToByteArray();
+      if (bytes?.length) return Buffer.from(bytes);
+    } catch {
+      /* repli HTTP ci-dessous */
+    }
   }
 
   const response = await fetch(fileUrl);

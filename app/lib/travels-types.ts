@@ -131,6 +131,7 @@ export type TravelsTripData = {
   transportRequest?: Record<string, unknown>;
   selectedBusQuote?: Record<string, unknown>;
   signedQuoteUrl?: string;
+  signedQuoteS3Key?: string;
   transportQuoteSnapshot?: {
     nbEleves: number;
     nbAccompagnateurs: number;
