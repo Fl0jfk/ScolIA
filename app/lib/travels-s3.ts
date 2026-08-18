@@ -18,10 +18,10 @@ function stripBucketOrSlugPrefix(key: string, bucket?: string | null, slug?: str
   const bucketLower = bucket?.toLowerCase();
   const slugLower = slug?.toLowerCase();
   if (bucketLower && n.toLowerCase().startsWith(`${bucketLower}/`)) {
-    n = n.slice(bucket.length + 1);
+    n = n.slice(bucketLower.length + 1);
   }
   if (slugLower && n.toLowerCase().startsWith(`${slugLower}/`)) {
-    n = n.slice(slug.length + 1);
+    n = n.slice(slugLower.length + 1);
   }
   if (n.startsWith("tenants/")) {
     const parts = n.split("/");
