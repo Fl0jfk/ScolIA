@@ -27,6 +27,7 @@ type OcrBatchProgressView = {
   documentsProcessed: number;
   documentsSucceeded: number;
   documentsFailed: number;
+  documentsTotal: number;
   updatedAt: string;
   idleSeconds: number;
 };
@@ -47,6 +48,13 @@ function itemWeight(item: OcrBatchJobItem): number {
   if (item.segments && item.segments.length > 0) return item.segments.length;
   // Avant découpage : on ne devine pas le nombre de documents à partir des pages.
   return 1;
+}
+
+/** Total du lot : segments connus + 1 par fichier pas encore découpé. */
+function batchDocumentTotal(job: OcrBatchJob): number {
+  let n = 0;
+  for (const item of job.items) n += itemWeight(item);
+  return Math.max(n, job.items.length, job.results.length);
 }
 
 function itemCompletedWeight(item: OcrBatchJobItem): number {
@@ -225,6 +233,7 @@ export function buildBatchProgressView(job: OcrBatchJob): OcrBatchProgressView {
     documentsProcessed: job.results.length,
     documentsSucceeded: job.results.filter((r) => r.success).length,
     documentsFailed: job.results.filter((r) => !r.success).length,
+    documentsTotal: batchDocumentTotal(job),
     updatedAt,
     idleSeconds,
   };

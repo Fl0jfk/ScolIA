@@ -74,6 +74,7 @@ export type OcrProgressDetail = {
   documentsProcessed: number;
   documentsSucceeded: number;
   documentsFailed: number;
+  documentsTotal?: number;
   updatedAt: string;
   idleSeconds: number;
 };
@@ -304,7 +305,7 @@ export function buildOcrProgressCaption({
     return "Envoi en cours…";
   }
   if (progressDetail) {
-    if (progressDetail.phase === "segments" && sessionDocTotal) {
+    if (sessionDocTotal) {
       return `Document ${sessionDocProcessed} / ${sessionDocTotal}`;
     }
     if (progressDetail.phase === "ocr") {

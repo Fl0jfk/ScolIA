@@ -32,7 +32,7 @@ import { getClerkClientForTenant } from "@/app/lib/tenant-clerk";
 import { getTenant } from "@/app/lib/tenant-context";
 import { getTenantSecrets } from "@/app/lib/tenant-registry";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
-import { getBucketName } from "@/app/lib/s3-storage";
+import { getBucketName, isS3ConflictError } from "@/app/lib/s3-storage";
 import {
   ocrTrace,
   summarizeBatchItem,
@@ -917,6 +917,7 @@ async function stepItem(
     }
   } catch (segErr) {
     if (segErr instanceof TokenExpiredError) throw segErr;
+    if (isS3ConflictError(segErr)) throw segErr;
     const msg = segErr instanceof Error ? segErr.message : String(segErr);
     ocrTrace(job.jobId, "item", "segment-error", "échec technique segment", { label, error: msg }, "error");
     segResult = {
@@ -1252,6 +1253,15 @@ export async function runOcrBatchJob(
         const message = err instanceof Error ? err.message : String(err);
         const current = await readBatchJob(jobId);
         if (!current || current.status === "cancelled") return;
+        if (isS3ConflictError(err)) {
+          // Course d'écriture Scaleway : ne JAMAIS figer le PDF (ni le reste du lot).
+          ocrTrace(jobId, "worker", "s3-conflict", "course S3 transitoire — même document repris", {
+            fileName: item.fileName,
+            error: message.slice(0, 200),
+          }, "warn");
+          await sleep(ITEM_RETRY_DELAY_MS);
+          continue;
+        }
         const prevErrors = current.items[itemIndex]?.errorCount ?? 0;
         const errorCount = prevErrors + 1;
         if (errorCount < MAX_ITEM_ERRORS) {
@@ -1295,7 +1305,7 @@ export async function runOcrBatchJob(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     // Ne jamais faire échouer le lot pour une course S3 / lock (retry au prochain chunk).
-    if (/conflicting conditional operation/i.test(msg)) {
+    if (isS3ConflictError(error)) {
       ocrTrace(jobId, "worker", "lock-race", "course S3 ignorée — le client / worker réessaiera", {
         error: msg.slice(0, 200),
       }, "warn");

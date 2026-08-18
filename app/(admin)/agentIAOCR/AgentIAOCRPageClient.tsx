@@ -1168,10 +1168,11 @@ function OneDriveUpDocsOCRAIContent() {
   const sessionDocFailed = ocrResults.filter((r) => !r.success).length;
   const sessionDocReview = ocrResults.filter((r) => !r.success && ocrSuggestedEleves(r).length > 0).length;
   const sessionDocProcessed = sessionDocSucceeded + sessionDocFailed;
-  const rawDocTotal =
-    progressDetail?.phase === "segments" && progressDetail.segmentTotal
-      ? progressDetail.segmentTotal
-      : 0;
+  const rawDocTotal = Math.max(
+    progressDetail?.documentsTotal ?? 0,
+    progressDetail?.fileTotal ?? 0,
+    progressDetail?.phase === "segments" ? (progressDetail.segmentTotal ?? 0) : 0,
+  );
   // Pic monotone du total de documents (ne redescend jamais pendant un lot).
   const displayDocTotal = Math.max(progressPeakRef.current.totalDocs, rawDocTotal, sessionDocProcessed);
   const sessionDocTotal = displayDocTotal > 0 ? displayDocTotal : null;

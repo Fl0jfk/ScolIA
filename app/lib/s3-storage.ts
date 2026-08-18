@@ -110,6 +110,28 @@ export async function deleteObject(key: string): Promise<void> {
   );
 }
 
+/** Scaleway Object Storage : courses d'écriture sur la même clé. */
+export function isS3ConflictError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /conflicting conditional operation/i.test(msg);
+}
+
+/** Relance un PUT/GET S3 en cas de course Scaleway (erreur souvent transitoire). */
+export async function sendS3WithConflictRetry<T>(op: () => Promise<T>, attempts = 6): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await op();
+    } catch (err) {
+      last = err;
+      if (!isS3ConflictError(err) || i === attempts - 1) throw err;
+      const delayMs = Math.min(2_000, 120 * 2 ** i);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw last;
+}
+
 export async function getSignedReadUrl(relativeOrFullKey: string, expiresIn = 3600): Promise<string | null> {
   const client = await getS3Client();
   const bucket = await getBucketName();

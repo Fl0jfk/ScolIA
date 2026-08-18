@@ -1,6 +1,6 @@
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
-import { getBucketName } from "@/app/lib/s3-storage";
+import { getBucketName, sendS3WithConflictRetry } from "@/app/lib/s3-storage";
 
 export type OcrBatchJobStatus =
   | "pending"
@@ -123,13 +123,16 @@ export function ocrCacheKey(jobId: string, itemId: string) {
 
 export async function writeOcrCache(key: string, payload: OcrCachePayload) {
   const s3Client = await getTenantDataS3Client();
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: await getBucketName(),
-      Key: key,
-      Body: JSON.stringify(payload),
-      ContentType: "application/json",
-    }),
+  const bucket = await getBucketName();
+  await sendS3WithConflictRetry(() =>
+    s3Client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: JSON.stringify(payload),
+        ContentType: "application/json",
+      }),
+    ),
   );
 }
 
@@ -186,13 +189,16 @@ export async function writeBatchJob(job: OcrBatchJob) {
     return;
   }
   const s3Client = await getTenantDataS3Client();
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: await getBucketName(),
-      Key: jobKey(job.jobId),
-      Body: JSON.stringify({ ...job, updatedAt: new Date().toISOString() }),
-      ContentType: "application/json",
-    }),
+  const bucket = await getBucketName();
+  await sendS3WithConflictRetry(() =>
+    s3Client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: jobKey(job.jobId),
+        Body: JSON.stringify({ ...job, updatedAt: new Date().toISOString() }),
+        ContentType: "application/json",
+      }),
+    ),
   );
 }
 
