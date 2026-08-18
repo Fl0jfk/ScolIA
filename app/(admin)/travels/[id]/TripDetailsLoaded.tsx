@@ -23,6 +23,7 @@ import {
   tripEffectifTotal,
 } from "@/app/lib/travels-trip-helpers";
 import type { TravelsHubTab, TravelsTrip } from "@/app/lib/travels-types";
+import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
 import { TRAVELS_HUB_TABS, TRAVELS_STATUS_LABELS } from "@/app/lib/travels-types";
 import { getTripNextGuidance } from "@/app/lib/travels-next-guidance";
 import { orderEmailForQuote } from "@/app/lib/travels-transport-shared";
@@ -291,21 +292,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     if (!pdf) throw new Error("La circulaire n'a pas été produite.");
     const safeTitle = String(trip.data.title || "Sortie").replace(/\s+/g, "_");
     const fileName = `Circulaire_${safeTitle}.pdf`;
-    const uploadRes = await fetch("/api/travels/upload", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fileName, fileType: "application/pdf" }),
-    });
-    if (!uploadRes.ok) throw new Error("Impossible de préparer l'enregistrement de la circulaire.");
-    const { uploadUrl, fileUrl, s3Key: uploadedKey } = await uploadRes.json();
-    if (!uploadUrl || !fileUrl) throw new Error("Réponse upload circulaire invalide.");
     const base64Content = pdf.split(",")[1];
     const byteArray = new Uint8Array(atob(base64Content).split("").map((c) => c.charCodeAt(0)));
-    const putRes = await fetch(uploadUrl, {
-      method: "PUT",
-      body: new Blob([byteArray], { type: "application/pdf" }),
-    });
-    if (!putRes.ok) throw new Error("Enregistrement de la circulaire sur le serveur impossible.");
+    const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(
+      new Blob([byteArray], { type: "application/pdf" }),
+      fileName,
+    );
     return { name: CIRCULAR_ATTACHMENT_NAME, url: fileUrl, s3Key: uploadedKey };
   };
   const mergeCircularIntoAttachments = (
@@ -415,13 +407,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     if (!file) return;
     setUploading(true);
     try {
-      const res = await fetch('/api/travels/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: file.name, fileType: file.type })
-      });
-      const { uploadUrl, fileUrl, s3Key: uploadedKey } = await res.json();
-      await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+      const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(file, file.name);
       const newAttachment = { name: file.name, url: fileUrl, s3Key: uploadedKey };
       const currentAttachments = isEditing ? (editedData.attachments || []) : (trip.data.attachments || []);
       const updatedAttachments = [...currentAttachments, newAttachment];
@@ -1088,14 +1074,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
     setManualDevisBusy(true);
     try {
-      const res = await fetch("/api/travels/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: file.name, fileType: "application/pdf" }),
-      });
-      const { uploadUrl, fileUrl, s3Key: uploadedKey } = await res.json();
-      if (!uploadUrl || !fileUrl) throw new Error("Réponse upload invalide");
-      await fetch(uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": "application/pdf" } });
+      const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(file, file.name);
       const newQuote = {
         id: `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
         providerName: name,
@@ -1153,14 +1132,11 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       });
       const { signedPdfData } = await signRes.json();
       const fileName = `Devis_Signe_${quote.providerName.replace(/\s+/g, '_')}.pdf`;
-      const uploadRes = await fetch('/api/travels/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName, fileType: "application/pdf" })
-      });
-      const { uploadUrl, fileUrl, s3Key: uploadedKey } = await uploadRes.json();
       const byteArray = new Uint8Array(atob(signedPdfData.split(',')[1]).split("").map(c => c.charCodeAt(0)));
-      await fetch(uploadUrl, { method: 'PUT', body: new Blob([byteArray], { type: 'application/pdf' }) });
+      const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(
+        new Blob([byteArray], { type: "application/pdf" }),
+        fileName,
+      );
       await fetch('/api/travels/send-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

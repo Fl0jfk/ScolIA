@@ -17,6 +17,7 @@ import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSel
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
+import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
 
 const CUISINE_DAYS = [
   { key: "lundi",    label: "Lun." },
@@ -143,17 +144,7 @@ function SimpleTripFormContent() {
     if (!file) return;
     setUploading(true);
     try {
-      const res = await fetch('/api/travels/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: file.name, fileType: file.type })
-      });
-      const { uploadUrl, fileUrl, s3Key: uploadedKey } = await res.json();
-      await fetch(uploadUrl, {
-        method: 'PUT',
-        body: file,
-        headers: { 'Content-Type': file.type }
-      });
+      const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(file, file.name);
       setFormData(prev => ({
         ...prev,
         attachments: [...(prev.attachments || []), { name: file.name, url: fileUrl, s3Key: uploadedKey }]

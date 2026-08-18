@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
 import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
+import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
 
 import { CUISINE_DAYS_UI as CUISINE_DAYS, CUISINE_ROWS_UI as CUISINE_ROWS } from "@/app/lib/travels-cuisine-form";
 import TravelsOwnerAssignSection, {
@@ -83,17 +84,7 @@ function ComplexTripFormContent() {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       try {
-        const res = await fetch('/api/travels/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileName: file.name, fileType: file.type })
-        });
-        const { uploadUrl, fileUrl, s3Key: uploadedKey } = await res.json();
-        await fetch(uploadUrl, {
-          method: 'PUT',
-          body: file,
-          headers: { 'Content-Type': file.type }
-        });
+        const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(file, file.name);
         if (isBusProgram) {
           setFormData(prev => ({
             ...prev,
