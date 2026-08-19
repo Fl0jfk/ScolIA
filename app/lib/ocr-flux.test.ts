@@ -3,9 +3,12 @@ import test from "node:test";
 import {
   capabilitiesFromFluxes,
   elevesFluxIdForSecteur,
+  ENSEIGNANTS_SHARED_BASE_PATH,
+  findFluxBasePath,
   fluxesAssignedToUser,
   mergeOcrFluxGrid,
   migrateLegacyUserSecteursToOcrFlux,
+  OCR_FLUX_META,
 } from "./ocr-flux";
 
 test("migre userSecteurs vers les flux élèves sans perdre le rattachement", () => {
@@ -40,7 +43,7 @@ test("ne recouvre pas un ocrFlux déjà renseigné", () => {
   assert.equal(grid.find((r) => r.id === "eleves_lycee")?.clerkUserId, "nouveau");
 });
 
-test("autorise la même personne sur plusieurs flux", () => {
+test("autorise la même personne sur plusieurs flux enseignants", () => {
   const grid = mergeOcrFluxGrid([
     { id: "eleves_college", clerkUserId: "col", match: "c@ecole.fr" },
     { id: "enseignants_college", clerkUserId: "col", match: "c@ecole.fr" },
@@ -52,6 +55,48 @@ test("autorise la même personne sur plusieurs flux", () => {
     ["eleves_college", "enseignants_college", "enseignants_lycee"],
   );
   assert.equal(capabilitiesFromFluxes(assigned).primaryEleves?.secteur, "college");
+});
+
+test("les 3 flux enseignants partagent le même chemin OneDrive par défaut", () => {
+  assert.equal(OCR_FLUX_META.enseignants_ecole.defaultBasePath, ENSEIGNANTS_SHARED_BASE_PATH);
+  assert.equal(OCR_FLUX_META.enseignants_college.defaultBasePath, ENSEIGNANTS_SHARED_BASE_PATH);
+  assert.equal(OCR_FLUX_META.enseignants_lycee.defaultBasePath, ENSEIGNANTS_SHARED_BASE_PATH);
+
+  const grid = mergeOcrFluxGrid([
+    { id: "enseignants_college", clerkUserId: "col", match: "c@ecole.fr" },
+    { id: "enseignants_lycee", clerkUserId: "col", match: "c@ecole.fr" },
+  ]);
+  const assigned = fluxesAssignedToUser(grid, { id: "col", emails: ["c@ecole.fr"] });
+  const caps = capabilitiesFromFluxes(assigned);
+  assert.equal(findFluxBasePath(caps, "enseignants", "college"), ENSEIGNANTS_SHARED_BASE_PATH);
+  assert.equal(findFluxBasePath(caps, "enseignants", "lycee"), ENSEIGNANTS_SHARED_BASE_PATH);
+  assert.equal(findFluxBasePath(caps, "enseignants"), ENSEIGNANTS_SHARED_BASE_PATH);
+});
+
+test("migre l’ancien id unique enseignants vers les 3 lignes", () => {
+  const grid = mergeOcrFluxGrid([
+    {
+      id: "enseignants",
+      clerkUserId: "col",
+      match: "c@ecole.fr",
+      basePath: "Dossier enseignants",
+    },
+  ] as Parameters<typeof mergeOcrFluxGrid>[0]);
+  assert.equal(grid.find((r) => r.id === "enseignants_college")?.clerkUserId, "col");
+  assert.equal(grid.find((r) => r.id === "enseignants_lycee")?.clerkUserId, "col");
+  assert.equal(grid.find((r) => r.id === "enseignants_ecole")?.basePath, "Dossier enseignants");
+});
+
+test("collapse les anciens chemins …/Collège vers la racine commune", () => {
+  const grid = mergeOcrFluxGrid([
+    {
+      id: "enseignants_college",
+      clerkUserId: "col",
+      match: "c@ecole.fr",
+      basePath: "Dossier enseignants/Collège",
+    },
+  ]);
+  assert.equal(grid.find((r) => r.id === "enseignants_college")?.basePath, "Dossier enseignants");
 });
 
 test("mappe le secteur élèves vers l’id de flux", () => {

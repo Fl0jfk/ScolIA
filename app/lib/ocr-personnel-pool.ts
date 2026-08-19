@@ -20,6 +20,8 @@ function fromS3Entry(entry: {
   id: string;
   displayName: string;
   email: string;
+  emailPerso?: string;
+  emailPro?: string;
   clerkUserId?: string | null;
   active: boolean;
   category: string;
@@ -30,6 +32,8 @@ function fromS3Entry(entry: {
     folderName: buildPersonnelFolderName(nom, prenom) || entry.displayName,
     displayName: entry.displayName,
     email: entry.email,
+    emailPerso: entry.emailPerso,
+    emailPro: entry.emailPro,
     clerkUserId: entry.clerkUserId,
     category: (entry.category as RhPersonnelIndexEntry["category"]) || "administratif",
     active: entry.active !== false,

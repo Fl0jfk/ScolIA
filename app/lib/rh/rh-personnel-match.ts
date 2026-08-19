@@ -1,6 +1,11 @@
 import type { PersonnelExtracted } from "@/app/lib/personnel-match";
 import { normalizeNir } from "@/app/lib/personnel-match";
+import { collectOcrEmails, matchExtractedEmailAgainstList, normalizeOcrEmail } from "@/app/lib/ocr-email-match";
 import type { RhPersonnelIndexEntry } from "@/app/lib/rh/types";
+
+function personnelEmails(entry: RhPersonnelIndexEntry): string[] {
+  return collectOcrEmails(entry.email, entry.emailPerso, entry.emailPro);
+}
 
 function normalize(str: string) {
   return String(str || "")
@@ -38,10 +43,18 @@ export function matchRhPersonnelFromIndex(
 ): RhPersonnelMatchResult {
   const active = entries.filter((e) => e.active !== false);
 
-  const email = extracted.email?.trim().toLowerCase();
+  const extractedHit = matchExtractedEmailAgainstList(extracted.email, active, personnelEmails);
+  if (extractedHit) {
+    return { entry: extractedHit, score: 100, candidates: [extractedHit], matchedBy: "email" };
+  }
+
+  const email = normalizeOcrEmail(extracted.email);
   if (email) {
-    const hit = active.find((e) => e.email.trim().toLowerCase() === email);
-    if (hit) return { entry: hit, score: 100, candidates: [hit], matchedBy: "email" };
+    const hits = active.filter((e) => personnelEmails(e).includes(email));
+    if (hits.length === 1) return { entry: hits[0], score: 100, candidates: hits, matchedBy: "email" };
+    if (hits.length > 1) {
+      return { entry: null, score: 100, candidates: hits.slice(0, 5), matchedBy: "email" };
+    }
   }
 
   const nir = normalizeNir(extracted.numero_securite_sociale);
@@ -83,7 +96,11 @@ export function resolveRhIndexEntryForUser(
     if (byClerk) return byClerk;
   }
   if (normalizedEmail) {
-    return entries.find((e) => e.email.trim().toLowerCase() === normalizedEmail && e.active !== false) ?? null;
+    return (
+      entries.find(
+        (e) => personnelEmails(e).includes(normalizedEmail) && e.active !== false,
+      ) ?? null
+    );
   }
   return null;
 }

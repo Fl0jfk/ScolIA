@@ -2,6 +2,7 @@ import "server-only";
 
 import { analyzeDocMatchEleve } from "@/app/lib/ocr-analyze-eleve";
 import {
+  dedupeEnseignantsByFolder,
   filterEnseignantsForSecteurs,
   loadEnseignantsRegistry,
 } from "@/app/lib/enseignants-registry";
@@ -101,13 +102,17 @@ export async function analyzeDocForOcr(
   );
 
   if (ensSecteurs.length > 0) {
-    const enseignants = filterEnseignantsForSecteurs(await loadEnseignantsRegistry(), ensSecteurs);
+    const enseignants = dedupeEnseignantsByFolder(
+      filterEnseignantsForSecteurs(await loadEnseignantsRegistry(), ensSecteurs),
+    );
+    // Même chemin OneDrive pour tous les cycles enseignants → fusion des dossiers.
+    const enseignantsBase = findFluxBasePath(caps, "enseignants");
     const ensDecision = matchEnseignantFromDocument({
       text,
       extractedNom,
       extractedPrenom,
       enseignants,
-      basePathFor: (secteur) => findFluxBasePath(caps, "enseignants", secteur),
+      basePathFor: () => enseignantsBase,
     });
     ocrTraceCtx(trace, "classify", "enseignants", "matching enseignants", {
       decision: ensDecision.decision,
@@ -116,7 +121,7 @@ export async function analyzeDocForOcr(
     });
     if (ensDecision.decision === "auto" && ensDecision.enseignant) {
       const e = ensDecision.enseignant;
-      const basePath = findFluxBasePath(caps, "enseignants", e.secteur);
+      const basePath = enseignantsBase;
       return {
         ...(studentResult || {}),
         nom: e.nom,

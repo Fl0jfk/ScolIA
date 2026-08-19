@@ -36,7 +36,8 @@ export function validateEnseignantsJson(
       prenom,
       folderName: String(row.folderName ?? "").trim() || buildEleveFolderName(nom, prenom),
       secteur,
-      email: String(row.email ?? "").trim().toLowerCase() || undefined,
+      email: String(row.email ?? row.emailPerso ?? "").trim().toLowerCase() || undefined,
+      emailPro: String(row.emailPro ?? "").trim().toLowerCase() || undefined,
     });
   }
   return { ok: true, enseignants };
@@ -65,4 +66,14 @@ export function filterEnseignantsForSecteurs(
   if (secteurs.length === 0) return [];
   const set = new Set(secteurs);
   return enseignants.filter((e) => set.has(e.secteur));
+}
+
+/** Une entrée par dossier OneDrive (évite collège + lycée = 2 homonymes). */
+export function dedupeEnseignantsByFolder(enseignants: EnseignantConfig[]): EnseignantConfig[] {
+  const byFolder = new Map<string, EnseignantConfig>();
+  for (const e of enseignants) {
+    const key = e.folderName.trim().toLowerCase() || `${e.nom}|${e.prenom}`.toLowerCase();
+    if (!byFolder.has(key)) byFolder.set(key, e);
+  }
+  return [...byFolder.values()];
 }

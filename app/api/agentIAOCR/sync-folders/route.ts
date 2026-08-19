@@ -164,9 +164,18 @@ export async function POST(req: Request) {
       oneDriveFoldersFound += report.existingOnDrive.length;
     }
 
+    // Enseignants : 3 flux (école / collège / lycée) mais souvent le même chemin → sync une fois par chemin.
+    const enseignantsByPath = new Map<string, Set<string>>();
     for (const flux of caps.fluxes.filter((f) => f.kind === "enseignants" && f.secteur)) {
-      const names = filterEnseignantsForSecteurs(allEnseignants, [flux.secteur!]).map((e) => e.folderName);
-      const report = await syncNamedFolders(accessToken, flux.basePath, names);
+      const names = filterEnseignantsForSecteurs(allEnseignants, [flux.secteur!]).map(
+        (e) => e.folderName,
+      );
+      const set = enseignantsByPath.get(flux.basePath) ?? new Set<string>();
+      for (const n of names) set.add(n);
+      enseignantsByPath.set(flux.basePath, set);
+    }
+    for (const [basePath, nameSet] of enseignantsByPath) {
+      const report = await syncNamedFolders(accessToken, basePath, [...nameSet]);
       created.push(...report.created);
       alreadyThere.push(...report.alreadyThere);
       errors.push(...report.errors);

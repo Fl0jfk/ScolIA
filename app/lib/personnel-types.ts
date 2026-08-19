@@ -160,7 +160,12 @@ export type PersonnelOnboarding = {
 export type PersonnelRecord = {
   id: string;
   clerkUserId?: string | null;
+  /** Email principal (pro de préférence) — compat modules existants */
   email: string;
+  /** Email personnel */
+  emailPerso?: string;
+  /** Email professionnel / établissement */
+  emailPro?: string;
   firstName: string;
   lastName: string;
   displayName: string;
@@ -186,6 +191,8 @@ export type PersonnelIndexEntry = {
   id: string;
   displayName: string;
   email: string;
+  emailPerso?: string;
+  emailPro?: string;
   category: PersonnelCategory;
   clerkUserId?: string | null;
   active: boolean;
@@ -404,10 +411,17 @@ export function normalizePersonnelRecord(raw: unknown): PersonnelRecord {
       ? (o.medecineTravail as PersonnelMedecineTravail)
       : defaultMedecineTravail();
 
+  const emailPerso = str(o.emailPerso).trim().toLowerCase() || undefined;
+  const emailPro = str(o.emailPro).trim().toLowerCase() || undefined;
+  const legacyEmail = str(o.email).trim().toLowerCase();
+  const email = emailPro || emailPerso || legacyEmail;
+
   return {
     id,
     clerkUserId: str(o.clerkUserId) || null,
-    email: str(o.email).trim().toLowerCase(),
+    email,
+    emailPerso: emailPerso || (legacyEmail && !emailPro ? legacyEmail : undefined),
+    emailPro,
     firstName,
     lastName,
     displayName: str(o.displayName).trim() || `${firstName} ${lastName}`.trim(),
@@ -443,6 +457,8 @@ export function toIndexEntry(record: PersonnelRecord): PersonnelIndexEntry {
     id: record.id,
     displayName: record.displayName,
     email: record.email,
+    emailPerso: record.emailPerso,
+    emailPro: record.emailPro,
     category: record.category,
     clerkUserId: record.clerkUserId,
     active: record.active,

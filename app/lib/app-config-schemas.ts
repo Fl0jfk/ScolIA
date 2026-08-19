@@ -550,6 +550,8 @@ const OCR_FLUX_CONFIG_IDS: OcrFluxConfigId[] = [
   "personnel_ogec",
 ];
 
+const ENSEIGNANTS_SHARED_BASE_PATH = "Dossier enseignants";
+
 function parseOcrFluxId(value: unknown): OcrFluxConfigId | null {
   const s = String(value ?? "").trim();
   return (OCR_FLUX_CONFIG_IDS as string[]).includes(s) ? (s as OcrFluxConfigId) : null;
@@ -558,9 +560,23 @@ function parseOcrFluxId(value: unknown): OcrFluxConfigId | null {
 function parseOcrFluxRows(raw: unknown): OcrFluxConfigRow[] {
   if (!Array.isArray(raw)) return [];
   const byId = new Map<OcrFluxConfigId, OcrFluxConfigRow>();
+  let unified: Pick<OcrFluxConfigRow, "clerkUserId" | "match" | "displayName" | "basePath"> | null =
+    null;
+
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const row = item as Record<string, unknown>;
+    const rawId = str(row.id);
+    // Ancienne config brève : une seule ligne "enseignants"
+    if (rawId === "enseignants") {
+      unified = {
+        clerkUserId: str(row.clerkUserId) || undefined,
+        match: str(row.match) || undefined,
+        displayName: str(row.displayName) || undefined,
+        basePath: str(row.basePath) || ENSEIGNANTS_SHARED_BASE_PATH,
+      };
+      continue;
+    }
     const id = parseOcrFluxId(row.id);
     if (!id) continue;
     byId.set(id, {
@@ -571,6 +587,32 @@ function parseOcrFluxRows(raw: unknown): OcrFluxConfigRow[] {
       basePath: str(row.basePath) || undefined,
     });
   }
+
+  if (unified) {
+    for (const id of ["enseignants_ecole", "enseignants_college", "enseignants_lycee"] as const) {
+      const current = byId.get(id) ?? { id };
+      if (!current.clerkUserId && !current.match) {
+        current.clerkUserId = unified.clerkUserId;
+        current.match = unified.match;
+        current.displayName = unified.displayName;
+      }
+      if (!current.basePath) current.basePath = unified.basePath || ENSEIGNANTS_SHARED_BASE_PATH;
+      byId.set(id, current);
+    }
+  }
+
+  for (const id of ["enseignants_ecole", "enseignants_college", "enseignants_lycee"] as const) {
+    const row = byId.get(id) ?? { id };
+    const path = row.basePath?.trim();
+    if (!path) {
+      row.basePath = ENSEIGNANTS_SHARED_BASE_PATH;
+    } else {
+      const collapsed = path.replace(/\/(École|Ecole|Collège|College|Lycée|Lycee)\s*$/i, "").trim();
+      if (collapsed && collapsed !== path) row.basePath = collapsed;
+    }
+    byId.set(id, row);
+  }
+
   return OCR_FLUX_CONFIG_IDS.map((id) => byId.get(id) ?? { id });
 }
 

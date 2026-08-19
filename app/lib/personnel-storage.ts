@@ -74,7 +74,12 @@ export async function getAllPersonnelRecords(): Promise<PersonnelRecord[]> {
 export async function findPersonnelByEmail(email: string): Promise<PersonnelRecord | null> {
   const normalized = email.trim().toLowerCase();
   const index = await getPersonnelIndex();
-  const hit = index.find((e) => e.email.trim().toLowerCase() === normalized);
+  const hit = index.find((e) => {
+    const emails = [e.email, e.emailPerso, e.emailPro]
+      .filter(Boolean)
+      .map((x) => x!.trim().toLowerCase());
+    return emails.includes(normalized);
+  });
   if (!hit) return null;
   return getPersonnelRecord(hit.id);
 }

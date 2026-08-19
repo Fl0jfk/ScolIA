@@ -6,5 +6,8 @@ export type EnseignantConfig = {
   prenom: string;
   folderName: string;
   secteur: Secteur;
+  /** Email personnel */
   email?: string;
+  /** Email professionnel (établissement) */
+  emailPro?: string;
 };

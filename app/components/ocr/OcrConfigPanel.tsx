@@ -4,6 +4,7 @@ import type { RefObject } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import EnseignantsOcrRoster from "@/app/components/ocr/EnseignantsOcrRoster";
+import PersonnelOcrRoster from "@/app/components/ocr/PersonnelOcrRoster";
 import type { OcrMefCounts, OcrSyncReport } from "@/app/lib/ocr-page-model";
 
 export default function OcrConfigPanel({
@@ -232,6 +233,8 @@ export default function OcrConfigPanel({
         </section>
 
         <EnseignantsOcrRoster />
+
+        <PersonnelOcrRoster />
 
         <input
           ref={mefInputRef}

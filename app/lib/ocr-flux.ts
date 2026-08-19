@@ -14,6 +14,9 @@ export const OCR_FLUX_IDS = [
 export type OcrFluxId = (typeof OCR_FLUX_IDS)[number];
 export type OcrFluxKind = "eleves" | "enseignants" | "personnel";
 
+/** Ancien id unique `enseignants` (bref) → réparti sur les 3 lignes. */
+export const UNIFIED_ENSEIGNANTS_FLUX_ID = "enseignants" as const;
+
 export type OcrFluxAssignment = {
   id: OcrFluxId;
   clerkUserId?: string;
@@ -38,6 +41,9 @@ export type OcrUserCapabilities = {
   /** Premier flux élèves — compat stages / ancien profil unique. */
   primaryEleves: OneDriveUserProfile | null;
 };
+
+/** Chemin OneDrive unique pour tous les enseignants (école / collège / lycée). */
+export const ENSEIGNANTS_SHARED_BASE_PATH = "Dossier enseignants";
 
 export const OCR_FLUX_META: Record<
   OcrFluxId,
@@ -65,19 +71,19 @@ export const OCR_FLUX_META: Record<
     kind: "enseignants",
     secteur: "ecole",
     label: "Enseignants école",
-    defaultBasePath: "Dossier enseignants/École",
+    defaultBasePath: ENSEIGNANTS_SHARED_BASE_PATH,
   },
   enseignants_college: {
     kind: "enseignants",
     secteur: "college",
     label: "Enseignants collège",
-    defaultBasePath: "Dossier enseignants/Collège",
+    defaultBasePath: ENSEIGNANTS_SHARED_BASE_PATH,
   },
   enseignants_lycee: {
     kind: "enseignants",
     secteur: "lycee",
     label: "Enseignants lycée",
-    defaultBasePath: "Dossier enseignants/Lycée",
+    defaultBasePath: ENSEIGNANTS_SHARED_BASE_PATH,
   },
   personnel_ogec: {
     kind: "personnel",
@@ -115,18 +121,71 @@ export function emptyOcrFluxGrid(): OcrFluxAssignment[] {
   return OCR_FLUX_IDS.map((id) => ({ id }));
 }
 
-export function mergeOcrFluxGrid(raw: OcrFluxAssignment[] | undefined | null): OcrFluxAssignment[] {
+type LooseFluxRow = {
+  id?: string;
+  clerkUserId?: string;
+  match?: string;
+  displayName?: string;
+  basePath?: string;
+};
+
+/**
+ * Normalise la grille : 7 flux, chemins enseignants partagés par défaut.
+ * Si une ancienne config avait `id: "enseignants"`, on réplique assignee + chemin
+ * sur les 3 lignes école / collège / lycée.
+ */
+export function mergeOcrFluxGrid(raw: OcrFluxAssignment[] | LooseFluxRow[] | undefined | null): OcrFluxAssignment[] {
   const byId = new Map<OcrFluxId, OcrFluxAssignment>();
-  for (const row of raw ?? []) {
-    if (!isOcrFluxId(row.id)) continue;
-    byId.set(row.id, {
-      id: row.id,
-      clerkUserId: row.clerkUserId?.trim() || undefined,
-      match: row.match?.trim() || undefined,
-      displayName: row.displayName?.trim() || undefined,
-      basePath: row.basePath?.trim() || undefined,
+  let unified: Pick<OcrFluxAssignment, "clerkUserId" | "match" | "displayName" | "basePath"> | null =
+    null;
+
+  for (const item of raw ?? []) {
+    const id = String(item.id ?? "").trim();
+    if (id === UNIFIED_ENSEIGNANTS_FLUX_ID) {
+      unified = {
+        clerkUserId: item.clerkUserId?.trim() || undefined,
+        match: item.match?.trim() || undefined,
+        displayName: item.displayName?.trim() || undefined,
+        basePath: item.basePath?.trim() || ENSEIGNANTS_SHARED_BASE_PATH,
+      };
+      continue;
+    }
+    if (!isOcrFluxId(id)) continue;
+    byId.set(id, {
+      id,
+      clerkUserId: item.clerkUserId?.trim() || undefined,
+      match: item.match?.trim() || undefined,
+      displayName: item.displayName?.trim() || undefined,
+      basePath: item.basePath?.trim() || undefined,
     });
   }
+
+  if (unified) {
+    for (const id of ["enseignants_ecole", "enseignants_college", "enseignants_lycee"] as const) {
+      const current = byId.get(id) ?? { id };
+      if (!current.clerkUserId && !current.match) {
+        current.clerkUserId = unified.clerkUserId;
+        current.match = unified.match;
+        current.displayName = unified.displayName;
+      }
+      if (!current.basePath) current.basePath = unified.basePath || ENSEIGNANTS_SHARED_BASE_PATH;
+      byId.set(id, current);
+    }
+  }
+
+  // Chemins vides ou anciens …/École|/Collège|/Lycée → racine commune
+  for (const id of ["enseignants_ecole", "enseignants_college", "enseignants_lycee"] as const) {
+    const row = byId.get(id) ?? { id };
+    const path = row.basePath?.trim();
+    if (!path) {
+      row.basePath = ENSEIGNANTS_SHARED_BASE_PATH;
+    } else {
+      const collapsed = path.replace(/\/(École|Ecole|Collège|College|Lycée|Lycee)\s*$/i, "").trim();
+      if (collapsed && collapsed !== path) row.basePath = collapsed;
+    }
+    byId.set(id, row);
+  }
+
   return OCR_FLUX_IDS.map((id) => byId.get(id) ?? { id });
 }
 
@@ -241,6 +300,10 @@ export function enseignantsSecteursFromCapabilities(caps: OcrUserCapabilities | 
     .map((f) => f.secteur as Secteur);
 }
 
+export function hasEnseignantsFlux(caps: OcrUserCapabilities | null): boolean {
+  return enseignantsSecteursFromCapabilities(caps).length > 0;
+}
+
 export function hasPersonnelFlux(caps: OcrUserCapabilities | null): boolean {
   return Boolean(caps?.fluxes.some((f) => f.kind === "personnel"));
 }
@@ -250,12 +313,25 @@ export function ocrHasExtraFluxes(caps: OcrUserCapabilities | null): boolean {
   return Boolean(caps?.fluxes.some((f) => f.kind !== "eleves"));
 }
 
+/**
+ * Chemin enseignants : même racine pour tous les cycles (fusion OneDrive).
+ * Si plusieurs flux enseignants, on prend le premier chemin non vide.
+ */
 export function findFluxBasePath(
   caps: OcrUserCapabilities | null,
   kind: OcrFluxKind,
   secteur?: Secteur | null,
 ): string | null {
   if (!caps) return null;
+  if (kind === "enseignants") {
+    const ens = caps.fluxes.filter((f) => f.kind === "enseignants");
+    if (ens.length === 0) return null;
+    if (secteur) {
+      const exact = ens.find((f) => f.secteur === secteur);
+      if (exact?.basePath) return exact.basePath;
+    }
+    return ens[0]?.basePath ?? ENSEIGNANTS_SHARED_BASE_PATH;
+  }
   const hit = caps.fluxes.find((f) => {
     if (f.kind !== kind) return false;
     if (kind === "personnel") return true;

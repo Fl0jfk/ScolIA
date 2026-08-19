@@ -167,6 +167,8 @@ export type RhPersonnelIndexEntry = {
   folderName: string;
   displayName: string;
   email: string;
+  emailPerso?: string;
+  emailPro?: string;
   clerkUserId?: string | null;
   category: RhCategory;
   active: boolean;

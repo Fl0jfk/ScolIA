@@ -179,8 +179,10 @@ export default function SettingsIntegrationsPanel({
           <p className="text-sm font-bold">Flux OCR → personne Clerk</p>
           <p className="text-xs text-slate-500 mb-3">
             Chaque ligne est un flux de classement (élèves, enseignants, personnel OGEC). La même
-            personne peut être choisie plusieurs fois. Les documents déposés dans l&apos;ajout IA
-            sont rangés uniquement dans les flux de la personne connectée — sans bouton élève / prof.
+            personne peut être choisie plusieurs fois (ex. collège + lycée). Les 3 flux enseignants
+            partagent par défaut le même chemin OneDrive (« Dossier enseignants ») : les dossiers
+            personnes sont fusionnés. Les documents sont rangés selon les flux de la personne
+            connectée — sans bouton élève / prof.
           </p>
           {membersLoading ? (
             <p className="text-xs text-slate-500">Chargement du personnel Clerk…</p>

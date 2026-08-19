@@ -1,6 +1,11 @@
 import type { EnseignantConfig } from "@/app/lib/enseignants-types";
+import { collectOcrEmails, matchEntriesByEmailInText } from "@/app/lib/ocr-email-match";
 import { normalizeName } from "@/app/lib/ocr-eleve-match";
 import { oneDrivePathForEleve } from "@/app/lib/onedrive-eleves";
+
+function enseignantEmails(e: EnseignantConfig): string[] {
+  return collectOcrEmails(e.email, e.emailPro);
+}
 
 export type EnseignantMatchCandidateView = {
   kind: "enseignant";
@@ -58,6 +63,32 @@ export function matchEnseignantFromDocument(params: {
     confidence: 0,
   });
   if (enseignants.length === 0) return none("liste_enseignants_vide");
+
+  const textRaw = params.text || "";
+  const emailHits = matchEntriesByEmailInText(textRaw, enseignants, enseignantEmails);
+  if (emailHits.length === 1) {
+    const e = emailHits[0]!;
+    return {
+      decision: "auto",
+      enseignant: e,
+      candidates: [
+        toView(e, 5, "email", params.basePathFor?.(e.secteur) ?? undefined),
+      ],
+      reason: "email_dans_document",
+      confidence: 0.97,
+    };
+  }
+  if (emailHits.length > 1) {
+    return {
+      decision: "review",
+      enseignant: null,
+      candidates: emailHits.slice(0, 5).map((e) =>
+        toView(e, 5, "email", params.basePathFor?.(e.secteur) ?? undefined),
+      ),
+      reason: "email_ambigu",
+      confidence: 0.7,
+    };
+  }
 
   const an = normalizeName(params.extractedNom || "");
   const ap = normalizeName(params.extractedPrenom || "");
