@@ -49,6 +49,7 @@ const PILLAR_TAB_TO_MODULE: Record<
     transversal: "domain-planning",
   },
   services: {
+    ocr: "agent-ia-ocr",
     demandes: "requests-staff",
     salles: "prof-room",
     photocopies: "toolbox",

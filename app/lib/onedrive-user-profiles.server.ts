@@ -4,6 +4,14 @@ import { loadAppConfig } from "@/app/lib/app-config";
 import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
 import type { ClerkLikeUser } from "@/app/lib/clerk-user-types";
 import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
+import {
+  capabilitiesFromFluxes,
+  fluxesAssignedToUser,
+  migrateLegacyUserSecteursToOcrFlux,
+  type OcrResolvedFlux,
+  type OcrUserCapabilities,
+  OCR_FLUX_META,
+} from "@/app/lib/ocr-flux";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import {
   DEFAULT_ONEDRIVE_BASE_BY_SECTEUR,
@@ -47,26 +55,78 @@ function collectUserIdentifiers(user: ClerkLikeUser): string[] {
   return out;
 }
 
+function collectEmails(user: ClerkLikeUser): string[] {
+  return [
+    user.primaryEmailAddress?.emailAddress,
+    ...(user.emailAddresses?.map((e) => e.emailAddress) ?? []),
+  ].filter((e): e is string => Boolean(e?.trim()));
+}
+
+async function loadOneDriveConfig() {
+  try {
+    const config = await loadAppConfig();
+    return {
+      od: config.integrations.microsoftOneDrive,
+      establishments: config.establishments,
+    };
+  } catch {
+    return { od: undefined, establishments: [] as Awaited<ReturnType<typeof loadAppConfig>>["establishments"] };
+  }
+}
+
+function applyElevesPathDefaults(
+  flux: OcrResolvedFlux,
+  defaults: Record<Secteur, { basePath: string; label: string }>,
+  basesBySecteur?: Partial<Record<Secteur, { basePath?: string; label?: string }>>,
+): OcrResolvedFlux {
+  if (flux.kind !== "eleves" || !flux.secteur) return flux;
+  const assignedPath = flux.basePath?.trim();
+  const override = basesBySecteur?.[flux.secteur]?.basePath?.trim();
+  const establishmentDefault = defaults[flux.secteur]?.basePath;
+  const metaDefault = OCR_FLUX_META[flux.id].defaultBasePath;
+  const usedDefault = !assignedPath || assignedPath === metaDefault;
+  return {
+    ...flux,
+    basePath: override || (usedDefault ? establishmentDefault || metaDefault : assignedPath),
+    label: basesBySecteur?.[flux.secteur]?.label?.trim() || defaults[flux.secteur]?.label || flux.label,
+  };
+}
+
 /**
- * Résout le profil OneDrive (dossier racine + cycle) d'un utilisateur en combinant :
- *  1. le mapping utilisateur → cycle configurable (Paramètres → Intégrations) ;
- *  2. la surcharge des dossiers racine par cycle (config tenant).
+ * Résout tous les flux OCR rattachés à l'utilisateur (ocrFlux, avec repli userSecteurs).
+ */
+export async function resolveOcrCapabilitiesForClerkUserServer(
+  user: ClerkLikeUser,
+): Promise<OcrUserCapabilities> {
+  const { od, establishments } = await loadOneDriveConfig();
+  const defaults = defaultBaseBySecteur(establishments);
+  const grid = migrateLegacyUserSecteursToOcrFlux({
+    ocrFlux: od?.ocrFlux,
+    userSecteurs: od?.userSecteurs,
+    basesBySecteur: od?.basesBySecteur,
+    personnelBasePath: od?.rhDrive?.basePath,
+  });
+  const assigned = fluxesAssignedToUser(grid, {
+    id: user.id,
+    lastName: user.lastName,
+    emails: collectEmails(user),
+  }).map((flux) => applyElevesPathDefaults(flux, defaults, od?.basesBySecteur));
+  return capabilitiesFromFluxes(assigned);
+}
+
+/**
+ * Résout le profil OneDrive (dossier racine + cycle) d'un utilisateur.
+ * Inchangé pour un secrétariat qui n'a qu'un flux élèves : même chemin, même secteur.
  */
 export async function resolveOneDriveProfileForClerkUserServer(
   user: ClerkLikeUser,
 ): Promise<OneDriveUserProfile | null> {
+  const caps = await resolveOcrCapabilitiesForClerkUserServer(user);
+  if (caps.primaryEleves) return caps.primaryEleves;
+
   let profile: OneDriveUserProfile | null = null;
 
-  let od: Awaited<ReturnType<typeof loadAppConfig>>["integrations"]["microsoftOneDrive"];
-  let establishments: Awaited<ReturnType<typeof loadAppConfig>>["establishments"] = [];
-  try {
-    const config = await loadAppConfig();
-    od = config.integrations.microsoftOneDrive;
-    establishments = config.establishments;
-  } catch {
-    od = undefined;
-  }
-
+  const { od, establishments } = await loadOneDriveConfig();
   const defaults = defaultBaseBySecteur(establishments);
 
   if (!profile && od?.userSecteurs?.length) {

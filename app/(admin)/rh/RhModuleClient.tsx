@@ -38,10 +38,6 @@ const RhOnboardingPanel = dynamic(() => import("@/app/components/personnel/RhOnb
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
-const RhBulkDepositPanel = dynamic(() => import("@/app/components/personnel/RhBulkDepositPanel"), {
-  ssr: false,
-  loading: () => <ModuleTabFallback />,
-});
 const RhOrganigramPanel = dynamic(() => import("@/app/components/personnel/RhOrganigramPanel"), {
   ssr: false,
   loading: () => <ModuleTabFallback />,
@@ -157,7 +153,20 @@ export default function RhModuleClient() {
       />
 
       {activeTab === "deposit" && canManage ? (
-        <RhBulkDepositPanel />
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-6 space-y-3">
+          <h2 className="text-lg font-black text-slate-900">Dépôt de documents</h2>
+          <p className="text-sm text-slate-700 leading-relaxed">
+            Les PDF du personnel OGEC se déposent désormais dans{" "}
+            <strong>Ajout de documents IA</strong> — la même banette que pour les élèves et les
+            enseignants. L’IA identifie la personne et range le fichier dans son dossier OneDrive.
+          </p>
+          <a
+            href="/agentIAOCR"
+            className="inline-flex rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700"
+          >
+            Ouvrir Ajout de documents IA
+          </a>
+        </div>
       ) : activeTab === "admin" && canManage ? (
         <RhAdminOverviewPanel index={index} />
       ) : activeTab === "onboarding" && canManage ? (

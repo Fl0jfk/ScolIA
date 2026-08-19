@@ -28,11 +28,16 @@ async function getElevesFromS3(): Promise<EleveConfig[]> {
  */
 export async function loadKnownStudentsForSegmentation(
   odProfile: OneDriveUserProfile | null,
+  secteurs?: import("@/app/lib/onedrive-eleves-types").Secteur[],
 ): Promise<KnownStudent[]> {
   try {
     const mefMap = await loadMefSecteurMap();
     const allEleves = await getElevesFromS3();
-    const { eleves } = buildElevesPoolForOcrMatching(allEleves, odProfile, mefMap);
+    const poolKey =
+      secteurs && secteurs.length > 1
+        ? { secteur: secteurs[0]!, secteurs }
+        : odProfile;
+    const { eleves } = buildElevesPoolForOcrMatching(allEleves, poolKey, mefMap);
     const pool = eleves.length > 0 ? eleves : allEleves;
     return pool
       .map((e) => ({

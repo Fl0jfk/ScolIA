@@ -5,6 +5,8 @@ import { useUser } from "@clerk/nextjs";
 import * as msal from "@azure/msal-browser";
 import { consumeDashboardUpload } from "@/app/lib/dashboard-upload-bridge";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
+
+type OcrFluxSummary = { id: string; kind: string; label: string; basePath: string };
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import OcrBatchProgress from "@/app/components/ocr/OcrBatchProgress";
@@ -74,19 +76,27 @@ function OneDriveUpDocsOCRAIContent() {
   const searchParams = useSearchParams();
   const { user: clerkUser } = useUser();
   const [oneDriveProfile, setOneDriveProfile] = useState<OneDriveUserProfile | null>(null);
+  const [ocrFluxes, setOcrFluxes] = useState<OcrFluxSummary[]>([]);
   useEffect(() => {
     if (!clerkUser) {
       setOneDriveProfile(null);
+      setOcrFluxes([]);
       return;
     }
     let cancelled = false;
     fetch("/api/onedrive/profile")
       .then((r) => r.json())
       .then((j) => {
-        if (!cancelled) setOneDriveProfile(j.profile || null);
+        if (!cancelled) {
+          setOneDriveProfile(j.profile || null);
+          setOcrFluxes(Array.isArray(j.fluxes) ? j.fluxes : []);
+        }
       })
       .catch(() => {
-        if (!cancelled) setOneDriveProfile(null);
+        if (!cancelled) {
+          setOneDriveProfile(null);
+          setOcrFluxes([]);
+        }
       });
     return () => {
       cancelled = true;
@@ -1275,9 +1285,9 @@ function OneDriveUpDocsOCRAIContent() {
   return (
     <ModulePageShell tourModuleId="agent-ia-ocr">
       <ModulePageHeader
-        eyebrow="Élèves"
+        eyebrow="Services"
         title="Ajout de documents IA"
-        description="Numérisez et rangez vos PDF dans les dossiers élèves sur OneDrive."
+        description="Déposez vos PDF : l’IA les range dans les dossiers OneDrive de vos flux (élèves, enseignants, personnel)."
       />
 
       {error ? (
@@ -1291,7 +1301,7 @@ function OneDriveUpDocsOCRAIContent() {
         dropsAvailable={dropsAvailable}
         accountName={account?.name}
         clerkUnmapped={
-          clerkUser && !oneDriveProfile
+          clerkUser && !oneDriveProfile && ocrFluxes.length === 0
             ? {
                 lastName: clerkUser.lastName,
                 email: clerkUser.primaryEmailAddress?.emailAddress,
@@ -1299,6 +1309,7 @@ function OneDriveUpDocsOCRAIContent() {
             : null
         }
         oneDriveProfile={oneDriveProfile}
+        ocrFluxes={ocrFluxes}
         checkingOneDrive={checkingOneDrive}
         showReconnect={Boolean(account)}
         onLogin={() => void login()}

@@ -16,11 +16,7 @@ import { TRAVELS_STATUS_LABELS, type TravelsTrip } from "@/app/lib/travels-types
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
-import {
-  establishmentKindEmoji,
-  inferEstablishmentKind,
-  visualForEstablishmentLabel,
-} from "@/app/lib/establishment-visual";
+import { visualForEstablishmentLabel } from "@/app/lib/establishment-visual";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleEmptyState from "@/app/components/module-chrome/ModuleEmptyState";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -161,13 +157,6 @@ function TripDashboardContent() {
   const etabVisual = (label: string) =>
     visualForEstablishmentLabel(label, etabFilterOptions.establishments, GROUPE_SCOLAIRE_LABEL);
 
-  const etabEmoji = (label: string) => {
-    const hit = etabFilterOptions.establishments.find((e) => e.label === label || e.id === label);
-    if (hit) return establishmentKindEmoji(inferEstablishmentKind(hit));
-    if (label === GROUPE_SCOLAIRE_LABEL) return "🏛";
-    return establishmentKindEmoji(inferEstablishmentKind({ label }));
-  };
-
   const getStatusStyle = (status: string) => {
     switch (status) {
       case 'VALIDE': return 'bg-emerald-50 text-emerald-700 border-emerald-100';
@@ -250,7 +239,7 @@ function TripDashboardContent() {
                   : undefined
               }
             >
-              {f === "Tous" ? "🗂 Tous" : `${etabEmoji(f)} ${f}`}
+              {f === "Tous" ? "Tous" : f}
             </button>
           );
         })}
@@ -314,14 +303,19 @@ function TripDashboardContent() {
                     </span>
                   </div>
                   <div
-                    className="absolute top-4 right-4 px-4 py-1.5 rounded-xl font-black text-sm border shadow-lg backdrop-blur-md"
+                    className="absolute top-4 right-4 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border shadow-sm"
                     style={{
                       backgroundColor: vis.badgeBg,
                       color: vis.textColor,
                       borderColor: vis.borderColor,
                     }}
                   >
-                    {etabEmoji(etabLabel)} {etabLabel}
+                    <span
+                      className="h-1.5 w-1.5 rounded-full shrink-0"
+                      style={{ backgroundColor: vis.hex }}
+                      aria-hidden
+                    />
+                    {etabLabel}
                   </div>
                 </div>
                 <div className="relative p-8">

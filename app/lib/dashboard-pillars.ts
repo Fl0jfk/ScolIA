@@ -17,7 +17,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     title: "Élèves",
     href: "/eleves",
     description: "",
-    moduleIds: ["travels", "internat", "stages", "agent-ia-ocr", "certificates"],
+    moduleIds: ["travels", "internat", "stages", "certificates"],
   },
   {
     id: "rh",
@@ -47,6 +47,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     description: "",
     moduleIds: [
       "requests-staff",
+      "agent-ia-ocr",
       "prof-room",
       "domain-planning",
       "documents",

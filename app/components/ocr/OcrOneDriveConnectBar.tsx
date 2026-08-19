@@ -7,6 +7,7 @@ export default function OcrOneDriveConnectBar({
   accountName,
   clerkUnmapped,
   oneDriveProfile,
+  ocrFluxes,
   checkingOneDrive,
   showReconnect,
   onLogin,
@@ -16,11 +17,13 @@ export default function OcrOneDriveConnectBar({
   accountName?: string | null;
   clerkUnmapped?: { lastName?: string | null; email?: string | null } | null;
   oneDriveProfile?: { label: string; basePath: string } | null;
+  ocrFluxes?: Array<{ id: string; label: string; basePath: string }>;
   checkingOneDrive: boolean;
   showReconnect: boolean;
   onLogin: () => void;
   onReconnect: () => void;
 }) {
+  const fluxes = ocrFluxes?.filter((f) => f.basePath) ?? [];
   return (
     <>
       {clerkUnmapped ? (
@@ -28,16 +31,30 @@ export default function OcrOneDriveConnectBar({
           <p className="font-bold">Profil OneDrive non reconnu</p>
           <p className="text-sm">
             Votre compte Clerk ({clerkUnmapped.lastName || "nom absent"} —{" "}
-            {clerkUnmapped.email || "e-mail absent"}) n&apos;est pas encore associé au dossier collège /
-            lycée / école. Contactez l&apos;administrateur pour l&apos;ajouter.
+            {clerkUnmapped.email || "e-mail absent"}) n&apos;est rattaché à aucun flux OCR. Un
+            administrateur doit l&apos;associer dans Paramètres → Intégrations.
           </p>
         </div>
       ) : null}
 
-      {oneDriveProfile ? (
+      {fluxes.length > 1 ? (
+        <div className="mb-6 p-4 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-sm space-y-1">
+          <p className="font-semibold text-slate-800">Flux OCR rattachés à votre compte</p>
+          {fluxes.map((f) => (
+            <p key={f.id}>
+              <strong>{f.label}</strong> — <span className="font-mono text-xs">{f.basePath}</span>
+            </p>
+          ))}
+        </div>
+      ) : oneDriveProfile ? (
         <div className="mb-6 p-4 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-sm">
           Dossier OneDrive configuré : <strong>{oneDriveProfile.label}</strong> —{" "}
           <span className="font-mono text-xs">{oneDriveProfile.basePath}</span>
+        </div>
+      ) : fluxes.length === 1 ? (
+        <div className="mb-6 p-4 bg-slate-50 border border-slate-200 text-slate-700 rounded-xl text-sm">
+          Dossier OneDrive configuré : <strong>{fluxes[0].label}</strong> —{" "}
+          <span className="font-mono text-xs">{fluxes[0].basePath}</span>
         </div>
       ) : null}
 
@@ -77,13 +94,6 @@ export default function OcrOneDriveConnectBar({
           ) : null}
         </div>
       </div>
-
-      {checkingOneDrive ? (
-        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-2xl text-blue-800 text-sm font-medium flex items-center gap-3">
-          <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent" />
-          Vérification de la connexion OneDrive…
-        </div>
-      ) : null}
     </>
   );
 }

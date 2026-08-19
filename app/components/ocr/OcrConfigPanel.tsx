@@ -3,6 +3,7 @@
 import type { RefObject } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";
+import EnseignantsOcrRoster from "@/app/components/ocr/EnseignantsOcrRoster";
 import type { OcrMefCounts, OcrSyncReport } from "@/app/lib/ocr-page-model";
 
 export default function OcrConfigPanel({
@@ -41,8 +42,8 @@ export default function OcrConfigPanel({
       </summary>
       <div className="px-6 pb-6 pt-2 border-t border-slate-100 space-y-6">
         <p className="text-sm text-slate-600">
-          Trois actions dans l&apos;ordre : importer la liste élèves, configurer la table MEF, puis créer les dossiers
-          OneDrive manquants.
+          Pour les élèves : importer la liste, configurer la table MEF, puis créer les dossiers OneDrive
+          manquants. Les flux enseignants / personnel se règlent dans Paramètres → Intégrations.
           {elevesCount != null ? (
             <span className="block mt-1 font-medium text-slate-800">
               {elevesCount} élève(s) actuellement enregistré(s) pour le classement automatique.
@@ -112,8 +113,8 @@ export default function OcrConfigPanel({
         <section data-tour="sync-onedrive" className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 space-y-3">
           <h3 className="text-sm font-bold text-slate-800">3 — Créer les dossiers sur OneDrive</h3>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Crée un dossier par élève de <strong>votre secteur</strong> (format « NOM Prenom » — sans tirets, sans
-            classe) dans l&apos;arborescence OneDrive connectée en haut de page.
+            Crée un dossier par personne de <strong>vos flux</strong> (élèves de votre secteur, et
+            enseignants / personnel si vous y êtes rattaché) dans l&apos;arborescence OneDrive connectée.
           </p>
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-950 leading-relaxed space-y-1">
             <p className="font-bold">Sans risque pour les dossiers existants</p>
@@ -229,6 +230,8 @@ export default function OcrConfigPanel({
             </ModuleCard>
           ) : null}
         </section>
+
+        <EnseignantsOcrRoster />
 
         <input
           ref={mefInputRef}

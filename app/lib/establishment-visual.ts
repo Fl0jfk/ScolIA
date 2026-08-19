@@ -107,9 +107,10 @@ export function establishmentVisualFromHex(hex: string): EstablishmentVisual {
     hex: color,
     washBg: hexToRgba(color, 0.045),
     orbBg: hexToRgba(color, 0.16),
-    borderColor: hexToRgba(color, 0.28),
-    badgeBg: hexToRgba(color, 0.72),
-    textColor: mixToward(color, 0, 0.45),
+    borderColor: hexToRgba(color, 0.32),
+    // Fond clair opaque (lisible sur photo) + texte foncé — même logique que bg-*-50 / text-*-800.
+    badgeBg: mixToward(color, 255, 0.88),
+    textColor: mixToward(color, 0, 0.58),
   };
 }
 

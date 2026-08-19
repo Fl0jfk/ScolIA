@@ -263,6 +263,7 @@ export type OcrSuggestedEleve = {
   folderPath?: string;
   score?: number;
   matchedBy?: string;
+  kind?: "eleve" | "enseignant" | "personnel";
 };
 
 export function ocrSuggestedEleves(result: ProcessResult): OcrSuggestedEleve[] {
@@ -277,8 +278,12 @@ export function ocrSuggestedEleves(result: ProcessResult): OcrSuggestedEleve[] {
       folderPath: c.folderPath ? String(c.folderPath) : undefined,
       score: typeof c.score === "number" ? c.score : undefined,
       matchedBy: c.matchedBy ? String(c.matchedBy) : undefined,
+      kind:
+        c.kind === "enseignant" || c.kind === "personnel" || c.kind === "eleve"
+          ? (c.kind as OcrSuggestedEleve["kind"])
+          : "eleve",
     }))
-    .filter((c: OcrSuggestedEleve) => c.folderName && c.nom);
+    .filter((c: OcrSuggestedEleve) => c.folderName && (c.nom || c.prenom));
 }
 
 export function ocrExtractedSummary(result: ProcessResult): string | null {
@@ -296,11 +301,11 @@ export function ocrExtractedSummary(result: ProcessResult): string | null {
 
 export function ocrFailureHint(result: ProcessResult): string {
   const err = (result.error || "").toLowerCase();
-  if (err.includes("élève") || err.includes("eleve") || err.includes("identifi")) {
+  if (err.includes("élève") || err.includes("eleve") || err.includes("identifi") || err.includes("personne")) {
     if (ocrSuggestedEleves(result).length > 0) {
-      return "L’identité n’est pas assez certaine pour ranger tout seul. Choisissez l’élève ci-dessous.";
+      return "L’identité n’est pas assez certaine pour ranger tout seul. Choisissez la personne ci-dessous.";
     }
-    return "Le nom ou prénom de l'élève n'a pas été reconnu clairement dans le document.";
+    return "Le nom n'a pas été reconnu clairement dans le document.";
   }
   if (err.includes("incomplet") || err.includes("filename")) {
     return "Le type de document ou les informations attendues (classe, date…) n'ont pas pu être lues.";

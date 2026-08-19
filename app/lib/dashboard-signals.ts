@@ -593,16 +593,18 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
   }
 
-  // —— Élèves : OCR / certificats (stables) ——
+  // —— Services : OCR documents ——
   if (has("agent-ia-ocr")) {
     shortcuts.push({
       id: "ocr",
-      pillarId: "eleves",
+      pillarId: "services",
       moduleId: "agent-ia-ocr",
       href: moduleHref("agent-ia-ocr"),
       label: "Ajout de documents IA",
     });
   }
+
+  // —— Élèves : certificats (stables) ——
   if (has("certificates")) {
     shortcuts.push({
       id: "certificates",

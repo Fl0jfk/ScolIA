@@ -92,6 +92,24 @@ type OneDriveUserSecteur = {
   secteur: OneDriveSecteur;
 };
 
+export type OcrFluxConfigId =
+  | "eleves_ecole"
+  | "eleves_college"
+  | "eleves_lycee"
+  | "enseignants_ecole"
+  | "enseignants_college"
+  | "enseignants_lycee"
+  | "personnel_ogec";
+
+/** Un flux OCR rattaché à une personne Clerk + dossier OneDrive. */
+export type OcrFluxConfigRow = {
+  id: OcrFluxConfigId;
+  clerkUserId?: string;
+  match?: string;
+  displayName?: string;
+  basePath?: string;
+};
+
 /** Lien public (sans secret) du OneDrive RH — attachée de gestion. */
 type MicrosoftRhDriveIntegration = {
   enabled: boolean;
@@ -106,8 +124,10 @@ export type MicrosoftOneDriveIntegration = {
   enabled: boolean;
   /** Surcharge des dossiers racine par cycle (sinon valeurs par défaut en dur). */
   basesBySecteur?: Partial<Record<OneDriveSecteur, OneDriveSecteurBase>>;
-  /** Mapping utilisateur → cycle (pour les comptes non câblés en dur). */
+  /** Mapping utilisateur → cycle (legacy — migré vers ocrFlux). */
   userSecteurs?: OneDriveUserSecteur[];
+  /** Grille flux OCR → personne Clerk + dossier racine. */
+  ocrFlux?: OcrFluxConfigRow[];
   /** OneDrive cible RH (meta publique ; refresh token dans secrets tenant). */
   rhDrive?: MicrosoftRhDriveIntegration;
 };
@@ -520,6 +540,40 @@ function parseOneDriveSecteur(value: unknown): OneDriveSecteur | null {
   return s === "ecole" || s === "college" || s === "lycee" ? s : null;
 }
 
+const OCR_FLUX_CONFIG_IDS: OcrFluxConfigId[] = [
+  "eleves_ecole",
+  "eleves_college",
+  "eleves_lycee",
+  "enseignants_ecole",
+  "enseignants_college",
+  "enseignants_lycee",
+  "personnel_ogec",
+];
+
+function parseOcrFluxId(value: unknown): OcrFluxConfigId | null {
+  const s = String(value ?? "").trim();
+  return (OCR_FLUX_CONFIG_IDS as string[]).includes(s) ? (s as OcrFluxConfigId) : null;
+}
+
+function parseOcrFluxRows(raw: unknown): OcrFluxConfigRow[] {
+  if (!Array.isArray(raw)) return [];
+  const byId = new Map<OcrFluxConfigId, OcrFluxConfigRow>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const id = parseOcrFluxId(row.id);
+    if (!id) continue;
+    byId.set(id, {
+      id,
+      clerkUserId: str(row.clerkUserId) || undefined,
+      match: str(row.match) || undefined,
+      displayName: str(row.displayName) || undefined,
+      basePath: str(row.basePath) || undefined,
+    });
+  }
+  return OCR_FLUX_CONFIG_IDS.map((id) => byId.get(id) ?? { id });
+}
+
 function parseOneDriveIntegration(raw: Record<string, unknown>): MicrosoftOneDriveIntegration {
   const result: MicrosoftOneDriveIntegration = { enabled: raw.enabled === true };
 
@@ -558,6 +612,39 @@ function parseOneDriveIntegration(raw: Record<string, unknown>): MicrosoftOneDri
     if (list.length > 0) result.userSecteurs = list;
   }
 
+  const parsedFlux = parseOcrFluxRows(raw.ocrFlux);
+  const hasFluxAssignee = parsedFlux.some((row) => row.clerkUserId || row.match);
+  if (hasFluxAssignee || parsedFlux.some((row) => row.basePath) || Array.isArray(raw.ocrFlux)) {
+    result.ocrFlux = parsedFlux;
+  }
+  if (!hasFluxAssignee && result.userSecteurs?.length) {
+    const migrated = parsedFlux.map((row) => ({ ...row }));
+    for (const legacy of result.userSecteurs) {
+      const id = (
+        legacy.secteur === "ecole"
+          ? "eleves_ecole"
+          : legacy.secteur === "college"
+            ? "eleves_college"
+            : "eleves_lycee"
+      ) as OcrFluxConfigId;
+      const current = migrated.find((r) => r.id === id);
+      if (!current || current.clerkUserId || current.match) continue;
+      current.clerkUserId = legacy.clerkUserId;
+      current.match = legacy.match;
+      current.displayName = legacy.displayName;
+    }
+    for (const secteur of ["ecole", "college", "lycee"] as const) {
+      const override = result.basesBySecteur?.[secteur]?.basePath?.trim();
+      if (!override) continue;
+      const id = (
+        secteur === "ecole" ? "eleves_ecole" : secteur === "college" ? "eleves_college" : "eleves_lycee"
+      ) as OcrFluxConfigId;
+      const current = migrated.find((r) => r.id === id);
+      if (current && !current.basePath) current.basePath = override;
+    }
+    result.ocrFlux = migrated;
+  }
+
   const rhRaw = raw.rhDrive;
   if (rhRaw && typeof rhRaw === "object") {
     const rh = rhRaw as Record<string, unknown>;
@@ -570,6 +657,10 @@ function parseOneDriveIntegration(raw: Record<string, unknown>): MicrosoftOneDri
       linkedAt: str(rh.linkedAt) || undefined,
       basePath,
     };
+    if (result.ocrFlux) {
+      const personnel = result.ocrFlux.find((r) => r.id === "personnel_ogec");
+      if (personnel && !personnel.basePath) personnel.basePath = basePath;
+    }
   }
 
   return result;

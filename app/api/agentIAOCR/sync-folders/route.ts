@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { resolveEleveFolderName } from "@/app/lib/eleves-config";
+import {
+  filterEnseignantsForSecteurs,
+  loadEnseignantsRegistry,
+} from "@/app/lib/enseignants-registry";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { listChildFolderNames, ensureChildFolder, ensureFolderPath } from "@/app/lib/graph-onedrive-folders";
 import { loadMefSecteurMap } from "@/app/lib/mef-secteurs";
@@ -10,7 +14,60 @@ import {
   filterElevesForSecteur,
   resolveEleveSecteur,
 } from "@/app/lib/onedrive-eleves";
-import { resolveOneDriveProfileForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
+import { loadPersonnelEntriesForOcr } from "@/app/lib/ocr-personnel-pool";
+import {
+  resolveOcrCapabilitiesForClerkUserServer,
+  resolveOneDriveProfileForClerkUserServer,
+} from "@/app/lib/onedrive-user-profiles.server";
+import type { Secteur } from "@/app/lib/onedrive-eleves-types";
+import type { OcrResolvedFlux } from "@/app/lib/ocr-flux";
+
+async function syncNamedFolders(
+  accessToken: string,
+  basePath: string,
+  folderNames: string[],
+): Promise<{
+  created: string[];
+  alreadyThere: string[];
+  errors: Array<{ folderName: string; error: string }>;
+  extraFoldersOnOneDrive: string[];
+  existingOnDrive: string[];
+}> {
+  await ensureFolderPath(accessToken, basePath);
+  const existingOnDrive = await listChildFolderNames(accessToken, basePath);
+  const existing = new Set(existingOnDrive);
+  const created: string[] = [];
+  const alreadyThere: string[] = [];
+  const errors: Array<{ folderName: string; error: string }> = [];
+  const wanted = new Set<string>();
+
+  for (const folderName of folderNames) {
+    const name = folderName.trim();
+    if (!name) continue;
+    wanted.add(name);
+    if (existing.has(name)) {
+      alreadyThere.push(name);
+      continue;
+    }
+    try {
+      const r = await ensureChildFolder(accessToken, basePath, name);
+      existing.add(name);
+      if (r.created) created.push(name);
+      else alreadyThere.push(name);
+    } catch (err) {
+      errors.push({
+        folderName: name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const extraFoldersOnOneDrive = [...existingOnDrive]
+    .filter((name) => !wanted.has(name))
+    .sort((a, b) => a.localeCompare(b, "fr"));
+
+  return { created, alreadyThere, errors, extraFoldersOnOneDrive, existingOnDrive: [...existingOnDrive] };
+}
 
 export async function POST(req: Request) {
   try {
@@ -18,20 +75,24 @@ export async function POST(req: Request) {
     if (!gate.ok) return gate.response;
 
     const user = await safeCurrentUser();
-    const profile = user
-      ? await resolveOneDriveProfileForClerkUserServer({
+    const like = user
+      ? {
+          id: user.id,
           lastName: user.lastName,
           emailAddresses: user.emailAddresses?.map((e) => ({ emailAddress: e.emailAddress })),
           primaryEmailAddress: user.primaryEmailAddress
             ? { emailAddress: user.primaryEmailAddress.emailAddress }
             : null,
-        })
+        }
       : null;
-    if (!profile) {
+    const caps = like ? await resolveOcrCapabilitiesForClerkUserServer(like) : { fluxes: [], primaryEleves: null };
+    const profile =
+      caps.primaryEleves ?? (like ? await resolveOneDriveProfileForClerkUserServer(like) : null);
+    if (!profile && caps.fluxes.length === 0) {
       return NextResponse.json(
         {
           error:
-            "Profil OneDrive inconnu pour votre compte. Configurez le mapping utilisateur → cycle dans Paramètres → Intégrations, ou ajoutez votre nom au mapping en dur.",
+            "Aucun flux OCR n'est rattaché à votre compte. Configurez le mapping dans Paramètres → Intégrations.",
         },
         { status: 403 },
       );
@@ -45,60 +106,84 @@ export async function POST(req: Request) {
 
     const mefMap = await loadMefSecteurMap();
     const mefTableConfigured = mefMap.size > 0;
-
     const allEleves = await loadElevesRegistry();
-    const scoped = filterElevesForSecteur(allEleves, profile.secteur, mefMap);
+    const allEnseignants = await loadEnseignantsRegistry();
 
-    await ensureFolderPath(accessToken, profile.basePath);
-    const existingOnDrive = await listChildFolderNames(accessToken, profile.basePath);
-    const existing = new Set(existingOnDrive);
+    const elevesFluxes = caps.fluxes.filter((f) => f.kind === "eleves" && f.secteur) as Array<
+      OcrResolvedFlux & { secteur: Secteur }
+    >;
+    const fallbackEleves: Array<OcrResolvedFlux & { secteur: Secteur }> =
+      elevesFluxes.length === 0 && profile
+        ? [
+            {
+              id: profile.secteur === "ecole" ? "eleves_ecole" : profile.secteur === "college" ? "eleves_college" : "eleves_lycee",
+              kind: "eleves",
+              secteur: profile.secteur,
+              basePath: profile.basePath,
+              label: profile.label,
+            },
+          ]
+        : elevesFluxes;
 
     const created: string[] = [];
     const alreadyThere: string[] = [];
     const ambiguous: Array<{ folderName: string; mef?: string; reason: string }> = [];
     const errors: Array<{ folderName: string; error: string }> = [];
-    const currentStudentFolders = new Set<string>();
+    let extraFoldersOnOneDrive: string[] = [];
+    let oneDriveFoldersFound = 0;
+    let jsonForYourSecteur = 0;
 
-    for (const e of scoped) {
-      const folderName = resolveEleveFolderName(e);
-      const inferred = resolveEleveSecteur(e, mefMap);
-      if (!inferred) {
-        const mef = String(e.mef ?? "").trim();
-        ambiguous.push({
-          folderName,
-          mef: mef || undefined,
-          reason: mefTableConfigured
-            ? mef
-              ? "MEF inconnu dans la table"
-              : "MEF manquant sur l'élève"
-            : "Secteur non détecté (table MEF absente et nom de dossier ambigu)",
-        });
-        continue;
+    for (const flux of fallbackEleves) {
+      const scoped = filterElevesForSecteur(allEleves, flux.secteur, mefMap);
+      jsonForYourSecteur += scoped.length;
+      const names: string[] = [];
+      for (const e of scoped) {
+        const folderName = resolveEleveFolderName(e);
+        const inferred = resolveEleveSecteur(e, mefMap);
+        if (!inferred) {
+          const mef = String(e.mef ?? "").trim();
+          ambiguous.push({
+            folderName,
+            mef: mef || undefined,
+            reason: mefTableConfigured
+              ? mef
+                ? "MEF inconnu dans la table"
+                : "MEF manquant sur l'élève"
+              : "Secteur non détecté (table MEF absente et nom de dossier ambigu)",
+          });
+          continue;
+        }
+        if (inferred !== flux.secteur) continue;
+        names.push(folderName);
       }
-      if (inferred !== profile.secteur) continue;
-
-      currentStudentFolders.add(folderName);
-
-      if (existing.has(folderName)) {
-        alreadyThere.push(folderName);
-        continue;
-      }
-      try {
-        const r = await ensureChildFolder(accessToken, profile.basePath, folderName);
-        existing.add(folderName);
-        if (r.created) created.push(folderName);
-        else alreadyThere.push(folderName);
-      } catch (err) {
-        errors.push({
-          folderName,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+      const report = await syncNamedFolders(accessToken, flux.basePath, names);
+      created.push(...report.created);
+      alreadyThere.push(...report.alreadyThere);
+      errors.push(...report.errors);
+      extraFoldersOnOneDrive.push(...report.extraFoldersOnOneDrive.map((n) => `${flux.basePath}/${n}`));
+      oneDriveFoldersFound += report.existingOnDrive.length;
     }
 
-    const extraFoldersOnOneDrive = [...existingOnDrive]
-      .filter((name) => !currentStudentFolders.has(name))
-      .sort((a, b) => a.localeCompare(b, "fr"));
+    for (const flux of caps.fluxes.filter((f) => f.kind === "enseignants" && f.secteur)) {
+      const names = filterEnseignantsForSecteurs(allEnseignants, [flux.secteur!]).map((e) => e.folderName);
+      const report = await syncNamedFolders(accessToken, flux.basePath, names);
+      created.push(...report.created);
+      alreadyThere.push(...report.alreadyThere);
+      errors.push(...report.errors);
+    }
+
+    if (caps.fluxes.some((f) => f.kind === "personnel")) {
+      const personnelFlux = caps.fluxes.find((f) => f.kind === "personnel")!;
+      const entries = await loadPersonnelEntriesForOcr();
+      const report = await syncNamedFolders(
+        accessToken,
+        personnelFlux.basePath,
+        entries.map((e) => e.folderName),
+      );
+      created.push(...report.created);
+      alreadyThere.push(...report.alreadyThere);
+      errors.push(...report.errors);
+    }
 
     const otherSecteurCounts = {
       lycee: filterElevesForSecteur(allEleves, "lycee", mefMap).length,
@@ -106,16 +191,19 @@ export async function POST(req: Request) {
       ecole: filterElevesForSecteur(allEleves, "ecole", mefMap).length,
     };
 
+    const label = caps.fluxes.map((f) => f.label).join(" · ") || profile?.label || "";
+    const basePath = profile?.basePath || caps.fluxes[0]?.basePath || "";
+
     return NextResponse.json({
       success: true,
       mefTableConfigured,
       mefCodesInTable: mefMap.size,
-      secteur: profile.secteur,
-      secteurLabel: profile.label,
-      basePath: profile.basePath,
+      secteur: profile?.secteur ?? null,
+      secteurLabel: label,
+      basePath,
       jsonTotal: allEleves.length,
-      jsonForYourSecteur: scoped.length,
-      oneDriveFoldersFound: existingOnDrive.size,
+      jsonForYourSecteur,
+      oneDriveFoldersFound,
       created: created.length,
       alreadyThere: alreadyThere.length,
       createdFolders: created.sort((a, b) => a.localeCompare(b, "fr")),
@@ -127,10 +215,10 @@ export async function POST(req: Request) {
       otherSecteurCounts,
       message:
         created.length > 0
-          ? `${created.length} dossier(s) créé(s), ${alreadyThere.length} déjà présent(s) pour les élèves de la liste actuelle.`
+          ? `${created.length} dossier(s) créé(s), ${alreadyThere.length} déjà présent(s).`
           : alreadyThere.length > 0
-            ? `Aucun nouveau dossier : ${alreadyThere.length} élève(s) de la liste avaient déjà leur dossier.`
-            : "Aucun dossier créé — vérifiez la liste élèves et la table MEF.",
+            ? `Aucun nouveau dossier : ${alreadyThere.length} dossier(s) existaient déjà.`
+            : "Aucun dossier créé — vérifiez les listes (élèves, enseignants, personnel) et la table MEF.",
     });
   } catch (e) {
     console.error("sync-folders:", e);

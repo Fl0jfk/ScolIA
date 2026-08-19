@@ -73,10 +73,20 @@ export function resolveEleveSecteur(
  */
 export function buildElevesPoolForOcrMatching(
   allEleves: EleveSecteurInput[],
-  odProfile: { secteur: Secteur } | null,
+  odProfile: { secteur: Secteur; secteurs?: Secteur[] } | { secteurs: Secteur[] } | null,
   mefMap?: Map<string, Secteur> | null,
 ): { eleves: EleveSecteurInput[]; secteurFilterApplied: boolean } {
   if (!odProfile || !mefMap || mefMap.size === 0 || allEleves.length === 0) {
+    return { eleves: allEleves, secteurFilterApplied: false };
+  }
+
+  const secteurs: Secteur[] =
+    "secteurs" in odProfile && odProfile.secteurs?.length
+      ? odProfile.secteurs
+      : "secteur" in odProfile && odProfile.secteur
+        ? [odProfile.secteur]
+        : [];
+  if (secteurs.length === 0) {
     return { eleves: allEleves, secteurFilterApplied: false };
   }
 
@@ -92,7 +102,13 @@ export function buildElevesPoolForOcrMatching(
     return { eleves: allEleves, secteurFilterApplied: false };
   }
 
-  const scoped = filterElevesForSecteur(allEleves, odProfile.secteur, mefMap);
+  const scoped =
+    secteurs.length === 1
+      ? filterElevesForSecteur(allEleves, secteurs[0], mefMap)
+      : allEleves.filter((e) => {
+          const s = resolveEleveSecteur(e, mefMap);
+          return Boolean(s && secteurs.includes(s));
+        });
   if (scoped.length === 0) {
     return { eleves: allEleves, secteurFilterApplied: false };
   }

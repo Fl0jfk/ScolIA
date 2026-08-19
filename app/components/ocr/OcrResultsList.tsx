@@ -116,7 +116,9 @@ export default function OcrResultsList({
                   ) : null}
                   {suggestions.length > 0 ? (
                     <div className="mt-3 space-y-2">
-                      <p className="text-xs font-bold uppercase tracking-wide text-amber-900">Élèves possibles</p>
+                      <p className="text-xs font-bold uppercase tracking-wide text-amber-900">
+                        Suggestions
+                      </p>
                       {suggestions.map((c) => {
                         const key = `${r.fileName}::${c.folderName}`;
                         return (
@@ -128,6 +130,9 @@ export default function OcrResultsList({
                               <p className="text-sm font-bold text-slate-900">
                                 {c.nom} {c.prenom}
                                 {c.classe ? ` · ${c.classe}` : ""}
+                                {c.kind && c.kind !== "eleve"
+                                  ? ` · ${c.kind === "enseignant" ? "enseignant" : "personnel"}`
+                                  : ""}
                               </p>
                               <p className="text-[11px] text-slate-500">
                                 {c.folderName}

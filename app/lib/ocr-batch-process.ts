@@ -15,6 +15,13 @@ import {
   type OcrBatchSegment,
 } from "@/app/api/agentIAOCR/batch-job/batch-job";
 import { analyzeDocMatchEleve, loadKnownStudentsForSegmentation } from "@/app/lib/ocr-analyze-eleve";
+import { analyzeDocForOcr } from "@/app/lib/ocr-analyze-unified";
+import {
+  elevesSecteursFromCapabilities,
+  ocrHasExtraFluxes,
+  type OcrUserCapabilities,
+} from "@/app/lib/ocr-flux";
+import { resolveOcrCapabilitiesForClerkUserServer, resolveOneDriveProfileForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
 import type { KnownStudent } from "@/app/lib/ocr-segmentation";
 import { extractPdfPagesBytes, getPdfPageCountFromS3 } from "@/app/lib/ocr-extract-pages";
 import {
@@ -25,7 +32,6 @@ import {
 import { runDocumentSegmentation, resolveSegmentationEngine } from "@/app/lib/ocr-segment-run";
 import { pollTextractOnce, startTextractForS3Key } from "@/app/lib/ocr-textract";
 import { buildTextFromPages } from "@/app/lib/eleves-config";
-import { resolveOneDriveProfileForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import { getMicrosoftAccessTokenFromRefresh } from "@/app/lib/graph-microsoft-delegated";
 import { getClerkClientForTenant } from "@/app/lib/tenant-clerk";
@@ -338,16 +344,44 @@ async function patchJob(jobId: string, patch: Partial<OcrBatchJob>) {
   return next;
 }
 
-async function getOdProfileForUser(userId: string) {
-  const clerk = await getClerkClientForTenant();
-  const user = await clerk.users.getUser(userId);
-  return resolveOneDriveProfileForClerkUserServer({
+function clerkLikeFromUser(user: {
+  id: string;
+  lastName: string | null;
+  emailAddresses: Array<{ emailAddress: string }>;
+  primaryEmailAddress: { emailAddress: string } | null;
+}) {
+  return {
+    id: user.id,
     lastName: user.lastName,
-    emailAddresses: user.emailAddresses?.map((e) => ({ emailAddress: e.emailAddress })),
+    emailAddresses: user.emailAddresses.map((e) => ({ emailAddress: e.emailAddress })),
     primaryEmailAddress: user.primaryEmailAddress
       ? { emailAddress: user.primaryEmailAddress.emailAddress }
       : null,
-  });
+  };
+}
+
+async function getOcrContextForUser(userId: string): Promise<{
+  odProfile: OneDriveUserProfile | null;
+  caps: OcrUserCapabilities;
+}> {
+  const clerk = await getClerkClientForTenant();
+  const user = await clerk.users.getUser(userId);
+  const like = clerkLikeFromUser(user);
+  const caps = await resolveOcrCapabilitiesForClerkUserServer(like);
+  const odProfile = caps.primaryEleves ?? (await resolveOneDriveProfileForClerkUserServer(like));
+  return { odProfile, caps };
+}
+
+async function analyzeForWorker(
+  text: string,
+  ctx: WorkerCtx,
+  trace: OcrTraceCtx,
+  options?: Parameters<typeof analyzeDocMatchEleve>[3],
+) {
+  if (!ocrHasExtraFluxes(ctx.caps)) {
+    return analyzeDocMatchEleve(text, ctx.odProfile, trace, options);
+  }
+  return analyzeDocForOcr(text, ctx.odProfile, ctx.caps, trace, options);
 }
 
 class TokenExpiredError extends Error {
@@ -365,6 +399,7 @@ type WorkerCtx = {
   jobId: string;
   token: string;
   odProfile: OneDriveUserProfile | null;
+  caps: OcrUserCapabilities | null;
   refreshToken: string | null;
   /** Élèves connus (eleves.json) — découpage ancré identité, chargés une seule fois par invocation. */
   knownStudents: KnownStudent[];
@@ -498,7 +533,7 @@ async function analyzeAndMove(
     odSecteur: ctx.odProfile?.secteur ?? null,
   });
 
-  const ai = await analyzeDocMatchEleve(text, ctx.odProfile, trace);
+  const ai = await analyzeForWorker(text, ctx, trace);
   const extracted = `nom=${ai?.nom ?? "?"} prénom=${ai?.prénom ?? "?"} ine=${ai?.ine ?? "?"}`;
   ocrTrace(ctx.jobId, "classify", "extracted", extracted, {
     displayName,
@@ -633,7 +668,7 @@ async function analyzeAndFileSegment(
     prematchedEleve: knownStudent?.folderName ?? null,
   });
 
-  const ai = await analyzeDocMatchEleve(text, ctx.odProfile, trace, { segmentMode: true, knownStudent });
+  const ai = await analyzeForWorker(text, ctx, trace, { segmentMode: true, knownStudent });
 
   if (!ai?.fileName) {
     const tempPath = await depositUnmatchedSliceToTemp(ctx, pdfBytes, displayName, originalTempPath);
@@ -1257,12 +1292,17 @@ export async function runOcrBatchJob(
     let job = await readBatchJob(jobId);
     if (!job || isJobStopped(job)) return;
 
-    const odProfile = await getOdProfileForUser(job.userId);
-    const knownStudents = await loadKnownStudentsForSegmentation(odProfile);
+    const { odProfile, caps } = await getOcrContextForUser(job.userId);
+    const elevesSecteurs = elevesSecteursFromCapabilities(caps);
+    const knownStudents = await loadKnownStudentsForSegmentation(
+      odProfile,
+      elevesSecteurs.length > 1 ? elevesSecteurs : undefined,
+    );
     const ctx: WorkerCtx = {
       jobId,
       token: job.accessToken,
       odProfile,
+      caps,
       refreshToken: await resolveServerRefreshToken(job, odProfile),
       knownStudents,
     };
@@ -1270,11 +1310,12 @@ export async function runOcrBatchJob(
       totalItems: job.items.length,
       currentItemIndex: job.currentItemIndex,
       profilOneDrive: odProfile ? `${odProfile.secteur} (${odProfile.basePath})` : null,
+      ocrFlux: caps.fluxes.map((f) => f.id),
       refreshTokenServeur: Boolean(ctx.refreshToken),
       knownStudents: knownStudents.length,
       runBudgetMs: RUN_BUDGET_MS,
     });
-    if (!odProfile) {
+    if (!odProfile && caps.fluxes.length === 0) {
       ocrTrace(
         jobId,
         "worker",
