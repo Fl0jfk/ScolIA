@@ -1,4 +1,5 @@
 import { extractInesFromText, normalizeIne, scanStudentsInText } from "@/app/lib/ocr-eleve-match";
+import { extractPageFraction } from "@/app/lib/ocr-textract-pages";
 
 export type OcrDocumentSegment = {
   pageStart: number;
@@ -81,10 +82,9 @@ function pageFingerprint(pageText: string): string {
 }
 
 /* ───────────────────────── Découpage ancré sur l'identité élève ─────────────────────────
- * Le découpage le plus fiable n'essaie pas de "deviner" des frontières génériques : il
- * s'appuie sur l'INE et la liste connue des élèves (eleves.json). Une page = un propriétaire
- * (l'élève dont c'est le bulletin). Les pages consécutives d'un même élève forment UN document.
- * Une page sans identité détectée = continuation du document courant (on ne coupe JAMAIS dessus).
+ * Une page = un propriétaire (INE / nom). Les pages consécutives du même élève = UN document.
+ * Un INE présent mais absent de la liste (élève sorti) = document à part, à classer à la main.
+ * On ne rattache JAMAIS un bulletin inconnu au premier élève connu suivant.
  */
 
 export type PageOwner = {
@@ -93,43 +93,57 @@ export type PageOwner = {
   nom?: string;
   prenom?: string;
   folderName?: string;
-  via: "ine" | "name";
+  via: "ine" | "name" | "anon";
 };
 
+export function looksLikeBulletinStart(pageText: string): boolean {
+  const frac = extractPageFraction(pageText);
+  if (frac) return frac.current === 1;
+  const head = pageText.slice(0, 900);
+  return /\b(bulletin scolaire|relev[eé] de notes|livret scolaire)\b/i.test(head);
+}
+
 /**
- * Identité de l'élève "propriétaire" d'une page.
- * 1) INE d'un élève connu présent dans la page → match sûr.
- * 2) Sinon nom + prénom d'un (et un seul) élève connu présents dans l'en-tête de page.
- * Renvoie null si rien d'exploitable (la page sera rattachée au document courant).
+ * Identité du propriétaire d'une page.
+ * 1) INE d'un élève connu → match sûr.
+ * 2) Nom+prénom d'un seul élève connu dans l'en-tête.
+ * 3) INE présent mais inconnu de la liste → segment anonyme (introuvable).
  */
 export function detectPageOwner(pageText: string, students: KnownStudent[]): PageOwner | null {
-  if (!pageText.trim() || students.length === 0) return null;
+  if (!pageText.trim()) return null;
 
   const ines = extractInesFromText(pageText);
-  const ineHits = students.filter((s) => s.ine && ines.includes(normalizeIne(s.ine)));
-  if (ineHits.length === 1) {
-    const s = ineHits[0];
-    return {
-      key: `ine:${s.ine}`,
-      ine: s.ine,
-      nom: s.nom,
-      prenom: s.prenom,
-      folderName: s.folderName,
-      via: "ine",
-    };
+  if (students.length > 0) {
+    const ineHits = students.filter((s) => s.ine && ines.includes(normalizeIne(s.ine)));
+    if (ineHits.length === 1) {
+      const s = ineHits[0]!;
+      return {
+        key: `ine:${s.ine}`,
+        ine: s.ine,
+        nom: s.nom,
+        prenom: s.prenom,
+        folderName: s.folderName,
+        via: "ine",
+      };
+    }
+
+    const nameHits = scanStudentsInText(pageText.slice(0, 1400), students);
+    if (nameHits.length === 1) {
+      const s = nameHits[0]!;
+      return {
+        key: s.ine ? `ine:${s.ine}` : `stu:${s.folderName}`,
+        ine: s.ine || undefined,
+        nom: s.nom,
+        prenom: s.prenom,
+        folderName: s.folderName,
+        via: "name",
+      };
+    }
   }
 
-  const nameHits = scanStudentsInText(pageText.slice(0, 1400), students);
-  if (nameHits.length === 1) {
-    const s = nameHits[0];
-    return {
-      key: s.ine ? `ine:${s.ine}` : `stu:${s.folderName}`,
-      ine: s.ine || undefined,
-      nom: s.nom,
-      prenom: s.prenom,
-      folderName: s.folderName,
-      via: "name",
-    };
+  if (ines.length >= 1) {
+    const ine = ines[0]!;
+    return { key: `ine:${ine}`, ine, via: "ine" };
   }
   return null;
 }
@@ -141,19 +155,43 @@ export type IdentityAnchoredResult = {
   pageCount: number;
 };
 
-/** Découpe le PDF en groupant les pages consécutives d'un même élève (INE/nom connus). */
+/** Découpe en groupant les pages consécutives d'un même élève (connu ou INE anonyme). */
 export function identityAnchoredSegments(
   pageTexts: Record<string, string>,
   pageCount: number,
   students: KnownStudent[],
 ): IdentityAnchoredResult {
-  const owners: (PageOwner | null)[] = [];
+  const detected: (PageOwner | null)[] = [];
   for (let p = 1; p <= pageCount; p++) {
-    owners.push(detectPageOwner(pageTexts[String(p)] || "", students));
+    detected.push(detectPageOwner(pageTexts[String(p)] || "", students));
   }
 
-  const detectedPages = owners.filter(Boolean).length;
-  const distinctOwners = new Set(owners.filter((o): o is PageOwner => Boolean(o)).map((o) => o.key)).size;
+  const owners: (PageOwner | null)[] = [];
+  let current: PageOwner | null = null;
+  for (let i = 0; i < pageCount; i++) {
+    const d = detected[i];
+    const text = pageTexts[String(i + 1)] || "";
+    if (d) {
+      current = d;
+      owners[i] = current;
+      continue;
+    }
+    if (current?.ine || current?.folderName) {
+      owners[i] = current;
+      continue;
+    }
+    if (looksLikeBulletinStart(text)) {
+      current = { key: `anon:${i + 1}`, via: "anon" };
+      owners[i] = current;
+      continue;
+    }
+    owners[i] = current;
+  }
+
+  const detectedPages = detected.filter(Boolean).length;
+  const distinctOwners = new Set(
+    owners.filter((o): o is PageOwner => Boolean(o)).map((o) => o.key),
+  ).size;
 
   const makeSeg = (start: number, end: number, owner: PageOwner | null): OcrDocumentSegment => ({
     pageStart: start,
@@ -163,7 +201,8 @@ export function identityAnchoredSegments(
     ine: owner?.ine,
     folderName: owner?.folderName,
     label: owner
-      ? `${owner.prenom ?? ""} ${owner.nom ?? ""}`.trim() || `Pages ${start}-${end}`
+      ? `${owner.prenom ?? ""} ${owner.nom ?? ""}`.trim() ||
+        (owner.ine ? `INE ${owner.ine}` : `Pages ${start}-${end}`)
       : start === end
         ? `Page ${start}`
         : `Pages ${start}-${end}`,
@@ -171,17 +210,14 @@ export function identityAnchoredSegments(
 
   const segments: OcrDocumentSegment[] = [];
   let segStart = 1;
-  let segOwner: PageOwner | null = null;
-
-  for (let p = 1; p <= pageCount; p++) {
-    const id = owners[p - 1];
-    if (!id) continue; // page sans identité → continuation
-    if (segOwner === null) {
-      segOwner = id; // adopte l'identité (rattache d'éventuelles pages de garde initiales)
-    } else if (id.key !== segOwner.key) {
+  let segOwner = owners[0] ?? null;
+  for (let p = 2; p <= pageCount; p++) {
+    const o = owners[p - 1] ?? null;
+    const same = (o?.key ?? "__none__") === (segOwner?.key ?? "__none__");
+    if (!same) {
       segments.push(makeSeg(segStart, p - 1, segOwner));
       segStart = p;
-      segOwner = id;
+      segOwner = o;
     }
   }
   segments.push(makeSeg(segStart, pageCount, segOwner));
