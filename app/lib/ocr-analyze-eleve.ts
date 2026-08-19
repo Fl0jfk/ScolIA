@@ -217,11 +217,12 @@ export async function analyzeDocMatchEleve(
   }
 
   const extractionPrompt = `
-      Analyse ce document scolaire ou administratif concernant un élève
-      (bulletin, relevé, carte d'identité, certificat, attestation, diplôme, courrier, CAF, mutuelle…).
+      Analyse ce document scolaire ou administratif.
       Extrais UNIQUEMENT ce qui est clairement présent. Ne devine JAMAIS.
 
-      Distingue bien l'ÉLÈVE (enfant scolarisé) des PARENTS / ASSURÉS / TITULAIRES du document.
+      Identité : nom et prénom de la personne destinataire / concernée par le document
+      (élève, enseignant ou personnel — peu importe). Pas un parent, pas un signataire administratif
+      (recteur, chef d'établissement) sauf si c'est clairement le destinataire.
 
       - titre_document : titre EXPLICITE pour nommer le fichier, SANS nom/prénom.
         Ex. "Bulletin scolaire 2ème semestre 2A", "Carte d'identité", "Attestation d'assurance scolaire".
@@ -230,7 +231,7 @@ export async function analyzeDocMatchEleve(
       - detail : précision utile sinon "non_trouvé"
       - origine : "interne" si document de l'établissement (bulletin, relevé, certificat de scolarité, Pronote, Charlemagne),
         "externe" si CNI, passeport, CAF, mutuelle, médecin, assurance, organisme extérieur.
-      - eleve : identité de l'enfant (pas du parent)
+      - nom / prénom : personne destinataire (élève, enseignant ou personnel)
       - parents : titulaires / responsables s'ils apparaissent, sinon []
       - INE, date de naissance, classe, période si présents
 

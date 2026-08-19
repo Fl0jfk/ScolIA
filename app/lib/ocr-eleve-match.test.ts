@@ -135,3 +135,11 @@ test("scanStudentsInText ignore un nom seul", () => {
   const hits = scanStudentsInText("Le professeur MARTIN signe le document", roster);
   assert.equal(hits.length, 0);
 });
+
+test("VILLETTE n'est pas trouvé dans NEUVILLETTE", () => {
+  const hits = scanStudentsInText(
+    "6 RUE DE NEUVILLETTE 76240 LE MESNIL ESNARD LEFEVRE CHRISTELLE",
+    [eleve({ nom: "VILLETTE", prenom: "Jean" })],
+  );
+  assert.equal(hits.length, 0);
+});

@@ -24,6 +24,13 @@ type AnalyzeOptions = {
   knownStudent?: { ine?: string; nom: string; prenom: string; folderName: string };
 };
 
+function cleanExtractedName(v: unknown): string {
+  if (typeof v !== "string") return "";
+  const s = v.trim();
+  if (!s || /^non[_\s-]?trouv/i.test(s)) return "";
+  return s;
+}
+
 function tagStudentCandidates(result: Record<string, unknown>) {
   const candidates = Array.isArray(result.matchCandidates) ? result.matchCandidates : [];
   result.matchCandidates = candidates.map((c) =>
@@ -99,18 +106,16 @@ export async function analyzeDocForOcr(
     }
   }
 
-  // Étape 2 : on récupère nom/prénom extraits pour alimenter les matchings enseignant/personnel.
-  const extractedNom = String(
-    (studentResult as { nom?: string; eleve?: { nom?: string } } | null)?.eleve?.nom ??
-      (studentResult as { nom?: string } | null)?.nom ??
-      "",
+  // Étape 2 : nom/prénom extraits (on ignore "non_trouvé" — le scan texte suffit).
+  const extractedNom = cleanExtractedName(
+    (studentResult as { eleve?: { nom?: string } } | null)?.eleve?.nom ||
+      (studentResult as { nom?: string } | null)?.nom,
   );
-  const extractedPrenom = String(
-    (studentResult as { prénom?: string; prenom?: string; eleve?: { prénom?: string } } | null)?.eleve
-      ?.prénom ??
-      (studentResult as { prénom?: string; prenom?: string } | null)?.prénom ??
-      (studentResult as { prenom?: string } | null)?.prenom ??
-      "",
+  const extractedPrenom = cleanExtractedName(
+    (studentResult as { eleve?: { prénom?: string; prenom?: string } } | null)?.eleve?.prénom ||
+      (studentResult as { eleve?: { prenom?: string } } | null)?.eleve?.prenom ||
+      (studentResult as { prénom?: string } | null)?.prénom ||
+      (studentResult as { prenom?: string } | null)?.prenom,
   );
 
   // Étape 3 : matching enseignants (flux activés pour ce compte uniquement).
@@ -139,6 +144,25 @@ export async function analyzeDocForOcr(
     });
 
     if (ensDecision.decision === "auto" && ensDecision.enseignant) {
+      const studentDecision = (studentResult?.matchDebug as { decision?: string } | undefined)?.decision;
+      const studentAuto = studentDecision === "auto" && Boolean(studentResult?.oneDriveFolderPath);
+      // Élève ET enseignant matchés par nom → on ne tranche pas tout seul.
+      if (studentAuto) {
+        const existing = Array.isArray(studentResult?.matchCandidates)
+          ? studentResult!.matchCandidates
+          : [];
+        studentResult = {
+          ...(studentResult || {}),
+          oneDriveFolderPath: null,
+          matchCandidates: [...existing, ...ensDecision.candidates],
+          matchDebug: {
+            ...((studentResult as { matchDebug?: object } | null)?.matchDebug || {}),
+            enseignantsCandidates: ensDecision.candidates.length,
+            reason: "homonyme_eleve_enseignant",
+            decision: "review",
+          },
+        };
+      } else {
       const e = ensDecision.enseignant;
       bestEnseignant = {
         score: ensDecision.confidence,
@@ -146,9 +170,15 @@ export async function analyzeDocForOcr(
           ...(studentResult || {}),
           nom: e.nom,
           prénom: e.prenom,
-          fileName: String(
-            (studentResult as { fileName?: string } | null)?.fileName || `${e.nom} ${e.prenom}`,
-          ),
+          fileName: (() => {
+            const baseName = String(
+              (studentResult as { fileName?: string } | null)?.fileName || "",
+            ).trim();
+            const person = `${e.nom} ${e.prenom}`.trim();
+            if (!baseName || baseName === "Document") return person;
+            if (e.nom && baseName.toUpperCase().includes(e.nom.toUpperCase())) return baseName;
+            return `${baseName} ${person}`.trim();
+          })(),
           oneDriveFolderPath: enseignantsBase
             ? oneDrivePathForEleve(enseignantsBase, e.folderName)
             : null,
@@ -164,6 +194,7 @@ export async function analyzeDocForOcr(
           },
         },
       };
+      }
     } else if (ensDecision.candidates.length > 0 && studentResult) {
       // Candidats enseignants non définitifs : on les ajoute à la shortlist.
       const existing = Array.isArray(studentResult.matchCandidates)
