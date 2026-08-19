@@ -30,7 +30,15 @@ import {
   uploadBytesToOneDriveUnique,
 } from "@/app/lib/ocr-graph-ops";
 import { runDocumentSegmentation, resolveSegmentationEngine } from "@/app/lib/ocr-segment-run";
-import { pollTextractOnce, startTextractForS3Key } from "@/app/lib/ocr-textract";
+import {
+  OCR_CHUNK_MAX_PAGES,
+  OCR_CHUNK_TARGET_PAGES,
+  lastPageLooksUnfinished,
+  looksLikeNewDocumentStart,
+  mergeOcrPageTexts,
+  ocrPdfPageRangeFromS3,
+  pageClearlyEndsDocument,
+} from "@/app/lib/ocr-textract";
 import { buildTextFromPages } from "@/app/lib/eleves-config";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import { getMicrosoftAccessTokenFromRefresh } from "@/app/lib/graph-microsoft-delegated";
@@ -54,9 +62,6 @@ const LOCK_TTL_MS = 75_000;
 const RUN_BUDGET_MS = 55_000;
 /** Délai entre deux tours de polling Textract. */
 const OCR_POLL_DELAY_MS = 2_000;
-/** Au-delà, un job Mistral en mémoire (autre instance) est considéré perdu. */
-const OCR_REHYDRATE_STALE_MS = 120_000;
-const OCR_REHYDRATE_MAX_FAILURES = 5;
 /** Un item claimé par un autre worker reste exclusif pendant cette durée. */
 const ITEM_CLAIM_TTL_MS = 60_000;
 /** Tentatives sur une erreur technique avant d'abandonner DÉFINITIVEMENT un document. */
@@ -312,7 +317,6 @@ import {
   firstUnfinishedSegmentIndex,
   isOcrBatchJobFullyCovered,
   mergeBatchResults,
-  ocrSegmentResultLabel,
   ocrSegmentTempFileName,
   parseOcrSegmentLabel,
   reopenIncompleteOcrBatchJob,
@@ -729,14 +733,6 @@ async function analyzeAndFileSegment(
   };
 }
 
-function mistralOcrJobAgeMs(textractJobId: string): number | null {
-  const m = /^mistral-ocr-([0-9a-z]+)-/i.exec(textractJobId);
-  if (!m) return null;
-  const started = parseInt(m[1], 36);
-  if (!Number.isFinite(started) || started <= 0) return null;
-  return Date.now() - started;
-}
-
 function itemHasDownstreamOcrWork(item: OcrBatchJobItem, phase: string): boolean {
   return (
     (item.segments?.length ?? 0) > 0 ||
@@ -746,43 +742,9 @@ function itemHasDownstreamOcrWork(item: OcrBatchJobItem, phase: string): boolean
   );
 }
 
-async function failUnfinishedSegmentsAsOcrLost(
-  job: OcrBatchJob,
-  item: OcrBatchJobItem,
-  error: string,
-): Promise<StepOutcome> {
-  const live = (await readBatchJob(job.jobId)) ?? job;
-  const itemLive = live.items.find((i) => i.id === item.id) ?? item;
-  const segs = itemLive.segments ?? [];
-  if (segs.length === 0) {
-    return {
-      kind: "result",
-      itemDone: true,
-      results: [
-        {
-          success: false,
-          error,
-          fileName: item.fileName,
-          tempOneDrivePath: item.tempPath,
-        },
-      ],
-    };
-  }
-  const results: OcrBatchResult[] = segs
-    .filter((s) => !segmentHasResult(live.results, item.fileName, s))
-    .map((s) => ({
-      success: false,
-      error,
-      fileName: ocrSegmentResultLabel(item.fileName, s.pageStart, s.pageEnd),
-      tempOneDrivePath: item.tempPath,
-    }));
-  return { kind: "result", itemDone: true, results };
-}
-
 /**
- * Cache OCR S3 disparu (ex. fausse complétion du lot) alors que le découpage existe encore.
- * On relance Mistral sans resetter la phase en ocr_start — sinon la fusion remet
- * « segments » et le worker boucle à vide.
+ * Cache OCR S3 disparu alors que le découpage existe encore.
+ * On relance la lecture par paquets (persistée sur S3) sans perdre les segments.
  */
 async function rehydrateMissingOcrCache(
   job: OcrBatchJob,
@@ -791,100 +753,37 @@ async function rehydrateMissingOcrCache(
   trace: OcrTraceCtx,
 ): Promise<StepOutcome> {
   const fileName = item.fileName;
-
-  if (item.textractJobId) {
-    const poll = await pollTextractOnce(item.textractJobId, trace);
-    if (poll.status === "IN_PROGRESS") {
-      const age = mistralOcrJobAgeMs(item.textractJobId);
-      if (age != null && age > OCR_REHYDRATE_STALE_MS) {
-        ocrTrace(
-          job.jobId,
-          "item",
-          "rehydrate-stale",
-          "job OCR mémoire trop vieux — relance Mistral",
-          { ...summarizeBatchItem(item), ageMs: age },
-          "warn",
-        );
-        const textractJobId = await startTextractForS3Key(item.s3Key, trace);
-        await patchItem(job.jobId, itemIndex, { textractJobId, ocrPagesRead: 0 });
-        return {
-          kind: "wait",
-          delayMs: OCR_POLL_DELAY_MS,
-          label: `Relecture OCR (cache perdu) — ${fileName}…`,
-        };
-      }
-      const pagesRead = Math.max(item.ocrPagesRead ?? 0, poll.pagesRead);
-      if (pagesRead !== item.ocrPagesRead) {
-        await patchItem(job.jobId, itemIndex, { ocrPagesRead: pagesRead });
-      }
-      ocrTrace(job.jobId, "item", "rehydrate-poll", "relecture OCR en cours (cache perdu)", {
-        textractJobId: item.textractJobId,
-        pagesRead,
-        pdfTotal: item.pdfPageCount ?? null,
-      });
-      const pdfTotal = item.pdfPageCount;
-      const label = pdfTotal
-        ? pagesRead > 0
-          ? `Relecture OCR (cache perdu) — ${fileName} : page ${pagesRead} / ${pdfTotal}…`
-          : `Relecture OCR (cache perdu) — ${fileName} : 0 / ${pdfTotal} page(s)…`
-        : `Relecture OCR (cache perdu) — ${fileName}`;
-      return { kind: "wait", delayMs: OCR_POLL_DELAY_MS, label };
-    }
-    if (poll.status === "FAILED") {
-      const errors = (item.errorCount ?? 0) + 1;
-      ocrTrace(
-        job.jobId,
-        "item",
-        "rehydrate-fail",
-        "relecture OCR échouée",
-        { fileName, errors, textractJobId: item.textractJobId },
-        "error",
-      );
-      if (errors >= OCR_REHYDRATE_MAX_FAILURES) {
-        return failUnfinishedSegmentsAsOcrLost(
-          job,
-          item,
-          "Relecture OCR impossible (cache perdu après une fausse fin de lot).",
-        );
-      }
-      await patchItem(job.jobId, itemIndex, { textractJobId: undefined, errorCount: errors });
-      return {
-        kind: "wait",
-        delayMs: 3_000,
-        label: `Nouvel essai OCR (${errors}/${OCR_REHYDRATE_MAX_FAILURES}) — ${fileName}`,
-      };
-    }
-    const cacheKey = item.ocrCacheKey || ocrCacheKey(job.jobId, item.id);
-    await writeOcrCache(cacheKey, poll.result);
-    await patchItem(job.jobId, itemIndex, {
-      ocrCacheKey: cacheKey,
-      pageCount: poll.result.pageCount,
-      ocrPagesRead: poll.result.pageCount,
-    });
-    ocrTrace(job.jobId, "item", "rehydrate-done", "cache OCR réécrit — reprise du classement", {
-      fileName,
-      pageCount: poll.result.pageCount,
-      cacheKey,
-    });
-    return {
-      kind: "continue",
-      label: `OCR récupéré — reprise du classement des pages manquantes (${fileName})`,
-    };
-  }
-
   ocrTrace(
     job.jobId,
     "item",
     "rehydrate-start",
-    "cache OCR absent — relance Mistral sans perdre le découpage",
+    "cache OCR absent — relance par paquets sans perdre le découpage",
     summarizeBatchItem(item),
     "warn",
   );
-  const textractJobId = await startTextractForS3Key(item.s3Key, trace);
-  await patchItem(job.jobId, itemIndex, { textractJobId, ocrPagesRead: 0 });
+  const cacheKey = item.ocrCacheKey || ocrCacheKey(job.jobId, item.id);
+  let pdfPageCount = item.pdfPageCount;
+  if (!pdfPageCount) {
+    try {
+      pdfPageCount = await getPdfPageCountFromS3(item.s3Key);
+    } catch {
+      pdfPageCount = item.pageCount;
+    }
+  }
+  await writeOcrCache(cacheKey, { text: "", pageTexts: {}, pageCount: pdfPageCount ?? 0 });
+  await patchItem(job.jobId, itemIndex, {
+    ocrCacheKey: cacheKey,
+    textractJobId: undefined,
+    ocrPagesRead: 0,
+    pdfPageCount,
+    phase: "ocr_poll",
+  });
+  ocrTrace(job.jobId, "item", "rehydrate-queued", "relecture OCR par paquets programmée", {
+    fileName,
+    pdfPageCount: pdfPageCount ?? null,
+  });
   return {
-    kind: "wait",
-    delayMs: OCR_POLL_DELAY_MS,
+    kind: "continue",
     label: `Relecture OCR (cache perdu) — ${fileName}…`,
   };
 }
@@ -901,12 +800,11 @@ async function stepItem(
   ocrTrace(job.jobId, "item", "step", `micro-étape phase=${phase}`, summarizeBatchItem(item));
 
   if (phase === "ocr_start") {
-    ocrTrace(job.jobId, "textract", "start", "lancement Textract", {
+    ocrTrace(job.jobId, "textract", "start", "lancement OCR par paquets", {
       fileName: item.fileName,
       mode: item.mode,
       s3Key: item.s3Key,
     });
-    const textractJobId = await startTextractForS3Key(item.s3Key, trace);
     let pdfPageCount: number | undefined;
     try {
       pdfPageCount = await getPdfPageCountFromS3(item.s3Key);
@@ -920,54 +818,152 @@ async function stepItem(
         error: metaErr instanceof Error ? metaErr.message : String(metaErr),
       }, "warn");
     }
+    const cacheKey = ocrCacheKey(job.jobId, item.id);
+    await writeOcrCache(cacheKey, { text: "", pageTexts: {}, pageCount: pdfPageCount ?? 0 });
     await patchItem(job.jobId, itemIndex, {
       status: "processing",
       phase: "ocr_poll",
-      textractJobId,
+      textractJobId: undefined,
       pdfPageCount,
       ocrPagesRead: 0,
+      ocrCacheKey: cacheKey,
     });
     const ocrLabel = pdfPageCount
       ? `Mistral analyse votre document — ${item.fileName} : 0 / ${pdfPageCount} page(s)…`
       : `Mistral analyse votre document — ${item.fileName}`;
-    ocrTrace(job.jobId, "textract", "polling", "passage en ocr_poll", {
-      textractJobId,
-      pdfPageCount: pdfPageCount ?? null,
-    });
-    return { kind: "wait", delayMs: OCR_POLL_DELAY_MS, label: ocrLabel };
+    return { kind: "continue", label: ocrLabel };
   }
 
   if (phase === "ocr_poll") {
-    if (!item.textractJobId) {
-      ocrTrace(job.jobId, "textract", "reset", "textractJobId manquant — retour ocr_start", undefined, "warn");
-      await patchItem(job.jobId, itemIndex, { phase: "ocr_start" });
-      return { kind: "continue" };
-    }
-    const poll = await pollTextractOnce(item.textractJobId, trace);
-    if (poll.status === "IN_PROGRESS") {
-      const pagesRead = Math.max(item.ocrPagesRead ?? 0, poll.pagesRead);
-      const pdfTotal = item.pdfPageCount;
-      if (pagesRead !== item.ocrPagesRead) {
-        await patchItem(job.jobId, itemIndex, { ocrPagesRead: pagesRead });
+    let pdfTotal = item.pdfPageCount ?? 0;
+    if (!pdfTotal) {
+      try {
+        pdfTotal = await getPdfPageCountFromS3(item.s3Key);
+        await patchItem(job.jobId, itemIndex, { pdfPageCount: pdfTotal });
+      } catch (metaErr) {
+        ocrTrace(job.jobId, "textract", "pdf-meta-fail", "impossible de lire le nombre de pages", {
+          error: metaErr instanceof Error ? metaErr.message : String(metaErr),
+        }, "error");
+        return {
+          kind: "result",
+          itemDone: true,
+          results: [
+            {
+              success: false,
+              error: "Impossible de lire le PDF (nombre de pages inconnu).",
+              fileName: item.fileName,
+              tempOneDrivePath: item.tempPath,
+            },
+          ],
+        };
       }
-      ocrTrace(job.jobId, "textract", "poll", "Textract en cours", {
-        textractJobId: item.textractJobId,
-        pagesRead,
-        pdfTotal: pdfTotal ?? null,
-        maxPageSeen: poll.maxPageSeen ?? null,
-      });
-      const label = pdfTotal
-        ? pagesRead > 0
-          ? `Mistral lit le document — ${item.fileName} : page ${pagesRead} / ${pdfTotal}…`
-          : `Mistral analyse votre document — ${item.fileName} : 0 / ${pdfTotal} page(s)…`
-        : `Mistral analyse votre document — ${item.fileName}`;
-      return { kind: "wait", delayMs: OCR_POLL_DELAY_MS, label };
     }
-    if (poll.status === "FAILED") {
-      ocrTrace(job.jobId, "textract", "fail", "Textract FAILED", {
+
+    const cacheKey = item.ocrCacheKey || ocrCacheKey(job.jobId, item.id);
+    const existing = (await readOcrCache(cacheKey)) ?? { text: "", pageTexts: {}, pageCount: pdfTotal };
+    const pagesRead = item.ocrPagesRead ?? 0;
+
+    const finishOcr = async (result: { text: string; pageTexts: Record<string, string>; pageCount: number }) => {
+      const needsSegmentation =
+        item.mode === "class" &&
+        (result.pageCount ?? 1) > 1 &&
+        !(item.segments && item.segments.length > 0);
+      const nextPhase =
+        item.segments && item.segments.length > 0
+          ? "segments"
+          : needsSegmentation
+            ? "segmenting"
+            : "analyze";
+      const segEngine = needsSegmentation
+        ? resolveSegmentationEngine(result.pageCount ?? 1)
+        : item.segmentationEngine;
+      await patchItem(job.jobId, itemIndex, {
+        ocrCacheKey: cacheKey,
+        phase: nextPhase,
+        pageCount: result.pageCount,
+        ocrPagesRead: result.pageCount,
+        segmentationEngine: segEngine,
+        errorCount: 0,
+      });
+      ocrTrace(job.jobId, "textract", "done", "OCR terminé (par paquets)", {
         fileName: item.fileName,
-        textractJobId: item.textractJobId,
+        pageCount: result.pageCount,
+        textChars: result.text.length,
+        needsSegmentation,
+        nextPhase,
+      });
+      const ocrLabel = needsSegmentation
+        ? `Mistral a terminé la lecture — ${result.pageCount} page(s), découpage à venir…`
+        : `Mistral déduit le nom et le rangement — ${item.fileName}`;
+      return { kind: "continue" as const, label: ocrLabel };
+    };
+
+    if (pagesRead >= pdfTotal && Object.keys(existing.pageTexts || {}).length > 0) {
+      return finishOcr(mergeOcrPageTexts(existing.pageTexts, {}, pdfTotal));
+    }
+
+    const start = pagesRead + 1;
+    const targetEnd = Math.min(start + OCR_CHUNK_TARGET_PAGES - 1, pdfTotal);
+    let end = targetEnd;
+    ocrTrace(job.jobId, "textract", "chunk", "OCR paquet souple (~10 pages, coupe en fin de document)", {
+      fileName: item.fileName,
+      pages: `${start}-${targetEnd}`,
+      pdfTotal,
+    });
+
+    try {
+      let extra = await ocrPdfPageRangeFromS3(item.s3Key, start, targetEnd, trace);
+      let peekedForSafety = false;
+
+      while (end < pdfTotal && end - start + 1 < OCR_CHUNK_MAX_PAGES) {
+        const lastText = extra[String(end)] || "";
+        if (pageClearlyEndsDocument(lastText)) break;
+
+        const unfinished = lastPageLooksUnfinished(lastText);
+        if (!unfinished && peekedForSafety) break;
+        if (!unfinished) peekedForSafety = true;
+
+        const peekPage = end + 1;
+        const peek = await ocrPdfPageRangeFromS3(item.s3Key, peekPage, peekPage, trace);
+        const peekText = peek[String(peekPage)] || "";
+        if (looksLikeNewDocumentStart(lastText, peekText)) {
+          break;
+        }
+        extra = { ...extra, ...peek };
+        end = peekPage;
+      }
+
+      const merged = mergeOcrPageTexts(existing.pageTexts || {}, extra, pdfTotal);
+      await writeOcrCache(cacheKey, merged);
+      if (end >= pdfTotal) {
+        return finishOcr(merged);
+      }
+      await patchItem(job.jobId, itemIndex, {
+        ocrCacheKey: cacheKey,
+        ocrPagesRead: end,
+        errorCount: 0,
+      });
+      return {
+        kind: "continue",
+        label: `Mistral lit le document — ${item.fileName} : page ${end} / ${pdfTotal}…`,
+      };
+    } catch (ocrErr) {
+      const msg = ocrErr instanceof Error ? ocrErr.message : String(ocrErr);
+      const errors = (item.errorCount ?? 0) + 1;
+      ocrTrace(job.jobId, "textract", "chunk-fail", "OCR paquet échoué", {
+        fileName: item.fileName,
+        pages: `${start}-${end}`,
+        errors,
+        error: msg.slice(0, 300),
       }, "error");
+      if (errors < MAX_ITEM_ERRORS) {
+        await patchItem(job.jobId, itemIndex, { errorCount: errors });
+        return {
+          kind: "wait",
+          delayMs: 3_000,
+          label: `Nouvel essai OCR (${errors}/${MAX_ITEM_ERRORS}) — ${item.fileName} p.${start}-${end}`,
+        };
+      }
       return {
         kind: "result",
         itemDone: true,
@@ -981,33 +977,6 @@ async function stepItem(
         ],
       };
     }
-    const cacheKey = ocrCacheKey(job.jobId, item.id);
-    await writeOcrCache(cacheKey, poll.result);
-    const needsSegmentation = item.mode === "class" && (poll.result.pageCount ?? 1) > 1;
-    const nextPhase = needsSegmentation ? "segmenting" : "analyze";
-    const segEngine = needsSegmentation
-      ? resolveSegmentationEngine(poll.result.pageCount ?? 1)
-      : undefined;
-    ocrTrace(job.jobId, "textract", "done", "OCR terminé", {
-      fileName: item.fileName,
-      pageCount: poll.result.pageCount,
-      textChars: poll.result.text.length,
-      needsSegmentation,
-      nextPhase,
-      segmentationEngine: segEngine ?? null,
-      cacheKey,
-    });
-    await patchItem(job.jobId, itemIndex, {
-      ocrCacheKey: cacheKey,
-      phase: nextPhase,
-      pageCount: poll.result.pageCount,
-      ocrPagesRead: poll.result.pageCount,
-      segmentationEngine: segEngine,
-    });
-    const ocrLabel = needsSegmentation
-      ? `Mistral a terminé la lecture — ${poll.result.pageCount} page(s), découpage à venir…`
-      : `Mistral déduit le nom et le rangement — ${item.fileName}`;
-    return { kind: "continue", label: ocrLabel };
   }
 
   const ocr = item.ocrCacheKey ? await readOcrCache(item.ocrCacheKey) : null;
