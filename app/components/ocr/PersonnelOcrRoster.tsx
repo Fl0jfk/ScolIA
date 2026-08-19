@@ -75,8 +75,7 @@ export default function PersonnelOcrRoster() {
                 <th className="py-1 pr-2 font-semibold">Prénom</th>
                 <th className="py-1 pr-2 font-semibold">Email personnel</th>
                 <th className="py-1 pr-2 font-semibold">Email professionnel</th>
-                <th className="py-1 pr-2 font-semibold">Catégorie</th>
-                <th className="py-1 pr-2 font-semibold">Poste</th>
+                <th className="py-1 pr-2 font-semibold">Fonction</th>
               </tr>
             </thead>
             <tbody className="text-slate-500">
@@ -85,7 +84,6 @@ export default function PersonnelOcrRoster() {
                 <td className="py-1 pr-2">Marie</td>
                 <td className="py-1 pr-2">marie.d@…</td>
                 <td className="py-1 pr-2">m.dupont@providence…</td>
-                <td className="py-1 pr-2">administratif</td>
                 <td className="py-1 pr-2">Secrétaire</td>
               </tr>
             </tbody>
@@ -99,7 +97,8 @@ export default function PersonnelOcrRoster() {
             <strong>Recommandé :</strong> les deux emails — double match sur les bulletins de paie / contrats
           </li>
           <li>
-            <strong>Optionnel :</strong> Catégorie (administratif, comptabilité, CPE…), Poste
+            <strong>Optionnel :</strong> Fonction (ex. Secrétaire, Comptable) — sert au libellé du dossier ;
+            la catégorie RH est déduite automatiquement si besoin
           </li>
         </ul>
       </div>

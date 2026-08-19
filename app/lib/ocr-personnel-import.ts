@@ -85,12 +85,17 @@ function resolveEmailColumns(headers: string[]): { perso: number; pro: number } 
   return { perso: perso >= 0 ? perso : generic, pro };
 }
 
-function parseCategory(raw: string): PersonnelCategory {
+function parseCategoryFromFonction(raw: string): PersonnelCategory {
   const s = normHeader(raw);
   if (!s) return "administratif";
   for (const [cat, aliases] of Object.entries(CATEGORY_ALIASES) as [PersonnelCategory, string[]][]) {
     if (aliases.some((a) => s === a || s.includes(a))) return cat;
   }
+  if (/compta|comptable|finance|paie|treasury/.test(s)) return "comptabilite";
+  if (/cpe|vie scolaire|assistante d/.test(s)) return "cpe";
+  if (/surveill|aed|agent|veilleur|education/.test(s)) return "education";
+  if (/maintenance|technicien|intendant|agent d entretien/.test(s)) return "maintenance";
+  if (/secretaire|secretariat|accueil|administratif|direction adjointe/.test(s)) return "administratif";
   return "administratif";
 }
 
@@ -127,8 +132,8 @@ export function parsePersonnelExcelBuffer(buffer: ArrayBuffer): PersonnelImportR
   const colNom = findCol(headers, ["nom", "nom de famille", "nom famille", "lastname", "last name"]);
   const colPrenom = findCol(headers, ["prenom", "prénom", "firstname", "first name"]);
   const { perso: colEmailPerso, pro: colEmailPro } = resolveEmailColumns(headers);
-  const colCategory = findCol(headers, ["categorie", "catégorie", "service", "pole", "pôle", "fonction"]);
-  const colPoste = findCol(headers, ["poste", "job", "intitule", "intitulé", "role", "rôle"]);
+  const colFonction = findCol(headers, ["fonction", "fonctions", "intitule", "intitulé", "poste"]);
+  const colCategory = findCol(headers, ["categorie", "catégorie", "service", "pole", "pôle"]);
   const colFull = findCol(headers, ["nom complet", "collaborateur", "salarié", "salarie", "personnel"]);
 
   if (colEmailPerso < 0 && colEmailPro < 0) {
@@ -165,13 +170,16 @@ export function parsePersonnelExcelBuffer(buffer: ArrayBuffer): PersonnelImportR
       continue;
     }
 
+    const fonction = cellStr(row, colFonction);
+    const categoryRaw = cellStr(row, colCategory) || fonction;
+
     parsed.push({
       lastName,
       firstName,
       emailPerso,
       emailPro,
-      category: parseCategory(cellStr(row, colCategory)),
-      jobTitle: cellStr(row, colPoste) || undefined,
+      category: parseCategoryFromFonction(categoryRaw),
+      jobTitle: fonction || undefined,
     });
   }
 
