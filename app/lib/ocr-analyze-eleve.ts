@@ -1,5 +1,25 @@
 import "server-only";
 
+/** Appelle Mistral avec retry automatique sur erreurs transitoires (503, 429, 500). */
+async function fetchMistralWithRetry(
+  url: string,
+  init: RequestInit,
+  maxAttempts = 3,
+): Promise<Response> {
+  const RETRYABLE = new Set([429, 500, 503, 504]);
+  let lastRes: Response | null = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(url, init);
+    if (res.ok || !RETRYABLE.has(res.status)) return res;
+    lastRes = res;
+    if (attempt < maxAttempts) {
+      // Backoff exponentiel : 1s, 2s, 4s…
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+    }
+  }
+  return lastRes!;
+}
+
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { normalizeEleveDateNaissance, resolveEleveFolderName } from "@/app/lib/eleves-config";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
@@ -241,7 +261,7 @@ export async function analyzeDocMatchEleve(
     textChars: text.length,
   });
 
-  const extractionResponse = await fetch("https://api.mistral.ai/v1/chat/completions", {
+  const extractionResponse = await fetchMistralWithRetry("https://api.mistral.ai/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${mistralKey}`,
@@ -392,7 +412,7 @@ Règles :
 - En cas de doute, réponds 0.
 JSON uniquement : {"index":0,"confidence":0}`;
       try {
-        const selectionResponse = await fetch("https://api.mistral.ai/v1/chat/completions", {
+        const selectionResponse = await fetchMistralWithRetry("https://api.mistral.ai/v1/chat/completions", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${mistralKey}`,

@@ -15,6 +15,25 @@ import {
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import { ocrTraceCtx, type OcrTraceCtx } from "@/app/lib/ocr-trace";
 
+/** Retry Mistral sur erreurs transitoires (503, 429, 500, 504). */
+async function fetchMistralWithRetry(
+  url: string,
+  init: RequestInit,
+  maxAttempts = 3,
+): Promise<Response> {
+  const RETRYABLE = new Set([429, 500, 503, 504]);
+  let lastRes: Response | null = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(url, init);
+    if (res.ok || !RETRYABLE.has(res.status)) return res;
+    lastRes = res;
+    if (attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+    }
+  }
+  return lastRes!;
+}
+
 const MISTRAL_TIMEOUT_MS = 22_000;
 const SEGMENTATION_MODEL = "mistral-small-latest";
 const DIGEST_PROMPT_LIMIT = 32_000;
@@ -102,18 +121,23 @@ async function callMistralSegmentation(
         : "Les pages sont marquées par --- Page N ---.";
 
   const prompt = `
-Tu analyses un export PDF scolaire (souvent Charlemagne : bulletins de toute une classe).
+Tu analyses un PDF qui peut contenir un ou plusieurs documents (bulletins scolaires, convocations, courriers, contrats, attestations…).
 
 ${pagesHint}
 
-Détermine les DOCUMENTS LOGIQUES DISTINCTS (souvent un bulletin par élève).
+Détermine les DOCUMENTS LOGIQUES DISTINCTS.
 
 Règles IMPORTANTES :
-- Le bulletin d'UN élève s'étale TRÈS SOUVENT sur PLUSIEURS pages consécutives : regroupe-les en UN seul segment.
-- Ne crée un nouveau segment QUE lorsqu'un NOUVEL élève commence (nouveau nom/prénom/INE en en-tête de page).
-- Une page sans nom d'élève clairement nouveau est la SUITE du document précédent : ne la sépare pas.
-- N'émets JAMAIS un segment d'une seule page par défaut : ne le fais que si chaque page concerne vraiment un élève différent.
-- Segments sans chevauchement, couvrant toutes les pages du bloc.
+- Un même document s'étale TRÈS SOUVENT sur PLUSIEURS pages consécutives : regroupe-les en UN seul segment.
+- Indices qu'une page est la SUITE du document précédent (ne pas couper) :
+    • pas de nouveau destinataire / nouveau nom clairement identifiable en en-tête
+    • numéro de document, de convocation ou de dossier identique à la page précédente
+    • mention "page X/Y" ou "suite" ou "…/2"
+    • le contenu est la continuation logique (liste de matières, annexe, tableau de frais…)
+- Ne crée un nouveau segment QUE lorsqu'un NOUVEAU document distinct commence clairement.
+- Une page ambiguë ou sans marqueur de rupture est la SUITE du document courant : ne la sépare JAMAIS.
+- N'émets JAMAIS un segment d'une seule page par défaut si la page suivante peut en être la suite.
+- Segments sans chevauchement, couvrant toutes les pages.
 - Ne devine pas : nom/prénom/ine seulement si visibles dans le résumé de page.
 
 JSON uniquement :
@@ -139,7 +163,7 @@ ${digest.slice(0, DIGEST_PROMPT_LIMIT)}
   });
 
   try {
-    const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    const res = await fetchMistralWithRetry("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
       signal: controller.signal,
       headers: {
