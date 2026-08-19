@@ -1,5 +1,4 @@
-import { extractInesFromText, normalizeIne, scanStudentsInText } from "@/app/lib/ocr-eleve-match";
-import { extractPageFraction } from "@/app/lib/ocr-textract-pages";
+import { extractInesFromText, normalizeIne, normalizeName } from "@/app/lib/ocr-eleve-match";
 
 export type OcrDocumentSegment = {
   pageStart: number;
@@ -23,10 +22,12 @@ export type KnownStudent = {
   normPrenom: string;
 };
 
-const HEAD_CHARS = 500;
-const TAIL_CHARS = 250;
+/** Budget OCR envoyé à Mistral : peu de pages → presque tout le texte, pour qu'elle lise vraiment. */
+const DIGEST_CHAR_BUDGET = 28_000;
+const DIGEST_MAX_PER_PAGE = 12_000;
+const DIGEST_MIN_PER_PAGE = 700;
 
-/** Résumé court par page — suffisant pour repérer les frontières de bulletins. */
+/** OCR par page pour le découpage IA : assez de texte pour comprendre le document, pas un bout d'en-tête. */
 export function buildPageDigestForSegmentation(
   pageTexts: Record<string, string>,
   pageCount?: number,
@@ -50,6 +51,14 @@ export function buildPageDigestForSegmentation(
         ? Array.from({ length: count }, (_, i) => i + 1)
         : [];
 
+  const n = Math.max(pages.length, 1);
+  const perPage = Math.min(
+    DIGEST_MAX_PER_PAGE,
+    Math.max(DIGEST_MIN_PER_PAGE, Math.floor(DIGEST_CHAR_BUDGET / n)),
+  );
+  const headChars = Math.floor(perPage * 0.85);
+  const tailChars = Math.max(0, perPage - headChars);
+
   const parts: string[] = [];
   for (const p of pages) {
     const raw = (pageTexts[String(p)] || "").replace(/\s+/g, " ").trim();
@@ -57,8 +66,12 @@ export function buildPageDigestForSegmentation(
       parts.push(`--- Page ${p} ---\n(vide)`);
       continue;
     }
-    const head = raw.slice(0, HEAD_CHARS);
-    const tail = raw.length > HEAD_CHARS + TAIL_CHARS ? raw.slice(-TAIL_CHARS) : "";
+    if (raw.length <= perPage) {
+      parts.push(`--- Page ${p} ---\n${raw}`);
+      continue;
+    }
+    const head = raw.slice(0, headChars);
+    const tail = tailChars > 0 ? raw.slice(-tailChars) : "";
     parts.push(
       tail
         ? `--- Page ${p} ---\n${head}\n[…]\n${tail}`
@@ -81,10 +94,10 @@ function pageFingerprint(pageText: string): string {
   return `h:${head.slice(0, 120)}`;
 }
 
-/* ───────────────────────── Découpage ancré sur l'identité élève ─────────────────────────
- * Une page = un propriétaire (INE / nom). Les pages consécutives du même élève = UN document.
- * Un INE présent mais absent de la liste (élève sorti) = document à part, à classer à la main.
- * On ne rattache JAMAIS un bulletin inconnu au premier élève connu suivant.
+/* ───────────────────────── Ancrage INE (pas d'interprétation du document) ──────────────
+ * Un INE identifie une personne de façon unique. Pages du même INE = même document.
+ * INE inconnu de la liste = document à part (pas collé au suivant).
+ * Sans INE : on ne devine pas le propriétaire ici — c'est le rôle de Mistral sur l'OCR.
  */
 
 export type PageOwner = {
@@ -93,28 +106,18 @@ export type PageOwner = {
   nom?: string;
   prenom?: string;
   folderName?: string;
-  via: "ine" | "name" | "anon";
+  via: "ine";
 };
 
-export function looksLikeBulletinStart(pageText: string): boolean {
-  const frac = extractPageFraction(pageText);
-  if (frac) return frac.current === 1;
-  const head = pageText.slice(0, 900);
-  return /\b(bulletin scolaire|relev[eé] de notes|livret scolaire)\b/i.test(head);
-}
-
-/**
- * Identité du propriétaire d'une page.
- * 1) INE d'un élève connu → match sûr.
- * 2) Nom+prénom d'un seul élève connu dans l'en-tête.
- * 3) INE présent mais inconnu de la liste → segment anonyme (introuvable).
- */
-export function detectPageOwner(pageText: string, students: KnownStudent[]): PageOwner | null {
+/** Propriétaire local uniquement si un INE est lisible. Sinon null → Mistral. */
+export function detectPageOwner(pageText: string, people: KnownStudent[]): PageOwner | null {
   if (!pageText.trim()) return null;
 
   const ines = extractInesFromText(pageText);
-  if (students.length > 0) {
-    const ineHits = students.filter((s) => s.ine && ines.includes(normalizeIne(s.ine)));
+  if (ines.length === 0) return null;
+
+  if (people.length > 0) {
+    const ineHits = people.filter((s) => s.ine && ines.includes(normalizeIne(s.ine)));
     if (ineHits.length === 1) {
       const s = ineHits[0]!;
       return {
@@ -126,26 +129,14 @@ export function detectPageOwner(pageText: string, students: KnownStudent[]): Pag
         via: "ine",
       };
     }
-
-    const nameHits = scanStudentsInText(pageText.slice(0, 1400), students);
-    if (nameHits.length === 1) {
-      const s = nameHits[0]!;
-      return {
-        key: s.ine ? `ine:${s.ine}` : `stu:${s.folderName}`,
-        ine: s.ine || undefined,
-        nom: s.nom,
-        prenom: s.prenom,
-        folderName: s.folderName,
-        via: "name",
-      };
-    }
   }
 
-  if (ines.length >= 1) {
-    const ine = ines[0]!;
-    return { key: `ine:${ine}`, ine, via: "ine" };
-  }
-  return null;
+  const ine = ines[0]!;
+  return {
+    key: `ine:${ine}`,
+    ine,
+    via: "ine",
+  };
 }
 
 export type IdentityAnchoredResult = {
@@ -155,7 +146,7 @@ export type IdentityAnchoredResult = {
   pageCount: number;
 };
 
-/** Découpe en groupant les pages consécutives d'un même élève (connu ou INE anonyme). */
+/** Découpe locale : même INE = même document. Sans INE, page rattachée au courant (suite). */
 export function identityAnchoredSegments(
   pageTexts: Record<string, string>,
   pageCount: number,
@@ -170,21 +161,7 @@ export function identityAnchoredSegments(
   let current: PageOwner | null = null;
   for (let i = 0; i < pageCount; i++) {
     const d = detected[i];
-    const text = pageTexts[String(i + 1)] || "";
-    if (d) {
-      current = d;
-      owners[i] = current;
-      continue;
-    }
-    if (current?.ine || current?.folderName) {
-      owners[i] = current;
-      continue;
-    }
-    if (looksLikeBulletinStart(text)) {
-      current = { key: `anon:${i + 1}`, via: "anon" };
-      owners[i] = current;
-      continue;
-    }
+    if (d) current = d;
     owners[i] = current;
   }
 
@@ -318,12 +295,19 @@ export function mergeAdjacentSegments(segments: OcrDocumentSegment[]): OcrDocume
     }
     const sameIne =
       last.ine && seg.ine && last.ine.toUpperCase() === seg.ine.toUpperCase();
+    let sameName = false;
+    if (last.nom && last.prenom && seg.nom && seg.prenom) {
+      sameName =
+        normalizeName(last.nom) === normalizeName(seg.nom) &&
+        normalizeName(last.prenom) === normalizeName(seg.prenom);
+    }
     const adjacent = last.pageEnd + 1 === seg.pageStart;
-    if (adjacent && sameIne) {
+    if (adjacent && (sameIne || sameName)) {
       last.pageEnd = Math.max(last.pageEnd, seg.pageEnd);
       if (!last.ine && seg.ine) last.ine = seg.ine;
       if (!last.nom && seg.nom) last.nom = seg.nom;
       if (!last.prenom && seg.prenom) last.prenom = seg.prenom;
+      if (!last.folderName && seg.folderName) last.folderName = seg.folderName;
       continue;
     }
     merged.push({ ...seg });

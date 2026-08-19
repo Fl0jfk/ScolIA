@@ -68,3 +68,18 @@ test("90 bulletins 1 page dont 30 INE inconnus → 90 segments pas 60", () => {
   assert.equal(r.segments.filter((s) => !s.folderName).length, 30);
   assert.equal(r.segments.filter((s) => s.folderName).length, 60);
 });
+
+test("sans INE, le découpage local ne choisit pas un propriétaire", () => {
+  const page =
+    "Convocation\nLEFEVRE Christelle\nMARTIN Paul cité\nSigné le recteur DUPONT Jean";
+  const owner = detectPageOwner(page, roster);
+  assert.equal(owner, null);
+});
+
+test("plusieurs noms sur la page : l'INE tranche, pas un nom de la liste", () => {
+  const page =
+    "INE 1111111111A DUPONT Marie\nMARTIN Paul\nLe proviseur MARTIN Paul";
+  const owner = detectPageOwner(page, roster);
+  assert.equal(owner?.folderName, "DUPONT Marie");
+  assert.equal(owner?.ine, "1111111111A");
+});

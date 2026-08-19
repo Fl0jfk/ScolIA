@@ -14,7 +14,7 @@ import {
   type OcrBatchResult,
   type OcrBatchSegment,
 } from "@/app/api/agentIAOCR/batch-job/batch-job";
-import { analyzeDocMatchEleve, loadKnownStudentsForSegmentation } from "@/app/lib/ocr-analyze-eleve";
+import { analyzeDocMatchEleve, loadPeopleForSegmentation } from "@/app/lib/ocr-analyze-eleve";
 import { analyzeDocForOcr } from "@/app/lib/ocr-analyze-unified";
 import {
   elevesSecteursFromCapabilities,
@@ -405,7 +405,7 @@ type WorkerCtx = {
   odProfile: OneDriveUserProfile | null;
   caps: OcrUserCapabilities | null;
   refreshToken: string | null;
-  /** Élèves connus (eleves.json) — découpage ancré identité, chargés une seule fois par invocation. */
+  /** Destinataires connus (élèves + staff). folderName = dossier élève uniquement. */
   knownStudents: KnownStudent[];
 };
 
@@ -1009,7 +1009,7 @@ async function stepItem(
       item.segmentationEngine ?? resolveSegmentationEngine(ocr.pageCount ?? item.pdfPageCount ?? 0);
     const engineHint =
       ctx.knownStudents.length > 0
-        ? "repérage des élèves connus (INE + noms) pour grouper les pages de chaque bulletin"
+        ? "repérage des INE pour grouper les pages d'une même personne, sinon Mistral lit l'OCR"
         : engine === "mistral_chunked"
           ? "Mistral découpe par blocs (coupures entre documents uniquement)"
           : engine === "mistral"
@@ -1263,8 +1263,9 @@ export async function runOcrBatchJob(
 
     const { odProfile, caps } = await getOcrContextForUser(job.userId);
     const elevesSecteurs = elevesSecteursFromCapabilities(caps);
-    const knownStudents = await loadKnownStudentsForSegmentation(
+    const knownStudents = await loadPeopleForSegmentation(
       odProfile,
+      caps,
       elevesSecteurs.length > 1 ? elevesSecteurs : undefined,
     );
     const ctx: WorkerCtx = {

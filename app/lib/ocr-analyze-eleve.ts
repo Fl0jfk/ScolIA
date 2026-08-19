@@ -37,6 +37,17 @@ import {
   type EleveMatchCandidateView,
   type ExtractedIdentity,
 } from "@/app/lib/ocr-eleve-match";
+import {
+  dedupeEnseignantsByFolder,
+  filterEnseignantsForSecteurs,
+  loadEnseignantsRegistry,
+} from "@/app/lib/enseignants-registry";
+import {
+  enseignantsSecteursFromCapabilities,
+  hasPersonnelFlux,
+  type OcrUserCapabilities,
+} from "@/app/lib/ocr-flux";
+import { loadPersonnelEntriesForOcr } from "@/app/lib/ocr-personnel-pool";
 
 async function getElevesFromS3(): Promise<EleveConfig[]> {
   return loadElevesRegistry();
@@ -72,6 +83,76 @@ export async function loadKnownStudentsForSegmentation(
   } catch {
     return [];
   }
+}
+
+function staffPerson(nom: string, prenom: string): KnownStudent | null {
+  const n = String(nom || "").trim();
+  const p = String(prenom || "").trim();
+  const normNom = normalize(n);
+  const normPrenom = normalize(p);
+  if (!normNom || !normPrenom) return null;
+  return {
+    ine: "",
+    nom: n,
+    prenom: p,
+    folderName: "",
+    normNom,
+    normPrenom,
+  };
+}
+
+function splitDisplayName(displayName: string): { nom: string; prenom: string } {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return { nom: displayName.trim(), prenom: "" };
+  const firstIsAllCaps = parts[0] === parts[0].toUpperCase() && /[A-ZÀ-Ÿ]/.test(parts[0]);
+  if (firstIsAllCaps) {
+    return { nom: parts[0]!, prenom: parts.slice(1).join(" ") };
+  }
+  return { nom: parts[parts.length - 1]!, prenom: parts.slice(0, -1).join(" ") };
+}
+
+/**
+ * Pool destinataires pour le découpage : élèves (avec dossier) + enseignants/personnel
+ * (sans folderName, pour ne jamais classer un prof dans un dossier élève au découpage).
+ */
+export async function loadPeopleForSegmentation(
+  odProfile: OneDriveUserProfile | null,
+  caps: OcrUserCapabilities | null,
+  secteurs?: import("@/app/lib/onedrive-eleves-types").Secteur[],
+): Promise<KnownStudent[]> {
+  const students = await loadKnownStudentsForSegmentation(odProfile, secteurs);
+  if (!caps) return students;
+
+  const extras: KnownStudent[] = [];
+  const ensSecteurs = enseignantsSecteursFromCapabilities(caps);
+  if (ensSecteurs.length > 0) {
+    try {
+      const enseignants = dedupeEnseignantsByFolder(
+        filterEnseignantsForSecteurs(await loadEnseignantsRegistry(), ensSecteurs),
+      );
+      for (const e of enseignants) {
+        const p = staffPerson(e.nom, e.prenom);
+        if (p) extras.push(p);
+      }
+    } catch {
+      /* registre enseignants illisible — on continue avec les élèves */
+    }
+  }
+
+  if (hasPersonnelFlux(caps)) {
+    try {
+      const entries = await loadPersonnelEntriesForOcr();
+      for (const e of entries) {
+        const split = splitDisplayName(e.displayName || e.folderName || "");
+        const p = staffPerson(split.nom, split.prenom);
+        if (p) extras.push(p);
+      }
+    } catch {
+      /* index personnel illisible */
+    }
+  }
+
+  return extras.length > 0 ? [...students, ...extras] : students;
 }
 
 function normalize(str: string): string {

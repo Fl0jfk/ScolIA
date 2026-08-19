@@ -44,7 +44,7 @@ export const MISTRAL_CHUNK_MAX_PAGES = 30;
 
 export type SegmentationEngine = "identity" | "mistral" | "mistral_chunked" | "heuristic";
 
-/** Couverture minimale (pages avec élève détecté) pour faire confiance au découpage par identité. */
+/** Couverture minimale (pages avec INE) pour le découpage local. Sinon Mistral lit l'OCR. */
 const IDENTITY_MIN_COVERAGE = 0.5;
 
 export function resolveSegmentationEngine(pageCount: number): SegmentationEngine {
@@ -121,29 +121,31 @@ async function callMistralSegmentation(
         : "Les pages sont marquées par --- Page N ---.";
 
   const prompt = `
-Tu analyses un PDF qui peut contenir un ou plusieurs documents (bulletins scolaires, convocations, courriers, contrats, attestations…).
+Tu lis l'OCR d'un PDF. Il peut contenir un ou plusieurs documents collés.
 
 ${pagesHint}
 
-Détermine les DOCUMENTS LOGIQUES DISTINCTS.
+Ta tâche : COMPRENDRE chaque page, puis découper.
 
-Règles IMPORTANTES :
-- Un même document s'étale TRÈS SOUVENT sur PLUSIEURS pages consécutives : regroupe-les en UN seul segment.
-- Indices qu'une page est la SUITE du document précédent (ne pas couper) :
-    • pas de nouveau destinataire / nouveau nom clairement identifiable en en-tête
-    • numéro de document, de convocation ou de dossier identique à la page précédente
-    • mention "page X/Y" ou "suite" ou "…/2"
-    • le contenu est la continuation logique (liste de matières, annexe, tableau de frais…)
-- Ne crée un nouveau segment QUE lorsqu'un NOUVEAU document distinct commence clairement.
-- Une page ambiguë ou sans marqueur de rupture est la SUITE du document courant : ne la sépare JAMAIS.
-- N'émets JAMAIS un segment d'une seule page par défaut si la page suivante peut en être la suite.
-- Segments sans chevauchement, couvrant toutes les pages.
-- Ne devine pas : nom/prénom/ine seulement si visibles dans le résumé de page.
+1) À qui APPARTIENT ce document ? (le propriétaire / la personne concernée)
+   Plusieurs noms peuvent figurer sur la même feuille. Lis le sens du texte pour distinguer
+   la personne à qui le document est destiné de celles qui signent, qui sont citées, ou qui
+   apparaissent pour une autre raison. Ne te fie pas à une position magique (haut/bas).
+2) Où s'arrête ce document ? Une page suivante est la SUITE si c'est le même document
+   (même propriétaire, continuation). C'est un NOUVEAU document si le propriétaire change
+   ou si un autre document commence — même si tu ne connais pas la personne.
+
+Règles :
+- Coupe quand le propriétaire change.
+- Ne coupe pas au milieu d'un même document (verso, suite, annexe).
+- Page ambiguë = suite du document courant.
+- Segments sans chevauchement, toutes les pages.
+- nom / prénom / ine = ceux du PROPRIÉTAIRE, seulement s'ils se lisent dans l'OCR.
 
 JSON uniquement :
 {"mode":"single"|"multi","segments":[{"pageStart":1,"pageEnd":1,"nom":null,"prenom":null,"ine":null,"label":"..."}]}
 
-Résumé OCR par page :
+OCR par page :
 ---
 ${digest.slice(0, DIGEST_PROMPT_LIMIT)}
 ---
@@ -285,7 +287,7 @@ export async function runDocumentSegmentation(
     pageTexts?: Record<string, string> | null;
     pageCount?: number;
     text?: string;
-    /** Élèves connus (eleves.json) — active le découpage ancré identité (fiable, sans IA). */
+    /** Personnes connues (élèves + éventuellement enseignants/personnel). folderName élève seulement. */
     knownStudents?: KnownStudent[];
   },
   trace?: OcrTraceCtx,
@@ -309,9 +311,8 @@ export async function runDocumentSegmentation(
         ? Object.keys(pageTexts).length
         : 0;
 
-  // ── Priorité 1 : découpage ancré sur l'identité élève (INE + noms connus). ──
-  // Le plus fiable et le plus rapide : aucun appel IA, fonctionne même sur 100+ pages.
-  if (pageTexts && resolvedPageCount > 1 && knownStudents.length > 0) {
+  // INE uniquement : identifiant unique, pas une interprétation. Le reste → Mistral lit l'OCR.
+  if (pageTexts && resolvedPageCount > 1) {
     const anchored = identityAnchoredSegments(pageTexts, resolvedPageCount, knownStudents);
     const coverage = anchored.detectedPages / resolvedPageCount;
     ocrTraceCtx(trace, "segment", "identity-try", "découpage ancré identité", {
