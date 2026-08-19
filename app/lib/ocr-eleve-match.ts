@@ -165,10 +165,17 @@ function buildTextIndex(text: string): TextIndex {
   };
 }
 
+function wordBoundaryIncludes(haystack: string, needle: string): boolean {
+  // Vérifie que le needle est un mot complet dans haystack (pas une sous-chaîne d'un autre mot).
+  // Ex : "villette" ne doit pas matcher dans "neuvillette".
+  const re = new RegExp(`(?:^|\\s)${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`);
+  return re.test(haystack);
+}
+
 function tokenInIndex(token: string, index: TextIndex): boolean {
   if (!token) return false;
   if (index.tokens.has(token) || index.tokens.has(foldOcrLetters(token))) return true;
-  if (token.length >= 4 && (index.norm.includes(token) || index.folded.includes(token))) return true;
+  if (token.length >= 4 && (wordBoundaryIncludes(index.norm, token) || wordBoundaryIncludes(index.folded, foldOcrLetters(token)))) return true;
   return false;
 }
 
