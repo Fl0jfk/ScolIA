@@ -287,7 +287,11 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "communication",
-    pathPrefixes: ["/etablissement/communication"],
+    pathPrefixes: [
+      "/etablissement/communication",
+      "/api/document-templates",
+      "/api/posters",
+    ],
     allowedRoles: [],
     orgAdminOnly: true,
     dashboard: {
@@ -296,7 +300,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/etablissement/communication",
       external: false,
-      description: "Documents familles, simulateur de tarifs et actus site (option vitrine).",
+      description: "Création : documents familles + affiches, tarifs et actus site (option vitrine).",
     },
   },
   {

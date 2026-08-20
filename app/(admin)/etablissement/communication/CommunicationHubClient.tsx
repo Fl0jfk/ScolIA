@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import RequireOrgAdmin from "@/app/components/RequireOrgAdmin";
 import CommunicationDocumentsPanel from "@/app/components/communication/CommunicationDocumentsPanel";
+import CommunicationPostersPanel from "@/app/components/communication/CommunicationPostersPanel";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
@@ -11,7 +12,8 @@ import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback"
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import type { ToolboxConfig } from "@/app/lib/toolbox-types";
 
-type Tab = "documents" | "tarifs" | "actus";
+type Tab = "creation" | "tarifs" | "actus";
+type CreationSection = "admin" | "affiches";
 
 const CommunicationSitePostsPanel = dynamic(
   () => import("@/app/components/communication/CommunicationSitePostsPanel"),
@@ -23,7 +25,8 @@ const CommunicationTarifsPanel = dynamic(
 );
 
 export default function CommunicationHubClient() {
-  const [tab, setTab] = useState<Tab>("documents");
+  const [tab, setTab] = useState<Tab>("creation");
+  const [creationSection, setCreationSection] = useState<CreationSection>("admin");
   const [config, setConfig] = useState<ToolboxConfig | null>(null);
   const [publicOrigin, setPublicOrigin] = useState("");
   const [customWebsiteEnabled, setCustomWebsiteEnabled] = useState(false);
@@ -112,7 +115,7 @@ export default function CommunicationHubClient() {
         <ModulePageHeader
           eyebrow="Établissement"
           title="Communication"
-          description="Documents familles (PDF zéro papier), simulateur de tarifs, et actus site si vitrine Scola activée."
+          description="Création : documents familles et affiches, simulateur de tarifs, et actus site si vitrine Scola activée."
           actions={
             tab === "tarifs" ? (
               <ModuleButton onClick={() => void save()} disabled={saving || !config}>
@@ -125,7 +128,7 @@ export default function CommunicationHubClient() {
         <ModuleTabNav
           className="mb-6"
           tabs={[
-            { id: "documents", label: "Documents" },
+            { id: "creation", label: "Création" },
             { id: "tarifs", label: "Tarifs" },
             {
               id: "actus",
@@ -133,7 +136,7 @@ export default function CommunicationHubClient() {
             },
           ]}
           active={tab}
-          onChange={setTab}
+          onChange={(id) => setTab(id)}
         />
 
         {error ? (
@@ -147,7 +150,36 @@ export default function CommunicationHubClient() {
           </p>
         ) : null}
 
-        {tab === "documents" ? <CommunicationDocumentsPanel /> : null}
+        {tab === "creation" ? (
+          <div className="space-y-5">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setCreationSection("admin")}
+                className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+                  creationSection === "admin"
+                    ? "bg-sky-700 text-white"
+                    : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                }`}
+              >
+                Documents administratifs
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreationSection("affiches")}
+                className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+                  creationSection === "affiches"
+                    ? "bg-violet-700 text-white"
+                    : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                }`}
+              >
+                Affiches
+              </button>
+            </div>
+            {creationSection === "admin" ? <CommunicationDocumentsPanel /> : null}
+            {creationSection === "affiches" ? <CommunicationPostersPanel /> : null}
+          </div>
+        ) : null}
 
         {tab === "actus" ? (
           <CommunicationSitePostsPanel enabled={customWebsiteEnabled} onRefreshFlag={() => void load()} />
