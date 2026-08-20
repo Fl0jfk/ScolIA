@@ -188,7 +188,7 @@ export async function loadSchoolLogoForPdf(): Promise<PdfLogo | null> {
 }
 
 export async function getSchoolLetterhead() {
-  const bundle = await loadAppConfig();
+  const [bundle, logoRef] = await Promise.all([loadAppConfig(), resolveTenantLogoRawRef()]);
   const identity = bundle.identity;
   const addr = identity.address;
   const addressLine =
@@ -208,6 +208,7 @@ export async function getSchoolLetterhead() {
     phone: identity.phone?.display?.trim() || "",
     cityLine,
     footerLeft: `${name}  ·  Établissement catholique sous contrat avec l'État`,
+    logoUrl: logoRef || "",
   };
 }
 

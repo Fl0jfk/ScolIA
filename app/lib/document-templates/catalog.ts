@@ -33,6 +33,7 @@ export const DOCUMENT_TEMPLATES: DocumentTemplateMeta[] = [
     label: "Certificat de scolarité",
     description:
       "Modèle vierge brandé — PDF à trous ou Word avec $$prenom$$, $$nom$$, $$classe$$… pour publipostage.",
+    formats: ["fillable-pdf", "docx"],
     fields: [
       { key: "prenom", label: "Prénom de l’élève", type: "text" },
       { key: "nom", label: "Nom de l’élève", type: "text" },
@@ -49,6 +50,7 @@ export const DOCUMENT_TEMPLATES: DocumentTemplateMeta[] = [
     label: "Fiche d’inscription",
     description:
       "Fiches par niveau (collège / lycée) — PDF Adobe remplissable brandé (logo, nom, couleur).",
+    formats: ["fillable-pdf"],
     fields: [
       { key: "prenom", label: "Prénom de l’enfant", type: "text" },
       { key: "nom", label: "Nom de l’enfant", type: "text" },
@@ -69,6 +71,7 @@ export const DOCUMENT_TEMPLATES: DocumentTemplateMeta[] = [
     label: "Autorisation de sortie",
     description:
       "Autorisation parentale vierge — PDF remplissable ou Word avec $$sortie$$, $$prenom$$…",
+    formats: ["fillable-pdf", "docx"],
     fields: [
       { key: "prenom", label: "Prénom de l’élève", type: "text" },
       { key: "nom", label: "Nom de l’élève", type: "text" },
@@ -93,6 +96,7 @@ export const DOCUMENT_TEMPLATES: DocumentTemplateMeta[] = [
     label: "Courrier aux familles",
     description:
       "Courrier type brandé — Word avec $$objet$$, $$corps$$, $$destinataire$$ pour publipostage.",
+    formats: ["docx"],
     fields: [
       { key: "objet", label: "Objet", type: "text" },
       { key: "destinataire", label: "Destinataire", type: "text" },

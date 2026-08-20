@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/app/lib/intranet-auth";
+import { resolveHeaderLogoDisplayUrl } from "@/app/lib/branding-logo";
 import {
   DOCUMENT_OUTPUT_FORMATS,
   DOCUMENT_PLACEHOLDERS,
@@ -20,6 +21,7 @@ export async function GET() {
     getSchoolLetterhead(),
     loadInscriptionTenantSettings(),
   ]);
+  const logoUrl = await resolveHeaderLogoDisplayUrl(letterhead.logoUrl || undefined);
   return NextResponse.json({
     templates: DOCUMENT_TEMPLATES,
     formats: DOCUMENT_OUTPUT_FORMATS,
@@ -46,6 +48,7 @@ export async function GET() {
       name: letterhead.name,
       addressLine: letterhead.addressLine,
       phone: letterhead.phone,
+      logoUrl: logoUrl || "",
     },
   });
 }

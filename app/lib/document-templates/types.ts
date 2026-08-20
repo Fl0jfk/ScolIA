@@ -38,6 +38,8 @@ export type DocumentTemplateMeta = {
   label: string;
   description: string;
   fields: DocumentFieldDef[];
+  /** Formats proposés dans l’UI (PDF à trous et/ou Word). */
+  formats: DocumentOutputFormat[];
 };
 
 /** Réglages inscription multi-établissement (par tenant). */

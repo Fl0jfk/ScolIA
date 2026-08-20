@@ -46,6 +46,15 @@ export async function POST(req: Request) {
         );
       }
       format = formatRaw;
+      const allowed = meta.formats?.length ? meta.formats : (["fillable-pdf", "docx"] as const);
+      if (!allowed.includes(format)) {
+        return NextResponse.json(
+          {
+            error: `Format non disponible pour ce modèle (${allowed.map((f) => f).join(" / ")}).`,
+          },
+          { status: 400 },
+        );
+      }
     }
 
     let levelId: InscriptionLevelId | undefined;
