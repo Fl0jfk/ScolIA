@@ -9,15 +9,25 @@ import {
 import type {
   InscriptionLevelCodeConfig,
   InscriptionLevelId,
+  InscriptionPdfFontId,
   InscriptionTenantSettings,
 } from "@/app/lib/document-templates/types";
 
 const SETTINGS_KEY = "documents/inscription/settings.json";
 
+function normalizePdfFont(raw: unknown): InscriptionPdfFontId {
+  const v = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (v === "helvetica" || v === "courier" || v === "times") return v;
+  return "times";
+}
+
 export function defaultInscriptionTenantSettings(): InscriptionTenantSettings {
   return {
     establishmentName: "",
     accentColor: "#1E4A32",
+    pdfFont: "times",
     overrides: {},
     levelConfigs: {
       sixieme: defaultSixiemeCodeConfig(),
@@ -59,6 +69,7 @@ export async function loadInscriptionTenantSettings(): Promise<InscriptionTenant
   return {
     establishmentName: String(d.establishmentName || "").slice(0, 120),
     accentColor: /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : base.accentColor,
+    pdfFont: normalizePdfFont(d.pdfFont),
     overrides,
     levelConfigs: parseLevelConfigs(d.levelConfigs),
     updatedAt: typeof d.updatedAt === "string" ? d.updatedAt : undefined,
@@ -85,6 +96,8 @@ export async function saveInscriptionTenantSettings(
       partial.accentColor && /^#[0-9a-fA-F]{3,8}$/.test(partial.accentColor.trim())
         ? partial.accentColor.trim()
         : current.accentColor,
+    pdfFont:
+      partial.pdfFont !== undefined ? normalizePdfFont(partial.pdfFont) : current.pdfFont || "times",
     overrides:
       partial.overrides !== undefined
         ? (() => {

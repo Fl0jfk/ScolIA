@@ -83,6 +83,7 @@ export async function POST(req: Request) {
               : undefined,
           accentColor:
             typeof body.accentColor === "string" ? body.accentColor : undefined,
+          pdfFont: typeof body.pdfFont === "string" ? body.pdfFont : undefined,
           levelConfigs: { sixieme: normalizeSixiemeCodeConfig(body.sixieme) },
         });
       }
@@ -94,6 +95,7 @@ export async function POST(req: Request) {
             : undefined,
         accentColor:
           typeof body.accentColor === "string" ? body.accentColor : undefined,
+        pdfFont: typeof body.pdfFont === "string" ? body.pdfFont : undefined,
       });
     } else if (format === "docx") {
       bytes = await renderDocumentTemplateDocx(templateId);

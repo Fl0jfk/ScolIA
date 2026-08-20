@@ -6,6 +6,7 @@ import type {
   DocumentPlaceholderDef,
   DocumentTemplateMeta,
   InscriptionLevelId,
+  InscriptionPdfFontId,
 } from "@/app/lib/document-templates/types";
 
 type GeneratedRow = {
@@ -68,6 +69,7 @@ export default function CommunicationDocumentsPanel() {
   const [levelId, setLevelId] = useState<InscriptionLevelId | "">("");
   const [establishmentName, setEstablishmentName] = useState("");
   const [accentColor, setAccentColor] = useState("#1E4A32");
+  const [pdfFont, setPdfFont] = useState<InscriptionPdfFontId>("times");
   const [defaultName, setDefaultName] = useState("");
   const [sixieme, setSixieme] = useState<SixiemeConfig>({
     schoolYear: "",
@@ -138,6 +140,13 @@ export default function CommunicationDocumentsPanel() {
       if (tj.inscriptionSettings) {
         setEstablishmentName(tj.inscriptionSettings.establishmentName || "");
         setAccentColor(tj.inscriptionSettings.accentColor || "#1E4A32");
+        setPdfFont(
+          tj.inscriptionSettings.pdfFont === "helvetica" ||
+            tj.inscriptionSettings.pdfFont === "courier" ||
+            tj.inscriptionSettings.pdfFont === "times"
+            ? tj.inscriptionSettings.pdfFont
+            : "times",
+        );
         if (tj.inscriptionSettings.sixieme) {
           setSixieme({
             schoolYear: tj.inscriptionSettings.sixieme.schoolYear || "",
@@ -174,6 +183,7 @@ export default function CommunicationDocumentsPanel() {
         body: JSON.stringify({
           establishmentName,
           accentColor,
+          pdfFont,
           ...(isSixiemeCode
             ? {
                 sixieme: {
@@ -270,6 +280,7 @@ export default function CommunicationDocumentsPanel() {
                 inscriptionLevelId: levelId,
                 establishmentName: establishmentName.trim() || undefined,
                 accentColor,
+                pdfFont,
                 ...(levelId === "sixieme"
                   ? {
                       sixieme: {
@@ -658,13 +669,27 @@ export default function CommunicationDocumentsPanel() {
                       Appliquée au fond d’en-tête, aux encadrés, bordures et lignes (comme sur
                       votre fiche d’origine).
                     </p>
+                    <label className="mt-3 block text-sm">
+                      Police du PDF
+                      <select
+                        value={pdfFont}
+                        onChange={(e) =>
+                          setPdfFont(e.target.value as InscriptionPdfFontId)
+                        }
+                        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+                      >
+                        <option value="times">Times (classique, recommandée)</option>
+                        <option value="helvetica">Helvetica (sans empattement)</option>
+                        <option value="courier">Courier (machine à écrire)</option>
+                      </select>
+                    </label>
                     <button
                       type="button"
                       disabled={settingsBusy}
                       onClick={() => void saveSettings()}
                       className="mt-3 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 disabled:opacity-50"
                     >
-                      {settingsBusy ? "…" : "Enregistrer nom & couleur"}
+                      {settingsBusy ? "…" : "Enregistrer nom, couleur & police"}
                     </button>
                   </div>
 

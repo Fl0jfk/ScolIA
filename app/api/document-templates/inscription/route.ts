@@ -38,12 +38,14 @@ export async function GET() {
     settings: {
       establishmentName: settings.establishmentName,
       accentColor: settings.accentColor,
+      pdfFont: settings.pdfFont || "times",
       updatedAt: settings.updatedAt,
       sixieme: settings.levelConfigs?.sixieme || defaultSixiemeCodeConfig(),
     },
     defaults: {
       establishmentName: letterhead.name,
       accentColor: defaultInscriptionTenantSettings().accentColor,
+      pdfFont: defaultInscriptionTenantSettings().pdfFont || "times",
       logoUrl: logoUrl || "",
     },
   });
@@ -62,6 +64,7 @@ export async function PUT(req: Request) {
           : undefined,
       accentColor:
         body.accentColor !== undefined ? String(body.accentColor) : undefined,
+      pdfFont: body.pdfFont !== undefined ? body.pdfFont : undefined,
       levelConfigs:
         body.sixieme !== undefined
           ? { sixieme: normalizeSixiemeCodeConfig(body.sixieme) }
@@ -72,6 +75,7 @@ export async function PUT(req: Request) {
       settings: {
         establishmentName: saved.establishmentName,
         accentColor: saved.accentColor,
+        pdfFont: saved.pdfFont || "times",
         updatedAt: saved.updatedAt,
         sixieme: saved.levelConfigs?.sixieme || defaultSixiemeCodeConfig(),
       },

@@ -60,11 +60,15 @@ export type InscriptionLevelCodeConfig = {
   options: InscriptionOptionItem[];
 };
 
+export type InscriptionPdfFontId = "times" | "helvetica" | "courier";
+
 export type InscriptionTenantSettings = {
   /** Nom affiché sur la fiche (groupes scolaires). Vide = letterhead. */
   establishmentName: string;
   /** Couleur accent / bandeau (#rrggbb). */
   accentColor: string;
+  /** Police PDF (standard pdf-lib). */
+  pdfFont?: InscriptionPdfFontId;
   /** Clés S3 des PDF de remplacement par niveau (legacy AcroForm). */
   overrides: Partial<Record<InscriptionLevelId, string>>;
   /** Config code par niveau (sixieme en premier). */

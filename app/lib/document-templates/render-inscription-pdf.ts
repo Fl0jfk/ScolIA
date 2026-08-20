@@ -11,12 +11,13 @@ import {
   loadInscriptionTenantSettings,
 } from "@/app/lib/document-templates/inscription-storage";
 import { renderSixiemeInscriptionPdf } from "@/app/lib/document-templates/render-inscription-sixieme";
-import type { InscriptionLevelId } from "@/app/lib/document-templates/types";
+import type { InscriptionLevelId, InscriptionPdfFontId } from "@/app/lib/document-templates/types";
 
 export type RenderInscriptionOptions = {
   levelId: InscriptionLevelId;
   establishmentName?: string;
   accentColor?: string;
+  pdfFont?: InscriptionPdfFontId;
 };
 
 /**
@@ -34,6 +35,7 @@ export async function renderInscriptionFillablePdf(
     return renderSixiemeInscriptionPdf({
       establishmentName: opts.establishmentName,
       accentColor: opts.accentColor,
+      pdfFont: opts.pdfFont,
     });
   }
 

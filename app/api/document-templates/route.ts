@@ -37,6 +37,7 @@ export async function GET() {
     inscriptionSettings: {
       establishmentName: inscriptionSettings.establishmentName,
       accentColor: inscriptionSettings.accentColor,
+      pdfFont: inscriptionSettings.pdfFont || "times",
       sixieme: inscriptionSettings.levelConfigs?.sixieme || defaultSixiemeCodeConfig(),
     },
     defaults: {

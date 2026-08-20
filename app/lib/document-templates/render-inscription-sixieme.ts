@@ -16,13 +16,19 @@ import {
 } from "@/app/lib/pdf-branding";
 import { normalizeSixiemeCodeConfig } from "@/app/lib/document-templates/inscription-sixieme-config";
 import { loadInscriptionTenantSettings } from "@/app/lib/document-templates/inscription-storage";
-import type { InscriptionLevelCodeConfig } from "@/app/lib/document-templates/types";
+import type {
+  InscriptionLevelCodeConfig,
+  InscriptionPdfFontId,
+} from "@/app/lib/document-templates/types";
 
 const PAGE_W = 595.28;
 const PAGE_H = 841.89;
-const MARGIN = 36;
+const MARGIN = 34;
+const CONTENT_RIGHT = PAGE_W - MARGIN;
+const CONTENT_W = PAGE_W - MARGIN * 2;
 const INK = rgb(0.08, 0.1, 0.14);
 const MUTED = rgb(0.32, 0.36, 0.4);
+const PAGE_BOTTOM = 28;
 
 function sanitize(input: string): string {
   return String(input || "")
@@ -66,6 +72,36 @@ function midFill(c: { r: number; g: number; b: number }, amount = 0.72): RGB {
   );
 }
 
+function normalizePdfFont(raw: unknown): InscriptionPdfFontId {
+  const v = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (v === "helvetica" || v === "courier" || v === "times") return v;
+  return "times";
+}
+
+async function embedPair(
+  doc: PDFDocument,
+  id: InscriptionPdfFontId,
+): Promise<{ font: PDFFont; bold: PDFFont }> {
+  if (id === "courier") {
+    return {
+      font: await doc.embedFont(StandardFonts.Courier),
+      bold: await doc.embedFont(StandardFonts.CourierBold),
+    };
+  }
+  if (id === "helvetica") {
+    return {
+      font: await doc.embedFont(StandardFonts.Helvetica),
+      bold: await doc.embedFont(StandardFonts.HelveticaBold),
+    };
+  }
+  return {
+    font: await doc.embedFont(StandardFonts.TimesRoman),
+    bold: await doc.embedFont(StandardFonts.TimesRomanBold),
+  };
+}
+
 /** Rectangle arrondi (fond + bordure accent). Coords SVG locales (y vers le bas). */
 function roundedRect(
   page: PDFPage,
@@ -89,7 +125,6 @@ function roundedRect(
     `Q 0 0 ${radius} 0`,
     "Z",
   ].join(" ");
-  // Origine SVG en haut-gauche du rectangle PDF (pdf-lib inverse l’axe Y).
   page.drawSvgPath(path, {
     x,
     y: y + h,
@@ -137,95 +172,127 @@ function underlineField(
   x: number,
   y: number,
   width: number,
-  height = 13,
+  height = 14,
 ) {
   const field = ctx.form.createTextField(`s6_${name}_${ctx.n++}`);
   field.addToPage(ctx.page, { x, y: y - 2, width, height });
-  field.setFontSize(9);
+  field.setFontSize(10);
   ctx.page.drawLine({
     start: { x, y: y - 2 },
     end: { x: x + width, y: y - 2 },
-    thickness: 0.7,
+    thickness: 0.75,
     color: ctx.accentRgb,
   });
 }
 
-function radioRow(
+/** Radios réparties sur toute la largeur (justify-between). */
+function radioJustifyBetween(
   ctx: Ctx,
   groupName: string,
   options: string[],
-  startX: number,
-  gap = 95,
+  left: number,
+  right: number,
+  fontSize = 9,
 ) {
   const group = ctx.form.createRadioGroup(`s6_${groupName}_${ctx.n++}`);
-  let x = startX;
-  for (const opt of options) {
+  const n = options.length;
+  if (n === 0) return;
+  const span = Math.max(right - left, 1);
+  const widths = options.map(
+    (opt) => 14 + ctx.font.widthOfTextAtSize(sanitize(opt), fontSize),
+  );
+  const totalW = widths.reduce((s, w) => s + w, 0);
+  const gap = n > 1 ? Math.max((span - totalW) / (n - 1), 4) : 0;
+  let x = left;
+  for (let i = 0; i < n; i++) {
+    const opt = options[i];
     group.addOptionToPage(opt, ctx.page, {
       x,
       y: ctx.y - 3,
-      width: 10,
-      height: 10,
+      width: 11,
+      height: 11,
     });
-    text(ctx, opt, x + 14, ctx.y, 8);
-    x += gap;
+    text(ctx, opt, x + 15, ctx.y, fontSize);
+    x += widths[i] + gap;
   }
 }
 
 function checkboxGrid(
   ctx: Ctx,
   options: { id: string; label: string }[],
-  cols = 2,
+  cols: number,
   boxBottomY: number,
+  rowH: number,
 ) {
   if (!options.length) return ctx.y;
-  const usable = PAGE_W - MARGIN * 2 - 16;
+  const usable = CONTENT_W - 16;
   const colW = usable / cols;
-  const rowH = 15;
   let y = ctx.y;
   for (let i = 0; i < options.length; i++) {
     const col = i % cols;
     if (col === 0 && i > 0) y -= rowH;
-    if (y < boxBottomY + 8) break;
+    if (y < boxBottomY + 10) break;
     const opt = options[i];
-    const x = MARGIN + 8 + col * colW;
+    const x = MARGIN + 10 + col * colW;
     const cb = ctx.form.createCheckBox(`s6_opt_${opt.id}_${ctx.n++}`);
-    cb.addToPage(ctx.page, { x, y: y - 2, width: 10, height: 10 });
-    text(ctx, opt.label, x + 14, y, 7.5, { maxWidth: colW - 18 });
+    cb.addToPage(ctx.page, { x, y: y - 2, width: 11, height: 11 });
+    text(ctx, opt.label, x + 16, y, 8.5, { maxWidth: colW - 22 });
   }
   return y - rowH;
 }
 
-/** Encadré de section : fond soft + bordure accent + titre sur bandeau. */
-function beginSection(ctx: Ctx, title: string, estimatedHeight: number): number {
-  const top = ctx.y + 6;
-  const boxH = estimatedHeight;
+/** Encadré de section ; retourne le y bas du cadre. */
+function beginSection(ctx: Ctx, title: string, boxH: number): number {
+  const top = ctx.y;
   const bottom = top - boxH;
-  roundedRect(ctx.page, MARGIN, bottom, PAGE_W - MARGIN * 2, boxH, 8, {
+  roundedRect(ctx.page, MARGIN, bottom, CONTENT_W, boxH, 8, {
     fill: ctx.soft,
     border: ctx.accentRgb,
-    borderWidth: 1.4,
+    borderWidth: 1.35,
   });
-  // bandeau titre (plein largeur, coins hauts arrondis via rect simple)
+  const titleH = 18;
   ctx.page.drawRectangle({
     x: MARGIN + 1.2,
-    y: top - 17,
-    width: PAGE_W - MARGIN * 2 - 2.4,
-    height: 15.5,
+    y: top - titleH,
+    width: CONTENT_W - 2.4,
+    height: titleH - 1,
     color: ctx.mid,
     borderWidth: 0,
   });
-  text(ctx, title, MARGIN + 8, top - 12, 9, { bold: true, color: ctx.accentRgb });
-  ctx.y = top - 28;
+  text(ctx, title, MARGIN + 10, top - 13, 10, { bold: true, color: ctx.accentRgb });
+  ctx.y = top - titleH - 12;
   return bottom;
 }
 
+type BlockSpec = { key: string; min: number; weight: number };
+
+function distributeHeights(
+  available: number,
+  blocks: BlockSpec[],
+  gapMin: number,
+): { heights: number[]; gaps: number[] } {
+  const sumMin = blocks.reduce((s, b) => s + b.min, 0);
+  const gapsMin = gapMin * Math.max(blocks.length - 1, 0);
+  let free = available - sumMin - gapsMin;
+  if (free < 0) free = 0;
+  const sumW = blocks.reduce((s, b) => s + b.weight, 0) || 1;
+  // ~80 % du surplus dans les blocs, ~20 % dans les interstices
+  const freeBlocks = free * 0.82;
+  const freeGaps = free * 0.18;
+  const heights = blocks.map((b) => b.min + (freeBlocks * b.weight) / sumW);
+  const gapCount = Math.max(blocks.length - 1, 1);
+  const gaps = blocks.slice(0, -1).map(() => gapMin + freeGaps / gapCount);
+  return { heights, gaps };
+}
+
 /**
- * Fiche 6e : design type fiche Providence (fonds teintés, encadrés arrondis,
- * bordures / lignes dans la couleur d'accent configurable).
+ * Fiche 6e : design type Providence, aéré sur pleine hauteur,
+ * radios en justify-between, police configurable.
  */
 export async function renderSixiemeInscriptionPdf(opts?: {
   establishmentName?: string;
   accentColor?: string;
+  pdfFont?: InscriptionPdfFontId;
   config?: InscriptionLevelCodeConfig;
 }): Promise<Uint8Array> {
   const settings = await loadInscriptionTenantSettings();
@@ -239,6 +306,7 @@ export async function renderSixiemeInscriptionPdf(opts?: {
   const accentRgb = rgb(accent.r, accent.g, accent.b);
   const soft = softFill(accent, 0.9);
   const mid = midFill(accent, 0.78);
+  const fontId = normalizePdfFont(opts?.pdfFont ?? settings.pdfFont);
   const displayName = sanitize(
     (
       opts?.establishmentName?.trim() ||
@@ -249,8 +317,7 @@ export async function renderSixiemeInscriptionPdf(opts?: {
   );
 
   const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const { font, bold } = await embedPair(doc, fontId);
   const form = doc.getForm();
 
   const ctx: Ctx = {
@@ -259,7 +326,7 @@ export async function renderSixiemeInscriptionPdf(opts?: {
     form,
     font,
     bold,
-    y: PAGE_H - 28,
+    y: PAGE_H - 22,
     accent,
     accentRgb,
     soft,
@@ -267,248 +334,346 @@ export async function renderSixiemeInscriptionPdf(opts?: {
     n: 1,
   };
 
-  // ——— En-tête avec fond couleur (comme la fiche d'origine) ———
-  const headerH = 72;
-  roundedRect(ctx.page, MARGIN - 2, ctx.y - headerH + 8, PAGE_W - MARGIN * 2 + 4, headerH, 10, {
+  // ——— En-tête ———
+  const headerH = 78;
+  const headerBottom = ctx.y - headerH;
+  roundedRect(ctx.page, MARGIN, headerBottom, CONTENT_W, headerH, 10, {
     fill: mid,
     border: accentRgb,
-    borderWidth: 1.6,
+    borderWidth: 1.55,
   });
 
   const logo = await loadSchoolLogoForPdf();
-  let headerTextX = MARGIN + 10;
+  let headerTextX = MARGIN + 12;
   if (logo) {
     const b64 = logo.dataUri.split(",")[1];
     if (b64) {
       const bytes = Buffer.from(b64, "base64");
       const img =
         logo.format === "JPEG" ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
-      const fitted = fitImageInBox(logo.width || 120, logo.height || 80, 48, 40);
+      const fitted = fitImageInBox(logo.width || 120, logo.height || 80, 52, 44);
       ctx.page.drawImage(img, {
-        x: MARGIN + 10,
-        y: ctx.y - fitted.height - 6,
+        x: MARGIN + 12,
+        y: ctx.y - fitted.height - 10,
         width: fitted.width,
         height: fitted.height,
       });
-      headerTextX = MARGIN + 10 + fitted.width + 10;
+      headerTextX = MARGIN + 12 + fitted.width + 12;
     }
   }
 
-  const nameUpper = displayName.toUpperCase();
-  text(ctx, nameUpper, headerTextX, ctx.y - 18, 11, { bold: true, color: accentRgb });
-  const yearLine = `ANNÉE ${sanitize(config.schoolYear).replace(/-/g, " - ")}`;
-  text(ctx, yearLine, headerTextX, ctx.y - 34, 10, { bold: true, color: INK });
-  const title = sanitize(config.title || "DEMANDE D'INSCRIPTION EN SIXIÈME").toUpperCase();
-  text(ctx, title, headerTextX, ctx.y - 50, 12, { bold: true, color: accentRgb });
-  ctx.y -= headerH + 10;
-
-  // ——— Bloc Élève ———
-  let boxBottom = beginSection(ctx, "Elève", 118);
-  text(ctx, "Nom :", MARGIN + 8, ctx.y, 8);
-  underlineField(ctx, "nom", MARGIN + 42, ctx.y - 1, 200);
-  text(ctx, "Prénoms :", MARGIN + 260, ctx.y, 8);
-  underlineField(ctx, "prenoms", MARGIN + 312, ctx.y - 1, 200);
-  ctx.y -= 16;
-  text(ctx, "Date de naissance :", MARGIN + 8, ctx.y, 8);
-  underlineField(ctx, "naissance", MARGIN + 108, ctx.y - 1, 130);
-  text(ctx, "Lieu :", MARGIN + 260, ctx.y, 8);
-  underlineField(ctx, "lieu", MARGIN + 292, ctx.y - 1, 220);
-  ctx.y -= 16;
-  text(ctx, "Département :", MARGIN + 8, ctx.y, 8);
-  underlineField(ctx, "dept", MARGIN + 85, ctx.y - 1, 150);
-  text(ctx, "Nationalité :", MARGIN + 260, ctx.y, 8);
-  underlineField(ctx, "nationalite", MARGIN + 328, ctx.y - 1, 184);
-  ctx.y -= 16;
-  text(ctx, "Etablissement précédent :", MARGIN + 8, ctx.y, 8);
-  underlineField(ctx, "etab_prev", MARGIN + 140, ctx.y - 1, 190);
-  text(ctx, "Classe :", MARGIN + 350, ctx.y, 8);
-  underlineField(ctx, "classe_prev", MARGIN + 395, ctx.y - 1, 117);
-  ctx.y -= 16;
-  text(ctx, "Adresse :", MARGIN + 8, ctx.y, 8);
-  underlineField(ctx, "adresse", MARGIN + 58, ctx.y - 1, 180);
-  text(ctx, "Code Postal et ville :", MARGIN + 260, ctx.y, 8);
-  underlineField(ctx, "cp_ville", MARGIN + 375, ctx.y - 1, 137);
-  ctx.y = boxBottom - 12;
-
-  // ——— Régime ———
-  boxBottom = beginSection(ctx, "Régime", 36);
-  radioRow(ctx, "regime", ["Internat", "Demi-pension", "Externat"], MARGIN + 10, 130);
-  ctx.y = boxBottom - 12;
-
-  // ——— Options enseignements ———
-  const optCount = Math.max(config.options.length, 1);
-  const optRows = Math.ceil(optCount / 2);
-  const optBoxH = 28 + optRows * 15 + 8;
-  boxBottom = beginSection(ctx, "Souhait classe de 6ème — Enseignements / options", optBoxH);
-  ctx.y = checkboxGrid(ctx, config.options, 2, boxBottom);
-  ctx.y = boxBottom - 12;
-
-  // ——— Autres infos ———
-  boxBottom = beginSection(ctx, "Autres informations", 48);
-  text(ctx, "Avez-vous un enfant dans un autre établissement privé :", MARGIN + 8, ctx.y, 7.5);
-  radioRow(ctx, "autre_prive", ["Non", "Oui"], MARGIN + 290, 48);
-  text(ctx, "Nb :", MARGIN + 410, ctx.y, 7.5);
-  underlineField(ctx, "autre_prive_nb", MARGIN + 435, ctx.y - 1, 70, 11);
-  ctx.y -= 15;
-  text(ctx, "Avez-vous déjà un enfant dans l'établissement :", MARGIN + 8, ctx.y, 7.5);
-  radioRow(ctx, "deja_prov", ["Non", "Oui"], MARGIN + 260, 48);
-  text(ctx, "Nb :", MARGIN + 380, ctx.y, 7.5);
-  underlineField(ctx, "deja_prov_nb", MARGIN + 405, ctx.y - 1, 100, 11);
-  ctx.y = boxBottom - 12;
-
-  // ——— Fratrie ———
-  boxBottom = beginSection(ctx, "Composition de la famille — Frère(s) et Soeur(s)", 100);
-  const headers = ["Nom et Prénom", "Date de Naissance", "Classe", "Établissement"];
-  const colWs = [150, 115, 70, 140];
-  let hx = MARGIN + 8;
-  for (let i = 0; i < headers.length; i++) {
-    text(ctx, headers[i], hx, ctx.y, 7, { bold: true, color: accentRgb });
-    hx += colWs[i];
-  }
-  ctx.y -= 12;
-  for (let row = 0; row < 4; row++) {
-    let x = MARGIN + 8;
-    for (let col = 0; col < 4; col++) {
-      underlineField(ctx, `fratrie_r${row}_c${col}`, x, ctx.y - 1, colWs[col] - 6, 12);
-      x += colWs[col];
-    }
-    ctx.y -= 16;
-  }
-  ctx.y = boxBottom - 12;
-
-  // ——— Transport + observations ———
-  boxBottom = beginSection(ctx, "Transport & observations", 78);
-  text(ctx, "Moyen(s) de transport utilisé(s) :", MARGIN + 8, ctx.y, 8);
-  underlineField(ctx, "transport", MARGIN + 175, ctx.y - 1, 340);
-  ctx.y -= 16;
+  text(ctx, displayName.toUpperCase(), headerTextX, ctx.y - 20, 12, {
+    bold: true,
+    color: accentRgb,
+  });
   text(
     ctx,
-    "Observations particulières (santé, caractère, aptitudes, besoins particuliers, handicap ...) :",
-    MARGIN + 8,
-    ctx.y,
-    7,
+    `ANNÉE ${sanitize(config.schoolYear).replace(/-/g, " - ")}`,
+    headerTextX,
+    ctx.y - 38,
+    11,
+    { bold: true, color: INK },
   );
-  ctx.y -= 12;
-  for (let i = 0; i < 3; i++) {
-    underlineField(ctx, `obs_${i}`, MARGIN + 8, ctx.y - 1, PAGE_W - MARGIN * 2 - 16, 11);
-    ctx.y -= 13;
+  text(
+    ctx,
+    sanitize(config.title || "DEMANDE D'INSCRIPTION EN SIXIÈME").toUpperCase(),
+    headerTextX,
+    ctx.y - 56,
+    13,
+    { bold: true, color: accentRgb },
+  );
+  ctx.y = headerBottom - 14;
+
+  const optCount = Math.max(config.options.length, 1);
+  const optRows = Math.ceil(optCount / 2);
+  const page1Blocks: BlockSpec[] = [
+    { key: "eleve", min: 132, weight: 1.35 },
+    { key: "regime", min: 48, weight: 0.55 },
+    { key: "options", min: 36 + optRows * 20, weight: 1.0 + optRows * 0.12 },
+    { key: "autres", min: 62, weight: 0.75 },
+    { key: "fratrie", min: 128, weight: 1.25 },
+    { key: "transport", min: 102, weight: 1.05 },
+  ];
+  const page1Avail = ctx.y - PAGE_BOTTOM;
+  const { heights: h1, gaps: g1 } = distributeHeights(page1Avail, page1Blocks, 11);
+  let gi = 0;
+
+  // ——— Élève ———
+  {
+    const boxH = h1[0];
+    const boxBottom = beginSection(ctx, "Elève", boxH);
+    const rows = 5;
+    const innerSpan = ctx.y - (boxBottom + 12);
+    const step = Math.max(innerSpan / rows, 16);
+    text(ctx, "Nom :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, "nom", MARGIN + 46, ctx.y - 1, 200);
+    text(ctx, "Prénoms :", MARGIN + 268, ctx.y, 9);
+    underlineField(ctx, "prenoms", MARGIN + 324, ctx.y - 1, CONTENT_RIGHT - (MARGIN + 324) - 10);
+    ctx.y -= step;
+    text(ctx, "Date de naissance :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, "naissance", MARGIN + 118, ctx.y - 1, 130);
+    text(ctx, "Lieu :", MARGIN + 268, ctx.y, 9);
+    underlineField(ctx, "lieu", MARGIN + 304, ctx.y - 1, CONTENT_RIGHT - (MARGIN + 304) - 10);
+    ctx.y -= step;
+    text(ctx, "Département :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, "dept", MARGIN + 92, ctx.y - 1, 150);
+    text(ctx, "Nationalité :", MARGIN + 268, ctx.y, 9);
+    underlineField(ctx, "nationalite", MARGIN + 340, ctx.y - 1, CONTENT_RIGHT - (MARGIN + 340) - 10);
+    ctx.y -= step;
+    text(ctx, "Etablissement précédent :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, "etab_prev", MARGIN + 152, ctx.y - 1, 190);
+    text(ctx, "Classe :", MARGIN + 360, ctx.y, 9);
+    underlineField(ctx, "classe_prev", MARGIN + 410, ctx.y - 1, CONTENT_RIGHT - (MARGIN + 410) - 10);
+    ctx.y -= step;
+    text(ctx, "Adresse :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, "adresse", MARGIN + 64, ctx.y - 1, 180);
+    text(ctx, "Code Postal et ville :", MARGIN + 268, ctx.y, 9);
+    underlineField(ctx, "cp_ville", MARGIN + 392, ctx.y - 1, CONTENT_RIGHT - (MARGIN + 392) - 10);
+    ctx.y = boxBottom - g1[gi++];
   }
-  ctx.y = boxBottom - 8;
+
+  // ——— Régime (pleine largeur, justify-between) ———
+  {
+    const boxH = h1[1];
+    const boxBottom = beginSection(ctx, "Régime", boxH);
+    const midY = (ctx.y + boxBottom) / 2 + 2;
+    ctx.y = midY;
+    radioJustifyBetween(
+      ctx,
+      "regime",
+      ["Internat", "Demi-pension", "Externat"],
+      MARGIN + 16,
+      CONTENT_RIGHT - 16,
+      10,
+    );
+    ctx.y = boxBottom - g1[gi++];
+  }
+
+  // ——— Options ———
+  {
+    const boxH = h1[2];
+    const boxBottom = beginSection(ctx, "Souhait classe de 6ème — Enseignements / options", boxH);
+    const inner = ctx.y - (boxBottom + 10);
+    const rowH = Math.max(inner / Math.max(optRows, 1), 16);
+    ctx.y = checkboxGrid(ctx, config.options, 2, boxBottom, rowH);
+    ctx.y = boxBottom - g1[gi++];
+  }
+
+  // ——— Autres infos ———
+  {
+    const boxH = h1[3];
+    const boxBottom = beginSection(ctx, "Autres informations", boxH);
+    const inner = ctx.y - (boxBottom + 10);
+    const step = Math.max(inner / 2, 18);
+    text(ctx, "Avez-vous un enfant dans un autre établissement privé :", MARGIN + 10, ctx.y, 8.5);
+    radioJustifyBetween(ctx, "autre_prive", ["Non", "Oui"], MARGIN + 300, MARGIN + 400, 9);
+    text(ctx, "Nb :", MARGIN + 420, ctx.y, 8.5);
+    underlineField(ctx, "autre_prive_nb", MARGIN + 448, ctx.y - 1, CONTENT_RIGHT - (MARGIN + 448) - 10, 12);
+    ctx.y -= step;
+    text(ctx, "Avez-vous déjà un enfant dans l'établissement :", MARGIN + 10, ctx.y, 8.5);
+    radioJustifyBetween(ctx, "deja_prov", ["Non", "Oui"], MARGIN + 280, MARGIN + 380, 9);
+    text(ctx, "Nb :", MARGIN + 400, ctx.y, 8.5);
+    underlineField(ctx, "deja_prov_nb", MARGIN + 428, ctx.y - 1, CONTENT_RIGHT - (MARGIN + 428) - 10, 12);
+    ctx.y = boxBottom - g1[gi++];
+  }
+
+  // ——— Fratrie ———
+  {
+    const boxH = h1[4];
+    const boxBottom = beginSection(ctx, "Composition de la famille — Frère(s) et Soeur(s)", boxH);
+    const headers = ["Nom et Prénom", "Date de Naissance", "Classe", "Établissement"];
+    const colWs = [158, 120, 74, CONTENT_W - 16 - 158 - 120 - 74];
+    let hx = MARGIN + 10;
+    for (let i = 0; i < headers.length; i++) {
+      text(ctx, headers[i], hx, ctx.y, 8, { bold: true, color: accentRgb });
+      hx += colWs[i];
+    }
+    const inner = ctx.y - 10 - (boxBottom + 10);
+    const step = Math.max(inner / 4, 18);
+    ctx.y -= 14;
+    for (let row = 0; row < 4; row++) {
+      let x = MARGIN + 10;
+      for (let col = 0; col < 4; col++) {
+        underlineField(ctx, `fratrie_r${row}_c${col}`, x, ctx.y - 1, colWs[col] - 8, 13);
+        x += colWs[col];
+      }
+      ctx.y -= step;
+    }
+    ctx.y = boxBottom - g1[gi++];
+  }
+
+  // ——— Transport + observations ———
+  {
+    const boxH = h1[5];
+    const boxBottom = beginSection(ctx, "Transport & observations", boxH);
+    text(ctx, "Moyen(s) de transport utilisé(s) :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, "transport", MARGIN + 190, ctx.y - 1, CONTENT_RIGHT - (MARGIN + 190) - 10);
+    const inner = ctx.y - 18 - (boxBottom + 10);
+    const obsLines = 3;
+    const step = Math.max(inner / (obsLines + 0.6), 14);
+    ctx.y -= Math.max(step * 0.7, 16);
+    text(
+      ctx,
+      "Observations particulières (santé, caractère, aptitudes, besoins particuliers, handicap ...) :",
+      MARGIN + 10,
+      ctx.y,
+      8,
+    );
+    ctx.y -= 14;
+    for (let i = 0; i < obsLines; i++) {
+      underlineField(ctx, `obs_${i}`, MARGIN + 10, ctx.y - 1, CONTENT_W - 20, 12);
+      ctx.y -= step;
+    }
+    ctx.y = boxBottom;
+  }
 
   // ——— PAGE 2 ———
   ctx.page = doc.addPage([PAGE_W, PAGE_H]);
-  ctx.y = PAGE_H - 36;
+  ctx.y = PAGE_H - 24;
 
-  const drawResponsable = (title: string, prefix: string) => {
-    const h = 210;
-    boxBottom = beginSection(ctx, title, h);
-    text(ctx, "Civilité :", MARGIN + 8, ctx.y, 8);
-    radioRow(ctx, `${prefix}_civ`, ["Madame", "Monsieur"], MARGIN + 55, 90);
-    ctx.y -= 15;
-    text(ctx, "Nom :", MARGIN + 8, ctx.y, 8);
-    underlineField(ctx, `${prefix}_nom`, MARGIN + 42, ctx.y - 1, 470);
-    ctx.y -= 15;
-    text(ctx, "Nom de jeune fille :", MARGIN + 8, ctx.y, 8);
-    underlineField(ctx, `${prefix}_njf`, MARGIN + 112, ctx.y - 1, 400);
-    ctx.y -= 15;
-    text(ctx, "Prénom :", MARGIN + 8, ctx.y, 8);
-    underlineField(ctx, `${prefix}_prenom`, MARGIN + 55, ctx.y - 1, 457);
-    ctx.y -= 15;
-    radioRow(
+  const page2Blocks: BlockSpec[] = [
+    { key: "r1", min: 236, weight: 1.15 },
+    { key: "r2", min: 236, weight: 1.15 },
+    { key: "engagement", min: 148, weight: 1.0 },
+  ];
+  const page2Avail = ctx.y - PAGE_BOTTOM;
+  const { heights: h2, gaps: g2 } = distributeHeights(page2Avail, page2Blocks, 12);
+
+  const drawResponsable = (title: string, prefix: string, boxH: number, gapAfter: number) => {
+    const boxBottom = beginSection(ctx, title, boxH);
+    const rows = 12;
+    const inner = ctx.y - (boxBottom + 10);
+    const step = Math.max(inner / rows, 14.5);
+
+    text(ctx, "Civilité :", MARGIN + 10, ctx.y, 9);
+    radioJustifyBetween(ctx, `${prefix}_civ`, ["Madame", "Monsieur"], MARGIN + 70, MARGIN + 280, 9);
+    ctx.y -= step;
+
+    text(ctx, "Nom :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, `${prefix}_nom`, MARGIN + 48, ctx.y - 1, CONTENT_W - 58);
+    ctx.y -= step;
+
+    text(ctx, "Nom de jeune fille :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, `${prefix}_njf`, MARGIN + 128, ctx.y - 1, CONTENT_W - 138);
+    ctx.y -= step;
+
+    text(ctx, "Prénom :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, `${prefix}_prenom`, MARGIN + 62, ctx.y - 1, CONTENT_W - 72);
+    ctx.y -= step;
+
+    radioJustifyBetween(
       ctx,
       `${prefix}_situation`,
       ["marié(e)", "veuf ou veuve", "séparé(e)", "divorcé(e)", "autre"],
-      MARGIN + 8,
-      95,
+      MARGIN + 10,
+      CONTENT_RIGHT - 10,
+      8.5,
     );
-    ctx.y -= 15;
-    text(ctx, "Lien de parenté avec l'élève :", MARGIN + 8, ctx.y, 8);
-    underlineField(ctx, `${prefix}_lien`, MARGIN + 155, ctx.y - 1, 357);
-    ctx.y -= 15;
-    text(ctx, "Responsabilité :", MARGIN + 8, ctx.y, 8);
-    radioRow(
+    ctx.y -= step;
+
+    text(ctx, "Lien de parenté avec l'élève :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, `${prefix}_lien`, MARGIN + 168, ctx.y - 1, CONTENT_W - 178);
+    ctx.y -= step;
+
+    text(ctx, "Responsabilité :", MARGIN + 10, ctx.y, 9);
+    radioJustifyBetween(
       ctx,
       `${prefix}_resp`,
       ["autorité parentale", "tuteur ou tutrice"],
-      MARGIN + 95,
-      140,
+      MARGIN + 110,
+      CONTENT_RIGHT - 10,
+      9,
     );
-    ctx.y -= 15;
-    text(ctx, "Adresse :", MARGIN + 8, ctx.y, 8);
-    underlineField(ctx, `${prefix}_adresse`, MARGIN + 55, ctx.y - 1, 457);
-    ctx.y -= 15;
-    text(ctx, "Code postal :", MARGIN + 8, ctx.y, 8);
-    underlineField(ctx, `${prefix}_cp`, MARGIN + 80, ctx.y - 1, 70);
-    text(ctx, "Ville :", MARGIN + 170, ctx.y, 8);
-    underlineField(ctx, `${prefix}_ville`, MARGIN + 210, ctx.y - 1, 302);
-    ctx.y -= 15;
-    text(ctx, "Tél. Domicile :", MARGIN + 8, ctx.y, 8);
-    underlineField(ctx, `${prefix}_tel_dom`, MARGIN + 85, ctx.y - 1, 110);
-    text(ctx, "E-mail :", MARGIN + 215, ctx.y, 8);
-    underlineField(ctx, `${prefix}_email`, MARGIN + 260, ctx.y - 1, 252);
-    ctx.y -= 15;
-    radioRow(
+    ctx.y -= step;
+
+    text(ctx, "Adresse :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, `${prefix}_adresse`, MARGIN + 62, ctx.y - 1, CONTENT_W - 72);
+    ctx.y -= step;
+
+    text(ctx, "Code postal :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, `${prefix}_cp`, MARGIN + 88, ctx.y - 1, 78);
+    text(ctx, "Ville :", MARGIN + 186, ctx.y, 9);
+    underlineField(ctx, `${prefix}_ville`, MARGIN + 226, ctx.y - 1, CONTENT_RIGHT - (MARGIN + 226) - 10);
+    ctx.y -= step;
+
+    text(ctx, "Tél. Domicile :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, `${prefix}_tel_dom`, MARGIN + 98, ctx.y - 1, 120);
+    text(ctx, "E-mail :", MARGIN + 240, ctx.y, 9);
+    underlineField(ctx, `${prefix}_email`, MARGIN + 288, ctx.y - 1, CONTENT_RIGHT - (MARGIN + 288) - 10);
+    ctx.y -= step;
+
+    radioJustifyBetween(
       ctx,
       `${prefix}_activite`,
       ["en activité", "recherche d'emploi", "retraité", "autre"],
-      MARGIN + 8,
-      110,
+      MARGIN + 10,
+      CONTENT_RIGHT - 10,
+      8.5,
     );
-    ctx.y -= 15;
-    text(ctx, "Employeur :", MARGIN + 8, ctx.y, 8);
-    underlineField(ctx, `${prefix}_employeur`, MARGIN + 70, ctx.y - 1, 95);
-    text(ctx, "Tél portable :", MARGIN + 185, ctx.y, 8);
-    underlineField(ctx, `${prefix}_tel_port`, MARGIN + 260, ctx.y - 1, 85);
-    text(ctx, "Tél professionnel :", MARGIN + 365, ctx.y, 8);
-    underlineField(ctx, `${prefix}_tel_pro`, MARGIN + 465, ctx.y - 1, 47);
-    ctx.y = boxBottom - 12;
+    ctx.y -= step;
+
+    text(ctx, "Employeur :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, `${prefix}_employeur`, MARGIN + 78, ctx.y - 1, 110);
+    text(ctx, "Tél portable :", MARGIN + 206, ctx.y, 9);
+    underlineField(ctx, `${prefix}_tel_port`, MARGIN + 288, ctx.y - 1, 90);
+    text(ctx, "Tél professionnel :", MARGIN + 396, ctx.y, 9);
+    underlineField(ctx, `${prefix}_tel_pro`, MARGIN + 502, ctx.y - 1, CONTENT_RIGHT - (MARGIN + 502) - 10);
+
+    ctx.y = boxBottom - gapAfter;
   };
 
-  drawResponsable("Responsable principal", "r1");
-  drawResponsable("Conjoint ou autre responsable", "r2");
+  drawResponsable("Responsable principal", "r1", h2[0], g2[0] ?? 12);
+  drawResponsable("Conjoint ou autre responsable", "r2", h2[1], g2[1] ?? 12);
 
-  boxBottom = beginSection(ctx, "Engagement", 110);
-  text(ctx, "Je soussigné(e) :", MARGIN + 8, ctx.y, 8);
-  underlineField(ctx, "soussigne", MARGIN + 95, ctx.y - 1, 180);
-  text(ctx, "déclare accepter pour mon enfant le but de l'Ecole Catholique.", MARGIN + 285, ctx.y, 7, {
-    maxWidth: 230,
-  });
-  ctx.y -= 14;
-  text(
-    ctx,
-    'Celle-ci s\'efforce " de lier dans le même temps et le même acte l\'acquisition du savoir, la formation à l\'autonomie et',
-    MARGIN + 8,
-    ctx.y,
-    7,
-    { color: MUTED, maxWidth: PAGE_W - MARGIN * 2 - 16 },
-  );
-  ctx.y -= 10;
-  text(
-    ctx,
-    'à la prise de responsabilités et l\'éducation de la Foi. "',
-    MARGIN + 8,
-    ctx.y,
-    7,
-    { color: MUTED },
-  );
-  ctx.y -= 16;
-  text(ctx, "A :", MARGIN + 8, ctx.y, 8);
-  underlineField(ctx, "fait_a", MARGIN + 28, ctx.y - 1, 180);
-  text(ctx, "le :", MARGIN + 230, ctx.y, 8);
-  underlineField(ctx, "fait_le", MARGIN + 255, ctx.y - 1, 180);
-  ctx.y -= 18;
-  text(
-    ctx,
-    'Signature du ou des responsables (Faire précéder la signature de la mention "LU et APPROUVE")',
-    MARGIN + 8,
-    ctx.y,
-    7,
-    { color: MUTED },
-  );
-  ctx.y -= 10;
-  underlineField(ctx, "sig1", MARGIN + 8, ctx.y - 1, 150, 26);
-  underlineField(ctx, "sig2", MARGIN + 175, ctx.y - 1, 150, 26);
-  underlineField(ctx, "sig3", MARGIN + 342, ctx.y - 1, 150, 26);
+  {
+    const boxH = h2[2];
+    const boxBottom = beginSection(ctx, "Engagement", boxH);
+    const inner = ctx.y - (boxBottom + 10);
+    const step = Math.max(inner / 7, 14);
 
+    text(ctx, "Je soussigné(e) :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, "soussigne", MARGIN + 108, ctx.y - 1, 190);
+    text(ctx, "déclare accepter pour mon enfant le but de l'Ecole Catholique.", MARGIN + 310, ctx.y, 8, {
+      maxWidth: CONTENT_RIGHT - (MARGIN + 310) - 8,
+    });
+    ctx.y -= step;
+
+    text(
+      ctx,
+      'Celle-ci s\'efforce " de lier dans le même temps et le même acte l\'acquisition du savoir, la formation à l\'autonomie et',
+      MARGIN + 10,
+      ctx.y,
+      8,
+      { color: MUTED, maxWidth: CONTENT_W - 20 },
+    );
+    ctx.y -= step * 0.75;
+    text(ctx, 'à la prise de responsabilités et l\'éducation de la Foi. "', MARGIN + 10, ctx.y, 8, {
+      color: MUTED,
+    });
+    ctx.y -= step;
+
+    text(ctx, "A :", MARGIN + 10, ctx.y, 9);
+    underlineField(ctx, "fait_a", MARGIN + 32, ctx.y - 1, 190);
+    text(ctx, "le :", MARGIN + 246, ctx.y, 9);
+    underlineField(ctx, "fait_le", MARGIN + 272, ctx.y - 1, 190);
+    ctx.y -= step;
+
+    text(
+      ctx,
+      'Signature du ou des responsables (Faire précéder la signature de la mention "LU et APPROUVE")',
+      MARGIN + 10,
+      ctx.y,
+      8,
+      { color: MUTED },
+    );
+    ctx.y -= step * 0.85;
+    const sigW = (CONTENT_W - 40) / 3;
+    underlineField(ctx, "sig1", MARGIN + 10, ctx.y - 1, sigW, 28);
+    underlineField(ctx, "sig2", MARGIN + 20 + sigW, ctx.y - 1, sigW, 28);
+    underlineField(ctx, "sig3", MARGIN + 30 + 2 * sigW, ctx.y - 1, sigW, 28);
+    ctx.y = boxBottom;
+  }
+
+  form.updateFieldAppearances(font);
   return doc.save();
 }
