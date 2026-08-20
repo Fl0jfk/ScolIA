@@ -156,33 +156,35 @@ export async function POST(req: Request) {
   }
 
   const existingResult = job?.results.find((r) => r.fileName === fileName);
-  const filedLabel =
-    parsed || pageStart !== 1 || pageEnd !== docEnd
-      ? ocrSegmentResultLabel(item.fileName, pageStart, pageEnd)
-      : fileName;
+  const isPartial = pageStart > docStart || pageEnd < docEnd;
+  const filedLabel = isPartial
+    ? ocrSegmentResultLabel(item.fileName, pageStart, pageEnd)
+    : fileName;
+
+  const successPayload = {
+    ...(existingResult?.result && typeof existingResult.result === "object" ? existingResult.result : {}),
+    fileName: upload.fileName.replace(/\.pdf$/i, ""),
+    oneDriveItemPath: upload.path,
+    oneDriveFinalFileName: upload.fileName,
+    matchedEleve: body.candidate
+      ? {
+          nom: body.candidate.nom,
+          prenom: body.candidate.prenom,
+          folderName: body.candidate.folderName,
+        }
+      : undefined,
+    matchDebug: {
+      ...((existingResult?.result as { matchDebug?: Record<string, unknown> } | undefined)?.matchDebug || {}),
+      matchedBy: "manual",
+      decision: "auto",
+      filedPages: { pageStart, pageEnd },
+    },
+  };
 
   const successResult: OcrBatchResult = {
     success: true,
     fileName: filedLabel,
-    result: {
-      ...(existingResult?.result && typeof existingResult.result === "object" ? existingResult.result : {}),
-      fileName: upload.fileName.replace(/\.pdf$/i, ""),
-      oneDriveItemPath: upload.path,
-      oneDriveFinalFileName: upload.fileName,
-      matchedEleve: body.candidate
-        ? {
-            nom: body.candidate.nom,
-            prenom: body.candidate.prenom,
-            folderName: body.candidate.folderName,
-          }
-        : undefined,
-      matchDebug: {
-        ...((existingResult?.result as { matchDebug?: Record<string, unknown> } | undefined)?.matchDebug || {}),
-        matchedBy: "manual",
-        decision: "auto",
-        filedPages: { pageStart, pageEnd },
-      },
-    },
+    result: successPayload,
   };
 
   /** Pages restantes du même document → nouveaux dossiers « à traiter ». */
@@ -204,6 +206,7 @@ export async function POST(req: Request) {
             error:
               "Pages restantes après rangement manuel — choisissez la personne ou les pages concernées.",
             tempOneDrivePath: remUpload.path,
+            // Garde les suggestions (matchCandidates) pour le 2e rangement.
             result: existingResult.result,
           });
         }
@@ -214,12 +217,40 @@ export async function POST(req: Request) {
   }
 
   if (job) {
-    let results = job.results.filter((r) => r.fileName !== fileName);
-    results = results.filter((r) => r.fileName !== successResult.fileName);
-    for (const rem of remainders) {
-      results = results.filter((r) => r.fileName !== rem.fileName);
-    }
+    // writeBatchJob fusionne avec l'existant : sans écraser le libellé d'origine
+    // (ex. SCAN [p.31-36]), l'échec revient et le document « à traiter » réapparaît.
+    const dropNames = new Set<string>([fileName, successResult.fileName]);
+    for (const rem of remainders) dropNames.add(rem.fileName);
+
+    let results = job.results.filter((r) => !dropNames.has(r.fileName));
     results.push(successResult, ...remainders);
+
+    // Si on a découpé, le libellé d'origine doit passer en succès (sinon merge le remet en échec).
+    // Uniquement si toutes les pages restantes ont bien été déposées dans Temp.
+    if (isPartial && filedLabel !== fileName && remainders.length === leftPages.length) {
+      results.push({
+        success: true,
+        fileName,
+        result: {
+          ...successPayload,
+          matchDebug: {
+            ...(successPayload.matchDebug || {}),
+            matchedBy: "manual",
+            decision: "auto",
+            splitInto: [filedLabel, ...remainders.map((r) => r.fileName)],
+          },
+        },
+      });
+    } else if (isPartial && leftPages.length > 0 && remainders.length !== leftPages.length) {
+      return NextResponse.json(
+        {
+          error:
+            "Le fichier a peut-être été déposé, mais les pages restantes n'ont pas pu être préparées dans Temp. Réessayez.",
+        },
+        { status: 502 },
+      );
+    }
+
     await writeBatchJob({ ...job, results });
   }
 

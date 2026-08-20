@@ -61,8 +61,9 @@ export default function OcrResultsList({
   function openPagePicker(result: ProcessResult, candidate: OcrSuggestedEleve) {
     const range = ocrResultPageRange(result);
     setPendingKey(`${result.fileName}::${candidate.folderName}`);
-    setPageFrom(range?.pageStart ?? 1);
-    setPageTo(range?.pageEnd ?? range?.pageStart ?? 1);
+    // Pages relatives au document affiché (1 = 1re page du bloc), pas absolues du scan.
+    setPageFrom(1);
+    setPageTo(range?.pageCount ?? 1);
     setFileError((prev) => ({ ...prev, [result.fileName]: "" }));
   }
 
@@ -82,8 +83,14 @@ export default function OcrResultsList({
     setFilingKey(key);
     setFileError((prev) => ({ ...prev, [result.fileName]: "" }));
 
-    const start = mode === "all" ? range?.pageStart : pageFrom;
-    const end = mode === "all" ? range?.pageEnd : pageTo;
+    const absStart = range?.pageStart ?? 1;
+    const absEnd = range?.pageEnd ?? absStart;
+    const count = range?.pageCount ?? 1;
+    // pageFrom / pageTo sont relatifs (1..N) dans le bloc document.
+    const relFrom = Math.max(1, Math.min(count, pageFrom));
+    const relTo = Math.max(relFrom, Math.min(count, pageTo));
+    const start = mode === "all" ? absStart : absStart + relFrom - 1;
+    const end = mode === "all" ? absEnd : absStart + relTo - 1;
 
     try {
       const res = await fetch("/api/agentIAOCR/file-to-folder", {
@@ -259,43 +266,56 @@ export default function OcrResultsList({
                         Ranger pour {pending.candidate.prenom} {pending.candidate.nom}
                       </p>
                       {pending.range && pending.range.pageCount > 1 ? (
-                        <div className="flex flex-wrap items-end gap-3">
-                          <label className="text-xs text-slate-700">
-                            De la page
-                            <input
-                              type="number"
-                              min={pending.range.pageStart}
-                              max={pending.range.pageEnd}
-                              value={pageFrom}
-                              onChange={(e) =>
-                                setPageFrom(
-                                  Math.max(
-                                    pending.range!.pageStart,
-                                    Math.min(pending.range!.pageEnd, Number(e.target.value) || pending.range!.pageStart),
-                                  ),
-                                )
-                              }
-                              className="mt-1 block w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-bold"
-                            />
-                          </label>
-                          <label className="text-xs text-slate-700">
-                            à la page
-                            <input
-                              type="number"
-                              min={pending.range.pageStart}
-                              max={pending.range.pageEnd}
-                              value={pageTo}
-                              onChange={(e) =>
-                                setPageTo(
-                                  Math.max(
-                                    pageFrom,
-                                    Math.min(pending.range!.pageEnd, Number(e.target.value) || pending.range!.pageEnd),
-                                  ),
-                                )
-                              }
-                              className="mt-1 block w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-bold"
-                            />
-                          </label>
+                        <div className="space-y-2">
+                          <p className="text-[11px] text-slate-600">
+                            Ce document fait {pending.range.pageCount} pages (scan p.
+                            {pending.range.pageStart}–{pending.range.pageEnd}). Indiquez les pages{" "}
+                            <strong>de ce document</strong> (1 = première page).
+                          </p>
+                          <div className="flex flex-wrap items-end gap-3">
+                            <label className="text-xs text-slate-700">
+                              De la page
+                              <input
+                                type="number"
+                                min={1}
+                                max={pending.range.pageCount}
+                                value={pageFrom}
+                                onChange={(e) =>
+                                  setPageFrom(
+                                    Math.max(
+                                      1,
+                                      Math.min(
+                                        pending.range!.pageCount,
+                                        Number(e.target.value) || 1,
+                                      ),
+                                    ),
+                                  )
+                                }
+                                className="mt-1 block w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-bold"
+                              />
+                            </label>
+                            <label className="text-xs text-slate-700">
+                              à la page
+                              <input
+                                type="number"
+                                min={1}
+                                max={pending.range.pageCount}
+                                value={pageTo}
+                                onChange={(e) =>
+                                  setPageTo(
+                                    Math.max(
+                                      pageFrom,
+                                      Math.min(
+                                        pending.range!.pageCount,
+                                        Number(e.target.value) || pending.range!.pageCount,
+                                      ),
+                                    ),
+                                  )
+                                }
+                                className="mt-1 block w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-bold"
+                              />
+                            </label>
+                          </div>
                         </div>
                       ) : (
                         <p className="text-xs text-slate-600">Une seule page — le document entier sera rangé.</p>
@@ -318,7 +338,7 @@ export default function OcrResultsList({
                           >
                             {filingKey
                               ? "Rangement…"
-                              : `Seulement p.${pageFrom}–${pageTo}`}
+                              : `Seulement pages ${pageFrom}–${pageTo}`}
                           </button>
                         ) : null}
                         <button
