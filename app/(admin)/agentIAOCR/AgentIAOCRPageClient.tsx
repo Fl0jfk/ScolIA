@@ -1364,33 +1364,35 @@ function OneDriveUpDocsOCRAIContent() {
         ocrResultsSessionId={ocrResultsSessionId}
         openingOneDrivePath={openingOneDrivePath}
         onOpenOneDrivePath={(result) => void openOneDrivePath(result)}
-        onEnsureTempSource={ensureOcrTempSource}
         accessToken={accessToken}
-        onManualFiled={(fileName, candidate, finalFileName) => {
-          setOcrResults((prev) =>
-            prev.map((r) =>
-              r.fileName === fileName && !r.success
-                ? {
-                    ...r,
-                    success: true,
-                    error: undefined,
-                    result: {
-                      ...r.result,
-                      fileName: finalFileName.replace(/\.pdf$/i, ""),
-                      oneDriveItemPath: candidate.folderPath
-                        ? `${candidate.folderPath}/${finalFileName}`
-                        : r.result?.oneDriveItemPath,
-                      matchedEleve: {
-                        nom: candidate.nom,
-                        prenom: candidate.prenom,
-                        folderName: candidate.folderName,
-                      },
-                      matchDebug: { ...r.result?.matchDebug, matchedBy: "manual", decision: "auto" },
+        jobId={lastOcrJobIdRef.current || activeBatchJobId}
+        onManualFiled={({ originalFileName, filedFileName, candidate, finalFileName, oneDriveItemPath, remainders, remainder }) => {
+          setOcrResults((prev) => {
+            const remList = remainders?.length ? remainders : remainder ? [remainder] : [];
+            const remNames = new Set(remList.map((r) => r.fileName));
+            const next = prev
+              .filter((r) => r.fileName !== originalFileName)
+              .filter((r) => r.fileName !== filedFileName)
+              .filter((r) => !remNames.has(r.fileName))
+              .concat([
+                {
+                  success: true,
+                  fileName: filedFileName,
+                  result: {
+                    fileName: finalFileName.replace(/\.pdf$/i, ""),
+                    oneDriveItemPath,
+                    matchedEleve: {
+                      nom: candidate.nom,
+                      prenom: candidate.prenom,
+                      folderName: candidate.folderName,
                     },
-                  }
-                : r,
-            ),
-          );
+                    matchDebug: { matchedBy: "manual", decision: "auto" },
+                  },
+                },
+                ...remList,
+              ]);
+            return next;
+          });
         }}
       />
 

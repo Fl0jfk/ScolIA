@@ -1,15 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ocrExtractedSummary,
   ocrFailureCategory,
   ocrFailureHint,
+  ocrResultPageRange,
   ocrSuggestedEleves,
   tempOneDriveDisplayPath,
   type OcrSuggestedEleve,
   type ProcessResult,
 } from "@/app/lib/ocr-page-model";
+
+type ManualFiledPayload = {
+  originalFileName: string;
+  filedFileName: string;
+  candidate: OcrSuggestedEleve;
+  finalFileName: string;
+  oneDriveItemPath: string;
+  remainder?: ProcessResult | null;
+  remainders?: ProcessResult[];
+};
 
 export default function OcrResultsList({
   ocrResults,
@@ -17,7 +28,7 @@ export default function OcrResultsList({
   openingOneDrivePath,
   onOpenOneDrivePath,
   accessToken,
-  onEnsureTempSource,
+  jobId,
   onManualFiled,
 }: {
   ocrResults: ProcessResult[];
@@ -25,14 +36,39 @@ export default function OcrResultsList({
   openingOneDrivePath: string | null;
   onOpenOneDrivePath: (result: ProcessResult) => void;
   accessToken?: string | null;
-  onEnsureTempSource?: (result: ProcessResult) => Promise<{ path: string; webUrl?: string }>;
-  onManualFiled?: (fileName: string, candidate: OcrSuggestedEleve, finalFileName: string) => void;
+  jobId?: string | null;
+  onManualFiled?: (payload: ManualFiledPayload) => void;
 }) {
   const failedResults = ocrResults.filter((r) => !r.success);
   const [filingKey, setFilingKey] = useState<string | null>(null);
   const [fileError, setFileError] = useState<Record<string, string>>({});
+  /** Suggestion en cours de confirmation (choix des pages). */
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [pageFrom, setPageFrom] = useState(1);
+  const [pageTo, setPageTo] = useState(1);
 
-  async function fileToCandidate(result: ProcessResult, candidate: OcrSuggestedEleve) {
+  const pending = useMemo(() => {
+    if (!pendingKey) return null;
+    const [fileName, folderName] = pendingKey.split("::");
+    const result = failedResults.find((r) => r.fileName === fileName);
+    if (!result) return null;
+    const candidate = ocrSuggestedEleves(result).find((c) => c.folderName === folderName);
+    if (!candidate) return null;
+    const range = ocrResultPageRange(result);
+    return { result, candidate, range };
+  }, [pendingKey, failedResults]);
+
+  function openPagePicker(result: ProcessResult, candidate: OcrSuggestedEleve) {
+    const range = ocrResultPageRange(result);
+    setPendingKey(`${result.fileName}::${candidate.folderName}`);
+    setPageFrom(range?.pageStart ?? 1);
+    setPageTo(range?.pageEnd ?? range?.pageStart ?? 1);
+    setFileError((prev) => ({ ...prev, [result.fileName]: "" }));
+  }
+
+  async function confirmFileToCandidate(mode: "all" | "range") {
+    if (!pending) return;
+    const { result, candidate, range } = pending;
     if (!accessToken) {
       setFileError((prev) => ({ ...prev, [result.fileName]: "Reconnectez OneDrive pour ranger." }));
       return;
@@ -41,38 +77,87 @@ export default function OcrResultsList({
       setFileError((prev) => ({ ...prev, [result.fileName]: "Chemin OneDrive manquant." }));
       return;
     }
-    if (!result.tempOneDrivePath && !onEnsureTempSource) {
-      setFileError((prev) => ({ ...prev, [result.fileName]: "Chemin OneDrive manquant." }));
-      return;
-    }
+
     const key = `${result.fileName}::${candidate.folderName}`;
     setFilingKey(key);
     setFileError((prev) => ({ ...prev, [result.fileName]: "" }));
+
+    const start = mode === "all" ? range?.pageStart : pageFrom;
+    const end = mode === "all" ? range?.pageEnd : pageTo;
+
     try {
-      let sourcePath = result.tempOneDrivePath || "";
-      if (onEnsureTempSource) {
-        const ensured = await onEnsureTempSource(result);
-        if (ensured.path) sourcePath = ensured.path;
-      }
-      if (!sourcePath) {
-        throw new Error("Chemin OneDrive manquant.");
-      }
-      const baseName = String(result.result?.fileName || result.fileName).replace(/\.pdf$/i, "");
-      const res = await fetch("/api/agentIAOCR/move-file", {
+      const res = await fetch("/api/agentIAOCR/file-to-folder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accessToken,
-          sourcePath,
+          jobId: jobId || undefined,
+          fileName: result.fileName,
+          sourcePath: result.tempOneDrivePath || "",
           targetFolderPath: candidate.folderPath,
-          newFileName: `${baseName}.pdf`,
+          pageStart: start,
+          pageEnd: end,
+          candidate: {
+            nom: candidate.nom,
+            prenom: candidate.prenom,
+            folderName: candidate.folderName,
+          },
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; finalFileName?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        finalFileName?: string;
+        oneDriveItemPath?: string;
+        filedFileName?: string;
+        remainders?: Array<{
+          fileName: string;
+          tempOneDrivePath?: string;
+          error?: string;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          result?: any;
+        }>;
+        remainder?: {
+          fileName: string;
+          tempOneDrivePath?: string;
+          error?: string;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          result?: any;
+        } | null;
+      };
       if (!res.ok) {
-        throw new Error(data.error || `Déplacement impossible (${res.status})`);
+        throw new Error(data.error || `Rangement impossible (${res.status})`);
       }
-      onManualFiled?.(result.fileName, candidate, data.finalFileName || `${baseName}.pdf`);
+
+      const remList = data.remainders?.length
+        ? data.remainders
+        : data.remainder
+          ? [data.remainder]
+          : [];
+
+      onManualFiled?.({
+        originalFileName: result.fileName,
+        filedFileName: data.filedFileName || result.fileName,
+        candidate,
+        finalFileName: data.finalFileName || `${candidate.nom}_${candidate.prenom}.pdf`,
+        oneDriveItemPath: data.oneDriveItemPath || `${candidate.folderPath}/${data.finalFileName}`,
+        remainder: remList[0]
+          ? {
+              success: false,
+              fileName: remList[0].fileName,
+              tempOneDrivePath: remList[0].tempOneDrivePath,
+              error: remList[0].error,
+              result: remList[0].result,
+            }
+          : null,
+        remainders: remList.map((r) => ({
+          success: false as const,
+          fileName: r.fileName,
+          tempOneDrivePath: r.tempOneDrivePath,
+          error: r.error,
+          result: r.result,
+        })),
+      });
+      setPendingKey(null);
     } catch (e) {
       setFileError((prev) => ({
         ...prev,
@@ -96,14 +181,17 @@ export default function OcrResultsList({
           </h3>
           <div className="text-sm text-amber-950 mb-4 leading-relaxed space-y-3">
             <p>
-              Ces fichiers n&apos;ont <strong>pas pu être rangés automatiquement</strong>. S&apos;il y a des
-              suggestions, un clic suffit. Sinon ils restent dans le dossier <strong>Temp</strong> de votre OneDrive.
+              Ces fichiers n&apos;ont <strong>pas pu être rangés automatiquement</strong>. Choisissez la
+              personne, puis précisez si besoin <strong>quelles pages</strong> lui appartiennent (utile
+              quand le découpage s&apos;est trompé).
             </p>
           </div>
           <ul className="space-y-3">
             {failedResults.map((r, index) => {
               const suggestions = ocrSuggestedEleves(r);
               const extracted = ocrExtractedSummary(r);
+              const range = ocrResultPageRange(r);
+              const isPendingThis = pending?.result.fileName === r.fileName;
               return (
                 <li
                   key={`${ocrResultsSessionId}-fail-${r.fileName}-${index}`}
@@ -114,6 +202,11 @@ export default function OcrResultsList({
                   {extracted ? (
                     <p className="text-xs text-slate-500 mt-1">Lu dans le document : {extracted}</p>
                   ) : null}
+                  {range && range.pageCount > 1 ? (
+                    <p className="text-xs text-indigo-700 mt-1 font-semibold">
+                      Document sur {range.pageCount} pages (p.{range.pageStart}–{range.pageEnd})
+                    </p>
+                  ) : null}
                   {suggestions.length > 0 ? (
                     <div className="mt-3 space-y-2">
                       <p className="text-xs font-bold uppercase tracking-wide text-amber-900">
@@ -121,37 +214,129 @@ export default function OcrResultsList({
                       </p>
                       {suggestions.map((c) => {
                         const key = `${r.fileName}::${c.folderName}`;
+                        const selected = pendingKey === key;
                         return (
                           <div
                             key={c.folderName}
-                            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                            className={`rounded-lg border px-3 py-2 ${
+                              selected
+                                ? "border-indigo-400 bg-indigo-50"
+                                : "border-slate-200 bg-slate-50"
+                            }`}
                           >
-                            <div>
-                              <p className="text-sm font-bold text-slate-900">
-                                {c.nom} {c.prenom}
-                                {c.classe ? ` · ${c.classe}` : ""}
-                                {c.kind && c.kind !== "eleve"
-                                  ? ` · ${c.kind === "enseignant" ? "enseignant" : "personnel"}`
-                                  : ""}
-                              </p>
-                              <p className="text-[11px] text-slate-500">
-                                {c.folderName}
-                                {c.matchedBy ? ` · ${c.matchedBy}` : ""}
-                              </p>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-bold text-slate-900">
+                                  {c.nom} {c.prenom}
+                                  {c.classe ? ` · ${c.classe}` : ""}
+                                  {c.kind && c.kind !== "eleve"
+                                    ? ` · ${c.kind === "enseignant" ? "enseignant" : "personnel"}`
+                                    : ""}
+                                </p>
+                                <p className="text-[11px] text-slate-500">
+                                  {c.folderName}
+                                  {c.matchedBy ? ` · ${c.matchedBy}` : ""}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={!accessToken || filingKey === key || !c.folderPath}
+                                onClick={() => openPagePicker(r, c)}
+                                className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+                              >
+                                {selected ? "Choisir les pages…" : "Ranger ici"}
+                              </button>
                             </div>
-                            <button
-                              type="button"
-                              disabled={!accessToken || filingKey === key || !c.folderPath}
-                              onClick={() => void fileToCandidate(r, c)}
-                              className="shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
-                            >
-                              {filingKey === key ? "Rangement…" : "Ranger ici"}
-                            </button>
                           </div>
                         );
                       })}
                     </div>
                   ) : null}
+
+                  {isPendingThis && pending ? (
+                    <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/80 p-3 space-y-3">
+                      <p className="text-xs font-bold text-indigo-950">
+                        Ranger pour {pending.candidate.prenom} {pending.candidate.nom}
+                      </p>
+                      {pending.range && pending.range.pageCount > 1 ? (
+                        <div className="flex flex-wrap items-end gap-3">
+                          <label className="text-xs text-slate-700">
+                            De la page
+                            <input
+                              type="number"
+                              min={pending.range.pageStart}
+                              max={pending.range.pageEnd}
+                              value={pageFrom}
+                              onChange={(e) =>
+                                setPageFrom(
+                                  Math.max(
+                                    pending.range!.pageStart,
+                                    Math.min(pending.range!.pageEnd, Number(e.target.value) || pending.range!.pageStart),
+                                  ),
+                                )
+                              }
+                              className="mt-1 block w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-bold"
+                            />
+                          </label>
+                          <label className="text-xs text-slate-700">
+                            à la page
+                            <input
+                              type="number"
+                              min={pending.range.pageStart}
+                              max={pending.range.pageEnd}
+                              value={pageTo}
+                              onChange={(e) =>
+                                setPageTo(
+                                  Math.max(
+                                    pageFrom,
+                                    Math.min(pending.range!.pageEnd, Number(e.target.value) || pending.range!.pageEnd),
+                                  ),
+                                )
+                              }
+                              className="mt-1 block w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm font-bold"
+                            />
+                          </label>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-600">Une seule page — le document entier sera rangé.</p>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={Boolean(filingKey)}
+                          onClick={() => void confirmFileToCandidate("all")}
+                          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          {filingKey ? "Rangement…" : "Toutes les pages"}
+                        </button>
+                        {pending.range && pending.range.pageCount > 1 ? (
+                          <button
+                            type="button"
+                            disabled={Boolean(filingKey) || pageFrom > pageTo}
+                            onClick={() => void confirmFileToCandidate("range")}
+                            className="rounded-lg bg-white border border-indigo-300 px-3 py-1.5 text-xs font-bold text-indigo-900 hover:bg-indigo-100 disabled:opacity-50"
+                          >
+                            {filingKey
+                              ? "Rangement…"
+                              : `Seulement p.${pageFrom}–${pageTo}`}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={Boolean(filingKey)}
+                          onClick={() => setPendingKey(null)}
+                          className="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-white"
+                        >
+                          Annuler
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Si vous ne rangez qu&apos;une partie des pages, le reste reste dans Temp pour être
+                        attribué à quelqu&apos;un d&apos;autre.
+                      </p>
+                    </div>
+                  ) : null}
+
                   {fileError[r.fileName] ? (
                     <p className="text-xs text-red-600 mt-2">{fileError[r.fileName]}</p>
                   ) : null}

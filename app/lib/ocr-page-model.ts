@@ -202,14 +202,19 @@ export function mergeOcrResultsForUi(prev: ProcessResult[], incoming: ProcessRes
   for (const r of prev) byName.set(r.fileName, r);
   for (const r of incoming) {
     const ex = byName.get(r.fileName);
-    if (!ex) byName.set(r.fileName, r);
-    else if (r.success && !ex.success) byName.set(r.fileName, r);
-    else if (incoming.length >= prev.length) byName.set(r.fileName, r);
+    if (!ex) {
+      byName.set(r.fileName, r);
+      continue;
+    }
+    // Un succès local (ex. « Ranger ici ») ne doit jamais être écrasé par un échec serveur périmé.
+    if (ex.success && !r.success) continue;
+    if (r.success && !ex.success) byName.set(r.fileName, r);
+    else byName.set(r.fileName, r);
   }
-  if (incoming.length >= prev.length) {
-    return incoming.map((r) => byName.get(r.fileName) ?? r);
-  }
-  const order = [...prev.map((r) => r.fileName), ...incoming.map((r) => r.fileName)];
+  const order = [
+    ...prev.map((r) => r.fileName),
+    ...incoming.map((r) => r.fileName),
+  ];
   const seen = new Set<string>();
   const merged: ProcessResult[] = [];
   for (const name of order) {
@@ -221,6 +226,25 @@ export function mergeOcrResultsForUi(prev: ProcessResult[], incoming: ProcessRes
     }
   }
   return merged;
+}
+
+/** Plage de pages du document (libellé segment ou métadonnées). */
+export function ocrResultPageRange(
+  result: ProcessResult,
+): { pageStart: number; pageEnd: number; pageCount: number } | null {
+  const m = /^(.*?)\s*\[p\.(\d+)-(\d+)\]\s*$/i.exec(String(result.fileName || "").trim());
+  if (m) {
+    const pageStart = Number(m[2]);
+    const pageEnd = Number(m[3]);
+    if (Number.isFinite(pageStart) && Number.isFinite(pageEnd) && pageStart >= 1 && pageEnd >= pageStart) {
+      return { pageStart, pageEnd, pageCount: pageEnd - pageStart + 1 };
+    }
+  }
+  const pc = Number(result.result?.pageCount ?? result.result?.pdfPageCount ?? 0);
+  if (Number.isFinite(pc) && pc >= 1) {
+    return { pageStart: 1, pageEnd: pc, pageCount: pc };
+  }
+  return null;
 }
 
 export function formatOcrIdleHint(seconds: number): string | null {
