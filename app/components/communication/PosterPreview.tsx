@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, type CSSProperties } from "react";
-import { computePosterLayout } from "@/app/lib/posters/layout";
+import { computePosterLayout } from "@/app/lib/posters/poster-layout";
 import type { PosterDraft } from "@/app/lib/posters/types";
 
 type Props = {

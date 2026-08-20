@@ -10,7 +10,7 @@ import {
   type PdfLogo,
 } from "@/app/lib/pdf-branding";
 import { getPosterTemplateMeta } from "@/app/lib/posters/catalog";
-import { computePosterLayout } from "@/app/lib/posters/layout";
+import { computePosterLayout } from "@/app/lib/posters/poster-layout";
 import type { PosterBox, PosterDraft } from "@/app/lib/posters/types";
 
 function sanitize(input: string): string {
