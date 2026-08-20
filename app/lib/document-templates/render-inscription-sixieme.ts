@@ -90,7 +90,6 @@ function underlineField(
   const field = ctx.form.createTextField(`s6_${name}_${ctx.n++}`);
   field.addToPage(ctx.page, { x, y: y - 2, width, height });
   field.setFontSize(9);
-  field.setBorderWidth(0);
   ctx.page.drawLine({
     start: { x, y: y - 2 },
     end: { x: x + width, y: y - 2 },
