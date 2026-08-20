@@ -23,6 +23,14 @@ type InscriptionLevelRow = {
   label: string;
   cycle: "college" | "lycee";
   hasOverride?: boolean;
+  codeGenerated?: boolean;
+};
+
+type SixiemeConfig = {
+  schoolYear: string;
+  title?: string;
+  subtitle?: string;
+  options: { id: string; label: string }[];
 };
 
 type BrandingInfo = {
@@ -59,8 +67,15 @@ export default function CommunicationDocumentsPanel() {
   const [levels, setLevels] = useState<InscriptionLevelRow[]>([]);
   const [levelId, setLevelId] = useState<InscriptionLevelId | "">("");
   const [establishmentName, setEstablishmentName] = useState("");
-  const [accentColor, setAccentColor] = useState("#0f172a");
+  const [accentColor, setAccentColor] = useState("#1E4A32");
   const [defaultName, setDefaultName] = useState("");
+  const [sixieme, setSixieme] = useState<SixiemeConfig>({
+    schoolYear: "",
+    title: "Fiche d'inscription — Sixième",
+    subtitle: "",
+    options: [],
+  });
+  const [newOptionLabel, setNewOptionLabel] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
@@ -72,6 +87,7 @@ export default function CommunicationDocumentsPanel() {
     [templates, templateId],
   );
   const isInscription = templateId === "fiche-inscription";
+  const isSixiemeCode = isInscription && levelId === "sixieme";
   const availableFormats = useMemo(() => formatsForTemplate(active), [active]);
 
   const collegeLevels = useMemo(
@@ -120,7 +136,17 @@ export default function CommunicationDocumentsPanel() {
       setLevels(nextLevels);
       if (tj.inscriptionSettings) {
         setEstablishmentName(tj.inscriptionSettings.establishmentName || "");
-        setAccentColor(tj.inscriptionSettings.accentColor || "#0f172a");
+        setAccentColor(tj.inscriptionSettings.accentColor || "#1E4A32");
+        if (tj.inscriptionSettings.sixieme) {
+          setSixieme({
+            schoolYear: tj.inscriptionSettings.sixieme.schoolYear || "",
+            title: tj.inscriptionSettings.sixieme.title || "",
+            subtitle: tj.inscriptionSettings.sixieme.subtitle || "",
+            options: Array.isArray(tj.inscriptionSettings.sixieme.options)
+              ? tj.inscriptionSettings.sixieme.options
+              : [],
+          });
+        }
       }
       setLevelId((prev) => prev || nextLevels[0]?.id || "");
 
@@ -144,11 +170,25 @@ export default function CommunicationDocumentsPanel() {
       const res = await fetch("/api/document-templates/inscription", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ establishmentName, accentColor }),
+        body: JSON.stringify({
+          establishmentName,
+          accentColor,
+          ...(isSixiemeCode
+            ? {
+                sixieme: {
+                  schoolYear: sixieme.schoolYear,
+                  title: sixieme.title,
+                  subtitle: sixieme.subtitle,
+                  options: sixieme.options,
+                },
+              }
+            : {}),
+        }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Enregistrement impossible");
-      setMsg("Réglages inscription enregistrés pour l’établissement.");
+      if (j.settings?.sixieme) setSixieme(j.settings.sixieme);
+      setMsg("Réglages inscription enregistrés.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -229,6 +269,16 @@ export default function CommunicationDocumentsPanel() {
                 inscriptionLevelId: levelId,
                 establishmentName: establishmentName.trim() || undefined,
                 accentColor,
+                ...(levelId === "sixieme"
+                  ? {
+                      sixieme: {
+                        schoolYear: sixieme.schoolYear,
+                        title: sixieme.title,
+                        subtitle: sixieme.subtitle,
+                        options: sixieme.options,
+                      },
+                    }
+                  : {}),
               }
             : {
                 templateId: active.id,
@@ -282,6 +332,10 @@ export default function CommunicationDocumentsPanel() {
             {l.hasOverride ? (
               <span className="mt-0.5 block text-[10px] font-bold text-amber-700">
                 PDF personnalisé
+              </span>
+            ) : l.codeGenerated ? (
+              <span className="mt-0.5 block text-[10px] font-bold text-emerald-700">
+                Générée en code
               </span>
             ) : (
               <span className="mt-0.5 block text-[10px] text-slate-400">Modèle standard</span>
@@ -463,13 +517,141 @@ export default function CommunicationDocumentsPanel() {
                     </div>
                   </div>
 
-                  {activeLevel ? (
+                  {isSixiemeCode ? (
+                    <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
+                      <p className="text-xs font-bold uppercase text-emerald-900">
+                        Fiche Sixième — générée en code
+                      </p>
+                      <p className="text-xs text-emerald-900/80">
+                        Modifiez l’année, les textes et les options : elles se placent
+                        automatiquement sur le PDF (sans bandeau ajouté).
+                      </p>
+                      <label className="block text-sm">
+                        Année scolaire
+                        <input
+                          value={sixieme.schoolYear}
+                          onChange={(e) =>
+                            setSixieme((s) => ({ ...s, schoolYear: e.target.value }))
+                          }
+                          placeholder="2026-2027"
+                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        Titre
+                        <input
+                          value={sixieme.title || ""}
+                          onChange={(e) =>
+                            setSixieme((s) => ({ ...s, title: e.target.value }))
+                          }
+                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        Sous-titre
+                        <input
+                          value={sixieme.subtitle || ""}
+                          onChange={(e) =>
+                            setSixieme((s) => ({ ...s, subtitle: e.target.value }))
+                          }
+                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+                        />
+                      </label>
+
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">Options cochables</p>
+                        <p className="text-xs text-slate-500">
+                          Ajoutez / retirez : la grille se recalcule toute seule sur le PDF.
+                        </p>
+                        <ul className="mt-2 space-y-2">
+                          {sixieme.options.map((opt, idx) => (
+                            <li
+                              key={`${opt.id}-${idx}`}
+                              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5"
+                            >
+                              <input
+                                value={opt.label}
+                                onChange={(e) => {
+                                  const label = e.target.value;
+                                  setSixieme((s) => ({
+                                    ...s,
+                                    options: s.options.map((o, i) =>
+                                      i === idx ? { ...o, label } : o,
+                                    ),
+                                  }));
+                                }}
+                                className="min-w-0 flex-1 rounded border border-slate-200 px-2 py-1 text-sm"
+                              />
+                              <button
+                                type="button"
+                                className="text-xs font-bold text-rose-600"
+                                onClick={() =>
+                                  setSixieme((s) => ({
+                                    ...s,
+                                    options: s.options.filter((_, i) => i !== idx),
+                                  }))
+                                }
+                              >
+                                Retirer
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            value={newOptionLabel}
+                            onChange={(e) => setNewOptionLabel(e.target.value)}
+                            placeholder="Nouvelle option (ex. Internat)"
+                            className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                const label = newOptionLabel.trim();
+                                if (!label) return;
+                                setSixieme((s) => ({
+                                  ...s,
+                                  options: [
+                                    ...s.options,
+                                    {
+                                      id: `opt-${Date.now()}`,
+                                      label,
+                                    },
+                                  ],
+                                }));
+                                setNewOptionLabel("");
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="rounded-xl bg-slate-800 px-3 py-2 text-xs font-bold text-white"
+                            onClick={() => {
+                              const label = newOptionLabel.trim();
+                              if (!label) return;
+                              setSixieme((s) => ({
+                                ...s,
+                                options: [
+                                  ...s.options,
+                                  { id: `opt-${Date.now()}`, label },
+                                ],
+                              }));
+                              setNewOptionLabel("");
+                            }}
+                          >
+                            Ajouter
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : activeLevel ? (
                     <div className="space-y-2 rounded-xl border border-amber-100 bg-amber-50/50 p-4">
                       <p className="text-xs font-bold uppercase text-amber-900">
                         PDF source — {activeLevel.label}
                       </p>
                       <p className="text-xs text-amber-900/80">
-                        Remplacez le PDF de ce niveau si besoin (AcroForm recommandé).
+                        Ce niveau utilise encore le PDF AcroForm d’origine (sans bandeau
+                        ajouté). La reconstruction en code arrivera ensuite, comme pour la
+                        Sixième.
                       </p>
                       <label className="block text-sm">
                         Remplacer le PDF

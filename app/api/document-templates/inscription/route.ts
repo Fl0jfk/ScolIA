@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/app/lib/intranet-auth";
+import { resolveHeaderLogoDisplayUrl } from "@/app/lib/branding-logo";
 import {
   INSCRIPTION_LEVELS,
   clearInscriptionLevelOverride,
   defaultInscriptionTenantSettings,
+  defaultSixiemeCodeConfig,
   isInscriptionLevelId,
   loadInscriptionTenantSettings,
+  normalizeSixiemeCodeConfig,
   saveInscriptionLevelOverride,
   saveInscriptionTenantSettings,
 } from "@/app/lib/document-templates";
@@ -22,6 +25,7 @@ export async function GET() {
     loadInscriptionTenantSettings(),
     getSchoolLetterhead(),
   ]);
+  const logoUrl = await resolveHeaderLogoDisplayUrl(letterhead.logoUrl || undefined);
 
   return NextResponse.json({
     levels: INSCRIPTION_LEVELS.map((l) => ({
@@ -29,15 +33,18 @@ export async function GET() {
       label: l.label,
       cycle: l.cycle,
       hasOverride: Boolean(settings.overrides[l.id]),
+      codeGenerated: l.id === "sixieme",
     })),
     settings: {
       establishmentName: settings.establishmentName,
       accentColor: settings.accentColor,
       updatedAt: settings.updatedAt,
+      sixieme: settings.levelConfigs?.sixieme || defaultSixiemeCodeConfig(),
     },
     defaults: {
       establishmentName: letterhead.name,
       accentColor: defaultInscriptionTenantSettings().accentColor,
+      logoUrl: logoUrl || "",
     },
   });
 }
@@ -55,8 +62,20 @@ export async function PUT(req: Request) {
           : undefined,
       accentColor:
         body.accentColor !== undefined ? String(body.accentColor) : undefined,
+      levelConfigs:
+        body.sixieme !== undefined
+          ? { sixieme: normalizeSixiemeCodeConfig(body.sixieme) }
+          : undefined,
     });
-    return NextResponse.json({ success: true, settings: saved });
+    return NextResponse.json({
+      success: true,
+      settings: {
+        establishmentName: saved.establishmentName,
+        accentColor: saved.accentColor,
+        updatedAt: saved.updatedAt,
+        sixieme: saved.levelConfigs?.sixieme || defaultSixiemeCodeConfig(),
+      },
+    });
   } catch (e) {
     console.error("[inscription/settings PUT]", e);
     return NextResponse.json({ error: "Enregistrement impossible" }, { status: 400 });
@@ -73,6 +92,15 @@ export async function POST(req: Request) {
     const levelId = String(formData.get("levelId") || "");
     if (!isInscriptionLevelId(levelId)) {
       return NextResponse.json({ error: "Niveau invalide" }, { status: 400 });
+    }
+    if (levelId === "sixieme") {
+      return NextResponse.json(
+        {
+          error:
+            "La fiche Sixième est générée en code — utilisez les options de configuration, pas un PDF de remplacement.",
+        },
+        { status: 400 },
+      );
     }
 
     if (action === "clear") {
@@ -94,7 +122,6 @@ export async function POST(req: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    // Vérifie que c’est un PDF loadable
     const { PDFDocument } = await import("pdf-lib");
     await PDFDocument.load(buffer, { ignoreEncryption: true });
 

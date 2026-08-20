@@ -43,13 +43,32 @@ export type DocumentTemplateMeta = {
 };
 
 /** Réglages inscription multi-établissement (par tenant). */
+export type InscriptionOptionItem = {
+  id: string;
+  label: string;
+};
+
+/** Config d’une fiche générée en code (pilote : 6e). */
+export type InscriptionLevelCodeConfig = {
+  /** Année scolaire affichée, ex. 2026-2027 */
+  schoolYear: string;
+  /** Titre principal (sinon libellé du niveau). */
+  title?: string;
+  /** Sous-titre / mention libre. */
+  subtitle?: string;
+  /** Options cochables (demi-pension, bus…) — placement automatique. */
+  options: InscriptionOptionItem[];
+};
+
 export type InscriptionTenantSettings = {
   /** Nom affiché sur la fiche (groupes scolaires). Vide = letterhead. */
   establishmentName: string;
   /** Couleur accent / bandeau (#rrggbb). */
   accentColor: string;
-  /** Clés S3 des PDF de remplacement par niveau. */
+  /** Clés S3 des PDF de remplacement par niveau (legacy AcroForm). */
   overrides: Partial<Record<InscriptionLevelId, string>>;
+  /** Config code par niveau (sixieme en premier). */
+  levelConfigs?: Partial<Record<InscriptionLevelId, InscriptionLevelCodeConfig>>;
   updatedAt?: string;
 };
 

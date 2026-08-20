@@ -72,6 +72,20 @@ export async function POST(req: Request) {
 
     let bytes: Uint8Array | Buffer;
     if (isInscription && levelId) {
+      if (levelId === "sixieme" && body.sixieme) {
+        const { saveInscriptionTenantSettings, normalizeSixiemeCodeConfig } = await import(
+          "@/app/lib/document-templates"
+        );
+        await saveInscriptionTenantSettings({
+          establishmentName:
+            typeof body.establishmentName === "string"
+              ? body.establishmentName
+              : undefined,
+          accentColor:
+            typeof body.accentColor === "string" ? body.accentColor : undefined,
+          levelConfigs: { sixieme: normalizeSixiemeCodeConfig(body.sixieme) },
+        });
+      }
       bytes = await renderInscriptionFillablePdf({
         levelId,
         establishmentName:

@@ -7,6 +7,7 @@ import {
   DOCUMENT_TEMPLATES,
   INSCRIPTION_LEVELS,
   defaultAnneeScolaire,
+  defaultSixiemeCodeConfig,
   loadInscriptionTenantSettings,
 } from "@/app/lib/document-templates";
 import { getSchoolLetterhead } from "@/app/lib/pdf-branding";
@@ -31,10 +32,12 @@ export async function GET() {
       label: l.label,
       cycle: l.cycle,
       hasOverride: Boolean(inscriptionSettings.overrides[l.id]),
+      codeGenerated: l.id === "sixieme",
     })),
     inscriptionSettings: {
       establishmentName: inscriptionSettings.establishmentName,
       accentColor: inscriptionSettings.accentColor,
+      sixieme: inscriptionSettings.levelConfigs?.sixieme || defaultSixiemeCodeConfig(),
     },
     defaults: {
       anneeScolaire: defaultAnneeScolaire(),
