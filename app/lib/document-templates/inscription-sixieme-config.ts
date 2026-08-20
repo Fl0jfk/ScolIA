@@ -46,10 +46,13 @@ export function normalizeSixiemeCodeConfig(raw: unknown): InscriptionLevelCodeCo
   const base = defaultSixiemeCodeConfig();
   if (!raw || typeof raw !== "object") return base;
   const o = raw as Record<string, unknown>;
+  const schoolYearRaw = o.schoolYear != null ? String(o.schoolYear) : base.schoolYear;
+  const titleRaw = o.title != null ? String(o.title) : String(base.title || "");
+  const subtitleRaw = o.subtitle != null ? String(o.subtitle) : String(base.subtitle || "");
   return {
-    schoolYear: String(o.schoolYear || base.schoolYear).trim().slice(0, 20) || base.schoolYear,
-    title: String(o.title ?? base.title || "").trim().slice(0, 120) || base.title,
-    subtitle: String(o.subtitle ?? base.subtitle || "").trim().slice(0, 200) || base.subtitle,
+    schoolYear: schoolYearRaw.trim().slice(0, 20) || base.schoolYear,
+    title: titleRaw.trim().slice(0, 120) || base.title,
+    subtitle: subtitleRaw.trim().slice(0, 200) || base.subtitle,
     options: normalizeInscriptionOptions(o.options),
   };
 }
