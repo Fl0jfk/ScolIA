@@ -5,6 +5,7 @@ import type {
   DocumentOutputFormat,
   DocumentPlaceholderDef,
   DocumentTemplateMeta,
+  InscriptionLevelId,
 } from "@/app/lib/document-templates/types";
 
 type GeneratedRow = {
@@ -15,6 +16,13 @@ type GeneratedRow = {
   createdAt: string;
   downloadUrl: string;
   format?: DocumentOutputFormat | "pdf";
+};
+
+type InscriptionLevelRow = {
+  id: InscriptionLevelId;
+  label: string;
+  cycle: "college" | "lycee";
+  hasOverride?: boolean;
 };
 
 const FORMAT_OPTIONS: { id: DocumentOutputFormat; label: string; hint: string }[] = [
@@ -35,14 +43,30 @@ export default function CommunicationDocumentsPanel() {
   const [templateId, setTemplateId] = useState<string>("");
   const [format, setFormat] = useState<DocumentOutputFormat>("fillable-pdf");
   const [history, setHistory] = useState<GeneratedRow[]>([]);
+  const [levels, setLevels] = useState<InscriptionLevelRow[]>([]);
+  const [levelId, setLevelId] = useState<InscriptionLevelId | "">("");
+  const [establishmentName, setEstablishmentName] = useState("");
+  const [accentColor, setAccentColor] = useState("#0f172a");
+  const [defaultName, setDefaultName] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [settingsBusy, setSettingsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   const active = useMemo(
     () => templates.find((t) => t.id === templateId) || null,
     [templates, templateId],
+  );
+  const isInscription = templateId === "fiche-inscription";
+
+  const collegeLevels = useMemo(
+    () => levels.filter((l) => l.cycle === "college"),
+    [levels],
+  );
+  const lyceeLevels = useMemo(
+    () => levels.filter((l) => l.cycle === "lycee"),
+    [levels],
   );
 
   const load = useCallback(async () => {
@@ -58,7 +82,16 @@ export default function CommunicationDocumentsPanel() {
       setTemplates(Array.isArray(tj.templates) ? tj.templates : []);
       setPlaceholders(Array.isArray(tj.placeholders) ? tj.placeholders : []);
       setBranding(tj.branding || {});
+      setDefaultName(tj.branding?.name || "");
+      if (Array.isArray(tj.inscriptionLevels)) setLevels(tj.inscriptionLevels);
+      if (tj.inscriptionSettings) {
+        setEstablishmentName(tj.inscriptionSettings.establishmentName || "");
+        setAccentColor(tj.inscriptionSettings.accentColor || "#0f172a");
+      }
       if (!templateId && tj.templates?.[0]?.id) setTemplateId(tj.templates[0].id);
+      if (!levelId && tj.inscriptionLevels?.[0]?.id) {
+        setLevelId(tj.inscriptionLevels[0].id);
+      }
 
       const hj = await hRes.json();
       if (hRes.ok) setHistory(Array.isArray(hj.items) ? hj.items : []);
@@ -67,15 +100,89 @@ export default function CommunicationDocumentsPanel() {
     } finally {
       setLoading(false);
     }
-  }, [templateId]);
+  }, [templateId, levelId]);
 
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const saveSettings = async () => {
+    setSettingsBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/document-templates/inscription", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ establishmentName, accentColor }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Enregistrement impossible");
+      setMsg("Réglages inscription enregistrés pour l’établissement.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
+
+  const uploadOverride = async (file: File | null) => {
+    if (!file || !levelId) return;
+    setSettingsBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("levelId", levelId);
+      fd.append("action", "upload");
+      const res = await fetch("/api/document-templates/inscription", {
+        method: "POST",
+        body: fd,
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Upload impossible");
+      setLevels((prev) =>
+        prev.map((l) => (l.id === levelId ? { ...l, hasOverride: true } : l)),
+      );
+      setMsg("PDF de remplacement enregistré pour ce niveau.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
+
+  const clearOverride = async () => {
+    if (!levelId) return;
+    setSettingsBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("levelId", levelId);
+      fd.append("action", "clear");
+      const res = await fetch("/api/document-templates/inscription", {
+        method: "POST",
+        body: fd,
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Suppression impossible");
+      setLevels((prev) =>
+        prev.map((l) => (l.id === levelId ? { ...l, hasOverride: false } : l)),
+      );
+      setMsg("Retour au modèle standard pour ce niveau.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
+
   const generate = async () => {
     if (!active) return;
+    if (isInscription && !levelId) {
+      setError("Choisissez un niveau.");
+      return;
+    }
     setBusy(true);
     setError(null);
     setMsg(null);
@@ -83,10 +190,20 @@ export default function CommunicationDocumentsPanel() {
       const res = await fetch("/api/document-templates/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          templateId: active.id,
-          format,
-        }),
+        body: JSON.stringify(
+          isInscription
+            ? {
+                templateId: active.id,
+                format: "fillable-pdf",
+                inscriptionLevelId: levelId,
+                establishmentName: establishmentName.trim() || undefined,
+                accentColor,
+              }
+            : {
+                templateId: active.id,
+                format,
+              },
+        ),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Génération impossible");
@@ -105,18 +222,47 @@ export default function CommunicationDocumentsPanel() {
     }
   };
 
+  const activeLevel = levels.find((l) => l.id === levelId) || null;
+
   if (loading) {
     return <p className="text-sm text-slate-500">Chargement des modèles…</p>;
   }
+
+  const renderLevelGrid = (items: InscriptionLevelRow[], title: string) => (
+    <div>
+      <p className="text-xs font-bold uppercase text-slate-500">{title}</p>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {items.map((l) => (
+          <button
+            key={l.id}
+            type="button"
+            onClick={() => setLevelId(l.id)}
+            className={`rounded-xl border px-3 py-2.5 text-left text-sm ${
+              levelId === l.id
+                ? "border-sky-500 bg-sky-50 ring-2 ring-sky-200"
+                : "border-slate-200 bg-white hover:border-slate-300"
+            }`}
+          >
+            <span className="font-semibold text-slate-900">{l.label}</span>
+            {l.hasOverride ? (
+              <span className="mt-0.5 block text-[10px] font-bold text-amber-700">
+                PDF personnalisé
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-sky-200 bg-sky-50/50 p-5">
         <h2 className="text-lg font-black text-sky-950">Documents familles</h2>
         <p className="mt-1 text-sm text-sky-900/80">
-          Modèles vierges brandés {branding.name ? `(${branding.name})` : ""} — PDF à trous ou Word
-          avec marqueurs <code className="rounded bg-sky-100 px-1">$$…$$</code> pour publipostage
-          (Charlemagne, Pronote, Word).
+          Modèles vierges brandés {branding.name ? `(${branding.name})` : ""} — fiches
+          d’inscription par niveau (PDF remplissable), ou Word avec marqueurs{" "}
+          <code className="rounded bg-sky-100 px-1">$$…$$</code>.
         </p>
       </div>
 
@@ -131,7 +277,7 @@ export default function CommunicationDocumentsPanel() {
         </p>
       ) : null}
 
-      {placeholders.length > 0 ? (
+      {!isInscription && placeholders.length > 0 ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <p className="text-xs font-bold uppercase text-slate-500">Placeholders Word</p>
           <p className="mt-1 text-sm text-slate-600">
@@ -156,7 +302,10 @@ export default function CommunicationDocumentsPanel() {
           <button
             key={t.id}
             type="button"
-            onClick={() => setTemplateId(t.id)}
+            onClick={() => {
+              setTemplateId(t.id);
+              if (t.id === "fiche-inscription") setFormat("fillable-pdf");
+            }}
             className={`rounded-2xl border p-4 text-left transition ${
               templateId === t.id
                 ? "border-sky-500 bg-sky-50 ring-2 ring-sky-200"
@@ -169,7 +318,95 @@ export default function CommunicationDocumentsPanel() {
         ))}
       </div>
 
-      {active ? (
+      {active && isInscription ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-5">
+          {renderLevelGrid(collegeLevels, "Collège")}
+          {renderLevelGrid(lyceeLevels, "Lycée")}
+
+          <div className="space-y-3 border-t border-slate-100 pt-4">
+            <p className="text-xs font-bold uppercase text-slate-500">
+              Personnalisation établissement
+            </p>
+            <label className="block text-sm">
+              Nom affiché sur la fiche
+              <input
+                value={establishmentName}
+                onChange={(e) => setEstablishmentName(e.target.value)}
+                placeholder={defaultName || "Nom de l’établissement"}
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+              />
+              <span className="mt-1 block text-[11px] text-slate-500">
+                Vide = nom des paramètres ({defaultName || "identité"}). Utile pour les groupes
+                scolaires.
+              </span>
+            </label>
+            <label className="inline-flex items-center gap-3 text-sm">
+              Couleur bandeau
+              <input
+                type="color"
+                value={accentColor}
+                onChange={(e) => setAccentColor(e.target.value)}
+                className="h-10 w-14 cursor-pointer rounded border"
+              />
+              <span className="font-mono text-xs text-slate-500">{accentColor}</span>
+            </label>
+            <button
+              type="button"
+              disabled={settingsBusy}
+              onClick={() => void saveSettings()}
+              className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-2 text-sm font-bold text-slate-800 disabled:opacity-50"
+            >
+              {settingsBusy ? "…" : "Enregistrer nom & couleur"}
+            </button>
+          </div>
+
+          {activeLevel ? (
+            <div className="space-y-2 rounded-xl border border-amber-100 bg-amber-50/40 p-4">
+              <p className="text-xs font-bold uppercase text-amber-900">
+                PDF source — {activeLevel.label}
+              </p>
+              <p className="text-xs text-amber-900/80">
+                Si vos options diffèrent, remplacez le PDF de ce niveau (AcroForm recommandé).
+                Sinon le modèle standard est utilisé.
+              </p>
+              <label className="block text-sm">
+                Remplacer le PDF
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="mt-1 block w-full text-xs"
+                  onChange={(e) => void uploadOverride(e.target.files?.[0] ?? null)}
+                />
+              </label>
+              {activeLevel.hasOverride ? (
+                <button
+                  type="button"
+                  disabled={settingsBusy}
+                  onClick={() => void clearOverride()}
+                  className="text-xs font-bold text-rose-700 underline disabled:opacity-50"
+                >
+                  Revenir au modèle standard
+                </button>
+              ) : (
+                <p className="text-[11px] text-slate-500">Modèle standard (Providence) actif.</p>
+              )}
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            disabled={busy || !levelId}
+            onClick={() => void generate()}
+            className="w-full rounded-xl bg-sky-700 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
+          >
+            {busy
+              ? "Génération…"
+              : `Télécharger la fiche ${activeLevel?.label || ""} (PDF remplissable)`}
+          </button>
+        </div>
+      ) : null}
+
+      {active && !isInscription ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
           <div>
             <p className="text-xs font-bold uppercase text-slate-500">Format de sortie</p>

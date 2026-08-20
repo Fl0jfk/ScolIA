@@ -68,6 +68,7 @@ export async function saveGeneratedDocument(
     createdAt: stored.createdAt,
     eleveIne: stored.eleveIne,
     format: stored.format,
+    inscriptionLevelId: stored.inscriptionLevelId,
   };
   await saveGeneratedIndex([entry, ...index.filter((e) => e.id !== doc.id)]);
   return stored;

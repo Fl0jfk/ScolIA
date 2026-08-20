@@ -48,7 +48,7 @@ export const DOCUMENT_TEMPLATES: DocumentTemplateMeta[] = [
     id: "fiche-inscription",
     label: "Fiche d’inscription",
     description:
-      "Dossier d’inscription à trous — à déposer sur ED ou à fusionner via Word / votre logiciel.",
+      "Fiches par niveau (collège / lycée) — PDF Adobe remplissable brandé (logo, nom, couleur).",
     fields: [
       { key: "prenom", label: "Prénom de l’enfant", type: "text" },
       { key: "nom", label: "Nom de l’enfant", type: "text" },

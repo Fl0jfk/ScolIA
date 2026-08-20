@@ -1,0 +1,109 @@
+import { NextResponse } from "next/server";
+import { requireAdmin } from "@/app/lib/intranet-auth";
+import {
+  INSCRIPTION_LEVELS,
+  clearInscriptionLevelOverride,
+  defaultInscriptionTenantSettings,
+  isInscriptionLevelId,
+  loadInscriptionTenantSettings,
+  saveInscriptionLevelOverride,
+  saveInscriptionTenantSettings,
+} from "@/app/lib/document-templates";
+import { getSchoolLetterhead } from "@/app/lib/pdf-branding";
+
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
+export async function GET() {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
+
+  const [settings, letterhead] = await Promise.all([
+    loadInscriptionTenantSettings(),
+    getSchoolLetterhead(),
+  ]);
+
+  return NextResponse.json({
+    levels: INSCRIPTION_LEVELS.map((l) => ({
+      id: l.id,
+      label: l.label,
+      cycle: l.cycle,
+      hasOverride: Boolean(settings.overrides[l.id]),
+    })),
+    settings: {
+      establishmentName: settings.establishmentName,
+      accentColor: settings.accentColor,
+      updatedAt: settings.updatedAt,
+    },
+    defaults: {
+      establishmentName: letterhead.name,
+      accentColor: defaultInscriptionTenantSettings().accentColor,
+    },
+  });
+}
+
+export async function PUT(req: Request) {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
+
+  try {
+    const body = await req.json();
+    const saved = await saveInscriptionTenantSettings({
+      establishmentName:
+        body.establishmentName !== undefined
+          ? String(body.establishmentName)
+          : undefined,
+      accentColor:
+        body.accentColor !== undefined ? String(body.accentColor) : undefined,
+    });
+    return NextResponse.json({ success: true, settings: saved });
+  } catch (e) {
+    console.error("[inscription/settings PUT]", e);
+    return NextResponse.json({ error: "Enregistrement impossible" }, { status: 400 });
+  }
+}
+
+export async function POST(req: Request) {
+  const gate = await requireAdmin();
+  if (!gate.ok) return gate.response;
+
+  try {
+    const formData = await req.formData();
+    const action = String(formData.get("action") || "upload");
+    const levelId = String(formData.get("levelId") || "");
+    if (!isInscriptionLevelId(levelId)) {
+      return NextResponse.json({ error: "Niveau invalide" }, { status: 400 });
+    }
+
+    if (action === "clear") {
+      const settings = await clearInscriptionLevelOverride(levelId);
+      return NextResponse.json({ success: true, settings });
+    }
+
+    const file = formData.get("file");
+    if (!(file instanceof File)) {
+      return NextResponse.json({ error: "Fichier PDF manquant" }, { status: 400 });
+    }
+    if (file.size > 12 * 1024 * 1024) {
+      return NextResponse.json({ error: "Fichier trop volumineux (max 12 Mo)" }, { status: 400 });
+    }
+    const type = (file.type || "").toLowerCase();
+    const name = (file.name || "").toLowerCase();
+    if (!type.includes("pdf") && !name.endsWith(".pdf")) {
+      return NextResponse.json({ error: "PDF uniquement" }, { status: 400 });
+    }
+
+    const buffer = Buffer.from(await file.arrayBuffer());
+    // Vérifie que c’est un PDF loadable
+    const { PDFDocument } = await import("pdf-lib");
+    await PDFDocument.load(buffer, { ignoreEncryption: true });
+
+    const { key } = await saveInscriptionLevelOverride(levelId, buffer);
+    const settings = await loadInscriptionTenantSettings();
+    return NextResponse.json({ success: true, key, settings });
+  } catch (e) {
+    console.error("[inscription/settings POST]", e);
+    const msg = e instanceof Error ? e.message : "Upload impossible";
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+}
