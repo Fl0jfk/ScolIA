@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DocumentOutputFormat,
   DocumentPlaceholderDef,
@@ -81,6 +81,7 @@ export default function CommunicationDocumentsPanel() {
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const levelConfigRef = useRef<HTMLDivElement | null>(null);
 
   const active = useMemo(
     () => templates.find((t) => t.id === templateId) || null,
@@ -306,41 +307,206 @@ export default function CommunicationDocumentsPanel() {
   const activeLevel = levels.find((l) => l.id === levelId) || null;
   const displayName = establishmentName.trim() || defaultName || branding.name || "Établissement";
 
+  useEffect(() => {
+    if (!levelId || !modalOpen) return;
+    const t = window.setTimeout(() => {
+      levelConfigRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [levelId, modalOpen]);
+
   if (loading) {
     return <p className="text-sm text-slate-500">Chargement des modèles…</p>;
   }
+
+  const renderInlineLevelConfig = (level: InscriptionLevelRow) => {
+    if (level.id !== levelId) return null;
+    if (level.id === "sixieme") {
+      return (
+        <div
+          ref={levelConfigRef}
+          className="col-span-full space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 shadow-sm"
+        >
+          <p className="text-xs font-bold uppercase text-emerald-900">
+            Modifier la fiche Sixième
+          </p>
+          <p className="text-xs text-emerald-900/80">
+            Régime (Internat / Demi-pension / Externat) fixe. Options d’enseignements
+            éditables ci-dessous — placement automatique en 2 colonnes sur le PDF.
+          </p>
+          <label className="block text-sm">
+            Année scolaire
+            <input
+              value={sixieme.schoolYear}
+              onChange={(e) => setSixieme((s) => ({ ...s, schoolYear: e.target.value }))}
+              placeholder="2026-2027"
+              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </label>
+          <label className="block text-sm">
+            Titre
+            <input
+              value={sixieme.title || ""}
+              onChange={(e) => setSixieme((s) => ({ ...s, title: e.target.value }))}
+              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </label>
+          <label className="block text-sm">
+            Sous-titre
+            <input
+              value={sixieme.subtitle || ""}
+              onChange={(e) => setSixieme((s) => ({ ...s, subtitle: e.target.value }))}
+              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </label>
+          <div>
+            <p className="text-sm font-semibold text-slate-800">
+              Enseignements / options (cases à cocher)
+            </p>
+            <p className="text-xs text-slate-500">
+              Classique, Bilangue, Théâtre, Foot… Ajoutez ou retirez librement.
+            </p>
+            <ul className="mt-2 space-y-2">
+              {sixieme.options.map((opt, idx) => (
+                <li
+                  key={`${opt.id}-${idx}`}
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5"
+                >
+                  <input
+                    value={opt.label}
+                    onChange={(e) => {
+                      const label = e.target.value;
+                      setSixieme((s) => ({
+                        ...s,
+                        options: s.options.map((o, i) => (i === idx ? { ...o, label } : o)),
+                      }));
+                    }}
+                    className="min-w-0 flex-1 rounded border border-slate-200 px-2 py-1 text-sm"
+                  />
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-rose-600"
+                    onClick={() =>
+                      setSixieme((s) => ({
+                        ...s,
+                        options: s.options.filter((_, i) => i !== idx),
+                      }))
+                    }
+                  >
+                    Retirer
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={newOptionLabel}
+                onChange={(e) => setNewOptionLabel(e.target.value)}
+                placeholder="Nouvelle option"
+                className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const label = newOptionLabel.trim();
+                    if (!label) return;
+                    setSixieme((s) => ({
+                      ...s,
+                      options: [...s.options, { id: `opt-${Date.now()}`, label }],
+                    }));
+                    setNewOptionLabel("");
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="rounded-xl bg-slate-800 px-3 py-2 text-xs font-bold text-white"
+                onClick={() => {
+                  const label = newOptionLabel.trim();
+                  if (!label) return;
+                  setSixieme((s) => ({
+                    ...s,
+                    options: [...s.options, { id: `opt-${Date.now()}`, label }],
+                  }));
+                  setNewOptionLabel("");
+                }}
+              >
+                Ajouter
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div
+        ref={levelConfigRef}
+        className="col-span-full space-y-2 rounded-xl border border-amber-100 bg-amber-50/50 p-4"
+      >
+        <p className="text-xs font-bold uppercase text-amber-900">
+          PDF source — {level.label}
+        </p>
+        <p className="text-xs text-amber-900/80">
+          Ce niveau utilise encore le PDF AcroForm d’origine. La reconstruction en code
+          arrivera ensuite, comme pour la Sixième.
+        </p>
+        <label className="block text-sm">
+          Remplacer le PDF
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            className="mt-1 block w-full text-xs"
+            onChange={(e) => void uploadOverride(e.target.files?.[0] ?? null)}
+          />
+        </label>
+        {level.hasOverride ? (
+          <button
+            type="button"
+            disabled={settingsBusy}
+            onClick={() => void clearOverride()}
+            className="text-xs font-bold text-rose-700 underline disabled:opacity-50"
+          >
+            Revenir au modèle standard
+          </button>
+        ) : (
+          <p className="text-[11px] text-slate-500">Modèle standard actif.</p>
+        )}
+      </div>
+    );
+  };
 
   const renderLevelGrid = (items: InscriptionLevelRow[], title: string) => (
     <div>
       <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{title}</p>
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
         {items.map((l) => (
-          <button
-            key={l.id}
-            type="button"
-            onClick={() => {
-              setLevelId(l.id);
-              setError(null);
-            }}
-            className={`rounded-xl border px-3 py-2.5 text-left text-sm transition ${
-              levelId === l.id
-                ? "border-sky-500 bg-sky-50 ring-2 ring-sky-200"
-                : "border-slate-200 bg-white hover:border-slate-300"
-            }`}
-          >
-            <span className="font-semibold text-slate-900">{l.label}</span>
-            {l.hasOverride ? (
-              <span className="mt-0.5 block text-[10px] font-bold text-amber-700">
-                PDF personnalisé
-              </span>
-            ) : l.codeGenerated ? (
-              <span className="mt-0.5 block text-[10px] font-bold text-emerald-700">
-                Générée en code
-              </span>
-            ) : (
-              <span className="mt-0.5 block text-[10px] text-slate-400">Modèle standard</span>
-            )}
-          </button>
+          <div key={l.id} className="contents">
+            <button
+              type="button"
+              onClick={() => {
+                setLevelId(l.id);
+                setError(null);
+              }}
+              className={`rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                levelId === l.id
+                  ? "border-sky-500 bg-sky-50 ring-2 ring-sky-200"
+                  : "border-slate-200 bg-white hover:border-slate-300"
+              }`}
+            >
+              <span className="font-semibold text-slate-900">{l.label}</span>
+              {l.hasOverride ? (
+                <span className="mt-0.5 block text-[10px] font-bold text-amber-700">
+                  PDF personnalisé
+                </span>
+              ) : l.codeGenerated ? (
+                <span className="mt-0.5 block text-[10px] font-bold text-emerald-700">
+                  Générée en code
+                </span>
+              ) : (
+                <span className="mt-0.5 block text-[10px] text-slate-400">Modèle standard</span>
+              )}
+            </button>
+            {renderInlineLevelConfig(l)}
+          </div>
         ))}
       </div>
     </div>
@@ -479,7 +645,7 @@ export default function CommunicationDocumentsPanel() {
                       />
                     </label>
                     <label className="mt-3 inline-flex items-center gap-3 text-sm">
-                      Couleur bandeau
+                      Couleur de la fiche
                       <input
                         type="color"
                         value={accentColor}
@@ -488,6 +654,10 @@ export default function CommunicationDocumentsPanel() {
                       />
                       <span className="font-mono text-xs text-slate-500">{accentColor}</span>
                     </label>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Appliquée au fond d’en-tête, aux encadrés, bordures et lignes (comme sur
+                      votre fiche d’origine).
+                    </p>
                     <button
                       type="button"
                       disabled={settingsBusy}
@@ -501,7 +671,7 @@ export default function CommunicationDocumentsPanel() {
                   <div>
                     <p className="text-sm font-bold text-slate-900">Fiches disponibles</p>
                     <p className="mt-0.5 text-xs text-slate-500">
-                      Choisissez le niveau à télécharger (PDF remplissable uniquement).
+                      Cliquez un niveau : les options s’ouvrent juste en dessous.
                     </p>
                     <div className="mt-3 space-y-4">
                       {levels.length === 0 ? (
@@ -516,170 +686,6 @@ export default function CommunicationDocumentsPanel() {
                       )}
                     </div>
                   </div>
-
-                  {isSixiemeCode ? (
-                    <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
-                      <p className="text-xs font-bold uppercase text-emerald-900">
-                        Fiche Sixième — générée en code
-                      </p>
-                      <p className="text-xs text-emerald-900/80">
-                        Calquée sur votre fiche d’origine : régime (Internat / Demi-pension /
-                        Externat) fixe ; les options d’enseignements / activités ci-dessous sont
-                        éditables et se placent automatiquement en 2 colonnes.
-                      </p>
-                      <label className="block text-sm">
-                        Année scolaire
-                        <input
-                          value={sixieme.schoolYear}
-                          onChange={(e) =>
-                            setSixieme((s) => ({ ...s, schoolYear: e.target.value }))
-                          }
-                          placeholder="2026-2027"
-                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
-                        />
-                      </label>
-                      <label className="block text-sm">
-                        Titre
-                        <input
-                          value={sixieme.title || ""}
-                          onChange={(e) =>
-                            setSixieme((s) => ({ ...s, title: e.target.value }))
-                          }
-                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
-                        />
-                      </label>
-                      <label className="block text-sm">
-                        Sous-titre
-                        <input
-                          value={sixieme.subtitle || ""}
-                          onChange={(e) =>
-                            setSixieme((s) => ({ ...s, subtitle: e.target.value }))
-                          }
-                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
-                        />
-                      </label>
-
-                      <div>
-                        <p className="text-sm font-semibold text-slate-800">
-                          Enseignements / options (cases à cocher)
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          Comme sur votre PDF : Classique, Bilangue, Théâtre, Foot… Ajoutez ou
-                          retirez — placement automatique.
-                        </p>
-                        <ul className="mt-2 space-y-2">
-                          {sixieme.options.map((opt, idx) => (
-                            <li
-                              key={`${opt.id}-${idx}`}
-                              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5"
-                            >
-                              <input
-                                value={opt.label}
-                                onChange={(e) => {
-                                  const label = e.target.value;
-                                  setSixieme((s) => ({
-                                    ...s,
-                                    options: s.options.map((o, i) =>
-                                      i === idx ? { ...o, label } : o,
-                                    ),
-                                  }));
-                                }}
-                                className="min-w-0 flex-1 rounded border border-slate-200 px-2 py-1 text-sm"
-                              />
-                              <button
-                                type="button"
-                                className="text-xs font-bold text-rose-600"
-                                onClick={() =>
-                                  setSixieme((s) => ({
-                                    ...s,
-                                    options: s.options.filter((_, i) => i !== idx),
-                                  }))
-                                }
-                              >
-                                Retirer
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                        <div className="mt-2 flex gap-2">
-                          <input
-                            value={newOptionLabel}
-                            onChange={(e) => setNewOptionLabel(e.target.value)}
-                            placeholder="Nouvelle option (ex. Internat)"
-                            className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                const label = newOptionLabel.trim();
-                                if (!label) return;
-                                setSixieme((s) => ({
-                                  ...s,
-                                  options: [
-                                    ...s.options,
-                                    {
-                                      id: `opt-${Date.now()}`,
-                                      label,
-                                    },
-                                  ],
-                                }));
-                                setNewOptionLabel("");
-                              }
-                            }}
-                          />
-                          <button
-                            type="button"
-                            className="rounded-xl bg-slate-800 px-3 py-2 text-xs font-bold text-white"
-                            onClick={() => {
-                              const label = newOptionLabel.trim();
-                              if (!label) return;
-                              setSixieme((s) => ({
-                                ...s,
-                                options: [
-                                  ...s.options,
-                                  { id: `opt-${Date.now()}`, label },
-                                ],
-                              }));
-                              setNewOptionLabel("");
-                            }}
-                          >
-                            Ajouter
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ) : activeLevel ? (
-                    <div className="space-y-2 rounded-xl border border-amber-100 bg-amber-50/50 p-4">
-                      <p className="text-xs font-bold uppercase text-amber-900">
-                        PDF source — {activeLevel.label}
-                      </p>
-                      <p className="text-xs text-amber-900/80">
-                        Ce niveau utilise encore le PDF AcroForm d’origine (sans bandeau
-                        ajouté). La reconstruction en code arrivera ensuite, comme pour la
-                        Sixième.
-                      </p>
-                      <label className="block text-sm">
-                        Remplacer le PDF
-                        <input
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          className="mt-1 block w-full text-xs"
-                          onChange={(e) => void uploadOverride(e.target.files?.[0] ?? null)}
-                        />
-                      </label>
-                      {activeLevel.hasOverride ? (
-                        <button
-                          type="button"
-                          disabled={settingsBusy}
-                          onClick={() => void clearOverride()}
-                          className="text-xs font-bold text-rose-700 underline disabled:opacity-50"
-                        >
-                          Revenir au modèle standard
-                        </button>
-                      ) : (
-                        <p className="text-[11px] text-slate-500">Modèle standard actif.</p>
-                      )}
-                    </div>
-                  ) : null}
 
                   <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
                     Format disponible : <strong>PDF à trous</strong> uniquement (pas de Word pour
