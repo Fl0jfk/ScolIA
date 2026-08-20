@@ -2,7 +2,7 @@
 
 import type { RefObject } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
-import type { ShareInfo } from "@/app/lib/documents-page-model";
+import { DOCUMENTS_MAX_FILE_LABEL, type ShareInfo } from "@/app/lib/documents-page-model";
 
 export default function DocumentsToolbar({
   fileInputRef,
@@ -65,6 +65,7 @@ export default function DocumentsToolbar({
         onClick={onPickFiles}
         disabled={uploadDisabled || uploading}
         className="disabled:cursor-not-allowed"
+        title={`Taille max. ${DOCUMENTS_MAX_FILE_LABEL} par fichier`}
       >
         + Ajouter un fichier
       </ModuleButton>

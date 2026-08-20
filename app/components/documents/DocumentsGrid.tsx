@@ -2,6 +2,7 @@
 
 import type { DragEvent, ReactNode } from "react";
 import ModuleEmptyState from "@/app/components/module-chrome/ModuleEmptyState";
+import { DOCUMENTS_MAX_FILE_LABEL } from "@/app/lib/documents-page-model";
 
 export default function DocumentsGrid({
   rootLabel,
@@ -118,6 +119,9 @@ export default function DocumentsGrid({
                   <p className="font-medium text-gray-600 text-sm">Ce dossier est vide</p>
                   <p className="text-xs mt-2 italic text-center px-4">
                     Glissez-déposez des fichiers ou dossiers ici
+                    <span className="block mt-1 not-italic text-gray-400">
+                      Max. {DOCUMENTS_MAX_FILE_LABEL} par fichier
+                    </span>
                   </p>
                 </div>
               )

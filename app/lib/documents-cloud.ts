@@ -1,5 +1,12 @@
-import { CopyObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { CopyObjectCommand, DeleteObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import {
+  DOCUMENTS_MAX_FILE_BYTES,
+  DOCUMENTS_MAX_FILE_LABEL,
+  documentsMaxFileError,
+} from "@/app/lib/documents-page-model";
 import { s3Key } from "@/app/lib/s3-path";
+import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import {
   getJson,
   getS3Client,
@@ -10,6 +17,7 @@ import {
 import { listClerkMembers, type ClerkMemberRow } from "@/app/lib/clerk-users";
 
 export const DOCUMENTS_QUOTA_BYTES = 2 * 1024 * 1024 * 1024;
+export { DOCUMENTS_MAX_FILE_BYTES, DOCUMENTS_MAX_FILE_LABEL };
 
 export type DocumentScope = "personal" | "shared";
 
@@ -548,6 +556,81 @@ export async function createFolder(
   return { ok: true };
 }
 
+async function resolveDocumentUploadTarget(
+  userId: string,
+  scope: DocumentScope,
+  shareId: string | null,
+  parentRelPath: string,
+  fileName: string,
+  sizeBytes: number,
+): Promise<
+  | { ok: true; key: string }
+  | { ok: false; error: string; used?: number; quota?: number }
+> {
+  const safeName = fileName.replace(/[/\\]/g, "-").trim();
+  if (!safeName) return { ok: false, error: "Nom de fichier invalide." };
+  if (!Number.isFinite(sizeBytes) || sizeBytes < 0) {
+    return { ok: false, error: "Taille de fichier invalide." };
+  }
+  if (sizeBytes > DOCUMENTS_MAX_FILE_BYTES) {
+    return { ok: false, error: documentsMaxFileError() };
+  }
+
+  let quotaOwnerId = userId;
+  if (scope === "shared") {
+    const access = await assertShareWrite(userId, shareId ?? "");
+    if (!access.ok) return { ok: false, error: access.error };
+    quotaOwnerId = access.meta.ownerId;
+  }
+
+  const quota = await assertQuotaForUpload(quotaOwnerId, sizeBytes);
+  if (!quota.ok) {
+    return { ok: false, error: quota.error, used: quota.used, quota: quota.quota };
+  }
+
+  const resolved = resolveStoragePrefix(userId, scope, shareId, parentRelPath);
+  if (!resolved.ok) return { ok: false, error: resolved.error };
+
+  return { ok: true, key: `${resolved.prefix}${safeName}` };
+}
+
+/** Prépare un PUT direct vers S3 (évite la limite de body du conteneur Scaleway). */
+export async function prepareDocumentUpload(
+  userId: string,
+  scope: DocumentScope,
+  shareId: string | null,
+  parentRelPath: string,
+  fileName: string,
+  contentType: string,
+  sizeBytes: number,
+): Promise<
+  | { ok: true; uploadUrl: string; key: string }
+  | { ok: false; error: string; used?: number; quota?: number }
+> {
+  const target = await resolveDocumentUploadTarget(
+    userId,
+    scope,
+    shareId,
+    parentRelPath,
+    fileName,
+    sizeBytes,
+  );
+  if (!target.ok) return target;
+
+  const s3Client = await getTenantDataS3Client();
+  const bucket = await getBucketName();
+  const uploadUrl = await getSignedUrl(
+    s3Client,
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: s3Key(target.key),
+      ContentType: contentType || "application/octet-stream",
+    }),
+    { expiresIn: 3600 },
+  );
+  return { ok: true, uploadUrl, key: target.key };
+}
+
 export async function uploadDocumentFile(
   userId: string,
   scope: DocumentScope,
@@ -557,26 +640,17 @@ export async function uploadDocumentFile(
   buffer: Buffer,
   contentType: string,
 ): Promise<{ ok: true } | { ok: false; error: string; used?: number; quota?: number }> {
-  const safeName = fileName.replace(/[/\\]/g, "-").trim();
-  if (!safeName) return { ok: false, error: "Nom de fichier invalide." };
+  const target = await resolveDocumentUploadTarget(
+    userId,
+    scope,
+    shareId,
+    parentRelPath,
+    fileName,
+    buffer.length,
+  );
+  if (!target.ok) return target;
 
-  let quotaOwnerId = userId;
-  if (scope === "shared") {
-    const access = await assertShareWrite(userId, shareId ?? "");
-    if (!access.ok) return { ok: false, error: access.error };
-    quotaOwnerId = access.meta.ownerId;
-  }
-
-  const quota = await assertQuotaForUpload(quotaOwnerId, buffer.length);
-  if (!quota.ok) {
-    return { ok: false, error: quota.error, used: quota.used, quota: quota.quota };
-  }
-
-  const resolved = resolveStoragePrefix(userId, scope, shareId, parentRelPath);
-  if (!resolved.ok) return { ok: false, error: resolved.error };
-
-  const key = `${resolved.prefix}${safeName}`;
-  await putObject(key, buffer, contentType || "application/octet-stream");
+  await putObject(target.key, buffer, contentType || "application/octet-stream");
   return { ok: true };
 }
 

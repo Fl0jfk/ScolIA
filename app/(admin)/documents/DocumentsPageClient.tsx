@@ -17,6 +17,9 @@ import {
   buildAccessPeople,
   collectDroppedFiles,
   documentDisplayName,
+  documentsMaxFileError,
+  DOCUMENTS_MAX_FILE_BYTES,
+  DOCUMENTS_MAX_FILE_LABEL,
   fileShareIdFromPath,
   INCOMING_SHARED_FILES_FOLDER,
   isVirtualFileSharePath,
@@ -266,25 +269,48 @@ export default function DocumentsPage() {
     setError(null);
     const errors: string[] = [];
     try {
-      // Un fichier par requête : un seul POST multipart avec tout le lot
-      // dépasse souvent les limites mémoire / timeout du conteneur (500).
+      // PUT direct S3 via URL présignée : un POST multipart via le conteneur
+      // échoue au-delà de quelques Mo (limite gateway Scaleway).
       for (const { file, relPath } of files) {
-        const formData = new FormData();
-        formData.append("scope", scope);
-        formData.append("path", currentPath);
-        if (shareId) formData.append("shareId", shareId);
-        formData.append("file", file);
-        formData.append(`relPath:${file.name}`, relPath);
-        const res = await fetch("/api/documents/upload", { method: "POST", body: formData });
-        let data: { error?: string } = {};
-        try {
-          data = await res.json();
-        } catch {
-          /* réponse non JSON (ex. 500 HTML) */
+        if (file.size > DOCUMENTS_MAX_FILE_BYTES) {
+          errors.push(documentsMaxFileError(file.name));
+          continue;
         }
-        if (!res.ok) {
-          errors.push(`${file.name}: ${data.error || `Erreur ${res.status}`}`);
-          if (res.status === 413) break;
+        const contentType = file.type || "application/octet-stream";
+        const prep = await fetch("/api/documents/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scope,
+            path: currentPath,
+            shareId,
+            fileName: file.name,
+            contentType,
+            size: file.size,
+            relPath,
+          }),
+        });
+        let data: { error?: string; uploadUrl?: string } = {};
+        try {
+          data = await prep.json();
+        } catch {
+          /* réponse non JSON */
+        }
+        if (!prep.ok || !data.uploadUrl) {
+          if (prep.status === 413) {
+            errors.push(data.error || documentsMaxFileError(file.name));
+            break;
+          }
+          errors.push(`${file.name}: ${data.error || `Erreur ${prep.status}`}`);
+          continue;
+        }
+        const put = await fetch(data.uploadUrl, {
+          method: "PUT",
+          body: file,
+          headers: { "Content-Type": contentType },
+        });
+        if (!put.ok) {
+          errors.push(`${file.name}: Envoi vers le stockage impossible (${put.status}).`);
         }
       }
       if (errors.length > 0) {
@@ -613,7 +639,7 @@ export default function DocumentsPage() {
           {quota && (
             <div data-tour="documents-quota">
               <div className="flex justify-between text-xs text-gray-500 mb-1">
-                <span>Espace utilisé</span>
+                <span>Espace utilisé · max. {DOCUMENTS_MAX_FILE_LABEL} / fichier</span>
                 <span>
                   {quota.usedLabel} / {quota.quotaLabel}
                 </span>
