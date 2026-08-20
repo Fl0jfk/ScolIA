@@ -1050,10 +1050,13 @@ export async function deleteDocumentItem(
   const access = await assertWriteAccess(userId, scope, shareId);
   if (!access.ok) return access;
 
-  if (itemType === "folder" && scope === "shared" && shareId) {
+  if (scope === "shared" && shareId) {
     const meta = await getShareMeta(shareId);
     if (!meta || meta.ownerId !== userId) {
-      return { ok: false, error: "Seul le propriétaire peut supprimer un dossier." };
+      return {
+        ok: false,
+        error: "Seul le propriétaire peut supprimer des éléments dans ce dossier partagé.",
+      };
     }
   }
 

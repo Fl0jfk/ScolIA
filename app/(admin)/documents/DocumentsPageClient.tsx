@@ -608,6 +608,7 @@ export default function DocumentsPage() {
       ? "Mon cloud"
       : activeShare?.name ?? "Dossier partagé";
   const isShareOwner = Boolean(activeShare?.isOwner);
+  const canDeleteSharedItems = scope !== "shared" || isShareOwner;
   const canDeleteCurrentFolder =
     !isSharePicker &&
     !isInIncomingSharedFolder &&
@@ -747,7 +748,11 @@ export default function DocumentsPage() {
                   } else handleOpenFile(item.relPath);
                 }}
                 onMove={virtualFile ? undefined : () => setMoveItem(item)}
-                onDelete={virtualFile ? undefined : () => handleDeleteItem(item)}
+                onDelete={
+                  virtualFile || !canDeleteSharedItems
+                    ? undefined
+                    : () => handleDeleteItem(item)
+                }
                 onShare={canShareFile ? () => setShareFileItem(item) : undefined}
                 onLeave={virtualFile ? () => handleLeaveFileShare(item) : undefined}
                 folderVariant={
