@@ -407,7 +407,7 @@ export default function CommunicationPostersPanel() {
                     {selected.kind === "logo-partner" ? "Fichier logo partenaire" : "Fichier image"}
                     <input
                       type="file"
-                      accept="image/png,image/jpeg"
+                      accept="image/png,image/jpeg,image/svg+xml,.svg"
                       className="mt-1 block w-full text-xs"
                       onChange={(e) => void onElementImage(e.target.files?.[0] ?? null)}
                     />
@@ -456,7 +456,7 @@ export default function CommunicationPostersPanel() {
               Logo partenaire (global)
               <input
                 type="file"
-                accept="image/png,image/jpeg"
+                accept="image/png,image/jpeg,image/svg+xml,.svg"
                 className="mt-1 block w-full text-xs"
                 onChange={(e) => void onPartnerLogo(e.target.files?.[0] ?? null)}
               />
@@ -546,7 +546,7 @@ export default function CommunicationPostersPanel() {
               Image de fond
               <input
                 type="file"
-                accept="image/png,image/jpeg"
+                accept="image/png,image/jpeg,image/svg+xml,.svg"
                 className="mt-1 block w-full text-xs"
                 onChange={(e) => void onBackground(e.target.files?.[0] ?? null)}
               />

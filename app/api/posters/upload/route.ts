@@ -28,13 +28,34 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Fichier trop volumineux (max 8 Mo)" }, { status: 400 });
     }
     const type = (file.type || "").toLowerCase();
-    if (!type.includes("png") && !type.includes("jpeg") && !type.includes("jpg")) {
-      return NextResponse.json({ error: "PNG ou JPEG uniquement" }, { status: 400 });
+    const name = (file.name || "").toLowerCase();
+    const isSvg = type.includes("svg") || name.endsWith(".svg");
+    const isRaster =
+      type.includes("png") ||
+      type.includes("jpeg") ||
+      type.includes("jpg") ||
+      name.endsWith(".png") ||
+      name.endsWith(".jpg") ||
+      name.endsWith(".jpeg");
+    if (!isSvg && !isRaster) {
+      return NextResponse.json(
+        { error: "PNG, JPEG ou SVG uniquement" },
+        { status: 400 },
+      );
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const { key } = await savePosterAsset(kind, file.name || "image.png", buffer, type || "image/png");
-    const url = (await getSignedReadUrl(key, 3600)) || key;
+    const contentType = isSvg
+      ? "image/svg+xml"
+      : type.includes("jpeg") || type.includes("jpg") || name.endsWith(".jpg") || name.endsWith(".jpeg")
+        ? "image/jpeg"
+        : "image/png";
+    const { key } = await savePosterAsset(
+      kind,
+      file.name || (isSvg ? "logo.svg" : "image.png"),
+      buffer,
+      contentType,
+    );    const url = (await getSignedReadUrl(key, 3600)) || key;
 
     return NextResponse.json({ success: true, key, url });
   } catch (e) {

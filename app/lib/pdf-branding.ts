@@ -61,6 +61,50 @@ export function fitImageInBox(
   return { width: imgW * scale, height: imgH * scale };
 }
 
+function isSvgBuffer(buf: Buffer): boolean {
+  const head = buf
+    .subarray(0, Math.min(buf.length, 512))
+    .toString("utf8")
+    .replace(/^\uFEFF/, "")
+    .trimStart()
+    .toLowerCase();
+  return head.startsWith("<svg") || (head.startsWith("<?xml") && head.includes("<svg"));
+}
+
+/**
+ * pdf-lib n’embarque pas le SVG : rasterisation PNG via @napi-rs/canvas.
+ */
+async function rasterizeSvgToPngLogo(buf: Buffer): Promise<PdfLogo | null> {
+  try {
+    const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+    const img = await loadImage(buf);
+    let w = Math.max(1, img.width || 0);
+    let h = Math.max(1, img.height || 0);
+    // SVG sans taille intrinsèque
+    if (!img.width || !img.height) {
+      w = 1024;
+      h = 1024;
+    }
+    const max = 2048;
+    const scale = Math.min(1, max / Math.max(w, h));
+    const cw = Math.max(1, Math.round(w * scale));
+    const ch = Math.max(1, Math.round(h * scale));
+    const canvas = createCanvas(cw, ch);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, cw, ch);
+    const png = canvas.toBuffer("image/png");
+    return {
+      dataUri: `data:image/png;base64,${png.toString("base64")}`,
+      format: "PNG",
+      width: cw,
+      height: ch,
+    };
+  } catch (e) {
+    console.warn("[pdf-branding] SVG rasterize failed", e);
+    return null;
+  }
+}
+
 function bytesToPdfLogo(buf: Buffer): PdfLogo | null {
   if (!buf.length) return null;
   const dims = imageDimensions(buf);
@@ -85,6 +129,13 @@ function bytesToPdfLogo(buf: Buffer): PdfLogo | null {
   return null;
 }
 
+async function bytesToPdfLogoAsync(buf: Buffer): Promise<PdfLogo | null> {
+  const raster = bytesToPdfLogo(buf);
+  if (raster) return raster;
+  if (isSvgBuffer(buf)) return rasterizeSvgToPngLogo(buf);
+  return null;
+}
+
 /** Même logique que GET /api/site/public — logo du tenant courant, pas la plateforme. */
 async function resolveTenantLogoRawRef(): Promise<string> {
   const [bundle, tenant] = await Promise.all([loadAppConfig(), getTenant()]);
@@ -105,7 +156,7 @@ export async function loadImageForPdfFromRef(rawRef: string): Promise<PdfLogo | 
   for (const key of keys) {
     const bytes = await getObjectBytes(key);
     if (bytes?.length) {
-      const img = bytesToPdfLogo(bytes);
+      const img = await bytesToPdfLogoAsync(bytes);
       if (img) return img;
     }
   }
@@ -165,7 +216,7 @@ async function loadImageDataUriFromUrl(url: string): Promise<PdfLogo | null> {
     const res = await fetch(url);
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
-    const fromBytes = bytesToPdfLogo(buf);
+    const fromBytes = await bytesToPdfLogoAsync(buf);
     if (fromBytes) return fromBytes;
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     if (ct.includes("jpeg") || ct.includes("jpg")) {
@@ -185,6 +236,9 @@ async function loadImageDataUriFromUrl(url: string): Promise<PdfLogo | null> {
         },
         buf,
       );
+    }
+    if (ct.includes("svg")) {
+      return rasterizeSvgToPngLogo(buf);
     }
     return null;
   } catch {
