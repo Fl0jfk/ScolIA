@@ -30,7 +30,26 @@ type GeneratedRow = {
   formatLabel?: string;
 };
 
+type DraftRow = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  format: PosterFormat;
+  formatLabel?: string;
+};
+
 type FormatOpt = { id: PosterFormat; label: string; hint: string };
+
+function draftWorthSaving(d: PosterDraft): boolean {
+  return (
+    d.elements.length > 0 ||
+    Boolean(d.partnerName.trim()) ||
+    Boolean(d.partnerLogoKey) ||
+    Boolean(d.backgroundImageKey) ||
+    d.backgroundMode !== "solid" ||
+    d.backgroundColor.toLowerCase() !== "#ffffff"
+  );
+}
 
 export default function CommunicationPostersPanel() {
   const [templates, setTemplates] = useState<PosterTemplateMeta[]>([]);
@@ -44,6 +63,10 @@ export default function CommunicationPostersPanel() {
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [history, setHistory] = useState<GeneratedRow[]>([]);
+  const [drafts, setDrafts] = useState<DraftRow[]>([]);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [draftSaving, setDraftSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [suggestBusy, setSuggestBusy] = useState(false);
@@ -51,6 +74,7 @@ export default function CommunicationPostersPanel() {
   const [msg, setMsg] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showSheetPreview, setShowSheetPreview] = useState(false);
+  const [autosaveReady, setAutosaveReady] = useState(false);
 
   const patch = useCallback((partial: Partial<PosterDraft>) => {
     setDraft((d) => ({ ...d, ...partial }));
@@ -77,10 +101,12 @@ export default function CommunicationPostersPanel() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setAutosaveReady(false);
     try {
-      const [tRes, hRes] = await Promise.all([
+      const [tRes, hRes, dRes] = await Promise.all([
         fetch("/api/posters", { cache: "no-store" }),
         fetch("/api/posters/generated", { cache: "no-store" }),
+        fetch("/api/posters/drafts", { cache: "no-store" }),
       ]);
       const tj = await tRes.json();
       if (!tRes.ok) throw new Error(tj.error || "Catalogue indisponible");
@@ -89,22 +115,126 @@ export default function CommunicationPostersPanel() {
       if (Array.isArray(tj.palette)) setPalette(tj.palette);
       if (tj.branding?.name) setSchoolName(tj.branding.name);
       if (tj.branding?.logoUrl) setSchoolLogoUrl(tj.branding.logoUrl);
-      if (tj.defaults?.elements) {
+      if (tj.defaults) {
         setDraft({ ...defaultPosterDraft(), ...tj.defaults });
       }
 
       const hj = await hRes.json();
       if (hRes.ok) setHistory(Array.isArray(hj.items) ? hj.items : []);
+
+      const dj = await dRes.json();
+      if (dRes.ok) setDrafts(Array.isArray(dj.items) ? dj.items : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
       setLoading(false);
+      // Laisse le premier rendu se stabiliser avant l’autosave
+      setTimeout(() => setAutosaveReady(true), 800);
     }
   }, []);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const persistDraft = useCallback(
+    async (opts?: { silent?: boolean; force?: boolean }) => {
+      if (!opts?.force && !activeDraftId && !draftWorthSaving(draft)) return null;
+      setDraftSaving(true);
+      try {
+        const res = await fetch("/api/posters/drafts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: activeDraftId || undefined, draft }),
+        });
+        const j = await res.json();
+        if (!res.ok) throw new Error(j.error || "Enregistrement impossible");
+        if (j.draft?.id) setActiveDraftId(j.draft.id);
+        if (Array.isArray(j.items)) setDrafts(j.items);
+        const when = j.draft?.updatedAt
+          ? new Date(j.draft.updatedAt).toLocaleTimeString("fr-FR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "";
+        setDraftStatus(when ? `Brouillon enregistré à ${when}` : "Brouillon enregistré");
+        if (!opts?.silent) setMsg("Brouillon enregistré (5 max).");
+        return j.draft?.id as string | undefined;
+      } catch (e) {
+        if (!opts?.silent) {
+          setError(e instanceof Error ? e.message : "Erreur brouillon");
+        }
+        setDraftStatus("Échec de l’enregistrement");
+        return null;
+      } finally {
+        setDraftSaving(false);
+      }
+    },
+    [activeDraftId, draft],
+  );
+
+  // Autosave ~2,5 s après une modification
+  useEffect(() => {
+    if (!autosaveReady || loading) return;
+    if (!activeDraftId && !draftWorthSaving(draft)) return;
+    const t = window.setTimeout(() => {
+      void persistDraft({ silent: true });
+    }, 2500);
+    return () => window.clearTimeout(t);
+  }, [draft, autosaveReady, loading, activeDraftId, persistDraft]);
+
+  const openDraft = async (id: string) => {
+    setError(null);
+    setAutosaveReady(false);
+    try {
+      const res = await fetch(`/api/posters/drafts/${id}`, { cache: "no-store" });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Brouillon introuvable");
+      setDraft(j.draft.data);
+      setActiveDraftId(j.draft.id);
+      setPartnerLogoUrl(j.assets?.partnerLogoUrl || null);
+      setBackgroundImageUrl(j.assets?.backgroundImageUrl || null);
+      setImageUrls(j.assets?.imageUrls || {});
+      setSelectedId(null);
+      setMsg(`Brouillon ouvert : ${j.draft.title}`);
+      setDraftStatus(
+        `Dernière sauvegarde : ${new Date(j.draft.updatedAt).toLocaleString("fr-FR")}`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setTimeout(() => setAutosaveReady(true), 800);
+    }
+  };
+
+  const removeDraft = async (id: string) => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/posters/drafts/${id}`, { method: "DELETE" });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Suppression impossible");
+      if (Array.isArray(j.items)) setDrafts(j.items);
+      if (activeDraftId === id) {
+        setActiveDraftId(null);
+        setDraftStatus(null);
+      }
+      setMsg("Brouillon supprimé.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    }
+  };
+
+  const newBlank = () => {
+    setDraft(defaultPosterDraft());
+    setActiveDraftId(null);
+    setPartnerLogoUrl(null);
+    setBackgroundImageUrl(null);
+    setImageUrls({});
+    setSelectedId(null);
+    setBrief("");
+    setDraftStatus(null);
+    setMsg("Nouvelle page vierge.");
+  };
 
   const active = templates.find((t) => t.id === draft.templateId) || templates[0] || null;
 
@@ -254,8 +384,8 @@ export default function CommunicationPostersPanel() {
       <div className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5">
         <h2 className="text-lg font-black text-violet-950">Affiches</h2>
         <p className="mt-1 text-sm text-violet-900/80">
-          Page blanche : ajoutez logos, textes et images. Clic droit sur un élément pour le
-          supprimer. A5 = planche de 4 sur A4.
+          Page blanche : ajoutez logos, textes et images. Clic droit pour supprimer. Brouillons
+          auto (5 max). A5 = planche de 4 sur A4.
         </p>
       </div>
 
@@ -553,6 +683,31 @@ export default function CommunicationPostersPanel() {
             </label>
           </div>
 
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              disabled={draftSaving}
+              onClick={() => void persistDraft({ force: true })}
+              className="flex-1 rounded-xl border border-violet-300 bg-violet-50 px-4 py-3 text-sm font-bold text-violet-900 disabled:opacity-50"
+            >
+              {draftSaving ? "Enregistrement…" : "Enregistrer le brouillon"}
+            </button>
+            <button
+              type="button"
+              onClick={newBlank}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700"
+            >
+              Nouvelle affiche
+            </button>
+          </div>
+          {draftStatus ? (
+            <p className="text-center text-xs text-slate-500">{draftStatus}</p>
+          ) : (
+            <p className="text-center text-xs text-slate-400">
+              Sauvegarde automatique ~2,5 s après modification
+            </p>
+          )}
+
           <button
             type="button"
             disabled={busy}
@@ -598,6 +753,57 @@ export default function CommunicationPostersPanel() {
             </p>
           ) : null}
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-violet-100 bg-violet-50/40 p-5">
+        <h3 className="text-sm font-black text-violet-950">Brouillons (5 max)</h3>
+        <p className="mt-1 text-xs text-violet-900/70">
+          Conservés côté établissement — survivant à un rafraîchissement. Le plus ancien est
+          remplacé au-delà de 5.
+        </p>
+        {drafts.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">Aucun brouillon pour l’instant.</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {drafts.map((d) => (
+              <li
+                key={d.id}
+                className={`flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 text-sm ring-1 ${
+                  activeDraftId === d.id ? "ring-violet-300" : "ring-slate-100"
+                }`}
+              >
+                <div>
+                  <p className="font-semibold text-slate-800">
+                    {d.title || "Sans titre"}
+                    {activeDraftId === d.id ? (
+                      <span className="ml-2 text-[11px] font-bold text-violet-700">ouvert</span>
+                    ) : null}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {d.formatLabel || d.format} ·{" "}
+                    {new Date(d.updatedAt).toLocaleString("fr-FR")}
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-violet-700 underline"
+                    onClick={() => void openDraft(d.id)}
+                  >
+                    Ouvrir
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-rose-700 underline"
+                    onClick={() => void removeDraft(d.id)}
+                  >
+                    Supprimer
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-5">

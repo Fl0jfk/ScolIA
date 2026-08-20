@@ -291,6 +291,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/etablissement/communication",
       "/api/document-templates",
       "/api/posters",
+      "/api/posters/drafts",
     ],
     allowedRoles: [],
     orgAdminOnly: true,

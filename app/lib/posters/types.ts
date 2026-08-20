@@ -103,6 +103,24 @@ export type GeneratedPosterIndexEntry = {
   format: PosterFormat;
 };
 
+/** Brouillon d’affiche (max 5 côté storage). */
+export type PosterSavedDraft = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  format: PosterFormat;
+  draft: PosterDraft;
+  createdBy?: { userId?: string; name?: string; email?: string };
+};
+
+export type PosterSavedDraftIndexEntry = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  format: PosterFormat;
+};
+
 export type PosterPaletteItem = {
   kind: PosterElementKind;
   label: string;
