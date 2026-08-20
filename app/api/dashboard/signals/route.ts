@@ -46,6 +46,7 @@ import { readRhPlanning } from "@/app/lib/rh/planning-storage";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import type { RhPlanningDoc } from "@/app/lib/rh/planning-types";
+import { listUnseenSharedFolderInvites } from "@/app/lib/documents-cloud";
 
 async function safeJson<T>(path: string): Promise<T | null> {
   try {
@@ -346,6 +347,15 @@ export async function GET() {
       }
     }
 
+    let unseenSharedFolders: Array<{ id: string; name: string }> = [];
+    if (accessibleModuleIds.has("documents")) {
+      try {
+        unseenSharedFolders = await listUnseenSharedFolderInvites(userId);
+      } catch {
+        unseenSharedFolders = [];
+      }
+    }
+
     const signals = getDashboardSignals({
       roles,
       userId,
@@ -365,6 +375,7 @@ export async function GET() {
       moodPulseSubmittedToday,
       planningNow,
       establishments: (await loadAppConfig()).establishments,
+      unseenSharedFolders,
     });
 
     return NextResponse.json(signals);

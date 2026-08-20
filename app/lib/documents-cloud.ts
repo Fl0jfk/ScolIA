@@ -18,6 +18,8 @@ type ShareMeta = {
   name: string;
   ownerId: string;
   memberIds: string[];
+  /** Première consultation d’un membre invité (userId → ISO). */
+  memberSeenAt?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 };
@@ -438,6 +440,14 @@ export async function browseDocuments(
   if (scope === "shared") {
     const access = await assertShareWrite(userId, shareId ?? "");
     if (!access.ok) return { ok: false, error: access.error };
+    // Première ouverture d'un dossier partagé → acquitte la notif d'invitation.
+    if (shareId) {
+      try {
+        await markSharedFolderSeen(userId, shareId);
+      } catch (e) {
+        console.error("[documents] markSharedFolderSeen", e);
+      }
+    }
   }
 
   const resolved = resolveStoragePrefix(userId, scope, shareId, relPath);
@@ -611,6 +621,7 @@ export async function createSharedFolder(
     name: name.trim() || "Dossier partagé",
     ownerId,
     memberIds: uniqueMembers,
+    memberSeenAt: {},
     createdAt: now,
     updatedAt: now,
   };
@@ -629,13 +640,65 @@ export async function updateSharedMembers(
   if (meta.ownerId !== ownerId) return { ok: false, error: "Seul le propriétaire peut modifier le partage." };
 
   const uniqueMembers = [...new Set(memberIds.filter((m) => m && m !== ownerId))];
+  // Anciens partages sans memberSeenAt : les membres déjà présents sont considérés comme ayant vu.
+  const prevSeen =
+    meta.memberSeenAt ??
+    Object.fromEntries(
+      meta.memberIds.map((id) => [id, meta.updatedAt || meta.createdAt]),
+    );
+  const memberSeenAt: Record<string, string> = {};
+  for (const id of uniqueMembers) {
+    if (prevSeen[id]) memberSeenAt[id] = prevSeen[id];
+  }
   const updated: ShareMeta = {
     ...meta,
     memberIds: uniqueMembers,
+    memberSeenAt,
     updatedAt: new Date().toISOString(),
   };
-  await putJson( shareMetaRel(shareId), updated);
+  await putJson(shareMetaRel(shareId), updated);
   return { ok: true, meta: updated };
+}
+
+/** Dossiers partagés auxquels l'utilisateur est invité et qu'il n'a jamais ouverts. */
+export async function listUnseenSharedFolderInvites(
+  userId: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const shares = await listAccessibleShares(userId);
+  return shares
+    .filter((s) => {
+      if (s.ownerId === userId) return false;
+      if (!s.memberIds.includes(userId)) return false;
+      // Partages antérieurs à cette fonctionnalité : pas de notif rétroactive.
+      if (s.memberSeenAt === undefined) return false;
+      return !s.memberSeenAt[userId];
+    })
+    .map((s) => ({ id: s.id, name: s.name }));
+}
+
+/** Marque la première visite d'un membre (no-op si déjà vu, propriétaire, ou sans accès). */
+export async function markSharedFolderSeen(userId: string, shareId: string): Promise<void> {
+  const meta = await getShareMeta(shareId);
+  if (!meta) return;
+  if (meta.ownerId === userId) return;
+  if (!meta.memberIds.includes(userId)) return;
+  if (meta.memberSeenAt?.[userId]) return;
+
+  // Ancien partage : on migre tous les membres actuels en « déjà vus » pour éviter des notifs rétroactives.
+  const seeded =
+    meta.memberSeenAt ??
+    Object.fromEntries(
+      meta.memberIds.map((id) => [id, meta.updatedAt || meta.createdAt]),
+    );
+
+  const updated: ShareMeta = {
+    ...meta,
+    memberSeenAt: {
+      ...seeded,
+      [userId]: new Date().toISOString(),
+    },
+  };
+  await putJson(shareMetaRel(shareId), updated);
 }
 
 export async function listDocumentPeers(excludeUserId: string): Promise<ClerkMemberRow[]> {
@@ -849,12 +912,15 @@ export async function leaveSharedFolder(
   if (!meta.memberIds.includes(userId)) {
     return { ok: false, error: "Vous n'avez pas accès à ce dossier partagé." };
   }
+  const memberSeenAt = { ...(meta.memberSeenAt ?? {}) };
+  delete memberSeenAt[userId];
   const updated: ShareMeta = {
     ...meta,
     memberIds: meta.memberIds.filter((id) => id !== userId),
+    memberSeenAt,
     updatedAt: new Date().toISOString(),
   };
-  await putJson( shareMetaRel(shareId), updated);
+  await putJson(shareMetaRel(shareId), updated);
   return { ok: true, meta: updated };
 }
 

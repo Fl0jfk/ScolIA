@@ -134,6 +134,8 @@ type DashboardSignalsInput = {
     end: string;
   } | null;
   establishments?: Establishment[];
+  /** Dossiers cloud partagés invitant l'utilisateur, non encore ouverts. */
+  unseenSharedFolders?: Array<{ id: string; name: string }>;
 };
 
 function weekDayFromDateKey(dateKey: string): WeekDayKey | null {
@@ -301,6 +303,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     internatRollCallStatus = null,
     weekSheet = null,
     establishments = [],
+    unseenSharedFolders = [],
   } = input;
 
   const shortcuts: DashboardShortcut[] = [];
@@ -1003,6 +1006,20 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
               : `${pending} photocopies à traiter`,
         });
       }
+    }
+  }
+
+  // —— Services : Cloud / dossiers partagés ——
+  if (has("documents") && unseenSharedFolders.length > 0) {
+    const docsHome = moduleHref("documents");
+    for (const share of unseenSharedFolders) {
+      pushNotif({
+        id: `documents-share-${share.id}`,
+        label: "Dossier partagé",
+        count: 1,
+        href: `${docsHome}?shareId=${encodeURIComponent(share.id)}`,
+        detail: `On vous a partagé « ${share.name} »`,
+      });
     }
   }
 

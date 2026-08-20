@@ -76,8 +76,19 @@ export default function DocumentsPage() {
   } | null>(null);
 
   useEffect(() => {
-    const pathFromUrl = new URLSearchParams(window.location.search).get("path");
-    if (pathFromUrl) {
+    const params = new URLSearchParams(window.location.search);
+    const shareIdFromUrl = params.get("shareId");
+    const scopeFromUrl = params.get("scope");
+    const pathFromUrl = params.get("path");
+    if (shareIdFromUrl) {
+      setScope("shared");
+      setShareId(shareIdFromUrl);
+      setCurrentPath("");
+    } else if (scopeFromUrl === "shared") {
+      setScope("shared");
+      setShareId(null);
+      setCurrentPath("");
+    } else if (pathFromUrl) {
       setCurrentPath(pathFromUrl.endsWith("/") ? pathFromUrl : `${pathFromUrl}/`);
     }
   }, []);
@@ -253,20 +264,31 @@ export default function DocumentsPage() {
     if (files.length === 0) return;
     setUploading(true);
     setError(null);
+    const errors: string[] = [];
     try {
-      const formData = new FormData();
-      formData.append("scope", scope);
-      formData.append("path", currentPath);
-      if (shareId) formData.append("shareId", shareId);
+      // Un fichier par requête : un seul POST multipart avec tout le lot
+      // dépasse souvent les limites mémoire / timeout du conteneur (500).
       for (const { file, relPath } of files) {
+        const formData = new FormData();
+        formData.append("scope", scope);
+        formData.append("path", currentPath);
+        if (shareId) formData.append("shareId", shareId);
         formData.append("file", file);
         formData.append(`relPath:${file.name}`, relPath);
+        const res = await fetch("/api/documents/upload", { method: "POST", body: formData });
+        let data: { error?: string } = {};
+        try {
+          data = await res.json();
+        } catch {
+          /* réponse non JSON (ex. 500 HTML) */
+        }
+        if (!res.ok) {
+          errors.push(`${file.name}: ${data.error || `Erreur ${res.status}`}`);
+          if (res.status === 413) break;
+        }
       }
-      const res = await fetch("/api/documents/upload", { method: "POST", body: formData });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Échec de l'envoi.");
-        return;
+      if (errors.length > 0) {
+        setError(errors.join(" "));
       }
       await fetchDocuments();
       await refreshQuota();
