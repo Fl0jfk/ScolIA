@@ -1,13 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import PosterPreview from "@/app/components/communication/PosterPreview";
-import { defaultPosterDraft, defaultPosterOffsets } from "@/app/lib/posters/catalog";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import PosterCanvas, {
+  PosterPaletteDragItem,
+} from "@/app/components/communication/PosterCanvas";
+import {
+  POSTER_PALETTE,
+  clampElementBox,
+  createPosterElement,
+  defaultPosterDraft,
+  elementsForStarter,
+} from "@/app/lib/posters/catalog";
 import type {
   PosterDraft,
+  PosterElement,
   PosterFormat,
-  PosterLayoutPreset,
+  PosterPaletteItem,
   PosterTemplateMeta,
+  PosterTextAlign,
 } from "@/app/lib/posters/types";
 
 type GeneratedRow = {
@@ -25,22 +35,44 @@ type FormatOpt = { id: PosterFormat; label: string; hint: string };
 export default function CommunicationPostersPanel() {
   const [templates, setTemplates] = useState<PosterTemplateMeta[]>([]);
   const [formats, setFormats] = useState<FormatOpt[]>([]);
+  const [palette, setPalette] = useState<PosterPaletteItem[]>(POSTER_PALETTE);
   const [schoolName, setSchoolName] = useState("Établissement");
+  const [schoolLogoUrl, setSchoolLogoUrl] = useState<string | null>(null);
   const [draft, setDraft] = useState<PosterDraft>(() => defaultPosterDraft());
   const [brief, setBrief] = useState("");
   const [partnerLogoUrl, setPartnerLogoUrl] = useState<string | null>(null);
   const [backgroundImageUrl, setBackgroundImageUrl] = useState<string | null>(null);
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [history, setHistory] = useState<GeneratedRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [suggestBusy, setSuggestBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [showAdjust, setShowAdjust] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showSheetPreview, setShowSheetPreview] = useState(false);
 
   const patch = useCallback((partial: Partial<PosterDraft>) => {
     setDraft((d) => ({ ...d, ...partial }));
   }, []);
+
+  const setElements = useCallback((elements: PosterElement[]) => {
+    setDraft((d) => ({ ...d, elements }));
+  }, []);
+
+  const selected = useMemo(
+    () => draft.elements.find((e) => e.id === selectedId) || null,
+    [draft.elements, selectedId],
+  );
+
+  const patchSelected = (partial: Partial<PosterElement>) => {
+    if (!selected) return;
+    setElements(
+      draft.elements.map((el) =>
+        el.id === selected.id ? clampElementBox({ ...el, ...partial }) : el,
+      ),
+    );
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,8 +86,12 @@ export default function CommunicationPostersPanel() {
       if (!tRes.ok) throw new Error(tj.error || "Catalogue indisponible");
       setTemplates(Array.isArray(tj.templates) ? tj.templates : []);
       setFormats(Array.isArray(tj.formats) ? tj.formats : []);
+      if (Array.isArray(tj.palette)) setPalette(tj.palette);
       if (tj.branding?.name) setSchoolName(tj.branding.name);
-      if (tj.defaults) setDraft({ ...defaultPosterDraft(), ...tj.defaults, offsets: defaultPosterOffsets() });
+      if (tj.branding?.logoUrl) setSchoolLogoUrl(tj.branding.logoUrl);
+      if (tj.defaults?.elements) {
+        setDraft({ ...defaultPosterDraft(), ...tj.defaults });
+      }
 
       const hj = await hRes.json();
       if (hRes.ok) setHistory(Array.isArray(hj.items) ? hj.items : []);
@@ -72,7 +108,7 @@ export default function CommunicationPostersPanel() {
 
   const active = templates.find((t) => t.id === draft.templateId) || templates[0] || null;
 
-  const uploadAsset = async (kind: "partner-logo" | "background", file: File) => {
+  const uploadAsset = async (kind: "partner-logo" | "background" | "image", file: File) => {
     setError(null);
     const fd = new FormData();
     fd.append("file", file);
@@ -105,6 +141,41 @@ export default function CommunicationPostersPanel() {
     }
   };
 
+  const onElementImage = async (file: File | null) => {
+    if (!file || !selected) return;
+    try {
+      const kind = selected.kind === "logo-partner" ? "partner-logo" : "image";
+      const { key, url } = await uploadAsset(kind, file);
+      if (kind === "partner-logo") {
+        patch({ partnerLogoKey: key });
+        setPartnerLogoUrl(url);
+      } else {
+        setImageUrls((m) => ({ ...m, [key]: url }));
+        patchSelected({ imageKey: key });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload image");
+    }
+  };
+
+  const applyStarter = (starterId: string) => {
+    setElements(elementsForStarter(starterId));
+    setSelectedId(null);
+    setMsg("Disposition de départ appliquée — déplacez les blocs librement.");
+  };
+
+  const addKind = (kind: PosterElement["kind"]) => {
+    const el = createPosterElement(kind);
+    setElements([...draft.elements, clampElementBox(el)]);
+    setSelectedId(el.id);
+  };
+
+  const removeSelected = () => {
+    if (!selected) return;
+    setElements(draft.elements.filter((e) => e.id !== selected.id));
+    setSelectedId(null);
+  };
+
   const suggestCopy = async () => {
     setSuggestBusy(true);
     setError(null);
@@ -113,19 +184,24 @@ export default function CommunicationPostersPanel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          brief: brief || `${draft.title} ${draft.partnerName}`.trim(),
+          brief:
+            brief ||
+            [draft.partnerName, "partenariat sportif affiche scolaire"].filter(Boolean).join(" — "),
           templateId: draft.templateId,
           partnerName: draft.partnerName,
         }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Suggestion impossible");
-      patch({
-        title: j.title || draft.title,
-        subtitle: j.subtitle || draft.subtitle,
-        body: j.body || draft.body,
-      });
-      setMsg("Textes proposés — vous pouvez les corriger.");
+      setElements(
+        draft.elements.map((el) => {
+          if (el.kind === "title" && j.title) return { ...el, text: String(j.title) };
+          if (el.kind === "subtitle" && j.subtitle) return { ...el, text: String(j.subtitle) };
+          if (el.kind === "body" && j.body) return { ...el, text: String(j.body) };
+          return el;
+        }),
+      );
+      setMsg("Textes proposés — vous pouvez les corriger sur le canvas.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur IA");
     } finally {
@@ -168,8 +244,8 @@ export default function CommunicationPostersPanel() {
       <div className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5">
         <h2 className="text-lg font-black text-violet-950">Affiches</h2>
         <p className="mt-1 text-sm text-violet-900/80">
-          Modèles graphiques brandés (logo établissement auto) — fond, couleurs, logo partenaire,
-          textes. Export PDF A4 / A3.
+          Canvas élémentaire : glissez des blocs (logos, textes, images), alignez-les avec les
+          guides, exportez en PDF. A5 = planche de 4 sur A4.
         </p>
       </div>
 
@@ -184,21 +260,20 @@ export default function CommunicationPostersPanel() {
         </p>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.35fr)]">
         <div className="space-y-4">
           {active ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-              <p className="text-xs font-bold uppercase text-slate-500">Modèle</p>
-              <p className="font-bold text-slate-900">{active.label}</p>
-              <p className="text-xs text-slate-500">{active.description}</p>
-
-              <p className="pt-2 text-xs font-bold uppercase text-slate-500">Format</p>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <p className="text-xs font-bold uppercase text-slate-500">Format</p>
+              <div className="grid gap-2 sm:grid-cols-3">
                 {formats.map((f) => (
                   <button
                     key={f.id}
                     type="button"
-                    onClick={() => patch({ format: f.id })}
+                    onClick={() => {
+                      patch({ format: f.id });
+                      if (f.id !== "a5-portrait") setShowSheetPreview(false);
+                    }}
                     className={`rounded-xl border px-3 py-2 text-left text-sm ${
                       draft.format === f.id
                         ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200"
@@ -211,21 +286,19 @@ export default function CommunicationPostersPanel() {
                 ))}
               </div>
 
-              <p className="pt-2 text-xs font-bold uppercase text-slate-500">Disposition</p>
+              <p className="pt-2 text-xs font-bold uppercase text-slate-500">
+                Démarrage rapide
+              </p>
               <div className="grid gap-2">
-                {active.presets.map((p) => (
+                {(active.starters || []).map((s) => (
                   <button
-                    key={p.id}
+                    key={s.id}
                     type="button"
-                    onClick={() => patch({ layoutPreset: p.id as PosterLayoutPreset })}
-                    className={`rounded-xl border px-3 py-2 text-left text-sm ${
-                      draft.layoutPreset === p.id
-                        ? "border-violet-500 bg-violet-50"
-                        : "border-slate-200"
-                    }`}
+                    onClick={() => applyStarter(s.id)}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-left text-sm hover:border-violet-300 hover:bg-violet-50"
                   >
-                    <span className="font-semibold">{p.label}</span>
-                    <span className="ml-2 text-xs text-slate-500">{p.hint}</span>
+                    <span className="font-semibold">{s.label}</span>
+                    <span className="ml-2 text-xs text-slate-500">{s.hint}</span>
                   </button>
                 ))}
               </div>
@@ -233,15 +306,132 @@ export default function CommunicationPostersPanel() {
           ) : null}
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-            <p className="text-xs font-bold uppercase text-slate-500">Textes</p>
+            <p className="text-xs font-bold uppercase text-slate-500">
+              Éléments (glisser sur l’affiche)
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {palette.map((p) => (
+                <PosterPaletteDragItem
+                  key={p.kind}
+                  kind={p.kind}
+                  label={p.label}
+                  hint={p.hint}
+                  onAdd={() => addKind(p.kind)}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+            <p className="text-xs font-bold uppercase text-slate-500">Bloc sélectionné</p>
+            {!selected ? (
+              <p className="text-sm text-slate-500">
+                Cliquez un élément sur l’aperçu pour le modifier.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-slate-800">
+                  {palette.find((p) => p.kind === selected.kind)?.label || selected.kind}
+                </p>
+                {[
+                  "title",
+                  "subtitle",
+                  "body",
+                  "date-place",
+                  "mention",
+                  "qr",
+                ].includes(selected.kind) ? (
+                  <label className="block text-sm">
+                    {selected.kind === "qr" ? "URL du QR" : "Texte"}
+                    <textarea
+                      value={selected.text || ""}
+                      onChange={(e) => patchSelected({ text: e.target.value })}
+                      rows={selected.kind === "body" ? 4 : 2}
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                      placeholder={
+                        selected.kind === "qr"
+                          ? "https://…"
+                          : selected.kind === "mention"
+                            ? "Vide = nom école × partenaire"
+                            : ""
+                      }
+                    />
+                  </label>
+                ) : null}
+                {["title", "subtitle", "body", "date-place", "mention"].includes(
+                  selected.kind,
+                ) ? (
+                  <>
+                    <label className="block text-sm">
+                      Alignement
+                      <select
+                        value={selected.align || "center"}
+                        onChange={(e) =>
+                          patchSelected({ align: e.target.value as PosterTextAlign })
+                        }
+                        className="mt-1 w-full rounded-xl border border-slate-300 px-2 py-2"
+                      >
+                        <option value="left">Gauche</option>
+                        <option value="center">Centre</option>
+                        <option value="right">Droite</option>
+                      </select>
+                    </label>
+                    <label className="block text-sm">
+                      Taille texte ({Math.round((selected.fontScale || 1) * 100)} %)
+                      <input
+                        type="range"
+                        min={0.7}
+                        max={1.5}
+                        step={0.05}
+                        value={selected.fontScale || 1}
+                        onChange={(e) =>
+                          patchSelected({ fontScale: Number(e.target.value) })
+                        }
+                        className="mt-1 w-full"
+                      />
+                    </label>
+                  </>
+                ) : null}
+                {selected.kind === "logo-partner" || selected.kind === "image" ? (
+                  <label className="block text-sm">
+                    {selected.kind === "logo-partner" ? "Fichier logo partenaire" : "Fichier image"}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      className="mt-1 block w-full text-xs"
+                      onChange={(e) => void onElementImage(e.target.files?.[0] ?? null)}
+                    />
+                  </label>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={removeSelected}
+                  className="text-sm font-bold text-rose-700 underline"
+                >
+                  Supprimer ce bloc
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+            <p className="text-xs font-bold uppercase text-slate-500">Textes IA / partenaire</p>
             <label className="block text-sm">
-              <span className="text-slate-600">Brief pour l’IA (optionnel)</span>
+              Nom du partenaire
+              <input
+                value={draft.partnerName}
+                onChange={(e) => patch({ partnerName: e.target.value })}
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+              />
+            </label>
+            <label className="block text-sm">
+              Brief IA (optionnel)
               <textarea
                 value={brief}
                 onChange={(e) => setBrief(e.target.value)}
                 rows={2}
                 className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Ex. partenariat centre équestre, initiation poney CP-CE1, mars-avril…"
+                placeholder="Ex. partenariat centre équestre, initiation poney…"
               />
             </label>
             <button
@@ -253,60 +443,27 @@ export default function CommunicationPostersPanel() {
               {suggestBusy ? "Proposition…" : "Proposer les textes"}
             </button>
             <label className="block text-sm">
-              Titre
+              Logo partenaire (global)
               <input
-                value={draft.title}
-                onChange={(e) => patch({ title: e.target.value })}
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+                type="file"
+                accept="image/png,image/jpeg"
+                className="mt-1 block w-full text-xs"
+                onChange={(e) => void onPartnerLogo(e.target.files?.[0] ?? null)}
               />
             </label>
             <label className="block text-sm">
-              Sous-titre
+              URL QR (globale, si bloc QR sans URL)
               <input
-                value={draft.subtitle}
-                onChange={(e) => patch({ subtitle: e.target.value })}
+                value={draft.qrUrl}
+                onChange={(e) => patch({ qrUrl: e.target.value })}
                 className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
+                placeholder="https://…"
               />
             </label>
-            <label className="block text-sm">
-              Corps
-              <textarea
-                value={draft.body}
-                onChange={(e) => patch({ body: e.target.value })}
-                rows={3}
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
-              />
-            </label>
-            <label className="block text-sm">
-              Nom du partenaire
-              <input
-                value={draft.partnerName}
-                onChange={(e) => patch({ partnerName: e.target.value })}
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
-              />
-            </label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm">
-                Date / période
-                <input
-                  value={draft.dateLabel}
-                  onChange={(e) => patch({ dateLabel: e.target.value })}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
-                />
-              </label>
-              <label className="block text-sm">
-                Lieu
-                <input
-                  value={draft.placeLabel}
-                  onChange={(e) => patch({ placeLabel: e.target.value })}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
-                />
-              </label>
-            </div>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-            <p className="text-xs font-bold uppercase text-slate-500">Graphisme</p>
+            <p className="text-xs font-bold uppercase text-slate-500">Fond</p>
             <div className="flex flex-wrap gap-2">
               {(["solid", "gradient", "image"] as const).map((mode) => (
                 <button
@@ -384,190 +541,6 @@ export default function CommunicationPostersPanel() {
                 onChange={(e) => void onBackground(e.target.files?.[0] ?? null)}
               />
             </label>
-            <label className="block text-sm">
-              Logo partenaire
-              <input
-                type="file"
-                accept="image/png,image/jpeg"
-                className="mt-1 block w-full text-xs"
-                onChange={(e) => void onPartnerLogo(e.target.files?.[0] ?? null)}
-              />
-            </label>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className="text-sm">
-                Taille titre
-                <select
-                  value={draft.titleSize}
-                  onChange={(e) =>
-                    patch({ titleSize: e.target.value as PosterDraft["titleSize"] })
-                  }
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-2 py-2"
-                >
-                  <option value="S">S</option>
-                  <option value="M">M</option>
-                  <option value="L">L</option>
-                </select>
-              </label>
-              <label className="text-sm">
-                Logo école
-                <select
-                  value={draft.logoSchoolSize}
-                  onChange={(e) =>
-                    patch({ logoSchoolSize: e.target.value as PosterDraft["logoSchoolSize"] })
-                  }
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-2 py-2"
-                >
-                  <option value="S">S</option>
-                  <option value="M">M</option>
-                  <option value="L">L</option>
-                </select>
-              </label>
-              <label className="text-sm">
-                Logo partenaire
-                <select
-                  value={draft.logoPartnerSize}
-                  onChange={(e) =>
-                    patch({ logoPartnerSize: e.target.value as PosterDraft["logoPartnerSize"] })
-                  }
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-2 py-2"
-                >
-                  <option value="S">S</option>
-                  <option value="M">M</option>
-                  <option value="L">L</option>
-                </select>
-              </label>
-            </div>
-            <div className="flex flex-wrap gap-4 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={draft.blocks.showDatePlace}
-                  onChange={(e) =>
-                    patch({ blocks: { ...draft.blocks, showDatePlace: e.target.checked } })
-                  }
-                />
-                Date / lieu
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={draft.blocks.showSchoolMention}
-                  onChange={(e) =>
-                    patch({ blocks: { ...draft.blocks, showSchoolMention: e.target.checked } })
-                  }
-                />
-                Mention établissement
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={draft.blocks.showQr}
-                  onChange={(e) =>
-                    patch({ blocks: { ...draft.blocks, showQr: e.target.checked } })
-                  }
-                />
-                QR code
-              </label>
-            </div>
-            {draft.blocks.showQr ? (
-              <label className="block text-sm">
-                URL du QR
-                <input
-                  value={draft.qrUrl}
-                  onChange={(e) => patch({ qrUrl: e.target.value })}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2"
-                  placeholder="https://…"
-                />
-              </label>
-            ) : null}
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-            <button
-              type="button"
-              onClick={() => setShowAdjust((v) => !v)}
-              className="text-sm font-bold text-slate-700 underline"
-            >
-              {showAdjust ? "Masquer les ajustements" : "Ajuster positions (fin)"}
-            </button>
-            {showAdjust ? (
-              <div className="space-y-3 border-t border-slate-100 pt-3">
-                <p className="text-xs text-slate-500">
-                  Décalages légers (±8 %) — pas de glisser-déposer libre.
-                </p>
-                <label className="block text-sm">
-                  Titre vertical ({Math.round(draft.offsets.titleOffsetY * 100)} %)
-                  <input
-                    type="range"
-                    min={-0.08}
-                    max={0.08}
-                    step={0.01}
-                    value={draft.offsets.titleOffsetY}
-                    onChange={(e) =>
-                      patch({
-                        offsets: { ...draft.offsets, titleOffsetY: Number(e.target.value) },
-                      })
-                    }
-                    className="mt-1 w-full"
-                  />
-                </label>
-                <label className="block text-sm">
-                  Contenu horizontal ({Math.round(draft.offsets.contentShiftX * 100)} %)
-                  <input
-                    type="range"
-                    min={-0.08}
-                    max={0.08}
-                    step={0.01}
-                    value={draft.offsets.contentShiftX}
-                    onChange={(e) =>
-                      patch({
-                        offsets: { ...draft.offsets, contentShiftX: Number(e.target.value) },
-                      })
-                    }
-                    className="mt-1 w-full"
-                  />
-                </label>
-                <label className="block text-sm">
-                  Contenu vertical ({Math.round(draft.offsets.contentShiftY * 100)} %)
-                  <input
-                    type="range"
-                    min={-0.08}
-                    max={0.08}
-                    step={0.01}
-                    value={draft.offsets.contentShiftY}
-                    onChange={(e) =>
-                      patch({
-                        offsets: { ...draft.offsets, contentShiftY: Number(e.target.value) },
-                      })
-                    }
-                    className="mt-1 w-full"
-                  />
-                </label>
-                <label className="block text-sm">
-                  Échelle logo partenaire ({draft.offsets.logoPartnerScale.toFixed(2)})
-                  <input
-                    type="range"
-                    min={0.6}
-                    max={1.6}
-                    step={0.05}
-                    value={draft.offsets.logoPartnerScale}
-                    onChange={(e) =>
-                      patch({
-                        offsets: { ...draft.offsets, logoPartnerScale: Number(e.target.value) },
-                      })
-                    }
-                    className="mt-1 w-full"
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="text-xs font-semibold text-slate-500 underline"
-                  onClick={() => patch({ offsets: defaultPosterOffsets() })}
-                >
-                  Réinitialiser les ajustements
-                </button>
-              </div>
-            ) : null}
           </div>
 
           <button
@@ -580,14 +553,40 @@ export default function CommunicationPostersPanel() {
           </button>
         </div>
 
-        <div className="space-y-4">
-          <p className="text-xs font-bold uppercase text-slate-500">Aperçu</p>
-          <PosterPreview
-            draft={draft}
-            schoolName={schoolName}
-            partnerLogoUrl={partnerLogoUrl}
-            backgroundImageUrl={backgroundImageUrl}
-          />
+        <div className="space-y-3 lg:sticky lg:top-4 lg:self-start">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-bold uppercase text-slate-500">Aperçu live</p>
+            {draft.format === "a5-portrait" ? (
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={showSheetPreview}
+                  onChange={(e) => setShowSheetPreview(e.target.checked)}
+                />
+                Voir planche 4×
+              </label>
+            ) : null}
+          </div>
+          <div className="min-h-[60vh]">
+            <PosterCanvas
+              draft={draft}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onChangeElements={setElements}
+              schoolName={schoolName}
+              schoolLogoUrl={schoolLogoUrl}
+              partnerLogoUrl={partnerLogoUrl}
+              backgroundImageUrl={backgroundImageUrl}
+              imageUrls={imageUrls}
+              showSheetPreview={showSheetPreview}
+            />
+          </div>
+          {!schoolLogoUrl ? (
+            <p className="text-xs text-amber-700">
+              Logo établissement introuvable — renseignez-le dans Paramètres → identité pour le
+              voir ici et sur le PDF.
+            </p>
+          ) : null}
         </div>
       </div>
 

@@ -14,7 +14,12 @@ export async function POST(req: Request) {
     const formData = await req.formData();
     const file = formData.get("file");
     const kindRaw = String(formData.get("kind") || "partner-logo");
-    const kind = kindRaw === "background" ? "background" : "partner-logo";
+    const kind =
+      kindRaw === "background"
+        ? "background"
+        : kindRaw === "image"
+          ? "image"
+          : "partner-logo";
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "Fichier manquant" }, { status: 400 });

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defaultPosterDraft } from "./catalog";
-import { computePosterLayout, pageSizePt } from "./layout";
+import { defaultPosterDraft, elementsForStarter } from "./catalog";
+import { exportSheetSizePt, pageSizePt } from "./poster-layout";
+import { snapElementMove } from "./snap";
 
 test("A4 portrait page size", () => {
   const p = pageSizePt("a4-portrait");
@@ -13,42 +14,51 @@ test("A3 landscape page size", () => {
   assert.ok(p.widthPt > p.heightPt);
 });
 
-test("logos-top place school logo and title", () => {
-  const draft = defaultPosterDraft();
-  const layout = computePosterLayout(draft);
-  assert.ok(layout.boxes.logoSchool.w > 0);
-  assert.ok(layout.boxes.title.y > layout.boxes.logoSchool.y);
-  assert.equal(layout.boxes.logoPartner, null);
+test("A5 portrait smaller than A4", () => {
+  const a4 = pageSizePt("a4-portrait");
+  const a5 = pageSizePt("a5-portrait");
+  assert.ok(a5.widthPt < a4.widthPt);
+  assert.ok(a5.heightPt < a4.heightPt);
 });
 
-test("partner logo appears when key set", () => {
-  const draft = defaultPosterDraft();
-  draft.partnerLogoKey = "posters/assets/partner.png";
-  const layout = computePosterLayout(draft);
-  assert.ok(layout.boxes.logoPartner);
-  assert.ok(layout.boxes.logoPartner!.x > layout.boxes.logoSchool.x);
+test("A5 export is A4 4-up sheet", () => {
+  const sheet = exportSheetSizePt("a5-portrait");
+  assert.equal(sheet.tiles, 4);
+  assert.ok(Math.abs(sheet.widthPt - 595.28) < 1);
 });
 
-test("V2 titleOffsetY shifts title", () => {
+test("default draft has school + partner logos", () => {
   const draft = defaultPosterDraft();
-  const base = computePosterLayout(draft);
-  draft.offsets = { ...draft.offsets, titleOffsetY: 0.05 };
-  const shifted = computePosterLayout(draft);
-  assert.ok(shifted.boxes.title.y > base.boxes.title.y);
+  assert.ok(draft.elements.some((e) => e.kind === "logo-school"));
+  assert.ok(draft.elements.some((e) => e.kind === "logo-partner"));
+  assert.ok(draft.elements.some((e) => e.kind === "title"));
 });
 
-test("photo-full uses higher title band", () => {
-  const draft = defaultPosterDraft();
-  draft.layoutPreset = "photo-full";
-  const layout = computePosterLayout(draft);
-  assert.ok(layout.boxes.title.y > 0.3);
+test("partner-sides starter places partner on the right", () => {
+  const els = elementsForStarter("partner-sides");
+  const school = els.find((e) => e.kind === "logo-school")!;
+  const partner = els.find((e) => e.kind === "logo-partner")!;
+  assert.ok(partner.x > school.x);
 });
 
-test("datePlace block respects toggle", () => {
-  const draft = defaultPosterDraft();
-  draft.dateLabel = "Mars 2026";
-  draft.blocks.showDatePlace = false;
-  assert.equal(computePosterLayout(draft).boxes.datePlace, null);
-  draft.blocks.showDatePlace = true;
-  assert.ok(computePosterLayout(draft).boxes.datePlace);
+test("snap aligns left edges", () => {
+  const moving = {
+    id: "a",
+    kind: "title" as const,
+    x: 0.1,
+    y: 0.2,
+    w: 0.2,
+    h: 0.1,
+  };
+  const other = {
+    id: "b",
+    kind: "body" as const,
+    x: 0.2,
+    y: 0.5,
+    w: 0.3,
+    h: 0.1,
+  };
+  const snapped = snapElementMove(moving, [other], 0.205, 0.2);
+  assert.ok(Math.abs(snapped.x - 0.2) < 0.001);
+  assert.ok(snapped.guides.some((g) => g.orientation === "v"));
 });

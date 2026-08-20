@@ -18,7 +18,10 @@ export function posterGeneratedFileKey(id: string) {
   return `posters/generated/${id}.pdf`;
 }
 
-export function posterAssetKey(kind: "partner-logo" | "background", fileName: string) {
+export function posterAssetKey(
+  kind: "partner-logo" | "background" | "image",
+  fileName: string,
+) {
   const safe = fileName.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 80);
   return `posters/assets/${kind}/${Date.now()}-${safe}`;
 }
@@ -65,7 +68,7 @@ export async function loadGeneratedPosterBytes(id: string): Promise<Buffer | nul
 }
 
 export async function savePosterAsset(
-  kind: "partner-logo" | "background",
+  kind: "partner-logo" | "background" | "image",
   fileName: string,
   bytes: Buffer,
   contentType: string,
@@ -76,5 +79,7 @@ export async function savePosterAsset(
 }
 
 export function formatLabel(format: PosterFormat): string {
-  return format === "a3-landscape" ? "A3 paysage" : "A4 portrait";
+  if (format === "a3-landscape") return "A3 paysage";
+  if (format === "a5-portrait") return "A5 (×4 sur A4)";
+  return "A4 portrait";
 }
