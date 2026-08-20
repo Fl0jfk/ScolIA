@@ -523,8 +523,9 @@ export default function CommunicationDocumentsPanel() {
                         Fiche Sixième — générée en code
                       </p>
                       <p className="text-xs text-emerald-900/80">
-                        Modifiez l’année, les textes et les options : elles se placent
-                        automatiquement sur le PDF (sans bandeau ajouté).
+                        Calquée sur votre fiche d’origine : régime (Internat / Demi-pension /
+                        Externat) fixe ; les options d’enseignements / activités ci-dessous sont
+                        éditables et se placent automatiquement en 2 colonnes.
                       </p>
                       <label className="block text-sm">
                         Année scolaire
@@ -559,9 +560,12 @@ export default function CommunicationDocumentsPanel() {
                       </label>
 
                       <div>
-                        <p className="text-sm font-semibold text-slate-800">Options cochables</p>
+                        <p className="text-sm font-semibold text-slate-800">
+                          Enseignements / options (cases à cocher)
+                        </p>
                         <p className="text-xs text-slate-500">
-                          Ajoutez / retirez : la grille se recalcule toute seule sur le PDF.
+                          Comme sur votre PDF : Classique, Bilangue, Théâtre, Foot… Ajoutez ou
+                          retirez — placement automatique.
                         </p>
                         <ul className="mt-2 space-y-2">
                           {sixieme.options.map((opt, idx) => (

@@ -5,19 +5,24 @@ import type {
 import { defaultAnneeScolaire } from "@/app/lib/document-templates/catalog";
 
 export const DEFAULT_SIXIEME_OPTIONS: InscriptionOptionItem[] = [
-  { id: "externat", label: "Externat" },
-  { id: "demi-pension", label: "Demi-pension" },
-  { id: "etude", label: "Étude surveillée" },
-  { id: "garderie", label: "Garderie / accueil périscolaire" },
-  { id: "bus", label: "Transport scolaire" },
-  { id: "aes", label: "Activités extrascolaires" },
+  { id: "classique", label: '6ème "Classique" (Anglais LV1)' },
+  { id: "theatre", label: "Théâtre" },
+  { id: "chorale", label: "Chorale" },
+  { id: "bilangue", label: "6ème Bilangue (Anglais + Allemand LV1)" },
+  { id: "foot", label: "USMEF Foot" },
+  { id: "basket", label: "BMFB Basket" },
+  {
+    id: "accompagnement",
+    label: "6ème avec accompagnement pour les élèves à besoin particulier",
+  },
+  { id: "equitation", label: "ALISA Equitation" },
 ];
 
 export function defaultSixiemeCodeConfig(): InscriptionLevelCodeConfig {
   return {
     schoolYear: defaultAnneeScolaire(),
-    title: "Fiche d'inscription — Sixième",
-    subtitle: "Document à compléter et à retourner au secrétariat",
+    title: "Demande d'inscription en sixième",
+    subtitle: "",
     options: DEFAULT_SIXIEME_OPTIONS.map((o) => ({ ...o })),
   };
 }

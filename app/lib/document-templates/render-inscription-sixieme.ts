@@ -1,6 +1,13 @@
 import "server-only";
 
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import {
+  PDFDocument,
+  StandardFonts,
+  rgb,
+  type PDFFont,
+  type PDFForm,
+  type PDFPage,
+} from "pdf-lib";
 import {
   fitImageInBox,
   getSchoolLetterhead,
@@ -9,6 +16,13 @@ import {
 import { normalizeSixiemeCodeConfig } from "@/app/lib/document-templates/inscription-sixieme-config";
 import { loadInscriptionTenantSettings } from "@/app/lib/document-templates/inscription-storage";
 import type { InscriptionLevelCodeConfig } from "@/app/lib/document-templates/types";
+
+const PAGE_W = 595.28;
+const PAGE_H = 841.89;
+const MARGIN = 42;
+const INK = rgb(0.08, 0.1, 0.14);
+const MUTED = rgb(0.28, 0.32, 0.36);
+const LINE = rgb(0.55, 0.58, 0.62);
 
 function sanitize(input: string): string {
   return String(input || "")
@@ -39,218 +53,110 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
 type Ctx = {
   doc: PDFDocument;
   page: PDFPage;
-  form: ReturnType<PDFDocument["getForm"]>;
+  form: PDFForm;
   font: PDFFont;
   bold: PDFFont;
-  margin: number;
-  width: number;
   y: number;
   accent: { r: number; g: number; b: number };
-  fieldIndex: number;
+  n: number;
 };
 
-function ensureSpace(ctx: Ctx, needed: number) {
-  if (ctx.y - needed >= 48) return;
-  ctx.page = ctx.doc.addPage([595.28, 841.89]);
-  ctx.y = 800;
+function text(
+  ctx: Ctx,
+  value: string,
+  x: number,
+  y: number,
+  size: number,
+  opts?: { bold?: boolean; color?: ReturnType<typeof rgb>; maxWidth?: number },
+) {
+  ctx.page.drawText(sanitize(value), {
+    x,
+    y,
+    size,
+    font: opts?.bold ? ctx.bold : ctx.font,
+    color: opts?.color ?? INK,
+    maxWidth: opts?.maxWidth,
+  });
 }
 
-function sectionTitle(ctx: Ctx, title: string) {
-  ensureSpace(ctx, 28);
-  ctx.page.drawRectangle({
-    x: ctx.margin,
-    y: ctx.y - 4,
-    width: ctx.width - ctx.margin * 2,
-    height: 18,
-    color: rgb(ctx.accent.r, ctx.accent.g, ctx.accent.b),
+function underlineField(
+  ctx: Ctx,
+  name: string,
+  x: number,
+  y: number,
+  width: number,
+  height = 14,
+) {
+  const field = ctx.form.createTextField(`s6_${name}_${ctx.n++}`);
+  field.addToPage(ctx.page, { x, y: y - 2, width, height });
+  field.setFontSize(9);
+  field.setBorderWidth(0);
+  ctx.page.drawLine({
+    start: { x, y: y - 2 },
+    end: { x: x + width, y: y - 2 },
+    thickness: 0.6,
+    color: LINE,
   });
-  ctx.page.drawText(sanitize(title), {
-    x: ctx.margin + 6,
-    y: ctx.y,
-    size: 9,
-    font: ctx.bold,
-    color: rgb(1, 1, 1),
-  });
-  ctx.y -= 26;
 }
 
-function labeledField(
+/** Ligne « Label : ________ » */
+function labeledLine(
   ctx: Ctx,
   label: string,
-  key: string,
-  opts?: { width?: number; height?: number; multiline?: boolean },
+  fieldName: string,
+  labelWidth: number,
+  fieldWidth: number,
+  x = MARGIN,
 ) {
-  const boxH = opts?.height ?? 18;
-  const boxW = opts?.width ?? ctx.width - ctx.margin * 2;
-  ensureSpace(ctx, 14 + boxH + 8);
-  ctx.page.drawText(sanitize(label), {
-    x: ctx.margin,
-    y: ctx.y,
-    size: 8,
-    font: ctx.font,
-    color: rgb(0.25, 0.3, 0.35),
-  });
-  ctx.y -= 12;
-  const field = ctx.form.createTextField(`s6_${key}_${ctx.fieldIndex++}`);
-  field.addToPage(ctx.page, {
-    x: ctx.margin,
-    y: ctx.y - boxH + 4,
-    width: boxW,
-    height: boxH,
-  });
-  field.setFontSize(9);
-  if (opts?.multiline) field.enableMultiline();
-  ctx.y -= boxH + 8;
+  text(ctx, `${label} :`, x, ctx.y, 9);
+  underlineField(ctx, fieldName, x + labelWidth, ctx.y - 1, fieldWidth);
 }
 
-function twoColFields(
+function radioRow(
   ctx: Ctx,
-  left: { label: string; key: string },
-  right: { label: string; key: string },
+  groupName: string,
+  options: string[],
+  startX: number,
+  gap = 95,
 ) {
-  const gap = 12;
-  const colW = (ctx.width - ctx.margin * 2 - gap) / 2;
-  const boxH = 18;
-  ensureSpace(ctx, 14 + boxH + 8);
-  ctx.page.drawText(sanitize(left.label), {
-    x: ctx.margin,
-    y: ctx.y,
-    size: 8,
-    font: ctx.font,
-    color: rgb(0.25, 0.3, 0.35),
-  });
-  ctx.page.drawText(sanitize(right.label), {
-    x: ctx.margin + colW + gap,
-    y: ctx.y,
-    size: 8,
-    font: ctx.font,
-    color: rgb(0.25, 0.3, 0.35),
-  });
-  ctx.y -= 12;
-  const f1 = ctx.form.createTextField(`s6_${left.key}_${ctx.fieldIndex++}`);
-  f1.addToPage(ctx.page, {
-    x: ctx.margin,
-    y: ctx.y - boxH + 4,
-    width: colW,
-    height: boxH,
-  });
-  f1.setFontSize(9);
-  const f2 = ctx.form.createTextField(`s6_${right.key}_${ctx.fieldIndex++}`);
-  f2.addToPage(ctx.page, {
-    x: ctx.margin + colW + gap,
-    y: ctx.y - boxH + 4,
-    width: colW,
-    height: boxH,
-  });
-  f2.setFontSize(9);
-  ctx.y -= boxH + 8;
+  const group = ctx.form.createRadioGroup(`s6_${groupName}_${ctx.n++}`);
+  let x = startX;
+  for (const opt of options) {
+    group.addOptionToPage(opt, ctx.page, {
+      x,
+      y: ctx.y - 3,
+      width: 11,
+      height: 11,
+    });
+    text(ctx, opt, x + 15, ctx.y, 8);
+    x += gap;
+  }
 }
 
-/** Options cochables en grille — s’adaptent au nombre d’items. */
-function drawOptionsGrid(ctx: Ctx, options: { id: string; label: string }[]) {
+function checkboxRow(
+  ctx: Ctx,
+  options: { id: string; label: string }[],
+  cols = 2,
+) {
   if (!options.length) return;
-  sectionTitle(ctx, "Options demandées");
-  const cols = options.length <= 4 ? 2 : 3;
-  const gapX = 10;
-  const gapY = 8;
-  const colW = (ctx.width - ctx.margin * 2 - gapX * (cols - 1)) / cols;
-  const rowH = 22;
-
+  const usable = PAGE_W - MARGIN * 2;
+  const colW = usable / cols;
+  const rowH = 16;
   for (let i = 0; i < options.length; i++) {
     const col = i % cols;
-    if (col === 0) ensureSpace(ctx, rowH + gapY);
+    if (col === 0 && i > 0) ctx.y -= rowH;
     const opt = options[i];
-    const x = ctx.margin + col * (colW + gapX);
-    const y = ctx.y - 14;
-    const cb = ctx.form.createCheckBox(`s6_opt_${opt.id}_${ctx.fieldIndex++}`);
-    cb.addToPage(ctx.page, { x, y, width: 12, height: 12 });
-    ctx.page.drawText(sanitize(opt.label), {
-      x: x + 16,
-      y: y + 2,
-      size: 8,
-      font: ctx.font,
-      color: rgb(0.15, 0.18, 0.22),
-      maxWidth: colW - 20,
-    });
-    if (col === cols - 1 || i === options.length - 1) {
-      ctx.y -= rowH + gapY;
-    }
+    const x = MARGIN + col * colW;
+    const cb = ctx.form.createCheckBox(`s6_opt_${opt.id}_${ctx.n++}`);
+    cb.addToPage(ctx.page, { x, y: ctx.y - 3, width: 11, height: 11 });
+    text(ctx, opt.label, x + 15, ctx.y, 8, { maxWidth: colW - 20 });
   }
-}
-
-function drawFratrieTable(ctx: Ctx) {
-  sectionTitle(ctx, "Frères et sœurs déjà scolarisés dans l'établissement");
-  const headers = ["Nom et prénom", "Date de naissance", "Classe", "Établissement"];
-  const colWs = [150, 90, 70, 140];
-  const rowH = 18;
-  ensureSpace(ctx, 16 + rowH * 5);
-  let x = ctx.margin;
-  for (let i = 0; i < headers.length; i++) {
-    ctx.page.drawText(sanitize(headers[i]), {
-      x,
-      y: ctx.y,
-      size: 7,
-      font: ctx.bold,
-      color: rgb(0.3, 0.35, 0.4),
-    });
-    x += colWs[i];
-  }
-  ctx.y -= 12;
-  for (let row = 0; row < 4; row++) {
-    x = ctx.margin;
-    for (let col = 0; col < 4; col++) {
-      const f = ctx.form.createTextField(`s6_fratrie_r${row}_c${col}_${ctx.fieldIndex++}`);
-      f.addToPage(ctx.page, {
-        x,
-        y: ctx.y - rowH + 4,
-        width: colWs[col] - 4,
-        height: rowH,
-      });
-      f.setFontSize(8);
-      x += colWs[col];
-    }
-    ctx.y -= rowH + 4;
-  }
-}
-
-function drawResponsable(ctx: Ctx, n: 1 | 2) {
-  sectionTitle(ctx, `Responsable légal ${n}`);
-  twoColFields(
-    ctx,
-    { label: "Nom", key: `resp${n}_nom` },
-    { label: "Nom de jeune fille", key: `resp${n}_njf` },
-  );
-  twoColFields(
-    ctx,
-    { label: "Prénom", key: `resp${n}_prenom` },
-    { label: "Lien de parenté", key: `resp${n}_lien` },
-  );
-  labeledField(ctx, "Adresse", `resp${n}_adresse`);
-  twoColFields(
-    ctx,
-    { label: "Code postal", key: `resp${n}_cp` },
-    { label: "Ville", key: `resp${n}_ville` },
-  );
-  twoColFields(
-    ctx,
-    { label: "Tél. domicile", key: `resp${n}_tel_dom` },
-    { label: "Tél. portable", key: `resp${n}_tel_port` },
-  );
-  twoColFields(
-    ctx,
-    { label: "E-mail", key: `resp${n}_email` },
-    { label: "Tél. professionnel", key: `resp${n}_tel_pro` },
-  );
-  twoColFields(
-    ctx,
-    { label: "Profession", key: `resp${n}_pro` },
-    { label: "Employeur", key: `resp${n}_employeur` },
-  );
+  ctx.y -= rowH;
 }
 
 /**
- * Fiche d’inscription 6e générée entièrement en code (AcroForm).
- * Les options se placent automatiquement selon la liste configurée.
+ * Fiche 6e calquée sur le PDF d'origine Providence :
+ * en-tête, élève, régime, options enseignements, famille, responsables, engagement.
  */
 export async function renderSixiemeInscriptionPdf(opts?: {
   establishmentName?: string;
@@ -277,161 +183,284 @@ export async function renderSixiemeInscriptionPdf(opts?: {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const page = doc.addPage([595.28, 841.89]);
   const form = doc.getForm();
-  const margin = 40;
-  const width = 595.28;
 
   const ctx: Ctx = {
     doc,
-    page,
+    page: doc.addPage([PAGE_W, PAGE_H]),
     form,
     font,
     bold,
-    margin,
-    width,
-    y: 800,
+    y: PAGE_H - 40,
     accent,
-    fieldIndex: 1,
+    n: 1,
   };
 
-  // En-tête intégré (pas de surcharge)
+  // ——— PAGE 1 : en-tête ———
   const logo = await loadSchoolLogoForPdf();
-  let headerLeft = margin;
   if (logo) {
     const b64 = logo.dataUri.split(",")[1];
     if (b64) {
       const bytes = Buffer.from(b64, "base64");
       const img =
         logo.format === "JPEG" ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
-      const fitted = fitImageInBox(logo.width || 120, logo.height || 80, 72, 42);
-      page.drawImage(img, {
-        x: margin,
-        y: ctx.y - fitted.height + 10,
+      const fitted = fitImageInBox(logo.width || 120, logo.height || 80, 54, 36);
+      ctx.page.drawImage(img, {
+        x: MARGIN,
+        y: ctx.y - fitted.height + 8,
         width: fitted.width,
         height: fitted.height,
       });
-      headerLeft = margin + fitted.width + 12;
     }
   }
 
-  page.drawText(displayName, {
-    x: headerLeft,
-    y: ctx.y,
-    size: 13,
-    font: bold,
+  const nameSize = 12;
+  const nameW = bold.widthOfTextAtSize(sanitize(displayName).toUpperCase(), nameSize);
+  text(ctx, displayName.toUpperCase(), (PAGE_W - nameW) / 2, ctx.y, nameSize, {
+    bold: true,
     color: rgb(accent.r, accent.g, accent.b),
-    maxWidth: width - headerLeft - margin,
   });
-  if (letterhead.addressLine) {
-    page.drawText(sanitize(letterhead.addressLine), {
-      x: headerLeft,
-      y: ctx.y - 14,
-      size: 8,
-      font,
-      color: rgb(0.35, 0.4, 0.45),
-      maxWidth: width - headerLeft - margin,
-    });
+  ctx.y -= 16;
+  const yearLine = `ANNÉE ${sanitize(config.schoolYear).replace(/-/g, " - ")}`;
+  const yearW = bold.widthOfTextAtSize(yearLine, 10);
+  text(ctx, yearLine, (PAGE_W - yearW) / 2, ctx.y, 10, { bold: true });
+  ctx.y -= 18;
+  const title = sanitize(config.title || "DEMANDE D'INSCRIPTION EN SIXIÈME").toUpperCase();
+  const titleW = bold.widthOfTextAtSize(title, 13);
+  text(ctx, title, (PAGE_W - titleW) / 2, ctx.y, 13, { bold: true });
+  if (config.subtitle?.trim()) {
+    ctx.y -= 12;
+    const sub = sanitize(config.subtitle);
+    const subW = font.widthOfTextAtSize(sub, 8);
+    text(ctx, sub, (PAGE_W - subW) / 2, ctx.y, 8, { color: MUTED });
   }
-  const yearLabel = `Année scolaire ${sanitize(config.schoolYear)}`;
-  page.drawText(yearLabel, {
-    x: width - margin - bold.widthOfTextAtSize(yearLabel, 9),
-    y: ctx.y - 28,
-    size: 9,
-    font: bold,
-    color: rgb(0.2, 0.25, 0.3),
-  });
-  ctx.y -= 48;
-
-  page.drawRectangle({
-    x: margin,
-    y: ctx.y,
-    width: width - margin * 2,
-    height: 1.5,
+  ctx.y -= 14;
+  ctx.page.drawLine({
+    start: { x: MARGIN, y: ctx.y },
+    end: { x: PAGE_W - MARGIN, y: ctx.y },
+    thickness: 1,
     color: rgb(accent.r, accent.g, accent.b),
   });
+  ctx.y -= 18;
+
+  // ——— Élève ———
+  text(ctx, "Elève", MARGIN, ctx.y, 11, { bold: true, color: rgb(accent.r, accent.g, accent.b) });
+  ctx.y -= 16;
+
+  text(ctx, "Nom :", MARGIN, ctx.y, 9);
+  underlineField(ctx, "nom", MARGIN + 38, ctx.y - 1, 210);
+  text(ctx, "Prénoms :", MARGIN + 270, ctx.y, 9);
+  underlineField(ctx, "prenoms", MARGIN + 325, ctx.y - 1, 186);
+  ctx.y -= 18;
+
+  text(ctx, "Date de naissance :", MARGIN, ctx.y, 9);
+  underlineField(ctx, "naissance", MARGIN + 105, ctx.y - 1, 145);
+  text(ctx, "Lieu :", MARGIN + 270, ctx.y, 9);
+  underlineField(ctx, "lieu", MARGIN + 305, ctx.y - 1, 206);
+  ctx.y -= 18;
+
+  text(ctx, "Département :", MARGIN, ctx.y, 9);
+  underlineField(ctx, "dept", MARGIN + 82, ctx.y - 1, 168);
+  text(ctx, "Nationalité :", MARGIN + 270, ctx.y, 9);
+  underlineField(ctx, "nationalite", MARGIN + 340, ctx.y - 1, 171);
+  ctx.y -= 18;
+
+  text(ctx, "Etablissement précédent :", MARGIN, ctx.y, 9);
+  underlineField(ctx, "etab_prev", MARGIN + 138, ctx.y - 1, 200);
+  text(ctx, "Classe :", MARGIN + 360, ctx.y, 9);
+  underlineField(ctx, "classe_prev", MARGIN + 405, ctx.y - 1, 106);
+  ctx.y -= 18;
+
+  text(ctx, "Adresse :", MARGIN, ctx.y, 9);
+  underlineField(ctx, "adresse", MARGIN + 55, ctx.y - 1, 190);
+  text(ctx, "Code Postal et ville :", MARGIN + 270, ctx.y, 9);
+  underlineField(ctx, "cp_ville", MARGIN + 385, ctx.y - 1, 126);
   ctx.y -= 20;
 
-  page.drawText(sanitize(config.title || "Fiche d'inscription — Sixième"), {
-    x: margin,
-    y: ctx.y,
-    size: 14,
-    font: bold,
-    color: rgb(0.1, 0.12, 0.16),
+  // ——— Régime (fixe comme l'original) ———
+  text(ctx, "Régime", MARGIN, ctx.y, 11, { bold: true, color: rgb(accent.r, accent.g, accent.b) });
+  ctx.y -= 16;
+  radioRow(ctx, "regime", ["Internat", "Demi-pension", "Externat"], MARGIN, 120);
+  ctx.y -= 20;
+
+  // ——— Options / enseignements (configurables, auto-layout) ———
+  text(ctx, "SOUHAIT CONCERNANT LA CLASSE DE 6ÈME — ENSEIGNEMENTS / OPTIONS", MARGIN, ctx.y, 8, {
+    bold: true,
   });
   ctx.y -= 14;
-  if (config.subtitle) {
-    page.drawText(sanitize(config.subtitle), {
-      x: margin,
-      y: ctx.y,
-      size: 8,
-      font,
-      color: rgb(0.4, 0.45, 0.5),
-      maxWidth: width - margin * 2,
-    });
+  checkboxRow(ctx, config.options, 2);
+  ctx.y -= 8;
+
+  // ——— Autres informations ———
+  text(ctx, "Autres informations", MARGIN, ctx.y, 11, {
+    bold: true,
+    color: rgb(accent.r, accent.g, accent.b),
+  });
+  ctx.y -= 16;
+  text(ctx, "Avez-vous un enfant dans un autre établissement privé :", MARGIN, ctx.y, 8);
+  radioRow(ctx, "autre_prive", ["Non", "Oui"], MARGIN + 280, 50);
+  text(ctx, "Nombre :", MARGIN + 400, ctx.y, 8);
+  underlineField(ctx, "autre_prive_nb", MARGIN + 450, ctx.y - 1, 60, 12);
+  ctx.y -= 16;
+  text(ctx, "Avez-vous déjà un enfant dans l'établissement :", MARGIN, ctx.y, 8);
+  radioRow(ctx, "deja_prov", ["Non", "Oui"], MARGIN + 250, 50);
+  text(ctx, "Nombre :", MARGIN + 370, ctx.y, 8);
+  underlineField(ctx, "deja_prov_nb", MARGIN + 420, ctx.y - 1, 90, 12);
+  ctx.y -= 20;
+
+  // ——— Fratrie ———
+  text(ctx, "Composition de la famille — Frère(s) et Soeur(s)", MARGIN, ctx.y, 11, {
+    bold: true,
+    color: rgb(accent.r, accent.g, accent.b),
+  });
+  ctx.y -= 14;
+  const headers = ["Nom et Prénom", "Date de Naissance", "Classe", "Établissement"];
+  const colWs = [150, 120, 70, 130];
+  let hx = MARGIN;
+  for (let i = 0; i < headers.length; i++) {
+    text(ctx, headers[i], hx, ctx.y, 7, { bold: true, color: MUTED });
+    hx += colWs[i];
+  }
+  ctx.y -= 12;
+  for (let row = 0; row < 4; row++) {
+    let x = MARGIN;
+    for (let col = 0; col < 4; col++) {
+      underlineField(ctx, `fratrie_r${row}_c${col}`, x, ctx.y - 1, colWs[col] - 6, 13);
+      x += colWs[col];
+    }
     ctx.y -= 18;
-  } else {
-    ctx.y -= 8;
+  }
+  ctx.y -= 4;
+
+  labeledLine(ctx, "Moyen(s) de transport utilisé(s)", "transport", 175, 336);
+  ctx.y -= 18;
+
+  text(ctx, "Observations particulières (santé, caractère, aptitudes, besoins particuliers, handicap ...) :", MARGIN, ctx.y, 8);
+  ctx.y -= 14;
+  for (let i = 0; i < 3; i++) {
+    underlineField(ctx, `obs_${i}`, MARGIN, ctx.y - 1, PAGE_W - MARGIN * 2, 12);
+    ctx.y -= 15;
   }
 
-  sectionTitle(ctx, "Identité de l'élève");
-  twoColFields(ctx, { label: "Nom", key: "nom" }, { label: "Prénom(s)", key: "prenoms" });
-  twoColFields(
-    ctx,
-    { label: "Date de naissance", key: "naissance" },
-    { label: "Lieu de naissance", key: "lieu" },
-  );
-  twoColFields(
-    ctx,
-    { label: "Département", key: "dept" },
-    { label: "Nationalité", key: "nationalite" },
-  );
+  // ——— PAGE 2 : responsables ———
+  ctx.page = doc.addPage([PAGE_W, PAGE_H]);
+  ctx.y = PAGE_H - 42;
 
-  sectionTitle(ctx, "Scolarité précédente");
-  twoColFields(
-    ctx,
-    { label: "Établissement précédent", key: "etab_prev" },
-    { label: "Classe", key: "classe_prev" },
-  );
+  const drawResponsable = (title: string, prefix: string) => {
+    text(ctx, title, MARGIN, ctx.y, 11, { bold: true, color: rgb(accent.r, accent.g, accent.b) });
+    ctx.y -= 16;
+    text(ctx, "Civilité :", MARGIN, ctx.y, 9);
+    radioRow(ctx, `${prefix}_civ`, ["Madame", "Monsieur"], MARGIN + 55, 90);
+    ctx.y -= 16;
 
-  sectionTitle(ctx, "Adresse familiale");
-  labeledField(ctx, "Adresse", "adresse");
-  labeledField(ctx, "Code postal et ville", "cp_ville");
+    labeledLine(ctx, "Nom", `${prefix}_nom`, 40, 470);
+    ctx.y -= 18;
+    labeledLine(ctx, "Nom de jeune fille", `${prefix}_njf`, 105, 405);
+    ctx.y -= 18;
+    labeledLine(ctx, "Prénom", `${prefix}_prenom`, 50, 460);
+    ctx.y -= 18;
 
-  drawFratrieTable(ctx);
-  drawOptionsGrid(ctx, config.options);
+    radioRow(
+      ctx,
+      `${prefix}_situation`,
+      ["marié(e)", "veuf ou veuve", "séparé(e)", "divorcé(e)", "autre"],
+      MARGIN,
+      95,
+    );
+    ctx.y -= 16;
 
-  sectionTitle(ctx, "Moyens de transport");
-  labeledField(ctx, "Précisez les moyens de transport utilisés", "transport");
+    labeledLine(ctx, "Lien de parenté avec l'élève", `${prefix}_lien`, 155, 355);
+    ctx.y -= 16;
+    text(ctx, "Responsabilité :", MARGIN, ctx.y, 9);
+    radioRow(
+      ctx,
+      `${prefix}_resp`,
+      ["autorité parentale", "tuteur ou tutrice"],
+      MARGIN + 90,
+      140,
+    );
+    ctx.y -= 16;
 
-  sectionTitle(ctx, "Observations (santé, besoins particuliers…)");
-  labeledField(ctx, "Observations", "observations", { height: 48, multiline: true });
+    labeledLine(ctx, "Adresse", `${prefix}_adresse`, 50, 460);
+    ctx.y -= 18;
+    text(ctx, "Code postal :", MARGIN, ctx.y, 9);
+    underlineField(ctx, `${prefix}_cp`, MARGIN + 75, ctx.y - 1, 70);
+    text(ctx, "Ville :", MARGIN + 165, ctx.y, 9);
+    underlineField(ctx, `${prefix}_ville`, MARGIN + 205, ctx.y - 1, 305);
+    ctx.y -= 18;
 
-  // Page responsables
-  ctx.page = doc.addPage([595.28, 841.89]);
-  ctx.y = 800;
-  drawResponsable(ctx, 1);
-  drawResponsable(ctx, 2);
+    text(ctx, "Tél. Domicile :", MARGIN, ctx.y, 9);
+    underlineField(ctx, `${prefix}_tel_dom`, MARGIN + 80, ctx.y - 1, 110);
+    text(ctx, "E-mail :", MARGIN + 210, ctx.y, 9);
+    underlineField(ctx, `${prefix}_email`, MARGIN + 255, ctx.y - 1, 255);
+    ctx.y -= 16;
 
-  sectionTitle(ctx, "Engagement");
-  labeledField(ctx, "Je soussigné(e)", "soussigne");
-  twoColFields(ctx, { label: "Fait à", key: "fait_a" }, { label: "Le", key: "fait_le" });
-  ensureSpace(ctx, 50);
-  ctx.page.drawText("Signature du responsable légal", {
-    x: margin,
-    y: ctx.y,
-    size: 8,
-    font,
-    color: rgb(0.3, 0.35, 0.4),
+    radioRow(
+      ctx,
+      `${prefix}_activite`,
+      ["en activité", "recherche d'emploi", "retraité", "autre"],
+      MARGIN,
+      110,
+    );
+    ctx.y -= 16;
+    labeledLine(ctx, "Profession", `${prefix}_pro`, 65, 180);
+    // second field on same visual row already consumed — keep compact
+    ctx.y -= 2;
+    text(ctx, "Employeur :", MARGIN, ctx.y, 9);
+    underlineField(ctx, `${prefix}_employeur`, MARGIN + 65, ctx.y - 1, 90);
+    text(ctx, "Tél portable :", MARGIN + 175, ctx.y, 9);
+    underlineField(ctx, `${prefix}_tel_port`, MARGIN + 245, ctx.y - 1, 85);
+    text(ctx, "Tél professionnel :", MARGIN + 350, ctx.y, 9);
+    underlineField(ctx, `${prefix}_tel_pro`, MARGIN + 450, ctx.y - 1, 60);
+    ctx.y -= 22;
+  };
+
+  drawResponsable("Responsable principal", "r1");
+  drawResponsable("Conjoint ou autre responsable", "r2");
+
+  text(ctx, "Je soussigné(e) :", MARGIN, ctx.y, 9);
+  underlineField(ctx, "soussigne", MARGIN + 85, ctx.y - 1, 200);
+  text(ctx, "déclare accepter pour mon enfant le but de l'Ecole Catholique.", MARGIN + 295, ctx.y, 8, {
+    maxWidth: 220,
   });
-  ctx.y -= 8;
-  const sig = form.createTextField(`s6_signature_${ctx.fieldIndex++}`);
-  sig.addToPage(ctx.page, {
-    x: margin,
-    y: ctx.y - 40,
-    width: 220,
-    height: 44,
-  });
+  ctx.y -= 16;
+  text(
+    ctx,
+    'Celle-ci s\'efforce " de lier dans le même temps et le même acte l\'acquisition du savoir, la formation à l\'autonomie et',
+    MARGIN,
+    ctx.y,
+    7,
+    { color: MUTED, maxWidth: PAGE_W - MARGIN * 2 },
+  );
+  ctx.y -= 10;
+  text(
+    ctx,
+    'à la prise de responsabilités et l\'éducation de la Foi. "',
+    MARGIN,
+    ctx.y,
+    7,
+    { color: MUTED, maxWidth: PAGE_W - MARGIN * 2 },
+  );
+  ctx.y -= 20;
+
+  text(ctx, "A :", MARGIN, ctx.y, 9);
+  underlineField(ctx, "fait_a", MARGIN + 25, ctx.y - 1, 180);
+  text(ctx, "le :", MARGIN + 230, ctx.y, 9);
+  underlineField(ctx, "fait_le", MARGIN + 255, ctx.y - 1, 180);
+  ctx.y -= 24;
+
+  text(
+    ctx,
+    'Signature du ou des responsables (Faire précéder la signature de la mention "LU et APPROUVE")',
+    MARGIN,
+    ctx.y,
+    8,
+    { color: MUTED },
+  );
+  ctx.y -= 10;
+  underlineField(ctx, "sig1", MARGIN, ctx.y - 1, 150, 28);
+  underlineField(ctx, "sig2", MARGIN + 170, ctx.y - 1, 150, 28);
+  underlineField(ctx, "sig3", MARGIN + 340, ctx.y - 1, 150, 28);
 
   return doc.save();
 }
