@@ -27,11 +27,11 @@ test("A5 export is A4 4-up sheet", () => {
   assert.ok(Math.abs(sheet.widthPt - 595.28) < 1);
 });
 
-test("default draft has school + partner logos", () => {
+test("default draft is blank page", () => {
   const draft = defaultPosterDraft();
-  assert.ok(draft.elements.some((e) => e.kind === "logo-school"));
-  assert.ok(draft.elements.some((e) => e.kind === "logo-partner"));
-  assert.ok(draft.elements.some((e) => e.kind === "title"));
+  assert.equal(draft.elements.length, 0);
+  assert.equal(draft.backgroundMode, "solid");
+  assert.equal(draft.backgroundColor, "#ffffff");
 });
 
 test("partner-sides starter places partner on the right", () => {

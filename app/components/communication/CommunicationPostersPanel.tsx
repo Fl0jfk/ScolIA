@@ -161,7 +161,17 @@ export default function CommunicationPostersPanel() {
   const applyStarter = (starterId: string) => {
     setElements(elementsForStarter(starterId));
     setSelectedId(null);
-    setMsg("Disposition de départ appliquée — déplacez les blocs librement.");
+    // Les démarrages partenariat sont pensés pour un fond sombre.
+    if (starterId === "partner-sides" || starterId === "logos-band" || starterId === "photo-full") {
+      patch({
+        backgroundMode: starterId === "photo-full" ? "image" : "gradient",
+        backgroundColor: "#0f172a",
+        gradientTo: "#1e3a5f",
+        textColor: "#ffffff",
+        accentColor: "#0ea5e9",
+      });
+    }
+    setMsg("Disposition de départ appliquée — déplacez ou clic droit pour supprimer.");
   };
 
   const addKind = (kind: PosterElement["kind"]) => {
@@ -244,8 +254,8 @@ export default function CommunicationPostersPanel() {
       <div className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5">
         <h2 className="text-lg font-black text-violet-950">Affiches</h2>
         <p className="mt-1 text-sm text-violet-900/80">
-          Canvas élémentaire : glissez des blocs (logos, textes, images), alignez-les avec les
-          guides, exportez en PDF. A5 = planche de 4 sur A4.
+          Page blanche : ajoutez logos, textes et images. Clic droit sur un élément pour le
+          supprimer. A5 = planche de 4 sur A4.
         </p>
       </div>
 

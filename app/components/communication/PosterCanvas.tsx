@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -99,6 +100,7 @@ function PosterSurface({
   onPointerMove,
   onPointerUp,
   onDropPalette,
+  onElementContextMenu,
 }: {
   draft: PosterDraft;
   assets: Assets;
@@ -116,6 +118,7 @@ function PosterSurface({
   onPointerMove?: (e: ReactPointerEvent) => void;
   onPointerUp?: () => void;
   onDropPalette?: (e: React.DragEvent) => void;
+  onElementContextMenu?: (e: React.MouseEvent, id: string) => void;
 }) {
   const page = pageSizePt(draft.format);
   const aspect = page.widthPt / page.heightPt;
@@ -222,6 +225,7 @@ function PosterSurface({
       onPointerUp={interactive ? onPointerUp : undefined}
       onPointerCancel={interactive ? onPointerUp : undefined}
       onClick={interactive ? () => onSelect?.(null) : undefined}
+      onContextMenu={interactive ? (e) => e.preventDefault() : undefined}
       onDragOver={interactive ? (e) => e.preventDefault() : undefined}
       onDrop={interactive ? onDropPalette : undefined}
     >
@@ -247,7 +251,7 @@ function PosterSurface({
           <div
             key={el.id}
             style={boxStyle(el)}
-            className={`z-10 ${interactive ? "cursor-move" : ""} ${selected ? "ring-2 ring-cyan-400 ring-offset-1" : interactive ? "hover:ring-1 hover:ring-white/50" : ""}`}
+            className={`z-10 ${interactive ? "cursor-move" : ""} ${selected ? "ring-2 ring-cyan-400 ring-offset-1" : interactive ? "hover:ring-1 hover:ring-slate-400/60" : ""}`}
             onPointerDown={
               interactive && onPointerDownMove
                 ? (e) => onPointerDownMove(e, el.id)
@@ -259,6 +263,11 @@ function PosterSurface({
                     e.stopPropagation();
                     onSelect?.(el.id);
                   }
+                : undefined
+            }
+            onContextMenu={
+              interactive && onElementContextMenu
+                ? (e) => onElementContextMenu(e, el.id)
                 : undefined
             }
           >
@@ -304,6 +313,7 @@ export default function PosterCanvas({
   const stageRef = useRef<HTMLDivElement>(null);
   const [guides, setGuides] = useState<SnapGuide[]>([]);
   const dragRef = useRef<DragMode | null>(null);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
   const assets: Assets = useMemo(
     () => ({
@@ -327,6 +337,79 @@ export default function PosterCanvas({
     [draft.elements, onChangeElements],
   );
 
+  const deleteElement = useCallback(
+    (id: string) => {
+      onChangeElements(draft.elements.filter((el) => el.id !== id));
+      if (selectedId === id) onSelect(null);
+      setMenu(null);
+    },
+    [draft.elements, onChangeElements, onSelect, selectedId],
+  );
+
+  const duplicateElement = useCallback(
+    (id: string) => {
+      const el = draft.elements.find((e) => e.id === id);
+      if (!el) return;
+      const copy = clampElementBox(
+        createPosterElement(el.kind, {
+          ...el,
+          id: undefined,
+          x: Math.min(0.85, el.x + 0.03),
+          y: Math.min(0.85, el.y + 0.03),
+        }),
+      );
+      onChangeElements([...draft.elements, copy]);
+      onSelect(copy.id);
+      setMenu(null);
+    },
+    [draft.elements, onChangeElements, onSelect],
+  );
+
+  const bringToFront = useCallback(
+    (id: string) => {
+      const el = draft.elements.find((e) => e.id === id);
+      if (!el) return;
+      onChangeElements([...draft.elements.filter((e) => e.id !== id), el]);
+      setMenu(null);
+    },
+    [draft.elements, onChangeElements],
+  );
+
+  const sendToBack = useCallback(
+    (id: string) => {
+      const el = draft.elements.find((e) => e.id === id);
+      if (!el) return;
+      onChangeElements([el, ...draft.elements.filter((e) => e.id !== id)]);
+      setMenu(null);
+    },
+    [draft.elements, onChangeElements],
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!selectedId) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        deleteElement(selectedId);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedId, deleteElement]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menu]);
+
   const clientToNorm = useCallback((clientX: number, clientY: number) => {
     const el = stageRef.current;
     if (!el) return { x: 0, y: 0 };
@@ -338,12 +421,14 @@ export default function PosterCanvas({
   }, []);
 
   const onPointerDownMove = (e: ReactPointerEvent, id: string) => {
+    if (e.button === 2) return;
     e.stopPropagation();
     e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     const el = draft.elements.find((x) => x.id === id);
     if (!el) return;
     onSelect(id);
+    setMenu(null);
     const p = clientToNorm(e.clientX, e.clientY);
     dragRef.current = {
       type: "move",
@@ -366,6 +451,7 @@ export default function PosterCanvas({
     const el = draft.elements.find((x) => x.id === id);
     if (!el) return;
     onSelect(id);
+    setMenu(null);
     const p = clientToNorm(e.clientX, e.clientY);
     dragRef.current = {
       type: "resize",
@@ -442,8 +528,15 @@ export default function PosterCanvas({
     onSelect(el.id);
   };
 
+  const onElementContextMenu = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect(id);
+    setMenu({ id, x: e.clientX, y: e.clientY });
+  };
+
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4">
+    <div className="relative mx-auto w-full max-w-3xl space-y-4">
       {showSheetPreview && draft.format === "a5-portrait" ? (
         <div>
           <div
@@ -460,20 +553,71 @@ export default function PosterCanvas({
         </div>
       ) : null}
 
-      <PosterSurface
-        draft={draft}
-        assets={assets}
-        interactive
-        selectedId={selectedId}
-        onSelect={onSelect}
-        onPointerDownMove={onPointerDownMove}
-        onPointerDownResize={onPointerDownResize}
-        guides={guides}
-        stageRef={stageRef}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onDropPalette={onDropPalette}
-      />
+      <div className="relative">
+        <PosterSurface
+          draft={draft}
+          assets={assets}
+          interactive
+          selectedId={selectedId}
+          onSelect={(id) => {
+            setMenu(null);
+            onSelect(id);
+          }}
+          onPointerDownMove={onPointerDownMove}
+          onPointerDownResize={onPointerDownResize}
+          guides={guides}
+          stageRef={stageRef}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onDropPalette={onDropPalette}
+          onElementContextMenu={onElementContextMenu}
+        />
+        {draft.elements.length === 0 ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
+            <p className="max-w-xs rounded-xl bg-slate-900/5 px-4 py-3 text-center text-sm text-slate-500">
+              Page vierge — glissez un élément depuis la palette, ou cliquez pour en ajouter.
+            </p>
+          </div>
+        ) : null}
+      </div>
+
+      {menu ? (
+        <div
+          className="fixed z-50 min-w-[180px] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-xl"
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="block w-full px-4 py-2 text-left hover:bg-slate-50"
+            onClick={() => duplicateElement(menu.id)}
+          >
+            Dupliquer
+          </button>
+          <button
+            type="button"
+            className="block w-full px-4 py-2 text-left hover:bg-slate-50"
+            onClick={() => bringToFront(menu.id)}
+          >
+            Mettre au premier plan
+          </button>
+          <button
+            type="button"
+            className="block w-full px-4 py-2 text-left hover:bg-slate-50"
+            onClick={() => sendToBack(menu.id)}
+          >
+            Envoyer à l’arrière
+          </button>
+          <div className="my-1 border-t border-slate-100" />
+          <button
+            type="button"
+            className="block w-full px-4 py-2 text-left font-semibold text-rose-700 hover:bg-rose-50"
+            onClick={() => deleteElement(menu.id)}
+          >
+            Supprimer
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
