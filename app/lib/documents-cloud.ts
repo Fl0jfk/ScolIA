@@ -708,12 +708,17 @@ export async function updateSharedMembers(
   ownerId: string,
   shareId: string,
   memberIds: string[],
-): Promise<{ ok: true; meta: ShareMeta } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; meta: ShareMeta; addedMemberIds: string[] }
+  | { ok: false; error: string }
+> {
   const meta = await getShareMeta(shareId);
   if (!meta) return { ok: false, error: "Dossier partagé introuvable." };
   if (meta.ownerId !== ownerId) return { ok: false, error: "Seul le propriétaire peut modifier le partage." };
 
   const uniqueMembers = [...new Set(memberIds.filter((m) => m && m !== ownerId))];
+  const previous = new Set(meta.memberIds);
+  const addedMemberIds = uniqueMembers.filter((id) => !previous.has(id));
   // Anciens partages sans memberSeenAt : les membres déjà présents sont considérés comme ayant vu.
   const prevSeen =
     meta.memberSeenAt ??
@@ -731,7 +736,7 @@ export async function updateSharedMembers(
     updatedAt: new Date().toISOString(),
   };
   await putJson(shareMetaRel(shareId), updated);
-  return { ok: true, meta: updated };
+  return { ok: true, meta: updated, addedMemberIds };
 }
 
 /** Dossiers partagés auxquels l'utilisateur est invité et qu'il n'a jamais ouverts. */

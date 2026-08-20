@@ -1,10 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/app/lib/intranet-auth";
 import {
   createSharedFolder,
   listAccessibleShares,
   updateSharedMembers,
 } from "@/app/lib/documents-cloud";
+import { notifySharedFolderInvites } from "@/app/lib/documents-notify";
+import { requireAuth } from "@/app/lib/intranet-auth";
+import { safeCurrentUser } from "@/app/lib/intranet-session";
+
+function scheduleSharedFolderInviteMails(params: {
+  shareId: string;
+  shareName: string;
+  inviteeUserIds: string[];
+}) {
+  if (params.inviteeUserIds.length === 0) return;
+
+  void (async () => {
+    const user = await safeCurrentUser();
+    const email =
+      user?.emailAddresses.find((e) => e.id === user.primaryEmailAddressId)?.emailAddress ??
+      user?.emailAddresses[0]?.emailAddress ??
+      null;
+    await notifySharedFolderInvites({
+      shareId: params.shareId,
+      shareName: params.shareName,
+      inviteeUserIds: params.inviteeUserIds,
+      inviter: {
+        firstName: user?.firstName,
+        lastName: user?.lastName,
+        email,
+      },
+    });
+  })().catch((e) => console.error("[documents] notify shared folder invite:", e));
+}
 
 export async function GET() {
   const gate = await requireAuth();
@@ -32,6 +60,11 @@ export async function POST(req: NextRequest) {
   }
 
   const meta = await createSharedFolder(gate.ctx.userId, name, memberIds);
+  scheduleSharedFolderInviteMails({
+    shareId: meta.id,
+    shareName: meta.name,
+    inviteeUserIds: meta.memberIds,
+  });
   return NextResponse.json({ success: true, share: meta });
 }
 
@@ -49,6 +82,12 @@ export async function PATCH(req: NextRequest) {
 
   const result = await updateSharedMembers(gate.ctx.userId, shareId, memberIds);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 403 });
+
+  scheduleSharedFolderInviteMails({
+    shareId: result.meta.id,
+    shareName: result.meta.name,
+    inviteeUserIds: result.addedMemberIds,
+  });
 
   return NextResponse.json({ success: true, share: result.meta });
 }
