@@ -11,6 +11,7 @@ import {
   recordTenantPaymentFailure,
   recordTenantPaymentSuccess,
 } from "@/app/lib/tenant-billing";
+import { emailSignupPaymentInvoice } from "@/app/lib/tenant-billing-email";
 
 async function verifyWebhookAuth(req: Request): Promise<boolean> {
   const secret = process.env.EASYTRANSAC_WEBHOOK_SECRET?.trim();
@@ -92,6 +93,10 @@ async function handleSignupPayment(
       { action: "payment_webhook", detail: status.tid },
     );
     void emailPaymentCompleted(updated);
+    void emailSignupPaymentInvoice(updated, {
+      tid: status.tid,
+      amountCents: typeof status.amount === "number" ? status.amount : undefined,
+    }).catch((e) => console.error("[easytransac/webhook] signup invoice", e));
     return NextResponse.json({ ok: true, signup: signupId });
   }
 
@@ -122,7 +127,11 @@ async function handleTenantPayment(
   const status = await getEasytransacTransactionStatus({ tid, orderId });
 
   if (isEasytransacPaymentSuccess(status.status)) {
-    await recordTenantPaymentSuccess(slug, { tid: status.tid, status: status.status });
+    await recordTenantPaymentSuccess(slug, {
+      tid: status.tid,
+      status: status.status,
+      amountCents: typeof status.amount === "number" ? status.amount : undefined,
+    });
     return NextResponse.json({ ok: true, tenant: slug, paid: true });
   }
 

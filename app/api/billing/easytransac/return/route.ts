@@ -4,7 +4,10 @@ import {
   isEasytransacPaymentSuccess,
 } from "@/app/lib/billing/easytransac";
 import { emailPaymentCompleted } from "@/app/lib/platform-signup-email";
-import { emailSignupPaymentFailed } from "@/app/lib/tenant-billing-email";
+import {
+  emailSignupPaymentFailed,
+  emailSignupPaymentInvoice,
+} from "@/app/lib/tenant-billing-email";
 import {
   loadSignupRequest,
   loadSignupRequestByToken,
@@ -55,6 +58,9 @@ export async function GET(req: Request) {
       { action: "payment_completed", detail: tid || undefined },
     );
     void emailPaymentCompleted(updated);
+    void emailSignupPaymentInvoice(updated, { tid: tid || undefined }).catch((e) =>
+      console.error("[easytransac/return] signup invoice", e),
+    );
   } else if (!paid && request.status === "pending_payment") {
     void emailSignupPaymentFailed(request);
   }

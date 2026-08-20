@@ -3,6 +3,7 @@ import { requirePlatformMaster } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { emailPaymentCompleted } from "@/app/lib/platform-signup-email";
 import { loadSignupRequest, saveSignupRequest } from "@/app/lib/platform-signup-request";
+import { emailSignupPaymentInvoice } from "@/app/lib/tenant-billing-email";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -49,5 +50,8 @@ export async function POST(req: Request, ctx: Ctx) {
   );
 
   void emailPaymentCompleted(updated);
+  void emailSignupPaymentInvoice(updated).catch((e) =>
+    console.error("[mark-paid] signup invoice", e),
+  );
   return NextResponse.json({ ok: true, request: updated });
 }

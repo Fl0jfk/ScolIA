@@ -6,6 +6,7 @@ import {
   emailPaymentFailedAdmin,
   emailPaymentFailedMaster,
   emailPaymentReminderAdmin,
+  emailTenantPaymentInvoice,
   emailTenantSuspended,
 } from "@/app/lib/tenant-billing-email";
 import type {
@@ -126,6 +127,15 @@ export async function recordTenantPaymentSuccess(
 ): Promise<TenantConfig> {
   const tenant = await loadTenantBySlug(slug);
   const current = getTenantBilling(tenant);
+  const tid = detail?.tid?.trim();
+
+  const alreadyRecorded =
+    Boolean(tid) &&
+    (current.auditLog || []).some((e) => e.action === "payment_success" && e.detail === tid);
+  if (alreadyRecorded) {
+    return tenant;
+  }
+
   const at = nowIso();
   const next: TenantBillingState = appendAudit(
     {
@@ -147,9 +157,17 @@ export async function recordTenantPaymentSuccess(
           ? { status: "active" }
           : current.microsoftLicenses,
     },
-    { action: "payment_success", detail: detail?.tid },
+    { action: "payment_success", detail: tid },
   );
-  return saveBilling(slug, next);
+  const updated = await saveBilling(slug, next);
+
+  void emailTenantPaymentInvoice(updated, {
+    tid,
+    amountCents: detail?.amountCents,
+    paidAt: at,
+  }).catch((e) => console.error("[tenant-billing] invoice email", slug, e));
+
+  return updated;
 }
 
 export async function recordTenantPaymentFailure(
