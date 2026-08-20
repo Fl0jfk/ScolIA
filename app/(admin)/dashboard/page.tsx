@@ -218,6 +218,7 @@ export default function Home() {
                 <DashboardPillars
                   categories={dashboardCategories}
                   shortcuts={shortcuts}
+                  notifications={notifications}
                   pulseKey={pulseKey}
                 />
               ) : (

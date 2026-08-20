@@ -65,11 +65,41 @@ export type DashboardTodayNewsItem = {
 /** Notification actionnable (à traiter / attribuée) pour le badge global. */
 export type DashboardNotification = {
   id: string;
+  /** Module intranet pour pastille rouge sur la tuile / hub. */
+  moduleId: string;
   label: string;
   count: number;
   href: string;
   detail: string;
 };
+
+/** Compteur rouge sur une tuile : match exact sur l’id, sinon orphelins du module (ex. dossiers partagés). */
+export function notificationCountForShortcut(
+  item: { id: string; moduleId: string },
+  notifications: DashboardNotification[],
+): number {
+  const related = notifications.filter((n) => n.moduleId === item.moduleId && n.count > 0);
+  if (related.length === 0) return 0;
+
+  const exact = related.filter((n) => n.id === item.id);
+  if (exact.length > 0) return exact.reduce((sum, n) => sum + n.count, 0);
+
+  if (item.id !== item.moduleId) return 0;
+
+  return related
+    .filter((n) => n.id === item.moduleId || n.id.startsWith(`${item.moduleId}-`))
+    .reduce((sum, n) => sum + n.count, 0);
+}
+
+/** Total des notifications d’un module (hubs piliers). */
+export function notificationCountForModule(
+  moduleId: string,
+  notifications: DashboardNotification[],
+): number {
+  return notifications
+    .filter((n) => n.moduleId === moduleId && n.count > 0)
+    .reduce((sum, n) => sum + n.count, 0);
+}
 
 export type DashboardSignals = {
   shortcuts: DashboardShortcut[];
@@ -365,6 +395,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
         pushNotif({
           id: "travels-compta",
+          moduleId: "travels",
           label: "Sorties scolaires",
           count: n,
           href: travelsHome,
@@ -403,6 +434,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
         pushNotif({
           id: "travels-dir",
+          moduleId: "travels",
           label: "Sorties scolaires",
           count: pending.length,
           href: travelsHome,
@@ -512,6 +544,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       });
       pushNotif({
         id: "internat-appel",
+        moduleId: "internat",
         label: "Appel du soir",
         count: 1,
         href: internatHome,
@@ -566,6 +599,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       });
       pushNotif({
         id: "stages-sign",
+        moduleId: "stages",
         label: "Stages & conventions",
         count: stagesPendingSignatures,
         href: stagesHome,
@@ -726,6 +760,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
         pushNotif({
           id: "absences-pending",
+          moduleId: "absences",
           label: "Absences à traiter",
           count: pendingManager.length,
           href: "/rh?tab=absences&view=a-traiter",
@@ -768,6 +803,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           });
           pushNotif({
             id: "hse-pending",
+            moduleId: "demandes-hse",
             label: "Demandes HSE",
             count: pending,
             href: "/rh?tab=hse",
@@ -921,6 +957,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       });
       pushNotif({
         id: "requests-claimed",
+        moduleId: "requests-staff",
         label: "Demandes attribuées",
         count: claimedMine.length,
         href: requestsHome,
@@ -947,6 +984,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       });
       pushNotif({
         id: "requests-pool",
+        moduleId: "requests-staff",
         label: "File demandes",
         count: unassigned.length,
         href: requestsHome,
@@ -997,6 +1035,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
         pushNotif({
           id: "photo-dir",
+          moduleId: "toolbox",
           label: "Photocopies couleur",
           count: pending,
           href: photoHome,
@@ -1015,6 +1054,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     for (const share of unseenSharedFolders) {
       pushNotif({
         id: `documents-share-${share.id}`,
+        moduleId: "documents",
         label: "Dossier partagé",
         count: 1,
         href: `${docsHome}?shareId=${encodeURIComponent(share.id)}`,

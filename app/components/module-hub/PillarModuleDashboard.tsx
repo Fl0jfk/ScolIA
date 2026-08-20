@@ -15,8 +15,10 @@ import {
 import { stageDashboardUpload } from "@/app/lib/dashboard-upload-bridge";
 import type { DashboardCategory } from "@/app/lib/intranet-modules";
 import type { DashboardShortcut } from "@/app/lib/dashboard-signals";
+import { notificationCountForModule } from "@/app/lib/dashboard-signals";
 import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
 import { MODULE_EMOJI, moduleHref } from "@/app/lib/pillar-module-routes";
+import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
 
 const PILLAR_ORB: Record<Exclude<DashboardPillarId, "rh">, string> = {
   eleves: "bg-sky-400/30",
@@ -236,11 +238,13 @@ function ModuleCard({
   previews,
   index,
   orbClass,
+  notifCount = 0,
 }: {
   category: DashboardCategory;
   previews: PreviewLine[];
   index: number;
   orbClass: string;
+  notifCount?: number;
 }) {
   const href = category.link || moduleHref(category.moduleId);
   const emoji = MODULE_EMOJI[category.moduleId] || "›";
@@ -267,9 +271,12 @@ function ModuleCard({
                 {emoji}
               </span>
             </span>
-            <h2 className="truncate text-lg font-semibold tracking-tight text-[var(--dash-ink)] sm:text-xl">
-              {category.name}
-            </h2>
+            <div className="min-w-0 flex items-center gap-2">
+              <h2 className="truncate text-lg font-semibold tracking-tight text-[var(--dash-ink)] sm:text-xl">
+                {category.name}
+              </h2>
+              <NotificationCountBadge count={notifCount} />
+            </div>
           </div>
           <Link
             href={href}
@@ -323,7 +330,9 @@ export default function PillarModuleDashboard({
   accessibleModuleIds,
 }: Props) {
   const pillar = DASHBOARD_PILLARS.find((p) => p.id === pillarId)!;
-  const { shortcuts, loading: loadingSignals } = useDashboardSignals({ pollIntervalMs: 0 });
+  const { shortcuts, notifications, loading: loadingSignals } = useDashboardSignals({
+    pollIntervalMs: 0,
+  });
 
   const modules = useMemo(() => {
     return categoriesForPillar(pillar, categories).filter((c) =>
@@ -393,6 +402,7 @@ export default function PillarModuleDashboard({
                   category={cat}
                   index={i}
                   orbClass={orb}
+                  notifCount={notificationCountForModule(cat.moduleId, notifications)}
                   previews={
                     loadingSignals
                       ? []

@@ -10,13 +10,20 @@ import {
   type DashboardPillarDef,
   type DashboardPillarId,
 } from "@/app/lib/dashboard-pillars";
-import type { DashboardShortcut, DashboardShortcutSlide } from "@/app/lib/dashboard-signals";
+import type {
+  DashboardNotification,
+  DashboardShortcut,
+  DashboardShortcutSlide,
+} from "@/app/lib/dashboard-signals";
+import { notificationCountForShortcut } from "@/app/lib/dashboard-signals";
 import { MODULE_EMOJI } from "@/app/lib/pillar-module-routes";
 import GlassLayer from "@/app/components/GlassLayer";
+import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
 
 type Props = {
   categories: DashboardCategory[];
   shortcuts: DashboardShortcut[];
+  notifications?: DashboardNotification[];
   pulseKey?: string;
 };
 
@@ -53,6 +60,7 @@ function ShortcutSlidesCarousel({
   chip = "En cours",
   emoji = "🚪",
   fallbackColor = "#475569",
+  notifCount = 0,
 }: {
   slides: DashboardShortcutSlide[];
   href: string;
@@ -61,6 +69,7 @@ function ShortcutSlidesCarousel({
   chip?: string;
   emoji?: string;
   fallbackColor?: string;
+  notifCount?: number;
 }) {
   const [index, setIndex] = useState(0);
 
@@ -123,6 +132,7 @@ function ShortcutSlidesCarousel({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   <p className="truncate text-[12px] font-semibold tracking-tight">{title}</p>
+                  <NotificationCountBadge count={notifCount} />
                   <span
                     className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide"
                     style={{ backgroundColor: "rgba(255,255,255,0.22)" }}
@@ -169,10 +179,12 @@ function ShortcutTile({
   item,
   highlight,
   fullWidth,
+  notifCount = 0,
 }: {
   item: DashboardShortcut;
   highlight?: boolean;
   fullWidth?: boolean;
+  notifCount?: number;
 }) {
   if (item.slides && item.slides.length > 0) {
     const isTravels = item.moduleId === "travels";
@@ -185,6 +197,7 @@ function ShortcutTile({
         chip={isTravels ? "Aujourd'hui" : "En cours"}
         emoji={item.emoji || MODULE_EMOJI[item.moduleId] || (isTravels ? "🚌" : "🚪")}
         fallbackColor={isTravels ? "#0284c7" : "#475569"}
+        notifCount={notifCount}
       />
     );
   }
@@ -221,9 +234,12 @@ function ShortcutTile({
           </span>
         </span>
         <div className="relative min-w-0 flex-1">
-          <p className="truncate text-[12px] font-semibold tracking-tight text-[var(--dash-ink)]">
-            {item.label}
-          </p>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="truncate text-[12px] font-semibold tracking-tight text-[var(--dash-ink)]">
+              {item.label}
+            </p>
+            <NotificationCountBadge count={notifCount} />
+          </div>
           {item.detail ? (
             <p className="mt-0.5 line-clamp-1 text-[10px] leading-snug text-[var(--dash-mid)]">
               {item.detail}
@@ -243,11 +259,13 @@ function ShortcutTile({
 function PillarCard({
   pillar,
   shortcuts,
+  notifications,
   index,
   pulseKey,
 }: {
   pillar: DashboardPillarDef;
   shortcuts: DashboardShortcut[];
+  notifications: DashboardNotification[];
   index: number;
   pulseKey?: string;
 }) {
@@ -316,6 +334,7 @@ function PillarCard({
                     rich: Boolean(s.rich && s.tone !== "neutral"),
                   }}
                   fullWidth={Boolean(s.rich && s.tone !== "neutral")}
+                  notifCount={notificationCountForShortcut(s, notifications)}
                   highlight={Boolean(
                     pulseKey && s.rich && s.tone !== "neutral" && pulseKey.includes(s.id),
                   )}
@@ -329,7 +348,12 @@ function PillarCard({
   );
 }
 
-export default function DashboardPillars({ categories, shortcuts, pulseKey }: Props) {
+export default function DashboardPillars({
+  categories,
+  shortcuts,
+  notifications = [],
+  pulseKey,
+}: Props) {
   const pillars = DASHBOARD_PILLARS.filter((p) => pillarHasVisibleModules(p, categories));
 
   const pruned = (id: DashboardPillarId) => {
@@ -366,6 +390,7 @@ export default function DashboardPillars({ categories, shortcuts, pulseKey }: Pr
           key={pillar.id}
           pillar={pillar}
           shortcuts={pruned(pillar.id)}
+          notifications={notifications}
           index={i}
           pulseKey={pulseKey}
         />
