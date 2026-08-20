@@ -52,7 +52,7 @@ export async function notifySharedFolderInvites(params: {
   for (const userId of inviteeIds) {
     const member = byId.get(userId);
     const to = member?.email?.trim();
-    if (!to) {
+    if (!member || !to) {
       skipped += 1;
       continue;
     }
