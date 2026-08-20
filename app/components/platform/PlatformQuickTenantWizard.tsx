@@ -15,6 +15,9 @@ type WizardData = {
   dataBucket: string;
   clerkPublishableKey: string;
   clerkSecretKey: string;
+  adminFirstName: string;
+  adminLastName: string;
+  adminEmail: string;
 };
 
 const INITIAL: WizardData = {
@@ -28,7 +31,12 @@ const INITIAL: WizardData = {
   dataBucket: "",
   clerkPublishableKey: "",
   clerkSecretKey: "",
+  adminFirstName: "",
+  adminLastName: "",
+  adminEmail: "",
 };
+
+const TOTAL_STEPS = 4;
 
 function slugify(label: string): string {
   return label
@@ -96,6 +104,11 @@ export default function PlatformQuickTenantWizard({ writable, onCreated }: Props
           },
           logoUrl: form.logoUrl || undefined,
           secrets: { clerkSecretKey: form.clerkSecretKey },
+          adminContact: {
+            firstName: form.adminFirstName,
+            lastName: form.adminLastName,
+            email: form.adminEmail,
+          },
         }),
       });
       const j = await res.json();
@@ -120,6 +133,13 @@ export default function PlatformQuickTenantWizard({ writable, onCreated }: Props
     );
   }
 
+  const canContinueStep1 =
+    form.label && form.slug && form.hostname && form.addressStreet && form.addressZip && form.addressCity;
+  const canContinueStep4 =
+    form.adminFirstName.trim() &&
+    form.adminLastName.trim() &&
+    form.adminEmail.trim().includes("@");
+
   return (
     <div className="rounded-2xl border-2 border-[#2F6B4A]/15 bg-white/90 p-6 shadow-lg shadow-emerald-900/5">
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -128,11 +148,11 @@ export default function PlatformQuickTenantWizard({ writable, onCreated }: Props
             Nouvel <span className={SCOLA_GRADIENT_TEXT}>établissement</span>
           </h2>
           <p className="mt-1 text-sm text-stone-600">
-            Étape {step} sur 3 — le tenant sera actif dès l&apos;enregistrement dans le registry S3.
+            Étape {step} sur {TOTAL_STEPS} — invitation admin + espace prêt à la fin.
           </p>
         </div>
         <div className="flex gap-1">
-          {[1, 2, 3].map((n) => (
+          {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((n) => (
             <span
               key={n}
               className={`h-2 w-8 rounded-full ${n <= step ? "bg-[#2F6B4A]" : "bg-stone-200"}`}
@@ -258,9 +278,43 @@ export default function PlatformQuickTenantWizard({ writable, onCreated }: Props
           </label>
           <p className="text-xs text-stone-500">
             Créez une application Clerk dédiée à cet établissement, puis copiez les clés API
-            (Production). L&apos;admin de l&apos;établissement fera l&apos;onboarding sur{" "}
-            <strong>{form.hostname || "son sous-domaine"}</strong>.
+            (Production).
           </p>
+        </div>
+      )}
+
+      {step === 4 && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <p className="sm:col-span-2 text-sm text-stone-600 rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3">
+            Cet e-mail sera le seul compte administrateur global. La personne reçoit une invitation
+            Clerk et un lien « Votre espace est prêt ».
+          </p>
+          <label className="block space-y-1">
+            <span className="text-sm font-bold text-stone-700">Prénom *</span>
+            <input
+              value={form.adminFirstName}
+              onChange={(e) => set("adminFirstName", e.target.value)}
+              className="w-full rounded-xl border border-stone-200 px-4 py-2.5 text-sm"
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="text-sm font-bold text-stone-700">Nom *</span>
+            <input
+              value={form.adminLastName}
+              onChange={(e) => set("adminLastName", e.target.value)}
+              className="w-full rounded-xl border border-stone-200 px-4 py-2.5 text-sm"
+            />
+          </label>
+          <label className="block space-y-1 sm:col-span-2">
+            <span className="text-sm font-bold text-stone-700">E-mail administrateur *</span>
+            <input
+              type="email"
+              value={form.adminEmail}
+              onChange={(e) => set("adminEmail", e.target.value)}
+              placeholder="direction@etablissement.fr"
+              className="w-full rounded-xl border border-stone-200 px-4 py-2.5 text-sm"
+            />
+          </label>
         </div>
       )}
 
@@ -276,19 +330,14 @@ export default function PlatformQuickTenantWizard({ writable, onCreated }: Props
         ) : (
           <span />
         )}
-        {step < 3 ? (
+        {step < TOTAL_STEPS ? (
           <button
             type="button"
             onClick={() => setStep((s) => s + 1)}
             disabled={
-              (step === 1 &&
-                (!form.label ||
-                  !form.slug ||
-                  !form.hostname ||
-                  !form.addressStreet ||
-                  !form.addressZip ||
-                  !form.addressCity)) ||
-              (step === 2 && !form.dataBucket)
+              (step === 1 && !canContinueStep1) ||
+              (step === 2 && !form.dataBucket) ||
+              (step === 3 && (!form.clerkPublishableKey || !form.clerkSecretKey))
             }
             className="rounded-full bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-6 py-2 text-sm font-bold text-white disabled:opacity-50"
           >
@@ -298,10 +347,10 @@ export default function PlatformQuickTenantWizard({ writable, onCreated }: Props
           <button
             type="button"
             onClick={submit}
-            disabled={saving || !form.clerkPublishableKey || !form.clerkSecretKey}
+            disabled={saving || !canContinueStep4}
             className="rounded-full bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-6 py-2 text-sm font-bold text-white disabled:opacity-50"
           >
-            {saving ? "Création…" : "Créer le tenant"}
+            {saving ? "Création…" : "Créer et inviter l'admin"}
           </button>
         )}
       </div>

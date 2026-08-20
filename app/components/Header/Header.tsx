@@ -121,6 +121,9 @@ export default function Header() {
   }, []);
 
   const isDashboard = pathname === "/dashboard" || pathname.startsWith("/dashboard/");
+  const isOnboardingFlow =
+    pathname === "/onboarding" || pathname.startsWith("/onboarding/");
+
   const dashVars = isDashboard
     ? dashboardBrandCssVars(parseDashboardAccent(appContext?.identity?.dashboardAccent))
     : null;
@@ -140,6 +143,8 @@ export default function Header() {
     isDashboard && dashVars
       ? ({ borderBottomColor: dashVars["--dash-border"], ...dashVars } as CSSProperties)
       : undefined;
+
+  if (isOnboardingFlow) return null;
 
   return (
     <>

@@ -379,6 +379,17 @@ export function upsertInputFromBody(raw: unknown): TenantUpsertInput {
     };
   }
 
+  let billing: TenantBillingState | undefined;
+  const billingRaw = o.billing;
+  if (billingRaw && typeof billingRaw === "object") {
+    const b = billingRaw as Record<string, unknown>;
+    const adminEmail = typeof b.adminEmail === "string" ? b.adminEmail.trim().toLowerCase() : undefined;
+    billing = {
+      status: b.status === "past_due" || b.status === "suspended" || b.status === "cancelled" ? b.status : "active",
+      ...(adminEmail ? { adminEmail } : {}),
+    };
+  }
+
   return {
     slug: String(o.slug ?? ""),
     kind: o.kind === "standalone" ? "standalone" : "groupe",
@@ -389,6 +400,7 @@ export function upsertInputFromBody(raw: unknown): TenantUpsertInput {
     clerkPublishableKey: String(o.clerkPublishableKey ?? ""),
     postalAddress,
     logoUrl: typeof o.logoUrl === "string" ? o.logoUrl : undefined,
+    billing,
     secrets: secretsPatchFromBody(o.secrets),
   };
 }

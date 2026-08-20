@@ -1,7 +1,5 @@
 import "server-only";
 
-import { createClerkClient } from "@clerk/backend";
-import { hasGlobalAdminRole } from "@/app/lib/intranet-roles";
 import { emailTenantProvisioned } from "@/app/lib/platform-signup-email";
 import {
   loadSignupRequest,
@@ -9,6 +7,7 @@ import {
   slugifyEstablishmentName,
   type TenantSignupRequest,
 } from "@/app/lib/platform-signup-request";
+import { inviteAdminOnTenantClerk } from "@/app/lib/tenant-admin-invite";
 import { createTenant } from "@/app/lib/tenant-registry-admin";
 import { billingFromSignupRequest } from "@/app/lib/tenant-billing";
 import { tenantSignInUrl } from "@/app/lib/tenant-portal";
@@ -21,33 +20,6 @@ type ProvisionSignupInput = {
   clerkPublishableKey: string;
   clerkSecretKey: string;
 };
-
-async function inviteAdminOnTenantClerk(
-  clerkSecretKey: string,
-  admin: TenantSignupRequest["adminContact"],
-): Promise<void> {
-  const client = createClerkClient({ secretKey: clerkSecretKey });
-  const email = admin.email.trim().toLowerCase();
-  const roles = ["admin"];
-  const existing = await client.users.getUserList({ emailAddress: [email], limit: 1 });
-  const user = existing.data?.[0];
-  if (user) {
-    await client.users.updateUser(user.id, {
-      firstName: admin.firstName,
-      lastName: admin.lastName,
-      publicMetadata: {
-        ...(user.publicMetadata as object),
-        role: roles,
-        org_admin: hasGlobalAdminRole(roles),
-      },
-    });
-    return;
-  }
-  await client.invitations.createInvitation({
-    emailAddress: email,
-    publicMetadata: { role: roles, org_admin: true },
-  });
-}
 
 async function provisionSignupRequest(
   request: TenantSignupRequest,

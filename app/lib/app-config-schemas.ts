@@ -11,8 +11,10 @@ export type SiteIdentity = {
   organizationKind?: OrganizationKind;
   onboardingCompleted?: boolean;
   onboardingCompletedAt?: string;
-  /** Dernière étape validée dans l'assistant (1–12). */
+  /** Dernière étape validée dans l'assistant (1–5 chapitres, anciennement 1–12). */
   onboardingStep?: number;
+  /** 2 = wizard 5 chapitres ; absent / 1 = ancien schéma 12 étapes. */
+  onboardingWizardVersion?: number;
   assistanceEmail?: string;
   schoolHolidayZone?: SchoolHolidayZone;
   address?: {
@@ -319,6 +321,7 @@ export function parseSiteIdentity(raw: unknown, opts?: { allowEmptyName?: boolea
   const organizationKind: OrganizationKind | undefined =
     orgKind === "standalone" || orgKind === "groupe" ? orgKind : undefined;
   const onboardingStep = Number(o.onboardingStep);
+  const onboardingWizardVersion = Number(o.onboardingWizardVersion);
   const assistanceEmail = str(o.assistanceEmail).trim();
   return {
     name: name || (opts?.allowEmptyName ? "" : "Mon établissement"),
@@ -332,6 +335,10 @@ export function parseSiteIdentity(raw: unknown, opts?: { allowEmptyName?: boolea
           : undefined,
     onboardingCompletedAt: str(o.onboardingCompletedAt) || undefined,
     onboardingStep: Number.isFinite(onboardingStep) && onboardingStep >= 1 ? onboardingStep : undefined,
+    onboardingWizardVersion:
+      Number.isFinite(onboardingWizardVersion) && onboardingWizardVersion >= 1
+        ? onboardingWizardVersion
+        : undefined,
     assistanceEmail: assistanceEmail && isEmail(assistanceEmail) ? assistanceEmail : undefined,
     address: {
       street: str(addr.street) || undefined,

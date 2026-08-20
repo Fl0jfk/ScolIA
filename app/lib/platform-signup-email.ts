@@ -138,13 +138,32 @@ export async function emailTenantProvisioned(
   req: TenantSignupRequest,
   signInUrl: string,
 ): Promise<void> {
-  await sendMail({
+  await emailTenantSpaceReady({
     to: req.adminContact.email,
+    firstName: req.adminContact.firstName,
+    lastName: req.adminContact.lastName,
+    establishmentLabel: req.establishment.legalName,
+    signInUrl,
+  });
+}
+
+/** E-mail « espace prêt » (création Master ou provision dossier). */
+export async function emailTenantSpaceReady(opts: {
+  to: string;
+  firstName?: string;
+  lastName?: string;
+  establishmentLabel: string;
+  signInUrl: string;
+}): Promise<void> {
+  const name = `${opts.firstName ?? ""} ${opts.lastName ?? ""}`.trim() || "Madame, Monsieur";
+  await sendMail({
+    to: opts.to,
     subject: `[Scola] Votre espace est prêt`,
-    text: `Bonjour ${contactName(req)},\n\nVotre espace Scola est prêt.\nConnectez-vous : ${signInUrl}\n\nComplétez ensuite l'assistant de configuration.\n\n${MARKETING.contactEmail}`,
-    html: `<p>Bonjour ${contactName(req)},</p>
-<p>Votre espace <strong>Scola</strong> est prêt pour <strong>${req.establishment.legalName}</strong>.</p>
-<p><a href="${signInUrl}">Se connecter et démarrer la configuration</a></p>`,
+    text: `Bonjour ${name},\n\nVotre espace Scola est prêt pour ${opts.establishmentLabel}.\nConnectez-vous avec cette adresse e-mail : ${opts.signInUrl}\n\nComplétez ensuite l'assistant de configuration.\n\n${MARKETING.contactEmail}`,
+    html: `<p>Bonjour ${name},</p>
+<p>Votre espace <strong>Scola</strong> est prêt pour <strong>${opts.establishmentLabel}</strong>.</p>
+<p>Connectez-vous avec l&apos;adresse e-mail à laquelle ce message a été envoyé.</p>
+<p><a href="${opts.signInUrl}">Se connecter et démarrer la configuration</a></p>`,
   });
 }
 

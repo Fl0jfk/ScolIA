@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { requirePlatformMaster } from "@/app/lib/intranet-auth";
+import { emailTenantSpaceReady } from "@/app/lib/platform-signup-email";
+import {
+  inviteAdminOnTenantClerk,
+  parseAdminContactFromBody,
+} from "@/app/lib/tenant-admin-invite";
+import { tenantSignInUrl } from "@/app/lib/tenant-portal";
 import {
   createTenant,
   tenantToEditPayload,
@@ -23,12 +29,47 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const input = upsertInputFromBody(body);
+    const adminContact = parseAdminContactFromBody(body.adminContact);
+    if (!adminContact) {
+      return NextResponse.json(
+        { error: "Administrateur requis : prénom, nom et e-mail de la direction." },
+        { status: 400 },
+      );
+    }
+
+    const input = upsertInputFromBody({
+      ...body,
+      billing: {
+        ...(body.billing && typeof body.billing === "object" ? body.billing : {}),
+        status: "active",
+        adminEmail: adminContact.email,
+      },
+    });
+
+    const secretKey = input.secrets?.clerkSecretKey?.trim();
+    if (!secretKey) {
+      return NextResponse.json({ error: "clerkSecretKey requis." }, { status: 400 });
+    }
+
     const tenant = await createTenant(input);
+    await inviteAdminOnTenantClerk(secretKey, adminContact);
+
+    const host =
+      tenant.hostnames.find((h) => h && h !== "localhost") || tenant.hostnames[0] || "localhost";
+    const signInUrl = tenantSignInUrl(tenant, host);
+    void emailTenantSpaceReady({
+      to: adminContact.email,
+      firstName: adminContact.firstName,
+      lastName: adminContact.lastName,
+      establishmentLabel: tenant.label,
+      signInUrl,
+    });
+
     return NextResponse.json({
       success: true,
       tenant: tenantToEditPayload(tenant),
-      message: `Tenant « ${tenant.slug} » créé.`,
+      message: `Tenant « ${tenant.slug} » créé. Invitation envoyée à ${adminContact.email}.`,
+      signInUrl,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Création impossible";
