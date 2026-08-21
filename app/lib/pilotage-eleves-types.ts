@@ -39,6 +39,23 @@ export type PilotageBulletinExtrait = {
   matieres?: PilotageMatiereMoyenne[];
   absencesMention?: string;
   appreciation?: string;
+  travail?: string;
+  comportement?: string;
+};
+
+export type PilotageFlashTone = "alert" | "watch" | "plus" | "info";
+
+export type PilotageFlashPoint = {
+  tone: PilotageFlashTone;
+  titre: string;
+  detail?: string;
+};
+
+export type PilotageNiveauMoyenne = {
+  niveau: string;
+  moyenne: number;
+  periodes: string[];
+  anneeScolaire?: string;
 };
 
 export type PilotageDropSignal = {
@@ -67,8 +84,10 @@ export type PilotageEleveDossier = {
     emptyDossier: boolean;
   };
   drop: PilotageDropSignal;
+  moyennesParNiveau?: PilotageNiveauMoyenne[];
   synthese?: {
-    text: string;
+    text?: string;
+    points?: PilotageFlashPoint[];
     updatedAt: string;
     sources: string[];
   };

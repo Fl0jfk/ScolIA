@@ -41,6 +41,8 @@ export async function POST(req: Request) {
     }
 
     const source = parseSource(String(formData.get("source") ?? "auto").trim());
+    const modeRaw = String(formData.get("mode") ?? "merge").trim().toLowerCase();
+    const mode = modeRaw === "replace" ? "replace" : "merge";
 
     let result;
     if (isExcelFile(file)) {
@@ -65,7 +67,7 @@ export async function POST(req: Request) {
     let finalEleves = result.eleves;
     let mergeStats: ReturnType<typeof mergeElevesLists>["stats"] | undefined;
 
-    if (existing.length > 0) {
+    if (mode === "merge" && existing.length > 0) {
       const merged = mergeElevesLists(existing, result.eleves);
       const validatedMerged = validateElevesJson(merged.eleves);
       if (!validatedMerged.ok) {
@@ -77,15 +79,21 @@ export async function POST(req: Request) {
 
     await saveElevesRegistry(finalEleves);
 
-    const message = mergeStats
-      ? `${mergeStats.added} ajouté(s), ${mergeStats.updated} mis à jour, ${mergeStats.kept} conservé(s) — ${mergeStats.total} élève(s) au total. Pensez à synchroniser les dossiers OneDrive.`
-      : `${finalEleves.length} élève(s) enregistré(s). Pensez à synchroniser les dossiers OneDrive.`;
+    const removed = mode === "replace" ? Math.max(0, existing.length - result.eleves.length) : undefined;
+    const message =
+      mode === "replace"
+        ? `Liste remplacée : ${finalEleves.length} élève(s) (les absents du fichier ne sont plus dans eleves.json). Pensez à synchroniser les dossiers OneDrive.`
+        : mergeStats
+          ? `${mergeStats.added} ajouté(s), ${mergeStats.updated} mis à jour, ${mergeStats.kept} conservé(s) — ${mergeStats.total} élève(s) au total. Pensez à synchroniser les dossiers OneDrive.`
+          : `${finalEleves.length} élève(s) enregistré(s). Pensez à synchroniser les dossiers OneDrive.`;
 
     return NextResponse.json({
       success: true,
       count: finalEleves.length,
       detectedSource: result.detectedSource,
+      mode,
       merge: mergeStats,
+      removed,
       message,
     });
   } catch (error: unknown) {

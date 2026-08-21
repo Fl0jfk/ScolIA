@@ -15,6 +15,7 @@ import {
 import type {
   PilotageEleveDossier,
   PilotageEleveSummary,
+  PilotageFlashPoint,
   PilotageOverview,
   PilotagePiece,
 } from "@/app/lib/pilotage-eleves-types";
@@ -74,6 +75,7 @@ export default function PilotageElevesClient() {
   const [index, setIndex] = useState(0);
   const [fiche, setFiche] = useState<FichePayload | null>(null);
   const [loadingFiche, setLoadingFiche] = useState(false);
+  const [rosterQuery, setRosterQuery] = useState("");
   const [indexing, setIndexing] = useState(false);
   const [syncLabel, setSyncLabel] = useState<string | null>(null);
   const touchX = useRef<number | null>(null);
@@ -118,6 +120,7 @@ export default function PilotageElevesClient() {
   const openClass = async (secteur: Secteur, classeName: string) => {
     setClasse({ secteur, classe: classeName });
     setFiche(null);
+    setRosterQuery("");
     const res = await fetch(
       `/api/pilotage-eleves/classe?secteur=${encodeURIComponent(secteur)}&classe=${encodeURIComponent(classeName)}`,
       { cache: "no-store" },
@@ -125,14 +128,20 @@ export default function PilotageElevesClient() {
     const data = await res.json();
     const eleves = (data.eleves ?? []) as PilotageEleveSummary[];
     setRoster(eleves);
-    setIndex(0);
-    if (eleves[0]) void loadFiche(eleves[0].key);
+    setIndex(-1);
+  };
+
+  const openEleve = (i: number) => {
+    const row = roster[i];
+    if (!row) return;
+    setIndex(i);
+    void loadFiche(row.key);
   };
 
   const go = useCallback(
     (delta: number) => {
       const list = rosterRef.current;
-      if (!list.length) return;
+      if (!list.length || indexRef.current < 0) return;
       const next = Math.max(0, Math.min(list.length - 1, indexRef.current + delta));
       if (next === indexRef.current) return;
       setIndex(next);
@@ -144,7 +153,7 @@ export default function PilotageElevesClient() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!classe) return;
+      if (!classe || indexRef.current < 0) return;
       if (e.key === "ArrowRight") go(1);
       if (e.key === "ArrowLeft") go(-1);
     };
@@ -336,9 +345,11 @@ export default function PilotageElevesClient() {
         <div
           className="space-y-4"
           onTouchStart={(e) => {
+            if (!fiche) return;
             touchX.current = e.changedTouches[0]?.clientX ?? null;
           }}
           onTouchEnd={(e) => {
+            if (!fiche) return;
             const start = touchX.current;
             const end = e.changedTouches[0]?.clientX;
             if (start == null || end == null) return;
@@ -348,43 +359,164 @@ export default function PilotageElevesClient() {
           }}
         >
           <div className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-2xl border border-white/80 bg-white/90 px-3 py-2 shadow-sm backdrop-blur">
-            <ModuleButton variant="secondary" onClick={() => setClasse(null)}>
-              ← Classes
+            <ModuleButton
+              variant="secondary"
+              onClick={() => {
+                if (fiche) {
+                  setFiche(null);
+                  setIndex(-1);
+                  return;
+                }
+                setClasse(null);
+              }}
+            >
+              {fiche ? "← Liste" : "← Classes"}
             </ModuleButton>
             <p className={`text-sm font-semibold ${dash.ink}`}>
               {SECTEUR_LABEL[classe.secteur]} · {classe.classe}
             </p>
-            <p className={`text-sm ${dash.textMid}`}>
-              {roster.length ? `${index + 1} / ${roster.length}` : "0"}
-            </p>
-            <div className="ml-auto flex gap-2">
-              <ModuleButton variant="secondary" onClick={() => go(-1)} disabled={index <= 0}>
-                Précédent
-              </ModuleButton>
-              <ModuleButton variant="secondary" onClick={() => go(1)} disabled={index >= roster.length - 1}>
-                Suivant
-              </ModuleButton>
-            </div>
+            {fiche && current ? (
+              <p className={`text-sm ${dash.textMid}`}>
+                {index + 1} / {roster.length} — {current.nom} {current.prenom}
+              </p>
+            ) : (
+              <p className={`text-sm ${dash.textMid}`}>{roster.length} élèves</p>
+            )}
+            {fiche ? (
+              <div className="ml-auto flex gap-2">
+                <ModuleButton variant="secondary" onClick={() => go(-1)} disabled={index <= 0}>
+                  Précédent
+                </ModuleButton>
+                <ModuleButton variant="secondary" onClick={() => go(1)} disabled={index >= roster.length - 1}>
+                  Suivant
+                </ModuleButton>
+              </div>
+            ) : null}
           </div>
 
-          {loadingFiche ? (
-            <p className={`text-sm ${dash.textMid}`}>Ouverture de la fiche…</p>
-          ) : fiche ? (
-            <FicheView
-              fiche={fiche}
-              canIndex={Boolean(overview?.canIndex)}
-              canWriteNotes={Boolean(overview?.canWriteNotes)}
-              indexing={indexing}
-              onIndex={indexCurrent}
-              od={od}
-            />
+          {!fiche ? (
+            <>
+              {loadingFiche ? (
+                <p className={`text-sm ${dash.textMid}`}>Ouverture de la fiche…</p>
+              ) : null}
+              <RosterView
+                roster={roster}
+                query={rosterQuery}
+                onQuery={setRosterQuery}
+                onOpen={openEleve}
+              />
+            </>
           ) : (
-            <p className={`text-sm ${dash.textMid}`}>Choisissez un élève.</p>
+            <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+              <aside className="hidden max-h-[70vh] overflow-y-auto rounded-2xl border border-white/80 bg-white/90 p-2 lg:block">
+                {roster.map((e, i) => (
+                  <button
+                    key={e.key}
+                    type="button"
+                    onClick={() => openEleve(i)}
+                    className={`mb-0.5 w-full rounded-xl px-2.5 py-1.5 text-left text-sm ${
+                      i === index ? "bg-slate-900 text-white" : "hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className="block truncate font-medium">
+                      {e.nom} {e.prenom}
+                    </span>
+                  </button>
+                ))}
+              </aside>
+              <div className="min-w-0">
+                <div className="mb-3 flex gap-1 overflow-x-auto lg:hidden">
+                  {roster.map((e, i) => (
+                    <button
+                      key={e.key}
+                      type="button"
+                      onClick={() => openEleve(i)}
+                      className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
+                        i === index ? "bg-slate-900 text-white" : "bg-white text-slate-700"
+                      }`}
+                    >
+                      {e.prenom}
+                    </button>
+                  ))}
+                </div>
+                <FicheView
+                  fiche={fiche}
+                  canIndex={Boolean(overview?.canIndex)}
+                  canWriteNotes={Boolean(overview?.canWriteNotes)}
+                  indexing={indexing}
+                  onIndex={indexCurrent}
+                  od={od}
+                />
+              </div>
+            </div>
           )}
         </div>
       )}
     </ModulePageShell>
   );
+}
+
+function RosterView({
+  roster,
+  query,
+  onQuery,
+  onOpen,
+}: {
+  roster: PilotageEleveSummary[];
+  query: string;
+  onQuery: (v: string) => void;
+  onOpen: (i: number) => void;
+}) {
+  const q = query.trim().toLowerCase();
+  const rows = roster
+    .map((e, i) => ({ e, i }))
+    .filter(({ e }) => !q || `${e.nom} ${e.prenom}`.toLowerCase().includes(q));
+
+  return (
+    <div className="space-y-3">
+      <input
+        value={query}
+        onChange={(e) => onQuery(e.target.value)}
+        placeholder="Chercher un élève…"
+        className="w-full max-w-md rounded-2xl border border-white/80 bg-white/90 px-4 py-2.5 text-sm shadow-sm outline-none"
+      />
+      <ul className="overflow-hidden rounded-3xl border border-white/80 bg-white/90 shadow-sm">
+        {rows.map(({ e, i }) => (
+          <li key={e.key} className="border-b border-slate-100 last:border-0">
+            <button
+              type="button"
+              onClick={() => onOpen(i)}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50"
+            >
+              <span>
+                <span className={`block font-semibold ${dash.ink}`}>
+                  {e.nom} {e.prenom}
+                </span>
+                <span className={`text-xs ${dash.textMid}`}>
+                  {e.emptyDossier ? "Dossier non indexé" : e.hasBulletin ? "Bulletins" : "Pas de bulletin"}
+                  {e.hasPapPaiPps ? " · PAP/PAI" : ""}
+                  {typeof e.lastMoyenne === "number" ? ` · ${e.lastMoyenne.toFixed(1)}` : ""}
+                </span>
+              </span>
+              {e.dropSignal ? (
+                <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                  Chute
+                </span>
+              ) : null}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {rows.length === 0 ? <p className={`text-sm ${dash.textMid}`}>Aucun élève.</p> : null}
+    </div>
+  );
+}
+
+function flashClass(tone: PilotageFlashPoint["tone"]): string {
+  if (tone === "alert") return "border-red-200 bg-red-50 text-red-950";
+  if (tone === "watch") return "border-amber-200 bg-amber-50 text-amber-950";
+  if (tone === "plus") return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  return "border-slate-200 bg-slate-50 text-slate-800";
 }
 
 function FicheView({
@@ -404,6 +536,8 @@ function FicheView({
 }) {
   const d = fiche.dossier;
   const bulletins = d?.bulletins ?? [];
+  const niveaux = d?.moyennesParNiveau ?? [];
+  const points = d?.synthese?.points ?? [];
   const [openErr, setOpenErr] = useState<string | null>(null);
 
   const onOpen = async (piece: PilotagePiece) => {
@@ -454,55 +588,76 @@ function FicheView({
       </section>
 
       <section className="rounded-3xl border border-white/80 bg-white/90 p-5 shadow-sm">
-        <h3 className={`mb-3 font-semibold ${dash.ink}`}>Trajectoire des bulletins</h3>
-        {bulletins.length === 0 ? (
+        <h3 className={`mb-3 font-semibold ${dash.ink}`}>En un coup d’œil</h3>
+        {points.length === 0 ? (
           <p className={`text-sm ${dash.textMid}`}>
-            Aucun bulletin extrait. Le secrétariat peut synchroniser le dossier pour relire 4e, 3e, année en
-            cours…
+            Pas encore de points flash — synchronisez le dossier pour croiser les bulletins.
+          </p>
+        ) : (
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {points.map((p, i) => (
+              <li key={`${p.titre}-${i}`} className={`rounded-2xl border px-3 py-2.5 ${flashClass(p.tone)}`}>
+                <p className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                  {p.tone === "alert"
+                    ? "Attention"
+                    : p.tone === "watch"
+                      ? "Vigilance"
+                      : p.tone === "plus"
+                        ? "Point fort"
+                        : "Constat"}
+                </p>
+                <p className="mt-0.5 font-semibold leading-snug">{p.titre}</p>
+                {p.detail ? <p className="mt-1 text-xs leading-relaxed opacity-80">{p.detail}</p> : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="rounded-3xl border border-white/80 bg-white/90 p-5 shadow-sm">
+        <h3 className={`mb-3 font-semibold ${dash.ink}`}>Moyennes d’année</h3>
+        {niveaux.length === 0 && bulletins.length === 0 ? (
+          <p className={`text-sm ${dash.textMid}`}>
+            Aucun bulletin extrait. Le secrétariat peut synchroniser le dossier.
           </p>
         ) : (
           <>
+            {niveaux.length > 0 ? (
+              <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+                {niveaux.map((n) => (
+                  <div key={n.niveau} className="min-w-[120px] shrink-0 rounded-2xl bg-slate-900 px-3 py-2 text-white">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-white/70">{n.niveau}</p>
+                    <p className="text-xl font-semibold">{n.moyenne.toFixed(1)}</p>
+                    <p className="text-[11px] text-white/60">
+                      {n.periodes.length > 1 ? n.periodes.join(" + ") : n.periodes[0] || n.anneeScolaire}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <p className={`mb-2 text-xs ${dash.textMid}`}>Périodes (cliquer pour ouvrir le PDF)</p>
             <div className="flex gap-2 overflow-x-auto pb-2">
-              {bulletins.map((b) => (
-                <div
-                  key={b.pieceId}
-                  className="min-w-[140px] shrink-0 rounded-2xl bg-slate-50 px-3 py-2 text-sm"
-                >
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    {[canonicalClasseLabel(b.classe), b.periode].filter(Boolean).join(" · ") || "Bulletin"}
-                  </p>
-                  <p className={`mt-1 text-lg font-semibold ${dash.ink}`}>
-                    {typeof b.moyenneGenerale === "number" ? b.moyenneGenerale.toFixed(1) : "—"}
-                  </p>
-                  <p className="text-[11px] text-slate-500">{b.anneeScolaire || "année ?"}</p>
-                </div>
-              ))}
-            </div>
-            <ul className="mt-3 space-y-2">
               {bulletins.map((b) => {
                 const piece = d?.pieces.find((p) => p.id === b.pieceId);
                 return (
-                  <li key={`row-${b.pieceId}`}>
-                    <button
-                      type="button"
-                      onClick={() => piece && void onOpen(piece)}
-                      disabled={!piece}
-                      className="w-full rounded-2xl bg-slate-50 px-3 py-2 text-left text-sm transition hover:bg-slate-100 disabled:opacity-60"
-                    >
-                      <p className="font-semibold">
-                        {[b.anneeScolaire, b.periode, canonicalClasseLabel(b.classe)].filter(Boolean).join(" · ") ||
-                          b.sourceName}
-                      </p>
-                      {b.absencesMention ? (
-                        <p className={dash.textMid}>Absences (sur le bulletin) : {b.absencesMention}</p>
-                      ) : null}
-                      {b.appreciation ? <p className={dash.textMid}>{b.appreciation}</p> : null}
-                      <p className={`mt-1 text-[11px] font-semibold ${dash.textPrimary}`}>Ouvrir le PDF →</p>
-                    </button>
-                  </li>
+                  <button
+                    key={b.pieceId}
+                    type="button"
+                    disabled={!piece}
+                    onClick={() => piece && void onOpen(piece)}
+                    className="min-w-[140px] shrink-0 rounded-2xl bg-slate-50 px-3 py-2 text-left text-sm transition hover:bg-slate-100 disabled:opacity-60"
+                  >
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      {[canonicalClasseLabel(b.classe), b.periode].filter(Boolean).join(" · ") || "Bulletin"}
+                    </p>
+                    <p className={`mt-1 text-lg font-semibold ${dash.ink}`}>
+                      {typeof b.moyenneGenerale === "number" ? b.moyenneGenerale.toFixed(1) : "—"}
+                    </p>
+                    <p className="text-[11px] text-slate-500">{b.anneeScolaire || "année ?"}</p>
+                  </button>
                 );
               })}
-            </ul>
+            </div>
           </>
         )}
       </section>
@@ -532,16 +687,9 @@ function FicheView({
         )}
       </section>
 
-      <section className="rounded-3xl border border-white/80 bg-[color:var(--dash-soft-muted)]/40 p-5 shadow-sm">
-        <h3 className={`mb-2 font-semibold ${dash.ink}`}>Lecture documentaire</h3>
-        <p className={`whitespace-pre-wrap text-sm leading-relaxed ${dash.ink}`}>
-          {d?.synthese?.text ||
-            "La synthèse comparera 4e / 3e / année en cours dès que les bulletins seront indexés."}
-        </p>
-        {d?.synthese?.sources?.length ? (
-          <p className={`mt-2 text-xs ${dash.textMid}`}>Sources : {d.synthese.sources.join(" · ")}</p>
-        ) : null}
-      </section>
+      {d?.synthese?.sources?.length ? (
+        <p className={`text-xs ${dash.textMid}`}>Sources : {d.synthese.sources.join(" · ")}</p>
+      ) : null}
 
       {canWriteNotes ? (
         <PilotageDirectionNotes

@@ -3,6 +3,8 @@ import type {
   PilotageDropSignal,
   PilotageEleveDossier,
   PilotageEleveSummary,
+  PilotageFlashPoint,
+  PilotageNiveauMoyenne,
   PilotagePieceKind,
 } from "@/app/lib/pilotage-eleves-types";
 
@@ -274,6 +276,138 @@ export function computeDropSignal(
     from: prev.moyenne,
     to: last.moyenne,
   };
+}
+
+/** 2nde 4 / 2nde A → « 2nde » pour agréger S1+S2 (moyenne d’année). */
+export function niveauScolaireLabel(classe: string | undefined): string | null {
+  const c = fold(classe);
+  const compact = c.replace(/[\s._-]+/g, "");
+  if (/^(ps|tps)\b/.test(c)) return "PS";
+  if (/^ms\b/.test(c)) return "MS";
+  if (/^gs\b/.test(c)) return "GS";
+  if (/^cp\b/.test(c)) return "CP";
+  if (/^ce1\b/.test(c)) return "CE1";
+  if (/^ce2\b/.test(c)) return "CE2";
+  if (/^cm1\b/.test(c)) return "CM1";
+  if (/^cm2\b/.test(c)) return "CM2";
+  if (/^(6e|6eme)/.test(compact)) return "6e";
+  if (/^(5e|5eme)/.test(compact)) return "5e";
+  if (/^(4e|4eme)/.test(compact)) return "4e";
+  if (/^(3e|3eme)/.test(compact)) return "3e";
+  if (/^(2nde|2de|seconde)/.test(compact) || /^2[a-e0-9]/.test(compact)) return "2nde";
+  if (/^(1re|1ere|premiere)/.test(compact) || /^1[a-e]$/.test(compact)) return "1re";
+  if (/^(tle|tale|terminale)/.test(compact) || /^t[a-e]$/.test(compact)) return "Tle";
+  return null;
+}
+
+export function computeNiveauAverages(
+  bulletins: Array<{
+    moyenneGenerale?: number | null;
+    classe?: string;
+    periode?: string;
+    anneeScolaire?: string;
+  }>,
+): PilotageNiveauMoyenne[] {
+  const buckets = new Map<
+    string,
+    { rank: number; sum: number; n: number; periodes: string[]; annee?: string }
+  >();
+  for (const b of bulletins) {
+    if (typeof b.moyenneGenerale !== "number" || !Number.isFinite(b.moyenneGenerale)) continue;
+    const niveau = niveauScolaireLabel(b.classe);
+    if (!niveau) continue;
+    const rank = classProgressRank(b.classe) ?? 0;
+    const cur = buckets.get(niveau) ?? { rank, sum: 0, n: 0, periodes: [], annee: b.anneeScolaire };
+    cur.sum += b.moyenneGenerale;
+    cur.n += 1;
+    if (b.periode && !cur.periodes.includes(b.periode)) cur.periodes.push(b.periode);
+    if (b.anneeScolaire) cur.annee = b.anneeScolaire;
+    buckets.set(niveau, cur);
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => a[1].rank - b[1].rank)
+    .map(([niveau, v]) => ({
+      niveau,
+      moyenne: Math.round((v.sum / v.n) * 10) / 10,
+      periodes: v.periodes,
+      anneeScolaire: v.annee,
+    }));
+}
+
+export function buildDeterministicFlashPoints(d: {
+  flags: PilotageEleveDossier["flags"];
+  drop: PilotageDropSignal;
+  bulletins: PilotageEleveDossier["bulletins"];
+  moyennesParNiveau?: PilotageNiveauMoyenne[];
+}): PilotageFlashPoint[] {
+  const points: PilotageFlashPoint[] = [];
+  const niveaux = d.moyennesParNiveau?.length
+    ? d.moyennesParNiveau
+    : computeNiveauAverages(d.bulletins);
+
+  if (d.flags.emptyDossier) {
+    points.push({
+      tone: "info",
+      titre: "Dossier encore vide",
+      detail: "Pas de pièce indexée — rien à conclure pour le conseil.",
+    });
+    return points;
+  }
+
+  if (niveaux.length >= 2) {
+    const last = niveaux[niveaux.length - 1]!;
+    const prev = niveaux[niveaux.length - 2]!;
+    const delta = last.moyenne - prev.moyenne;
+    if (delta <= -1) {
+      points.push({
+        tone: "alert",
+        titre: `Chute ${prev.niveau} → ${last.niveau}`,
+        detail: `${prev.moyenne.toFixed(1)} puis ${last.moyenne.toFixed(1)} (moyennes d’année).`,
+      });
+    } else if (delta >= 0.8) {
+      points.push({
+        tone: "plus",
+        titre: `Progression ${prev.niveau} → ${last.niveau}`,
+        detail: `${prev.moyenne.toFixed(1)} puis ${last.moyenne.toFixed(1)}.`,
+      });
+    } else {
+      points.push({
+        tone: "info",
+        titre: `Année ${last.niveau} : ${last.moyenne.toFixed(1)}`,
+        detail: `Après ${prev.niveau} à ${prev.moyenne.toFixed(1)}${last.periodes.length > 1 ? ` (${last.periodes.join(" + ")})` : ""}.`,
+      });
+    }
+  } else if (niveaux.length === 1) {
+    const n = niveaux[0]!;
+    points.push({
+      tone: "info",
+      titre: `${n.niveau} : ${n.moyenne.toFixed(1)}`,
+      detail:
+        n.periodes.length > 1
+          ? `Moyenne d’année à partir de ${n.periodes.join(" et ")}.`
+          : "Une seule période chiffrée — pas encore de moyenne d’année.",
+    });
+  }
+
+  if (d.drop.kind === "drop") {
+    points.push({ tone: "alert", titre: "Chute entre périodes", detail: d.drop.detail });
+  }
+
+  if (d.flags.hasPap) points.push({ tone: "watch", titre: "PAP au dossier", detail: "Présence documentaire, sans détail." });
+  if (d.flags.hasPai) points.push({ tone: "watch", titre: "PAI au dossier", detail: "Présence documentaire, sans détail médical." });
+  if (d.flags.hasPps) points.push({ tone: "watch", titre: "PPS au dossier", detail: "Présence documentaire, sans détail." });
+
+  const withAbs = d.bulletins.filter((b) => b.absencesMention && b.absencesMention.length > 8);
+  if (withAbs.length) {
+    const last = withAbs[withAbs.length - 1]!;
+    points.push({
+      tone: "watch",
+      titre: "Absences mentionnées au bulletin",
+      detail: last.absencesMention,
+    });
+  }
+
+  return points.slice(0, 6);
 }
 
 export function summaryFromDossier(d: PilotageEleveDossier): PilotageEleveSummary {

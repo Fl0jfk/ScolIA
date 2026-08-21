@@ -8,7 +8,7 @@ import {
 } from "@/app/lib/pilotage-eleves-access";
 import { appendPilotageAudit, findEleveRow, loadPilotageDossier } from "@/app/lib/pilotage-eleves";
 import { resolveEleveFolderName } from "@/app/lib/eleves-config";
-import { canonicalClasseLabel, computeDropSignal, sortBulletinsChrono } from "@/app/lib/pilotage-eleves-logic";
+import { canonicalClasseLabel, computeDropSignal, computeNiveauAverages, buildDeterministicFlashPoints, sortBulletinsChrono } from "@/app/lib/pilotage-eleves-logic";
 
 type Ctx = { params: Promise<{ key: string }> };
 
@@ -34,6 +34,22 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     classe: row.classe,
   }).catch((e) => console.error("[pilotage] audit:", e));
 
+  const bulletins = dossier ? sortBulletinsChrono(dossier.bulletins) : [];
+  const moyennesParNiveau = dossier
+    ? dossier.moyennesParNiveau ?? computeNiveauAverages(bulletins)
+    : [];
+  const points =
+    dossier?.synthese?.points?.length
+      ? dossier.synthese.points
+      : dossier
+        ? buildDeterministicFlashPoints({
+            flags: dossier.flags,
+            drop: dossier.drop ?? computeDropSignal(bulletins),
+            bulletins,
+            moyennesParNiveau,
+          })
+        : [];
+
   return NextResponse.json({
     eleve: {
       key: row.key,
@@ -47,8 +63,15 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     dossier: dossier
       ? {
           ...dossier,
-          bulletins: sortBulletinsChrono(dossier.bulletins),
-          drop: dossier.drop ?? computeDropSignal(dossier.bulletins),
+          bulletins,
+          moyennesParNiveau,
+          drop: dossier.drop ?? computeDropSignal(bulletins),
+          synthese: {
+            text: dossier.synthese?.text,
+            points,
+            updatedAt: dossier.synthese?.updatedAt ?? "",
+            sources: dossier.synthese?.sources ?? [],
+          },
         }
       : null,
   });

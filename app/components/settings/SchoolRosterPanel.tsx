@@ -22,6 +22,7 @@ export default function SchoolRosterPanel() {
   const [assignments, setAssignments] = useState<Record<string, string>>({});
   const [teacherCatalogText, setTeacherCatalogText] = useState("");
   const [elevesSource, setElevesSource] = useState<"auto" | "pronote" | "ecoledirecte">("auto");
+  const [elevesMode, setElevesMode] = useState<"merge" | "replace">("merge");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -72,6 +73,7 @@ export default function SchoolRosterPanel() {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("source", elevesSource);
+      fd.append("mode", elevesMode);
       const res = await fetch("/api/eleves/import", { method: "POST", body: fd });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Import impossible");
@@ -166,10 +168,14 @@ export default function SchoolRosterPanel() {
       {err ? <SettingsNotice tone="error">{err}</SettingsNotice> : null}
       {msg ? <SettingsNotice tone="ok">{msg}</SettingsNotice> : null}
 
-      <SettingsSection icon="1️⃣" title="Liste des élèves (Excel → eleves.json)" description="Import fusionné : élèves reconnus (INE ou nom + prénom) mis à jour, nouveaux ajoutés, les autres conservés.">
+      <SettingsSection
+        icon="1️⃣"
+        title="Liste des élèves (Excel → eleves.json)"
+        description="Par défaut on fusionne. Pour une rentrée / export Pronote complet, choisissez « Remplacer » : les élèves partis (absents du fichier) sortent de tous les modules, y compris le pilotage."
+      >
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950 space-y-1">
           <p className="font-bold">Colonnes attendues : Nom, Prénom, Classe, INE, Date de naissance, MEF, e-mail élève, e-mails responsables légaux (parent 1 et parent 2).</p>
-          <p>Export Pronote ou École Directe — même logique que l&apos;ancien import Documents IA.</p>
+          <p>Export Pronote ou École Directe — même logique que l&apos;ancien import Documents IA. Pas de date de sortie : si quelqu&apos;un n&apos;est plus dans l&apos;Excel, il ne doit plus être dans eleves.json.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-xs font-semibold text-slate-600">
@@ -184,10 +190,29 @@ export default function SchoolRosterPanel() {
               <option value="ecoledirecte">École Directe</option>
             </select>
           </label>
+          <label className="text-xs font-semibold text-slate-600">
+            Import
+            <select
+              className="ml-2 rounded-lg border px-2 py-1 text-sm"
+              value={elevesMode}
+              onChange={(e) => setElevesMode(e.target.value as typeof elevesMode)}
+            >
+              <option value="merge">Fusionner (ajouter / mettre à jour, garder les autres)</option>
+              <option value="replace">Remplacer toute la liste (ceux qui sont partis disparaissent)</option>
+            </select>
+          </label>
           <button
             type="button"
             disabled={busy}
-            onClick={() => elevesInputRef.current?.click()}
+            onClick={() => {
+              if (elevesMode === "replace") {
+                const ok = window.confirm(
+                  "Remplacer toute la liste élèves ? Ceux qui ne sont pas dans le fichier (ex. élèves partis) disparaîtront du référentiel, du pilotage et des autres modules.",
+                );
+                if (!ok) return;
+              }
+              elevesInputRef.current?.click();
+            }}
             className="rounded-2xl bg-[var(--dash-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             Importer Excel élèves

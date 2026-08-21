@@ -8,8 +8,10 @@ import { oneDrivePathForEleve, resolveEleveSecteur } from "@/app/lib/onedrive-el
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import { runTextractForPdfBytes } from "@/app/lib/ocr-textract";
 import {
+  buildDeterministicFlashPoints,
   classifyPieceKind,
   computeDropSignal,
+  computeNiveauAverages,
   folderNameFromOneDrivePath,
   inferBulletinMetaFromFileName,
   inferSecteurFromOneDrivePath,
@@ -20,6 +22,7 @@ import { loadPilotageDossier, savePilotageDossier } from "@/app/lib/pilotage-ele
 import type {
   PilotageBulletinExtrait,
   PilotageEleveDossier,
+  PilotageFlashPoint,
   PilotagePiece,
 } from "@/app/lib/pilotage-eleves-types";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
@@ -75,7 +78,9 @@ JSON :
   "moyenneGenerale": 12.4 ou null,
   "matieres": [{"matiere": "Maths", "moyenne": 11.2}],
   "absencesMention": "texte du bulletin sur les absences, ou null",
-  "appreciation": "appréciation générale courte, ou null"
+  "appreciation": "appréciation générale courte, ou null",
+  "travail": "ce que disent les profs sur le travail / les devoirs, ou null",
+  "comportement": "ce que disent les profs sur l'attitude / la classe / le bavardage, ou null"
 }
 `);
   const matieresRaw = Array.isArray(json?.matieres) ? json.matieres : [];
@@ -95,19 +100,25 @@ JSON :
       .filter((m) => m.matiere),
     absencesMention: String(json?.absencesMention ?? "").trim() || undefined,
     appreciation: String(json?.appreciation ?? "").trim() || undefined,
+    travail: String(json?.travail ?? "").trim() || undefined,
+    comportement: String(json?.comportement ?? "").trim() || undefined,
   };
 }
 
-async function synthesizeDossier(dossier: PilotageEleveDossier): Promise<{ text: string; sources: string[] }> {
+async function synthesizeDossier(
+  dossier: PilotageEleveDossier,
+): Promise<{ text: string; points: PilotageFlashPoint[]; sources: string[] }> {
   const sources = [
     ...dossier.bulletins.map((b) => b.sourceName),
     ...dossier.pieces.filter((p) => p.kind !== "autre" && p.kind !== "bulletin").map((p) => p.name),
   ];
+  const niveaux = dossier.moyennesParNiveau ?? computeNiveauAverages(dossier.bulletins);
+  const base = buildDeterministicFlashPoints({ ...dossier, moyennesParNiveau: niveaux });
   const payload = {
     identite: `${dossier.nom} ${dossier.prenom}`,
     classe: dossier.classe,
+    moyennesParNiveau: niveaux,
     flags: dossier.flags,
-    drop: dossier.drop,
     bulletins: dossier.bulletins.map((b) => ({
       source: b.sourceName,
       annee: b.anneeScolaire,
@@ -116,30 +127,53 @@ async function synthesizeDossier(dossier: PilotageEleveDossier): Promise<{ text:
       moyenne: b.moyenneGenerale,
       absences: b.absencesMention,
       appreciation: b.appreciation,
+      travail: b.travail,
+      comportement: b.comportement,
     })),
-    pieces: dossier.pieces.map((p) => ({ nom: p.name, type: p.kind })),
   };
   const json = await mistralJson(`
-Tu aides un chef d'établissement pour un conseil de classe.
-Source UNIQUE : le JSON ci-dessous (documents officiels classés).
-Interdits : inventer une moyenne, une absence, un PAP/PAI, un jugement médical.
-Si une année / un trimestre manque, dis-le clairement.
-Un PAI/PAP/PPS n'est mentionné QUE comme présence documentaire, sans détail de santé.
-Les absences ne sont celles imprimées sur un bulletin.
-
-Compare les années si plusieurs bulletins existent (ex. 4e → 3e → 2nde) : trajectoire des moyennes, pas seulement le dernier trimestre.
-Si un seul bulletin : dis que l'historique est trop court.
+Tu prépares un briefing conseil de classe. PAS un résumé du bulletin.
+Tu croises les périodes (ex. S1 + S2 de 2nde → moyenne d'année 2nde) et les années (4e → 3e → 2nde).
+Tu sors des POINTS FLASH (max 8), visuels, 1 titre court + 1 détail.
+Tones : alert (problème), watch (vigilance), plus (point fort), info (constat).
+Interdits : inventer une moyenne, une absence, un PAP, un jugement médical, un comportement non écrit.
+Si les profs parlent de bavardage / travail / avance, dis-le. Sinon n'invente pas « parle trop ».
+Si l'historique est court, un point info suffit.
 
 JSON :
 ${JSON.stringify(payload).slice(0, 12000)}
 
-Réponds JSON : { "texte": "synthèse en 8 à 14 lignes, français, sobre, sourcée, avec trajectoire si possible." }
+Réponds JSON :
+{ "points": [ { "tone": "alert|watch|plus|info", "titre": "max 8 mots", "detail": "une phrase sourcée" } ] }
 `);
-  const text = String(json?.texte ?? json?.text ?? "").trim();
+  const raw = Array.isArray(json?.points) ? json.points : [];
+  const extra: PilotageFlashPoint[] = raw
+    .map((row) => {
+      const p = row as Record<string, unknown>;
+      const toneRaw = String(p.tone ?? "info");
+      const tone: PilotageFlashPoint["tone"] =
+        toneRaw === "alert" || toneRaw === "watch" || toneRaw === "plus" || toneRaw === "info"
+          ? toneRaw
+          : "info";
+      return {
+        tone,
+        titre: String(p.titre ?? "").trim(),
+        detail: String(p.detail ?? "").trim() || undefined,
+      } satisfies PilotageFlashPoint;
+    })
+    .filter((p) => p.titre);
+  const seen = new Set(base.map((p) => p.titre.toLowerCase()));
+  const merged = [...base];
+  for (const p of extra) {
+    const k = p.titre.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(p);
+    if (merged.length >= 10) break;
+  }
   return {
-    text:
-      text ||
-      "Dossier documentaire incomplet : la synthèse sera affinée à chaque nouveau document classé.",
+    text: merged.map((p) => `• ${p.titre}`).join("\n"),
+    points: merged.slice(0, 10),
     sources: [...new Set(sources)].slice(0, 20),
   };
 }
@@ -247,12 +281,18 @@ export async function refreshPilotageEleveDossier(params: {
     bulletins,
     flags: applyFlags(pieces),
     drop: computeDropSignal(bulletins),
+    moyennesParNiveau: computeNiveauAverages(bulletins),
     lastIndexedAt: new Date().toISOString(),
   };
 
   try {
     const syn = await synthesizeDossier(dossier);
-    dossier.synthese = { text: syn.text, updatedAt: new Date().toISOString(), sources: syn.sources };
+    dossier.synthese = {
+      text: syn.text,
+      points: syn.points,
+      updatedAt: new Date().toISOString(),
+      sources: syn.sources,
+    };
   } catch (e) {
     console.warn("[pilotage] synthese", e);
     dossier.synthese = existing?.synthese;

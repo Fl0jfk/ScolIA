@@ -67,7 +67,8 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
           "OBLIGATOIRE : la ligne 1 = en-têtes. Sans elle, l'import échoue.",
           "Pronote : Scolarité → Exports → liste des élèves (Excel).",
           "École Directe : export liste élèves — réorganisez les colonnes pour suivre l'ordre ci-dessous.",
-          "Fusion : le fichier Excel s'ajoute à eleves.json. Chaque élève reconnu (INE ou nom + prénom) est mis à jour (classe, MEF, e-mails) ; les nouveaux sont ajoutés ; ceux absents du fichier restent dans la liste.",
+          "Fusion : le fichier s'ajoute à eleves.json (mises à jour + nouveaux). Les absents du fichier restent.",
+          "Remplacer : la liste Excel devient la vérité. Les élèves partis (plus dans le fichier) sortent du référentiel et du pilotage.",
         ],
         excelPreview: {
           columns: [
