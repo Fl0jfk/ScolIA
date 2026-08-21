@@ -17,7 +17,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     title: "Élèves",
     href: "/eleves",
     description: "",
-    moduleIds: ["travels", "internat", "stages", "certificates"],
+    moduleIds: ["pilotage-eleves", "travels", "internat", "stages", "certificates"],
   },
   {
     id: "rh",

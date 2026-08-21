@@ -426,6 +426,19 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "pilotage-eleves",
+    pathPrefixes: ["/pilotage-eleves", "/api/pilotage-eleves"],
+    allowedRoles: [...DIRECTIONS, "administratif"],
+    dashboard: {
+      id: 41,
+      name: "Pilotage élèves",
+      img: "",
+      link: "/pilotage-eleves",
+      external: false,
+      description: "Aide documentaire au conseil de classe — dossiers classés, pas la vie scolaire live",
+    },
+  },
+  {
     id: "internat",
     pathPrefixes: ["/gestion-internat", "/api/internat"],
     allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe"],

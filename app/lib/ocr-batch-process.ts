@@ -21,6 +21,7 @@ import {
   ocrHasExtraFluxes,
   type OcrUserCapabilities,
 } from "@/app/lib/ocr-flux";
+import { schedulePilotageDossierRefresh } from "@/app/lib/pilotage-eleves-analyze";
 import { resolveOcrCapabilitiesForClerkUserServer, resolveOneDriveProfileForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
 import type { KnownStudent } from "@/app/lib/ocr-segmentation";
 import { extractPdfPagesBytes, getPdfPageCountFromS3 } from "@/app/lib/ocr-extract-pages";
@@ -612,6 +613,14 @@ async function analyzeAndMove(
     destination: `${ai.oneDriveFolderPath}/${move.finalFileName}`,
   });
   const oneDriveItemPath = `${ai.oneDriveFolderPath}/${move.finalFileName}`;
+  if (typeof ai.oneDriveFolderPath === "string") {
+    schedulePilotageDossierRefresh({
+      accessToken: ctx.token,
+      folderPath: ai.oneDriveFolderPath,
+      folderName: (ai as { matchedEleve?: { folderName?: string } }).matchedEleve?.folderName,
+      secteur: ctx.odProfile?.secteur ?? null,
+    });
+  }
   return { success: true, result: { ...ai, oneDriveItemPath }, fileName: displayName };
 }
 
@@ -726,6 +735,14 @@ async function analyzeAndFileSegment(
     destination: upload.path,
     fileName: upload.fileName,
   });
+  if (typeof ai.oneDriveFolderPath === "string") {
+    schedulePilotageDossierRefresh({
+      accessToken: ctx.token,
+      folderPath: ai.oneDriveFolderPath,
+      folderName: (ai as { matchedEleve?: { folderName?: string } }).matchedEleve?.folderName,
+      secteur: ctx.odProfile?.secteur ?? null,
+    });
+  }
   return {
     success: true,
     result: { ...ai, oneDriveItemPath: upload.path, oneDriveFinalFileName: upload.fileName },

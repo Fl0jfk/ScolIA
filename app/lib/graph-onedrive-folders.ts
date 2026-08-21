@@ -21,6 +21,61 @@ export async function listChildFolderNames(accessToken: string, folderPath: stri
   return names;
 }
 
+export type OneDriveFileChild = {
+  id: string;
+  name: string;
+  eTag?: string;
+  size?: number;
+  lastModifiedDateTime?: string;
+};
+
+/** Fichiers (pas dossiers) à la racine d'un chemin OneDrive. */
+export async function listChildFiles(
+  accessToken: string,
+  folderPath: string,
+): Promise<OneDriveFileChild[]> {
+  const out: OneDriveFileChild[] = [];
+  let url: string | undefined = graphDriveRootItemUrl(
+    folderPath,
+    "/children?$select=id,name,file,eTag,size,lastModifiedDateTime&$top=200",
+  );
+  while (url) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) break;
+    const data = (await res.json()) as {
+      value?: Array<Record<string, unknown>>;
+      "@odata.nextLink"?: string;
+    };
+    for (const item of data.value ?? []) {
+      if (item.file && item.name) {
+        out.push({
+          id: String(item.id ?? ""),
+          name: String(item.name),
+          eTag: item.eTag ? String(item.eTag) : undefined,
+          size: typeof item.size === "number" ? item.size : undefined,
+          lastModifiedDateTime: item.lastModifiedDateTime
+            ? String(item.lastModifiedDateTime)
+            : undefined,
+        });
+      }
+    }
+    url = data["@odata.nextLink"];
+  }
+  return out;
+}
+
+export async function downloadOneDriveFileBytes(
+  accessToken: string,
+  filePath: string,
+): Promise<Uint8Array | null> {
+  const res = await fetch(graphDriveRootItemUrl(filePath, "/content"), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) return null;
+  const buf = new Uint8Array(await res.arrayBuffer());
+  return buf;
+}
+
 /** Crée un dossier enfant sous parentPath s'il n'existe pas. */
 export async function ensureChildFolder(
   accessToken: string,

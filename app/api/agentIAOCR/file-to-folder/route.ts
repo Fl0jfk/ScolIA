@@ -9,6 +9,7 @@ import {
 } from "@/app/lib/ocr-batch-merge";
 import { deleteOneDrivePath, uploadBytesToOneDriveUnique } from "@/app/lib/ocr-graph-ops";
 import { ensureFolderPath } from "@/app/lib/graph-onedrive-folders";
+import { schedulePilotageDossierRefresh } from "@/app/lib/pilotage-eleves-analyze";
 
 export const maxDuration = 60;
 
@@ -259,6 +260,12 @@ export async function POST(req: Request) {
   if (sourcePath && sourcePath !== item.tempPath && !remPaths.has(sourcePath)) {
     void deleteOneDrivePath(accessToken, sourcePath);
   }
+
+  schedulePilotageDossierRefresh({
+    accessToken,
+    folderPath: targetFolderPath,
+    folderName: String(body.candidate?.folderName ?? "").trim() || undefined,
+  });
 
   return NextResponse.json({
     success: true,

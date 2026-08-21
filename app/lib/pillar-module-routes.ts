@@ -4,6 +4,7 @@ import type { DashboardPillarId } from "@/app/lib/dashboard-pillars";
 const PILLAR_MODULE_HREF: Record<string, string> = {
   travels: "/travels",
   internat: "/gestion-internat",
+  "pilotage-eleves": "/pilotage-eleves",
   stages: "/stages",
   "agent-ia-ocr": "/agentIAOCR",
   certificates: "/certificates",
@@ -34,6 +35,7 @@ const PILLAR_TAB_TO_MODULE: Record<
   eleves: {
     travels: "travels",
     internat: "internat",
+    pilotage: "pilotage-eleves",
     stages: "stages",
     ocr: "agent-ia-ocr",
     certificates: "certificates",
@@ -83,6 +85,7 @@ export function resolveLegacyPillarTab(
 export const MODULE_EMOJI: Record<string, string> = {
   travels: "🚌",
   internat: "🌙",
+  "pilotage-eleves": "📒",
   stages: "📝",
   "agent-ia-ocr": "📄",
   certificates: "🏅",
