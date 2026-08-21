@@ -2,53 +2,62 @@ import "server-only";
 
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
-import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 import {
-  hasGlobalAdminRole,
   hasMasterRole,
-  hasRole,
+  normRole,
 } from "@/app/lib/intranet-role-utils";
 import { elevesSecteursFromCapabilities } from "@/app/lib/ocr-flux";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import { resolveOcrCapabilitiesForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 
-const ALL_SECTEURS: Secteur[] = ["ecole", "college", "lycee"];
+const DIRECTION_SECTEUR_ROLES: Array<{ role: string; secteur: Secteur }> = [
+  { role: "direction_ecole", secteur: "ecole" },
+  { role: "direction_college", secteur: "college" },
+  { role: "direction_lycee", secteur: "lycee" },
+];
+
+function hasExactRole(roles: string[], slug: string): boolean {
+  const want = normRole(slug);
+  return roles.some((r) => normRole(r) === want);
+}
+
+export function directionSecteursFromRoles(roles: string[]): Secteur[] {
+  return DIRECTION_SECTEUR_ROLES.filter((row) => hasExactRole(roles, row.role)).map((row) => row.secteur);
+}
 
 export function isPilotageDirectionRole(roles: string[]): boolean {
-  return (
-    hasRole(roles, "direction_ecole") ||
-    hasRole(roles, "direction_college") ||
-    hasRole(roles, "direction_lycee") ||
-    isAnyDirectionRole(roles)
-  );
+  return directionSecteursFromRoles(roles).length > 0;
 }
 
+export function isPilotageAdministratif(roles: string[]): boolean {
+  return hasExactRole(roles, "administratif");
+}
+
+/** Tuile + routes : uniquement direction d’un cycle ou secrétariat. Pas prof, CPE, admin nu, « direction » générique. */
 export function canAccessPilotageModule(roles: string[]): boolean {
-  if (hasGlobalAdminRole(roles) || hasMasterRole(roles)) return true;
-  if (hasRole(roles, "administratif")) return true;
-  return isPilotageDirectionRole(roles);
-}
-
-function secteursFromDirectionRoles(roles: string[]): Secteur[] {
-  const out: Secteur[] = [];
-  if (hasRole(roles, "direction_ecole")) out.push("ecole");
-  if (hasRole(roles, "direction_college")) out.push("college");
-  if (hasRole(roles, "direction_lycee")) out.push("lycee");
-  return out;
+  if (hasMasterRole(roles)) return true;
+  return isPilotageAdministratif(roles) || isPilotageDirectionRole(roles);
 }
 
 export async function resolvePilotageSecteursForRoles(
   roles: string[],
   userId: string,
 ): Promise<Secteur[]> {
-  if (hasGlobalAdminRole(roles) || hasMasterRole(roles)) return [...ALL_SECTEURS];
-
-  const fromDirection = secteursFromDirectionRoles(roles);
-  if (fromDirection.length > 0) return fromDirection;
+  void userId;
+  const fromDirection = directionSecteursFromRoles(roles);
 
   const user = await safeCurrentUser();
+  if (isPilotageAdministratif(roles) && user) {
+    const caps = await resolveOcrCapabilitiesForClerkUserServer(user);
+    const fromOcr = elevesSecteursFromCapabilities(caps);
+    if (fromOcr.length) return fromOcr;
+    if (!fromDirection.length) return [];
+  }
+
+  if (fromDirection.length > 0) return fromDirection;
+
   if (user?.id) {
     const assigned = getActiveEstablishments((await loadAppConfig()).establishments)
       .filter((e) => e.directorClerkUserId === user.id)
@@ -57,30 +66,19 @@ export async function resolvePilotageSecteursForRoles(
     if (assigned.length) return [...new Set(assigned)];
   }
 
-  if (hasRole(roles, "administratif") || isAnyDirectionRole(roles)) {
-    const clerkUser = await safeCurrentUser();
-    if (clerkUser) {
-      const caps = await resolveOcrCapabilitiesForClerkUserServer(clerkUser);
-      const fromOcr = elevesSecteursFromCapabilities(caps);
-      if (fromOcr.length) return fromOcr;
-    }
-    if (hasRole(roles, "administratif")) return [...ALL_SECTEURS];
-  }
-
-  void userId;
-  return fromDirection;
+  return [];
 }
 
+/** Notes de classeur : direction du cycle uniquement — jamais le secrétariat. */
 export function canSeePilotageNotes(roles: string[]): boolean {
+  if (isPilotageAdministratif(roles)) return false;
   return isPilotageDirectionRole(roles);
 }
 
-/** Notes : direction seulement (pas le secrétariat seul). */
 export function canWritePilotageNotes(roles: string[]): boolean {
-  return isPilotageDirectionRole(roles);
+  return canSeePilotageNotes(roles);
 }
 
 export function canIndexPilotage(roles: string[]): boolean {
-  if (hasGlobalAdminRole(roles) || hasMasterRole(roles)) return true;
-  return hasRole(roles, "administratif");
+  return isPilotageAdministratif(roles);
 }

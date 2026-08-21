@@ -17,6 +17,11 @@ export type PilotagePiece = {
   kind: PilotagePieceKind;
   lastModifiedDateTime?: string;
   size?: number;
+  /** Chemin OneDrive secrétariat (indexation). */
+  path?: string;
+  /** Lien de consultation (partage organisation, créé à l’indexation). */
+  shareUrl?: string;
+  webUrl?: string;
 };
 
 export type PilotageMatiereMoyenne = {
@@ -98,7 +103,14 @@ export type PilotageClassOverview = {
 
 export type PilotageOverview = {
   secteurs: Secteur[];
-  classes: Array<{ secteur: Secteur; classe: string; count: number; alerts: number }>;
+  classes: Array<{
+    secteur: Secteur;
+    classe: string;
+    count: number;
+    alerts: number;
+    missingBulletin: number;
+    drops: number;
+  }>;
   canWriteNotes: boolean;
   canIndex: boolean;
 };

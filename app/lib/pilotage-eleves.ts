@@ -3,11 +3,14 @@ import "server-only";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { resolveEleveFolderName, type EleveConfig } from "@/app/lib/eleves-config";
 import { loadMefSecteurMap } from "@/app/lib/mef-secteurs";
-import { resolveEleveSecteur } from "@/app/lib/onedrive-eleves";
+import { inferSecteurFromFolderName, resolveEleveSecteur } from "@/app/lib/onedrive-eleves";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import {
+  canonicalClasseLabel,
+  compareClassesForSort,
   dossierS3Key,
   indexS3Key,
+  inferSecteurFromClasseLabel,
   slugPilotageKey,
   summaryFromDossier,
 } from "@/app/lib/pilotage-eleves-logic";
@@ -57,12 +60,20 @@ export async function listElevesForSecteurs(secteurs: Secteur[]): Promise<
   const allowed = new Set(secteurs);
   const out: Array<EleveConfig & { secteur: Secteur; key: string }> = [];
   for (const e of all) {
-    const secteur = resolveEleveSecteur(e, mefMap);
+    const secteur =
+      resolveEleveSecteur(e, mefMap) ||
+      inferSecteurFromClasseLabel(e.classe) ||
+      inferSecteurFromFolderName(e.folderName);
     if (!secteur || !allowed.has(secteur)) continue;
-    out.push({ ...e, secteur, key: elevePilotageKey(e) });
+    out.push({
+      ...e,
+      secteur,
+      key: elevePilotageKey(e),
+      classe: canonicalClasseLabel(e.classe),
+    });
   }
   return out.sort((a, b) => {
-    const c = (a.classe ?? "").localeCompare(b.classe ?? "", "fr", { sensitivity: "base" });
+    const c = compareClassesForSort(a.classe ?? "", b.classe ?? "");
     if (c !== 0) return c;
     return `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" });
   });
@@ -73,7 +84,7 @@ function emptySummary(row: EleveConfig & { secteur: Secteur; key: string }): Pil
     key: row.key,
     nom: row.nom,
     prenom: row.prenom,
-    classe: row.classe ?? "",
+    classe: canonicalClasseLabel(row.classe),
     folderName: resolveEleveFolderName(row),
     emptyDossier: true,
     hasBulletin: false,
@@ -92,15 +103,27 @@ export async function buildPilotageOverview(
     indexes.set(s, await loadPilotageIndex(s));
   }
 
-  const byClass = new Map<string, { secteur: Secteur; classe: string; count: number; alerts: number }>();
+  const byClass = new Map<
+    string,
+    { secteur: Secteur; classe: string; count: number; alerts: number; missingBulletin: number; drops: number }
+  >();
   for (const e of eleves) {
-    const classe = (e.classe ?? "").trim() || "Sans classe";
+    const classe = canonicalClasseLabel(e.classe);
     const k = `${e.secteur}::${classe}`;
     const indexed = indexes.get(e.secteur)?.eleves[e.key];
     const summary = indexed ?? emptySummary(e);
-    const cur = byClass.get(k) ?? { secteur: e.secteur, classe, count: 0, alerts: 0 };
+    const cur = byClass.get(k) ?? {
+      secteur: e.secteur,
+      classe,
+      count: 0,
+      alerts: 0,
+      missingBulletin: 0,
+      drops: 0,
+    };
     cur.count += 1;
     if (summary.dropSignal || summary.emptyDossier) cur.alerts += 1;
+    if (!summary.hasBulletin) cur.missingBulletin += 1;
+    if (summary.dropSignal) cur.drops += 1;
     byClass.set(k, cur);
   }
 
@@ -109,7 +132,7 @@ export async function buildPilotageOverview(
     classes: [...byClass.values()].sort((a, b) => {
       const s = a.secteur.localeCompare(b.secteur);
       if (s !== 0) return s;
-      return a.classe.localeCompare(b.classe, "fr", { sensitivity: "base" });
+      return compareClassesForSort(a.classe, b.classe);
     }),
     canWriteNotes: opts.canWriteNotes,
     canIndex: opts.canIndex,
@@ -123,14 +146,10 @@ export async function listClassRoster(
 ): Promise<PilotageEleveSummary[]> {
   if (!allowed.includes(secteur)) return [];
   const eleves = await listElevesForSecteurs([secteur]);
-  const wanted = classe.trim().toLowerCase();
+  const wanted = canonicalClasseLabel(classe);
   const index = await loadPilotageIndex(secteur);
   return eleves
-    .filter((e) => {
-      const c = (e.classe ?? "").trim();
-      if (wanted === "sans classe") return !c;
-      return c.toLowerCase() === wanted;
-    })
+    .filter((e) => canonicalClasseLabel(e.classe) === wanted)
     .map((e) => index.eleves[e.key] ?? emptySummary(e));
 }
 

@@ -8,7 +8,7 @@ import {
 } from "@/app/lib/pilotage-eleves-access";
 import { appendPilotageAudit, findEleveRow, loadPilotageDossier } from "@/app/lib/pilotage-eleves";
 import { resolveEleveFolderName } from "@/app/lib/eleves-config";
-import { computeDropSignal } from "@/app/lib/pilotage-eleves-logic";
+import { canonicalClasseLabel, computeDropSignal, sortBulletinsChrono } from "@/app/lib/pilotage-eleves-logic";
 
 type Ctx = { params: Promise<{ key: string }> };
 
@@ -39,13 +39,17 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       key: row.key,
       nom: row.nom,
       prenom: row.prenom,
-      classe: row.classe ?? "",
+      classe: canonicalClasseLabel(row.classe),
       folderName: resolveEleveFolderName(row),
       secteur: row.secteur as Secteur,
       ine: row.ine || undefined,
     },
     dossier: dossier
-      ? { ...dossier, drop: dossier.drop ?? computeDropSignal(dossier.bulletins) }
+      ? {
+          ...dossier,
+          bulletins: sortBulletinsChrono(dossier.bulletins),
+          drop: dossier.drop ?? computeDropSignal(dossier.bulletins),
+        }
       : null,
   });
 }

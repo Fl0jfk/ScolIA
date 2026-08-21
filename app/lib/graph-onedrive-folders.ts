@@ -27,6 +27,7 @@ export type OneDriveFileChild = {
   eTag?: string;
   size?: number;
   lastModifiedDateTime?: string;
+  webUrl?: string;
 };
 
 /** Fichiers (pas dossiers) à la racine d'un chemin OneDrive. */
@@ -37,7 +38,7 @@ export async function listChildFiles(
   const out: OneDriveFileChild[] = [];
   let url: string | undefined = graphDriveRootItemUrl(
     folderPath,
-    "/children?$select=id,name,file,eTag,size,lastModifiedDateTime&$top=200",
+    "/children?$select=id,name,file,eTag,size,lastModifiedDateTime,webUrl&$top=200",
   );
   while (url) {
     const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -56,12 +57,32 @@ export async function listChildFiles(
           lastModifiedDateTime: item.lastModifiedDateTime
             ? String(item.lastModifiedDateTime)
             : undefined,
+          webUrl: item.webUrl ? String(item.webUrl) : undefined,
         });
       }
     }
     url = data["@odata.nextLink"];
   }
   return out;
+}
+
+/** Lien de lecture pour les collègues du tenant (direction, même org Microsoft). */
+export async function createOrganizationViewLink(
+  accessToken: string,
+  itemId: string,
+): Promise<string | null> {
+  if (!itemId) return null;
+  const res = await fetch(`${GRAPH_API_BASE}/me/drive/items/${encodeURIComponent(itemId)}/createLink`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ type: "view", scope: "organization" }),
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { link?: { webUrl?: string } };
+  return data.link?.webUrl?.trim() || null;
 }
 
 export async function downloadOneDriveFileBytes(

@@ -8,7 +8,7 @@
  * ═══════════════════════════════════════════════════════════════════
  */
 
-import { hasGlobalAdminRole, hasMasterRole, hasRole, isEleveOnlyRoleSet } from "./intranet-role-utils";
+import { hasGlobalAdminRole, hasMasterRole, hasRole, isEleveOnlyRoleSet, normRole } from "./intranet-role-utils";
 import { INTRANET_DIRECTION_SLUGS, intranetRolesExceptParent, rolesFromUserLike } from "./intranet-roles";
 import { RGPD_MODULE_ROLES } from "./rgpd-access";
 
@@ -428,7 +428,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "pilotage-eleves",
     pathPrefixes: ["/pilotage-eleves", "/api/pilotage-eleves"],
-    allowedRoles: [...DIRECTIONS, "administratif"],
+    allowedRoles: ["direction_ecole", "direction_college", "direction_lycee", "administratif"],
     dashboard: {
       id: 41,
       name: "Pilotage élèves",
@@ -616,6 +616,12 @@ export function rolesAllowModule(
   isOrgAdmin: boolean,
 ): boolean {
   if (hasMasterRole(roles)) return true;
+  if (module.id === "pilotage-eleves") {
+    const allowed = new Set(
+      ["direction_ecole", "direction_college", "direction_lycee", "administratif"].map(normRole),
+    );
+    return roles.some((r) => allowed.has(normRole(r)));
+  }
   if (module.orgAdminOnly) return isOrgAdmin;
   if (hasGlobalAdminRole(roles)) return true;
   if (!module.allowedRoles.length) return false;

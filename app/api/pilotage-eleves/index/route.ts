@@ -11,7 +11,7 @@ import {
   canIndexPilotage,
   resolvePilotageSecteursForRoles,
 } from "@/app/lib/pilotage-eleves-access";
-import { findEleveRow, listClassRoster } from "@/app/lib/pilotage-eleves";
+import { findEleveRow, listClassRoster, listElevesForSecteurs } from "@/app/lib/pilotage-eleves";
 import { refreshPilotageEleveDossier } from "@/app/lib/pilotage-eleves-analyze";
 
 export const maxDuration = 120;
@@ -43,6 +43,47 @@ export async function POST(req: NextRequest) {
   const key = String(body.key ?? "").trim();
   const classe = String(body.classe ?? "").trim();
   const secteurParam = String(body.secteur ?? "").trim() as Secteur | "";
+  const syncAll = Boolean(body.syncAll);
+
+  if (syncAll && secteurParam) {
+    if (!allowed.includes(secteurParam)) {
+      return NextResponse.json({ error: "Secteur non autorisé." }, { status: 403 });
+    }
+    if (ocrSecteurs.length && !ocrSecteurs.includes(secteurParam)) {
+      return NextResponse.json({ error: "Ce compte OCR n’alimente pas cet établissement." }, { status: 403 });
+    }
+    const basePath = basePathFor(secteurParam);
+    if (!basePath) {
+      return NextResponse.json({ error: "Profil OneDrive manquant." }, { status: 400 });
+    }
+    const all = await listElevesForSecteurs([secteurParam]);
+    const offset = Math.max(0, Number(body.offset) || 0);
+    const limit = Math.min(8, Math.max(1, Number(body.limit) || 6));
+    const slice = all.slice(offset, offset + limit);
+    let ok = 0;
+    let fail = 0;
+    for (const e of slice) {
+      const folderPath = oneDrivePathForEleve(basePath, resolveEleveFolderName(e));
+      const result = await refreshPilotageEleveDossier({
+        accessToken,
+        folderPath,
+        folderName: resolveEleveFolderName(e),
+        secteur: secteurParam,
+      });
+      if (result.ok) ok += 1;
+      else fail += 1;
+    }
+    const nextOffset = offset + slice.length;
+    return NextResponse.json({
+      ok: true,
+      indexed: ok,
+      failed: fail,
+      offset,
+      nextOffset,
+      total: all.length,
+      done: nextOffset >= all.length,
+    });
+  }
 
   if (key) {
     const row = await findEleveRow(key, allowed);
