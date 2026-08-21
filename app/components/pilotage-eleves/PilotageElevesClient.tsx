@@ -10,14 +10,17 @@ import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import { useOneDriveConnection } from "@/app/hooks/useOneDriveConnection";
 import {
   canonicalClasseLabel,
+  niveauScolaireLabel,
   PIECE_KIND_LABEL,
+  PILOTAGE_SIGNAL_META,
 } from "@/app/lib/pilotage-eleves-logic";
 import type {
   PilotageEleveDossier,
   PilotageEleveSummary,
-  PilotageFlashPoint,
+  PilotageMood,
   PilotageOverview,
   PilotagePiece,
+  PilotageSignal,
 } from "@/app/lib/pilotage-eleves-types";
 
 const SECTEUR_LABEL: Record<Secteur, string> = {
@@ -327,11 +330,9 @@ export default function PilotageElevesClient() {
                         : "Bulletins présents"}
                       {c.drops > 0 ? ` · ${c.drops} chute${c.drops > 1 ? "s" : ""}` : ""}
                     </p>
-                    {c.drops > 0 ? (
-                      <span className="mt-3 inline-flex rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
-                        À regarder
-                      </span>
-                    ) : null}
+                    <span className="mt-3 inline-flex text-lg" title={c.drops > 0 ? "Dossiers à regarder" : "RAS sur les chutes"}>
+                      {c.drops > 0 ? "⚠️" : c.missingBulletin === 0 ? "☀️" : "📄"}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -418,8 +419,11 @@ export default function PilotageElevesClient() {
                       i === index ? "bg-slate-900 text-white" : "hover:bg-slate-50"
                     }`}
                   >
-                    <span className="block truncate font-medium">
+                    <span className="flex items-center justify-between gap-2">
+                    <span className={`block min-w-0 truncate font-medium ${moodPrenomClass(e.mood, i === index)}`}>
                       {e.nom} {e.prenom}
+                    </span>
+                      <SignalIcons signals={e.signals} size="sm" />
                     </span>
                   </button>
                 ))}
@@ -436,6 +440,7 @@ export default function PilotageElevesClient() {
                       }`}
                     >
                       {e.prenom}
+                      {e.signals?.[0] ? ` ${PILOTAGE_SIGNAL_META[e.signals[0].id].emoji}` : ""}
                     </button>
                   ))}
                 </div>
@@ -488,21 +493,33 @@ function RosterView({
               onClick={() => onOpen(i)}
               className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50"
             >
-              <span>
-                <span className={`block font-semibold ${dash.ink}`}>
+              <span className="min-w-0">
+                <span className={`block font-semibold ${moodPrenomClass(e.mood)}`}>
                   {e.nom} {e.prenom}
                 </span>
                 <span className={`text-xs ${dash.textMid}`}>
-                  {e.emptyDossier ? "Dossier non indexé" : e.hasBulletin ? "Bulletins" : "Pas de bulletin"}
-                  {e.hasPapPaiPps ? " · PAP/PAI" : ""}
-                  {typeof e.lastMoyenne === "number" ? ` · ${e.lastMoyenne.toFixed(1)}` : ""}
+                  {e.emptyDossier
+                    ? "Dossier non indexé"
+                    : typeof e.moyenneRecente === "number"
+                      ? `${e.moyenneNiveau || "Moyenne"} ${e.moyenneRecente.toFixed(1)}`
+                      : e.hasBulletin
+                        ? "Bulletins sans moyenne"
+                        : "Pas de bulletin"}
                 </span>
               </span>
-              {e.dropSignal ? (
-                <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
-                  Chute
-                </span>
-              ) : null}
+              <span className="flex shrink-0 items-center gap-2">
+                {e.signals?.length ? (
+                  <SignalIcons signals={e.signals} size="md" />
+                ) : e.emptyDossier ? (
+                  <span className="text-lg" title="Dossier vide">
+                    📄
+                  </span>
+                ) : (
+                  <span className="text-lg" title="RAS">
+                    ☀️
+                  </span>
+                )}
+              </span>
             </button>
           </li>
         ))}
@@ -512,11 +529,54 @@ function RosterView({
   );
 }
 
-function flashClass(tone: PilotageFlashPoint["tone"]): string {
-  if (tone === "alert") return "border-red-200 bg-red-50 text-red-950";
-  if (tone === "watch") return "border-amber-200 bg-amber-50 text-amber-950";
-  if (tone === "plus") return "border-emerald-200 bg-emerald-50 text-emerald-950";
-  return "border-slate-200 bg-slate-50 text-slate-800";
+function moodPrenomClass(mood?: PilotageMood, inverted = false): string {
+  if (inverted) {
+    if (mood === "plus") return "text-emerald-200";
+    if (mood === "alert") return "text-red-200";
+    if (mood === "watch") return "text-amber-200";
+    return "text-white";
+  }
+  if (mood === "plus") return "text-emerald-600";
+  if (mood === "alert") return "text-red-700";
+  if (mood === "watch") return "text-amber-700";
+  return dash.ink;
+}
+
+function SignalIcons({
+  signals,
+  size = "md",
+}: {
+  signals?: PilotageSignal[];
+  size?: "sm" | "md" | "lg";
+}) {
+  if (!signals?.length) return null;
+  const box =
+    size === "lg" ? "h-12 w-12 text-2xl" : size === "sm" ? "h-7 w-7 text-sm" : "h-10 w-10 text-lg";
+  return (
+    <span className="inline-flex items-center gap-1">
+      {signals.map((s) => {
+        const meta = PILOTAGE_SIGNAL_META[s.id];
+        const tone =
+          meta.tone === "plus"
+            ? "bg-emerald-50"
+            : meta.tone === "alert"
+              ? "bg-red-50"
+              : meta.tone === "watch"
+                ? "bg-amber-50"
+                : "bg-slate-100";
+        return (
+          <span
+            key={s.id}
+            title={`${meta.label} — ${meta.hint}`}
+            className={`inline-flex items-center justify-center rounded-full ${box} ${tone}`}
+          >
+            <span aria-hidden>{meta.emoji}</span>
+            <span className="sr-only">{meta.label}</span>
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 function FicheView({
@@ -537,7 +597,8 @@ function FicheView({
   const d = fiche.dossier;
   const bulletins = d?.bulletins ?? [];
   const niveaux = d?.moyennesParNiveau ?? [];
-  const points = d?.synthese?.points ?? [];
+  const signals = d?.synthese?.signals ?? [];
+  const mood = d?.synthese?.mood;
   const [openErr, setOpenErr] = useState<string | null>(null);
 
   const onOpen = async (piece: PilotagePiece) => {
@@ -556,25 +617,51 @@ function FicheView({
         <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${dash.textMid}`}>
           {canonicalClasseLabel(fiche.eleve.classe)}
         </p>
-        <h2 className={`mt-1 text-2xl font-semibold tracking-tight ${dash.ink}`}>
-          {fiche.eleve.nom} {fiche.eleve.prenom}
-        </h2>
-        <p className={`mt-1 text-sm ${dash.textMid}`}>
-          Documents officiels du dossier élève — pas Charlemagne / École Directe
-        </p>
-        {d?.drop ? (
+        <div className="mt-1 flex flex-wrap items-center gap-3">
+          <h2 className={`text-2xl font-semibold tracking-tight ${moodPrenomClass(mood)}`}>
+            {fiche.eleve.nom} {fiche.eleve.prenom}
+          </h2>
+          <SignalIcons signals={signals} size="lg" />
+        </div>
+        {mood === "plus" ? (
+          <p className="mt-1 text-sm font-medium text-emerald-700">
+            Plutôt positif sur l’année récente.
+          </p>
+        ) : mood === "alert" ? (
+          <p className="mt-1 text-sm font-medium text-red-700">Dossier à regarder de près.</p>
+        ) : mood === "watch" ? (
+          <p className="mt-1 text-sm font-medium text-amber-700">Points de vigilance (année récente).</p>
+        ) : (
+          <p className={`mt-1 text-sm ${dash.textMid}`}>
+            Documents officiels du dossier élève — pas Charlemagne / École Directe
+          </p>
+        )}
+        {signals.length > 0 ? (
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {signals.map((s) => {
+              const meta = PILOTAGE_SIGNAL_META[s.id];
+              return (
+                <li
+                  key={s.id}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700"
+                >
+                  <span aria-hidden>{meta.emoji}</span>
+                  {meta.label}
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+        {d?.drop && (d.drop.kind === "drop" || d.drop.kind === "expected_cycle") ? (
           <p
             className={`mt-3 rounded-2xl px-3 py-2 text-sm ${
-              d.drop.kind === "drop" ? "bg-red-50 text-red-800" : "bg-slate-50 text-slate-700"
+              d.drop.kind === "drop" ? "bg-red-50 text-red-800" : "bg-amber-50 text-amber-900"
             }`}
           >
             {d.drop.detail}
           </p>
         ) : null}
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {d?.flags.hasPap ? <Flag>PAP</Flag> : null}
-          {d?.flags.hasPai ? <Flag>PAI</Flag> : null}
-          {d?.flags.hasPps ? <Flag>PPS</Flag> : null}
           {!d || d.pieces.length === 0 ? <Flag muted>Dossier non indexé</Flag> : null}
         </div>
         {canIndex ? (
@@ -588,34 +675,22 @@ function FicheView({
       </section>
 
       <section className="rounded-3xl border border-white/80 bg-white/90 p-5 shadow-sm">
-        <h3 className={`mb-3 font-semibold ${dash.ink}`}>En un coup d’œil</h3>
-        {points.length === 0 ? (
-          <p className={`text-sm ${dash.textMid}`}>
-            Pas encore de points flash — synchronisez le dossier pour croiser les bulletins.
-          </p>
-        ) : (
-          <ul className="grid gap-2 sm:grid-cols-2">
-            {points.map((p, i) => (
-              <li key={`${p.titre}-${i}`} className={`rounded-2xl border px-3 py-2.5 ${flashClass(p.tone)}`}>
-                <p className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
-                  {p.tone === "alert"
-                    ? "Attention"
-                    : p.tone === "watch"
-                      ? "Vigilance"
-                      : p.tone === "plus"
-                        ? "Point fort"
-                        : "Constat"}
-                </p>
-                <p className="mt-0.5 font-semibold leading-snug">{p.titre}</p>
-                {p.detail ? <p className="mt-1 text-xs leading-relaxed opacity-80">{p.detail}</p> : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="rounded-3xl border border-white/80 bg-white/90 p-5 shadow-sm">
-        <h3 className={`mb-3 font-semibold ${dash.ink}`}>Moyennes d’année</h3>
+        <h3 className={`mb-1 font-semibold ${dash.ink}`}>Année en cours et précédente</h3>
+        <p className={`mb-3 text-xs ${dash.textMid}`}>
+          Pas les années plus anciennes — trop loin pour le conseil.
+        </p>
+        {(() => {
+          const current = niveauScolaireLabel(fiche.eleve.classe);
+          const hasCurrent = current ? niveaux.some((n) => n.niveau === current) : true;
+          if (current && !hasCurrent && niveaux.length > 0) {
+            return (
+              <p className="mb-3 rounded-2xl bg-sky-50 px-3 py-2 text-sm text-sky-950">
+                Pas encore de bulletin {current} — lecture sur {niveaux[niveaux.length - 1]!.niveau}.
+              </p>
+            );
+          }
+          return null;
+        })()}
         {niveaux.length === 0 && bulletins.length === 0 ? (
           <p className={`text-sm ${dash.textMid}`}>
             Aucun bulletin extrait. Le secrétariat peut synchroniser le dossier.

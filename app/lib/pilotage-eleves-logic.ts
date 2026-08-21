@@ -4,9 +4,91 @@ import type {
   PilotageEleveDossier,
   PilotageEleveSummary,
   PilotageFlashPoint,
+  PilotageMood,
   PilotageNiveauMoyenne,
   PilotagePieceKind,
+  PilotageSignal,
+  PilotageSignalId,
 } from "@/app/lib/pilotage-eleves-types";
+
+/** Ordre scolaire pour « année en cours / année précédente » (3e avant 2nde, pas 4e). */
+export const NIVEAU_PATH = [
+  "PS",
+  "MS",
+  "GS",
+  "CP",
+  "CE1",
+  "CE2",
+  "CM1",
+  "CM2",
+  "6e",
+  "5e",
+  "4e",
+  "3e",
+  "2nde",
+  "1re",
+  "Tle",
+] as const;
+
+export const PILOTAGE_SIGNAL_META: Record<
+  PilotageSignalId,
+  { emoji: string; label: string; hint: string; tone: "plus" | "watch" | "alert" | "info" }
+> = {
+  sun: {
+    emoji: "☀️",
+    label: "Tout va bien",
+    hint: "Rien de préoccupant sur l’année en cours / précédente.",
+    tone: "plus",
+  },
+  participate: {
+    emoji: "✋",
+    label: "Participe",
+    hint: "Implication / participation active mentionnée au bulletin.",
+    tone: "plus",
+  },
+  rise: {
+    emoji: "📈",
+    label: "Progression",
+    hint: "Moyenne en hausse sur l’année récente.",
+    tone: "plus",
+  },
+  chat: {
+    emoji: "💬",
+    label: "Bavardage",
+    hint: "Tendance à bavarder mentionnée au bulletin.",
+    tone: "watch",
+  },
+  late: {
+    emoji: "⏰",
+    label: "Retards",
+    hint: "Retards mentionnés au bulletin.",
+    tone: "watch",
+  },
+  absent: {
+    emoji: "🚪",
+    label: "Absences",
+    hint: "Absences / assiduité mentionnées au bulletin.",
+    tone: "watch",
+  },
+  work: {
+    emoji: "📓",
+    label: "Travail",
+    hint: "Travail / devoirs à suivre.",
+    tone: "watch",
+  },
+  drop: {
+    emoji: "📉",
+    label: "Chute",
+    hint: "Baisse nette sur l’année récente.",
+    tone: "alert",
+  },
+  pap: {
+    emoji: "📎",
+    label: "PAP/PAI",
+    hint: "Pièce d’aménagement au dossier.",
+    tone: "info",
+  },
+};
 
 export function slugPilotageKey(ine: string | undefined, folderName: string): string {
   const ineKey = String(ine ?? "")
@@ -334,16 +416,227 @@ export function computeNiveauAverages(
     }));
 }
 
+export function previousNiveauLabel(niveau: string): string | null {
+  const i = (NIVEAU_PATH as readonly string[]).indexOf(niveau);
+  return i > 0 ? NIVEAU_PATH[i - 1]! : null;
+}
+
+/**
+ * Année en cours (classe actuelle) + année précédente uniquement.
+ * 2nde sans bulletin → 3e, pas 4e.
+ */
+export function recentNiveauxForEleve(
+  classeActuelle: string | undefined,
+  niveaux: PilotageNiveauMoyenne[],
+): PilotageNiveauMoyenne[] {
+  if (!niveaux.length) return [];
+  const byLabel = new Map(niveaux.map((n) => [n.niveau, n]));
+  const current = niveauScolaireLabel(classeActuelle);
+  const pick: PilotageNiveauMoyenne[] = [];
+
+  if (current) {
+    const here = byLabel.get(current);
+    if (here) pick.push(here);
+    const prev = previousNiveauLabel(current);
+    if (prev) {
+      const prevHit = byLabel.get(prev);
+      if (prevHit) pick.push(prevHit);
+    }
+    if (pick.length === 0) {
+      const currentRank = classProgressRank(current) ?? 99;
+      const below = [...niveaux]
+        .filter((n) => (classProgressRank(n.niveau) ?? 0) <= currentRank)
+        .sort((a, b) => (classProgressRank(a.niveau) ?? 0) - (classProgressRank(b.niveau) ?? 0));
+      if (below.length) pick.push(below[below.length - 1]!);
+    }
+  } else {
+    const sorted = [...niveaux].sort(
+      (a, b) => (classProgressRank(a.niveau) ?? 0) - (classProgressRank(b.niveau) ?? 0),
+    );
+    pick.push(...sorted.slice(-2));
+  }
+
+  const seen = new Set<string>();
+  return pick
+    .filter((n) => {
+      if (seen.has(n.niveau)) return false;
+      seen.add(n.niveau);
+      return true;
+    })
+    .sort((a, b) => (classProgressRank(a.niveau) ?? 0) - (classProgressRank(b.niveau) ?? 0));
+}
+
+export function recentNiveauLabels(
+  classeActuelle: string | undefined,
+  niveaux: PilotageNiveauMoyenne[],
+): Set<string> {
+  const recent = recentNiveauxForEleve(classeActuelle, niveaux);
+  const labels = new Set(recent.map((n) => n.niveau));
+  const current = niveauScolaireLabel(classeActuelle);
+  if (current) {
+    labels.add(current);
+    const prev = previousNiveauLabel(current);
+    if (prev) labels.add(prev);
+  }
+  return labels;
+}
+
+export function filterRecentBulletins<
+  T extends { classe?: string },
+>(
+  bulletins: T[],
+  classeActuelle: string | undefined,
+  niveaux?: PilotageNiveauMoyenne[],
+): T[] {
+  const allNiv = niveaux ?? computeNiveauAverages(
+    bulletins as Array<{ moyenneGenerale?: number | null; classe?: string; periode?: string; anneeScolaire?: string }>,
+  );
+  const allowed = recentNiveauLabels(classeActuelle, allNiv);
+  return bulletins.filter((b) => {
+    const n = niveauScolaireLabel(b.classe);
+    return n != null && allowed.has(n);
+  });
+}
+
+function bulletinHaystack(b: {
+  appreciation?: string;
+  travail?: string;
+  comportement?: string;
+  absencesMention?: string;
+}): string {
+  return fold([b.appreciation, b.travail, b.comportement, b.absencesMention].filter(Boolean).join(" \n "));
+}
+
+export function detectBehaviorSignals(
+  bulletins: Array<{
+    appreciation?: string;
+    travail?: string;
+    comportement?: string;
+    absencesMention?: string;
+  }>,
+): PilotageSignalId[] {
+  const h = bulletinHaystack({
+    appreciation: bulletins.map((b) => b.appreciation).filter(Boolean).join(" "),
+    travail: bulletins.map((b) => b.travail).filter(Boolean).join(" "),
+    comportement: bulletins.map((b) => b.comportement).filter(Boolean).join(" "),
+    absencesMention: bulletins.map((b) => b.absencesMention).filter(Boolean).join(" "),
+  });
+  const ids: PilotageSignalId[] = [];
+  if (/absent|assiduit|manque d['’ ]?assid|nombreuses absences/.test(h)) ids.push("absent");
+  if (/\bretard/.test(h)) ids.push("late");
+  if (/bavard|parle trop|trop parle|bavardage|volubil|trop de discussion/.test(h)) ids.push("chat");
+  if (/devoirs? (non|pas )|travail insuffisant|manque de travail|ne travaille pas|investit peu/.test(h)) {
+    ids.push("work");
+  }
+  if (
+    /particip|s['’]?implique|implication|volontaire|dynamique|actif(ve)? en classe|bon investissement/.test(h)
+  ) {
+    ids.push("participate");
+  }
+  return ids;
+}
+
+const SIGNAL_PRIORITY: PilotageSignalId[] = [
+  "drop",
+  "absent",
+  "late",
+  "chat",
+  "work",
+  "pap",
+  "rise",
+  "participate",
+  "sun",
+];
+
+export function signalFromId(id: PilotageSignalId): PilotageSignal {
+  return { id, label: PILOTAGE_SIGNAL_META[id].label };
+}
+
+export function moodFromSignals(signals: PilotageSignal[]): PilotageMood {
+  const ids = new Set(signals.map((s) => s.id));
+  if (ids.has("drop")) return "alert";
+  if (ids.has("absent") || ids.has("late") || ids.has("chat") || ids.has("work")) return "watch";
+  if (ids.has("sun") || ids.has("participate") || ids.has("rise")) return "plus";
+  return "neutral";
+}
+
+export function buildEleveSignals(d: {
+  flags: PilotageEleveDossier["flags"];
+  drop: PilotageDropSignal;
+  bulletins: PilotageEleveDossier["bulletins"];
+  niveaux: PilotageNiveauMoyenne[];
+  extraIds?: PilotageSignalId[];
+}): PilotageSignal[] {
+  const ids = new Set<PilotageSignalId>();
+  if (d.flags.emptyDossier) return [];
+
+  if (d.drop.kind === "drop") ids.add("drop");
+  if (d.flags.hasPap || d.flags.hasPai || d.flags.hasPps) ids.add("pap");
+  for (const id of detectBehaviorSignals(d.bulletins)) ids.add(id);
+  for (const id of d.extraIds ?? []) ids.add(id);
+
+  if (d.niveaux.length >= 2) {
+    const last = d.niveaux[d.niveaux.length - 1]!;
+    const prev = d.niveaux[d.niveaux.length - 2]!;
+    const delta = last.moyenne - prev.moyenne;
+    if (delta >= 0.8) ids.add("rise");
+    if (delta <= -1) ids.add("drop");
+  }
+
+  const negative = ids.has("drop") || ids.has("absent") || ids.has("late") || ids.has("chat") || ids.has("work");
+  if (!negative && d.bulletins.length > 0) ids.add("sun");
+  if (ids.has("sun") && negative) ids.delete("sun");
+
+  return SIGNAL_PRIORITY.filter((id) => ids.has(id))
+    .slice(0, 4)
+    .map(signalFromId);
+}
+
+export function focusDossierOnRecentYears(d: {
+  classe?: string;
+  flags: PilotageEleveDossier["flags"];
+  bulletins: PilotageEleveDossier["bulletins"];
+  moyennesParNiveau?: PilotageNiveauMoyenne[];
+  extraSignalIds?: PilotageSignalId[];
+}): {
+  allNiveaux: PilotageNiveauMoyenne[];
+  niveaux: PilotageNiveauMoyenne[];
+  bulletins: PilotageEleveDossier["bulletins"];
+  drop: PilotageDropSignal;
+  signals: PilotageSignal[];
+  mood: PilotageMood;
+} {
+  const allNiveaux = d.moyennesParNiveau?.length
+    ? d.moyennesParNiveau
+    : computeNiveauAverages(d.bulletins);
+  const niveaux = recentNiveauxForEleve(d.classe, allNiveaux);
+  const bulletins = filterRecentBulletins(d.bulletins, d.classe, allNiveaux);
+  const drop = computeDropSignal(bulletins);
+  const signals = buildEleveSignals({
+    flags: d.flags,
+    drop,
+    bulletins,
+    niveaux,
+    extraIds: d.extraSignalIds,
+  });
+  return { allNiveaux, niveaux, bulletins, drop, signals, mood: moodFromSignals(signals) };
+}
+
 export function buildDeterministicFlashPoints(d: {
   flags: PilotageEleveDossier["flags"];
   drop: PilotageDropSignal;
   bulletins: PilotageEleveDossier["bulletins"];
   moyennesParNiveau?: PilotageNiveauMoyenne[];
+  classe?: string;
 }): PilotageFlashPoint[] {
+  const focus = focusDossierOnRecentYears({
+    classe: d.classe,
+    flags: d.flags,
+    bulletins: d.bulletins,
+    moyennesParNiveau: d.moyennesParNiveau,
+  });
   const points: PilotageFlashPoint[] = [];
-  const niveaux = d.moyennesParNiveau?.length
-    ? d.moyennesParNiveau
-    : computeNiveauAverages(d.bulletins);
+  const niveaux = focus.niveaux;
 
   if (d.flags.emptyDossier) {
     points.push({
@@ -370,12 +663,6 @@ export function buildDeterministicFlashPoints(d: {
         titre: `Progression ${prev.niveau} → ${last.niveau}`,
         detail: `${prev.moyenne.toFixed(1)} puis ${last.moyenne.toFixed(1)}.`,
       });
-    } else {
-      points.push({
-        tone: "info",
-        titre: `Année ${last.niveau} : ${last.moyenne.toFixed(1)}`,
-        detail: `Après ${prev.niveau} à ${prev.moyenne.toFixed(1)}${last.periodes.length > 1 ? ` (${last.periodes.join(" + ")})` : ""}.`,
-      });
     }
   } else if (niveaux.length === 1) {
     const n = niveaux[0]!;
@@ -384,34 +671,33 @@ export function buildDeterministicFlashPoints(d: {
       titre: `${n.niveau} : ${n.moyenne.toFixed(1)}`,
       detail:
         n.periodes.length > 1
-          ? `Moyenne d’année à partir de ${n.periodes.join(" et ")}.`
-          : "Une seule période chiffrée — pas encore de moyenne d’année.",
+          ? `Moyenne d’année (${n.periodes.join(" + ")}).`
+          : "Une seule période chiffrée.",
     });
   }
 
-  if (d.drop.kind === "drop") {
-    points.push({ tone: "alert", titre: "Chute entre périodes", detail: d.drop.detail });
+  if (focus.drop.kind === "drop") {
+    points.push({ tone: "alert", titre: "Chute récente", detail: focus.drop.detail });
   }
 
-  if (d.flags.hasPap) points.push({ tone: "watch", titre: "PAP au dossier", detail: "Présence documentaire, sans détail." });
-  if (d.flags.hasPai) points.push({ tone: "watch", titre: "PAI au dossier", detail: "Présence documentaire, sans détail médical." });
-  if (d.flags.hasPps) points.push({ tone: "watch", titre: "PPS au dossier", detail: "Présence documentaire, sans détail." });
-
-  const withAbs = d.bulletins.filter((b) => b.absencesMention && b.absencesMention.length > 8);
-  if (withAbs.length) {
-    const last = withAbs[withAbs.length - 1]!;
-    points.push({
-      tone: "watch",
-      titre: "Absences mentionnées au bulletin",
-      detail: last.absencesMention,
-    });
-  }
-
-  return points.slice(0, 6);
+  return points.slice(0, 3);
 }
 
 export function summaryFromDossier(d: PilotageEleveDossier): PilotageEleveSummary {
-  const last = [...sortBulletinsChrono(d.bulletins)].reverse().find((b) => typeof b.moyenneGenerale === "number");
+  const focus = focusDossierOnRecentYears({
+    classe: d.classe,
+    flags: d.flags,
+    bulletins: d.bulletins,
+    moyennesParNiveau: d.moyennesParNiveau,
+    extraSignalIds: undefined,
+  });
+  const currentLabel = niveauScolaireLabel(d.classe);
+  const display =
+    (currentLabel ? focus.niveaux.find((n) => n.niveau === currentLabel) : undefined) ??
+    focus.niveaux[focus.niveaux.length - 1];
+  const last = [...sortBulletinsChrono(focus.bulletins)]
+    .reverse()
+    .find((b) => typeof b.moyenneGenerale === "number");
   return {
     key: d.key,
     nom: d.nom,
@@ -421,9 +707,15 @@ export function summaryFromDossier(d: PilotageEleveDossier): PilotageEleveSummar
     emptyDossier: d.flags.emptyDossier || d.pieces.length === 0,
     hasBulletin: d.bulletins.length > 0 || d.pieces.some((p) => p.kind === "bulletin"),
     hasPapPaiPps: d.flags.hasPap || d.flags.hasPai || d.flags.hasPps,
-    dropSignal: d.drop.kind === "drop",
-    lastMoyenne: last?.moyenneGenerale ?? null,
-    lastPeriode: [last?.periode, last?.anneeScolaire].filter(Boolean).join(" ") || undefined,
+    dropSignal: focus.drop.kind === "drop",
+    lastMoyenne: display?.moyenne ?? last?.moyenneGenerale ?? null,
+    lastPeriode: display
+      ? [display.niveau, display.periodes.join("+") || display.anneeScolaire].filter(Boolean).join(" ")
+      : undefined,
+    moyenneRecente: display?.moyenne ?? last?.moyenneGenerale ?? null,
+    moyenneNiveau: display?.niveau ?? niveauScolaireLabel(last?.classe) ?? undefined,
+    mood: focus.mood,
+    signals: focus.signals,
   };
 }
 

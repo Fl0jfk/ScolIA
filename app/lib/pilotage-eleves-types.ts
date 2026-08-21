@@ -45,6 +45,24 @@ export type PilotageBulletinExtrait = {
 
 export type PilotageFlashTone = "alert" | "watch" | "plus" | "info";
 
+export type PilotageSignalId =
+  | "sun"
+  | "participate"
+  | "rise"
+  | "chat"
+  | "late"
+  | "absent"
+  | "work"
+  | "drop"
+  | "pap";
+
+export type PilotageMood = "plus" | "watch" | "alert" | "neutral";
+
+export type PilotageSignal = {
+  id: PilotageSignalId;
+  label: string;
+};
+
 export type PilotageFlashPoint = {
   tone: PilotageFlashTone;
   titre: string;
@@ -88,6 +106,8 @@ export type PilotageEleveDossier = {
   synthese?: {
     text?: string;
     points?: PilotageFlashPoint[];
+    signals?: PilotageSignal[];
+    mood?: PilotageMood;
     updatedAt: string;
     sources: string[];
   };
@@ -106,6 +126,10 @@ export type PilotageEleveSummary = {
   dropSignal: boolean;
   lastMoyenne?: number | null;
   lastPeriode?: string;
+  moyenneRecente?: number | null;
+  moyenneNiveau?: string;
+  mood?: PilotageMood;
+  signals?: PilotageSignal[];
 };
 
 export type PilotageSecteurIndex = {

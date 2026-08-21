@@ -8,7 +8,7 @@ import {
 } from "@/app/lib/pilotage-eleves-access";
 import { appendPilotageAudit, findEleveRow, loadPilotageDossier } from "@/app/lib/pilotage-eleves";
 import { resolveEleveFolderName } from "@/app/lib/eleves-config";
-import { canonicalClasseLabel, computeDropSignal, computeNiveauAverages, buildDeterministicFlashPoints, sortBulletinsChrono } from "@/app/lib/pilotage-eleves-logic";
+import { canonicalClasseLabel, computeDropSignal, computeNiveauAverages, buildDeterministicFlashPoints, focusDossierOnRecentYears, sortBulletinsChrono } from "@/app/lib/pilotage-eleves-logic";
 
 type Ctx = { params: Promise<{ key: string }> };
 
@@ -34,19 +34,29 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     classe: row.classe,
   }).catch((e) => console.error("[pilotage] audit:", e));
 
-  const bulletins = dossier ? sortBulletinsChrono(dossier.bulletins) : [];
-  const moyennesParNiveau = dossier
-    ? dossier.moyennesParNiveau ?? computeNiveauAverages(bulletins)
+  const bulletinsAll = dossier ? sortBulletinsChrono(dossier.bulletins) : [];
+  const allNiveaux = dossier
+    ? dossier.moyennesParNiveau ?? computeNiveauAverages(bulletinsAll)
     : [];
+  const focus = dossier
+    ? focusDossierOnRecentYears({
+        classe: row.classe || dossier.classe,
+        flags: dossier.flags,
+        bulletins: bulletinsAll,
+        moyennesParNiveau: allNiveaux,
+        extraSignalIds: dossier.synthese?.signals?.map((s) => s.id),
+      })
+    : null;
   const points =
     dossier?.synthese?.points?.length
-      ? dossier.synthese.points
-      : dossier
+      ? dossier.synthese.points.slice(0, 3)
+      : dossier && focus
         ? buildDeterministicFlashPoints({
             flags: dossier.flags,
-            drop: dossier.drop ?? computeDropSignal(bulletins),
-            bulletins,
-            moyennesParNiveau,
+            drop: focus.drop,
+            bulletins: focus.bulletins,
+            moyennesParNiveau: focus.niveaux,
+            classe: row.classe,
           })
         : [];
 
@@ -63,12 +73,15 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     dossier: dossier
       ? {
           ...dossier,
-          bulletins,
-          moyennesParNiveau,
-          drop: dossier.drop ?? computeDropSignal(bulletins),
+          classe: row.classe || dossier.classe,
+          bulletins: focus?.bulletins ?? bulletinsAll,
+          moyennesParNiveau: focus?.niveaux ?? allNiveaux,
+          drop: focus?.drop ?? dossier.drop ?? computeDropSignal(bulletinsAll),
           synthese: {
             text: dossier.synthese?.text,
             points,
+            signals: focus?.signals ?? dossier.synthese?.signals ?? [],
+            mood: focus?.mood ?? dossier.synthese?.mood,
             updatedAt: dossier.synthese?.updatedAt ?? "",
             sources: dossier.synthese?.sources ?? [],
           },

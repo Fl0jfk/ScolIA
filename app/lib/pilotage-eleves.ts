@@ -90,6 +90,8 @@ function emptySummary(row: EleveConfig & { secteur: Secteur; key: string }): Pil
     hasBulletin: false,
     hasPapPaiPps: false,
     dropSignal: false,
+    mood: "neutral",
+    signals: [],
   };
 }
 
@@ -148,9 +150,19 @@ export async function listClassRoster(
   const eleves = await listElevesForSecteurs([secteur]);
   const wanted = canonicalClasseLabel(classe);
   const index = await loadPilotageIndex(secteur);
-  return eleves
-    .filter((e) => canonicalClasseLabel(e.classe) === wanted)
-    .map((e) => index.eleves[e.key] ?? emptySummary(e));
+  const rows = eleves.filter((e) => canonicalClasseLabel(e.classe) === wanted);
+  return Promise.all(
+    rows.map(async (e) => {
+      const dossier = await loadPilotageDossier(secteur, e.key);
+      if (!dossier) return index.eleves[e.key] ?? emptySummary(e);
+      return summaryFromDossier({
+        ...dossier,
+        nom: e.nom,
+        prenom: e.prenom,
+        classe: e.classe,
+      });
+    }),
+  );
 }
 
 export async function findEleveRow(

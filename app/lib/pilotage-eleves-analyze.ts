@@ -12,9 +12,12 @@ import {
   classifyPieceKind,
   computeDropSignal,
   computeNiveauAverages,
+  filterRecentBulletins,
+  focusDossierOnRecentYears,
   folderNameFromOneDrivePath,
   inferBulletinMetaFromFileName,
   inferSecteurFromOneDrivePath,
+  recentNiveauxForEleve,
   slugPilotageKey,
   sortBulletinsChrono,
 } from "@/app/lib/pilotage-eleves-logic";
@@ -24,6 +27,7 @@ import type {
   PilotageEleveDossier,
   PilotageFlashPoint,
   PilotagePiece,
+  PilotageSignalId,
 } from "@/app/lib/pilotage-eleves-types";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 
@@ -105,21 +109,61 @@ JSON :
   };
 }
 
+const SIGNAL_IDS: PilotageSignalId[] = [
+  "sun",
+  "participate",
+  "rise",
+  "chat",
+  "late",
+  "absent",
+  "work",
+  "drop",
+  "pap",
+];
+
+function parseSignalIds(raw: unknown): PilotageSignalId[] {
+  if (!Array.isArray(raw)) return [];
+  const allowed = new Set<string>(SIGNAL_IDS);
+  const out: PilotageSignalId[] = [];
+  for (const row of raw) {
+    const id = String(row ?? "").trim();
+    if (!allowed.has(id)) continue;
+    if (out.includes(id as PilotageSignalId)) continue;
+    out.push(id as PilotageSignalId);
+  }
+  return out;
+}
+
 async function synthesizeDossier(
   dossier: PilotageEleveDossier,
-): Promise<{ text: string; points: PilotageFlashPoint[]; sources: string[] }> {
+): Promise<{
+  text: string;
+  points: PilotageFlashPoint[];
+  signals: ReturnType<typeof focusDossierOnRecentYears>["signals"];
+  mood: ReturnType<typeof focusDossierOnRecentYears>["mood"];
+  sources: string[];
+}> {
   const sources = [
     ...dossier.bulletins.map((b) => b.sourceName),
     ...dossier.pieces.filter((p) => p.kind !== "autre" && p.kind !== "bulletin").map((p) => p.name),
   ];
-  const niveaux = dossier.moyennesParNiveau ?? computeNiveauAverages(dossier.bulletins);
-  const base = buildDeterministicFlashPoints({ ...dossier, moyennesParNiveau: niveaux });
+  const allNiveaux = dossier.moyennesParNiveau ?? computeNiveauAverages(dossier.bulletins);
+  const niveaux = recentNiveauxForEleve(dossier.classe, allNiveaux);
+  const recentBulletins = filterRecentBulletins(dossier.bulletins, dossier.classe, allNiveaux);
+  const base = buildDeterministicFlashPoints({
+    ...dossier,
+    bulletins: recentBulletins,
+    moyennesParNiveau: niveaux,
+    classe: dossier.classe,
+  });
   const payload = {
     identite: `${dossier.nom} ${dossier.prenom}`,
-    classe: dossier.classe,
+    classeActuelle: dossier.classe,
+    priorite:
+      "Uniquement année en cours + année précédente. Ex. élève en 2nde sans bulletin 2nde → 3e, pas 4e.",
     moyennesParNiveau: niveaux,
     flags: dossier.flags,
-    bulletins: dossier.bulletins.map((b) => ({
+    bulletins: recentBulletins.map((b) => ({
       source: b.sourceName,
       annee: b.anneeScolaire,
       periode: b.periode,
@@ -133,19 +177,32 @@ async function synthesizeDossier(
   };
   const json = await mistralJson(`
 Tu prépares un briefing conseil de classe. PAS un résumé du bulletin.
-Tu croises les périodes (ex. S1 + S2 de 2nde → moyenne d'année 2nde) et les années (4e → 3e → 2nde).
-Tu sors des POINTS FLASH (max 8), visuels, 1 titre court + 1 détail.
-Tones : alert (problème), watch (vigilance), plus (point fort), info (constat).
-Interdits : inventer une moyenne, une absence, un PAP, un jugement médical, un comportement non écrit.
-Si les profs parlent de bavardage / travail / avance, dis-le. Sinon n'invente pas « parle trop ».
-Si l'historique est court, un point info suffit.
+Priorité ABSOLUE : année en cours puis année précédente seulement.
+Si l'élève entre en 2nde et n'a pas encore de bulletin 2nde, base-toi sur la 3e — ignore la 4e.
+Tu sors des icônes (liste fermée) + éventuellement 3 points max.
+icons possibles : sun, participate, rise, chat, late, absent, work, drop, pap
+- chat = bavardage écrit par un prof
+- late = retards écrits
+- absent = absences / assiduité
+- participate = implication / participation active écrite
+- work = travail / devoirs insuffisants
+- sun = rien de préoccupant
+N'invente rien. Si ce n'est pas écrit, ne mets pas l'icône.
 
 JSON :
 ${JSON.stringify(payload).slice(0, 12000)}
 
 Réponds JSON :
-{ "points": [ { "tone": "alert|watch|plus|info", "titre": "max 8 mots", "detail": "une phrase sourcée" } ] }
+{ "icons": ["chat"], "points": [ { "tone": "alert|watch|plus|info", "titre": "max 6 mots", "detail": "une phrase sourcée" } ] }
 `);
+  const extraIds = parseSignalIds(json?.icons);
+  const focus = focusDossierOnRecentYears({
+    classe: dossier.classe,
+    flags: dossier.flags,
+    bulletins: dossier.bulletins,
+    moyennesParNiveau: allNiveaux,
+    extraSignalIds: extraIds,
+  });
   const raw = Array.isArray(json?.points) ? json.points : [];
   const extra: PilotageFlashPoint[] = raw
     .map((row) => {
@@ -169,11 +226,13 @@ Réponds JSON :
     if (seen.has(k)) continue;
     seen.add(k);
     merged.push(p);
-    if (merged.length >= 10) break;
+    if (merged.length >= 3) break;
   }
   return {
-    text: merged.map((p) => `• ${p.titre}`).join("\n"),
-    points: merged.slice(0, 10),
+    text: focus.signals.map((s) => s.label).join(" · "),
+    points: merged.slice(0, 3),
+    signals: focus.signals,
+    mood: focus.mood,
     sources: [...new Set(sources)].slice(0, 20),
   };
 }
@@ -280,22 +339,34 @@ export async function refreshPilotageEleveDossier(params: {
     pieces,
     bulletins,
     flags: applyFlags(pieces),
-    drop: computeDropSignal(bulletins),
+    drop: computeDropSignal(filterRecentBulletins(bulletins, eleve?.classe || existing?.classe)),
     moyennesParNiveau: computeNiveauAverages(bulletins),
     lastIndexedAt: new Date().toISOString(),
   };
 
   try {
     const syn = await synthesizeDossier(dossier);
+    dossier.drop = computeDropSignal(filterRecentBulletins(bulletins, dossier.classe));
     dossier.synthese = {
       text: syn.text,
       points: syn.points,
+      signals: syn.signals,
+      mood: syn.mood,
       updatedAt: new Date().toISOString(),
       sources: syn.sources,
     };
   } catch (e) {
     console.warn("[pilotage] synthese", e);
-    dossier.synthese = existing?.synthese;
+    const focus = focusDossierOnRecentYears(dossier);
+    dossier.drop = focus.drop;
+    dossier.synthese = {
+      text: existing?.synthese?.text,
+      points: existing?.synthese?.points,
+      signals: focus.signals,
+      mood: focus.mood,
+      updatedAt: existing?.synthese?.updatedAt ?? new Date().toISOString(),
+      sources: existing?.synthese?.sources ?? [],
+    };
   }
 
   await savePilotageDossier(dossier);
