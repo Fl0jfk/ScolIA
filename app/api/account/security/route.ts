@@ -4,6 +4,8 @@ import { and, eq, like, ne, sql } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { getBetterAuth } from "@/app/lib/auth-server";
 import { consumeRateLimit } from "@/app/lib/rate-limit";
+import { validatePasswordPolicy } from "@/app/lib/password-policy";
+import { writeSecurityAudit } from "@/app/lib/security-audit";
 import { createPlatformTransporter } from "@/app/lib/tenant-mail";
 import { getDb } from "@/db/index";
 import { account, user, verification } from "@/db/schema";
@@ -80,7 +82,7 @@ export async function POST(req: Request) {
   }
 
   const userId = session.user.id;
-  const rate = consumeRateLimit({
+  const rate = await consumeRateLimit({
     key: clientKey(req, userId),
     limit: 8,
     windowMs: 15 * 60 * 1000,
@@ -110,11 +112,9 @@ export async function POST(req: Request) {
 
   if (body.action === "password") {
     const newPassword = String(body.newPassword ?? "");
-    if (newPassword.length < 10) {
-      return NextResponse.json(
-        { error: "Le nouveau mot de passe doit contenir au moins 10 caractères." },
-        { status: 400 },
-      );
+    const policy = validatePasswordPolicy(newPassword);
+    if (!policy.ok) {
+      return NextResponse.json({ error: policy.error }, { status: 400 });
     }
     if (newPassword === currentPassword) {
       return NextResponse.json(
@@ -151,6 +151,12 @@ export async function POST(req: Request) {
       .update(user)
       .set({ mustChangePassword: false, updatedAt: new Date() })
       .where(eq(user.id, userId));
+
+    await writeSecurityAudit({
+      userId,
+      action: "password_changed",
+      req,
+    });
 
     return NextResponse.json({ ok: true, action: "password" });
   }
@@ -204,6 +210,12 @@ export async function POST(req: Request) {
       } catch {
         /* ignore */
       }
+      await writeSecurityAudit({
+        userId,
+        action: "email_change_immediate",
+        req,
+        metadata: { newEmail },
+      });
       return NextResponse.json({
         ok: true,
         action: "email",
@@ -218,6 +230,13 @@ export async function POST(req: Request) {
       to: session.user.email,
       subject: "Demande de changement d’e-mail ScolIA",
       text: `Bonjour,\n\nUne demande de changement d'e-mail vers ${newEmail} a été initiée sur votre compte.\nSi ce n'est pas vous, changez votre mot de passe immédiatement.\n`,
+    });
+
+    await writeSecurityAudit({
+      userId,
+      action: "email_change_requested",
+      req,
+      metadata: { newEmail },
     });
 
     return NextResponse.json({

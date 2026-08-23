@@ -4,6 +4,9 @@ import { and, eq, sql } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { account, user } from "@/db/schema";
 import { isBetterAuthConfigured } from "@/app/lib/auth-config";
+import { validatePasswordPolicy } from "@/app/lib/password-policy";
+import { consumeRateLimit } from "@/app/lib/rate-limit";
+import { writeSecurityAudit } from "@/app/lib/security-audit";
 
 type ClaimBody = {
   email?: string;
@@ -13,7 +16,7 @@ type ClaimBody = {
 };
 
 /**
- * Attache un mot de passe Better-Auth à un compte déjà déjà provisionné
+ * Attache un mot de passe Better-Auth à un compte déjà provisionné
  * (ligne `user` sans compte `credential`).
  */
 export async function POST(request: Request) {
@@ -33,8 +36,23 @@ export async function POST(request: Request) {
   if (!email || !password) {
     return NextResponse.json({ error: "E-mail et mot de passe requis." }, { status: 400 });
   }
-  if (password.length < 8) {
-    return NextResponse.json({ error: "Mot de passe trop court (min. 8)." }, { status: 400 });
+
+  const fwd = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const rate = await consumeRateLimit({
+    key: `claim-migrated:${email}:${fwd}`,
+    limit: 10,
+    windowMs: 15 * 60 * 1000,
+  });
+  if (!rate.ok) {
+    return NextResponse.json(
+      { error: `Trop de tentatives. Réessayez dans ${rate.retryAfterSec}s.` },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfterSec) } },
+    );
+  }
+
+  const policy = validatePasswordPolicy(password);
+  if (!policy.ok) {
+    return NextResponse.json({ error: policy.error }, { status: 400 });
   }
 
   const db = getDb();
@@ -86,9 +104,17 @@ export async function POST(request: Request) {
       lastName: lastName ?? null,
       name,
       emailVerified: true,
+      mustChangePassword: false,
       updatedAt: new Date(),
     })
     .where(eq(user.id, row.id));
+
+  await writeSecurityAudit({
+    userId: row.id,
+    action: "account_claimed",
+    req: request,
+    metadata: { email: row.email },
+  });
 
   return NextResponse.json({ ok: true, email: row.email });
 }

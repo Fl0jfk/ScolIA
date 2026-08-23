@@ -2,6 +2,10 @@
 
 import { useState } from "react";
 import { useAppUser } from "@/app/hooks/useAppUser";
+import {
+  PASSWORD_POLICY_HINT,
+  validatePasswordPolicy,
+} from "@/app/lib/password-policy";
 
 type Mode = "menu" | "password" | "email";
 
@@ -43,8 +47,9 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
-    if (newPassword.length < 10) {
-      setError("Le nouveau mot de passe doit contenir au moins 10 caractères.");
+    const policy = validatePasswordPolicy(newPassword);
+    if (!policy.ok) {
+      setError(policy.error);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -153,7 +158,6 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                 }}
                 className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/50"
               >
-                <span aria-hidden>🔑</span>
                 Changer mon mot de passe
               </button>
               <button
@@ -165,14 +169,24 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                 }}
                 className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/50"
               >
-                <span aria-hidden>✉️</span>
                 Changer mon e-mail de connexion
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  closeAll();
+                  window.location.href = "/auth/setup-2fa";
+                }}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/50"
+              >
+                Configurer la double authentification (2FA)
               </button>
             </>
           )}
 
           {mode === "password" && (
             <form onSubmit={submitPassword} className="space-y-3">
+              <p className="text-xs text-slate-500">{PASSWORD_POLICY_HINT}</p>
               <label className="block space-y-1 text-sm">
                 <span className="font-medium text-slate-800">Mot de passe actuel</span>
                 <input
@@ -190,7 +204,7 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                   type="password"
                   autoComplete="new-password"
                   required
-                  minLength={10}
+                  minLength={12}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
@@ -202,7 +216,7 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                   type="password"
                   autoComplete="new-password"
                   required
-                  minLength={10}
+                  minLength={12}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"

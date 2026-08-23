@@ -37,6 +37,7 @@ import { legacyDocsLaProRedirect } from "@/app/lib/legacy-hostname-redirects";
 import { isBetterAuthActive } from "@/app/lib/auth-config";
 import {
   isMustChangePasswordAllowedPath,
+  isTwoFactorSetupAllowedPath,
   resolveBetterAuthProxyState,
 } from "@/app/lib/proxy-better-auth";
 import { assertUserBelongsToTenant } from "@/app/lib/etablissement-db";
@@ -339,6 +340,32 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
       );
     }
     const dest = new URL("/auth/change-password-required", request.url);
+    dest.searchParams.set("redirect_url", `${pathname}${request.nextUrl.search}`);
+    return withOptionalDevTenantCookie(
+      withTenantHeaders(NextResponse.redirect(dest), tenant),
+      request,
+      host,
+    );
+  }
+
+  if (
+    betterAuthState.requiresTwoFactorSetup &&
+    !isTwoFactorSetupAllowedPath(pathname) &&
+    !isPublicRoute(request)
+  ) {
+    if (pathname.startsWith("/api/")) {
+      return withTenantHeaders(
+        NextResponse.json(
+          {
+            error: "Activation de la double authentification obligatoire.",
+            code: "MUST_SETUP_2FA",
+          },
+          { status: 403 },
+        ),
+        tenant,
+      );
+    }
+    const dest = new URL("/auth/setup-2fa", request.url);
     dest.searchParams.set("redirect_url", `${pathname}${request.nextUrl.search}`);
     return withOptionalDevTenantCookie(
       withTenantHeaders(NextResponse.redirect(dest), tenant),

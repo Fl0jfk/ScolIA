@@ -2,6 +2,10 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  PASSWORD_POLICY_HINT,
+  validatePasswordPolicy,
+} from "@/app/lib/password-policy";
 
 function ChangePasswordRequiredForm() {
   const router = useRouter();
@@ -16,8 +20,9 @@ function ChangePasswordRequiredForm() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (newPassword.length < 10) {
-      setError("Le nouveau mot de passe doit contenir au moins 10 caractères.");
+    const policy = validatePasswordPolicy(newPassword);
+    if (!policy.ok) {
+      setError(policy.error);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -59,6 +64,7 @@ function ChangePasswordRequiredForm() {
             Pour protéger les données de l’établissement, vous devez définir un mot de passe
             personnel avant d’accéder à l’intranet.
           </p>
+          <p className="mt-2 text-xs text-amber-800/70">{PASSWORD_POLICY_HINT}</p>
         </div>
         {error ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
@@ -77,12 +83,12 @@ function ChangePasswordRequiredForm() {
           />
         </label>
         <label className="block space-y-1 text-sm">
-          <span className="font-medium text-slate-800">Nouveau mot de passe (min. 10)</span>
+          <span className="font-medium text-slate-800">Nouveau mot de passe</span>
           <input
             type="password"
             autoComplete="new-password"
             required
-            minLength={10}
+            minLength={12}
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
             className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-amber-200 focus:ring-2"
@@ -94,7 +100,7 @@ function ChangePasswordRequiredForm() {
             type="password"
             autoComplete="new-password"
             required
-            minLength={10}
+            minLength={12}
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-amber-200 focus:ring-2"

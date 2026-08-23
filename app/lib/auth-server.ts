@@ -2,12 +2,47 @@ import "server-only";
 
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
+import { twoFactor } from "better-auth/plugins";
 import { getDb } from "@/db/index";
 import { authSchema } from "@/db/schema";
 import { betterAuthBaseUrl, isBetterAuthConfigured } from "@/app/lib/auth-config";
 import { ensureEtablissementFromSlug } from "@/app/lib/etablissement-db";
+import {
+  PASSWORD_MIN_LENGTH,
+  validatePasswordPolicy,
+} from "@/app/lib/password-policy";
+import { createPlatformTransporter } from "@/app/lib/tenant-mail";
 import { TENANT_SLUG_HEADER } from "@/app/lib/tenant-types";
+
+async function sendPlatformMail(opts: {
+  to: string;
+  subject: string;
+  text: string;
+}): Promise<boolean> {
+  const transporter = createPlatformTransporter();
+  if (!transporter) {
+    console.warn("[auth] SMTP plateforme indisponible — e-mail non envoyé:", opts.subject);
+    return false;
+  }
+  try {
+    const from =
+      process.env.MAILER_EMAIL?.trim() ||
+      process.env.SMTP_USER?.trim() ||
+      "mailer@scolia.fr";
+    await transporter.sendMail({
+      from: `"ScolIA" <${from}>`,
+      to: opts.to,
+      subject: opts.subject,
+      text: opts.text,
+    });
+    return true;
+  } catch (error) {
+    console.error("[auth] envoi mail", error);
+    return false;
+  }
+}
 
 function createAuth() {
   if (!isBetterAuthConfigured()) {
@@ -27,7 +62,13 @@ function createAuth() {
         ]
       : [];
 
+  const requireEmailVerification =
+    process.env.REQUIRE_EMAIL_VERIFICATION === "true" ||
+    (process.env.NODE_ENV === "production" &&
+      process.env.REQUIRE_EMAIL_VERIFICATION !== "false");
+
   return betterAuth({
+    appName: "ScolIA",
     secret: process.env.BETTER_AUTH_SECRET!,
     baseURL: base,
     trustedOrigins: [
@@ -45,8 +86,19 @@ function createAuth() {
     }),
     emailAndPassword: {
       enabled: true,
-      requireEmailVerification: false,
-      minPasswordLength: 8,
+      requireEmailVerification,
+      minPasswordLength: PASSWORD_MIN_LENGTH,
+    },
+    emailVerification: {
+      sendOnSignUp: true,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        void sendPlatformMail({
+          to: user.email,
+          subject: "Vérifiez votre e-mail ScolIA",
+          text: `Bonjour,\n\nPour activer votre compte ScolIA, ouvrez ce lien :\n\n${url}\n\nSi vous n'êtes pas à l'origine de cette inscription, ignorez ce message.\n`,
+        });
+      },
     },
     session: {
       expiresIn: 60 * 60 * 24 * 7,
@@ -76,6 +128,19 @@ function createAuth() {
         enabled: false,
       },
     },
+    rateLimit: {
+      enabled: true,
+      storage: "database",
+      window: 60,
+      max: 100,
+      customRules: {
+        "/sign-in/email": { window: 60, max: 8 },
+        "/sign-up/email": { window: 60, max: 5 },
+        "/forget-password": { window: 60, max: 5 },
+        "/two-factor/verify-totp": { window: 60, max: 8 },
+        "/two-factor/verify-backup-code": { window: 60, max: 8 },
+      },
+    },
     advanced: {
       // Cookie partagé *.scolia.fr pour le portail → intranet.
       // L’isolation est garantie par assertUserBelongsToTenant dans le proxy.
@@ -84,8 +149,41 @@ function createAuth() {
         domain: process.env.BETTER_AUTH_COOKIE_DOMAIN?.trim() || "scolia.fr",
       },
       useSecureCookies: process.env.NODE_ENV === "production",
+      ipAddress: {
+        ipAddressHeaders: ["x-forwarded-for", "x-real-ip"],
+      },
     },
-    plugins: [nextCookies()],
+    plugins: [
+      twoFactor({
+        issuer: "ScolIA",
+        totpOptions: {
+          digits: 6,
+          period: 30,
+        },
+      }),
+      nextCookies(),
+    ],
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (
+          ctx.path !== "/sign-up/email" &&
+          ctx.path !== "/change-password" &&
+          ctx.path !== "/reset-password"
+        ) {
+          return;
+        }
+        const body = ctx.body as Record<string, unknown> | undefined;
+        const candidate =
+          (typeof body?.newPassword === "string" && body.newPassword) ||
+          (typeof body?.password === "string" && body.password) ||
+          "";
+        if (!candidate) return;
+        const check = validatePasswordPolicy(candidate);
+        if (!check.ok) {
+          throw new APIError("BAD_REQUEST", { message: check.error });
+        }
+      }),
+    },
     databaseHooks: {
       user: {
         create: {

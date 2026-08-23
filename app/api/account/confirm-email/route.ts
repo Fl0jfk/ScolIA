@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { createPlatformTransporter } from "@/app/lib/tenant-mail";
+import { writeSecurityAudit } from "@/app/lib/security-audit";
 import { getDb } from "@/db/index";
 import { user, verification } from "@/db/schema";
 
@@ -71,6 +72,13 @@ export async function POST(req: Request) {
     .set({ email, emailVerified: true, updatedAt: new Date() })
     .where(eq(user.id, uid));
   await db.delete(verification).where(eq(verification.id, row.id));
+
+  await writeSecurityAudit({
+    userId: uid,
+    action: "email_change_confirmed",
+    req,
+    metadata: { email, previousEmail: before?.email ?? null },
+  });
 
   if (before?.email) {
     void notify(

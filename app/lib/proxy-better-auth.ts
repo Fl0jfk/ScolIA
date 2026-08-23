@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { isBetterAuthActive, isBetterAuthPilotPath } from "@/app/lib/auth-config";
 import { getBetterAuth } from "@/app/lib/auth-server";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
+import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { user } from "@/db/schema";
 
@@ -17,6 +18,8 @@ export type BetterAuthProxyState = {
   orgAdmin: boolean;
   platformAdmin: boolean;
   mustChangePassword: boolean;
+  twoFactorEnabled: boolean;
+  requiresTwoFactorSetup: boolean;
 };
 
 export function proxyUsesBetterAuth(pathname: string): boolean {
@@ -37,6 +40,7 @@ export async function resolveBetterAuthProxyState(
       orgAdmin?: boolean;
       platformAdmin?: boolean;
       mustChangePassword?: boolean;
+      twoFactorEnabled?: boolean;
     };
 
     const db = getDb();
@@ -47,6 +51,9 @@ export async function resolveBetterAuthProxyState(
     const orgAdmin = Boolean(row?.orgAdmin ?? u.orgAdmin);
     const platformAdmin = Boolean(row?.platformAdmin ?? u.platformAdmin);
     const mustChangePassword = Boolean(row?.mustChangePassword ?? u.mustChangePassword);
+    const twoFactorEnabled = Boolean(row?.twoFactorEnabled ?? u.twoFactorEnabled);
+    const requiresTwoFactorSetup =
+      roleRequiresTwoFactor({ platformAdmin, orgAdmin, roles }) && !twoFactorEnabled;
 
     return {
       userId: businessUserId,
@@ -58,10 +65,13 @@ export async function resolveBetterAuthProxyState(
         org_admin: orgAdmin,
         platform_admin: platformAdmin,
         must_change_password: mustChangePassword,
+        two_factor_enabled: twoFactorEnabled,
       },
       orgAdmin,
       platformAdmin,
       mustChangePassword,
+      twoFactorEnabled,
+      requiresTwoFactorSetup,
     };
   } catch (error) {
     console.error("[resolveBetterAuthProxyState]", error);
@@ -82,6 +92,13 @@ export async function resolveBetterAuthProxyStateByUserId(
     .limit(1);
   if (!row) return null;
   const roles = await listUserRolesFromDb(row.id, etablissementId);
+  const twoFactorEnabled = Boolean(row.twoFactorEnabled);
+  const requiresTwoFactorSetup =
+    roleRequiresTwoFactor({
+      platformAdmin: row.platformAdmin,
+      orgAdmin: row.orgAdmin,
+      roles,
+    }) && !twoFactorEnabled;
   return {
     userId: row.externalUserId?.trim() || row.id,
     authUserId: row.id,
@@ -92,10 +109,13 @@ export async function resolveBetterAuthProxyStateByUserId(
       org_admin: row.orgAdmin,
       platform_admin: row.platformAdmin,
       must_change_password: row.mustChangePassword,
+      two_factor_enabled: twoFactorEnabled,
     },
     orgAdmin: row.orgAdmin,
     platformAdmin: row.platformAdmin,
     mustChangePassword: row.mustChangePassword,
+    twoFactorEnabled,
+    requiresTwoFactorSetup,
   };
 }
 
@@ -103,10 +123,28 @@ export async function resolveBetterAuthProxyStateByUserId(
 export function isMustChangePasswordAllowedPath(pathname: string): boolean {
   const allow = [
     "/auth/change-password-required",
+    "/auth/setup-2fa",
     "/auth/sign-out",
     "/sign-out",
     "/api/account/security",
+    "/api/account/security-event",
     "/api/account/confirm-email",
+    "/api/auth",
+    "/api/auth/me",
+    "/api/auth/status",
+  ];
+  return allow.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+/** Chemins autorisés tant que la 2FA obligatoire n’est pas configurée. */
+export function isTwoFactorSetupAllowedPath(pathname: string): boolean {
+  const allow = [
+    "/auth/setup-2fa",
+    "/auth/change-password-required",
+    "/auth/sign-out",
+    "/sign-out",
+    "/api/account/security",
+    "/api/account/security-event",
     "/api/auth",
     "/api/auth/me",
     "/api/auth/status",

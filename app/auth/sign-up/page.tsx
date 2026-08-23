@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/app/lib/auth-client";
+import {
+  PASSWORD_POLICY_HINT,
+  validatePasswordPolicy,
+} from "@/app/lib/password-policy";
 
 export default function BetterAuthSignUpPage() {
   const router = useRouter();
@@ -11,6 +15,7 @@ export default function BetterAuthSignUpPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function claimMigratedAccount(): Promise<{ ok: boolean; error?: string }> {
@@ -35,10 +40,18 @@ export default function BetterAuthSignUpPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setInfo(null);
+
+    const policy = validatePasswordPolicy(password);
+    if (!policy.ok) {
+      setLoading(false);
+      setError(policy.error);
+      return;
+    }
 
     const claim = await claimMigratedAccount();
     if (claim.ok) {
-      const { error: signInError } = await authClient.signIn.email({
+      const { data, error: signInError } = await authClient.signIn.email({
         email: email.trim(),
         password,
         callbackURL: "/dashboard",
@@ -48,6 +61,10 @@ export default function BetterAuthSignUpPage() {
         setError(
           "Mot de passe enregistré, mais la connexion a échoué. Réessaie via « Se connecter ».",
         );
+        return;
+      }
+      if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) {
+        router.push("/auth/two-factor?redirect_url=%2Fdashboard");
         return;
       }
       router.push("/dashboard");
@@ -78,8 +95,9 @@ export default function BetterAuthSignUpPage() {
       setError(signUpError.message || "Inscription impossible.");
       return;
     }
-    router.push("/dashboard");
-    router.refresh();
+    setInfo(
+      "Compte créé. Un e-mail de vérification vous a été envoyé : ouvrez le lien pour activer la connexion.",
+    );
   }
 
   return (
@@ -91,13 +109,19 @@ export default function BetterAuthSignUpPage() {
         <div>
           <h1 className="text-xl font-semibold text-emerald-950">Activer mon compte</h1>
           <p className="mt-1 text-sm text-emerald-800/70">
-            Compte déjà déjà provisionné : choisis un nouveau mot de passe. Sinon, création
+            Compte déjà provisionné : choisis un nouveau mot de passe. Sinon, création
             d’un nouveau compte.
           </p>
+          <p className="mt-2 text-xs text-emerald-800/60">{PASSWORD_POLICY_HINT}</p>
         </div>
         {error ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
             {error}
+          </p>
+        ) : null}
+        {info ? (
+          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800" role="status">
+            {info}
           </p>
         ) : null}
         <div className="grid grid-cols-2 gap-3">
@@ -135,7 +159,7 @@ export default function BetterAuthSignUpPage() {
             type="password"
             autoComplete="new-password"
             required
-            minLength={8}
+            minLength={12}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full rounded-xl border border-emerald-100 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"

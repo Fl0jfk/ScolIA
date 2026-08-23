@@ -39,7 +39,7 @@ export default function BetterAuthSignInPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const { error: signInError } = await authClient.signIn.email({
+    const { data, error: signInError } = await authClient.signIn.email({
       email: email.trim(),
       password,
       callbackURL: redirectTo,
@@ -47,13 +47,19 @@ export default function BetterAuthSignInPage() {
     setLoading(false);
     if (signInError) {
       const msg = signInError.message || "Connexion impossible.";
-      if (/not found|invalid|incorrect|credential/i.test(msg)) {
+      if (/verif/i.test(msg) && /email/i.test(msg)) {
+        setError("E-mail non vérifié. Consultez votre boîte mail pour le lien d’activation.");
+      } else if (/not found|invalid|incorrect|credential/i.test(msg)) {
         setError(
           "Identifiants incorrects. Si ton compte est déjà provisionné, choisis d’abord un mot de passe via « Activer mon compte ».",
         );
       } else {
         setError(msg);
       }
+      return;
+    }
+    if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) {
+      router.push(`/auth/two-factor?redirect_url=${encodeURIComponent(redirectTo)}`);
       return;
     }
     router.push(redirectTo);
