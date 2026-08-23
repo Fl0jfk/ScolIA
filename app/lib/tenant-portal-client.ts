@@ -1,17 +1,48 @@
 import {
   isBrowserLocalDev,
+  localDevDashboardUrl,
   localDevSignInUrl,
 } from "@/app/lib/local-dev";
 
 const STORAGE_KEY = "scola.portal.lastTenant";
 
-/** URL sign-in fiable : en local on reste sur localhost avec le bon tenant. */
-export function catalogEntrySignInUrl(entry: {
+type CatalogEntryRef = {
   slug?: string;
   signInUrl: string;
   primaryHostname?: string | null;
   appUrl?: string;
-}): string {
+};
+
+function catalogEntryOrigin(entry: CatalogEntryRef): string | null {
+  if (isBrowserLocalDev()) {
+    return typeof window !== "undefined" ? window.location.origin : null;
+  }
+
+  const host = entry.primaryHostname?.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
+  if (host && host !== "localhost" && host !== "127.0.0.1") {
+    return `https://${host}`;
+  }
+
+  const appUrl = entry.appUrl?.trim().replace(/\/$/, "");
+  if (appUrl) {
+    try {
+      const origin = appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
+      return new URL(origin).origin;
+    } catch {
+      /* fall through */
+    }
+  }
+
+  try {
+    if (entry.signInUrl.startsWith("http")) return new URL(entry.signInUrl).origin;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/** URL sign-in fiable : en local on reste sur localhost avec le bon tenant. */
+export function catalogEntrySignInUrl(entry: CatalogEntryRef): string {
   if (isBrowserLocalDev()) {
     if (entry.signInUrl.startsWith("/")) {
       const url = new URL(entry.signInUrl, window.location.origin);
@@ -20,22 +51,33 @@ export function catalogEntrySignInUrl(entry: {
     return localDevSignInUrl(window.location.origin, entry.slug);
   }
 
-  const host = entry.primaryHostname?.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
-  if (host && host !== "localhost" && host !== "127.0.0.1") {
-    return `https://${host}/auth/sign-in`;
-  }
+  const origin = catalogEntryOrigin(entry);
+  if (origin) return `${origin}/auth/sign-in`;
+  return entry.signInUrl.includes("/auth/sign-in")
+    ? entry.signInUrl
+    : entry.signInUrl.replace(/\/sign-in(?:\?|$)/, "/auth/sign-in$1") || "/auth/sign-in";
+}
 
-  const appUrl = entry.appUrl?.trim().replace(/\/$/, "");
-  if (appUrl) {
-    try {
-      const origin = appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
-      return `${new URL(origin).origin}/auth/sign-in`;
-    } catch {
-      /* fall through */
-    }
+/** Dashboard établissement (session déjà active → pas de formulaire mot de passe). */
+export function catalogEntryDashboardUrl(entry: CatalogEntryRef): string {
+  if (isBrowserLocalDev()) {
+    return localDevDashboardUrl(window.location.origin);
   }
+  const origin = catalogEntryOrigin(entry);
+  if (origin) return `${origin}/dashboard`;
+  return "/dashboard";
+}
 
-  return entry.signInUrl;
+/** true si une session Better-Auth est active sur ce domaine (cookie partagé *.scolia.fr). */
+export async function fetchPortalSessionActive(): Promise<boolean> {
+  try {
+    const res = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
+    if (!res.ok) return false;
+    const data = (await res.json()) as { user?: unknown };
+    return Boolean(data?.user);
+  } catch {
+    return false;
+  }
 }
 
 type SavedPortalTenant = {

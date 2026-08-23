@@ -6,8 +6,10 @@ import MarketingShell from "@/app/components/landing/MarketingShell";
 import ConnexionPlatformSessionBanner from "@/app/components/ConnexionPlatformSessionBanner";
 import { SCOLA_GRADIENT_TEXT } from "@/app/lib/marketing-theme";
 import {
+  catalogEntryDashboardUrl,
   catalogEntrySignInUrl,
   clearLastPortalTenant,
+  fetchPortalSessionActive,
   readLastPortalTenant,
   saveLastPortalTenant,
   syncSavedPortalTenantFromCatalog,
@@ -27,24 +29,18 @@ type TenantEntry = {
   appUrl: string;
 };
 
-function goToTenantSignIn(tenant: TenantEntry, signInHref: string) {
+function goToTenant(tenant: TenantEntry, alreadySignedIn: boolean) {
+  const href = alreadySignedIn
+    ? catalogEntryDashboardUrl(tenant)
+    : catalogEntrySignInUrl(tenant);
+
   saveLastPortalTenant({
     slug: tenant.slug,
     label: tenant.label,
     signInUrl: catalogEntrySignInUrl(tenant),
   });
 
-  try {
-    const targetOrigin = new URL(signInHref).origin;
-    if (targetOrigin !== window.location.origin) {
-      window.location.assign(signInHref);
-      return;
-    }
-  } catch {
-    /* fall through */
-  }
-
-  window.location.assign(signInHref);
+  window.location.assign(href);
 }
 
 export default function ConnexionPage() {
@@ -53,6 +49,7 @@ export default function ConnexionPage() {
   const [redirecting, setRedirecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLocalDev, setIsLocalDev] = useState(false);
+  const [sessionActive, setSessionActive] = useState(false);
 
   useEffect(() => {
     setIsLocalDev(isBrowserLocalDev());
@@ -63,12 +60,17 @@ export default function ConnexionPage() {
 
     (async () => {
       try {
-        const res = await fetch("/api/tenants/public", { cache: "no-store" });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j.error || "Chargement impossible");
+        const [catalogRes, signedIn] = await Promise.all([
+          fetch("/api/tenants/public", { cache: "no-store" }),
+          fetchPortalSessionActive(),
+        ]);
+        const j = await catalogRes.json();
+        if (!catalogRes.ok) throw new Error(j.error || "Chargement impossible");
 
         const list = (j.tenants ?? []) as TenantEntry[];
         if (cancelled) return;
+
+        setSessionActive(signedIn);
 
         const savedBeforeFetch = readLastPortalTenant();
         if (savedBeforeFetch?.slug) {
@@ -77,12 +79,19 @@ export default function ConnexionPage() {
           if (refreshed?.signInUrl) {
             const hit = list.find((t) => t.slug === refreshed.slug);
             if (hit) {
-              goToTenantSignIn(hit, catalogEntrySignInUrl(hit));
+              goToTenant(hit, signedIn);
               return;
             }
           }
           clearLastPortalTenant();
           setRedirecting(false);
+        }
+
+        // Un seul établissement + déjà connecté → intranet direct
+        if (signedIn && list.length === 1) {
+          setRedirecting(true);
+          goToTenant(list[0], true);
+          return;
         }
 
         setTenants(list);
@@ -98,9 +107,12 @@ export default function ConnexionPage() {
     };
   }, []);
 
-  const handleChoose = useCallback((tenant: TenantEntry) => {
-    goToTenantSignIn(tenant, catalogEntrySignInUrl(tenant));
-  }, []);
+  const handleChoose = useCallback(
+    (tenant: TenantEntry) => {
+      goToTenant(tenant, sessionActive);
+    },
+    [sessionActive],
+  );
 
   const adminSignInHref = isLocalDev
     ? `/auth/sign-in?redirect_url=${encodeURIComponent("/plateforme")}`
@@ -110,7 +122,11 @@ export default function ConnexionPage() {
     return (
       <MarketingShell>
         <main className="mx-auto max-w-lg px-6 py-24 text-center">
-          <p className="text-sm font-medium text-stone-600">Redirection vers votre établissement…</p>
+          <p className="text-sm font-medium text-stone-600">
+            {sessionActive
+              ? "Ouverture de votre intranet…"
+              : "Redirection vers votre établissement…"}
+          </p>
         </main>
       </MarketingShell>
     );
@@ -124,7 +140,9 @@ export default function ConnexionPage() {
             Connexion à votre <span className={SCOLA_GRADIENT_TEXT}>intranet</span>
           </h1>
           <p className="mx-auto mt-3 max-w-md text-sm text-stone-600">
-            Choisissez votre établissement pour accéder à l’intranet.
+            {sessionActive
+              ? "Vous êtes déjà connecté — choisissez votre établissement pour y accéder."
+              : "Choisissez votre établissement pour accéder à l’intranet."}
           </p>
         </div>
 
@@ -168,7 +186,7 @@ export default function ConnexionPage() {
                     ) : null}
                   </div>
                   <span className="mt-1 rounded-full bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-1.5 text-xs font-bold text-white opacity-90 transition group-hover:opacity-100">
-                    Se connecter
+                    {sessionActive ? "Ouvrir l’intranet" : "Se connecter"}
                   </span>
                 </button>
               </li>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/app/lib/auth-client";
 
@@ -12,6 +12,28 @@ export default function BetterAuthSignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await authClient.getSession();
+        if (cancelled) return;
+        if (data?.session) {
+          router.replace(redirectTo);
+          return;
+        }
+      } catch {
+        /* afficher le formulaire */
+      } finally {
+        if (!cancelled) setCheckingSession(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [redirectTo, router]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,6 +58,14 @@ export default function BetterAuthSignInPage() {
     }
     router.push(redirectTo);
     router.refresh();
+  }
+
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center px-4 py-10">
+        <p className="text-sm text-emerald-800/80">Vérification de la session…</p>
+      </div>
+    );
   }
 
   return (
