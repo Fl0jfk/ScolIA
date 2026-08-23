@@ -1,11 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import PasswordRequirementsChecklist from "@/app/components/auth/PasswordRequirementsChecklist";
 import { useAppUser } from "@/app/hooks/useAppUser";
-import {
-  PASSWORD_POLICY_HINT,
-  validatePasswordPolicy,
-} from "@/app/lib/password-policy";
+import { validatePasswordPolicy } from "@/app/lib/password-policy";
 
 type Mode = "menu" | "password" | "email";
 
@@ -15,6 +14,7 @@ type Props = {
 };
 
 export default function AccountSecurityDialog({ open, onClose }: Props) {
+  const router = useRouter();
   const { user, refresh } = useAppUser();
   const [mode, setMode] = useState<Mode>("menu");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -70,13 +70,17 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
       });
       const j = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(j.error || "Échec du changement de mot de passe.");
-      setSuccess("Mot de passe mis à jour.");
+      setSuccess("Mot de passe mis à jour. Redirection vers le tableau de bord…");
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      window.setTimeout(() => {
+        onClose();
+        router.push("/dashboard");
+        router.refresh();
+      }, 1200);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
-    } finally {
       setBusy(false);
     }
   }
@@ -118,7 +122,7 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]"
-      onClick={closeAll}
+      onClick={success && mode === "password" ? undefined : closeAll}
       role="presentation"
     >
       <div
@@ -134,13 +138,15 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
             {mode === "password" && "Changer le mot de passe"}
             {mode === "email" && "Changer l’e-mail de connexion"}
           </h2>
-          <button
-            type="button"
-            onClick={closeAll}
-            className="rounded-lg px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-slate-50"
-          >
-            Fermer
-          </button>
+          {success && mode === "password" ? null : (
+            <button
+              type="button"
+              onClick={closeAll}
+              className="rounded-lg px-2 py-1 text-sm font-semibold text-slate-500 hover:bg-slate-50"
+            >
+              Fermer
+            </button>
+          )}
         </div>
 
         <div className="space-y-4 px-5 py-4">
@@ -186,63 +192,73 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
 
           {mode === "password" && (
             <form onSubmit={submitPassword} className="space-y-3">
-              <p className="text-xs text-slate-500">{PASSWORD_POLICY_HINT}</p>
-              <label className="block space-y-1 text-sm">
-                <span className="font-medium text-slate-800">Mot de passe actuel</span>
-                <input
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
-                />
-              </label>
-              <label className="block space-y-1 text-sm">
-                <span className="font-medium text-slate-800">Nouveau mot de passe</span>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  minLength={12}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
-                />
-              </label>
-              <label className="block space-y-1 text-sm">
-                <span className="font-medium text-slate-800">Confirmer</span>
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  minLength={12}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
-                />
-              </label>
-              {error ? <p className="text-sm text-red-600">{error}</p> : null}
-              {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetForm();
-                    setMode("menu");
-                  }}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+              {success ? (
+                <p
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm font-medium text-emerald-800"
+                  role="status"
                 >
-                  Retour
-                </button>
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="flex-1 rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
-                >
-                  {busy ? "Enregistrement…" : "Enregistrer"}
-                </button>
-              </div>
+                  {success}
+                </p>
+              ) : (
+                <>
+                  <PasswordRequirementsChecklist password={newPassword} tone="slate" />
+                  <label className="block space-y-1 text-sm">
+                    <span className="font-medium text-slate-800">Mot de passe actuel</span>
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
+                    />
+                  </label>
+                  <label className="block space-y-1 text-sm">
+                    <span className="font-medium text-slate-800">Nouveau mot de passe</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      required
+                      minLength={12}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
+                    />
+                  </label>
+                  <label className="block space-y-1 text-sm">
+                    <span className="font-medium text-slate-800">Confirmer</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      required
+                      minLength={12}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
+                    />
+                  </label>
+                  {error ? <p className="text-sm text-red-600">{error}</p> : null}
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        resetForm();
+                        setMode("menu");
+                      }}
+                      className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+                    >
+                      Retour
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={busy}
+                      className="flex-1 rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+                    >
+                      {busy ? "Enregistrement…" : "Enregistrer"}
+                    </button>
+                  </div>
+                </>
+              )}
             </form>
           )}
 

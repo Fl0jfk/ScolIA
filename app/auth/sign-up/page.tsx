@@ -3,10 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/app/lib/auth-client";
-import {
-  PASSWORD_POLICY_HINT,
-  validatePasswordPolicy,
-} from "@/app/lib/password-policy";
+import PasswordRequirementsChecklist from "@/app/components/auth/PasswordRequirementsChecklist";
+import { validatePasswordPolicy } from "@/app/lib/password-policy";
 
 export default function BetterAuthSignUpPage() {
   const router = useRouter();
@@ -112,8 +110,8 @@ export default function BetterAuthSignUpPage() {
             Compte déjà provisionné : choisis un nouveau mot de passe. Sinon, création
             d’un nouveau compte.
           </p>
-          <p className="mt-2 text-xs text-emerald-800/60">{PASSWORD_POLICY_HINT}</p>
         </div>
+        <PasswordRequirementsChecklist password={password} tone="slate" />
         {error ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
             {error}

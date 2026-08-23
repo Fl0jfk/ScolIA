@@ -2,10 +2,8 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  PASSWORD_POLICY_HINT,
-  validatePasswordPolicy,
-} from "@/app/lib/password-policy";
+import PasswordRequirementsChecklist from "@/app/components/auth/PasswordRequirementsChecklist";
+import { validatePasswordPolicy } from "@/app/lib/password-policy";
 
 function ChangePasswordRequiredForm() {
   const router = useRouter();
@@ -16,6 +14,7 @@ function ChangePasswordRequiredForm() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,13 +42,33 @@ function ChangePasswordRequiredForm() {
       });
       const j = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(j.error || "Échec");
-      router.replace(redirectTo);
-      router.refresh();
+      setSuccess(true);
+      window.setTimeout(() => {
+        router.replace(redirectTo.startsWith("/") ? redirectTo : "/dashboard");
+        router.refresh();
+      }, 1200);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
-    } finally {
       setBusy(false);
     }
+  }
+
+  if (success) {
+    return (
+      <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center px-4 py-10">
+        <div
+          className="w-full max-w-md space-y-3 rounded-2xl border border-emerald-200 bg-white p-8 text-center shadow-xl"
+          role="status"
+        >
+          <p className="text-lg font-semibold text-emerald-900">
+            Mot de passe mis à jour
+          </p>
+          <p className="text-sm text-emerald-800/80">
+            Redirection vers l’intranet…
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -64,8 +83,8 @@ function ChangePasswordRequiredForm() {
             Pour protéger les données de l’établissement, vous devez définir un mot de passe
             personnel avant d’accéder à l’intranet.
           </p>
-          <p className="mt-2 text-xs text-amber-800/70">{PASSWORD_POLICY_HINT}</p>
         </div>
+        <PasswordRequirementsChecklist password={newPassword} tone="amber" />
         {error ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
             {error}
