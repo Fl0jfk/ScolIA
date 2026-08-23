@@ -62,29 +62,14 @@ type IntranetModule = {
 /** Accessible à tout utilisateur connecté (hors contrôle module). */
 const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/dashboard",
-  "/eleves",
-  "/etablissement",
-  "/services",
-  "/administratif",
-  "/vie-scolaire",
-  "/notes",
-  "/compta-rh",
-  "/sante",
-  "/rh",
-  "/scolia-ai",
   "/api/app/context",
   "/api/teams-chat",
   "/api/tenant/public",
   "/api/tenant/diagnostics",
-  "/api/dashboard/signals",
-  "/calendrierAbsProfs",
-  "/faire-une-demande",
-  "/demande-parents",
-  "/demande/merci",
-  "/api/onboarding/status",
   "/onboarding",
   "/configuration-en-cours",
   "/abonnement-suspendu",
+  "/api/onboarding/status",
   "/api/billing/tenant/status",
 ];
 
@@ -280,7 +265,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "absences",
-    pathPrefixes: ["/absences", "/api/absences"],
+    pathPrefixes: ["/absences", "/api/absences", "/calendrierAbsProfs"],
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
@@ -583,9 +568,53 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "dashboard-week-sheet",
-    pathPrefixes: ["/api/dashboard/week-sheet"],
+    pathPrefixes: [
+      "/api/dashboard/week-sheet",
+      "/api/dashboard/links",
+      "/api/dashboard/signals",
+      "/api/weather",
+    ],
     allowedRoles: [...ROLES_EXCEPT_PARENT],
     // Plus de tuile dashboard : contenu exposé via le ticker « Actualité du jour ».
+  },
+  {
+    id: "pillar-administratif",
+    pathPrefixes: ["/administratif"],
+    allowedRoles: [...DIRECTIONS, "administratif", "admin", "professeur"],
+  },
+  {
+    id: "pillar-services",
+    pathPrefixes: ["/services"],
+    allowedRoles: [
+      ...DIRECTIONS,
+      "administratif",
+      "professeur",
+      "cpe",
+      "education",
+      "comptabilite",
+      "maintenance",
+      "admin",
+    ],
+  },
+  {
+    id: "pillar-vie-scolaire",
+    pathPrefixes: ["/vie-scolaire"],
+    allowedRoles: [...DIRECTIONS, "cpe", "education"],
+  },
+  {
+    id: "pillar-compta-rh",
+    pathPrefixes: ["/compta-rh"],
+    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin", "maintenance"],
+  },
+  {
+    id: "scolia-ai",
+    pathPrefixes: ["/scolia-ai"],
+    allowedRoles: [...ROLES_EXCEPT_PARENT],
+  },
+  {
+    id: "legacy-hub-redirects",
+    pathPrefixes: ["/eleves", "/etablissement", "/rh"],
+    allowedRoles: [...ROLES_EXCEPT_PARENT],
   },
 ];
 
@@ -718,9 +747,13 @@ export function canAccessIntranetPath(
   }
 
   const modules = findMatchingModules(normalized);
-  if (modules.length === 0) return true;
+  if (modules.length === 0) return false;
 
   return modules.some((m) => rolesAllowModule(roles, m, isOrgAdmin));
+}
+
+export function getIntranetModuleById(moduleId: string): IntranetModule | undefined {
+  return INTRANET_MODULES.find((m) => m.id === moduleId);
 }
 
 /** Module intranet correspondant à un chemin (préfixe le plus spécifique). */

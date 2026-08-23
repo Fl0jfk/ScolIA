@@ -1,17 +1,32 @@
 import { NextResponse, NextRequest } from "next/server";
 import { validateElevesJson } from "@/app/lib/eleves-config";
-import { requireAdmin, requireAuth } from "@/app/lib/intranet-auth";
+import { requireAdmin, requireAnyModule } from "@/app/lib/intranet-auth";
+import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
+import { requireTenantId } from "@/app/lib/tenant-scope";
 import {
-  countElevesRegistry,
   loadElevesRegistry,
   saveElevesRegistry,
 } from "@/app/lib/eleves-registry";
 
 export async function GET(req: NextRequest) {
   try {
-    const gate = await requireAuth();
+    const gate = await requireAnyModule(["admin-settings", "agent-ia-ocr", "pilotage-eleves"]);
     if (!gate.ok) return gate.response;
+
+    const tenant = await requireTenantId();
+    if (!tenant.ok) return tenant.response;
+
     const eleves = await loadElevesRegistry();
+    if (eleves.length >= 1) {
+      await writeDataAccessAudit({
+        etablissementId: tenant.ctx.etablissementId,
+        userId: tenant.ctx.authUserId,
+        resourceType: "eleves_registry",
+        action: "list",
+        req,
+        metadata: { count: eleves.length },
+      });
+    }
     return NextResponse.json({ count: eleves.length, eleves });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

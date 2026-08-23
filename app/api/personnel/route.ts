@@ -2,7 +2,9 @@ import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
-import { requireAuth } from "@/app/lib/intranet-auth";
+import { requireAuth, requireModule } from "@/app/lib/intranet-auth";
+import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
+import { requireTenantId } from "@/app/lib/tenant-scope";
 import {
   ensureDirectoryUserForPersonnel,
   findDirectoryMemberByEmail,
@@ -45,7 +47,7 @@ async function assertNotAlreadyInRh(email: string, externalUserId?: string | nul
 }
 
 export async function GET(req: Request) {
-  const gate = await requireAuth();
+  const gate = await requireModule("rh");
   if (!gate.ok) return gate.response;
 
   const user = await safeCurrentUser();
@@ -53,6 +55,9 @@ export async function GET(req: Request) {
   if (!canAccessPersonnelModule(roles)) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
   }
+
+  const tenant = await requireTenantId();
+  if (!tenant.ok) return tenant.response;
 
   const url = new URL(req.url);
   const sharedOnly = url.searchParams.get("shared") === "true";
@@ -67,6 +72,15 @@ export async function GET(req: Request) {
     if (!canViewPersonnelDashboard(roles)) {
       return NextResponse.json({ index: [], canManage: false });
     }
+
+    await writeDataAccessAudit({
+      etablissementId: tenant.ctx.etablissementId,
+      userId: tenant.ctx.authUserId,
+      resourceType: "personnel",
+      action: "list",
+      req,
+      metadata: { count: index.length },
+    });
 
     return NextResponse.json({
       index: index.filter((e) => e.active !== false),

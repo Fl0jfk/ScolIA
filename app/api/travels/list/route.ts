@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
+import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
+import { requireTenantId } from "@/app/lib/tenant-scope";
 import {
   compareTripsByTravelDate,
   isTripEligibleForPurge,
@@ -31,13 +33,27 @@ async function purgeOldTrips(trips: TravelsTrip[]): Promise<TravelsTrip[]> {
   return remaining;
 }
 
-export async function GET() {
-  const gate = await requireAuth();
+export async function GET(req: Request) {
+  const gate = await requireModule("travels");
   if (!gate.ok) return gate.response;
+
+  const tenant = await requireTenantId();
+  if (!tenant.ok) return tenant.response;
+
   try {
     const trips = await listTravelsIndex();
     const afterPurge = await purgeOldTrips(trips);
     const sortedTrips = [...afterPurge].sort(compareTripsByTravelDate).map(normalizeTripImageFields);
+
+    await writeDataAccessAudit({
+      etablissementId: tenant.ctx.etablissementId,
+      userId: tenant.ctx.authUserId,
+      resourceType: "travel",
+      action: "list",
+      req,
+      metadata: { count: sortedTrips.length },
+    });
+
     return NextResponse.json(sortedTrips);
   } catch (error) {
     console.error("Erreur S3 List:", error);

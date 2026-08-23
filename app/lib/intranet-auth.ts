@@ -3,7 +3,7 @@ import {
   AUTH_CONFIG_HINT,
   isAuthConfigError,
 } from "@/app/lib/auth-request-error";
-import { requireAppUser } from "@/app/lib/app-session";
+import { requireAppUser, type AppUser } from "@/app/lib/app-session";
 import {
   isOrgAdminFromAppUser,
   isPlatformMasterFromAppUser,
@@ -12,10 +12,18 @@ import {
   isOrgAdminFromPublicMetadata,
   isPlatformMasterFromPublicMetadata,
 } from "@/app/lib/intranet-auth-metadata";
+import {
+  getIntranetModuleById,
+  rolesAllowModule,
+} from "@/app/lib/intranet-modules";
 import { resolveSession, safeCurrentUser } from "@/app/lib/intranet-session";
 
 export type AuthContext = {
   userId: string;
+};
+
+export type ModuleAuthContext = AuthContext & {
+  user: AppUser;
 };
 
 function authServerConfigResponse(): NextResponse {
@@ -103,6 +111,85 @@ export async function requirePlatformMaster(): Promise<
     ok: false,
     response: NextResponse.json(
       { error: "Réservé au profil Master plateforme.", code: "MASTER_REQUIRED" },
+      { status: 403 },
+    ),
+  };
+}
+
+function moduleForbiddenResponse(moduleId: string): NextResponse {
+  return NextResponse.json(
+    { error: `Accès refusé au module « ${moduleId} ».`, code: "MODULE_FORBIDDEN" },
+    { status: 403 },
+  );
+}
+
+async function resolveModuleUser():
+  Promise<
+    | { ok: true; user: AppUser; userId: string }
+    | { ok: false; response: NextResponse }
+  > {
+  const gate = await requireAuth();
+  if (!gate.ok) return gate;
+  const appUser = await requireAppUser();
+  if (!appUser.ok) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Non autorisé.", code: "AUTH_REQUIRED" }, { status: 401 }),
+    };
+  }
+  return { ok: true, user: appUser.user, userId: gate.ctx.userId };
+}
+
+/** Garde RBAC explicite sur un module intranet (fail-closed). */
+export async function requireModule(
+  moduleId: string,
+): Promise<
+  { ok: true; ctx: ModuleAuthContext } | { ok: false; response: NextResponse }
+> {
+  const resolved = await resolveModuleUser();
+  if (!resolved.ok) return resolved;
+
+  const module = getIntranetModuleById(moduleId);
+  if (!module) {
+    return { ok: false, response: moduleForbiddenResponse(moduleId) };
+  }
+
+  const isOrgAdmin = resolved.user.orgAdmin || resolved.user.platformAdmin;
+  if (!rolesAllowModule(resolved.user.roles, module, isOrgAdmin)) {
+    return { ok: false, response: moduleForbiddenResponse(moduleId) };
+  }
+
+  return {
+    ok: true,
+    ctx: { userId: resolved.userId, user: resolved.user },
+  };
+}
+
+/** Accès si au moins un des modules listés est autorisé. */
+export async function requireAnyModule(
+  moduleIds: string[],
+): Promise<
+  { ok: true; ctx: ModuleAuthContext; moduleId: string } | { ok: false; response: NextResponse }
+> {
+  const resolved = await resolveModuleUser();
+  if (!resolved.ok) return resolved;
+
+  const isOrgAdmin = resolved.user.orgAdmin || resolved.user.platformAdmin;
+  for (const moduleId of moduleIds) {
+    const module = getIntranetModuleById(moduleId);
+    if (module && rolesAllowModule(resolved.user.roles, module, isOrgAdmin)) {
+      return {
+        ok: true,
+        moduleId,
+        ctx: { userId: resolved.userId, user: resolved.user },
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    response: NextResponse.json(
+      { error: "Accès refusé à cette ressource.", code: "MODULE_FORBIDDEN" },
       { status: 403 },
     ),
   };

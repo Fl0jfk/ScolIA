@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { isDatabaseConfigured } from "@/db/index";
 import { INTRANET_ROLE_OPTIONS, hasMasterRole, normalizeIntranetRoles } from "@/app/lib/intranet-roles";
 import { requireAdmin } from "@/app/lib/intranet-auth";
+import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
+import { requireTenantId } from "@/app/lib/tenant-scope";
 import { setUserRolesInDb, syncUserAdminFlagsInDb } from "@/app/lib/auth-roles-db";
 import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
 import { getTenant } from "@/app/lib/tenant-context";
@@ -12,9 +14,13 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { user } from "@/db/schema";
 
-export async function GET() {
+export async function GET(req: Request) {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
+
+  const tenantScope = await requireTenantId();
+  if (!tenantScope.ok) return tenantScope.response;
+
   try {
     const tenant = await getTenant();
     const etablissementId = isDatabaseConfigured()
@@ -24,6 +30,17 @@ export async function GET() {
     const users = etablissementId
       ? await listMembersFromDb(etablissementId)
       : await listDirectoryMembers();
+
+    if (etablissementId) {
+      await writeDataAccessAudit({
+        etablissementId,
+        userId: tenantScope.ctx.authUserId,
+        resourceType: "members",
+        action: "list",
+        req,
+        metadata: { count: users.length },
+      });
+    }
 
     return NextResponse.json({
       users,
