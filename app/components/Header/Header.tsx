@@ -15,6 +15,7 @@ import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { dashboardBrandCssVars, parseDashboardAccent } from "@/app/lib/dashboard-brand-presets";
 import { SCOLA_HEADER_ACCENT } from "@/app/lib/marketing-theme";
 import GlassLayer from "@/app/components/GlassLayer";
+import AccountSecurityDialog from "@/app/components/Header/AccountSecurityDialog";
 import Logo from "../../../public/Logo header.png";
 
 const MOBILE_MODULE_LINKS = [
@@ -24,7 +25,13 @@ const MOBILE_MODULE_LINKS = [
   { href: "/rh?tab=absences&view=se-declarer#nouvelle-absence", label: "Déclarer une absence", icon: "📅" },
 ] as const;
 
-function UserPopover({ onClose }: { onClose: () => void }) {
+function UserPopover({
+  onClose,
+  onOpenSecurity,
+}: {
+  onClose: () => void;
+  onOpenSecurity: () => void;
+}) {
   const { user } = useSessionUser();
   const signOutWithPortalReset = useSignOutWithPortalReset();
   return (
@@ -58,6 +65,16 @@ function UserPopover({ onClose }: { onClose: () => void }) {
         >
           <span className="text-base">🏠</span> Tableau de bord
         </Link>
+        <button
+          type="button"
+          onClick={() => {
+            onOpenSecurity();
+            onClose();
+          }}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+        >
+          <span className="text-base">⚙️</span> E-mail & mot de passe
+        </button>
         <div className="my-1 h-px bg-slate-100" />
         <button
           onClick={() => {
@@ -79,6 +96,7 @@ function UserPopover({ onClose }: { onClose: () => void }) {
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
   const { isSignedIn, user, isLoaded } = useSessionUser();
@@ -230,7 +248,12 @@ export default function Header() {
                     />
                   </svg>
                 </button>
-                {popoverOpen ? <UserPopover onClose={() => setPopoverOpen(false)} /> : null}
+                {popoverOpen ? (
+                  <UserPopover
+                    onClose={() => setPopoverOpen(false)}
+                    onOpenSecurity={() => setSecurityOpen(true)}
+                  />
+                ) : null}
               </div>
             ) : (
               <Link
@@ -349,13 +372,25 @@ export default function Header() {
           </nav>
           <div className="mt-5 flex flex-col gap-3">
             {isSignedIn ? (
-              <button
-                type="button"
-                onClick={() => signOutWithPortalReset("/")}
-                className="w-full rounded-2xl bg-red-50 py-3.5 text-center text-sm font-bold text-red-500 transition hover:bg-red-100"
-              >
-                Se déconnecter
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileOpen(false);
+                    setSecurityOpen(true);
+                  }}
+                  className="w-full rounded-2xl bg-slate-100 py-3.5 text-center text-sm font-bold text-slate-700 transition hover:bg-slate-200"
+                >
+                  E-mail & mot de passe
+                </button>
+                <button
+                  type="button"
+                  onClick={() => signOutWithPortalReset("/")}
+                  className="w-full rounded-2xl bg-red-50 py-3.5 text-center text-sm font-bold text-red-500 transition hover:bg-red-100"
+                >
+                  Se déconnecter
+                </button>
+              </>
             ) : (
               <Link
                 href="/auth/sign-in"
@@ -367,6 +402,8 @@ export default function Header() {
           </div>
         </div>
       </div>
+
+      <AccountSecurityDialog open={securityOpen} onClose={() => setSecurityOpen(false)} />
     </>
   );
 }

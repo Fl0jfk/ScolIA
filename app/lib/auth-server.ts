@@ -57,6 +57,10 @@ function createAuth() {
         platformAdmin: { type: "boolean", required: false, defaultValue: false, input: false },
         orgAdmin: { type: "boolean", required: false, defaultValue: false, input: false },
       },
+      changeEmail: {
+        enabled: true,
+        updateEmailWithoutVerification: true,
+      },
     },
     advanced: {
       crossSubDomainCookies: {
