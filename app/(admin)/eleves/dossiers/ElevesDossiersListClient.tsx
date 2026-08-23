@@ -68,28 +68,22 @@ export default function ElevesDossiersListClient() {
   const [canDecideAccess, setCanDecideAccess] = useState(false);
   const [canViewFullHub, setCanViewFullHub] = useState(false);
   const [profScoped, setProfScoped] = useState(false);
-  const [assignedClasses, setAssignedClasses] = useState<string[]>([]);
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [siteLabelById, setSiteLabelById] = useState<Record<string, string>>({});
   const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
   const [listMessage, setListMessage] = useState<string | null>(null);
+  const [metaReady, setMetaReady] = useState(false);
   const [q, setQ] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
   const [classeFilter, setClasseFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [preSiteFilter, setPreSiteFilter] = useState("");
   const [tab, setTab] = useState<"dossiers" | "preinscriptions" | "acces">("dossiers");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const loadDossiers = useCallback(async () => {
-    const params = new URLSearchParams();
-    if (siteFilter) params.set("siteId", siteFilter);
-    if (classeFilter) params.set("classe", classeFilter);
-    if (statusFilter) params.set("status", statusFilter);
-    const qs = params.toString();
-    const res = await fetch(`/api/eleves/dossiers/list${qs ? `?${qs}` : ""}`, {
-      cache: "no-store",
-    });
+    const res = await fetch("/api/eleves/dossiers/list", { cache: "no-store" });
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(j.error || `Erreur ${res.status}`);
@@ -107,12 +101,12 @@ export default function ElevesDossiersListClient() {
     setEleves(j.eleves || []);
     setCanViewFullHub(Boolean(j.canViewFullHub));
     setProfScoped(Boolean(j.profScoped));
-    setAssignedClasses(j.assignedClasses || []);
     setSites(j.sites || []);
     setSiteLabelById(j.siteLabelById || {});
     setClassOptions(j.classOptions || []);
     setListMessage(j.message ?? null);
-  }, [siteFilter, classeFilter, statusFilter]);
+    setMetaReady(true);
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -121,6 +115,7 @@ export default function ElevesDossiersListClient() {
         await loadDossiers();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erreur chargement");
+        setMetaReady(true);
       }
     })();
   }, [loadDossiers]);
@@ -148,18 +143,33 @@ export default function ElevesDossiersListClient() {
     })();
   }, [canViewFullHub]);
 
+  const hasActiveSearch = Boolean(
+    q.trim() || classeFilter || siteFilter || statusFilter,
+  );
+
   const filtered = useMemo(() => {
+    if (!hasActiveSearch) return [];
     const needle = q.trim().toLowerCase();
     return eleves.filter((e) => {
+      if (siteFilter && e.siteId !== siteFilter) return false;
+      if (classeFilter && e.classe !== classeFilter) return false;
+      if (statusFilter && e.status !== statusFilter) return false;
       if (!needle) return true;
-      return `${e.nom} ${e.prenom} ${e.classe || ""} ${e.ine || ""}`.toLowerCase().includes(needle);
+      return `${e.nom} ${e.prenom} ${e.classe || ""} ${e.classeLabel || ""} ${e.ine || ""} ${e.siteLabel || ""}`
+        .toLowerCase()
+        .includes(needle);
     });
-  }, [eleves, q]);
+  }, [eleves, q, siteFilter, classeFilter, statusFilter, hasActiveSearch]);
+
+  const classOptionsForSite = useMemo(() => {
+    if (!siteFilter) return classOptions;
+    return classOptions.filter((c) => !c.siteId || c.siteId === siteFilter);
+  }, [classOptions, siteFilter]);
 
   const preFiltered = useMemo(() => {
-    if (!siteFilter) return preinsc;
-    return preinsc.filter((p) => p.siteId === siteFilter);
-  }, [preinsc, siteFilter]);
+    if (!preSiteFilter) return preinsc;
+    return preinsc.filter((p) => p.siteId === preSiteFilter);
+  }, [preinsc, preSiteFilter]);
 
   const preSites = useMemo(() => {
     const ids = new Set<string>();
@@ -175,6 +185,13 @@ export default function ElevesDossiersListClient() {
     const hit = STATUS_OPTIONS.find((o) => o.value === status);
     return hit?.label || status;
   };
+
+  function clearSearch() {
+    setQ("");
+    setSiteFilter("");
+    setClasseFilter("");
+    setStatusFilter("");
+  }
 
   async function decide(id: string, action: "accept" | "reject") {
     const res = await fetch("/api/eleves/preinscriptions", {
@@ -216,10 +233,10 @@ export default function ElevesDossiersListClient() {
     <ModulePageShell maxWidthClass="max-w-5xl">
       <ModulePageHeader
         title="Dossiers élèves"
-          description={
+        description={
           profScoped
-            ? "Vos classes — dossiers pédagogiques uniquement (sans coordonnées familiales)."
-            : "Hub anti-silos — une fiche, des vues par rôle."
+            ? "Recherchez un élève de vos classes — fiche pédagogique uniquement."
+            : "Recherchez un élève, ou gérez les préinscriptions."
         }
         actions={
           canViewFullHub ? (
@@ -238,7 +255,7 @@ export default function ElevesDossiersListClient() {
             tab === "dossiers" ? "bg-slate-900 text-white" : "bg-white border-slate-200"
           }`}
         >
-          Dossiers ({filtered.length})
+          {hasActiveSearch ? `Dossiers (${filtered.length})` : "Dossiers"}
         </button>
         {canViewFullHub ? (
           <>
@@ -268,80 +285,121 @@ export default function ElevesDossiersListClient() {
       {listMessage ? <p className="mb-3 text-sm text-amber-700">{listMessage}</p> : null}
 
       {tab === "dossiers" ? (
-        <>
-          <div className="mb-4 flex flex-wrap gap-2">
-            {canViewFullHub ? (
-              <>
-                <select
-                  value={siteFilter}
-                  onChange={(e) => setSiteFilter(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+        <div className="space-y-4">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <label htmlFor="dossier-search" className="mb-2 block text-sm font-bold text-slate-800">
+              Rechercher un élève
+            </label>
+            <input
+              id="dossier-search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Nom, prénom, classe, INE…"
+              autoComplete="off"
+              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-base text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-200"
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              {canViewFullHub ? (
+                <>
+                  <select
+                    value={siteFilter}
+                    onChange={(e) => {
+                      setSiteFilter(e.target.value);
+                      setClasseFilter("");
+                    }}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    aria-label="Établissement"
+                  >
+                    <option value="">Tous les établissements</option>
+                    {sites.map((s) => (
+                      <option key={s.siteId} value={s.siteId}>
+                        {s.label || s.siteId}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    aria-label="Statut"
+                  >
+                    {STATUS_OPTIONS.map((o) => (
+                      <option key={o.value || "all"} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : null}
+              <select
+                value={classeFilter}
+                onChange={(e) => setClasseFilter(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                aria-label="Classe"
+              >
+                <option value="">{profScoped ? "Toutes mes classes" : "Toutes les classes"}</option>
+                {classOptionsForSite.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+              {hasActiveSearch ? (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
                 >
-                  <option value="">Tous les établissements</option>
-                  {sites.map((s) => (
-                    <option key={s.siteId} value={s.siteId}>
-                      {s.label || s.siteId}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                >
-                  {STATUS_OPTIONS.map((o) => (
-                    <option key={o.value || "all"} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </>
-            ) : null}
-            <select
-              value={classeFilter}
-              onChange={(e) => setClasseFilter(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-            >
-              <option value="">{profScoped ? "Toutes mes classes" : "Toutes les classes"}</option>
-              {classOptions.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+                  Effacer
+                </button>
+              ) : null}
+            </div>
           </div>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Rechercher…"
-            className="mb-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"
-          />
-          <ul className="divide-y divide-slate-100 rounded-3xl border border-slate-200 bg-white overflow-hidden">
-            {filtered.slice(0, 200).map((e) => (
-              <li key={e.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                <div>
-                  <p className="font-semibold text-slate-900">
-                    {e.prenom} {e.nom}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {e.classeLabel || e.classe || "—"}
-                    {canViewFullHub && e.status ? ` · ${statusLabel(e.status)}` : ""}
-                    {canViewFullHub && e.siteLabel ? ` · ${e.siteLabel}` : ""}
-                  </p>
-                </div>
-                <Link
-                  href={`/eleves/dossier/${e.id}`}
-                  className="text-sm font-bold text-indigo-600 hover:underline"
-                >
-                  Ouvrir
-                </Link>
-              </li>
-            ))}
-            {filtered.length === 0 ? (
-              <li className="px-4 py-8 text-center text-sm text-slate-500">Aucun dossier.</li>
-            ) : null}
-          </ul>
-        </>
+
+          {!metaReady ? (
+            <p className="px-2 text-center text-sm text-slate-500">Chargement…</p>
+          ) : !hasActiveSearch ? (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-12 text-center">
+              <p className="text-base font-semibold text-slate-800">Aucun dossier affiché</p>
+              <p className="mt-2 text-sm text-slate-500">
+                Tapez un nom, ou choisissez une classe / un établissement pour afficher les résultats.
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100 overflow-hidden rounded-3xl border border-slate-200 bg-white">
+              {filtered.slice(0, 200).map((e) => (
+                <li key={e.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div>
+                    <p className="font-semibold text-slate-900">
+                      {e.prenom} {e.nom}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {e.classeLabel || e.classe || "—"}
+                      {canViewFullHub && e.status ? ` · ${statusLabel(e.status)}` : ""}
+                      {canViewFullHub && e.siteLabel ? ` · ${e.siteLabel}` : ""}
+                    </p>
+                  </div>
+                  <Link
+                    href={`/eleves/dossier/${e.id}`}
+                    className="text-sm font-bold text-indigo-600 hover:underline"
+                  >
+                    Ouvrir
+                  </Link>
+                </li>
+              ))}
+              {filtered.length === 0 ? (
+                <li className="px-4 py-8 text-center text-sm text-slate-500">
+                  Aucun élève ne correspond à cette recherche.
+                </li>
+              ) : null}
+              {filtered.length > 200 ? (
+                <li className="px-4 py-3 text-center text-xs text-slate-400">
+                  Affichage limité à 200 résultats — affinez la recherche.
+                </li>
+              ) : null}
+            </ul>
+          )}
+        </div>
       ) : null}
 
       {tab === "preinscriptions" && canViewFullHub ? (
@@ -349,9 +407,9 @@ export default function ElevesDossiersListClient() {
           <div className="mb-4 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setSiteFilter("")}
+              onClick={() => setPreSiteFilter("")}
               className={`rounded-lg px-3 py-1.5 text-xs font-bold border ${
-                !siteFilter ? "bg-slate-900 text-white" : "bg-white"
+                !preSiteFilter ? "bg-slate-900 text-white" : "bg-white"
               }`}
             >
               Tous les établissements
@@ -360,9 +418,9 @@ export default function ElevesDossiersListClient() {
               <button
                 key={s}
                 type="button"
-                onClick={() => setSiteFilter(s)}
+                onClick={() => setPreSiteFilter(s)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-bold border ${
-                  siteFilter === s ? "bg-slate-900 text-white" : "bg-white"
+                  preSiteFilter === s ? "bg-slate-900 text-white" : "bg-white"
                 }`}
               >
                 {siteLabelById[s] || s}

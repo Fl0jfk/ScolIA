@@ -1102,7 +1102,21 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     });
   }
 
-  // —— Notes / Santé : stubs stables ——
+  // —— Dossier élève avant notes / santé ——
+  if (has("eleve-dossier")) {
+    const profDossierOnly =
+      isProfesseurScopedDossierViewer({ roles }) && !hasRole(roles, "administratif");
+    shortcuts.push({
+      id: "eleve-dossier",
+      pillarId: moduleIdToPillarId("eleve-dossier") ?? "administratif",
+      moduleId: "eleve-dossier",
+      href: moduleHref("eleve-dossier"),
+      label: "Dossiers élèves",
+      rich: true,
+      detail: profDossierOnly ? "Vos classes · fiche pédagogique" : "Fiche unique · préinscriptions",
+      tone: "info",
+    });
+  }
   if (has("notes")) {
     shortcuts.push({
       id: "notes",
@@ -1124,20 +1138,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       label: "Espace santé",
       rich: true,
       detail: "Infirmerie · PAP",
-      tone: "info",
-    });
-  }
-  if (has("eleve-dossier")) {
-    const profDossierOnly =
-      isProfesseurScopedDossierViewer({ roles }) && !hasRole(roles, "administratif");
-    shortcuts.push({
-      id: "eleve-dossier",
-      pillarId: moduleIdToPillarId("eleve-dossier") ?? "administratif",
-      moduleId: "eleve-dossier",
-      href: moduleHref("eleve-dossier"),
-      label: "Dossiers élèves",
-      rich: true,
-      detail: profDossierOnly ? "Vos classes · fiche pédagogique" : "Fiche unique · préinscriptions",
       tone: "info",
     });
   }
