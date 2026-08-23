@@ -89,8 +89,8 @@ function Setup2faForm() {
         <div>
           <h1 className="text-xl font-semibold text-amber-950">Sécurité renforcée (2FA)</h1>
           <p className="mt-2 text-sm text-amber-900/80">
-            Les comptes direction / admin doivent activer une application d’authentification
-            (Google Authenticator, Authy, etc.).
+            Tous les comptes du personnel doivent activer une application d’authentification
+            (Google Authenticator, Authy, etc.) pour sécuriser l’accès à l’intranet.
           </p>
         </div>
 

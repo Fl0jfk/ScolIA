@@ -1,12 +1,21 @@
-import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
+/** Rôles famille / portail — pas de 2FA TOTP obligatoire pour l’instant. */
+const FAMILY_ONLY_ROLES = new Set(["parent", "eleve"]);
 
-/** Rôles / flags qui obligent l’activation 2FA (TOTP). */
+/**
+ * Indique si le compte doit activer la 2FA (TOTP).
+ * Obligatoire pour tout le personnel intranet ; exclus uniquement les comptes
+ * dont les rôles sont purement `parent` et/ou `eleve`.
+ */
 export function roleRequiresTwoFactor(opts: {
   platformAdmin: boolean;
   orgAdmin: boolean;
   roles: string[];
 }): boolean {
   if (opts.platformAdmin || opts.orgAdmin) return true;
-  if (opts.roles.includes("admin")) return true;
-  return INTRANET_DIRECTION_SLUGS.some((slug) => opts.roles.includes(slug));
+
+  const roles = opts.roles.filter(Boolean);
+  if (roles.length === 0) return true;
+
+  const hasStaffRole = roles.some((role) => !FAMILY_ONLY_ROLES.has(role));
+  return hasStaffRole;
 }
