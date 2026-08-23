@@ -15,6 +15,7 @@ import {
 } from "@/app/lib/personnel-types";
 import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { readRhPlanning, writeRhPlanning } from "@/app/lib/rh/planning-storage";
+import { invalidateTeacherPlanningIndex } from "@/app/lib/rh/planning-teacher-index";
 import {
   defaultStaffModeForCategory,
   emptyStaffPlanning,
@@ -280,6 +281,9 @@ export async function PUT(req: Request) {
   }
 
   const saved = await writeRhPlanning(next);
+  if (kind === "teacher") {
+    invalidateTeacherPlanningIndex();
+  }
   const balance =
     saved.kind === "staff" && saved.mode === "fixed" ? estimateAnnualBalance(saved) : null;
   return NextResponse.json({ ok: true, planning: saved, balance });

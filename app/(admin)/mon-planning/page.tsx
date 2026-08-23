@@ -41,7 +41,12 @@ const TeacherPlanningSelfEditor = dynamic(
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
 
-type Tab = "mine" | "edit" | "gestion";
+type Tab = "mine" | "edit" | "classes" | "gestion";
+
+const ClassPlanningPanel = dynamic(
+  () => import("@/app/components/personnel/ClassPlanningPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 export default function MonPlanningClient() {
   const { isLoaded, user } = useSessionUser();
@@ -69,8 +74,13 @@ export default function MonPlanningClient() {
   const showGestion = canManage || hasGlobalAdminRole(roles) || canManagePersonnel(roles);
   const showTeacherEdit =
     kind === "teacher" && canEdit && planning?.kind === "teacher" && personnelId;
+  const showClassEdt =
+    kind === "teacher" || showGestion || hasGlobalAdminRole(roles);
 
   const tabs: { id: Tab; label: string }[] = [{ id: "mine", label: "Vue semaine" }];
+  if (showClassEdt) {
+    tabs.push({ id: "classes", label: "EDT de mes classes" });
+  }
   if (showTeacherEdit) {
     tabs.push({ id: "edit", label: "Éditer mon EDT" });
   }
@@ -177,6 +187,10 @@ export default function MonPlanningClient() {
 
       {tab === "gestion" && showGestion ? (
         <RhPlanningPanel />
+      ) : tab === "classes" && showClassEdt ? (
+        <ModuleCard bodyClassName="p-4">
+          <ClassPlanningPanel compact />
+        </ModuleCard>
       ) : tab === "edit" && showTeacherEdit ? (
         <ModuleCard bodyClassName="p-4">
           <TeacherPlanningSelfEditor

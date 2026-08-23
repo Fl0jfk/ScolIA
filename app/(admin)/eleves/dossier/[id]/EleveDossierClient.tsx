@@ -452,7 +452,17 @@ export default function EleveDossierClient() {
               ) : null}
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Classe</dt>
-                <dd className="font-semibold text-slate-900">{e.classe || "—"}</dd>
+                <dd className="font-semibold text-slate-900">
+                  {e.classe || "—"}
+                  {e.classe ? (
+                    <Link
+                      href={`/edt-classe?classe=${encodeURIComponent(e.classe)}`}
+                      className="ml-2 text-xs font-bold text-indigo-600 hover:underline"
+                    >
+                      EDT classe
+                    </Link>
+                  ) : null}
+                </dd>
               </div>
             </dl>
             {data.meta.profRestrictedView ? (

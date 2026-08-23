@@ -424,7 +424,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "mon-planning",
-    pathPrefixes: ["/mon-planning"],
+    pathPrefixes: ["/mon-planning", "/edt-classe", "/api/edt"],
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",

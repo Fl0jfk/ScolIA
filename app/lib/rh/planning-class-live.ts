@@ -1,8 +1,5 @@
 import "server-only";
 
-import { listDirectoryMembers } from "@/app/lib/directory-members";
-import { normalizeIntranetRoles } from "@/app/lib/intranet-roles";
-import { hasRole } from "@/app/lib/intranet-role-utils";
 import { studentInAssignedClasses } from "@/app/lib/class-allocation-teachers";
 import type { SchoolHolidayZone } from "@/app/lib/fr-school-holidays";
 import {
@@ -10,6 +7,10 @@ import {
   schoolWeekParity,
 } from "@/app/lib/rh/planning-calendar";
 import { readRhPlanning } from "@/app/lib/rh/planning-storage";
+import {
+  getTeacherPlanningEntries,
+  type TeacherPlanningEntry,
+} from "@/app/lib/rh/planning-teacher-index";
 import {
   isPlanningWeekday,
   planningTimeToMinutes,
@@ -41,12 +42,6 @@ export type EleveLiveCourseResult = {
   activity: EleveLiveCourse | null;
   reason: EleveLiveCourseReason;
   label?: string;
-};
-
-type TeacherPlanningEntry = {
-  personnelId: string;
-  displayName: string;
-  planning: TeacherPlanningDoc;
 };
 
 function parisNowParts(now = new Date()) {
@@ -123,29 +118,6 @@ function teacherPlanningHasContent(doc: TeacherPlanningDoc): boolean {
   );
 }
 
-async function loadTeacherPlanningEntries(): Promise<TeacherPlanningEntry[]> {
-  const members = await listDirectoryMembers();
-  const teachers = members.filter(
-    (m) => m.externalUserId && !m.pending && hasRole(normalizeIntranetRoles(m.roles), "professeur"),
-  );
-
-  const entries = await Promise.all(
-    teachers.map(async (m) => {
-      const planning = await readRhPlanning("teacher", m.externalUserId);
-      if (planning.kind !== "teacher" || !teacherPlanningHasContent(planning)) {
-        return null;
-      }
-      return {
-        personnelId: m.externalUserId,
-        displayName: m.displayName || m.email,
-        planning,
-      };
-    }),
-  );
-
-  return entries.filter((e): e is TeacherPlanningEntry => !!e);
-}
-
 function findLiveInTeacherPlanning(input: {
   classe: string;
   entry: TeacherPlanningEntry;
@@ -195,7 +167,6 @@ export async function resolveEleveLiveCourse(input: {
   classe: string | null | undefined;
   zone?: SchoolHolidayZone | null;
   now?: Date;
-  /** Pré-chargé pour éviter N lectures S3 si appel groupé. */
   teacherEntries?: TeacherPlanningEntry[];
 }): Promise<EleveLiveCourseResult> {
   const classe = input.classe?.trim();
@@ -228,7 +199,7 @@ export async function resolveEleveLiveCourse(input: {
     return { activity: null, reason: "hors_cours" };
   }
 
-  const entries = input.teacherEntries ?? (await loadTeacherPlanningEntries());
+  const entries = input.teacherEntries ?? (await getTeacherPlanningEntries());
   if (!entries.length) {
     return { activity: null, reason: "pas_edt" };
   }

@@ -17,6 +17,7 @@ const PILLAR_MODULE_HREF: Record<string, string> = {
   communication: "/etablissement/communication",
   identite: "/parametres?tab=site",
   "mon-planning": "/mon-planning",
+  "edt-classe": "/edt-classe",
   "conformite-rgpd": "/conformite-rgpd",
   "chatbot-knowledge": "/chatbot-knowledge",
   "domain-planning": "/domain-planning",
