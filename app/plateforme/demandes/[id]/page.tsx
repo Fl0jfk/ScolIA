@@ -18,8 +18,8 @@ export default function PlateformeDemandeDetailPage() {
     slug: "",
     hostname: "",
     dataBucket: "",
-    publishableKey: "",
-    secretKey: "",
+    publishableKey: "unused-better-auth",
+    secretKey: "unused-better-auth",
   });
 
   const reload = useCallback(async () => {
@@ -201,7 +201,8 @@ export default function PlateformeDemandeDetailPage() {
             <section className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5 space-y-4">
               <h2 className="font-bold text-violet-950">Provisioning tenant</h2>
               <p className="text-xs text-violet-800">
-                Créez l&apos;instance auth dans le dashboard, puis saisissez les clés ci-dessous.
+                Auth Better-Auth partagée — renseignez slug, domaine et bucket. Les clés legacy
+                sont optionnelles (placeholder par défaut).
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-sm">
@@ -227,23 +228,6 @@ export default function PlateformeDemandeDetailPage() {
                     value={provision.dataBucket}
                     onChange={(ev) => setProvision({ ...provision, dataBucket: ev.target.value })}
                     placeholder={process.env.NEXT_PUBLIC_DEFAULT_TENANT_BUCKET || "scola-tenant-…"}
-                  />
-                </label>
-                <label className="block space-y-1 text-sm sm:col-span-2">
-                  <span className="font-semibold">Publishable key (legacy) key</span>
-                  <input
-                    className="w-full rounded-lg border px-3 py-2 font-mono text-sm"
-                    value={provision.publishableKey}
-                    onChange={(ev) => setProvision({ ...provision, publishableKey: ev.target.value })}
-                  />
-                </label>
-                <label className="block space-y-1 text-sm sm:col-span-2">
-                  <span className="font-semibold">Secret key (legacy) key</span>
-                  <input
-                    type="password"
-                    className="w-full rounded-lg border px-3 py-2 font-mono text-sm"
-                    value={provision.secretKey}
-                    onChange={(ev) => setProvision({ ...provision, secretKey: ev.target.value })}
                   />
                 </label>
               </div>

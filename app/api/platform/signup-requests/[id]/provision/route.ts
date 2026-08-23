@@ -31,9 +31,12 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "JSON invalide." }, { status: 400 });
   }
 
-  if (!body.publishableKey?.trim() || !body.secretKey?.trim()) {
-    return NextResponse.json({ error: "Clés auth requises." }, { status: 400 });
+  if (!body.dataBucket?.trim()) {
+    return NextResponse.json({ error: "Bucket données requis." }, { status: 400 });
   }
+
+  const publishableKey = body.publishableKey?.trim() || "unused-better-auth";
+  const secretKey = body.secretKey?.trim() || "unused-better-auth";
 
   try {
     const user = await safeCurrentUser();
@@ -43,8 +46,8 @@ export async function POST(req: Request, ctx: Ctx) {
         slug: body.slug,
         hostname: body.hostname,
         dataBucket: body.dataBucket,
-        publishableKey: body.publishableKey,
-        secretKey: body.secretKey,
+        publishableKey,
+        secretKey,
       },
       user?.id,
     );

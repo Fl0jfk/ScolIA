@@ -292,9 +292,8 @@ export function defaultTenantFromEnv(): TenantConfig {
       "Configuration tenant manquante (BUCKET_NAME ou REGISTRY_BUCKET).",
     );
   }
-  const publishableKey =
-    process.env.NEXT_PUBLIC_LEGACY_PUBLISHABLE_KEY?.trim() || "unused-better-auth";
-  const secretKey = process.env.LEGACY_SECRET_KEY?.trim() || "unused-better-auth";
+  const publishableKey = "unused-better-auth";
+  const secretKey = "unused-better-auth";
 
   const slug = process.env.DEFAULT_TENANT_SLUG?.trim() || "default";
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/$/, "");

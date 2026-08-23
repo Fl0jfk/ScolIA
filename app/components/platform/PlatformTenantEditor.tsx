@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { frontendDomainFromPublishableKey } from "@/app/lib/publishable-key-domain";
+import { useCallback, useEffect, useState } from "react";
 
 type TenantFormSecrets = {
   secretKey: string;
@@ -85,12 +84,12 @@ function emptyTenantForm(): TenantFormState {
     hostnames: "",
     appUrl: "",
     dataBucket: "",
-    publishableKey: "",
+    publishableKey: "unused-better-auth",
     addressStreet: "",
     addressZip: "",
     addressCity: "",
     logoUrl: "",
-    secrets: { ...EMPTY_SECRETS },
+    secrets: { ...EMPTY_SECRETS, secretKey: "unused-better-auth" },
   };
 }
 
@@ -251,11 +250,6 @@ export default function PlatformTenantEditor({ mode, slug, writable, onClose, on
     setForm((f) => ({ ...f, secrets: { ...f.secrets, [key]: value } }));
   };
 
-  const authFrontendDomain = useMemo(
-    () => frontendDomainFromPublishableKey(form.publishableKey),
-    [form.publishableKey],
-  );
-
   if (loading) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-6">
@@ -405,29 +399,23 @@ export default function PlatformTenantEditor({ mode, slug, writable, onClose, on
         )}
 
         {tab === "auth" && (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block space-y-1 sm:col-span-2">
-              <span className="text-sm font-medium text-slate-700">Clé publique (legacy) (pk_*) *</span>
+          <div className="grid gap-4 sm:col-span-2">
+            <p className="text-sm text-slate-600 rounded-lg border border-emerald-100 bg-emerald-50/70 px-3 py-2.5">
+              Auth via <strong>Better-Auth</strong> (Postgres). Les champs ci-dessous sont des
+              placeholders historiques — laissez <code className="font-mono text-xs">unused-better-auth</code>{" "}
+              sauf migration exceptionnelle.
+            </p>
+            <label className="block space-y-1">
+              <span className="text-sm font-medium text-slate-700">Identifiant public (placeholder)</span>
               <input
                 value={form.publishableKey}
                 onChange={(e) => set("publishableKey", e.target.value)}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
               />
-              {authFrontendDomain && (
-                <span className="text-xs text-slate-600">
-                  Domaine frontend détecté : <code className="font-mono">{authFrontendDomain}</code>
-                  {form.hostnames.includes("lp.docslapro.com") &&
-                    authFrontendDomain !== "accounts.lp.docslapro.com" && (
-                      <span className="block mt-1 text-amber-800">
-                        Attention : domaine frontend legacy LP (clé de l&apos;app La Providence).
-                      </span>
-                    )}
-                </span>
-              )}
             </label>
-            <div className="sm:col-span-2">
+            <div>
               <SecretField
-                label="Clé secrète (legacy) (sk_*)"
+                label="Identifiant secret (placeholder)"
                 value={form.secrets.secretKey}
                 onChange={(v) => setSecret("secretKey", v)}
                 preview={meta?.secretsPreview.secretKey}
@@ -435,20 +423,6 @@ export default function PlatformTenantEditor({ mode, slug, writable, onClose, on
                 required={mode === "create"}
               />
             </div>
-            <SecretField
-              label="Auth dev — clé publique (localhost)"
-              value={form.secrets.devPublishableKey}
-              onChange={(v) => setSecret("devPublishableKey", v)}
-              preview={meta?.secretsPreview.devPublishableKey}
-              configured={meta?.configured.legacyDevKeys}
-            />
-            <SecretField
-              label="Auth dev — clé secrète"
-              value={form.secrets.devSecretKey}
-              onChange={(v) => setSecret("devSecretKey", v)}
-              preview={meta?.secretsPreview.devSecretKey}
-              configured={meta?.configured.legacyDevKeys}
-            />
           </div>
         )}
 

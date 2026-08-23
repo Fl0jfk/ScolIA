@@ -56,12 +56,6 @@ export async function GET() {
       },
       currentTenantSlug: current.slug,
       tenants: tenants.map(tenantListItem),
-      localDev: {
-        legacyEnvOverride: Boolean(
-          process.env.NEXT_PUBLIC_LEGACY_PUBLISHABLE_KEY?.trim() &&
-            process.env.LEGACY_SECRET_KEY?.trim(),
-        ),
-      },
     });
   } catch (e) {
     console.error("[platform/setup]", e);

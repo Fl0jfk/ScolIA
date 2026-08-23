@@ -228,16 +228,12 @@ function validateTenantUpsertInput(
     return "Slug invalide (lettres minuscules, chiffres et tirets uniquement).";
   }
   if (!input.dataBucket.trim()) return "Bucket données requis.";
-  if (!input.publishableKey.trim()) return "Clé publique (legacy) requise.";
-  if (!input.publishableKey.trim().startsWith("pk_")) {
-    return "Clé publique (legacy) invalide (doit commencer par pk_).";
-  }
-  if (options.isCreate && !input.secrets?.secretKey?.trim()) {
-    return "Clé secrète (legacy) requise pour un nouveau tenant.";
-  }
-  const sk = input.secrets?.secretKey?.trim();
-  if (sk && !sk.startsWith("sk_")) {
-    return "Clé secrète (legacy) invalide (doit commencer par sk_).";
+  // Auth Better-Auth : les champs publishableKey/secretKey sont des placeholders historiques.
+  const pk = input.publishableKey.trim() || "unused-better-auth";
+  input.publishableKey = pk;
+  if (options.isCreate) {
+    const sk = input.secrets?.secretKey?.trim() || "unused-better-auth";
+    input.secrets = { ...(input.secrets ?? {}), secretKey: sk };
   }
   return null;
 }
