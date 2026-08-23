@@ -31,6 +31,8 @@ import {
 import { getAppSession } from "@/app/lib/intranet-session";
 import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { hasRole } from "@/app/lib/intranet-role-utils";
+import { loadAppConfig } from "@/app/lib/app-config";
+import { resolveEleveLiveCourse } from "@/app/lib/rh/planning-class-live";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -253,6 +255,18 @@ export async function GET(_req: Request, ctx: Ctx) {
           .limit(80)
       : [];
 
+  let enCoursMaintenant = await (async () => {
+    try {
+      const cfg = await loadAppConfig();
+      return resolveEleveLiveCourse({
+        classe: row.classe,
+        zone: cfg.identity.schoolHolidayZone ?? null,
+      });
+    } catch {
+      return resolveEleveLiveCourse({ classe: row.classe });
+    }
+  })();
+
   return NextResponse.json({
     eleve: profRestrictedView ? sanitizeEleveRowForProfViewer(row) : row,
     sections,
@@ -269,6 +283,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       tiroirs: TIROIRS,
     },
     pendingAccessRequests: pendingAccess,
+    enCoursMaintenant,
     stubs: {
       notes: sections.includes("notes")
         ? { message: "Module notes (P4) — bientôt sur cette fiche." }
@@ -276,7 +291,6 @@ export async function GET(_req: Request, ctx: Ctx) {
       vieScolaire: sections.includes("vie_scolaire")
         ? { message: "Vie scolaire live (P3) — bientôt sur cette fiche." }
         : null,
-      enCoursMaintenant: "Disponible avec l’EDT (P2).",
     },
   });
 }

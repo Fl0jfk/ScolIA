@@ -87,7 +87,7 @@ function weekdayFromDate(d: Date): PlanningWeekday | null {
   return js as PlanningWeekday;
 }
 
-function resolveDayContext(input: {
+export function resolveDayContext(input: {
   isoDate: string;
   audience: "teacher" | "staff";
   zone?: SchoolHolidayZone | null;

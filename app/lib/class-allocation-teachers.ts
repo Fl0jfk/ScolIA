@@ -4,6 +4,7 @@ import { classKey } from "@/app/lib/stage-referents-config";
 import {
   listClassesForReferentUser,
 } from "@/app/lib/stage-referents-config";
+import { readRhPlanning } from "@/app/lib/rh/planning-storage";
 import { currentStageSchoolYear } from "@/app/lib/stage-types";
 import { hasGlobalAdminRole } from "@/app/lib/intranet-role-utils";
 import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
@@ -50,6 +51,25 @@ async function loadTeacherAssignmentsFromRoster(): Promise<ClassAllocationTeache
   return roster.classAssignments;
 }
 
+async function listClassesFromTeacherEdt(externalUserId: string): Promise<string[]> {
+  const doc = await readRhPlanning("teacher", externalUserId);
+  if (doc.kind !== "teacher") return [];
+  const set = new Set<string>();
+  for (const slot of [...doc.weekA, ...doc.weekB]) {
+    for (const c of slot.classes || []) {
+      const t = c.trim();
+      if (t) set.add(t);
+    }
+  }
+  for (const r of doc.replacements || []) {
+    for (const c of r.classes || []) {
+      const t = c.trim();
+      if (t) set.add(t);
+    }
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+}
+
 export async function listClassesForTeacherUser(
   externalUserId: string,
   _campaignId?: string,
@@ -62,9 +82,9 @@ export async function listClassesForTeacherUser(
     externalUserId,
     currentStageSchoolYear(),
   );
-  // Union roster Paramètres + référents Stages (P1 finition).
-  // Prof de matière : source dédiée à brancher ultérieurement (EDT P2).
-  const merged = [...new Set([...fromRoster, ...fromReferents])];
+  const fromEdt = await listClassesFromTeacherEdt(externalUserId);
+  // Union roster Paramètres + référents Stages + classes EDT (P2).
+  const merged = [...new Set([...fromRoster, ...fromReferents, ...fromEdt])];
   return merged.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
 

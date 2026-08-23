@@ -107,7 +107,19 @@ type DossierPayload = {
   stubs: {
     notes: { message: string } | null;
     vieScolaire: { message: string } | null;
-    enCoursMaintenant: string;
+  };
+  enCoursMaintenant: {
+    activity: {
+      subject: string;
+      room: string | null;
+      start: string;
+      end: string;
+      teacherName: string;
+      kind: "cours" | "remplacement";
+      weekType: "A" | "B" | null;
+    } | null;
+    reason: string;
+    label?: string;
   };
 };
 
@@ -453,7 +465,42 @@ export default function EleveDossierClient() {
             <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">
               Maintenant
             </h2>
-            <p className="text-sm text-slate-600">{data.stubs.enCoursMaintenant}</p>
+            {data.enCoursMaintenant.activity ? (
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3">
+                <p className="text-[10px] font-black uppercase tracking-wide text-indigo-600">
+                  En cours
+                </p>
+                <p className="mt-1 text-lg font-bold text-indigo-950">
+                  {data.enCoursMaintenant.activity.subject}
+                </p>
+                <p className="text-sm text-indigo-900/90">
+                  {data.enCoursMaintenant.activity.start}–{data.enCoursMaintenant.activity.end}
+                  {data.enCoursMaintenant.activity.room
+                    ? ` · ${data.enCoursMaintenant.activity.room}`
+                    : ""}
+                </p>
+                <p className="mt-1 text-xs text-indigo-800/80">
+                  {data.enCoursMaintenant.activity.teacherName}
+                  {data.enCoursMaintenant.activity.kind === "remplacement"
+                    ? " · remplacement"
+                    : data.enCoursMaintenant.activity.weekType
+                      ? ` · semaine ${data.enCoursMaintenant.activity.weekType}`
+                      : ""}
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-600">
+                {data.enCoursMaintenant.reason === "vacances" ||
+                data.enCoursMaintenant.reason === "weekend" ||
+                data.enCoursMaintenant.reason === "ferie"
+                  ? data.enCoursMaintenant.label || "Pas de cours (calendrier)."
+                  : data.enCoursMaintenant.reason === "pas_de_classe"
+                    ? "Classe non renseignée — impossible de déduire l’emploi du temps."
+                    : data.enCoursMaintenant.reason === "pas_edt"
+                      ? "Aucun EDT prof renseigné pour cette classe."
+                      : "Pas de cours en ce moment."}
+              </p>
+            )}
             {data.scolarites[0] ? (
               <p className="mt-3 text-sm">
                 Demi-pension :{" "}
