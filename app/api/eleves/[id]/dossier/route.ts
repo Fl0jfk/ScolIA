@@ -22,6 +22,12 @@ import {
   type EleveDocConfidentialite,
   type EleveDocTiroir,
 } from "@/app/lib/eleve-dossier-access";
+import {
+  isProfesseurScopedDossierViewer,
+  listAssignedClassesForTeacher,
+  sanitizeEleveRowForProfViewer,
+  teacherCanAccessEleveClasse,
+} from "@/app/lib/eleve-dossier-prof";
 import { getAppSession } from "@/app/lib/intranet-session";
 import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { hasRole } from "@/app/lib/intranet-role-utils";
@@ -77,6 +83,7 @@ async function resolveViewer(etabId: string) {
       : await listUserRolesFromDb(session.user.id, etabId);
   return {
     userId: session.user.id,
+    businessUserId: session.user.businessUserId,
     roles,
     orgAdmin: Boolean(session.user.orgAdmin),
     platformAdmin: Boolean(session.user.platformAdmin),
@@ -97,8 +104,9 @@ export async function GET(_req: Request, ctx: Ctx) {
   if (!viewer) {
     return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   }
-  const { userId: authUserId, roles, orgAdmin, platformAdmin } = viewer;
+  const { userId: authUserId, businessUserId, roles, orgAdmin, platformAdmin } = viewer;
   const sections = [...eleveDossierSectionsForRoles(roles, { orgAdmin, platformAdmin })];
+  const profRestrictedView = isProfesseurScopedDossierViewer({ roles, orgAdmin, platformAdmin });
 
   const db = getDb();
   const [row] = await db
@@ -108,6 +116,14 @@ export async function GET(_req: Request, ctx: Ctx) {
     .limit(1);
   if (!row) {
     return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
+  }
+
+  if (profRestrictedView) {
+    const assignedClasses = await listAssignedClassesForTeacher(businessUserId);
+    // Hors classe = invisible (même réponse qu’introuvable), pas un 403.
+    if (!teacherCanAccessEleveClasse(row.classe, assignedClasses)) {
+      return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
+    }
   }
 
   const scolarites = await db
@@ -238,7 +254,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       : [];
 
   return NextResponse.json({
-    eleve: row,
+    eleve: profRestrictedView ? sanitizeEleveRowForProfViewer(row) : row,
     sections,
     scolarites,
     foyers: sections.includes("famille") ? foyers : [],
@@ -249,6 +265,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       annees,
       canEditStructure: canEditStructure(roles, { orgAdmin, platformAdmin }),
       canDecideAccess: canDecideAccess(roles, { orgAdmin, platformAdmin }),
+      profRestrictedView,
       tiroirs: TIROIRS,
     },
     pendingAccessRequests: pendingAccess,
@@ -318,7 +335,7 @@ export async function POST(req: Request, ctx: Ctx) {
   if (!viewer) {
     return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   }
-  const { userId: authUserId, roles, orgAdmin, platformAdmin } = viewer;
+  const { userId: authUserId, businessUserId, roles, orgAdmin, platformAdmin } = viewer;
   const sections = eleveDossierSectionsForRoles(roles, { orgAdmin, platformAdmin });
   const body = (await req.json()) as DossierBody;
   const action = String(body.action || "");
@@ -330,6 +347,14 @@ export async function POST(req: Request, ctx: Ctx) {
     .where(and(eq(eleve.etablissementId, etabId), eq(eleve.id, id)))
     .limit(1);
   if (!row) return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
+
+  if (isProfesseurScopedDossierViewer({ roles, orgAdmin, platformAdmin })) {
+    const assignedClasses = await listAssignedClassesForTeacher(businessUserId);
+    // Hors classe = invisible, pas un 403.
+    if (!teacherCanAccessEleveClasse(row.classe, assignedClasses)) {
+      return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
+    }
+  }
 
   if (action === "mock_bulletin") {
     const [doc] = await db

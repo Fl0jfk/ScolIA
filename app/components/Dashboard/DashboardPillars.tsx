@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { DashboardCategory } from "@/app/lib/intranet-modules";
 import {
   DASHBOARD_PILLARS,
+  moduleIdsForPillarViewer,
   pillarHasVisibleModules,
   type DashboardPillarDef,
   type DashboardPillarId,
@@ -368,7 +369,11 @@ export default function DashboardPillars({
 
   const pruned = (id: DashboardPillarId) => {
     const pillar = DASHBOARD_PILLARS.find((p) => p.id === id);
-    const moduleSet = new Set(pillar?.moduleIds ?? []);
+    const moduleSet = new Set(
+      pillar
+        ? moduleIdsForPillarViewer(pillar, roles, { orgAdmin })
+        : [],
+    );
     const list = shortcuts.filter(
       (s) =>
         (s.pillarId === id || moduleSet.has(s.moduleId)) &&

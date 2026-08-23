@@ -1,18 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 
 type EleveRow = {
-  id?: string;
+  id: string;
   nom: string;
   prenom: string;
-  classe?: string;
-  ine?: string;
-  folderName?: string;
+  classe: string | null;
+  status: string;
+  siteId: string | null;
+  folderName: string;
+  ine: string | null;
 };
+
+type SiteOption = { siteId: string; label: string };
 
 type Preinsc = {
   id: string;
@@ -38,30 +42,80 @@ type AccessReq = {
   elevePrenom?: string;
 };
 
+const STATUS_OPTIONS = [
+  { value: "", label: "Tous statuts" },
+  { value: "inscrit", label: "Inscrit" },
+  { value: "preinscrit", label: "Préinscrit" },
+  { value: "ancien", label: "Ancien" },
+  { value: "archive", label: "Archivé" },
+];
+
 export default function ElevesDossiersListClient() {
   const [eleves, setEleves] = useState<EleveRow[]>([]);
   const [preinsc, setPreinsc] = useState<Preinsc[]>([]);
   const [accessReqs, setAccessReqs] = useState<AccessReq[]>([]);
   const [canDecideAccess, setCanDecideAccess] = useState(false);
+  const [canViewFullHub, setCanViewFullHub] = useState(false);
+  const [profScoped, setProfScoped] = useState(false);
+  const [assignedClasses, setAssignedClasses] = useState<string[]>([]);
+  const [sites, setSites] = useState<SiteOption[]>([]);
+  const [listMessage, setListMessage] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
+  const [classeFilter, setClasseFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [tab, setTab] = useState<"dossiers" | "preinscriptions" | "acces">("dossiers");
   const [error, setError] = useState<string | null>(null);
-  const [ids, setIds] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+
+  const loadDossiers = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (siteFilter) params.set("siteId", siteFilter);
+    if (classeFilter) params.set("classe", classeFilter);
+    if (statusFilter) params.set("status", statusFilter);
+    const qs = params.toString();
+    const res = await fetch(`/api/eleves/dossiers/list${qs ? `?${qs}` : ""}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(j.error || `Erreur ${res.status}`);
+    }
+    const j = (await res.json()) as {
+      eleves: EleveRow[];
+      canViewFullHub: boolean;
+      profScoped: boolean;
+      assignedClasses: string[];
+      sites: SiteOption[];
+      message?: string;
+    };
+    setEleves(j.eleves || []);
+    setCanViewFullHub(Boolean(j.canViewFullHub));
+    setProfScoped(Boolean(j.profScoped));
+    setAssignedClasses(j.assignedClasses || []);
+    setSites(j.sites || []);
+    setListMessage(j.message ?? null);
+  }, [siteFilter, classeFilter, statusFilter]);
 
   useEffect(() => {
     void (async () => {
       try {
-        const [er, pr, ar] = await Promise.all([
-          fetch("/api/eleves"),
+        setError(null);
+        await loadDossiers();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Erreur chargement");
+      }
+    })();
+  }, [loadDossiers]);
+
+  useEffect(() => {
+    if (!canViewFullHub) return;
+    void (async () => {
+      try {
+        const [pr, ar] = await Promise.all([
           fetch("/api/eleves/preinscriptions?status=pending"),
           fetch("/api/eleves/document-access-requests?status=pending"),
         ]);
-        if (er.ok) {
-          const j = (await er.json()) as { eleves: EleveRow[] };
-          setEleves(j.eleves || []);
-        }
         if (pr.ok) {
           const j = (await pr.json()) as { preinscriptions: Preinsc[] };
           setPreinsc(j.preinscriptions || []);
@@ -71,22 +125,17 @@ export default function ElevesDossiersListClient() {
           setAccessReqs(j.requests || []);
           setCanDecideAccess(Boolean(j.canDecide));
         }
-        const dbRes = await fetch("/api/eleves/registry-ids");
-        if (dbRes.ok) {
-          const j = (await dbRes.json()) as { byFolder: Record<string, string> };
-          setIds(j.byFolder || {});
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Erreur chargement");
+      } catch {
+        /* onglets admin secondaires */
       }
     })();
-  }, []);
+  }, [canViewFullHub]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return eleves.filter((e) => {
       if (!needle) return true;
-      return `${e.nom} ${e.prenom} ${e.classe || ""}`.toLowerCase().includes(needle);
+      return `${e.nom} ${e.prenom} ${e.classe || ""} ${e.ine || ""}`.toLowerCase().includes(needle);
     });
   }, [eleves, q]);
 
@@ -95,11 +144,18 @@ export default function ElevesDossiersListClient() {
     return preinsc.filter((p) => p.siteId === siteFilter);
   }, [preinsc, siteFilter]);
 
-  const sites = useMemo(() => {
+  const preSites = useMemo(() => {
     const s = new Set<string>();
     for (const p of preinsc) if (p.siteId) s.add(p.siteId);
     return [...s].sort();
   }, [preinsc]);
+
+  const classeOptions = useMemo(() => {
+    if (profScoped) return assignedClasses;
+    const s = new Set<string>();
+    for (const e of eleves) if (e.classe) s.add(e.classe);
+    return [...s].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  }, [eleves, profScoped, assignedClasses]);
 
   async function decide(id: string, action: "accept" | "reject") {
     const res = await fetch("/api/eleves/preinscriptions", {
@@ -138,11 +194,17 @@ export default function ElevesDossiersListClient() {
     <ModulePageShell maxWidthClass="max-w-5xl">
       <ModulePageHeader
         title="Dossiers élèves"
-        description="Hub anti-silos — une fiche, des vues par rôle."
+          description={
+          profScoped
+            ? "Vos classes — dossiers pédagogiques uniquement (sans coordonnées familiales)."
+            : "Hub anti-silos — une fiche, des vues par rôle."
+        }
         actions={
-          <Link href="/preinscription" className="text-sm font-bold text-indigo-600 hover:underline">
-            Formulaire public
-          </Link>
+          canViewFullHub ? (
+            <Link href="/preinscription" className="text-sm font-bold text-indigo-600 hover:underline">
+              Formulaire public
+            </Link>
+          ) : null
         }
       />
 
@@ -156,30 +218,76 @@ export default function ElevesDossiersListClient() {
         >
           Dossiers ({filtered.length})
         </button>
-        <button
-          type="button"
-          onClick={() => setTab("preinscriptions")}
-          className={`rounded-xl px-4 py-2 text-sm font-bold border ${
-            tab === "preinscriptions" ? "bg-slate-900 text-white" : "bg-white border-slate-200"
-          }`}
-        >
-          Préinscriptions ({preFiltered.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("acces")}
-          className={`rounded-xl px-4 py-2 text-sm font-bold border ${
-            tab === "acces" ? "bg-slate-900 text-white" : "bg-white border-slate-200"
-          }`}
-        >
-          Accès documents ({accessReqs.length})
-        </button>
+        {canViewFullHub ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setTab("preinscriptions")}
+              className={`rounded-xl px-4 py-2 text-sm font-bold border ${
+                tab === "preinscriptions" ? "bg-slate-900 text-white" : "bg-white border-slate-200"
+              }`}
+            >
+              Préinscriptions ({preFiltered.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("acces")}
+              className={`rounded-xl px-4 py-2 text-sm font-bold border ${
+                tab === "acces" ? "bg-slate-900 text-white" : "bg-white border-slate-200"
+              }`}
+            >
+              Accès documents ({accessReqs.length})
+            </button>
+          </>
+        ) : null}
       </div>
 
       {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
+      {listMessage ? <p className="mb-3 text-sm text-amber-700">{listMessage}</p> : null}
 
       {tab === "dossiers" ? (
         <>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {canViewFullHub ? (
+              <>
+                <select
+                  value={siteFilter}
+                  onChange={(e) => setSiteFilter(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                >
+                  <option value="">Tous les sites</option>
+                  {sites.map((s) => (
+                    <option key={s.siteId} value={s.siteId}>
+                      {s.label || s.siteId}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                >
+                  {STATUS_OPTIONS.map((o) => (
+                    <option key={o.value || "all"} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : null}
+            <select
+              value={classeFilter}
+              onChange={(e) => setClasseFilter(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+            >
+              <option value="">{profScoped ? "Toutes mes classes" : "Toutes les classes"}</option>
+              {classeOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -187,35 +295,34 @@ export default function ElevesDossiersListClient() {
             className="mb-4 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"
           />
           <ul className="divide-y divide-slate-100 rounded-3xl border border-slate-200 bg-white overflow-hidden">
-            {filtered.slice(0, 100).map((e, i) => {
-              const key = e.folderName || `${e.nom}_${e.prenom}`;
-              const uuid = e.id || ids[key];
-              return (
-                <li key={`${key}-${i}`} className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div>
-                    <p className="font-semibold text-slate-900">
-                      {e.prenom} {e.nom}
-                    </p>
-                    <p className="text-xs text-slate-500">{e.classe || "—"}</p>
-                  </div>
-                  {uuid ? (
-                    <Link
-                      href={`/eleves/dossier/${uuid}`}
-                      className="text-sm font-bold text-indigo-600 hover:underline"
-                    >
-                      Ouvrir
-                    </Link>
-                  ) : (
-                    <span className="text-xs text-slate-400">UUID manquant</span>
-                  )}
-                </li>
-              );
-            })}
+            {filtered.slice(0, 200).map((e) => (
+              <li key={e.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div>
+                  <p className="font-semibold text-slate-900">
+                    {e.prenom} {e.nom}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {e.classe || "—"}
+                    {canViewFullHub && e.status ? ` · ${e.status}` : ""}
+                    {canViewFullHub && e.siteId ? ` · ${e.siteId}` : ""}
+                  </p>
+                </div>
+                <Link
+                  href={`/eleves/dossier/${e.id}`}
+                  className="text-sm font-bold text-indigo-600 hover:underline"
+                >
+                  Ouvrir
+                </Link>
+              </li>
+            ))}
+            {filtered.length === 0 ? (
+              <li className="px-4 py-8 text-center text-sm text-slate-500">Aucun dossier.</li>
+            ) : null}
           </ul>
         </>
       ) : null}
 
-      {tab === "preinscriptions" ? (
+      {tab === "preinscriptions" && canViewFullHub ? (
         <>
           <div className="mb-4 flex flex-wrap gap-2">
             <button
@@ -227,7 +334,7 @@ export default function ElevesDossiersListClient() {
             >
               Tous les sites
             </button>
-            {sites.map((s) => (
+            {preSites.map((s) => (
               <button
                 key={s}
                 type="button"
@@ -279,7 +386,7 @@ export default function ElevesDossiersListClient() {
         </>
       ) : null}
 
-      {tab === "acces" ? (
+      {tab === "acces" && canViewFullHub ? (
         <ul className="space-y-2">
           {accessReqs.length === 0 ? (
             <p className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-500">

@@ -81,6 +81,8 @@ export default function PillarHubClient({ pillarId, loadingLabel }: Props) {
       pillarId={pillarId}
       categories={data?.categories ?? []}
       accessibleModuleIds={accessible}
+      roles={roles}
+      orgAdmin={isOrgAdmin}
     />
   );
 }

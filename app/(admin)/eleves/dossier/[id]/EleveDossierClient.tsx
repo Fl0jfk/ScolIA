@@ -92,6 +92,7 @@ type DossierPayload = {
     annees: Array<{ id: string; label: string; isCurrent: boolean }>;
     canEditStructure: boolean;
     canDecideAccess: boolean;
+    profRestrictedView?: boolean;
     tiroirs: string[];
   };
   pendingAccessRequests: Array<{
@@ -431,15 +432,22 @@ export default function EleveDossierClient() {
                 <dt className="text-slate-500">Né(e) le</dt>
                 <dd className="font-semibold text-slate-900">{e.dateNaissance || "—"}</dd>
               </div>
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-500">Lieu</dt>
-                <dd className="font-semibold text-slate-900">{e.lieuNaissance || "—"}</dd>
-              </div>
+              {!data.meta.profRestrictedView ? (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-slate-500">Lieu</dt>
+                  <dd className="font-semibold text-slate-900">{e.lieuNaissance || "—"}</dd>
+                </div>
+              ) : null}
               <div className="flex justify-between gap-4">
                 <dt className="text-slate-500">Classe</dt>
                 <dd className="font-semibold text-slate-900">{e.classe || "—"}</dd>
               </div>
             </dl>
+            {data.meta.profRestrictedView ? (
+              <p className="mt-4 text-xs text-slate-500">
+                Coordonnées élève et famille masquées (accès pédagogique).
+              </p>
+            ) : null}
           </section>
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">

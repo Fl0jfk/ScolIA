@@ -58,10 +58,14 @@ export async function listClassesForTeacherUser(
   const fromRoster = roster.classAssignments
     .filter((a) => a.externalUserId === externalUserId)
     .map((a) => a.className);
-  if (fromRoster.length) {
-    return fromRoster.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
-  }
-  return listClassesForReferentUser(externalUserId, currentStageSchoolYear());
+  const fromReferents = await listClassesForReferentUser(
+    externalUserId,
+    currentStageSchoolYear(),
+  );
+  // Union roster Paramètres + référents Stages (P1 finition).
+  // Prof de matière : source dédiée à brancher ultérieurement (EDT P2).
+  const merged = [...new Set([...fromRoster, ...fromReferents])];
+  return merged.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
 
 function teacherCatalogFromRoster(roster: SchoolRosterConfig): string[] {

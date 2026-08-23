@@ -1,6 +1,10 @@
 import type { DashboardCategory } from "@/app/lib/intranet-modules";
 import { hasGlobalAdminRole, hasMasterRole, hasRole } from "@/app/lib/intranet-role-utils";
 import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
+import {
+  ADMINISTRATIF_PROF_MODULE_IDS,
+  isProfesseurScopedDossierViewer,
+} from "@/app/lib/eleve-dossier-scope";
 
 export type DashboardPillarId =
   | "administratif"
@@ -33,7 +37,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     title: "Administratif",
     href: "/administratif",
     description: "Dossiers, stages, préinscriptions, établissement",
-    // Profs : accès réduit (dossiers de leurs classes via RBAC fiche).
+    // Profs : pilier visible mais modules réduits (voir moduleIdsForPillarViewer).
     allowedRoles: [...DIRECTIONS, "administratif", "admin", "professeur"],
     moduleIds: [
       "eleve-dossier",
@@ -145,11 +149,35 @@ export function moduleIdToPillarId(moduleId: string): DashboardPillarId | null {
   return PRIMARY_PILLAR_BY_MODULE[moduleId] ?? null;
 }
 
+export function moduleIdsForPillarViewer(
+  pillar: DashboardPillarDef,
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): string[] {
+  if (
+    pillar.id === "administratif" &&
+    isProfesseurScopedDossierViewer({
+      roles,
+      orgAdmin: opts?.orgAdmin,
+      platformAdmin: opts?.platformAdmin,
+    })
+  ) {
+    return [...ADMINISTRATIF_PROF_MODULE_IDS];
+  }
+  return pillar.moduleIds;
+}
+
 export function categoriesForPillar(
   pillar: DashboardPillarDef,
   categories: DashboardCategory[],
+  roles?: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
 ): DashboardCategory[] {
-  const order = new Map(pillar.moduleIds.map((id, i) => [id, i]));
+  const moduleIds =
+    roles !== undefined
+      ? moduleIdsForPillarViewer(pillar, roles, opts)
+      : pillar.moduleIds;
+  const order = new Map(moduleIds.map((id, i) => [id, i]));
   return categories
     .filter((c) => order.has(c.moduleId))
     .sort((a, b) => (order.get(a.moduleId) ?? 0) - (order.get(b.moduleId) ?? 0));
@@ -186,5 +214,5 @@ export function pillarHasVisibleModules(
     );
     if (hasRh) return true;
   }
-  return categoriesForPillar(pillar, categories).length > 0;
+  return categoriesForPillar(pillar, categories, roles, opts).length > 0;
 }

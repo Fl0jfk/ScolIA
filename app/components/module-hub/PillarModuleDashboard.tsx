@@ -33,6 +33,8 @@ type Props = {
   pillarId: DashboardPillarId;
   categories: DashboardCategory[];
   accessibleModuleIds: Set<string>;
+  roles?: string[];
+  orgAdmin?: boolean;
 };
 
 type PreviewLine = {
@@ -331,6 +333,8 @@ export default function PillarModuleDashboard({
   pillarId,
   categories,
   accessibleModuleIds,
+  roles = [],
+  orgAdmin = false,
 }: Props) {
   const pillar = DASHBOARD_PILLARS.find((p) => p.id === pillarId)!;
   const { shortcuts, notifications, loading: loadingSignals } = useDashboardSignals({
@@ -338,10 +342,10 @@ export default function PillarModuleDashboard({
   });
 
   const modules = useMemo(() => {
-    return categoriesForPillar(pillar, categories).filter((c) =>
+    return categoriesForPillar(pillar, categories, roles, { orgAdmin }).filter((c) =>
       accessibleModuleIds.has(c.moduleId),
     );
-  }, [pillar, categories, accessibleModuleIds]);
+  }, [pillar, categories, accessibleModuleIds, roles, orgAdmin]);
 
   const pillarShortcuts = useMemo(
     () => shortcuts.filter((s) => s.pillarId === pillarId),
