@@ -150,7 +150,8 @@ function createAuth() {
       },
       useSecureCookies: process.env.NODE_ENV === "production",
       ipAddress: {
-        ipAddressHeaders: ["x-forwarded-for", "x-real-ip"],
+        // Scaleway Containers / reverse proxy : IP client réelle.
+        ipAddressHeaders: ["x-real-ip", "x-forwarded-for"],
       },
     },
     plugins: [

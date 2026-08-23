@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "crypto";
 import { and, eq, like, ne, sql } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { getBetterAuth } from "@/app/lib/auth-server";
-import { consumeRateLimit } from "@/app/lib/rate-limit";
+import { clearRateLimit, consumeRateLimit } from "@/app/lib/rate-limit";
 import { validatePasswordPolicy } from "@/app/lib/password-policy";
 import { writeSecurityAudit } from "@/app/lib/security-audit";
 import { createPlatformTransporter } from "@/app/lib/tenant-mail";
@@ -27,8 +27,22 @@ function isEmail(value: string): boolean {
 }
 
 function clientKey(req: Request, userId: string): string {
-  const fwd = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const fwd =
+    req.headers.get("x-real-ip")?.trim() ||
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "unknown";
   return `account-security:${userId}:${fwd}`;
+}
+
+function tooManyAttemptsResponse(retryAfterSec: number): NextResponse {
+  const sec = Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? Math.ceil(retryAfterSec) : 60;
+  const minutes = Math.ceil(sec / 60);
+  const waitLabel =
+    sec >= 60 ? `${minutes} min` : `${sec} s`;
+  return NextResponse.json(
+    { error: `Trop de tentatives. Réessayez dans ${waitLabel}.`, retryAfterSec: sec },
+    { status: 429, headers: { "Retry-After": String(sec) } },
+  );
 }
 
 async function sendSecurityMail(opts: {
@@ -82,17 +96,7 @@ export async function POST(req: Request) {
   }
 
   const userId = session.user.id;
-  const rate = await consumeRateLimit({
-    key: clientKey(req, userId),
-    limit: 8,
-    windowMs: 15 * 60 * 1000,
-  });
-  if (!rate.ok) {
-    return NextResponse.json(
-      { error: `Trop de tentatives. Réessayez dans ${rate.retryAfterSec}s.` },
-      { status: 429, headers: { "Retry-After": String(rate.retryAfterSec) } },
-    );
-  }
+  const rateKey = clientKey(req, userId);
 
   const currentPassword = String(
     "currentPassword" in body ? body.currentPassword ?? "" : "",
@@ -107,6 +111,15 @@ export async function POST(req: Request) {
       headers: req.headers,
     });
   } catch {
+    // Rate-limit uniquement les échecs (anti brute-force), pas une 1ʳᵉ tentative légitime.
+    const rate = await consumeRateLimit({
+      key: rateKey,
+      limit: 8,
+      windowMs: 15 * 60 * 1000,
+    });
+    if (!rate.ok) {
+      return tooManyAttemptsResponse(rate.retryAfterSec);
+    }
     return NextResponse.json({ error: "Mot de passe actuel incorrect." }, { status: 400 });
   }
 
@@ -157,6 +170,7 @@ export async function POST(req: Request) {
       action: "password_changed",
       req,
     });
+    await clearRateLimit(rateKey);
 
     return NextResponse.json({ ok: true, action: "password" });
   }
@@ -199,7 +213,6 @@ export async function POST(req: Request) {
     });
 
     if (!mailed) {
-      // Sans SMTP : bascule immédiate mais sessions révoquées + notification best-effort.
       await db
         .update(user)
         .set({ email: newEmail, emailVerified: true, updatedAt: new Date() })
@@ -216,6 +229,7 @@ export async function POST(req: Request) {
         req,
         metadata: { newEmail },
       });
+      await clearRateLimit(rateKey);
       return NextResponse.json({
         ok: true,
         action: "email",
@@ -238,6 +252,7 @@ export async function POST(req: Request) {
       req,
       metadata: { newEmail },
     });
+    await clearRateLimit(rateKey);
 
     return NextResponse.json({
       ok: true,

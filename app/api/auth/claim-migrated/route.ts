@@ -44,9 +44,13 @@ export async function POST(request: Request) {
     windowMs: 15 * 60 * 1000,
   });
   if (!rate.ok) {
+    const sec =
+      Number.isFinite(rate.retryAfterSec) && rate.retryAfterSec > 0
+        ? Math.ceil(rate.retryAfterSec)
+        : 60;
     return NextResponse.json(
-      { error: `Trop de tentatives. Réessayez dans ${rate.retryAfterSec}s.` },
-      { status: 429, headers: { "Retry-After": String(rate.retryAfterSec) } },
+      { error: `Trop de tentatives. Réessayez dans ${sec} s.` },
+      { status: 429, headers: { "Retry-After": String(sec) } },
     );
   }
 
