@@ -1,11 +1,15 @@
 import "server-only";
 
-export type AuthProviderMode = "better-auth" | "dual" | "legacy";
+export type AuthProviderMode = "better-auth";
 
 export function getAuthProviderMode(): AuthProviderMode {
-  const raw = process.env.AUTH_PROVIDER?.trim().toLowerCase();
-  if (raw === "better-auth" || raw === "dual" || raw === "legacy") return raw;
-  return "dual";
+  const provider = process.env.AUTH_PROVIDER?.trim().toLowerCase();
+  if (provider && provider !== "better-auth") {
+    throw new Error(
+      `AUTH_PROVIDER="${provider}" n'est plus supporté. Utilisez AUTH_PROVIDER=better-auth.`,
+    );
+  }
+  return "better-auth";
 }
 
 export function isDatabaseConfigured(): boolean {
@@ -13,36 +17,13 @@ export function isDatabaseConfigured(): boolean {
 }
 
 export function isBetterAuthConfigured(): boolean {
+  getAuthProviderMode();
   return isDatabaseConfigured() && Boolean(process.env.BETTER_AUTH_SECRET?.trim());
 }
 
+/** Better-Auth actif si la configuration minimale est présente. */
 export function isBetterAuthActive(): boolean {
-  const mode = getAuthProviderMode();
-  if (mode === "legacy") return false;
   return isBetterAuthConfigured();
-}
-
-export function isLegacyAuthActive(): boolean {
-  return getAuthProviderMode() !== "better-auth";
-}
-
-/** Chemins pilote Better-Auth (dual mode). */
-export function betterAuthPilotPrefixes(): string[] {
-  const raw =
-    process.env.BETTER_AUTH_PILOT_PATHS?.trim() ||
-    "/auth,/api/auth,/dashboard";
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-export function isBetterAuthPilotPath(pathname: string): boolean {
-  if (getAuthProviderMode() === "better-auth") return true;
-  if (getAuthProviderMode() === "legacy") return false;
-  return betterAuthPilotPrefixes().some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
 }
 
 export function betterAuthBaseUrl(): string {
@@ -59,17 +40,12 @@ export function authProviderStatus(): {
   betterAuthRuntime: boolean;
   nextStep: string;
 } {
-  const provider = getAuthProviderMode();
+  const configured = isBetterAuthConfigured();
   return {
-    provider,
-    betterAuthRuntime: isBetterAuthActive(),
-    nextStep:
-      provider === "better-auth"
-        ? isBetterAuthConfigured()
-          ? "Better-Auth actif."
-          : "Configurer DATABASE_URL + BETTER_AUTH_SECRET."
-        : provider === "dual"
-          ? "Élargir BETTER_AUTH_PILOT_PATHS puis basculer AUTH_PROVIDER=better-auth."
-          : "Passer AUTH_PROVIDER=better-auth (mode legacy désactivé).",
+    provider: "better-auth",
+    betterAuthRuntime: configured,
+    nextStep: configured
+      ? "Better-Auth actif."
+      : "Configurer DATABASE_URL + BETTER_AUTH_SECRET + AUTH_PROVIDER=better-auth.",
   };
 }

@@ -37,7 +37,7 @@ type State = {
 
 /**
  * Session client unifiée via `/api/auth/me`.
- * Ne dépend pas auth legacyProvider (safe en dual / localhost sans clés auth legacy).
+ * Session client unifiée via `/api/auth/me` (Better-Auth).
  */
 export function useAppUser(): State & { refresh: () => Promise<void> } {
   const [state, setState] = useState<State>({ isLoaded: false, user: null });

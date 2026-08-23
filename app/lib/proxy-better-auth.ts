@@ -2,7 +2,7 @@ import "server-only";
 
 import type { NextRequest } from "next/server";
 import { and, eq } from "drizzle-orm";
-import { isBetterAuthActive, isBetterAuthPilotPath } from "@/app/lib/auth-config";
+import { isBetterAuthActive } from "@/app/lib/auth-config";
 import { getBetterAuth } from "@/app/lib/auth-server";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
@@ -21,10 +21,6 @@ export type BetterAuthProxyState = {
   twoFactorEnabled: boolean;
   requiresTwoFactorSetup: boolean;
 };
-
-export function proxyUsesBetterAuth(pathname: string): boolean {
-  return isBetterAuthActive() && isBetterAuthPilotPath(pathname);
-}
 
 export async function resolveBetterAuthProxyState(
   request: NextRequest,

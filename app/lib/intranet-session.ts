@@ -6,7 +6,6 @@ export {
   resolveAppSessionIds,
   resolveSession,
   safeCurrentUser,
-  shouldUseBetterAuthForPath,
   type AppSession,
   type AppUser,
   type AuthSource,

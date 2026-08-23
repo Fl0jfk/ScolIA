@@ -1,10 +1,7 @@
 import "server-only";
 
 import { headers } from "next/headers";
-import {
-  isBetterAuthActive,
-  isBetterAuthPilotPath,
-} from "@/app/lib/auth-config";
+import { isBetterAuthActive } from "@/app/lib/auth-config";
 import { getBetterAuth } from "@/app/lib/auth-server";
 import {
   isOrgAdminFromAppUser,
@@ -119,10 +116,6 @@ export async function requireAppUser(): Promise<
     console.error("[requireAppUser]", error);
     return { ok: false, reason: "unavailable" };
   }
-}
-
-export function shouldUseBetterAuthForPath(pathname: string): boolean {
-  return isBetterAuthActive() && isBetterAuthPilotPath(pathname);
 }
 
 export async function resolveSession(): Promise<{ userId: string } | null> {
