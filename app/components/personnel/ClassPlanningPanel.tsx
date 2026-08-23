@@ -50,6 +50,7 @@ type ApiPayload = {
   replacementsThisWeek: number;
   live: LivePayload;
   profScoped: boolean;
+  scheduleConflicts?: Array<{ kind: string; message: string }>;
 };
 
 type Props = {
@@ -213,7 +214,25 @@ export default function ClassPlanningPanel({ initialClasse = "", compact = false
                 {data.replacementsThisWeek !== 1 ? "s" : ""} cette semaine
               </span>
             ) : null}
+            {(data.scheduleConflicts?.length ?? 0) > 0 ? (
+              <span className="text-amber-700 font-semibold">
+                {data.scheduleConflicts!.length} conflit
+                {data.scheduleConflicts!.length !== 1 ? "s" : ""} EDT
+              </span>
+            ) : null}
           </div>
+
+          {(data.scheduleConflicts?.length ?? 0) > 0 ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 space-y-1">
+              <p className="font-bold">Conflits inter-profs sur cette classe</p>
+              {data.scheduleConflicts!.map((c, i) => (
+                <p key={i}>{c.message}</p>
+              ))}
+              <Link href="/edt-etablissement" className="inline-block font-bold text-amber-800 hover:underline">
+                Vue établissement →
+              </Link>
+            </div>
+          ) : null}
 
           {slots.length === 0 ? (
             <p className="text-sm text-slate-500 italic">

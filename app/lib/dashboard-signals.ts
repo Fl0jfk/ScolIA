@@ -17,6 +17,7 @@ import { directionRolesMatchEstablishmentRef } from "@/app/lib/establishment-cat
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import { hasRole } from "@/app/lib/intranet-role-utils";
+import { isProfesseurScopedDossierViewer } from "@/app/lib/eleve-dossier-scope";
 import { canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
 import { resolveDirectionEtab } from "@/app/lib/travels-direction-dashboard";
 import { normalizeRequestEmail } from "@/app/lib/requests-board";
@@ -1127,6 +1128,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     });
   }
   if (has("eleve-dossier")) {
+    const profDossierOnly =
+      isProfesseurScopedDossierViewer({ roles }) && !hasRole(roles, "administratif");
     shortcuts.push({
       id: "eleve-dossier",
       pillarId: moduleIdToPillarId("eleve-dossier") ?? "administratif",
@@ -1134,7 +1137,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       href: moduleHref("eleve-dossier"),
       label: "Dossiers élèves",
       rich: true,
-      detail: "Fiche unique · préinscriptions",
+      detail: profDossierOnly ? "Vos classes · fiche pédagogique" : "Fiche unique · préinscriptions",
       tone: "info",
     });
   }

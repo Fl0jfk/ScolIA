@@ -104,10 +104,6 @@ type DossierPayload = {
     createdAt: string;
     docTitle: string;
   }>;
-  stubs: {
-    notes: { message: string } | null;
-    vieScolaire: { message: string } | null;
-  };
   enCoursMaintenant: {
     activity: {
       subject: string;
@@ -120,10 +116,11 @@ type DossierPayload = {
     } | null;
     reason: string;
     label?: string;
+    conflictCount?: number;
   };
 };
 
-type TabId = "synthese" | "famille" | "documents" | "scolarite" | "notes" | "sante" | "facturation";
+type TabId = "synthese" | "famille" | "documents" | "scolarite";
 
 const TIROIR_LABELS: Record<string, string> = {
   scolaire: "Scolaire",
@@ -209,9 +206,6 @@ export default function EleveDossierClient() {
       { id: "scolarite", label: "Scolarité", show: s.has("scolarite") },
       { id: "famille", label: "Famille", show: s.has("famille") },
       { id: "documents", label: "Documents", show: s.has("documents") },
-      { id: "notes", label: "Notes", show: s.has("notes") },
-      { id: "sante", label: "Santé", show: s.has("sante") },
-      { id: "facturation", label: "Facturation", show: s.has("facturation") },
     ];
     return list.filter((t) => t.show);
   }, [data]);
@@ -235,11 +229,6 @@ export default function EleveDossierClient() {
     } finally {
       setBusy(false);
     }
-  }
-
-  async function mockBulletin() {
-    const ok = await postAction({ action: "mock_bulletin", anneeLabel: "2025-2026" });
-    if (ok) setTab("documents");
   }
 
   async function createFoyer() {
@@ -497,6 +486,12 @@ export default function EleveDossierClient() {
                       ? ` · semaine ${data.enCoursMaintenant.activity.weekType}`
                       : ""}
                 </p>
+                {(data.enCoursMaintenant.conflictCount ?? 0) > 1 ? (
+                  <p className="mt-2 text-xs font-semibold text-amber-800">
+                    {data.enCoursMaintenant.conflictCount} créneaux EDT coïncident — conflit de
+                    saisie à corriger.
+                  </p>
+                ) : null}
               </div>
             ) : (
               <p className="text-sm text-slate-600">
@@ -975,17 +970,7 @@ export default function EleveDossierClient() {
           ) : null}
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-sm font-bold text-slate-800">Documents du dossier</h2>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void mockBulletin()}
-                className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
-              >
-                {busy ? "…" : "Simuler bulletin Notes → dossier"}
-              </button>
-            </div>
+            <h2 className="text-sm font-bold text-slate-800">Documents du dossier</h2>
 
             <div className="grid gap-3 sm:grid-cols-3">
               <label className="text-xs font-semibold text-slate-600">
@@ -1012,8 +997,12 @@ export default function EleveDossierClient() {
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 >
                   <option value="standard">Standard</option>
-                  <option value="restreint">Restreint</option>
-                  <option value="sante">Santé</option>
+                  {!data.meta.profRestrictedView ? (
+                    <>
+                      <option value="restreint">Restreint</option>
+                      <option value="sante">Santé</option>
+                    </>
+                  ) : null}
                 </select>
               </label>
               <label className="text-xs font-semibold text-slate-600">
@@ -1183,22 +1172,6 @@ export default function EleveDossierClient() {
             </div>
           ) : null}
         </section>
-      ) : null}
-
-      {tab === "notes" && data.stubs.notes ? (
-        <p className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
-          {data.stubs.notes.message}
-        </p>
-      ) : null}
-      {tab === "sante" ? (
-        <p className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
-          Section santé — documents tiroir « sante » / PAP (accès restreint).
-        </p>
-      ) : null}
-      {tab === "facturation" ? (
-        <p className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
-          Section facturation familles (P7) — visible selon votre rôle uniquement.
-        </p>
       ) : null}
     </ModulePageShell>
   );

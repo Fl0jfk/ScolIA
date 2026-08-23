@@ -8,11 +8,26 @@ import { getAppSession } from "@/app/lib/intranet-session";
 import { recordEleveAccessAudit } from "@/app/lib/eleve-dossier-access";
 import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
+import { canViewFullElevesDossierHub } from "@/app/lib/eleve-dossier-scope";
 
 /** Liste des préinscriptions du tenant (filtrable par site). */
 export async function GET(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
+
+  const session = await getAppSession();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
+  }
+  const fullHub = canViewFullElevesDossierHub({
+    roles: session.user.roles,
+    orgAdmin: session.user.orgAdmin,
+    platformAdmin: session.user.platformAdmin,
+  });
+  if (!fullHub) {
+    return NextResponse.json({ error: "Accès réservé au staff administratif." }, { status: 403 });
+  }
+
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) {
     return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });

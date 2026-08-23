@@ -136,6 +136,30 @@ export function eleveDocTiroirsForRoles(
   return tiroirs;
 }
 
+/** Enregistrement d’un document (upload) selon tiroir et confidentialité. */
+export function canRegisterEleveDocument(
+  tiroir: EleveDocTiroir,
+  confidentialite: EleveDocConfidentialite,
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  const allowedTiroirs = eleveDocTiroirsForRoles(roles, opts);
+  if (!allowedTiroirs.has(tiroir)) return false;
+  if (
+    opts?.orgAdmin ||
+    opts?.platformAdmin ||
+    isExactAdmin(roles) ||
+    isDirection(roles)
+  ) {
+    return true;
+  }
+  if (confidentialite === "restreint") return false;
+  if (confidentialite === "sante") {
+    return hasRole(roles, "infirmerie");
+  }
+  return true;
+}
+
 export function canOpenDocumentWithoutGrant(
   doc: Pick<EleveDocumentRow, "tiroir" | "confidentialite">,
   roles: string[],

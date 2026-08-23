@@ -42,6 +42,8 @@ export type EleveLiveCourseResult = {
   activity: EleveLiveCourse | null;
   reason: EleveLiveCourseReason;
   label?: string;
+  /** Plusieurs créneaux EDT coïncident (conflit de saisie). */
+  conflictCount?: number;
 };
 
 function parisNowParts(now = new Date()) {
@@ -238,7 +240,11 @@ export async function resolveEleveLiveCourse(input: {
     return a.subject.localeCompare(b.subject, "fr");
   });
 
-  return { activity: hits[0]!, reason: "en_cours" };
+  return {
+    activity: hits[0]!,
+    reason: "en_cours",
+    conflictCount: hits.length > 1 ? hits.length : undefined,
+  };
 }
 
 /** Classes enseignées par un prof d’après son EDT (P2). */

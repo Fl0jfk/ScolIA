@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 
@@ -51,6 +52,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function ElevesDossiersListClient() {
+  const router = useRouter();
   const [eleves, setEleves] = useState<EleveRow[]>([]);
   const [preinsc, setPreinsc] = useState<Preinsc[]>([]);
   const [accessReqs, setAccessReqs] = useState<AccessReq[]>([]);
@@ -163,12 +165,15 @@ export default function ElevesDossiersListClient() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, action }),
     });
+    const j = (await res.json().catch(() => ({}))) as { error?: string; eleve?: { id: string } };
     if (!res.ok) {
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
       setError(j.error || "Échec");
       return;
     }
     setPreinsc((prev) => prev.filter((p) => p.id !== id));
+    if (action === "accept" && j.eleve?.id) {
+      router.push(`/eleves/dossier/${j.eleve.id}`);
+    }
   }
 
   async function decideAccess(id: string, decision: "approved" | "rejected") {

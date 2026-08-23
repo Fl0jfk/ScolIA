@@ -96,7 +96,9 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    eleves,
+    eleves: eleves.map((e) =>
+      profScoped ? { ...e, ine: null } : e,
+    ),
     assignedClasses: assignedClasses ?? [],
     canViewFullHub: fullHub,
     profScoped,

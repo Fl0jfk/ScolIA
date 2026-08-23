@@ -8,6 +8,7 @@ import {
   type TeacherPlanningDoc,
   type TeacherPlanningSlot,
   estimateTeacherWeeklyHours,
+  findOverlappingTeacherSlots,
 } from "@/app/lib/rh/planning-types";
 import {
   DayFocusBanner,
@@ -193,6 +194,15 @@ export default function RhPlanningPanel() {
     if (!personnelId || !canEdit) return;
     const planning = override || (kind === "teacher" ? teacher : staff);
     if (!planning) return;
+    if (planning.kind === "teacher") {
+      const overlaps = findOverlappingTeacherSlots(planning.weekA).concat(
+        findOverlappingTeacherSlots(planning.weekB),
+      );
+      if (overlaps.length > 0) {
+        setError(overlaps[0]!);
+        return;
+      }
+    }
     setSaving(true);
     setError(null);
     setMsg(null);
@@ -206,7 +216,14 @@ export default function RhPlanningPanel() {
       if (!res.ok) throw new Error(j.error || "Enregistrement impossible");
       if (j.planning?.kind === "teacher") setTeacher(j.planning);
       else setStaff(j.planning);
-      setMsg("Planning enregistré.");
+      const crossConflicts = Array.isArray(j.conflicts) ? j.conflicts : [];
+      if (crossConflicts.length > 0) {
+        setMsg(
+          `Planning enregistré — ${crossConflicts.length} conflit${crossConflicts.length !== 1 ? "s" : ""} inter-profs (voir EDT établissement).`,
+        );
+      } else {
+        setMsg("Planning enregistré.");
+      }
       setEditMode(false);
       setPreviewMode(false);
       setImportWarnings([]);

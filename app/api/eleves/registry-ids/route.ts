@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve } from "@/db/schema";
 import { requireModule } from "@/app/lib/intranet-auth";
+import { canViewFullElevesDossierHub } from "@/app/lib/eleve-dossier-scope";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 
 /** Map folderName → uuid pour ouvrir les fiches depuis le registry. */
@@ -12,6 +13,15 @@ export async function GET() {
 
   const tenant = await requireTenantId();
   if (!tenant.ok) return tenant.response;
+
+  const fullHub = canViewFullElevesDossierHub({
+    roles: gate.ctx.user.roles,
+    orgAdmin: gate.ctx.user.orgAdmin,
+    platformAdmin: gate.ctx.user.platformAdmin,
+  });
+  if (!fullHub) {
+    return NextResponse.json({ error: "Accès réservé au staff administratif." }, { status: 403 });
+  }
 
   const etabId = tenant.ctx.etablissementId;
   const db = getDb();

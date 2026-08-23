@@ -61,13 +61,22 @@ export default function TeacherPlanningSelfEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ personnelId, planning: teacher }),
       });
-      const j = (await res.json()) as { error?: string; planning?: TeacherPlanningDoc };
+      const j = (await res.json()) as {
+        error?: string;
+        planning?: TeacherPlanningDoc;
+        conflicts?: Array<{ message: string }>;
+      };
       if (!res.ok) throw new Error(j.error || "Enregistrement impossible");
       if (j.planning?.kind === "teacher") {
         setTeacher(j.planning);
         onSaved(j.planning);
       }
-      setMsg("Planning enregistré.");
+      const n = j.conflicts?.length ?? 0;
+      setMsg(
+        n > 0
+          ? `Planning enregistré — ${n} conflit${n !== 1 ? "s" : ""} inter-profs (direction).`
+          : "Planning enregistré.",
+      );
       setEditMode(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");

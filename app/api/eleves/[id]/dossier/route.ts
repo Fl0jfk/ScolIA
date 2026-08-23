@@ -16,6 +16,7 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import {
+  canRegisterEleveDocument,
   eleveDossierSectionsForRoles,
   listEleveDocumentsForViewer,
   recordEleveAccessAudit,
@@ -284,14 +285,6 @@ export async function GET(_req: Request, ctx: Ctx) {
     },
     pendingAccessRequests: pendingAccess,
     enCoursMaintenant,
-    stubs: {
-      notes: sections.includes("notes")
-        ? { message: "Module notes (P4) — bientôt sur cette fiche." }
-        : null,
-      vieScolaire: sections.includes("vie_scolaire")
-        ? { message: "Vie scolaire live (P3) — bientôt sur cette fiche." }
-        : null,
-    },
   });
 }
 
@@ -368,33 +361,6 @@ export async function POST(req: Request, ctx: Ctx) {
     if (!teacherCanAccessEleveClasse(row.classe, assignedClasses)) {
       return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
     }
-  }
-
-  if (action === "mock_bulletin") {
-    const [doc] = await db
-      .insert(eleveDocument)
-      .values({
-        etablissementId: etabId,
-        eleveId: id,
-        tiroir: "scolaire",
-        title: body.title || `Bulletin ${row.prenom} ${row.nom}`,
-        anneeLabel: body.anneeLabel || null,
-        confidentialite: "standard",
-        source: "notes_bulletin",
-        createdByUserId: authUserId,
-      })
-      .returning();
-
-    await recordEleveAccessAudit({
-      etablissementId: etabId,
-      actorUserId: authUserId,
-      resourceType: "document",
-      resourceId: doc.id,
-      eleveId: id,
-      action: "create",
-      metadata: { source: "notes_bulletin" },
-    });
-    return NextResponse.json({ success: true, document: doc });
   }
 
   if (action === "create_foyer") {
@@ -590,6 +556,17 @@ export async function POST(req: Request, ctx: Ctx) {
     const title = String(body.title || "").trim();
     if (!title) {
       return NextResponse.json({ error: "Titre requis." }, { status: 400 });
+    }
+    if (
+      !canRegisterEleveDocument(tiroir, confidentialite, roles, {
+        orgAdmin,
+        platformAdmin,
+      })
+    ) {
+      return NextResponse.json(
+        { error: "Tiroir ou confidentialité non autorisé pour votre rôle." },
+        { status: 403 },
+      );
     }
 
     const [doc] = await db

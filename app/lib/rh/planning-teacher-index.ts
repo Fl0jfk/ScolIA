@@ -35,31 +35,28 @@ async function loadTeacherPlanningEntriesFresh(): Promise<TeacherPlanningEntry[]
 
   const { listAllTeacherPlanningsForEtab } = await import("@/app/lib/rh/planning-storage");
   const fromDb = await listAllTeacherPlanningsForEtab();
-  if (fromDb.length > 0) {
-    return fromDb
-      .filter((row) => teacherPlanningHasContent(row.planning))
-      .map((row) => ({
-        personnelId: row.personnelId,
-        displayName: nameById.get(row.personnelId) || row.personnelId,
-        planning: row.planning,
-      }));
+  const byId = new Map(fromDb.map((row) => [row.personnelId, row.planning] as const));
+
+  const entries: TeacherPlanningEntry[] = [];
+  for (const m of teachers) {
+    const id = m.externalUserId;
+    let planning = byId.get(id);
+    if (!planning || !teacherPlanningHasContent(planning)) {
+      const read = await readRhPlanning("teacher", id);
+      if (read.kind === "teacher" && teacherPlanningHasContent(read)) {
+        planning = read;
+      }
+    }
+    if (planning && teacherPlanningHasContent(planning)) {
+      entries.push({
+        personnelId: id,
+        displayName: nameById.get(id) || id,
+        planning,
+      });
+    }
   }
 
-  const entries = await Promise.all(
-    teachers.map(async (m) => {
-      const planning = await readRhPlanning("teacher", m.externalUserId);
-      if (planning.kind !== "teacher" || !teacherPlanningHasContent(planning)) {
-        return null;
-      }
-      return {
-        personnelId: m.externalUserId,
-        displayName: m.displayName || m.email,
-        planning,
-      };
-    }),
-  );
-
-  return entries.filter((e): e is TeacherPlanningEntry => !!e);
+  return entries.sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
 }
 
 /** Index EDT profs avec cache court (évite N×S3 par requête dossier / classe). */

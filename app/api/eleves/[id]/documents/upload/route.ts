@@ -9,6 +9,11 @@ import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getAppSession } from "@/app/lib/intranet-session";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import { eleveDossierSectionsForRoles } from "@/app/lib/eleve-dossier-access";
+import {
+  isProfesseurScopedDossierViewer,
+  listAssignedClassesForTeacher,
+  teacherCanAccessEleveClasse,
+} from "@/app/lib/eleve-dossier-prof";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 import { sanitizeS3FileName, s3Key } from "@/app/lib/s3-path";
@@ -47,12 +52,19 @@ export async function POST(req: Request, ctx: Ctx) {
 
   const db = getDb();
   const [row] = await db
-    .select({ id: eleve.id })
+    .select({ id: eleve.id, classe: eleve.classe })
     .from(eleve)
     .where(and(eq(eleve.etablissementId, etabId), eq(eleve.id, eleveId)))
     .limit(1);
   if (!row) {
     return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
+  }
+
+  if (isProfesseurScopedDossierViewer({ roles, orgAdmin: session.user.orgAdmin, platformAdmin: session.user.platformAdmin })) {
+    const assignedClasses = await listAssignedClassesForTeacher(session.user.businessUserId);
+    if (!teacherCanAccessEleveClasse(row.classe, assignedClasses)) {
+      return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
+    }
   }
 
   const body = (await req.json()) as {

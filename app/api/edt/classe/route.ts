@@ -28,6 +28,7 @@ import {
   toIsoDateLocal,
   weekDayContexts,
 } from "@/app/lib/rh/planning-calendar";
+import { findCrossTeacherPlanningConflicts } from "@/app/lib/rh/planning-conflicts";
 import { getTeacherPlanningEntries } from "@/app/lib/rh/planning-teacher-index";
 
 function isTeacherRole(roles: string[]) {
@@ -145,6 +146,9 @@ export async function GET(req: Request) {
 
   const weekEnd = toIsoDateLocal(addDays(weekStart, 4));
   const replacementsThisWeek = slots.filter((s) => s.kind === "remplacement");
+  const scheduleConflicts = findCrossTeacherPlanningConflicts(entries, weekType).filter((c) =>
+    c.classes.some((cl) => studentInAssignedClasses(classeParam, [cl])),
+  );
 
   return NextResponse.json({
     classe: classeParam,
@@ -156,6 +160,7 @@ export async function GET(req: Request) {
     slots,
     slotCount: slots.length,
     replacementsThisWeek: replacementsThisWeek.length,
+    scheduleConflicts,
     live,
     dayContexts,
     schoolHolidayZone: zone,

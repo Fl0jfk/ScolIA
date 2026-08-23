@@ -15,7 +15,14 @@ import {
 } from "@/app/lib/personnel-types";
 import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { readRhPlanning, writeRhPlanning } from "@/app/lib/rh/planning-storage";
-import { invalidateTeacherPlanningIndex } from "@/app/lib/rh/planning-teacher-index";
+import {
+  getTeacherPlanningEntries,
+  invalidateTeacherPlanningIndex,
+} from "@/app/lib/rh/planning-teacher-index";
+import {
+  conflictsForTeacher,
+  findAllCrossTeacherPlanningConflicts,
+} from "@/app/lib/rh/planning-conflicts";
 import {
   defaultStaffModeForCategory,
   emptyStaffPlanning,
@@ -281,10 +288,13 @@ export async function PUT(req: Request) {
   }
 
   const saved = await writeRhPlanning(next);
+  let conflicts: ReturnType<typeof conflictsForTeacher> = [];
   if (kind === "teacher") {
     invalidateTeacherPlanningIndex();
+    const entries = await getTeacherPlanningEntries(true);
+    conflicts = conflictsForTeacher(findAllCrossTeacherPlanningConflicts(entries), personnelId);
   }
   const balance =
     saved.kind === "staff" && saved.mode === "fixed" ? estimateAnnualBalance(saved) : null;
-  return NextResponse.json({ ok: true, planning: saved, balance });
+  return NextResponse.json({ ok: true, planning: saved, balance, conflicts });
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import PlanningWeekCalendar from "@/app/components/personnel/PlanningWeekCalendar";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";
@@ -174,6 +175,16 @@ export default function MonPlanningClient() {
             Vue semaine{displayName ? ` — ${displayName}` : ""}.
             {kind === "teacher" ? " Semaines types A/B pour l’année." : ""}
           </>
+        }
+        actions={
+          showGestion ? (
+            <Link
+              href="/edt-etablissement"
+              className="text-sm font-bold text-indigo-600 hover:underline"
+            >
+              EDT établissement
+            </Link>
+          ) : undefined
         }
       />
       {tabs.length > 1 ? (
