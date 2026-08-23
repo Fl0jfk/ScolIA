@@ -38,6 +38,7 @@ const PILLAR_MODULE_HREF: Record<string, string> = {
 const PILLAR_TAB_TO_MODULE: Record<DashboardPillarId, Record<string, string>> = {
   administratif: {
     dossiers: "eleve-dossier",
+    notes: "notes",
     stages: "stages",
     ocr: "agent-ia-ocr",
     certificates: "certificates",
@@ -63,9 +64,6 @@ const PILLAR_TAB_TO_MODULE: Record<DashboardPillarId, Record<string, string>> = 
   },
   vie_scolaire: {
     internat: "internat",
-  },
-  notes: {
-    notes: "notes",
   },
   compta_rh: {
     rh: "rh",

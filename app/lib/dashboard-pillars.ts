@@ -10,7 +10,6 @@ export type DashboardPillarId =
   | "administratif"
   | "services"
   | "vie_scolaire"
-  | "notes"
   | "compta_rh"
   | "sante";
 
@@ -36,11 +35,12 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     id: "administratif",
     title: "Administratif",
     href: "/administratif",
-    description: "Dossiers, stages, préinscriptions, établissement",
+    description: "Dossiers, notes & bulletins, stages, établissement",
     // Profs : pilier visible mais modules réduits (voir moduleIdsForPillarViewer).
     allowedRoles: [...DIRECTIONS, "administratif", "admin", "professeur"],
     moduleIds: [
       "eleve-dossier",
+      "notes",
       "stages",
       "agent-ia-ocr",
       "certificates",
@@ -88,14 +88,6 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     moduleIds: ["internat"],
   },
   {
-    id: "notes",
-    title: "Notes",
-    href: "/notes",
-    description: "Notes et bulletins",
-    allowedRoles: [...DIRECTIONS, "professeur"],
-    moduleIds: ["notes"],
-  },
-  {
     id: "compta_rh",
     title: "Comptabilité & RH",
     href: "/compta-rh",
@@ -116,6 +108,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
 /** Pilier « maison » pour les raccourcis dashboard (un module → un pilier signals). */
 const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
   "eleve-dossier": "administratif",
+  notes: "administratif",
   stages: "administratif",
   "agent-ia-ocr": "administratif",
   certificates: "administratif",
@@ -137,7 +130,6 @@ const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
   "photocopies-couleur": "services",
   covoiturage: "services",
   internat: "vie_scolaire",
-  notes: "notes",
   rh: "compta_rh",
   "mon-planning": "compta_rh",
   absences: "compta_rh",

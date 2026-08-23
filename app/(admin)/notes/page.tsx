@@ -1,10 +1,6 @@
-import { Suspense } from "react";
-import PillarHubClient from "@/app/components/module-hub/PillarHubClient";
+import { redirect } from "next/navigation";
 
-export default function NotesHubPage() {
-  return (
-    <Suspense fallback={<p className="p-10 text-center text-slate-500">Chargement…</p>}>
-      <PillarHubClient pillarId="notes" loadingLabel="Chargement de l’espace notes…" />
-    </Suspense>
-  );
+/** Ancien hub pilier Notes → Administratif (Notes est un module, pas un pilier). */
+export default function NotesHubRedirectPage() {
+  redirect("/administratif");
 }

@@ -544,7 +544,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/notes/espace",
       external: false,
-      description: "Notes, évaluations et bulletins (module P4 — bientôt).",
+      description: "Notes, évaluations et bulletins — module Administratif (P4).",
     },
   },
   {

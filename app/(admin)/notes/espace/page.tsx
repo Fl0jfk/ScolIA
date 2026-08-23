@@ -7,12 +7,12 @@ export default function NotesEspacePage() {
   return (
     <ModulePageShell maxWidthClass="max-w-3xl">
       <ModulePageHeader
-        eyebrow="Notes"
+        eyebrow="Administratif"
         title="Notes & bulletins"
         description="Le module notes (P4) arrive bientôt — les bulletins générés seront classés automatiquement dans le dossier élève."
         actions={
-          <Link href="/notes" className="text-sm font-bold text-indigo-600 hover:underline">
-            ← Espace Notes
+          <Link href="/administratif" className="text-sm font-bold text-indigo-600 hover:underline">
+            ← Administratif
           </Link>
         }
       />

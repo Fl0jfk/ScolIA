@@ -25,8 +25,7 @@ export function canViewFullElevesDossierHub(opts: {
 
 /**
  * Professeur sans rôle staff élargi :
- * - Administratif réduit (dossiers de ses classes)
- * - Notes dans le pilier Notes
+ * - Administratif réduit (dossiers de ses classes + notes)
  * - Pas de préinscriptions / réglages admin
  */
 export function isProfesseurScopedDossierViewer(opts: {
@@ -39,4 +38,4 @@ export function isProfesseurScopedDossierViewer(opts: {
 }
 
 /** Modules du pilier Administratif visibles pour un prof (vue réduite). */
-export const ADMINISTRATIF_PROF_MODULE_IDS = ["eleve-dossier"] as const;
+export const ADMINISTRATIF_PROF_MODULE_IDS = ["eleve-dossier", "notes"] as const;

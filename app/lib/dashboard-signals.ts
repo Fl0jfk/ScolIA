@@ -1106,7 +1106,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   if (has("notes")) {
     shortcuts.push({
       id: "notes",
-      pillarId: "notes",
+      pillarId: "administratif",
       moduleId: "notes",
       href: moduleHref("notes"),
       label: "Notes & bulletins",
