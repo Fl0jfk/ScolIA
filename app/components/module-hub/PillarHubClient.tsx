@@ -7,10 +7,20 @@ import PillarModuleDashboard from "@/app/components/module-hub/PillarModuleDashb
 import { useData } from "@/app/contexts/data";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { hasRole } from "@/app/lib/absences-types";
+import {
+  DASHBOARD_PILLARS,
+  pillarAllowedForRoles,
+  type DashboardPillarId,
+} from "@/app/lib/dashboard-pillars";
 import { hasGlobalAdminRole, intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { resolveLegacyPillarTab } from "@/app/lib/pillar-module-routes";
 
-export default function ElevesHubClient() {
+type Props = {
+  pillarId: DashboardPillarId;
+  loadingLabel: string;
+};
+
+export default function PillarHubClient({ pillarId, loadingLabel }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isLoaded, user } = useSessionUser();
@@ -18,13 +28,17 @@ export default function ElevesHubClient() {
   const data = useData();
 
   useEffect(() => {
-    const target = resolveLegacyPillarTab("eleves", searchParams.get("tab"));
+    const target = resolveLegacyPillarTab(pillarId, searchParams.get("tab"));
     if (target) router.replace(target);
-  }, [searchParams, router]);
+  }, [searchParams, router, pillarId]);
+
+  const roles = useMemo(() => {
+    if (!user) return [];
+    return intranetRolesFromMetadata(user.publicMetadata);
+  }, [user]);
 
   const accessible = useMemo(() => {
     if (!isLoaded || !user || !data?.categories) return new Set<string>();
-    const roles = intranetRolesFromMetadata(user.publicMetadata);
     const ids = new Set<string>();
     for (const category of data.categories) {
       if (category.orgAdminOnly) {
@@ -39,19 +53,32 @@ export default function ElevesHubClient() {
       }
     }
     return ids;
-  }, [isLoaded, user, data, isOrgAdmin]);
+  }, [isLoaded, user, data, isOrgAdmin, roles]);
+
+  const pillar = DASHBOARD_PILLARS.find((p) => p.id === pillarId);
 
   if (!isLoaded) {
-    return <p className="p-10 text-center text-slate-500">Chargement du module Élèves…</p>;
+    return <p className="p-10 text-center text-slate-500">{loadingLabel}</p>;
   }
 
-  if (searchParams.get("tab") && resolveLegacyPillarTab("eleves", searchParams.get("tab"))) {
+  if (searchParams.get("tab") && resolveLegacyPillarTab(pillarId, searchParams.get("tab"))) {
     return <p className="p-10 text-center text-slate-500">Redirection…</p>;
+  }
+
+  if (
+    !pillar ||
+    !pillarAllowedForRoles(pillar, roles, { orgAdmin: isOrgAdmin })
+  ) {
+    return (
+      <p className="p-10 text-center text-slate-500">
+        Cet espace n’est pas accessible avec votre profil.
+      </p>
+    );
   }
 
   return (
     <PillarModuleDashboard
-      pillarId="eleves"
+      pillarId={pillarId}
       categories={data?.categories ?? []}
       accessibleModuleIds={accessible}
     />

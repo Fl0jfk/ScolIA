@@ -20,14 +20,16 @@ import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
 import { MODULE_EMOJI, moduleHref } from "@/app/lib/pillar-module-routes";
 import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
 
-const PILLAR_ORB: Record<Exclude<DashboardPillarId, "rh">, string> = {
-  eleves: "bg-sky-400/30",
-  etablissement: "bg-amber-400/30",
-  services: "bg-emerald-400/30",
+const PILLAR_ORB: Record<DashboardPillarId, string> = {
+  administratif: "bg-sky-400/30",
+  vie_scolaire: "bg-emerald-400/30",
+  notes: "bg-violet-400/25",
+  compta_rh: "bg-amber-400/30",
+  sante: "bg-rose-400/30",
 };
 
 type Props = {
-  pillarId: Exclude<DashboardPillarId, "rh">;
+  pillarId: DashboardPillarId;
   categories: DashboardCategory[];
   accessibleModuleIds: Set<string>;
 };

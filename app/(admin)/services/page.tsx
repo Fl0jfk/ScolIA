@@ -1,10 +1,13 @@
-import { Suspense } from "react";
-import ServicesHubClient from "@/app/(admin)/services/ServicesHubClient";
+import { redirect } from "next/navigation";
 
-export default function ServicesHubPage() {
-  return (
-    <Suspense fallback={<p className="p-10 text-center text-slate-500">Chargement du module Services…</p>}>
-      <ServicesHubClient />
-    </Suspense>
-  );
+/** Legacy hub Services → Administratif (ou Vie scolaire pour salles). */
+export default async function ServicesLegacyRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const { tab } = await searchParams;
+  if (tab === "salles" || tab === "transversal") redirect(`/vie-scolaire?tab=${tab}`);
+  if (tab) redirect(`/administratif?tab=${tab}`);
+  redirect("/administratif");
 }

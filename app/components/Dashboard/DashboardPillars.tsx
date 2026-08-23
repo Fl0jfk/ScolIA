@@ -25,20 +25,24 @@ type Props = {
   shortcuts: DashboardShortcut[];
   notifications?: DashboardNotification[];
   pulseKey?: string;
+  roles?: string[];
+  orgAdmin?: boolean;
 };
 
 const PILLAR_ORB: Record<DashboardPillarId, string> = {
-  eleves: "bg-sky-400/30",
-  rh: "bg-violet-400/25",
-  etablissement: "bg-amber-400/30",
-  services: "bg-emerald-400/30",
+  administratif: "bg-sky-400/30",
+  vie_scolaire: "bg-emerald-400/30",
+  notes: "bg-violet-400/25",
+  compta_rh: "bg-amber-400/30",
+  sante: "bg-rose-400/30",
 };
 
 const PILLAR_EMOJI: Record<DashboardPillarId, string> = {
-  eleves: "🎒",
-  rh: "👥",
-  etablissement: "🏫",
-  services: "🛠️",
+  administratif: "🗂️",
+  vie_scolaire: "🏫",
+  notes: "📝",
+  compta_rh: "💼",
+  sante: "🩺",
 };
 
 function slideTextColor(hex: string): string {
@@ -353,12 +357,21 @@ export default function DashboardPillars({
   shortcuts,
   notifications = [],
   pulseKey,
+  roles = [],
+  orgAdmin = false,
 }: Props) {
-  const pillars = DASHBOARD_PILLARS.filter((p) => pillarHasVisibleModules(p, categories));
+  const pillars = DASHBOARD_PILLARS.filter((p) =>
+    pillarHasVisibleModules(p, categories, roles, { orgAdmin }),
+  );
 
   const pruned = (id: DashboardPillarId) => {
+    const pillar = DASHBOARD_PILLARS.find((p) => p.id === id);
+    const moduleSet = new Set(pillar?.moduleIds ?? []);
     const list = shortcuts.filter(
-      (s) => s.pillarId === id && s.id !== "rh-home" && !s.pillarOnly,
+      (s) =>
+        (s.pillarId === id || moduleSet.has(s.moduleId)) &&
+        s.id !== "rh-home" &&
+        !s.pillarOnly,
     );
     const richModules = new Set(list.filter((s) => s.rich).map((s) => s.moduleId));
     return list.filter((s) => {

@@ -1,10 +1,12 @@
-import { Suspense } from "react";
-import EtablissementHubClient from "@/app/(admin)/etablissement/EtablissementHubClient";
+import { redirect } from "next/navigation";
 
-export default function EtablissementHubPage() {
-  return (
-    <Suspense fallback={<p className="p-10 text-center text-slate-500">Chargement du module Établissement…</p>}>
-      <EtablissementHubClient />
-    </Suspense>
-  );
+/** Legacy hub Établissement → Administratif. */
+export default async function EtablissementLegacyRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const { tab } = await searchParams;
+  if (tab) redirect(`/administratif?tab=${tab}`);
+  redirect("/administratif");
 }

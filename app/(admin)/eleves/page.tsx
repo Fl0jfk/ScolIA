@@ -1,10 +1,14 @@
-import { Suspense } from "react";
-import ElevesHubClient from "@/app/(admin)/eleves/ElevesHubClient";
+import { redirect } from "next/navigation";
 
-export default function ElevesHubPage() {
-  return (
-    <Suspense fallback={<p className="p-10 text-center text-slate-500">Chargement du module Élèves…</p>}>
-      <ElevesHubClient />
-    </Suspense>
-  );
+/** Legacy hub Élèves → Administratif (dossiers) ou Vie scolaire selon tab. */
+export default async function ElevesLegacyRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const { tab } = await searchParams;
+  if (tab === "internat") redirect("/vie-scolaire?tab=internat");
+  if (tab === "travels" || tab === "stages") redirect(`/vie-scolaire?tab=${tab}`);
+  if (tab) redirect(`/administratif?tab=${tab}`);
+  redirect("/administratif");
 }

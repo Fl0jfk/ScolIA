@@ -104,13 +104,18 @@ export default function Home() {
     );
   }, [isLoaded, user, data]);
 
-  const eleveBienEtre = useMemo(() => {
-    if (!user) return false;
-    return isEleveBienEtreProfile(intranetRolesFromMetadata(user.publicMetadata));
+  const userRoles = useMemo(() => {
+    if (!user) return [];
+    return intranetRolesFromMetadata(user.publicMetadata);
   }, [user]);
 
+  const eleveBienEtre = useMemo(() => {
+    if (!user) return false;
+    return isEleveBienEtreProfile(userRoles);
+  }, [user, userRoles]);
+
   const hasPillars = DASHBOARD_PILLARS.some((p) =>
-    pillarHasVisibleModules(p, dashboardCategories),
+    pillarHasVisibleModules(p, dashboardCategories, userRoles, { orgAdmin: isOrgAdmin }),
   );
 
   if (!isLoaded) return null;
@@ -220,6 +225,8 @@ export default function Home() {
                   shortcuts={shortcuts}
                   notifications={notifications}
                   pulseKey={pulseKey}
+                  roles={userRoles}
+                  orgAdmin={isOrgAdmin}
                 />
               ) : (
                 user && (
