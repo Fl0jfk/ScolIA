@@ -31,7 +31,7 @@ function isPdfFile(file: File) {
 
 export async function POST(req: Request) {
   try {
-    if (!stageDepositLimiter.allow(clientIpFromRequest(req))) {
+    if (!(await stageDepositLimiter.allow(clientIpFromRequest(req)))) {
       return NextResponse.json(
         { error: "Trop de tentatives. Réessayez plus tard." },
         { status: 429 },

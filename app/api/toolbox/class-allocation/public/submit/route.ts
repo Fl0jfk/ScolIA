@@ -49,7 +49,7 @@ function normalizeTexts(v: unknown, max: number): string[] {
 }
 
 export async function POST(req: Request) {
-  if (!parentSubmitLimiter.allow(clientIpFromRequest(req))) {
+  if (!(await parentSubmitLimiter.allow(clientIpFromRequest(req)))) {
     return NextResponse.json(
       { error: "Trop de tentatives. Réessayez dans quelques minutes." },
       { status: 429 },

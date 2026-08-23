@@ -20,7 +20,7 @@ const parentVerifyLimiter = createMemoryRateLimiter({
 });
 
 export async function POST(req: Request) {
-  if (!parentVerifyLimiter.allow(clientIpFromRequest(req))) {
+  if (!(await parentVerifyLimiter.allow(clientIpFromRequest(req)))) {
     return NextResponse.json(
       { error: "Trop de tentatives. Réessayez dans quelques minutes." },
       { status: 429 },

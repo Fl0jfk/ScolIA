@@ -100,7 +100,7 @@ export async function POST(req: Request) {
     }
     payload.userId = userId ?? null;
     if (!userId) {
-      if (!anonymousCreateLimiter.allow(clientIpFromRequest(req))) {
+      if (!(await anonymousCreateLimiter.allow(clientIpFromRequest(req)))) {
         return NextResponse.json(
           { error: "Trop de tentatives. Réessayez plus tard." },
           { status: 429 },

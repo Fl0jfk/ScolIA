@@ -40,7 +40,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    if (!onboardingPublicLimiter.allow(clientIpFromRequest(req))) {
+    if (!(await onboardingPublicLimiter.allow(clientIpFromRequest(req)))) {
       return NextResponse.json(
         { error: "Trop de tentatives. Réessayez dans quelques minutes." },
         { status: 429 },

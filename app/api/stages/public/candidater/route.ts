@@ -44,7 +44,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    if (!candidaterLimiter.allow(clientIpFromRequest(req))) {
+    if (!(await candidaterLimiter.allow(clientIpFromRequest(req)))) {
       return NextResponse.json(
         { error: "Trop de tentatives. Réessayez dans quelques minutes." },
         { status: 429 },

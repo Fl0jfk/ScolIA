@@ -26,7 +26,7 @@ const internatRegisterLimiter = createMemoryRateLimiter({
 
 export async function POST(req: Request) {
   try {
-    if (!internatRegisterLimiter.allow(clientIpFromRequest(req))) {
+    if (!(await internatRegisterLimiter.allow(clientIpFromRequest(req)))) {
       return NextResponse.json(
         { error: "Trop de tentatives. Réessayez dans quelques minutes." },
         { status: 429 },

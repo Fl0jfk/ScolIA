@@ -24,7 +24,7 @@ const limiter = createSlidingWindowRateLimiter({
 
 export async function POST(req: Request) {
   try {
-    if (!limiter.allow(clientIpFromRequest(req))) {
+    if (!(await limiter.allow(clientIpFromRequest(req)))) {
       return NextResponse.json(
         { error: "Trop de tentatives. Réessayez plus tard." },
         { status: 429 },

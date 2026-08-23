@@ -22,7 +22,7 @@ const GENERIC_OK =
   "Si cette adresse est enregistrée comme responsable légal, vous recevrez un code par e-mail dans quelques instants.";
 
 export async function POST(req: Request) {
-  if (!parentAuthRequestLimiter.allow(clientIpFromRequest(req))) {
+  if (!(await parentAuthRequestLimiter.allow(clientIpFromRequest(req)))) {
     return NextResponse.json(
       { error: "Trop de tentatives. Réessayez dans quelques minutes." },
       { status: 429 },

@@ -53,7 +53,7 @@ export async function POST(req: Request) {
     }
 
     const ip = clientIpFromRequest(req);
-    if (!parentPortalLimiter.allow(ip)) {
+    if (!(await parentPortalLimiter.allow(ip))) {
       return NextResponse.json(
         { error: "Trop de tentatives. Réessayez plus tard." },
         { status: 429 },

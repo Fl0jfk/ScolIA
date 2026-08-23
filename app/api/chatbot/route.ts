@@ -26,7 +26,7 @@ type ChatRequest = {
   attachments?: Array<{ key: string; fileName: string; contentType?: string }>;
 };
 
-/** Soft rate-limit en mémoire (best-effort sur instance) — 30 / 60 s inchangé. */
+/** Soft rate-limit Postgres (30 / 60 s). */
 const chatbotLimiter = createMemoryRateLimiter({ windowMs: 60_000, max: 30 });
 
 export async function POST(req: Request) {
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     }
 
     const rateKey = user?.id || clientIpFromRequest(req);
-    if (!chatbotLimiter.allow(rateKey)) {
+    if (!(await chatbotLimiter.allow(rateKey))) {
       return NextResponse.json(
         { error: "Trop de messages. Réessayez dans une minute.", code: "RATE_LIMIT" },
         { status: 429 },

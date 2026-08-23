@@ -20,7 +20,7 @@ function isValidEmail(value: string) {
 
 export async function POST(req: Request) {
   try {
-    if (!suppliesSendLimiter.allow(clientIpFromRequest(req))) {
+    if (!(await suppliesSendLimiter.allow(clientIpFromRequest(req)))) {
       return NextResponse.json(
         { error: "Trop de tentatives. Réessayez plus tard." },
         { status: 429 },

@@ -12,7 +12,7 @@ const suppliesPdfLimiter = createMemoryRateLimiter({
 /** Génère le PDF liste de fournitures (JSON ou formulaire `payload`). */
 export async function POST(req: Request) {
   try {
-    if (!suppliesPdfLimiter.allow(clientIpFromRequest(req))) {
+    if (!(await suppliesPdfLimiter.allow(clientIpFromRequest(req)))) {
       return NextResponse.json(
         { error: "Trop de tentatives. Réessayez plus tard." },
         { status: 429 },

@@ -40,7 +40,7 @@ async function sendPoMail(params: {
 
 export async function POST(req: Request) {
   try {
-    if (!portesOuvertesLimiter.allow(clientIpFromRequest(req))) {
+    if (!(await portesOuvertesLimiter.allow(clientIpFromRequest(req)))) {
       return NextResponse.json(
         { error: "Trop de tentatives. Réessayez dans quelques minutes." },
         { status: 429 },

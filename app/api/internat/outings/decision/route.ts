@@ -32,7 +32,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!outingDecisionLimiter.allow(clientIpFromRequest(req))) {
+  if (!(await outingDecisionLimiter.allow(clientIpFromRequest(req)))) {
     return NextResponse.json(
       { error: "Trop de tentatives. Réessayez dans quelques minutes." },
       { status: 429 },

@@ -39,7 +39,7 @@ export async function POST(req: Request) {
   }
 
   const ip = clientIpFromRequest(req);
-  if (!signupLimiter.allow(ip)) {
+  if (!(await signupLimiter.allow(ip))) {
     return NextResponse.json({ error: "Trop de demandes. Réessayez plus tard." }, { status: 429 });
   }
 
