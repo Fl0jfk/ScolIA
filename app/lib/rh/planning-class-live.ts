@@ -12,7 +12,6 @@ import {
 import { readRhPlanning } from "@/app/lib/rh/planning-storage";
 import {
   isPlanningWeekday,
-  planningSlotHours,
   planningTimeToMinutes,
   type TeacherPlanningDoc,
   type TeacherPlanningSlot,
