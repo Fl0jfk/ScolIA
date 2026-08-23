@@ -1126,15 +1126,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       tone: "info",
     });
   }
-  if (has("bien-etre-referent")) {
-    shortcuts.push({
-      id: "bien-etre-referent",
-      pillarId: moduleIdToPillarId("bien-etre-referent") ?? "sante",
-      moduleId: "bien-etre-referent",
-      href: moduleHref("bien-etre-referent"),
-      label: "Bien-être (référent)",
-    });
-  }
   if (has("eleve-dossier")) {
     shortcuts.push({
       id: "eleve-dossier",

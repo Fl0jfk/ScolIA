@@ -8,7 +8,8 @@ export default async function ElevesLegacyRedirect({
 }) {
   const { tab } = await searchParams;
   if (tab === "internat") redirect("/vie-scolaire?tab=internat");
-  if (tab === "travels" || tab === "stages") redirect(`/services?tab=${tab}`);
+  if (tab === "travels") redirect("/services?tab=travels");
+  if (tab === "stages") redirect("/administratif?tab=stages");
   if (tab) redirect(`/administratif?tab=${tab}`);
   redirect("/administratif");
 }

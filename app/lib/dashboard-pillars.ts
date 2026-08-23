@@ -25,19 +25,19 @@ const DIRECTIONS = [...INTRANET_DIRECTION_SLUGS];
 
 /**
  * Piliers métier — grille filtrée par rôle.
- * Un module peut apparaître dans plusieurs hubs ; le mapping signals
- * (`moduleIdToPillarId`) pointe vers le pilier « maison ».
+ * Un module = un pilier « maison » (sauf affichage multi-hub volontaire).
  */
 export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
   {
     id: "administratif",
     title: "Administratif",
     href: "/administratif",
-    description: "Dossiers, préinscriptions, OCR, établissement",
+    description: "Dossiers, stages, préinscriptions, établissement",
     // Profs : accès réduit (dossiers de leurs classes via RBAC fiche).
     allowedRoles: [...DIRECTIONS, "administratif", "admin", "professeur"],
     moduleIds: [
       "eleve-dossier",
+      "stages",
       "agent-ia-ocr",
       "certificates",
       "pilotage-eleves",
@@ -66,7 +66,6 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     ],
     moduleIds: [
       "travels",
-      "stages",
       "prof-room",
       "requests-staff",
       "domain-planning",
@@ -82,15 +81,15 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     href: "/vie-scolaire",
     description: "Internat, absences élèves, vie scolaire live",
     allowedRoles: [...DIRECTIONS, "cpe", "education"],
-    moduleIds: ["internat", "eleve-dossier", "bien-etre-referent"],
+    moduleIds: ["internat"],
   },
   {
     id: "notes",
     title: "Notes",
     href: "/notes",
-    description: "Notes, bulletins, classes",
+    description: "Notes et bulletins",
     allowedRoles: [...DIRECTIONS, "professeur"],
-    moduleIds: ["notes", "pilotage-eleves", "eleve-dossier"],
+    moduleIds: ["notes"],
   },
   {
     id: "compta_rh",
@@ -98,21 +97,22 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     href: "/compta-rh",
     description: "RH, paie, facturation, absences pro",
     allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin", "maintenance"],
-    moduleIds: ["rh", "mon-planning", "documents", "conformite-rgpd", "travels"],
+    moduleIds: ["rh", "mon-planning", "documents", "conformite-rgpd"],
   },
   {
     id: "sante",
     title: "Santé",
     href: "/sante",
-    description: "Infirmerie, PAP, bien-être",
+    description: "Infirmerie, PAP",
     allowedRoles: ["infirmerie", "psychologue"],
-    moduleIds: ["sante", "eleve-dossier", "bien-etre-referent"],
+    moduleIds: ["sante"],
   },
 ];
 
 /** Pilier « maison » pour les raccourcis dashboard (un module → un pilier signals). */
 const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
   "eleve-dossier": "administratif",
+  stages: "administratif",
   "agent-ia-ocr": "administratif",
   certificates: "administratif",
   "pilotage-eleves": "administratif",
@@ -123,7 +123,6 @@ const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
   "conformite-rgpd": "administratif",
   "chatbot-knowledge": "administratif",
   travels: "services",
-  stages: "services",
   "prof-room": "services",
   "requests-staff": "services",
   "domain-planning": "services",
@@ -140,7 +139,6 @@ const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
   absences: "compta_rh",
   "demandes-hse": "compta_rh",
   sante: "sante",
-  "bien-etre-referent": "sante",
 };
 
 export function moduleIdToPillarId(moduleId: string): DashboardPillarId | null {

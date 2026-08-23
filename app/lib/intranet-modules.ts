@@ -579,14 +579,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "bien-etre-referent",
     pathPrefixes: ["/bien-etre/referent", "/bien-etre/config", "/api/bien-etre/config", "/api/bien-etre/signalements"],
     allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe", "infirmerie", "psychologue"],
-    dashboard: {
-      id: 53,
-      name: "Bien-être (référent)",
-      img: "",
-      link: "/bien-etre/referent",
-      external: false,
-      description: "Signalements et suivi bien-être élèves.",
-    },
+    // Tuile dashboard masquée pour l’instant (module pas encore prêt).
   },
   {
     id: "dashboard-week-sheet",

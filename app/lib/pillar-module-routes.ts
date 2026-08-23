@@ -36,6 +36,7 @@ const PILLAR_MODULE_HREF: Record<string, string> = {
 const PILLAR_TAB_TO_MODULE: Record<DashboardPillarId, Record<string, string>> = {
   administratif: {
     dossiers: "eleve-dossier",
+    stages: "stages",
     ocr: "agent-ia-ocr",
     certificates: "certificates",
     pilotage: "pilotage-eleves",
@@ -48,7 +49,6 @@ const PILLAR_TAB_TO_MODULE: Record<DashboardPillarId, Record<string, string>> = 
   },
   services: {
     travels: "travels",
-    stages: "stages",
     salles: "prof-room",
     demandes: "requests-staff",
     transversal: "domain-planning",
@@ -61,24 +61,17 @@ const PILLAR_TAB_TO_MODULE: Record<DashboardPillarId, Record<string, string>> = 
   },
   vie_scolaire: {
     internat: "internat",
-    dossiers: "eleve-dossier",
-    "bien-etre": "bien-etre-referent",
   },
   notes: {
     notes: "notes",
-    pilotage: "pilotage-eleves",
-    dossiers: "eleve-dossier",
   },
   compta_rh: {
     rh: "rh",
     planning: "mon-planning",
     cloud: "documents",
-    travels: "travels",
   },
   sante: {
     sante: "sante",
-    dossiers: "eleve-dossier",
-    "bien-etre": "bien-etre-referent",
   },
 };
 
