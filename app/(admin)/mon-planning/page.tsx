@@ -22,14 +22,26 @@ import {
   type LeaveSpan,
 } from "@/app/lib/rh/planning-calendar";
 import type { SchoolHolidayZone } from "@/app/lib/fr-school-holidays";
-import type { RhPlanningDoc, RhPlanningKind } from "@/app/lib/rh/planning-types";
+import {
+  estimateTeacherWeeklyHours,
+  type RhPlanningDoc,
+  type RhPlanningKind,
+  type TeacherPlanningCatalog,
+  type TeacherPlanningDoc,
+  type TeacherWeeklyHoursSummary,
+} from "@/app/lib/rh/planning-types";
 
 const RhPlanningPanel = dynamic(() => import("@/app/components/personnel/RhPlanningPanel"), {
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
 
-type Tab = "mine" | "gestion";
+const TeacherPlanningSelfEditor = dynamic(
+  () => import("@/app/components/personnel/TeacherPlanningSelfEditor"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
+
+type Tab = "mine" | "edit" | "gestion";
 
 export default function MonPlanningClient() {
   const { isLoaded, user } = useSessionUser();
@@ -40,6 +52,12 @@ export default function MonPlanningClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [canManage, setCanManage] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
+  const [personnelId, setPersonnelId] = useState("");
+  const [catalog, setCatalog] = useState<TeacherPlanningCatalog | null>(null);
+  const [teacherWeeklyHours, setTeacherWeeklyHours] = useState<TeacherWeeklyHoursSummary | null>(
+    null,
+  );
   const [leaves, setLeaves] = useState<LeaveSpan[]>([]);
   const [schoolHolidayZone, setSchoolHolidayZone] = useState<SchoolHolidayZone | null>(null);
 
@@ -49,6 +67,16 @@ export default function MonPlanningClient() {
   }, [user]);
 
   const showGestion = canManage || hasGlobalAdminRole(roles) || canManagePersonnel(roles);
+  const showTeacherEdit =
+    kind === "teacher" && canEdit && planning?.kind === "teacher" && personnelId;
+
+  const tabs: { id: Tab; label: string }[] = [{ id: "mine", label: "Vue semaine" }];
+  if (showTeacherEdit) {
+    tabs.push({ id: "edit", label: "Éditer mon EDT" });
+  }
+  if (showGestion) {
+    tabs.push({ id: "gestion", label: "Gestion des plannings" });
+  }
 
   const loadMine = useCallback(async () => {
     setLoading(true);
@@ -64,6 +92,10 @@ export default function MonPlanningClient() {
       setKind(j.kind);
       setDisplayName(j.displayName || "");
       setCanManage(!!j.canManage);
+      setCanEdit(!!j.canEdit);
+      setPersonnelId(typeof j.personnelId === "string" ? j.personnelId : "");
+      setCatalog((j.catalog as TeacherPlanningCatalog | null) ?? null);
+      setTeacherWeeklyHours((j.teacherWeeklyHours as TeacherWeeklyHoursSummary | null) ?? null);
       const z = j.schoolHolidayZone;
       setSchoolHolidayZone(z === "A" || z === "B" || z === "C" ? z : null);
       const pid = j.personnelId as string | undefined;
@@ -134,13 +166,10 @@ export default function MonPlanningClient() {
           </>
         }
       />
-      {showGestion ? (
+      {tabs.length > 1 ? (
         <ModuleTabNav
           className="mb-5"
-          tabs={[
-            { id: "mine", label: "Mon planning" },
-            { id: "gestion", label: "Gestion des plannings" },
-          ]}
+          tabs={tabs}
           active={tab}
           onChange={setTab}
         />
@@ -148,6 +177,20 @@ export default function MonPlanningClient() {
 
       {tab === "gestion" && showGestion ? (
         <RhPlanningPanel />
+      ) : tab === "edit" && showTeacherEdit ? (
+        <ModuleCard bodyClassName="p-4">
+          <TeacherPlanningSelfEditor
+            key={planning.updatedAt}
+            initialPlanning={planning as TeacherPlanningDoc}
+            personnelId={personnelId}
+            catalog={catalog}
+            teacherWeeklyHours={teacherWeeklyHours}
+            onSaved={(next) => {
+              setPlanning(next);
+              setTeacherWeeklyHours(estimateTeacherWeeklyHours(next));
+            }}
+          />
+        </ModuleCard>
       ) : (
         <div className="space-y-4">
           {nowActivity ? (

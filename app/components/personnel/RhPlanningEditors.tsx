@@ -8,6 +8,7 @@ import {
   type PlanningWeekday,
   type StaffFixedSlot,
   type StaffMissionSlot,
+  type TeacherPlanningCatalog,
   type TeacherPlanningSlot,
 } from "@/app/lib/rh/planning-types";
 
@@ -89,98 +90,143 @@ export function WeekGrid({
 export function TeacherSlotEditor({
   slots,
   onChange,
+  catalog,
 }: {
   slots: TeacherPlanningSlot[];
   onChange: (slots: TeacherPlanningSlot[]) => void;
+  catalog?: TeacherPlanningCatalog | null;
 }) {
+  const subjects = catalog?.subjects ?? [];
+  const rooms = catalog?.rooms ?? [];
+  const classOptions = useMemo(() => {
+    if (!catalog) return [];
+    const assigned = new Set(catalog.assignedClasses);
+    const mine = catalog.assignedClasses;
+    const rest = catalog.classes.filter((c) => !assigned.has(c));
+    return [...mine, ...rest];
+  }, [catalog]);
+
+  const subjectListId = "teacher-planning-subjects";
+  const roomListId = "teacher-planning-rooms";
+
   return (
     <div className="space-y-3 border-t border-slate-100 pt-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs font-black uppercase tracking-wide text-slate-500">Créneaux</p>
-        <button
-          type="button"
-          onClick={() => onChange([...slots, emptyTeacherSlot()])}
-          className="text-xs font-bold text-indigo-600 hover:underline"
-        >
-          + Ajouter
-        </button>
-      </div>
-      {slots.map((slot, idx) => (
-        <div key={slot.id} className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end bg-slate-50 rounded-xl p-3">
-          <Field label="Jour">
-            <select
-              className="w-full border rounded-lg px-2 py-1.5 text-sm"
-              value={slot.day}
-              onChange={(e) => {
-                const next = [...slots];
-                next[idx] = { ...slot, day: Number(e.target.value) as PlanningWeekday };
-                onChange(next);
-              }}
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ["08:00", "09:00"],
+              ["09:00", "10:00"],
+              ["10:00", "11:00"],
+              ["11:00", "12:00"],
+              ["13:00", "14:00"],
+              ["14:00", "15:00"],
+              ["15:00", "16:00"],
+              ["16:00", "17:00"],
+            ] as const
+          ).map(([start, end]) => (
+            <button
+              key={`${start}-${end}`}
+              type="button"
+              onClick={() =>
+                onChange([
+                  ...slots,
+                  { ...emptyTeacherSlot(), start, end, subject: "", classes: [], room: "" },
+                ])
+              }
+              className="px-2 py-1 rounded-lg text-[10px] font-bold border border-slate-200 text-slate-600 hover:bg-slate-100"
             >
-              {PLANNING_WEEKDAYS.map((d) => (
-                <option key={d} value={d}>
-                  {PLANNING_WEEKDAY_LABELS[d]}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Début">
-            <input
-              type="time"
-              className="w-full border rounded-lg px-2 py-1.5 text-sm"
-              value={slot.start}
-              onChange={(e) => {
-                const next = [...slots];
-                next[idx] = { ...slot, start: e.target.value };
-                onChange(next);
-              }}
-            />
-          </Field>
-          <Field label="Fin">
-            <input
-              type="time"
-              className="w-full border rounded-lg px-2 py-1.5 text-sm"
-              value={slot.end}
-              onChange={(e) => {
-                const next = [...slots];
-                next[idx] = { ...slot, end: e.target.value };
-                onChange(next);
-              }}
-            />
-          </Field>
-          <Field label="Matière">
-            <input
-              className="w-full border rounded-lg px-2 py-1.5 text-sm"
-              value={slot.subject}
-              onChange={(e) => {
-                const next = [...slots];
-                next[idx] = { ...slot, subject: e.target.value };
-                onChange(next);
-              }}
-            />
-          </Field>
-          <Field label="Classe(s)">
-            <input
-              className="w-full border rounded-lg px-2 py-1.5 text-sm"
-              placeholder="6A, 6B"
-              value={(slot.classes || []).join(", ")}
-              onChange={(e) => {
-                const next = [...slots];
-                next[idx] = {
-                  ...slot,
-                  classes: e.target.value
-                    .split(",")
-                    .map((c) => c.trim())
-                    .filter(Boolean),
-                };
-                onChange(next);
-              }}
-            />
-          </Field>
-          <div className="flex gap-2 items-end">
+              + {start}–{end}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => onChange([...slots, emptyTeacherSlot()])}
+            className="text-xs font-bold text-indigo-600 hover:underline px-1"
+          >
+            + Créneau libre
+          </button>
+        </div>
+      </div>
+
+      {subjects.length > 0 ? (
+        <datalist id={subjectListId}>
+          {subjects.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      ) : null}
+      {rooms.length > 0 ? (
+        <datalist id={roomListId}>
+          {rooms.map((r) => (
+            <option key={r} value={r} />
+          ))}
+        </datalist>
+      ) : null}
+
+      {slots.map((slot, idx) => (
+        <div key={slot.id} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end">
+            <Field label="Jour">
+              <select
+                className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
+                value={slot.day}
+                onChange={(e) => {
+                  const next = [...slots];
+                  next[idx] = { ...slot, day: Number(e.target.value) as PlanningWeekday };
+                  onChange(next);
+                }}
+              >
+                {PLANNING_WEEKDAYS.map((d) => (
+                  <option key={d} value={d}>
+                    {PLANNING_WEEKDAY_LABELS[d]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Début">
+              <input
+                type="time"
+                className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
+                value={slot.start}
+                onChange={(e) => {
+                  const next = [...slots];
+                  next[idx] = { ...slot, start: e.target.value };
+                  onChange(next);
+                }}
+              />
+            </Field>
+            <Field label="Fin">
+              <input
+                type="time"
+                className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
+                value={slot.end}
+                onChange={(e) => {
+                  const next = [...slots];
+                  next[idx] = { ...slot, end: e.target.value };
+                  onChange(next);
+                }}
+              />
+            </Field>
+            <Field label="Matière">
+              <input
+                className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
+                list={subjects.length ? subjectListId : undefined}
+                placeholder={subjects.length ? "Choisir ou saisir…" : "Matière"}
+                value={slot.subject}
+                onChange={(e) => {
+                  const next = [...slots];
+                  next[idx] = { ...slot, subject: e.target.value };
+                  onChange(next);
+                }}
+              />
+            </Field>
             <Field label="Salle">
               <input
-                className="w-full border rounded-lg px-2 py-1.5 text-sm"
+                className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
+                list={rooms.length ? roomListId : undefined}
+                placeholder="Salle 12…"
                 value={slot.room || ""}
                 onChange={(e) => {
                   const next = [...slots];
@@ -189,14 +235,74 @@ export function TeacherSlotEditor({
                 }}
               />
             </Field>
-            <button
-              type="button"
-              className="mb-0.5 text-rose-500 text-xs font-bold px-2 py-1.5"
-              onClick={() => onChange(slots.filter((s) => s.id !== slot.id))}
-            >
-              ✕
-            </button>
+            <div className="flex items-end justify-end">
+              <button
+                type="button"
+                className="text-rose-500 text-xs font-bold px-2 py-1.5"
+                onClick={() => onChange(slots.filter((s) => s.id !== slot.id))}
+              >
+                Supprimer
+              </button>
+            </div>
           </div>
+
+          <Field label="Classe(s)">
+            {classOptions.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {classOptions.map((className) => {
+                  const checked = (slot.classes || []).includes(className);
+                  const isAssigned = catalog?.assignedClasses.includes(className);
+                  return (
+                    <label
+                      key={className}
+                      className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer ${
+                        checked
+                          ? "border-indigo-300 bg-indigo-100 text-indigo-900"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={checked}
+                        onChange={() => {
+                          const next = [...slots];
+                          const current = new Set(slot.classes || []);
+                          if (checked) current.delete(className);
+                          else current.add(className);
+                          next[idx] = { ...slot, classes: [...current] };
+                          onChange(next);
+                        }}
+                      />
+                      {className}
+                      {isAssigned ? (
+                        <span className="text-[9px] font-black uppercase text-indigo-500/80">
+                          moi
+                        </span>
+                      ) : null}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <input
+                className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white mt-0.5"
+                placeholder="6A, 6B"
+                value={(slot.classes || []).join(", ")}
+                onChange={(e) => {
+                  const next = [...slots];
+                  next[idx] = {
+                    ...slot,
+                    classes: e.target.value
+                      .split(",")
+                      .map((c) => c.trim())
+                      .filter(Boolean),
+                  };
+                  onChange(next);
+                }}
+              />
+            )}
+          </Field>
         </div>
       ))}
     </div>

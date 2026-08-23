@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type RhPlanningKind,
   type StaffPlanningDoc,
+  type TeacherPlanningCatalog,
   type TeacherPlanningDoc,
   type TeacherPlanningSlot,
+  estimateTeacherWeeklyHours,
 } from "@/app/lib/rh/planning-types";
 import {
   DayFocusBanner,
@@ -82,6 +84,7 @@ export default function RhPlanningPanel() {
   const [mergeStrategy, setMergeStrategy] = useState<"replace" | "append_rotation">("replace");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [focusDate, setFocusDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [catalog, setCatalog] = useState<TeacherPlanningCatalog | null>(null);
 
   const updatedMeta = formatPlanningUpdatedAt(
     kind === "teacher" ? teacher?.updatedAt : staff?.updatedAt,
@@ -121,6 +124,7 @@ export default function RhPlanningPanel() {
       setKind(j.kind);
       setCanEdit(!!j.canEdit);
       setCanManage(!!j.canManage);
+      setCatalog((j.catalog as TeacherPlanningCatalog | null) ?? null);
       if (j.kind === "teacher") {
         setTeacher(j.planning as TeacherPlanningDoc);
         setStaff(null);
@@ -271,6 +275,11 @@ export default function RhPlanningPanel() {
     return staff.rotations.find((r) => r.id === rotationId) || staff.rotations[0] || null;
   }, [staff, rotationId]);
 
+  const teacherHours = useMemo(
+    () => (teacher ? estimateTeacherWeeklyHours(teacher) : null),
+    [teacher],
+  );
+
   const focusException = useMemo(() => {
     if (!staff || staff.mode !== "fixed") return null;
     return (staff.exceptions || []).find((e) => e.date === focusDate) || null;
@@ -359,10 +368,11 @@ export default function RhPlanningPanel() {
           <p className="text-xs text-slate-400 italic">Aucun planning enregistré pour l’instant.</p>
         ) : null}
 
-        {!loading && kind === "teacher" ? (
+        {!loading && kind === "teacher" && teacher && teacherHours ? (
           <p className="text-xs font-semibold text-indigo-800 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2">
-            Semaines types A/B — valables toute l’année scolaire. Les remplacements sont des créneaux
-            datés en plus.
+            Semaines types A/B — valables toute l’année scolaire. Volume : A {teacherHours.weekA} h
+            · B {teacherHours.weekB} h · moy. {teacherHours.averageWeekly} h. Les remplacements sont
+            des créneaux datés en plus.
           </p>
         ) : null}
         {!loading && kind === "staff" && staff?.mode === "fixed" ? (
@@ -577,6 +587,7 @@ export default function RhPlanningPanel() {
                 {editMode ? (
                   <TeacherSlotEditor
                     slots={teacherSlots}
+                    catalog={catalog}
                     onChange={(slots) => {
                       setTeacher((prev) =>
                         prev

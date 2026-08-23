@@ -125,6 +125,14 @@ export type StaffPlanningDoc = {
 export type RhPlanningDoc = TeacherPlanningDoc | StaffPlanningDoc;
 export type RhPlanningKind = RhPlanningDoc["kind"];
 
+export type TeacherPlanningCatalog = {
+  subjects: string[];
+  classes: string[];
+  rooms: string[];
+  /** Classes affectées au prof (roster + référents). */
+  assignedClasses: string[];
+};
+
 export type AnnualBalanceEstimate = {
   weeklyHours: number;
   projectedAnnualHours: number;
@@ -134,6 +142,54 @@ export type AnnualBalanceEstimate = {
   balanceHours: number | null;
   weeksFactor: number;
 };
+
+export type TeacherWeeklyHoursSummary = {
+  weekA: number;
+  weekB: number;
+  /** Moyenne des deux semaines types (si l’une est vide, l’autre seule). */
+  averageWeekly: number;
+};
+
+function sumWeeklyHoursFromTeacherSlots(slots: TeacherPlanningSlot[]): number {
+  return Math.round(slots.reduce((acc, s) => acc + planningSlotHours(s.start, s.end), 0) * 10) / 10;
+}
+
+export function estimateTeacherWeeklyHours(doc: TeacherPlanningDoc): TeacherWeeklyHoursSummary {
+  const weekA = sumWeeklyHoursFromTeacherSlots(doc.weekA);
+  const weekB = sumWeeklyHoursFromTeacherSlots(doc.weekB);
+  const filled = [weekA, weekB].filter((h) => h > 0);
+  const averageWeekly =
+    filled.length === 0
+      ? 0
+      : Math.round((filled.reduce((a, b) => a + b, 0) / filled.length) * 10) / 10;
+  return { weekA, weekB, averageWeekly };
+}
+
+/** Créneaux qui se chevauchent le même jour (avertissement saisie). */
+export function findOverlappingTeacherSlots(slots: TeacherPlanningSlot[]): string[] {
+  const warnings: string[] = [];
+  const byDay = new Map<PlanningWeekday, TeacherPlanningSlot[]>();
+  for (const slot of slots) {
+    const list = byDay.get(slot.day) || [];
+    list.push(slot);
+    byDay.set(slot.day, list);
+  }
+  for (const [day, daySlots] of byDay) {
+    const sorted = [...daySlots].sort(
+      (a, b) => planningTimeToMinutes(a.start) - planningTimeToMinutes(b.start),
+    );
+    for (let i = 0; i < sorted.length - 1; i += 1) {
+      const cur = sorted[i]!;
+      const next = sorted[i + 1]!;
+      if (planningTimeToMinutes(cur.end) > planningTimeToMinutes(next.start)) {
+        warnings.push(
+          `${PLANNING_WEEKDAY_LABELS[day]} : chevauchement ${cur.start}–${cur.end} et ${next.start}–${next.end}`,
+        );
+      }
+    }
+  }
+  return warnings;
+}
 
 function teacherPlanningKey(personnelId: string) {
   return `rh/planning/teachers/${personnelId}.json`;

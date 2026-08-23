@@ -19,12 +19,14 @@ import {
   defaultStaffModeForCategory,
   emptyStaffPlanning,
   estimateAnnualBalance,
+  estimateTeacherWeeklyHours,
   normalizeStaffPlanning,
   normalizeTeacherPlanning,
   type RhPlanningKind,
   type StaffPlanningDoc,
   type TeacherPlanningDoc,
 } from "@/app/lib/rh/planning-types";
+import { loadTeacherPlanningCatalog } from "@/app/lib/rh/planning-catalog";
 
 
 function isTeacherRole(roles: string[]) {
@@ -184,6 +186,12 @@ export async function GET(req: Request) {
       ? estimateAnnualBalance(planning)
       : null;
 
+  const teacherWeeklyHours =
+    planning.kind === "teacher" ? estimateTeacherWeeklyHours(planning) : null;
+
+  const catalog =
+    kind === "teacher" ? await loadTeacherPlanningCatalog(subjectId) : null;
+
   let schoolHolidayZone: "A" | "B" | "C" | null = null;
   try {
     const cfg = await loadAppConfig();
@@ -199,6 +207,8 @@ export async function GET(req: Request) {
     category,
     planning,
     balance,
+    teacherWeeklyHours,
+    catalog,
     canEdit,
     canManage,
     schoolHolidayZone,
