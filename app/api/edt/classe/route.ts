@@ -4,11 +4,12 @@ import {
   listClassesForTeacherUser,
   studentInAssignedClasses,
 } from "@/app/lib/class-allocation-teachers";
+import { isProfesseurScopedDossierViewer } from "@/app/lib/eleve-dossier-scope";
 import { loadSchoolRoster } from "@/app/lib/school-roster";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { hasRole } from "@/app/lib/intranet-role-utils";
-import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { getAppSession, safeCurrentUser } from "@/app/lib/intranet-session";
 import {
   canManagePersonnel,
   canViewPersonnelDashboard,
@@ -65,6 +66,12 @@ export async function GET(req: Request) {
   const canManage = canManagePersonnel(roles);
   const canViewAll = canViewPersonnelDashboard(roles);
   const isTeacher = isTeacherRole(roles);
+  const session = await getAppSession();
+  const profScoped = isProfesseurScopedDossierViewer({
+    roles: session?.user.roles?.length ? session.user.roles : roles,
+    orgAdmin: session?.user.orgAdmin,
+    platformAdmin: session?.user.platformAdmin,
+  });
 
   if (!canManage && !canViewAll && !isTeacher) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
@@ -86,9 +93,11 @@ export async function GET(req: Request) {
   const classesFromProfRoom = Object.values(cfg.profRoom.classesByPole || {}).flat();
   const classesFromEdt = listClassesFromTeacherIndex(entries);
 
+  // Toujours scopé pour un vrai prof (même si PERSONNEL_OPEN_ACCESS élargit canManage).
   let assignedClasses: string[] | null = null;
-  if (isTeacher && !canManage && !canViewAll) {
-    assignedClasses = await listClassesForTeacherUser(gate.ctx.userId);
+  if (profScoped) {
+    const businessId = session?.user.businessUserId || gate.ctx.userId;
+    assignedClasses = await listClassesForTeacherUser(businessId);
   }
 
   const classOptions = mergeClassOptions(

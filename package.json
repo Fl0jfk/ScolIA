@@ -16,7 +16,8 @@
     "ent:import-core": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/import-ent-core.ts",
     "ent:migrate-relational": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/migrate-ent-relational.ts",
     "ent:import-json": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/import-ent-json.ts",
-    "ent:normalize": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/normalize-ent-entities.ts"
+    "ent:normalize": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/normalize-ent-entities.ts",
+    "seed:edt-prof-test": "NODE_TLS_REJECT_UNAUTHORIZED=0 node --require ./scripts/stub-server-only.cjs --import tsx scripts/seed-edt-prof-test.ts"
   },
   "engines": {
     "node": ">=22.x"
