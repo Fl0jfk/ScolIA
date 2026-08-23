@@ -83,10 +83,16 @@ async function main() {
 
   console.log(`Migration relationnelle | ${slug} | ${etablissementId}`);
 
-  const entities = await db
-    .select()
-    .from(entEntity)
-    .where(eq(entEntity.etablissementId, etablissementId));
+  // Tables legacy optionnelles (droppées après cutover).
+  let entities: (typeof entEntity.$inferSelect)[] = [];
+  try {
+    entities = await db
+      .select()
+      .from(entEntity)
+      .where(eq(entEntity.etablissementId, etablissementId));
+  } catch {
+    console.log("  (ent_entity absente — déjà migrée)");
+  }
 
   const absences: AbsenceRecord[] = [];
   const travels: TravelsTrip[] = [];
@@ -162,10 +168,15 @@ async function main() {
     console.log(`  ${kind}: ${items.length}`);
   }
 
-  const docs = await db
-    .select()
-    .from(tenantDocument)
-    .where(eq(tenantDocument.etablissementId, etablissementId));
+  let docs: (typeof tenantDocument.$inferSelect)[] = [];
+  try {
+    docs = await db
+      .select()
+      .from(tenantDocument)
+      .where(eq(tenantDocument.etablissementId, etablissementId));
+  } catch {
+    console.log("  (tenant_document absente — déjà migrée)");
+  }
 
   let mirrored = 0;
   let skipped = 0;
