@@ -7,6 +7,14 @@ import {
   listAssignedClassesForTeacher,
   listElevesDossierFromDb,
 } from "@/app/lib/eleve-dossier-prof";
+import {
+  buildEleveDossierClassCatalog,
+  classOptionLabel,
+  dossierClassOptionsForSite,
+  enrichEleveDossierListItem,
+  resolveSiteIdForClass,
+  resolveSiteLabel,
+} from "@/app/lib/eleve-dossier-catalog";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { etablissementSite } from "@/db/schema";
@@ -64,8 +72,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const eleves = await listElevesDossierFromDb(tenant.ctx.etablissementId, {
-    siteId: fullHub ? siteId : undefined,
+  const elevesRaw = await listElevesDossierFromDb(tenant.ctx.etablissementId, {
     classe: profScoped && classe ? classe : fullHub ? classe : undefined,
     status: fullHub ? status : undefined,
     assignedClasses: profScoped ? assignedClasses : undefined,
@@ -76,9 +83,42 @@ export async function GET(req: NextRequest) {
     .select({
       siteId: etablissementSite.siteId,
       label: etablissementSite.label,
+      kind: etablissementSite.kind,
     })
     .from(etablissementSite)
     .where(eq(etablissementSite.etablissementId, tenant.ctx.etablissementId));
+
+  const catalog = await buildEleveDossierClassCatalog(sites);
+
+  let eleves = elevesRaw.map((row) => enrichEleveDossierListItem(row, catalog));
+
+  if (fullHub && siteId) {
+    eleves = eleves.filter((e) => e.siteId === siteId);
+  }
+
+  const extraClasses = [
+    ...new Set(eleves.map((e) => e.classe).filter((c): c is string => Boolean(c?.trim()))),
+  ];
+  const classOptions = profScoped
+    ? (assignedClasses ?? [])
+        .map((cls) => {
+          const fromCatalog = catalog.classOptions.find((o) => o.value === cls);
+          if (fromCatalog) return fromCatalog;
+          const clsSiteId = resolveSiteIdForClass(cls, catalog);
+          const clsSiteLabel = resolveSiteLabel(clsSiteId, catalog);
+          return {
+            value: cls,
+            label: classOptionLabel(cls, clsSiteLabel),
+            siteId: clsSiteId,
+            siteLabel: clsSiteLabel,
+          };
+        })
+        .sort((a, b) =>
+          a.label.localeCompare(b.label, "fr", { sensitivity: "base", numeric: true }),
+        )
+    : dossierClassOptionsForSite(catalog, fullHub ? siteId : undefined, extraClasses);
+
+  const siteLabelById = Object.fromEntries(catalog.siteLabelById.entries());
 
   if (eleves.length > 0) {
     await writeDataAccessAudit({
@@ -97,11 +137,15 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     eleves: eleves.map((e) =>
-      profScoped ? { ...e, ine: null } : e,
+      profScoped
+        ? { ...e, ine: null, sourceKey: undefined }
+        : { ...e, sourceKey: undefined },
     ),
     assignedClasses: assignedClasses ?? [],
     canViewFullHub: fullHub,
     profScoped,
-    sites,
+    sites: sites.map((s) => ({ siteId: s.siteId, label: s.label })),
+    siteLabelById,
+    classOptions,
   });
 }

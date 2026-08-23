@@ -11,6 +11,7 @@ import {
   canViewFullElevesDossierHub,
   isProfesseurScopedDossierViewer,
 } from "@/app/lib/eleve-dossier-scope";
+import { isExcludedFromDossierList } from "@/app/lib/eleve-dossier-catalog";
 
 export {
   canViewFullElevesDossierHub,
@@ -23,10 +24,13 @@ export type EleveDossierListItem = {
   nom: string;
   prenom: string;
   classe: string | null;
+  classeLabel?: string | null;
   status: string;
   siteId: string | null;
+  siteLabel?: string | null;
   folderName: string;
   ine: string | null;
+  sourceKey?: string;
 };
 
 export async function listAssignedClassesForTeacher(
@@ -112,9 +116,11 @@ export async function listElevesDossierFromDb(
     .where(and(...conditions))
     .orderBy(eleve.nom, eleve.prenom);
 
-  let filtered = rows;
+  let filtered = rows.filter(
+    (r) => !isExcludedFromDossierList({ nom: r.nom, prenom: r.prenom, sourceKey: r.sourceKey }),
+  );
   if (filters.assignedClasses?.length) {
-    filtered = rows.filter((r) =>
+    filtered = filtered.filter((r) =>
       teacherCanAccessEleveClasse(r.classe, filters.assignedClasses!),
     );
   }
@@ -139,5 +145,6 @@ export async function listElevesDossierFromDb(
       siteId: siteByEleve.get(r.id) ?? null,
       folderName: r.folderName,
       ine: r.ine,
+      sourceKey: r.sourceKey,
     }));
 }

@@ -11,13 +11,22 @@ type EleveRow = {
   nom: string;
   prenom: string;
   classe: string | null;
+  classeLabel?: string | null;
   status: string;
   siteId: string | null;
+  siteLabel?: string | null;
   folderName: string;
   ine: string | null;
 };
 
 type SiteOption = { siteId: string; label: string };
+
+type ClassOption = {
+  value: string;
+  label: string;
+  siteId: string | null;
+  siteLabel: string | null;
+};
 
 type Preinsc = {
   id: string;
@@ -61,6 +70,8 @@ export default function ElevesDossiersListClient() {
   const [profScoped, setProfScoped] = useState(false);
   const [assignedClasses, setAssignedClasses] = useState<string[]>([]);
   const [sites, setSites] = useState<SiteOption[]>([]);
+  const [siteLabelById, setSiteLabelById] = useState<Record<string, string>>({});
+  const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
   const [listMessage, setListMessage] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
@@ -89,6 +100,8 @@ export default function ElevesDossiersListClient() {
       profScoped: boolean;
       assignedClasses: string[];
       sites: SiteOption[];
+      siteLabelById?: Record<string, string>;
+      classOptions?: ClassOption[];
       message?: string;
     };
     setEleves(j.eleves || []);
@@ -96,6 +109,8 @@ export default function ElevesDossiersListClient() {
     setProfScoped(Boolean(j.profScoped));
     setAssignedClasses(j.assignedClasses || []);
     setSites(j.sites || []);
+    setSiteLabelById(j.siteLabelById || {});
+    setClassOptions(j.classOptions || []);
     setListMessage(j.message ?? null);
   }, [siteFilter, classeFilter, statusFilter]);
 
@@ -147,17 +162,19 @@ export default function ElevesDossiersListClient() {
   }, [preinsc, siteFilter]);
 
   const preSites = useMemo(() => {
-    const s = new Set<string>();
-    for (const p of preinsc) if (p.siteId) s.add(p.siteId);
-    return [...s].sort();
-  }, [preinsc]);
+    const ids = new Set<string>();
+    for (const p of preinsc) if (p.siteId) ids.add(p.siteId);
+    return [...ids].sort((a, b) => {
+      const la = siteLabelById[a] || a;
+      const lb = siteLabelById[b] || b;
+      return la.localeCompare(lb, "fr", { sensitivity: "base" });
+    });
+  }, [preinsc, siteLabelById]);
 
-  const classeOptions = useMemo(() => {
-    if (profScoped) return assignedClasses;
-    const s = new Set<string>();
-    for (const e of eleves) if (e.classe) s.add(e.classe);
-    return [...s].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
-  }, [eleves, profScoped, assignedClasses]);
+  const statusLabel = (status: string): string => {
+    const hit = STATUS_OPTIONS.find((o) => o.value === status);
+    return hit?.label || status;
+  };
 
   async function decide(id: string, action: "accept" | "reject") {
     const res = await fetch("/api/eleves/preinscriptions", {
@@ -260,7 +277,7 @@ export default function ElevesDossiersListClient() {
                   onChange={(e) => setSiteFilter(e.target.value)}
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                 >
-                  <option value="">Tous les sites</option>
+                  <option value="">Tous les établissements</option>
                   {sites.map((s) => (
                     <option key={s.siteId} value={s.siteId}>
                       {s.label || s.siteId}
@@ -286,9 +303,9 @@ export default function ElevesDossiersListClient() {
               className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
             >
               <option value="">{profScoped ? "Toutes mes classes" : "Toutes les classes"}</option>
-              {classeOptions.map((c) => (
-                <option key={c} value={c}>
-                  {c}
+              {classOptions.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
                 </option>
               ))}
             </select>
@@ -307,9 +324,9 @@ export default function ElevesDossiersListClient() {
                     {e.prenom} {e.nom}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {e.classe || "—"}
-                    {canViewFullHub && e.status ? ` · ${e.status}` : ""}
-                    {canViewFullHub && e.siteId ? ` · ${e.siteId}` : ""}
+                    {e.classeLabel || e.classe || "—"}
+                    {canViewFullHub && e.status ? ` · ${statusLabel(e.status)}` : ""}
+                    {canViewFullHub && e.siteLabel ? ` · ${e.siteLabel}` : ""}
                   </p>
                 </div>
                 <Link
@@ -337,7 +354,7 @@ export default function ElevesDossiersListClient() {
                 !siteFilter ? "bg-slate-900 text-white" : "bg-white"
               }`}
             >
-              Tous les sites
+              Tous les établissements
             </button>
             {preSites.map((s) => (
               <button
@@ -348,7 +365,7 @@ export default function ElevesDossiersListClient() {
                   siteFilter === s ? "bg-slate-900 text-white" : "bg-white"
                 }`}
               >
-                {s}
+                {siteLabelById[s] || s}
               </button>
             ))}
           </div>
@@ -363,7 +380,8 @@ export default function ElevesDossiersListClient() {
                     {p.prenom} {p.nom}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {p.siteId || "site ?"} · {p.niveauVise || "niveau ?"}
+                    {p.siteId ? siteLabelById[p.siteId] || p.siteId : "Établissement ?"} ·{" "}
+                    {p.niveauVise || "niveau ?"}
                   </p>
                 </div>
                 <div className="flex gap-2">
