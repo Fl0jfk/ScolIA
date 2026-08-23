@@ -34,6 +34,8 @@ import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { resolveEleveLiveCourse } from "@/app/lib/rh/planning-class-live";
+import { buildEleveDossierClassCatalog } from "@/app/lib/eleve-dossier-catalog";
+import { buildEleveSyntheseSnapshot } from "@/app/lib/eleve-dossier-synthese";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -242,20 +244,6 @@ export async function GET(_req: Request, ctx: Ctx) {
     action: "view",
   });
 
-  const classmates =
-    row.classe && sections.includes("scolarite")
-      ? await db
-          .select({
-            id: eleve.id,
-            nom: eleve.nom,
-            prenom: eleve.prenom,
-            classe: eleve.classe,
-          })
-          .from(eleve)
-          .where(and(eq(eleve.etablissementId, etabId), eq(eleve.classe, row.classe)))
-          .limit(80)
-      : [];
-
   let enCoursMaintenant = await (async () => {
     try {
       const cfg = await loadAppConfig();
@@ -268,13 +256,36 @@ export async function GET(_req: Request, ctx: Ctx) {
     }
   })();
 
+  const catalog = await buildEleveDossierClassCatalog(sites);
+  const currentScolarite = scolarites[0] ?? null;
+  const siteIdFromScolarite = currentScolarite?.siteId ?? null;
+
+  let synthese = await buildEleveSyntheseSnapshot({
+    eleve: {
+      nom: row.nom,
+      prenom: row.prenom,
+      classe: row.classe,
+      status: row.status,
+      ine: row.ine,
+      folderName: row.folderName,
+      siteId: siteIdFromScolarite,
+    },
+    scolarite: currentScolarite
+      ? {
+          demiPension: currentScolarite.demiPension,
+          repasParSemaine: currentScolarite.repasParSemaine,
+          siteId: currentScolarite.siteId,
+        }
+      : null,
+    catalog,
+  });
+
   return NextResponse.json({
     eleve: profRestrictedView ? sanitizeEleveRowForProfViewer(row) : row,
     sections,
     scolarites,
     foyers: sections.includes("famille") ? foyers : [],
     documents,
-    classmates: classmates.filter((c) => c.id !== id),
     meta: {
       sites,
       annees,
@@ -285,6 +296,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     },
     pendingAccessRequests: pendingAccess,
     enCoursMaintenant,
+    synthese,
   });
 }
 

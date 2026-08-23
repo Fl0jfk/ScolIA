@@ -86,7 +86,7 @@ type DossierPayload = {
     fileUrl: string | null;
     confidentialite: string;
   }>;
-  classmates: Array<{ id: string; nom: string; prenom: string }>;
+  classmates?: Array<{ id: string; nom: string; prenom: string }>;
   meta: {
     sites: Array<{ siteId: string; label: string; kind: string | null }>;
     annees: Array<{ id: string; label: string; isCurrent: boolean }>;
@@ -117,6 +117,27 @@ type DossierPayload = {
     reason: string;
     label?: string;
     conflictCount?: number;
+  };
+  synthese?: {
+    statusLabel: string;
+    classeLabel: string | null;
+    siteLabel: string | null;
+    initials: string;
+    photoUrl: string | null;
+    restauration: {
+      regime: "externe" | "demi_pension" | "interne";
+      days: Array<{
+        key: string;
+        label: string;
+        midi: boolean;
+        soir: boolean;
+      }>;
+      repasParSemaine: number | null;
+      inferred: boolean;
+    };
+    internat: { actif: boolean; roomLabel: string | null };
+    notesTrimestre: { available: boolean; label: string; detail: string };
+    absences: { available: boolean; label: string; detail: string };
   };
 };
 
@@ -382,6 +403,67 @@ export default function EleveDossierClient() {
 
   const e = data.eleve;
   const canEdit = data.meta.canEditStructure;
+  const synth = data.synthese;
+  const liveNow = data.enCoursMaintenant;
+  const statusLabel = synth?.statusLabel || e.status;
+  const classeDisplay = synth?.classeLabel || e.classe || "Classe à préciser";
+  const regime = synth?.restauration.regime ?? "externe";
+  const regimeText =
+    regime === "interne"
+      ? "Interne"
+      : regime === "demi_pension"
+        ? "Demi-pensionnaire"
+        : "Externe";
+
+  function liveNowCopy(): { title: string; detail: string; tone: "live" | "idle" | "off" } {
+    const live = liveNow;
+    if (live.activity) {
+      return {
+        title: live.activity.subject,
+        detail: [
+          `${live.activity.start}–${live.activity.end}`,
+          live.activity.room,
+          live.activity.teacherName,
+          live.activity.kind === "remplacement" ? "remplacement" : null,
+          live.activity.weekType ? `sem. ${live.activity.weekType}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        tone: "live",
+      };
+    }
+    if (live.reason === "weekend") {
+      return { title: "Week-end", detail: live.label || "Pas de cours.", tone: "off" };
+    }
+    if (live.reason === "vacances" || live.reason === "ferie" || live.reason === "conge") {
+      return {
+        title: live.label || "Calendrier scolaire",
+        detail: "Pas de cours aujourd’hui.",
+        tone: "off",
+      };
+    }
+    if (live.reason === "pas_de_classe") {
+      return {
+        title: "Classe non renseignée",
+        detail: "Impossible de déduire l’emploi du temps.",
+        tone: "idle",
+      };
+    }
+    if (live.reason === "pas_edt") {
+      return {
+        title: "Pas de cours en ce moment",
+        detail: "Aucun EDT renseigné pour cette classe.",
+        tone: "idle",
+      };
+    }
+    return {
+      title: "Pas de cours en ce moment",
+      detail: live.label || "Créneau libre ou hors emploi du temps.",
+      tone: "idle",
+    };
+  }
+
+  const nowView = liveNowCopy();
 
   return (
     <ModulePageShell maxWidthClass="max-w-5xl">
@@ -389,9 +471,24 @@ export default function EleveDossierClient() {
         eyebrow="Dossier élève"
         title={`${e.prenom} ${e.nom}`}
         description={
-          <span>
-            {e.classe || "Classe à préciser"}
-            {e.secteur ? ` · ${e.secteur}` : ""} · {e.status}
+          <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+            {e.classe ? (
+              <Link
+                href={`/eleves/dossiers?classe=${encodeURIComponent(e.classe)}`}
+                className="text-base font-bold text-indigo-700 hover:underline"
+              >
+                {classeDisplay}
+              </Link>
+            ) : (
+              <span className="text-base font-bold text-slate-700">{classeDisplay}</span>
+            )}
+            <span className="text-slate-400">·</span>
+            <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
+              {statusLabel}
+            </span>
+            <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700">
+              {regimeText}
+            </span>
           </span>
         }
         actions={
@@ -423,115 +520,225 @@ export default function EleveDossierClient() {
       ) : null}
 
       {tab === "synthese" ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">
-              Identité
-            </h2>
-            <dl className="space-y-2 text-sm">
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-500">Né(e) le</dt>
-                <dd className="font-semibold text-slate-900">{e.dateNaissance || "—"}</dd>
+        <div className="space-y-4">
+          {/* Identité + maintenant */}
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+              <div className="shrink-0">
+                {synth?.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={synth.photoUrl}
+                    alt=""
+                    className="h-24 w-24 rounded-2xl object-cover ring-1 ring-slate-200"
+                  />
+                ) : (
+                  <div
+                    className="flex h-24 w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 text-2xl font-black tracking-wide text-white shadow-inner"
+                    aria-hidden
+                  >
+                    {synth?.initials || `${e.prenom.charAt(0)}${e.nom.charAt(0)}`.toUpperCase()}
+                  </div>
+                )}
               </div>
-              {!data.meta.profRestrictedView ? (
-                <div className="flex justify-between gap-4">
-                  <dt className="text-slate-500">Lieu</dt>
-                  <dd className="font-semibold text-slate-900">{e.lieuNaissance || "—"}</dd>
-                </div>
-              ) : null}
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-500">Classe</dt>
-                <dd className="font-semibold text-slate-900">
-                  {e.classe || "—"}
-                  {e.classe ? (
-                    <Link
-                      href={`/edt-classe?classe=${encodeURIComponent(e.classe)}`}
-                      className="ml-2 text-xs font-bold text-indigo-600 hover:underline"
-                    >
-                      EDT classe
-                    </Link>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                  Identité
+                </p>
+                <h2 className="mt-1 text-2xl font-black text-slate-900">
+                  {e.prenom} {e.nom}
+                </h2>
+                {e.classe ? (
+                  <Link
+                    href={`/eleves/dossiers?classe=${encodeURIComponent(e.classe)}`}
+                    className="mt-2 inline-flex items-center gap-2 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-xl font-black text-indigo-900 transition hover:border-indigo-400 hover:bg-indigo-100"
+                    title="Voir tous les élèves de cette classe"
+                  >
+                    {e.classe}
+                    {synth?.siteLabel ? (
+                      <span className="text-sm font-bold text-indigo-700/80">
+                        · {synth.siteLabel}
+                      </span>
+                    ) : null}
+                    <span className="text-xs font-bold uppercase tracking-wide text-indigo-600">
+                      Classe →
+                    </span>
+                  </Link>
+                ) : (
+                  <p className="mt-2 text-lg font-bold text-slate-500">Classe non renseignée</p>
+                )}
+                <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+                  <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
+                    <dt className="text-slate-500">Né(e) le</dt>
+                    <dd className="font-semibold text-slate-900">{e.dateNaissance || "—"}</dd>
+                  </div>
+                  {!data.meta.profRestrictedView ? (
+                    <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
+                      <dt className="text-slate-500">Lieu</dt>
+                      <dd className="font-semibold text-slate-900">{e.lieuNaissance || "—"}</dd>
+                    </div>
                   ) : null}
-                </dd>
-              </div>
-            </dl>
-            {data.meta.profRestrictedView ? (
-              <p className="mt-4 text-xs text-slate-500">
-                Coordonnées élève et famille masquées (accès pédagogique).
-              </p>
-            ) : null}
-          </section>
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">
-              Maintenant
-            </h2>
-            {data.enCoursMaintenant.activity ? (
-              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3">
-                <p className="text-[10px] font-black uppercase tracking-wide text-indigo-600">
-                  En cours
-                </p>
-                <p className="mt-1 text-lg font-bold text-indigo-950">
-                  {data.enCoursMaintenant.activity.subject}
-                </p>
-                <p className="text-sm text-indigo-900/90">
-                  {data.enCoursMaintenant.activity.start}–{data.enCoursMaintenant.activity.end}
-                  {data.enCoursMaintenant.activity.room
-                    ? ` · ${data.enCoursMaintenant.activity.room}`
-                    : ""}
-                </p>
-                <p className="mt-1 text-xs text-indigo-800/80">
-                  {data.enCoursMaintenant.activity.teacherName}
-                  {data.enCoursMaintenant.activity.kind === "remplacement"
-                    ? " · remplacement"
-                    : data.enCoursMaintenant.activity.weekType
-                      ? ` · semaine ${data.enCoursMaintenant.activity.weekType}`
-                      : ""}
-                </p>
-                {(data.enCoursMaintenant.conflictCount ?? 0) > 1 ? (
-                  <p className="mt-2 text-xs font-semibold text-amber-800">
-                    {data.enCoursMaintenant.conflictCount} créneaux EDT coïncident — conflit de
-                    saisie à corriger.
+                  <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
+                    <dt className="text-slate-500">Statut</dt>
+                    <dd className="font-semibold text-slate-900">{statusLabel}</dd>
+                  </div>
+                  <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
+                    <dt className="text-slate-500">Restauration</dt>
+                    <dd className="font-semibold text-slate-900">{regimeText}</dd>
+                  </div>
+                </dl>
+                {data.meta.profRestrictedView ? (
+                  <p className="mt-3 text-xs text-slate-500">
+                    Coordonnées élève et famille masquées (accès pédagogique).
                   </p>
                 ) : null}
               </div>
-            ) : (
-              <p className="text-sm text-slate-600">
-                {data.enCoursMaintenant.reason === "vacances" ||
-                data.enCoursMaintenant.reason === "weekend" ||
-                data.enCoursMaintenant.reason === "ferie"
-                  ? data.enCoursMaintenant.label || "Pas de cours (calendrier)."
-                  : data.enCoursMaintenant.reason === "pas_de_classe"
-                    ? "Classe non renseignée — impossible de déduire l’emploi du temps."
-                    : data.enCoursMaintenant.reason === "pas_edt"
-                      ? "Aucun EDT prof renseigné pour cette classe."
-                      : "Pas de cours en ce moment."}
-              </p>
-            )}
-            {data.scolarites[0] ? (
-              <p className="mt-3 text-sm">
-                Demi-pension :{" "}
-                <strong>{data.scolarites[0].demiPension ? "oui" : "non"}</strong>
+            </div>
+          </section>
+
+          <section
+            className={`rounded-3xl border p-5 shadow-sm sm:p-6 ${
+              nowView.tone === "live"
+                ? "border-indigo-200 bg-indigo-50/80"
+                : nowView.tone === "off"
+                  ? "border-slate-200 bg-slate-50"
+                  : "border-slate-200 bg-white"
+            }`}
+          >
+            <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">
+              Maintenant
+            </h2>
+            <p
+              className={`mt-2 text-2xl font-black ${
+                nowView.tone === "live" ? "text-indigo-950" : "text-slate-900"
+              }`}
+            >
+              {nowView.title}
+            </p>
+            <p
+              className={`mt-1 text-sm ${
+                nowView.tone === "live" ? "text-indigo-900/90" : "text-slate-600"
+              }`}
+            >
+              {nowView.detail}
+            </p>
+            {(liveNow.conflictCount ?? 0) > 1 ? (
+              <p className="mt-2 text-xs font-semibold text-amber-800">
+                {liveNow.conflictCount} créneaux EDT coïncident — conflit de
+                saisie à corriger.
               </p>
             ) : null}
+            {e.classe ? (
+              <Link
+                href={`/edt-classe?classe=${encodeURIComponent(e.classe)}`}
+                className="mt-3 inline-block text-xs font-bold text-indigo-700 hover:underline"
+              >
+                Voir l’emploi du temps de la classe
+              </Link>
+            ) : null}
           </section>
-          {data.classmates.length > 0 ? (
-            <section className="md:col-span-2 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-3">
-                Classe — camarades
+
+          {/* Repas semaine */}
+          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                  Restauration — semaine
+                </h2>
+                <p className="mt-1 text-lg font-bold text-slate-900">{regimeText}</p>
+                {synth?.internat.actif && synth.internat.roomLabel ? (
+                  <p className="text-xs text-slate-500">Chambre {synth.internat.roomLabel}</p>
+                ) : null}
+              </div>
+              {synth?.restauration.inferred ? (
+                <p className="text-[11px] text-slate-400">
+                  Jours déduits (repas / semaine
+                  {synth.restauration.repasParSemaine != null
+                    ? ` : ${synth.restauration.repasParSemaine}`
+                    : ""}
+                  )
+                </p>
+              ) : null}
+            </div>
+            {synth?.restauration ? (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[280px] text-center text-sm">
+                  <thead>
+                    <tr>
+                      <th className="pb-2 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                        Couche
+                      </th>
+                      {synth.restauration.days.map((d) => (
+                        <th
+                          key={d.key}
+                          className="pb-2 text-[11px] font-bold uppercase text-slate-500"
+                        >
+                          {d.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="py-1.5 text-left text-xs font-semibold text-slate-600">
+                        Midi
+                      </td>
+                      {synth.restauration.days.map((d) => (
+                        <td key={`${d.key}-midi`} className="py-1.5">
+                          <span
+                            className={`inline-block h-3.5 w-3.5 rounded-full ${
+                              d.midi ? "bg-amber-500" : "bg-slate-200"
+                            }`}
+                            title={d.midi ? "Repas midi" : "Pas de repas midi"}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-1.5 text-left text-xs font-semibold text-slate-600">
+                        Soir
+                      </td>
+                      {synth.restauration.days.map((d) => (
+                        <td key={`${d.key}-soir`} className="py-1.5">
+                          <span
+                            className={`inline-block h-3.5 w-3.5 rounded-full ${
+                              d.soir ? "bg-indigo-500" : "bg-slate-200"
+                            }`}
+                            title={d.soir ? "Repas soir" : "Pas de repas soir"}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">Informations restauration indisponibles.</p>
+            )}
+          </section>
+
+          {/* Notes + absences */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <section className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/80 p-5">
+              <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                {synth?.notesTrimestre.label || "Notes — trimestre en cours"}
               </h2>
-              <ul className="flex flex-wrap gap-2">
-                {data.classmates.slice(0, 24).map((c) => (
-                  <li key={c.id}>
-                    <Link
-                      href={`/eleves/dossier/${c.id}`}
-                      className="inline-flex rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-indigo-300"
-                    >
-                      {c.prenom} {c.nom}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
+              <p className="mt-3 text-2xl font-black text-slate-300">—</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {synth?.notesTrimestre.detail ||
+                  "Moyennes et alertes pédagogiques dès le module Notes."}
+              </p>
             </section>
-          ) : null}
+            <section className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/80 p-5">
+              <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                {synth?.absences.label || "Absences & retards"}
+              </h2>
+              <p className="mt-3 text-2xl font-black text-slate-300">—</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {synth?.absences.detail || "Résumé vie scolaire à brancher."}
+              </p>
+            </section>
+          </div>
         </div>
       ) : null}
 

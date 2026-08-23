@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 
@@ -54,7 +54,7 @@ type AccessReq = {
 
 const STATUS_OPTIONS = [
   { value: "", label: "Tous statuts" },
-  { value: "inscrit", label: "Inscrit" },
+  { value: "inscrit", label: "En cours" },
   { value: "preinscrit", label: "Préinscrit" },
   { value: "ancien", label: "Ancien" },
   { value: "archive", label: "Archivé" },
@@ -62,6 +62,7 @@ const STATUS_OPTIONS = [
 
 export default function ElevesDossiersListClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [eleves, setEleves] = useState<EleveRow[]>([]);
   const [preinsc, setPreinsc] = useState<Preinsc[]>([]);
   const [accessReqs, setAccessReqs] = useState<AccessReq[]>([]);
@@ -73,14 +74,23 @@ export default function ElevesDossiersListClient() {
   const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
   const [listMessage, setListMessage] = useState<string | null>(null);
   const [metaReady, setMetaReady] = useState(false);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => searchParams.get("q")?.trim() || "");
   const [siteFilter, setSiteFilter] = useState("");
-  const [classeFilter, setClasseFilter] = useState("");
+  const [classeFilter, setClasseFilter] = useState(
+    () => searchParams.get("classe")?.trim() || "",
+  );
   const [statusFilter, setStatusFilter] = useState("");
   const [preSiteFilter, setPreSiteFilter] = useState("");
   const [tab, setTab] = useState<"dossiers" | "preinscriptions" | "acces">("dossiers");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const nextClasse = searchParams.get("classe")?.trim() || "";
+    const nextQ = searchParams.get("q")?.trim() || "";
+    if (nextClasse) setClasseFilter(nextClasse);
+    if (nextQ) setQ(nextQ);
+  }, [searchParams]);
 
   const loadDossiers = useCallback(async () => {
     const res = await fetch("/api/eleves/dossiers/list", { cache: "no-store" });
