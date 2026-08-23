@@ -22,6 +22,7 @@ import NotificationCountBadge from "@/app/components/Dashboard/NotificationCount
 
 const PILLAR_ORB: Record<DashboardPillarId, string> = {
   administratif: "bg-sky-400/30",
+  services: "bg-teal-400/30",
   vie_scolaire: "bg-emerald-400/30",
   notes: "bg-violet-400/25",
   compta_rh: "bg-amber-400/30",

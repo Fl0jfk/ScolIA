@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Legacy hub Élèves → Administratif (dossiers) ou Vie scolaire selon tab. */
+/** Legacy hub Élèves → Administratif / Services / Vie scolaire selon tab. */
 export default async function ElevesLegacyRedirect({
   searchParams,
 }: {
@@ -8,7 +8,7 @@ export default async function ElevesLegacyRedirect({
 }) {
   const { tab } = await searchParams;
   if (tab === "internat") redirect("/vie-scolaire?tab=internat");
-  if (tab === "travels" || tab === "stages") redirect(`/vie-scolaire?tab=${tab}`);
+  if (tab === "travels" || tab === "stages") redirect(`/services?tab=${tab}`);
   if (tab) redirect(`/administratif?tab=${tab}`);
   redirect("/administratif");
 }

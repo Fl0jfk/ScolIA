@@ -4,6 +4,7 @@ import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 
 export type DashboardPillarId =
   | "administratif"
+  | "services"
   | "vie_scolaire"
   | "notes"
   | "compta_rh"
@@ -22,18 +23,22 @@ export type DashboardPillarDef = {
 
 const DIRECTIONS = [...INTRANET_DIRECTION_SLUGS];
 
+/**
+ * Piliers métier — grille filtrée par rôle.
+ * Un module peut apparaître dans plusieurs hubs ; le mapping signals
+ * (`moduleIdToPillarId`) pointe vers le pilier « maison ».
+ */
 export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
   {
     id: "administratif",
     title: "Administratif",
     href: "/administratif",
-    description: "Dossiers, préinscriptions, voyages, stages, établissement",
-    allowedRoles: [...DIRECTIONS, "administratif", "admin"],
+    description: "Dossiers, préinscriptions, OCR, établissement",
+    // Profs : accès réduit (dossiers de leurs classes via RBAC fiche).
+    allowedRoles: [...DIRECTIONS, "administratif", "admin", "professeur"],
     moduleIds: [
       "eleve-dossier",
       "agent-ia-ocr",
-      "travels",
-      "stages",
       "certificates",
       "pilotage-eleves",
       "organigramme",
@@ -42,7 +47,29 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "admin-settings",
       "conformite-rgpd",
       "chatbot-knowledge",
+    ],
+  },
+  {
+    id: "services",
+    title: "Services",
+    href: "/services",
+    description: "Voyages, salles, demandes, outils du quotidien",
+    allowedRoles: [
+      ...DIRECTIONS,
+      "administratif",
+      "professeur",
+      "cpe",
+      "education",
+      "comptabilite",
+      "maintenance",
+      "admin",
+    ],
+    moduleIds: [
+      "travels",
+      "stages",
+      "prof-room",
       "requests-staff",
+      "domain-planning",
       "documents",
       "toolbox",
       "channels",
@@ -53,17 +80,9 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     id: "vie_scolaire",
     title: "Vie scolaire",
     href: "/vie-scolaire",
-    description: "Internat, absences, vie scolaire live",
+    description: "Internat, absences élèves, vie scolaire live",
     allowedRoles: [...DIRECTIONS, "cpe", "education"],
-    moduleIds: [
-      "internat",
-      "eleve-dossier",
-      "travels",
-      "stages",
-      "domain-planning",
-      "prof-room",
-      "requests-staff",
-    ],
+    moduleIds: ["internat", "eleve-dossier", "bien-etre-referent"],
   },
   {
     id: "notes",
@@ -71,7 +90,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     href: "/notes",
     description: "Notes, bulletins, classes",
     allowedRoles: [...DIRECTIONS, "professeur"],
-    moduleIds: ["notes", "pilotage-eleves", "eleve-dossier", "prof-room", "domain-planning"],
+    moduleIds: ["notes", "pilotage-eleves", "eleve-dossier"],
   },
   {
     id: "compta_rh",
@@ -91,22 +110,41 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
   },
 ];
 
-const MODULE_TO_PILLAR = new Map<string, DashboardPillarId>();
-for (const pillar of DASHBOARD_PILLARS) {
-  for (const moduleId of pillar.moduleIds) {
-    if (!MODULE_TO_PILLAR.has(moduleId)) {
-      MODULE_TO_PILLAR.set(moduleId, pillar.id);
-    }
-  }
-}
-/** Modules signals / alias → pilier principal. */
-MODULE_TO_PILLAR.set("absences", "compta_rh");
-MODULE_TO_PILLAR.set("demandes-hse", "compta_rh");
-MODULE_TO_PILLAR.set("photocopies-couleur", "administratif");
-MODULE_TO_PILLAR.set("covoiturage", "administratif");
+/** Pilier « maison » pour les raccourcis dashboard (un module → un pilier signals). */
+const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
+  "eleve-dossier": "administratif",
+  "agent-ia-ocr": "administratif",
+  certificates: "administratif",
+  "pilotage-eleves": "administratif",
+  organigramme: "administratif",
+  evenements: "administratif",
+  communication: "administratif",
+  "admin-settings": "administratif",
+  "conformite-rgpd": "administratif",
+  "chatbot-knowledge": "administratif",
+  travels: "services",
+  stages: "services",
+  "prof-room": "services",
+  "requests-staff": "services",
+  "domain-planning": "services",
+  documents: "services",
+  toolbox: "services",
+  channels: "services",
+  assistance: "services",
+  "photocopies-couleur": "services",
+  covoiturage: "services",
+  internat: "vie_scolaire",
+  notes: "notes",
+  rh: "compta_rh",
+  "mon-planning": "compta_rh",
+  absences: "compta_rh",
+  "demandes-hse": "compta_rh",
+  sante: "sante",
+  "bien-etre-referent": "sante",
+};
 
 export function moduleIdToPillarId(moduleId: string): DashboardPillarId | null {
-  return MODULE_TO_PILLAR.get(moduleId) ?? null;
+  return PRIMARY_PILLAR_BY_MODULE[moduleId] ?? null;
 }
 
 export function categoriesForPillar(

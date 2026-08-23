@@ -31,6 +31,7 @@ type Props = {
 
 const PILLAR_ORB: Record<DashboardPillarId, string> = {
   administratif: "bg-sky-400/30",
+  services: "bg-teal-400/30",
   vie_scolaire: "bg-emerald-400/30",
   notes: "bg-violet-400/25",
   compta_rh: "bg-amber-400/30",
@@ -39,6 +40,7 @@ const PILLAR_ORB: Record<DashboardPillarId, string> = {
 
 const PILLAR_EMOJI: Record<DashboardPillarId, string> = {
   administratif: "🗂️",
+  services: "🛠️",
   vie_scolaire: "🏫",
   notes: "📝",
   compta_rh: "💼",
