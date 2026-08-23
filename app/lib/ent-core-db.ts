@@ -88,6 +88,7 @@ function dateOrNull(raw: string | undefined | null): string | null {
 
 export function eleveRowToConfig(row: EleveRow): EleveConfig {
   return {
+    id: row.id,
     ine: row.ine ?? "",
     nom: row.nom,
     prenom: row.prenom,

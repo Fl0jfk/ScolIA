@@ -234,6 +234,33 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "eleve-dossier",
+    pathPrefixes: [
+      "/eleves/dossiers",
+      "/eleves/dossier",
+      "/api/eleves",
+      "/preinscription",
+      "/api/public/preinscriptions",
+    ],
+    allowedRoles: [
+      ...DIRECTIONS,
+      "administratif",
+      "comptabilite",
+      "education",
+      "cpe",
+      "professeur",
+      "infirmerie",
+    ],
+    dashboard: {
+      id: 42,
+      name: "Dossiers élèves",
+      img: "",
+      link: "/eleves/dossiers",
+      external: false,
+      description: "Fiche élève unique — famille, scolarité, documents cloisonnés.",
+    },
+  },
+  {
     id: "channels",
     pathPrefixes: ["/channels", "/api/channels"],
     allowedRoles: [...ROLES_EXCEPT_PARENT],

@@ -64,6 +64,8 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/certificates/verify(.*)",
   "/api/certificates/verify(.*)",
   "/souscrire(.*)",
+  "/preinscription(.*)",
+  "/api/public/preinscriptions",
   "/api/platform/signup-requests",
   "/api/platform/signup-requests/status",
   "/api/billing/easytransac/checkout",
@@ -98,6 +100,7 @@ const VISITOR_PREFIXES = [
   "/stages/signer",
   "/stages/candidater",
   "/certificates/verify",
+  "/preinscription",
   "/api/toolbox/class-allocation/public",
   "/api/requests/parent-portal",
 ] as const;

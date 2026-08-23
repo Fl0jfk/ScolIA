@@ -57,6 +57,8 @@ export function normalizeEleveDateNaissance(raw: unknown): string {
 }
 
 export type EleveConfig = {
+  /** UUID Postgres quand l’élève vient de la BDD (dossier). */
+  id?: string;
   ine: string;
   nom: string;
   prenom: string;

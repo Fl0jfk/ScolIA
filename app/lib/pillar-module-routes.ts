@@ -2,6 +2,7 @@ import type { DashboardPillarId } from "@/app/lib/dashboard-pillars";
 
 /** Route native du module (hors hub `?tab=`). */
 const PILLAR_MODULE_HREF: Record<string, string> = {
+  "eleve-dossier": "/eleves/dossiers",
   travels: "/travels",
   internat: "/gestion-internat",
   "pilotage-eleves": "/pilotage-eleves",
@@ -33,6 +34,7 @@ const PILLAR_TAB_TO_MODULE: Record<
   Record<string, string>
 > = {
   eleves: {
+    dossiers: "eleve-dossier",
     travels: "travels",
     internat: "internat",
     pilotage: "pilotage-eleves",

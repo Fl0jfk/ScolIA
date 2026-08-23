@@ -252,7 +252,7 @@ export const etablissementSite = pgTable(
   ],
 );
 
-/** Élève du référentiel ENT (ex-eleves.json). */
+/** Élève du référentiel ENT (ex-eleves.json) — identité stable multi-années / multi-sites. */
 export const eleve = pgTable(
   "eleve",
   {
@@ -275,6 +275,9 @@ export const eleve = pgTable(
     parent1Phone: text("parent1_phone"),
     parent2Phone: text("parent2_phone"),
     dateNaissance: date("date_naissance"),
+    lieuNaissance: text("lieu_naissance"),
+    /** preinscrit | inscrit | ancien | archive */
+    status: text("status").notNull().default("inscrit"),
     mef: text("mef"),
     secteur: text("secteur"),
     pilotageKey: text("pilotage_key"),
@@ -288,6 +291,216 @@ export const eleve = pgTable(
       .where(sql`${t.ine} is not null and ${t.ine} <> ''`),
     index("eleve_etablissement_classe_idx").on(t.etablissementId, t.classe),
     index("eleve_etablissement_idx").on(t.etablissementId),
+    index("eleve_etablissement_status_idx").on(t.etablissementId, t.status),
+  ],
+);
+
+/** Scolarité par année / site — continuité groupe = même eleve_id. */
+export const eleveScolarite = pgTable(
+  "eleve_scolarite",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    eleveId: uuid("eleve_id")
+      .notNull()
+      .references(() => eleve.id, { onDelete: "cascade" }),
+    anneeScolaireId: uuid("annee_scolaire_id").references(() => anneeScolaire.id, {
+      onDelete: "set null",
+    }),
+    siteId: text("site_id"),
+    classe: text("classe"),
+    /** en_cours | prevue | terminee | annulee */
+    statut: text("statut").notNull().default("en_cours"),
+    demiPension: boolean("demi_pension").notNull().default(false),
+    repasParSemaine: integer("repas_par_semaine"),
+    etablissementPrecedent: text("etablissement_precedent"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("eleve_scolarite_eleve_idx").on(t.etablissementId, t.eleveId),
+    index("eleve_scolarite_site_idx").on(t.etablissementId, t.siteId),
+    index("eleve_scolarite_annee_idx").on(t.etablissementId, t.anneeScolaireId),
+  ],
+);
+
+export const foyer = pgTable(
+  "foyer",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    label: text("label").notNull().default("Foyer"),
+    adresse: text("adresse"),
+    codePostal: text("code_postal"),
+    ville: text("ville"),
+    payeurEstFoyer: boolean("payeur_est_foyer").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("foyer_etablissement_idx").on(t.etablissementId)],
+);
+
+export const foyerResponsable = pgTable(
+  "foyer_responsable",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    foyerId: uuid("foyer_id")
+      .notNull()
+      .references(() => foyer.id, { onDelete: "cascade" }),
+    nom: text("nom").notNull(),
+    prenom: text("prenom").notNull(),
+    email: text("email"),
+    telephone: text("telephone"),
+    autoriteParentale: boolean("autorite_parentale").notNull().default(false),
+    contactUrgence: boolean("contact_urgence").notNull().default(false),
+    payeur: boolean("payeur").notNull().default(false),
+    rang: integer("rang").notNull().default(1),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("foyer_responsable_foyer_idx").on(t.etablissementId, t.foyerId),
+    uniqueIndex("foyer_responsable_foyer_rang_uidx").on(t.foyerId, t.rang),
+  ],
+);
+
+export const eleveFoyerLink = pgTable(
+  "eleve_foyer_link",
+  {
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    eleveId: uuid("eleve_id")
+      .notNull()
+      .references(() => eleve.id, { onDelete: "cascade" }),
+    foyerId: uuid("foyer_id")
+      .notNull()
+      .references(() => foyer.id, { onDelete: "cascade" }),
+    relation: text("relation").notNull().default("principal"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({
+      columns: [t.etablissementId, t.eleveId, t.foyerId],
+      name: "eleve_foyer_link_pk",
+    }),
+    index("eleve_foyer_link_eleve_idx").on(t.etablissementId, t.eleveId),
+  ],
+);
+
+export const eleveDocument = pgTable(
+  "eleve_document",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    eleveId: uuid("eleve_id")
+      .notNull()
+      .references(() => eleve.id, { onDelete: "cascade" }),
+    tiroir: text("tiroir").notNull(),
+    title: text("title").notNull(),
+    mimeType: text("mime_type"),
+    s3Key: text("s3_key"),
+    fileUrl: text("file_url"),
+    anneeLabel: text("annee_label"),
+    confidentialite: text("confidentialite").notNull().default("standard"),
+    source: text("source").notNull().default("upload"),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("eleve_document_eleve_idx").on(t.etablissementId, t.eleveId),
+    index("eleve_document_tiroir_idx").on(t.etablissementId, t.eleveId, t.tiroir),
+  ],
+);
+
+export const documentAccessRequest = pgTable(
+  "document_access_request",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => eleveDocument.id, { onDelete: "cascade" }),
+    requesterUserId: text("requester_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"),
+    durationDays: integer("duration_days").notNull().default(1),
+    decidedByUserId: text("decided_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("document_access_request_doc_idx").on(t.etablissementId, t.documentId),
+    index("document_access_request_status_idx").on(t.etablissementId, t.status),
+  ],
+);
+
+export const eleveAccessAudit = pgTable(
+  "eleve_access_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    actorUserId: text("actor_user_id").references(() => user.id, { onDelete: "set null" }),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id").notNull(),
+    eleveId: uuid("eleve_id").references(() => eleve.id, { onDelete: "set null" }),
+    action: text("action").notNull(),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("eleve_access_audit_etab_idx").on(t.etablissementId, t.createdAt),
+    index("eleve_access_audit_eleve_idx").on(t.etablissementId, t.eleveId),
+  ],
+);
+
+export const preinscription = pgTable(
+  "preinscription",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    siteId: text("site_id"),
+    niveauVise: text("niveau_vise"),
+    filiereVisee: text("filiere_visee"),
+    nom: text("nom").notNull(),
+    prenom: text("prenom").notNull(),
+    dateNaissance: date("date_naissance"),
+    lieuNaissance: text("lieu_naissance"),
+    demiPension: boolean("demi_pension").notNull().default(false),
+    etablissementPrecedent: text("etablissement_precedent"),
+    status: text("status").notNull().default("pending"),
+    payload: jsonb("payload"),
+    eleveId: uuid("eleve_id").references(() => eleve.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("preinscription_etab_idx").on(t.etablissementId, t.status),
+    index("preinscription_site_idx").on(t.etablissementId, t.siteId),
   ],
 );
 
@@ -421,6 +634,14 @@ export const appSchema = {
   anneeScolaire,
   etablissementSite,
   eleve,
+  eleveScolarite,
+  foyer,
+  foyerResponsable,
+  eleveFoyerLink,
+  eleveDocument,
+  documentAccessRequest,
+  eleveAccessAudit,
+  preinscription,
   schoolRosterMeta,
   schoolClassAssignment,
   personnel,
@@ -439,6 +660,11 @@ export type UserRoleRow = typeof userRole.$inferSelect;
 export type AnneeScolaireRow = typeof anneeScolaire.$inferSelect;
 export type EtablissementSiteRow = typeof etablissementSite.$inferSelect;
 export type EleveRow = typeof eleve.$inferSelect;
+export type EleveScolariteRow = typeof eleveScolarite.$inferSelect;
+export type FoyerRow = typeof foyer.$inferSelect;
+export type FoyerResponsableRow = typeof foyerResponsable.$inferSelect;
+export type EleveDocumentRow = typeof eleveDocument.$inferSelect;
+export type PreinscriptionRow = typeof preinscription.$inferSelect;
 export type PersonnelRow = typeof personnel.$inferSelect;
 export type EntEntityRow = typeof entEntity.$inferSelect;
 export type TenantDocumentRow = typeof tenantDocument.$inferSelect;
