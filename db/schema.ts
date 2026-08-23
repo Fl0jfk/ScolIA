@@ -34,6 +34,8 @@ export const user = pgTable(
     lastName: text("last_name"),
     platformAdmin: boolean("platform_admin").notNull().default(false),
     orgAdmin: boolean("org_admin").notNull().default(false),
+    /** true = MDP provisoire / migration — forcer le changement avant l’intranet. */
+    mustChangePassword: boolean("must_change_password").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

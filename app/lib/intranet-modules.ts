@@ -99,7 +99,7 @@ const INTRANET_ELEVE_ALLOWED_PREFIXES = [
 /** Réservé au profil Master (invisible, config plateforme). */
 const INTRANET_PLATFORM_MASTER_PREFIXES = [
   "/platform/setup",
-  "/api/platform/setup",
+  "/api/platform",
   "/plateforme",
 ];
 

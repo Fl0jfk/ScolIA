@@ -35,7 +35,11 @@ import { isTenantAccessBlocked } from "@/app/lib/tenant-billing-types";
 import { PROXY_PUBLIC_ROUTE_MATCHERS } from "@/app/lib/public-routes";
 import { legacyDocsLaProRedirect } from "@/app/lib/legacy-hostname-redirects";
 import { isBetterAuthActive } from "@/app/lib/auth-config";
-import { resolveBetterAuthProxyState } from "@/app/lib/proxy-better-auth";
+import {
+  isMustChangePasswordAllowedPath,
+  resolveBetterAuthProxyState,
+} from "@/app/lib/proxy-better-auth";
+import { assertUserBelongsToTenant } from "@/app/lib/etablissement-db";
 
 /**
  * Équivalent `createRouteMatcher` : patterns style `/path(.*)`.
@@ -291,6 +295,57 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
 
   const roles = betterAuthState.roles;
   const isOrgAdmin = betterAuthState.orgAdmin || betterAuthState.platformAdmin;
+
+  const tenantGate = await assertUserBelongsToTenant({
+    userEtablissementId: betterAuthState.etablissementId,
+    platformAdmin: betterAuthState.platformAdmin,
+    tenant,
+  });
+  if (!tenantGate.ok) {
+    if (pathname.startsWith("/api/")) {
+      return withTenantHeaders(
+        NextResponse.json(
+          { error: tenantGate.message, code: tenantGate.code },
+          { status: 403 },
+        ),
+        tenant,
+      );
+    }
+    return withOptionalDevTenantCookie(
+      withTenantHeaders(
+        NextResponse.redirect(new URL("/connexion", platformAppOriginFromEnv())),
+        tenant,
+      ),
+      request,
+      host,
+    );
+  }
+
+  if (
+    betterAuthState.mustChangePassword &&
+    !isMustChangePasswordAllowedPath(pathname) &&
+    !isPublicRoute(request)
+  ) {
+    if (pathname.startsWith("/api/")) {
+      return withTenantHeaders(
+        NextResponse.json(
+          {
+            error: "Changement de mot de passe obligatoire.",
+            code: "MUST_CHANGE_PASSWORD",
+          },
+          { status: 403 },
+        ),
+        tenant,
+      );
+    }
+    const dest = new URL("/auth/change-password-required", request.url);
+    dest.searchParams.set("redirect_url", `${pathname}${request.nextUrl.search}`);
+    return withOptionalDevTenantCookie(
+      withTenantHeaders(NextResponse.redirect(dest), tenant),
+      request,
+      host,
+    );
+  }
 
   if (
     !isPlatformTenantSlug(tenant.slug) &&

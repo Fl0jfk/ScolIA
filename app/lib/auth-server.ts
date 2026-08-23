@@ -3,7 +3,7 @@ import "server-only";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import { getDb, isDatabaseConfigured } from "@/db/index";
+import { getDb } from "@/db/index";
 import { authSchema } from "@/db/schema";
 import { betterAuthBaseUrl, isBetterAuthConfigured } from "@/app/lib/auth-config";
 import { ensureEtablissementFromSlug } from "@/app/lib/etablissement-db";
@@ -34,7 +34,6 @@ function createAuth() {
       base,
       ...localDevOrigins,
       ...(process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",").map((s) => s.trim()) ?? []),
-      // Sous-domaines intranet connus (fallback si env incomplet).
       "https://www.scolia.fr",
       "https://scolia.fr",
       "https://lpnb.scolia.fr",
@@ -47,6 +46,15 @@ function createAuth() {
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false,
+      minPasswordLength: 8,
+    },
+    session: {
+      expiresIn: 60 * 60 * 24 * 7,
+      updateAge: 60 * 60 * 12,
+      cookieCache: {
+        enabled: true,
+        maxAge: 60 * 5,
+      },
     },
     user: {
       additionalFields: {
@@ -56,24 +64,40 @@ function createAuth() {
         lastName: { type: "string", required: false },
         platformAdmin: { type: "boolean", required: false, defaultValue: false, input: false },
         orgAdmin: { type: "boolean", required: false, defaultValue: false, input: false },
+        mustChangePassword: {
+          type: "boolean",
+          required: false,
+          defaultValue: true,
+          input: false,
+        },
       },
+      // Changement d’e-mail : flux custom via /api/account/security (token + mail).
       changeEmail: {
-        enabled: true,
-        updateEmailWithoutVerification: true,
+        enabled: false,
       },
     },
     advanced: {
+      // Cookie partagé *.scolia.fr pour le portail → intranet.
+      // L’isolation est garantie par assertUserBelongsToTenant dans le proxy.
       crossSubDomainCookies: {
         enabled: true,
         domain: process.env.BETTER_AUTH_COOKIE_DOMAIN?.trim() || "scolia.fr",
       },
+      useSecureCookies: process.env.NODE_ENV === "production",
     },
     plugins: [nextCookies()],
     databaseHooks: {
       user: {
         create: {
           before: async (payload, ctx) => {
-            if (payload.etablissementId) return { data: payload };
+            if (payload.etablissementId) {
+              return {
+                data: {
+                  ...payload,
+                  mustChangePassword: payload.mustChangePassword ?? true,
+                },
+              };
+            }
             const slug = ctx?.request?.headers.get(TENANT_SLUG_HEADER)?.trim();
             if (!slug) {
               throw new Error("Établissement introuvable pour la création du compte.");
@@ -83,6 +107,7 @@ function createAuth() {
               data: {
                 ...payload,
                 etablissementId,
+                mustChangePassword: true,
                 name:
                   payload.name ||
                   `${payload.firstName ?? ""} ${payload.lastName ?? ""}`.trim() ||

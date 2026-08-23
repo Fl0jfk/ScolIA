@@ -10,10 +10,13 @@ import { user } from "@/db/schema";
 
 export type BetterAuthProxyState = {
   userId: string;
+  authUserId: string;
+  etablissementId: string | null;
   roles: string[];
   publicMetadata: Record<string, unknown>;
   orgAdmin: boolean;
   platformAdmin: boolean;
+  mustChangePassword: boolean;
 };
 
 export function proxyUsesBetterAuth(pathname: string): boolean {
@@ -33,26 +36,32 @@ export async function resolveBetterAuthProxyState(
       externalUserId?: string | null;
       orgAdmin?: boolean;
       platformAdmin?: boolean;
+      mustChangePassword?: boolean;
     };
 
     const db = getDb();
     const [row] = await db.select().from(user).where(eq(user.id, u.id)).limit(1);
-    const etablissementId = row?.etablissementId ?? u.etablissementId;
+    const etablissementId = row?.etablissementId ?? u.etablissementId ?? null;
     const roles = etablissementId ? await listUserRolesFromDb(u.id, etablissementId) : [];
     const businessUserId = row?.externalUserId?.trim() || u.id;
     const orgAdmin = Boolean(row?.orgAdmin ?? u.orgAdmin);
     const platformAdmin = Boolean(row?.platformAdmin ?? u.platformAdmin);
+    const mustChangePassword = Boolean(row?.mustChangePassword ?? u.mustChangePassword);
 
     return {
       userId: businessUserId,
+      authUserId: u.id,
+      etablissementId,
       roles,
       publicMetadata: {
         role: roles,
         org_admin: orgAdmin,
         platform_admin: platformAdmin,
+        must_change_password: mustChangePassword,
       },
       orgAdmin,
       platformAdmin,
+      mustChangePassword,
     };
   } catch (error) {
     console.error("[resolveBetterAuthProxyState]", error);
@@ -75,13 +84,32 @@ export async function resolveBetterAuthProxyStateByUserId(
   const roles = await listUserRolesFromDb(row.id, etablissementId);
   return {
     userId: row.externalUserId?.trim() || row.id,
+    authUserId: row.id,
+    etablissementId: row.etablissementId,
     roles,
     publicMetadata: {
       role: roles,
       org_admin: row.orgAdmin,
       platform_admin: row.platformAdmin,
+      must_change_password: row.mustChangePassword,
     },
     orgAdmin: row.orgAdmin,
     platformAdmin: row.platformAdmin,
+    mustChangePassword: row.mustChangePassword,
   };
+}
+
+/** Chemins autorisés tant que mustChangePassword est actif. */
+export function isMustChangePasswordAllowedPath(pathname: string): boolean {
+  const allow = [
+    "/auth/change-password-required",
+    "/auth/sign-out",
+    "/sign-out",
+    "/api/account/security",
+    "/api/account/confirm-email",
+    "/api/auth",
+    "/api/auth/me",
+    "/api/auth/status",
+  ];
+  return allow.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }

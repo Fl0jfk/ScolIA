@@ -46,6 +46,7 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/auth(.*)",
   "/api/auth(.*)",
   "/api/auth/status",
+  "/api/account/confirm-email",
   "/sign-out(.*)",
   "/mentions-legales",
   "/tarifs",

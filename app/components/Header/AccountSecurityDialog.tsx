@@ -43,8 +43,8 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
-    if (newPassword.length < 8) {
-      setError("Le nouveau mot de passe doit contenir au moins 8 caractères.");
+    if (newPassword.length < 10) {
+      setError("Le nouveau mot de passe doit contenir au moins 10 caractères.");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -92,9 +92,15 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
           newEmail: newEmail.trim(),
         }),
       });
-      const j = (await res.json()) as { error?: string; email?: string };
+      const j = (await res.json()) as {
+        error?: string;
+        email?: string;
+        message?: string;
+        warning?: string;
+        mode?: string;
+      };
       if (!res.ok) throw new Error(j.error || "Échec du changement d’e-mail.");
-      setSuccess(`E-mail mis à jour : ${j.email ?? newEmail}`);
+      setSuccess(j.message || j.warning || `E-mail mis à jour : ${j.email ?? newEmail}`);
       setCurrentPassword("");
       await refresh();
     } catch (err) {
@@ -184,7 +190,7 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                   type="password"
                   autoComplete="new-password"
                   required
-                  minLength={8}
+                  minLength={10}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
@@ -196,7 +202,7 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                   type="password"
                   autoComplete="new-password"
                   required
-                  minLength={8}
+                  minLength={10}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
@@ -252,6 +258,12 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
               </label>
               {error ? <p className="text-sm text-red-600">{error}</p> : null}
               {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
+              {!success ? (
+                <p className="text-xs text-slate-500">
+                  Un e-mail de confirmation sera envoyé à la nouvelle adresse (lien valable
+                  1&nbsp;h). Votre ancienne adresse sera aussi notifiée.
+                </p>
+              ) : null}
               <div className="flex gap-2 pt-1">
                 <button
                   type="button"
