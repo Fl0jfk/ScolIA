@@ -39,10 +39,10 @@ export function findNewMatchesForProfile(
   const now = new Date().toISOString();
 
   for (const other of allProfiles) {
-    if (other.clerkUserId === profile.clerkUserId) continue;
+    if (other.externalUserId === profile.externalUserId) continue;
     if (other.status !== "active") continue;
-    if (existingPairMatch(existingMatches, profile.clerkUserId, other.clerkUserId)) continue;
-    if (existingPairMatch(created, profile.clerkUserId, other.clerkUserId)) continue;
+    if (existingPairMatch(existingMatches, profile.externalUserId, other.externalUserId)) continue;
+    if (existingPairMatch(created, profile.externalUserId, other.externalUserId)) continue;
 
     const zones = sharedZones(profile, other);
     const establishments = sharedEstablishments(profile, other);
@@ -50,8 +50,8 @@ export function findNewMatchesForProfile(
 
     created.push({
       id: `match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      profileA: profile.clerkUserId,
-      profileB: other.clerkUserId,
+      profileA: profile.externalUserId,
+      profileB: other.externalUserId,
       matchedZone: zones[0]!,
       matchedEstablishments: establishments,
       status: "pending",

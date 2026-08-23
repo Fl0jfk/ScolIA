@@ -55,7 +55,7 @@ export default function RhOnboardingPanel() {
   };
 
   const validate = async (id: string) => {
-    if (!confirm("Valider ce dossier ? Création OneDrive + PDF + invitation Clerk.")) return;
+    if (!confirm("Valider ce dossier ? Création OneDrive + PDF + invitation.")) return;
     setBusyId(id);
     try {
       const res = await fetch(`/api/rh/onboarding/${id}/validate`, {
@@ -102,7 +102,7 @@ export default function RhOnboardingPanel() {
         <h3 className="font-black text-slate-900">Nouvel arrivant — lien public</h3>
         <p className="text-sm text-slate-600">
           Générez un lien à envoyer au futur collaborateur. Il remplit le formulaire ; vous validez
-          ensuite (OneDrive, documents PDF, invitation Clerk).
+          ensuite (OneDrive, documents PDF, invitation).
         </p>
         <div className="flex flex-wrap gap-2 items-end">
           <label className="flex-1 min-w-[200px] space-y-1">

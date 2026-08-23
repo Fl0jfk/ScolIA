@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/app/lib/intranet-auth";
 import { importAssignmentsFromStageReferents, loadSchoolRoster, saveSchoolRoster } from "@/app/lib/school-roster";
-import { listTeacherClerkOptions } from "@/app/lib/school-roster";
+import { listTeacherDirectoryOptions } from "@/app/lib/school-roster";
 import { parseTeacherRosterExcelBuffer } from "@/app/lib/teacher-roster-import";
 
 export async function POST(req: Request) {
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) {
     return NextResponse.json({ error: "Format Excel (.xlsx) requis." }, { status: 400 });
   }
-  const users = await listTeacherClerkOptions();
+  const users = await listTeacherDirectoryOptions();
   const parsed = parseTeacherRosterExcelBuffer(await file.arrayBuffer(), users);
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
 

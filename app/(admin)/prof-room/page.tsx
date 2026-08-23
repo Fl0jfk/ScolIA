@@ -1,7 +1,7 @@
 "use client";
 import React, { Suspense, useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
@@ -72,7 +72,7 @@ function SelectShell({ children }: { children: React.ReactNode }) {
 
 function ProfRoomPageContent() {
   const searchParams = useSearchParams();
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const isOrgAdmin = useIsOrgAdmin();
   const CLASSES_DATA = appCtx?.profRoom?.classesByPole || FALLBACK_CLASSES;
@@ -109,8 +109,8 @@ function ProfRoomPageContent() {
     isOrgAdmin ||
     hasGlobalAdminRole(intranetRoles) ||
     appCtx?.session?.isGlobalAdmin === true;
-  const adminClerkUserIds = appCtx?.profRoom?.adminClerkUserIds || [];
-  const isModuleListedAdmin = user?.id ? adminClerkUserIds.includes(user.id) : false;
+  const adminExternalUserIds = appCtx?.profRoom?.adminExternalUserIds || [];
+  const isModuleListedAdmin = user?.id ? adminExternalUserIds.includes(user.id) : false;
   const canAccessSettings = isGlobalAdmin || isModuleListedAdmin;
   const isAdmin = canAccessSettings;
   const canBookForOthers = isModuleListedAdmin;
@@ -198,14 +198,14 @@ function ProfRoomPageContent() {
     });
   }, [searchParams, todayStr]);
 
-  const clerkFirstName = user?.firstName || "";
-  const clerkLastName = (user?.lastName || "").toUpperCase();
+  const sessionFirstName = user?.firstName || "";
+  const sessionLastName = (user?.lastName || "").toUpperCase();
   useEffect(() => {
-    if (!clerkFirstName && !clerkLastName) return;
+    if (!sessionFirstName && !sessionLastName) return;
     if (isEditing || bookForOther) return;
-    setTargetFirstName(clerkFirstName);
-    setTargetLastName(clerkLastName);
-  }, [clerkFirstName, clerkLastName, isEditing, bookForOther]);
+    setTargetFirstName(sessionFirstName);
+    setTargetLastName(sessionLastName);
+  }, [sessionFirstName, sessionLastName, isEditing, bookForOther]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleCellClick = (dateStr: string, hour: number, resExist?: any) => {
@@ -356,7 +356,7 @@ function ProfRoomPageContent() {
     } catch (err) {
       console.error("[prof-room] save réseau / Load failed", err);
       alert(
-        `❌ Échec réseau (souvent timeout mail SMTP ou Clerk).\nDétail : ${
+        `❌ Échec réseau (souvent timeout mail SMTP ou auth).\nDétail : ${
           err instanceof Error ? err.message : String(err)
         }\nRegarde la console (filtre « prof-room »).`,
       );

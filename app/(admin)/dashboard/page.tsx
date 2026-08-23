@@ -2,8 +2,8 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { useUser } from "@clerk/nextjs";
 import DashboardGlobalNotifications from "@/app/components/Dashboard/DashboardGlobalNotifications";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import DashboardPillars from "@/app/components/Dashboard/DashboardPillars";
 import DashboardTodayNews from "@/app/components/Dashboard/DashboardTodayNews";
 import DashboardWeather from "@/app/components/Dashboard/DashboardWeather";
@@ -39,7 +39,7 @@ function fingerprint(
 }
 
 export default function Home() {
-  const { isLoaded, user } = useUser();
+  const { isLoaded, user } = useSessionUser();
   const isOrgAdmin = useIsOrgAdmin();
   const data = useData();
 

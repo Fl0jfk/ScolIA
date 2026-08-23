@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -75,7 +75,7 @@ type AbsencesCalendarProps = {
 };
 
 export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarProps) {
-  const { user, isLoaded: userLoaded } = useUser();
+  const { user, isLoaded: userLoaded } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const establishments = appCtx?.establishments ?? [];
   const [items, setItems] = useState<AbsenceRecord[]>([]);

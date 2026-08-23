@@ -5,7 +5,7 @@ import { depositRhSelfDocument } from "@/app/lib/rh/rh-deposit-self";
 
 export const maxDuration = 60;
 
-/** Dépôt personnel — identité via Clerk, classement direct sur OneDrive RH. */
+/** Dépôt personnel — identité via Better-Auth, classement direct sur OneDrive RH. */
 export async function POST(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
 
     const bytes = new Uint8Array(await file.arrayBuffer());
     const result = await depositRhSelfDocument({
-      clerkUserId: user.id,
+      externalUserId: user.id,
       email: user.primaryEmailAddress?.emailAddress || user.emailAddresses[0]?.emailAddress || "",
       uploadedBy: user.fullName || user.firstName || user.id,
       fileName: file.name,

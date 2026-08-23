@@ -3,7 +3,7 @@ export type DomainPlanningDomain = {
   name: string;
   description?: string;
   color?: string;
-  coordinatorClerkUserIds: string[];
+  coordinatorExternalUserIds: string[];
 };
 
 /** @deprecated Ancien modèle « réservation de créneau » — conservé pour compatibilité données. */

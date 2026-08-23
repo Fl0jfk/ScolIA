@@ -9,7 +9,7 @@ import {
 } from "@/app/lib/intranet-role-utils";
 import { elevesSecteursFromCapabilities } from "@/app/lib/ocr-flux";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
-import { resolveOcrCapabilitiesForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
+import { resolveOcrCapabilitiesForUserServer } from "@/app/lib/onedrive-user-profiles.server";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 
 const DIRECTION_SECTEUR_ROLES: Array<{ role: string; secteur: Secteur }> = [
@@ -50,7 +50,7 @@ export async function resolvePilotageSecteursForRoles(
 
   const user = await safeCurrentUser();
   if (isPilotageAdministratif(roles) && user) {
-    const caps = await resolveOcrCapabilitiesForClerkUserServer(user);
+    const caps = await resolveOcrCapabilitiesForUserServer(user);
     const fromOcr = elevesSecteursFromCapabilities(caps);
     if (fromOcr.length) return fromOcr;
     if (!fromDirection.length) return [];
@@ -60,7 +60,7 @@ export async function resolvePilotageSecteursForRoles(
 
   if (user?.id) {
     const assigned = getActiveEstablishments((await loadAppConfig()).establishments)
-      .filter((e) => e.directorClerkUserId === user.id)
+      .filter((e) => e.directorExternalUserId === user.id)
       .map((e) => inferEstablishmentKind(e))
       .filter((k): k is Secteur => k === "ecole" || k === "college" || k === "lycee");
     if (assigned.length) return [...new Set(assigned)];

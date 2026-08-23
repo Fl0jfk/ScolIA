@@ -28,7 +28,7 @@ function tenantListItem(t: TenantConfig) {
     hostnames: t.hostnames,
     appUrl: t.appUrl,
     dataBucket: t.dataBucket,
-    clerkPublishableKey: maskPk(edit.entry.clerkPublishableKey),
+    publishableKey: maskPk(edit.entry.publishableKey),
     configured: edit.configured,
     billingStatus: billing.status,
     billingFailureCount: billing.failureCount || 0,
@@ -57,9 +57,9 @@ export async function GET() {
       currentTenantSlug: current.slug,
       tenants: tenants.map(tenantListItem),
       localDev: {
-        clerkEnvOverride: Boolean(
-          process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim() &&
-            process.env.CLERK_SECRET_KEY?.trim(),
+        legacyEnvOverride: Boolean(
+          process.env.NEXT_PUBLIC_LEGACY_PUBLISHABLE_KEY?.trim() &&
+            process.env.LEGACY_SECRET_KEY?.trim(),
         ),
       },
     });

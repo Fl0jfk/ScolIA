@@ -30,11 +30,11 @@ type PendingParentAuth = {
 function authSecret(): string {
   const secret =
     process.env.CLASS_ALLOCATION_PARENT_SECRET?.trim() ||
-    process.env.CLERK_ENCRYPTION_KEY?.trim() ||
+    process.env.AUTH_PARENT_SECRET_FALLBACK?.trim() ||
     "";
   if (secret) return secret;
   if (process.env.NODE_ENV === "production") {
-    throw new Error("CLASS_ALLOCATION_PARENT_SECRET (ou CLERK_ENCRYPTION_KEY) requis en production.");
+    throw new Error("CLASS_ALLOCATION_PARENT_SECRET (ou AUTH_PARENT_SECRET_FALLBACK) requis en production.");
   }
   return "dev-class-allocation-parent-secret";
 }

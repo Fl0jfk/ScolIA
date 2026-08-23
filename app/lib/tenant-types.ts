@@ -3,7 +3,7 @@
 import type { TenantBillingState } from "@/app/lib/tenant-billing-types";
 
 export const TENANT_SLUG_HEADER = "x-tenant-slug";
-/** URL complète de la requête — middleware → handlers (auth Clerk backend). */
+/** URL complète de la requête — middleware → handlers (auth backend). */
 export const TENANT_REQUEST_URL_HEADER = "x-tenant-request-url";
 
 export type TenantKind = "groupe" | "standalone";
@@ -22,7 +22,7 @@ export type TenantIndexEntry = {
   hostnames: string[];
   dataBucket: string;
   appUrl: string;
-  clerkPublishableKey: string;
+  publishableKey: string;
   /** Adresse postale (portail de connexion, désambiguïsation). */
   postalAddress?: TenantPostalAddress;
   /** Logo public (URL https) — défini par le Master plateforme. */
@@ -30,15 +30,15 @@ export type TenantIndexEntry = {
   /** Facturation et suspension d'accès (lisible par le proxy). */
   billing?: TenantBillingState;
   /** Rétrocompat : si présent dans l'index, pas de fichier secrets requis. */
-  clerkSecretKey?: string;
+  secretKey?: string;
 };
 
 /** tenants/secrets/{slug}.json — sensible, un fichier par client. */
 export type TenantSecrets = {
-  clerkSecretKey: string;
-  /** Optionnel : instance Clerk Development pour localhost. */
-  clerkDevPublishableKey?: string;
-  clerkDevSecretKey?: string;
+  secretKey: string;
+  /** Optionnel : instance auth Development pour localhost. */
+  devPublishableKey?: string;
+  devSecretKey?: string;
   mistral?: { apiKey: string };
   smtp?: { user: string; pass: string; host?: string };
   microsoft?: {
@@ -69,8 +69,8 @@ export type TenantSecrets = {
 
 /** Config complète après fusion index + secrets. */
 export type TenantConfig = TenantIndexEntry & {
-  clerkSecretKey: string;
-  secrets?: Omit<TenantSecrets, "clerkSecretKey">;
+  secretKey: string;
+  secrets?: Omit<TenantSecrets, "secretKey">;
 };
 
 export type TenantRegistryFile = {

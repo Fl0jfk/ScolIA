@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import RequireOrgAdmin from "@/app/components/RequireOrgAdmin";
-import type { ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import SettingsSitePanel from "@/app/components/settings/SettingsSitePanel";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
@@ -103,7 +103,7 @@ export default function ParametresPage() {
   const [headerLogoPreviewUrl, setHeaderLogoPreviewUrl] = useState<string | null>(null);
   const [uploadingSignatureId, setUploadingSignatureId] = useState<string | null>(null);
   const [profRoomAdminIds, setProfRoomAdminIds] = useState<string[]>([]);
-  const [clerkMembers, setClerkMembers] = useState<ClerkMemberOption[]>([]);
+  const [directoryMembers, setDirectoryMembers] = useState<DirectoryMemberOption[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [requestsRouting, setRequestsRouting] = useState<RequestsRoutingConfig | null>(null);
   const [travelsCfg, setTravelsCfg] = useState<SettingsTravelsConfig>({ transportProviders: [] });
@@ -152,9 +152,9 @@ export default function ParametresPage() {
             kind: String(e.kind || e.id || ""),
             directorName: String(e.directorName || ""),
             directorEmail: String(e.directorEmail || ""),
-            directorClerkUserId: String(e.directorClerkUserId || ""),
+            directorExternalUserId: String(e.directorExternalUserId || ""),
             colorHex: String(e.colorHex || ""),
-            clerkRoleSlugs: Array.isArray(e.clerkRoleSlugs) ? (e.clerkRoleSlugs as string[]).join(", ") : "",
+            roleSlugs: Array.isArray(e.roleSlugs) ? (e.roleSlugs as string[]).join(", ") : "",
             active: e.active !== false,
             grades: typeof e.grades === "string" ? e.grades : undefined,
             signatureS3Key: typeof e.signatureS3Key === "string" ? e.signatureS3Key : undefined,
@@ -189,7 +189,7 @@ export default function ParametresPage() {
         })();
         setNotifications(j.config?.notifications || {});
         const profRoomCfg = j.config?.profRoom || {};
-        const savedIds = Array.isArray(profRoomCfg.adminClerkUserIds) ? profRoomCfg.adminClerkUserIds : [];
+        const savedIds = Array.isArray(profRoomCfg.adminExternalUserIds) ? profRoomCfg.adminExternalUserIds : [];
         setProfRoomAdminIds(savedIds);
         const mRes = await fetch("/api/mef-secteurs");
         const mj = await mRes.json();
@@ -228,10 +228,10 @@ export default function ParametresPage() {
       try {
         const res = await fetch("/api/members");
         const j = await res.json();
-        if (!res.ok) throw new Error(j.error || "Impossible de charger les membres Clerk");
+        if (!res.ok) throw new Error(j.error || "Impossible de charger les membres");
         if (cancelled) return;
-        const users = (j.users || []) as ClerkMemberOption[];
-        setClerkMembers(users);
+        const users = (j.users || []) as DirectoryMemberOption[];
+        setDirectoryMembers(users);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Erreur chargement membres");
       } finally {
@@ -554,7 +554,7 @@ export default function ParametresPage() {
           <SettingsEstablishmentsPanel
             establishments={establishments}
             setEstablishments={setEstablishments}
-            clerkMembers={clerkMembers}
+            directoryMembers={directoryMembers}
             membersLoading={membersLoading}
             uploadingSignatureId={uploadingSignatureId}
             saving={saving}
@@ -569,7 +569,7 @@ export default function ParametresPage() {
             notifications={notifications}
             setNotifications={setNotifications}
             activeEstablishmentKinds={activeEstablishmentKinds}
-            clerkMembers={clerkMembers}
+            directoryMembers={directoryMembers}
             membersLoading={membersLoading}
             saving={saving}
             saveSection={saveSection}
@@ -593,7 +593,7 @@ export default function ParametresPage() {
             saveSection={saveSection}
             activeEstablishmentKinds={activeEstablishmentKinds}
             activeCycleLabels={activeCycleLabels}
-            clerkMembers={clerkMembers}
+            directoryMembers={directoryMembers}
             membersLoading={membersLoading}
           />
         )}
@@ -616,7 +616,7 @@ export default function ParametresPage() {
 
         {tab === "prof-room" && (
           <SettingsProfRoomPanel
-            clerkMembers={clerkMembers}
+            directoryMembers={directoryMembers}
             profRoomAdminIds={profRoomAdminIds}
             setProfRoomAdminIds={setProfRoomAdminIds}
             membersLoading={membersLoading}
@@ -629,7 +629,7 @@ export default function ParametresPage() {
           <SettingsRequestsRoutingPanel
             requestsRouting={requestsRouting}
             setRequestsRouting={setRequestsRouting}
-            clerkMembers={clerkMembers}
+            directoryMembers={directoryMembers}
             membersLoading={membersLoading}
             saving={saving}
             onSave={saveRequestsRouting}

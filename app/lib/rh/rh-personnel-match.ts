@@ -87,13 +87,13 @@ export function matchRhPersonnelFromIndex(
 
 export function resolveRhIndexEntryForUser(
   entries: RhPersonnelIndexEntry[],
-  clerkUserId?: string | null,
+  externalUserId?: string | null,
   email?: string | null,
 ): RhPersonnelIndexEntry | null {
   const normalizedEmail = email?.trim().toLowerCase();
-  if (clerkUserId) {
-    const byClerk = entries.find((e) => e.clerkUserId === clerkUserId && e.active !== false);
-    if (byClerk) return byClerk;
+  if (externalUserId) {
+    const byExternalId = entries.find((e) => e.externalUserId === externalUserId && e.active !== false);
+    if (byExternalId) return byExternalId;
   }
   if (normalizedEmail) {
     return (

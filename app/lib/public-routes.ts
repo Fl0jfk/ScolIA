@@ -1,12 +1,12 @@
 /**
  * Catalogue des chemins publics.
- * - PROXY_PUBLIC_ROUTE_MATCHERS : pas d’auth Clerk (proxy).
+ * - PROXY_PUBLIC_ROUTE_MATCHERS : pas d’auth (proxy).
  * - isPublicVisitorPath : pages visiteurs (masquer assistant IA / espace personnel).
  * Les deux listes ne sont pas interchangeables : une API cron peut être
  * publique auth sans être une page visiteur.
  */
 
-/** Matchers Clerk `createRouteMatcher` (proxy). */
+/** Matchers proxy `createRouteMatcher` (proxy). */
 export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/",
   "/rentree(.*)",
@@ -43,6 +43,9 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/plateforme",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  "/auth(.*)",
+  "/api/auth(.*)",
+  "/api/auth/status",
   "/sign-out(.*)",
   "/mentions-legales",
   "/tarifs",

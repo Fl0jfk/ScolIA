@@ -18,7 +18,7 @@ import { tenantCanonicalOrigin, tenantOrigin } from "@/app/lib/tenant-auth-urls"
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 import { getMicrosoftAccessTokenFromRefresh } from "@/app/lib/graph-microsoft-delegated";
-import { resolveOneDriveProfileForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
+import { resolveOneDriveProfileForUserServer } from "@/app/lib/onedrive-user-profiles.server";
 import { ensureFolderPath } from "@/app/lib/graph-onedrive-folders";
 import { uploadBytesToOneDriveUnique } from "@/app/lib/ocr-graph-ops";
 import {
@@ -192,7 +192,7 @@ export async function POST(req: Request, { params }: Params) {
       return NextResponse.json({ error: "Aucun certificat PDF émis à envoyer en OCR." }, { status: 400 });
     }
 
-    const odProfile = await resolveOneDriveProfileForClerkUserServer({
+    const odProfile = await resolveOneDriveProfileForUserServer({
       lastName: user?.lastName,
       emailAddresses: user?.emailAddresses?.map((e) => ({ emailAddress: e.emailAddress })),
       primaryEmailAddress: user?.primaryEmailAddress

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import {
-  resolveOcrCapabilitiesForClerkUserServer,
-  resolveOneDriveProfileForClerkUserServer,
+  resolveOcrCapabilitiesForUserServer,
+  resolveOneDriveProfileForUserServer,
 } from "@/app/lib/onedrive-user-profiles.server";
 
 export async function GET() {
@@ -19,8 +19,8 @@ export async function GET() {
       ? { emailAddress: user.primaryEmailAddress.emailAddress }
       : null,
   };
-  const caps = await resolveOcrCapabilitiesForClerkUserServer(like);
-  const profile = caps.primaryEleves ?? (await resolveOneDriveProfileForClerkUserServer(like));
+  const caps = await resolveOcrCapabilitiesForUserServer(like);
+  const profile = caps.primaryEleves ?? (await resolveOneDriveProfileForUserServer(like));
   return NextResponse.json({
     profile,
     fluxes: caps.fluxes.map((f) => ({

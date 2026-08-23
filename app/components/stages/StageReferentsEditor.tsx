@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-type ClerkUser = {
-  clerkUserId: string;
+type DirectoryUser = {
+  externalUserId: string;
   email: string;
   firstName?: string;
   lastName?: string;
@@ -12,12 +12,12 @@ type ClerkUser = {
 
 type Assignment = {
   className: string;
-  clerkUserId: string;
+  externalUserId: string;
   name: string;
   email: string;
 };
 
-function userLabel(u: ClerkUser): string {
+function userLabel(u: DirectoryUser): string {
   return u.displayName || `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
 }
 
@@ -39,7 +39,7 @@ export default function StageReferentsEditor({
   const [schoolYear, setSchoolYear] = useState(initialYear || currentSchoolYearLabel());
   const [classes, setClasses] = useState<string[]>([]);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
-  const [users, setUsers] = useState<ClerkUser[]>([]);
+  const [users, setUsers] = useState<DirectoryUser[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [updatedBy, setUpdatedBy] = useState<string | null>(null);
   const [previousConfig, setPreviousConfig] = useState<{ schoolYear: string; assignments: Assignment[] } | null>(
@@ -51,8 +51,8 @@ export default function StageReferentsEditor({
   const [customClass, setCustomClass] = useState("");
 
   const userById = useMemo(() => {
-    const map = new Map<string, ClerkUser>();
-    for (const u of users) map.set(u.clerkUserId, u);
+    const map = new Map<string, DirectoryUser>();
+    for (const u of users) map.set(u.externalUserId, u);
     return map;
   }, [users]);
 
@@ -62,7 +62,7 @@ export default function StageReferentsEditor({
     try {
       const [refRes, usersRes] = await Promise.all([
         fetch(`/api/stages/referents?schoolYear=${encodeURIComponent(year)}`, { cache: "no-store" }),
-        fetch("/api/stages/clerk-users", { cache: "no-store" }),
+        fetch("/api/stages/directory-users", { cache: "no-store" }),
       ]);
       const refData = await refRes.json();
       const usersData = await usersRes.json();
@@ -77,7 +77,7 @@ export default function StageReferentsEditor({
 
       const map: Record<string, string> = {};
       for (const a of (refData.config?.assignments || []) as Assignment[]) {
-        map[a.className] = a.clerkUserId;
+        map[a.className] = a.externalUserId;
       }
       setAssignments(map);
     } catch (e: unknown) {
@@ -91,11 +91,11 @@ export default function StageReferentsEditor({
     void load(schoolYear);
   }, [schoolYear, load]);
 
-  function setClassReferent(className: string, clerkUserId: string) {
+  function setClassReferent(className: string, externalUserId: string) {
     setAssignments((prev) => {
       const next = { ...prev };
-      if (!clerkUserId) delete next[className];
-      else next[className] = clerkUserId;
+      if (!externalUserId) delete next[className];
+      else next[className] = externalUserId;
       return next;
     });
   }
@@ -104,7 +104,7 @@ export default function StageReferentsEditor({
     if (!previousConfig?.assignments.length) return;
     const map: Record<string, string> = {};
     for (const a of previousConfig.assignments) {
-      if (userById.has(a.clerkUserId)) map[a.className] = a.clerkUserId;
+      if (userById.has(a.externalUserId)) map[a.className] = a.externalUserId;
     }
     setAssignments(map);
     onSaved?.(`Affectations copiées depuis ${previousConfig.schoolYear}.`);
@@ -126,13 +126,13 @@ export default function StageReferentsEditor({
     try {
       const payload: Assignment[] = [];
       for (const className of classes) {
-        const clerkUserId = assignments[className];
-        if (!clerkUserId) continue;
-        const u = userById.get(clerkUserId);
+        const externalUserId = assignments[className];
+        if (!externalUserId) continue;
+        const u = userById.get(externalUserId);
         if (!u) continue;
         payload.push({
           className,
-          clerkUserId,
+          externalUserId,
           name: userLabel(u),
           email: u.email,
         });
@@ -188,7 +188,7 @@ export default function StageReferentsEditor({
       </div>
 
       <p className="text-sm text-stone-600">
-        Assignez un utilisateur Clerk (professeur) à chaque classe. Lors d&apos;une candidature ou préconvention,
+        Assignez un utilisateur (professeur) à chaque classe. Lors d&apos;une candidature ou préconvention,
         le référent est rempli automatiquement selon la classe de l&apos;élève.
       </p>
 
@@ -201,7 +201,7 @@ export default function StageReferentsEditor({
 
       {users.length === 0 ? (
         <p className="text-sm text-amber-800 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-          Aucun utilisateur Clerk avec le rôle professeur trouvé.
+          Aucun utilisateur avec le rôle professeur trouvé.
         </p>
       ) : (
         <div className="max-h-[420px] overflow-y-auto rounded-xl border border-stone-200 divide-y divide-stone-100">
@@ -218,7 +218,7 @@ export default function StageReferentsEditor({
               >
                 <option value="">— Non assigné —</option>
                 {users.map((u) => (
-                  <option key={u.clerkUserId} value={u.clerkUserId}>
+                  <option key={u.externalUserId} value={u.externalUserId}>
                     {userLabel(u)} ({u.email})
                   </option>
                 ))}

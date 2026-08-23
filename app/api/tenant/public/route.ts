@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getTenant } from "@/app/lib/tenant-context";
 import { getTenantSecrets } from "@/app/lib/tenant-registry";
 import { loadAppConfig, looksLikeLaProvidenceTenant } from "@/app/lib/app-config";
-import { clerkFrontendDomainFromPublishableKey } from "@/app/lib/clerk-pk-domain";
+import { frontendDomainFromPublishableKey } from "@/app/lib/publishable-key-domain";
 
 /** Infos publiques du tenant (sans secrets serveur). */
 export async function GET() {
@@ -29,8 +29,8 @@ export async function GET() {
       kind: tenant.kind,
       label: tenant.label,
       appUrl: tenant.appUrl,
-      clerkPublishableKey: tenant.clerkPublishableKey,
-      clerkFrontendDomain: clerkFrontendDomainFromPublishableKey(tenant.clerkPublishableKey),
+      publishableKey: tenant.publishableKey,
+      authFrontendDomain: frontendDomainFromPublishableKey(tenant.publishableKey),
       microsoftOneDrive: {
         enabled: oneDriveEnabled,
         clientId: msClientId || null,

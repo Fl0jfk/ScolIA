@@ -5,7 +5,7 @@ import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 export default function OcrOneDriveConnectBar({
   dropsAvailable,
   accountName,
-  clerkUnmapped,
+  userUnmapped,
   oneDriveProfile,
   ocrFluxes,
   checkingOneDrive,
@@ -15,7 +15,7 @@ export default function OcrOneDriveConnectBar({
 }: {
   dropsAvailable: boolean;
   accountName?: string | null;
-  clerkUnmapped?: { lastName?: string | null; email?: string | null } | null;
+  userUnmapped?: { lastName?: string | null; email?: string | null } | null;
   oneDriveProfile?: { label: string; basePath: string } | null;
   ocrFluxes?: Array<{ id: string; label: string; basePath: string }>;
   checkingOneDrive: boolean;
@@ -26,12 +26,12 @@ export default function OcrOneDriveConnectBar({
   const fluxes = ocrFluxes?.filter((f) => f.basePath) ?? [];
   return (
     <>
-      {clerkUnmapped ? (
+      {userUnmapped ? (
         <div className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 text-amber-900 rounded-r-xl">
           <p className="font-bold">Profil OneDrive non reconnu</p>
           <p className="text-sm">
-            Votre compte Clerk ({clerkUnmapped.lastName || "nom absent"} —{" "}
-            {clerkUnmapped.email || "e-mail absent"}) n&apos;est rattaché à aucun flux OCR. Un
+            Votre compte ({userUnmapped.lastName || "nom absent"} —{" "}
+            {userUnmapped.email || "e-mail absent"}) n&apos;est rattaché à aucun flux OCR. Un
             administrateur doit l&apos;associer dans Paramètres → Intégrations.
           </p>
         </div>

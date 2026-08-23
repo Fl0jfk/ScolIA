@@ -3,11 +3,15 @@ import "server-only";
 import { buildEleveFolderName } from "@/app/lib/eleves-config";
 import type { EnseignantConfig } from "@/app/lib/enseignants-types";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
-import { getJson, putJson } from "@/app/lib/s3-storage";
+import { eq } from "drizzle-orm";
+import { getDb } from "@/db/index";
+import { enseignant } from "@/db/schema";
+import {
+  isEntCoreDbEnabled,
+  resolveCurrentEtablissementId,
+} from "@/app/lib/ent-core-db";
 
 export type { EnseignantConfig } from "@/app/lib/enseignants-types";
-
-const ENSEIGNANTS_REGISTRY_KEY = "enseignants.json";
 
 function newId() {
   return `ens_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -43,11 +47,25 @@ export function validateEnseignantsJson(
   return { ok: true, enseignants };
 }
 
+function rowToConfig(row: typeof enseignant.$inferSelect): EnseignantConfig {
+  return {
+    id: row.id,
+    nom: row.nom,
+    prenom: row.prenom,
+    folderName: row.folderName,
+    secteur: row.secteur as Secteur,
+    ...(row.email ? { email: row.email } : {}),
+    ...(row.emailPro ? { emailPro: row.emailPro } : {}),
+  };
+}
+
 export async function loadEnseignantsRegistry(): Promise<EnseignantConfig[]> {
-  const hit = await getJson<EnseignantConfig[]>(ENSEIGNANTS_REGISTRY_KEY);
-  if (!Array.isArray(hit?.data)) return [];
-  const validated = validateEnseignantsJson(hit.data);
-  return validated.ok ? validated.enseignants : [];
+  if (!isEntCoreDbEnabled()) return [];
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) return [];
+  const db = getDb();
+  const rows = await db.select().from(enseignant).where(eq(enseignant.etablissementId, etabId));
+  return rows.map(rowToConfig);
 }
 
 export async function saveEnseignantsRegistry(
@@ -55,7 +73,26 @@ export async function saveEnseignantsRegistry(
 ): Promise<EnseignantConfig[]> {
   const validated = validateEnseignantsJson(enseignants);
   if (!validated.ok) throw new Error(validated.error);
-  await putJson(ENSEIGNANTS_REGISTRY_KEY, validated.enseignants);
+  if (!isEntCoreDbEnabled()) throw new Error("[enseignants] Postgres requis");
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) throw new Error("[enseignants] établissement introuvable");
+  const db = getDb();
+  await db.delete(enseignant).where(eq(enseignant.etablissementId, etabId));
+  if (validated.enseignants.length > 0) {
+    await db.insert(enseignant).values(
+      validated.enseignants.map((e) => ({
+        id: e.id,
+        etablissementId: etabId,
+        nom: e.nom,
+        prenom: e.prenom,
+        folderName: e.folderName,
+        secteur: e.secteur,
+        email: e.email ?? null,
+        emailPro: e.emailPro ?? null,
+        updatedAt: new Date(),
+      })),
+    );
+  }
   return validated.enseignants;
 }
 

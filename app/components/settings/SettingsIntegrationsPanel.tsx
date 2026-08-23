@@ -2,14 +2,14 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
-import ClerkPersonSelect, { clerkMemberLabel } from "@/app/components/settings/ClerkPersonSelect";
+import DirectoryPersonSelect, { directoryMemberLabel } from "@/app/components/settings/DirectoryPersonSelect";
 import {
   SettingsNotice,
   SettingsSection,
   settingsInputClass,
   settingsSelectClass,
 } from "@/app/components/settings/SettingsChrome";
-import type { ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import {
   OCR_FLUX_IDS,
   OCR_FLUX_META,
@@ -23,7 +23,7 @@ import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 type OneDriveCycle = "ecole" | "college" | "lycee";
 
 type OneDriveUserSecteurRow = {
-  clerkUserId?: string;
+  externalUserId?: string;
   match: string;
   displayName?: string;
   secteur: OneDriveCycle;
@@ -34,10 +34,10 @@ function elevesUserSecteursFromFlux(grid: OcrFluxAssignment[]): OneDriveUserSect
   for (const row of grid) {
     const meta = OCR_FLUX_META[row.id];
     if (meta.kind !== "eleves" || !meta.secteur) continue;
-    if (!row.clerkUserId && !row.match) continue;
+    if (!row.externalUserId && !row.match) continue;
     out.push({
-      clerkUserId: row.clerkUserId,
-      match: row.match || row.clerkUserId || "",
+      externalUserId: row.externalUserId,
+      match: row.match || row.externalUserId || "",
       displayName: row.displayName,
       secteur: meta.secteur,
     });
@@ -65,7 +65,7 @@ export default function SettingsIntegrationsPanel({
   saveSection,
   activeEstablishmentKinds: _activeEstablishmentKinds,
   activeCycleLabels,
-  clerkMembers,
+  directoryMembers,
   membersLoading,
 }: {
   integrations: Record<string, unknown>;
@@ -74,7 +74,7 @@ export default function SettingsIntegrationsPanel({
   saveSection: (section: string, body: unknown) => Promise<void>;
   activeEstablishmentKinds?: Set<string>;
   activeCycleLabels?: Partial<Record<OneDriveCycle, string[]>>;
-  clerkMembers: ClerkMemberOption[];
+  directoryMembers: DirectoryMemberOption[];
   membersLoading?: boolean;
 }) {
   const od = (integrations.microsoftOneDrive as {
@@ -176,7 +176,7 @@ export default function SettingsIntegrationsPanel({
 
       <div className="space-y-4 border-t border-white/60 pt-4">
         <div>
-          <p className="text-sm font-bold">Flux OCR → personne Clerk</p>
+          <p className="text-sm font-bold">Flux OCR → personne</p>
           <p className="text-xs text-slate-500 mb-3">
             Chaque ligne est un flux de classement (élèves, enseignants, personnel OGEC). La même
             personne peut être choisie plusieurs fois (ex. collège + lycée). Les 3 flux enseignants
@@ -185,10 +185,10 @@ export default function SettingsIntegrationsPanel({
             connectée — sans bouton élève / prof.
           </p>
           {membersLoading ? (
-            <p className="text-xs text-slate-500">Chargement du personnel Clerk…</p>
-          ) : clerkMembers.length === 0 ? (
+            <p className="text-xs text-slate-500">Chargement du personnel…</p>
+          ) : directoryMembers.length === 0 ? (
             <SettingsNotice tone="warn">
-              Aucun membre Clerk trouvé. Vérifiez l&apos;onglet Utilisateurs ou les invitations Clerk.
+              Aucun membre trouvé. Vérifiez l&apos;onglet Utilisateurs ou les invitations.
             </SettingsNotice>
           ) : (
             <div className="space-y-3">
@@ -205,24 +205,24 @@ export default function SettingsIntegrationsPanel({
                       {meta.label}
                       {extra ? ` · ${extra}` : ""}
                     </p>
-                    <ClerkPersonSelect
-                      members={clerkMembers}
-                      selectedId={row.clerkUserId}
+                    <DirectoryPersonSelect
+                      members={directoryMembers}
+                      selectedId={row.externalUserId}
                       selectedEmail={row.match}
                       loading={membersLoading}
                       onChange={(member) => {
                         if (!member) {
                           updateFlux(id, {
-                            clerkUserId: undefined,
+                            externalUserId: undefined,
                             match: undefined,
                             displayName: undefined,
                           });
                           return;
                         }
                         updateFlux(id, {
-                          clerkUserId: member.clerkUserId,
+                          externalUserId: member.externalUserId,
                           match: member.email.trim(),
-                          displayName: clerkMemberLabel(member),
+                          displayName: directoryMemberLabel(member),
                         });
                       }}
                     />

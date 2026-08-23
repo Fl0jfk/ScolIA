@@ -5,7 +5,7 @@ import { STAGE_S3, currentStageSchoolYear, type StageConvention } from "@/app/li
 
 export type StageClassReferentAssignment = {
   className: string;
-  clerkUserId: string;
+  externalUserId: string;
   name: string;
   email: string;
 };
@@ -52,11 +52,11 @@ export async function getStageReferentsConfig(schoolYear: string): Promise<Stage
       ? hit.data.assignments
           .map((a) => ({
             className: normalizeClassName(String(a.className ?? "")),
-            clerkUserId: String(a.clerkUserId ?? "").trim(),
+            externalUserId: String(a.externalUserId ?? "").trim(),
             name: String(a.name ?? "").trim(),
             email: String(a.email ?? "").trim().toLowerCase(),
           }))
-          .filter((a) => a.className && a.clerkUserId && a.email)
+          .filter((a) => a.className && a.externalUserId && a.email)
       : [],
   };
 }
@@ -71,11 +71,11 @@ export async function saveStageReferentsConfig(
     assignments: config.assignments
       .map((a) => ({
         className: normalizeClassName(a.className),
-        clerkUserId: a.clerkUserId.trim(),
+        externalUserId: a.externalUserId.trim(),
         name: a.name.trim(),
         email: a.email.trim().toLowerCase(),
       }))
-      .filter((a) => a.className && a.clerkUserId && a.name && a.email),
+      .filter((a) => a.className && a.externalUserId && a.name && a.email),
   };
   await putJson(STAGE_S3.referentsConfig(next.schoolYear), next);
   return next;
@@ -99,18 +99,18 @@ async function resolveReferentForClass(
   return findReferentAssignment(config, className);
 }
 
-/** Classes dont l'utilisateur Clerk est professeur référent / principal. */
+/** Classes dont l'utilisateur est professeur référent / principal. */
 export async function listClassesForReferentUser(
-  clerkUserId: string,
+  externalUserId: string,
   schoolYear?: string,
 ): Promise<string[]> {
-  const id = clerkUserId.trim();
+  const id = externalUserId.trim();
   if (!id) return [];
   const year = schoolYear?.trim() || currentStageSchoolYear();
   const config = await getStageReferentsConfig(year);
   if (!config) return [];
   return config.assignments
-    .filter((a) => a.clerkUserId === id)
+    .filter((a) => a.externalUserId === id)
     .map((a) => a.className)
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
@@ -119,7 +119,7 @@ function referentAssignmentMatchesUser(
   assignment: StageClassReferentAssignment,
   user: { userId?: string; email?: string },
 ): boolean {
-  if (user.userId && assignment.clerkUserId === user.userId) return true;
+  if (user.userId && assignment.externalUserId === user.userId) return true;
   const email = user.email?.trim().toLowerCase();
   return Boolean(email && assignment.email === email);
 }
@@ -140,7 +140,7 @@ export async function ensureConventionReferent(convention: StageConvention): Pro
     teacherReferent: {
       name: assignment.name,
       email: assignment.email,
-      userId: assignment.clerkUserId,
+      userId: assignment.externalUserId,
     },
   };
 }

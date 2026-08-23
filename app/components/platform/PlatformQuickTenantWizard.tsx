@@ -13,8 +13,8 @@ type WizardData = {
   addressCity: string;
   logoUrl: string;
   dataBucket: string;
-  clerkPublishableKey: string;
-  clerkSecretKey: string;
+  publishableKey: string;
+  secretKey: string;
   adminFirstName: string;
   adminLastName: string;
   adminEmail: string;
@@ -29,8 +29,8 @@ const INITIAL: WizardData = {
   addressCity: "",
   logoUrl: "",
   dataBucket: "",
-  clerkPublishableKey: "",
-  clerkSecretKey: "",
+  publishableKey: "",
+  secretKey: "",
   adminFirstName: "",
   adminLastName: "",
   adminEmail: "",
@@ -96,14 +96,14 @@ export default function PlatformQuickTenantWizard({ writable, onCreated }: Props
           hostnames: [form.hostname, "localhost"].filter(Boolean),
           appUrl,
           dataBucket: form.dataBucket,
-          clerkPublishableKey: form.clerkPublishableKey,
+          publishableKey: form.publishableKey,
           postalAddress: {
             street: form.addressStreet,
             zip: form.addressZip,
             city: form.addressCity,
           },
           logoUrl: form.logoUrl || undefined,
-          secrets: { clerkSecretKey: form.clerkSecretKey },
+          secrets: { secretKey: form.secretKey },
           adminContact: {
             firstName: form.adminFirstName,
             lastName: form.adminLastName,
@@ -259,25 +259,25 @@ export default function PlatformQuickTenantWizard({ writable, onCreated }: Props
       {step === 3 && (
         <div className="grid gap-4">
           <label className="block space-y-1">
-            <span className="text-sm font-bold text-stone-700">Clerk — clé publique (pk_*) *</span>
+            <span className="text-sm font-bold text-stone-700">Auth legacy — clé publique (pk_*) *</span>
             <input
-              value={form.clerkPublishableKey}
-              onChange={(e) => set("clerkPublishableKey", e.target.value)}
+              value={form.publishableKey}
+              onChange={(e) => set("publishableKey", e.target.value)}
               className="w-full rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-mono"
             />
           </label>
           <label className="block space-y-1">
-            <span className="text-sm font-bold text-stone-700">Clerk — clé secrète (sk_*) *</span>
+            <span className="text-sm font-bold text-stone-700">Auth legacy — clé secrète (sk_*) *</span>
             <input
               type="password"
               autoComplete="off"
-              value={form.clerkSecretKey}
-              onChange={(e) => set("clerkSecretKey", e.target.value)}
+              value={form.secretKey}
+              onChange={(e) => set("secretKey", e.target.value)}
               className="w-full rounded-xl border border-stone-200 px-4 py-2.5 text-sm font-mono"
             />
           </label>
           <p className="text-xs text-stone-500">
-            Créez une application Clerk dédiée à cet établissement, puis copiez les clés API
+            Créez une instance auth dédiée à cet établissement, puis copiez les clés API
             (Production).
           </p>
         </div>
@@ -287,7 +287,7 @@ export default function PlatformQuickTenantWizard({ writable, onCreated }: Props
         <div className="grid gap-4 sm:grid-cols-2">
           <p className="sm:col-span-2 text-sm text-stone-600 rounded-xl border border-emerald-100 bg-emerald-50/60 px-4 py-3">
             Cet e-mail sera le seul compte administrateur global. La personne reçoit une invitation
-            Clerk et un lien « Votre espace est prêt ».
+            un e-mail et un lien « Votre espace est prêt ».
           </p>
           <label className="block space-y-1">
             <span className="text-sm font-bold text-stone-700">Prénom *</span>
@@ -337,7 +337,7 @@ export default function PlatformQuickTenantWizard({ writable, onCreated }: Props
             disabled={
               (step === 1 && !canContinueStep1) ||
               (step === 2 && !form.dataBucket) ||
-              (step === 3 && (!form.clerkPublishableKey || !form.clerkSecretKey))
+              (step === 3 && (!form.publishableKey || !form.secretKey))
             }
             className="rounded-full bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-6 py-2 text-sm font-bold text-white disabled:opacity-50"
           >

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ClerkAssigneeOption } from "@/app/components/domain-planning/DomainAssigneePicker";
+import type { DirectoryAssigneeOption } from "@/app/components/domain-planning/DomainAssigneePicker";
 
 function norm(s: string): string {
   return s
@@ -10,17 +10,17 @@ function norm(s: string): string {
     .toLowerCase();
 }
 
-function labelOf(u: ClerkAssigneeOption): string {
+function labelOf(u: DirectoryAssigneeOption): string {
   const name = u.displayName || `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim();
   return name || u.email;
 }
 
 type Props = {
-  users: ClerkAssigneeOption[];
+  users: DirectoryAssigneeOption[];
   value: string;
   loading?: boolean;
   disabled?: boolean;
-  onChange: (user: ClerkAssigneeOption | null) => void;
+  onChange: (user: DirectoryAssigneeOption | null) => void;
 };
 
 /** Sélecteur enseignant — panneau inline (pas de position absolute, évite le clipping). */
@@ -35,11 +35,11 @@ export default function TravelsTeacherPicker({
   const [search, setSearch] = useState("");
 
   const activeUsers = useMemo(
-    () => users.filter((u) => u.clerkUserId && !u.pending),
+    () => users.filter((u) => u.externalUserId && !u.pending),
     [users],
   );
 
-  const selected = activeUsers.find((u) => u.clerkUserId === value) ?? null;
+  const selected = activeUsers.find((u) => u.externalUserId === value) ?? null;
 
   const filtered = useMemo(() => {
     const q = norm(search.trim());
@@ -101,11 +101,11 @@ export default function TravelsTeacherPicker({
               <li className="p-4 text-sm text-slate-500 italic">Aucun utilisateur trouvé.</li>
             ) : (
               filtered.map((u) => (
-                <li key={u.clerkUserId}>
+                <li key={u.externalUserId}>
                   <button
                     type="button"
                     className={`w-full text-left px-4 py-3 hover:bg-amber-50 transition-colors ${
-                      u.clerkUserId === value ? "bg-amber-100/80" : ""
+                      u.externalUserId === value ? "bg-amber-100/80" : ""
                     }`}
                     onClick={() => {
                       onChange(u);

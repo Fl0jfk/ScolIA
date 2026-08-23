@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AwardStatusBadge } from "@/app/components/certificates/CertificatePendingSignaturesPanel";
 import { useAppContext } from "@/app/hooks/useAppContext";
@@ -14,7 +14,7 @@ import type { CertificateProgram, StudentAward } from "@/app/lib/certificates-ty
 import { hasRole } from "@/app/lib/intranet-role-utils";
 
 type Peer = {
-  clerkUserId: string;
+  externalUserId: string;
   displayName: string;
   firstName?: string;
   lastName?: string;
@@ -23,7 +23,7 @@ type StudentOption = { key: string; label: string; classe: string };
 
 export default function CertificateProgramPage() {
   const { programId } = useParams<{ programId: string }>();
-  const { user } = useUser();
+  const { user } = useSessionUser();
   const { data: appContext } = useAppContext();
   const userId = user?.id || "";
   const myRoles = appContext?.session?.intranetRoles ?? [];
@@ -79,9 +79,9 @@ export default function CertificateProgramPage() {
     return ids
       .filter((id, i, arr) => id && arr.indexOf(id) === i)
       .map((id) => {
-        const peer = peers.find((p) => p.clerkUserId === id);
+        const peer = peers.find((p) => p.externalUserId === id);
         return {
-          clerkUserId: id,
+          externalUserId: id,
           displayName: peer
             ? formatCertificatePersonLabel(peer)
             : id === program.ownerId
@@ -112,7 +112,7 @@ export default function CertificateProgramPage() {
     const excluded = new Set([program.ownerId, ...program.collaboratorIds]);
     const qq = collaboratorQ.trim().toLowerCase();
     return peers
-      .filter((p) => !excluded.has(p.clerkUserId))
+      .filter((p) => !excluded.has(p.externalUserId))
       .filter((p) => {
         if (!qq) return true;
         return certificatePersonSearchText(p).includes(qq);
@@ -138,12 +138,12 @@ export default function CertificateProgramPage() {
     }
   }
 
-  async function toggleCollaborator(clerkUserId: string, add: boolean) {
+  async function toggleCollaborator(externalUserId: string, add: boolean) {
     if (!program) return;
     const res = await fetch(`/api/certificates/programs/${program.id}/collaborators`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ collaboratorId: clerkUserId, action: add ? "add" : "remove" }),
+      body: JSON.stringify({ collaboratorId: externalUserId, action: add ? "add" : "remove" }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -320,14 +320,14 @@ export default function CertificateProgramPage() {
         <p className="text-sm font-black text-slate-900">Collaborateurs du parcours</p>
         <ul className="space-y-1 text-sm">
           {collaborators.map((c) => (
-            <li key={c.clerkUserId} className="flex justify-between items-center">
+            <li key={c.externalUserId} className="flex justify-between items-center">
               <span>
                 {c.displayName} {c.isOwner && <span className="text-xs text-slate-400">(créateur)</span>}
               </span>
               {!c.isOwner && isOwner && (
                 <button
                   type="button"
-                  onClick={() => void toggleCollaborator(c.clerkUserId, false)}
+                  onClick={() => void toggleCollaborator(c.externalUserId, false)}
                   className="text-xs text-red-600 font-bold"
                 >
                   Retirer
@@ -338,7 +338,7 @@ export default function CertificateProgramPage() {
         </ul>
         {isOwner && (
           <div className="pt-2 space-y-2">
-            <p className="text-xs font-bold text-slate-500">Ajouter un collaborateur (annuaire Clerk complet)</p>
+            <p className="text-xs font-bold text-slate-500">Ajouter un collaborateur (annuaire complet)</p>
             <input
               type="text"
               value={collaboratorQ}
@@ -354,7 +354,7 @@ export default function CertificateProgramPage() {
               >
                 <option value="">— Sélectionner une personne —</option>
                 {availableCollaborators.map((p) => (
-                  <option key={p.clerkUserId} value={p.clerkUserId}>
+                  <option key={p.externalUserId} value={p.externalUserId}>
                     {formatCertificatePersonLabel(p)}
                   </option>
                 ))}
@@ -572,15 +572,15 @@ export default function CertificateProgramPage() {
               <p className="text-sm font-bold text-slate-700 mb-2">Profs signataires pour cette fiche</p>
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {collaborators.map((c) => (
-                  <label key={c.clerkUserId} className="flex items-center gap-2 text-sm">
+                  <label key={c.externalUserId} className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
-                      checked={selectedSignatories.includes(c.clerkUserId)}
+                      checked={selectedSignatories.includes(c.externalUserId)}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setSelectedSignatories((prev) => [...prev, c.clerkUserId]);
+                          setSelectedSignatories((prev) => [...prev, c.externalUserId]);
                         } else {
-                          setSelectedSignatories((prev) => prev.filter((id) => id !== c.clerkUserId));
+                          setSelectedSignatories((prev) => prev.filter((id) => id !== c.externalUserId));
                         }
                       }}
                     />

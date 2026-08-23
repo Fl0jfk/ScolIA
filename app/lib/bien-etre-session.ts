@@ -10,7 +10,7 @@ const TTL_MS = 2 * 60 * 60 * 1000;
 function sessionSecret(): string {
   return (
     process.env.BIEN_ETRE_SESSION_SECRET?.trim() ||
-    process.env.CLERK_ENCRYPTION_KEY?.trim() ||
+    process.env.AUTH_PARENT_SECRET_FALLBACK?.trim() ||
     "dev-bien-etre-session-secret"
   );
 }

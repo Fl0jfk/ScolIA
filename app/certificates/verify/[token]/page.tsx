@@ -53,7 +53,7 @@ export default async function CertificateVerifyPage({ params }: VerifyPageParams
               {data.designatedSignatories
                 .filter((s) => s.status === "signed")
                 .map((s) => (
-                  <li key={s.clerkUserId}>
+                  <li key={s.externalUserId}>
                     {s.name}
                     {s.signedAt && (
                       <span className="text-slate-400">

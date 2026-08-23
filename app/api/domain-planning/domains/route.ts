@@ -19,8 +19,8 @@ function parseDomainsBody(body: unknown): DomainPlanningDomain[] {
       name,
       description: typeof o.description === "string" ? o.description.trim() : undefined,
       color: typeof o.color === "string" ? o.color.trim() : undefined,
-      coordinatorClerkUserIds: Array.isArray(o.coordinatorClerkUserIds)
-        ? o.coordinatorClerkUserIds.map((x) => String(x).trim()).filter(Boolean)
+      coordinatorExternalUserIds: Array.isArray(o.coordinatorExternalUserIds)
+        ? o.coordinatorExternalUserIds.map((x) => String(x).trim()).filter(Boolean)
         : [],
     });
   }

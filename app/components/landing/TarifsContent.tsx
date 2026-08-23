@@ -91,11 +91,11 @@ export default function TarifsContent() {
               Souveraineté
             </p>
             <h2 className="mt-2 text-xl font-black text-[#14231A]">
-              Scaleway · Mistral · EasyTransac · OVH · Microsoft · Clerk
+              Scaleway · Mistral · EasyTransac · OVH · Microsoft · Better-Auth
             </h2>
             <p className="mx-auto mt-2 max-w-xl text-sm text-stone-600">
               Hébergement Scaleway, IA Mistral, paiements EasyTransac, messagerie OVH — Microsoft
-              Éducation et Clerk en complément.
+              Éducation en complément.
             </p>
           </div>
           <PartnerBadges />

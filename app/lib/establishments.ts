@@ -1,4 +1,4 @@
-import type { ClerkLikeUser } from "@/app/lib/clerk-user-types";
+import type { SessionLikeUser } from "@/app/lib/app-actor-types";
 import { loadAppConfig, getEstablishmentByLabel } from "@/app/lib/app-config";
 import {
   canSignForEstablishmentLabel,
@@ -6,7 +6,7 @@ import {
 } from "@/app/lib/establishment-sign-permissions";
 
 export async function canSignTravelsDirectionForEtab(
-  user: ClerkLikeUser | null | undefined,
+  user: SessionLikeUser | null | undefined,
   etablissement: string | null | undefined,
 ): Promise<boolean> {
   const bundle = await loadAppConfig();

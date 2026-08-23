@@ -4,7 +4,7 @@ import { loadCampaignConfig } from "@/app/lib/class-allocation-storage";
 import {
   importAssignmentsFromStageReferents,
   loadSchoolRoster,
-  listTeacherClerkOptions,
+  listTeacherDirectoryOptions,
   saveSchoolRoster,
 } from "@/app/lib/school-roster";
 import { listStageReferentClassNames } from "@/app/lib/stage-referents-config";
@@ -16,7 +16,7 @@ export async function GET() {
   const campaign = await loadCampaignConfig();
   const [roster, users, classes] = await Promise.all([
     loadSchoolRoster(),
-    listTeacherClerkOptions(),
+    listTeacherDirectoryOptions(),
     listStageReferentClassNames(),
   ]);
   return NextResponse.json({

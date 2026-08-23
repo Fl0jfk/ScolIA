@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/app/lib/intranet-auth";
 import { collectOcrEmails } from "@/app/lib/ocr-email-match";
 import { parsePersonnelExcelBuffer } from "@/app/lib/ocr-personnel-import";
-import { findClerkMemberByEmail } from "@/app/lib/personnel-clerk";
+import { findDirectoryMemberByEmail } from "@/app/lib/personnel-directory";
 import { findPersonnelByEmail, savePersonnelRecord } from "@/app/lib/personnel-storage";
 import {
   defaultMedecineTravail,
@@ -33,10 +33,10 @@ async function findExistingPersonnel(row: {
   return null;
 }
 
-async function resolveClerkUserId(row: { emailPerso?: string; emailPro?: string }) {
+async function resolveExternalUserId(row: { emailPerso?: string; emailPro?: string }) {
   for (const email of collectOcrEmails(row.emailPro, row.emailPerso)) {
-    const clerk = await findClerkMemberByEmail(email);
-    if (clerk?.clerkUserId) return clerk.clerkUserId;
+    const directoryUser = await findDirectoryMemberByEmail(email);
+    if (directoryUser?.externalUserId) return directoryUser.externalUserId;
   }
   return null;
 }
@@ -86,10 +86,10 @@ export async function POST(req: Request) {
           continue;
         }
 
-        const clerkUserId = await resolveClerkUserId(row);
+        const externalUserId = await resolveExternalUserId(row);
         const record: PersonnelRecord = normalizePersonnelRecord({
           id: uid("p"),
-          clerkUserId,
+          externalUserId,
           emailPro: row.emailPro,
           emailPerso: row.emailPerso,
           firstName: row.firstName,

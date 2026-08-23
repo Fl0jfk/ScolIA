@@ -5,8 +5,8 @@ import { analyzeDocMatchEleve } from "@/app/lib/ocr-analyze-eleve";
 import { analyzeDocForOcr } from "@/app/lib/ocr-analyze-unified";
 import { ocrHasExtraFluxes } from "@/app/lib/ocr-flux";
 import {
-  resolveOcrCapabilitiesForClerkUserServer,
-  resolveOneDriveProfileForClerkUserServer,
+  resolveOcrCapabilitiesForUserServer,
+  resolveOneDriveProfileForUserServer,
 } from "@/app/lib/onedrive-user-profiles.server";
 
 export const maxDuration = 120;
@@ -31,8 +31,8 @@ export async function POST(req: Request) {
             : null,
         }
       : null;
-    const caps = like ? await resolveOcrCapabilitiesForClerkUserServer(like) : null;
-    const odProfile = caps?.primaryEleves ?? (like ? await resolveOneDriveProfileForClerkUserServer(like) : null);
+    const caps = like ? await resolveOcrCapabilitiesForUserServer(like) : null;
+    const odProfile = caps?.primaryEleves ?? (like ? await resolveOneDriveProfileForUserServer(like) : null);
 
     const { text } = await req.json();
     if (!text) return NextResponse.json({ error: "text requis" }, { status: 400 });

@@ -18,7 +18,7 @@ import {
   resolveConventionSecteur,
   resolveOneDriveProfileForConvention,
 } from "@/app/lib/stage-eleve-match";
-import { resolveOneDriveProfileForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
+import { resolveOneDriveProfileForUserServer } from "@/app/lib/onedrive-user-profiles.server";
 
 function displayName(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
   const first = user?.firstName?.trim() || "";
@@ -54,8 +54,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         link: `/stages/signer?token=${encodeURIComponent(s.signToken!)}`,
       }));
 
-    const clerkProfile = user ? await resolveOneDriveProfileForClerkUserServer(user) : null;
-    const targetProfile = await resolveOneDriveProfileForConvention(convention, clerkProfile);
+    const directoryProfile = user ? await resolveOneDriveProfileForUserServer(user) : null;
+    const targetProfile = await resolveOneDriveProfileForConvention(convention, directoryProfile);
     const eleveMatch = await matchEleveForConvention(convention, targetProfile);
     const conventionSecteur = await resolveConventionSecteur(convention);
 

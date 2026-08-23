@@ -1,7 +1,7 @@
 "use client";
 
-import { useClerk } from "@clerk/nextjs";
 import { useCallback } from "react";
+import { authClient } from "@/app/lib/auth-client";
 import { clearBootstrapCache } from "@/app/lib/app-bootstrap-cache";
 import { clearDashboardLinksCache } from "@/app/lib/dashboard-links-cache";
 import { clearDashboardSignalsCache } from "@/app/lib/dashboard-signals-cache";
@@ -17,18 +17,24 @@ function signOutRedirectUrl(): string {
   }
 }
 
-/** Déconnexion Clerk + oubli du dernier établissement mémorisé sur cet appareil. */
+/** Déconnexion Better-Auth + oubli du dernier établissement mémorisé sur cet appareil. */
 export function useSignOutWithPortalReset() {
-  const { signOut } = useClerk();
-  return useCallback(
-    (redirectUrl?: string) => {
-      clearLastPortalTenant();
-      clearBootstrapCache();
-      clearDashboardLinksCache();
-      clearDashboardSignalsCache();
-      clearOnboardingStatusCache();
-      void signOut({ redirectUrl: redirectUrl ?? signOutRedirectUrl() });
-    },
-    [signOut],
-  );
+  return useCallback((redirectUrl?: string) => {
+    clearLastPortalTenant();
+    clearBootstrapCache();
+    clearDashboardLinksCache();
+    clearDashboardSignalsCache();
+    clearOnboardingStatusCache();
+    const target = redirectUrl ?? signOutRedirectUrl();
+    void authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          window.location.href = target;
+        },
+        onError: () => {
+          window.location.href = target;
+        },
+      },
+    });
+  }, []);
 }

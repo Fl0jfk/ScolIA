@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -37,7 +37,7 @@ const TravelsTransportSettingsPanel = dynamic(
 );
 
 function TripDashboardContent() {
-  const { isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const isOrgAdmin = useIsOrgAdmin();
   const router = useRouter();

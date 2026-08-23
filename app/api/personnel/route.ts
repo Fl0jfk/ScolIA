@@ -4,12 +4,12 @@ import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
 import {
-  ensureClerkUserForPersonnel,
-  findClerkMemberByEmail,
-  getClerkMemberById,
-  listRhClerkCandidates,
-  suggestPersonnelCategoryFromClerkRoles,
-} from "@/app/lib/personnel-clerk";
+  ensureDirectoryUserForPersonnel,
+  findDirectoryMemberByEmail,
+  getDirectoryMemberById,
+  listRhDirectoryCandidates,
+  suggestPersonnelCategoryFromRoles,
+} from "@/app/lib/personnel-directory";
 import { normalizePersonnelProfile } from "@/app/lib/personnel-profile";
 import {
   getPersonnelIndex,
@@ -33,14 +33,14 @@ import {
 } from "@/app/lib/personnel-types";
 
 
-async function assertNotAlreadyInRh(email: string, clerkUserId?: string | null) {
+async function assertNotAlreadyInRh(email: string, externalUserId?: string | null) {
   const index = await getPersonnelIndex();
   const normalized = email.trim().toLowerCase();
   if (index.some((e) => e.email.trim().toLowerCase() === normalized)) {
     throw new Error("Un dossier RH existe déjà pour cet email.");
   }
-  if (clerkUserId && index.some((e) => e.clerkUserId === clerkUserId)) {
-    throw new Error("Ce compte Clerk est déjà lié à un dossier RH.");
+  if (externalUserId && index.some((e) => e.externalUserId === externalUserId)) {
+    throw new Error("Ce compte est déjà lié à un dossier RH.");
   }
 }
 
@@ -121,26 +121,26 @@ export async function POST(req: Request) {
     let lastName = "";
     let email = "";
     let category = String(body.category || "administratif") as PersonnelCategory;
-    let clerkUserId: string | null = body.clerkUserId ? String(body.clerkUserId) : null;
-    let clerkInfo: { mode?: string; pending?: boolean } | null = null;
+    let externalUserId: string | null = body.externalUserId ? String(body.externalUserId) : null;
+    let directoryInfo: { mode?: string; pending?: boolean } | null = null;
 
-    if (mode === "link-clerk") {
-      const clerkId = body.clerkUserId ? String(body.clerkUserId).trim() : "";
+    if (mode === "link-directory") {
+      const directoryUserId = body.externalUserId ? String(body.externalUserId).trim() : "";
       const lookupEmail = String(body.email || "").trim().toLowerCase();
 
-      let member = clerkId ? await getClerkMemberById(clerkId) : null;
+      let member = directoryUserId ? await getDirectoryMemberById(directoryUserId) : null;
       if (!member && lookupEmail) {
-        member = await findClerkMemberByEmail(lookupEmail);
+        member = await findDirectoryMemberByEmail(lookupEmail);
       }
 
       if (!member) {
-        return NextResponse.json({ error: "Utilisateur Clerk introuvable." }, { status: 404 });
+        return NextResponse.json({ error: "Utilisateur introuvable." }, { status: 404 });
       }
       firstName = String(member.firstName || "").trim();
       lastName = String(member.lastName || "").trim();
       email = member.email.trim().toLowerCase();
-      clerkUserId = member.clerkUserId || null;
-      category = (body.category as PersonnelCategory) || suggestPersonnelCategoryFromClerkRoles(member.roles);
+      externalUserId = member.externalUserId || null;
+      category = (body.category as PersonnelCategory) || suggestPersonnelCategoryFromRoles(member.roles);
 
       if (body.firstName) firstName = String(body.firstName).trim();
       if (body.lastName) lastName = String(body.lastName).trim();
@@ -153,7 +153,7 @@ export async function POST(req: Request) {
 
       if (body.category) category = body.category as PersonnelCategory;
 
-      await assertNotAlreadyInRh(email, clerkUserId);
+      await assertNotAlreadyInRh(email, externalUserId);
     } else {
       firstName = String(body.firstName || "").trim();
       lastName = String(body.lastName || "").trim();
@@ -163,23 +163,23 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Nom, prénom et email requis." }, { status: 400 });
       }
 
-      await assertNotAlreadyInRh(email, clerkUserId);
+      await assertNotAlreadyInRh(email, externalUserId);
 
-      const existingClerk = await findClerkMemberByEmail(email);
-      if (existingClerk) {
-        clerkUserId = existingClerk.clerkUserId || null;
-        clerkInfo = {
-          mode: existingClerk.clerkUserId ? "clerk_linked" : "clerk_invitation_pending",
-          pending: existingClerk.pending,
+      const existingDirectory = await findDirectoryMemberByEmail(email);
+      if (existingDirectory) {
+        externalUserId = existingDirectory.externalUserId || null;
+        directoryInfo = {
+          mode: existingDirectory.externalUserId ? "directory_linked" : "directory_invitation_pending",
+          pending: existingDirectory.pending,
         };
-        if (existingClerk.clerkUserId) {
-          const synced = await ensureClerkUserForPersonnel({ email, firstName, lastName, category });
-          clerkUserId = synced.clerkUserId ?? clerkUserId;
+        if (existingDirectory.externalUserId) {
+          const synced = await ensureDirectoryUserForPersonnel({ email, firstName, lastName, category });
+          externalUserId = synced.externalUserId ?? externalUserId;
         }
-      } else if (body.createClerkUser !== false) {
-        const clerk = await ensureClerkUserForPersonnel({ email, firstName, lastName, category });
-        clerkUserId = clerk.clerkUserId;
-        clerkInfo = { mode: clerk.mode, pending: clerk.pending };
+      } else if (body.createDirectoryUserUser !== false) {
+        const directoryUser = await ensureDirectoryUserForPersonnel({ email, firstName, lastName, category });
+        externalUserId = directoryUser.externalUserId;
+        directoryInfo = { mode: directoryUser.mode, pending: directoryUser.pending };
       }
     }
 
@@ -190,7 +190,7 @@ export async function POST(req: Request) {
 
     const record: PersonnelRecord = normalizePersonnelRecord({
       id: uid("p"),
-      clerkUserId,
+      externalUserId,
       email,
       firstName,
       lastName,
@@ -211,7 +211,7 @@ export async function POST(req: Request) {
     });
 
     const saved = await savePersonnelRecord(record);
-    return NextResponse.json({ success: true, record: saved, clerk: clerkInfo });
+    return NextResponse.json({ success: true, record: saved, directory: directoryInfo });
   } catch (e) {
     console.error("[personnel] POST", e);
     const msg = e instanceof Error ? e.message : "Erreur enregistrement.";
@@ -249,7 +249,7 @@ export async function PATCH(req: Request) {
 
     const isRh = canManagePersonnel(roles);
     const isSelf =
-      (existing.clerkUserId && existing.clerkUserId === user?.id) ||
+      (existing.externalUserId && existing.externalUserId === user?.id) ||
       existing.email.trim().toLowerCase() === email.trim().toLowerCase();
 
     if (!isRh && !isSelf) {

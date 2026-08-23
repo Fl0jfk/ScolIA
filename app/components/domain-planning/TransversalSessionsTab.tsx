@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import {
   ASSOCIATION_LOCKED_IDEA,
@@ -87,7 +87,7 @@ function ValidationStatusBadge({
 }
 
 export default function TransversalSessionsTab({ isCoordinator }: Props) {
-  const { user } = useUser();
+  const { user } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const [sessions, setSessions] = useState<DomainPlanningSession[]>([]);
   const [signups, setSignups] = useState<DomainPlanningSignup[]>([]);
@@ -111,7 +111,7 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
     return intranetRolesFromMetadata(user?.publicMetadata);
   }, [appCtx?.session?.intranetRoles, user?.publicMetadata]);
 
-  const clerkDisplayName = useMemo(() => {
+  const sessionDisplayName = useMemo(() => {
     const first = user?.firstName?.trim() || "";
     const last = user?.lastName?.trim() || "";
     return [first, last].filter(Boolean).join(" ") || user?.primaryEmailAddress?.emailAddress || "";
@@ -148,7 +148,7 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
     if (domainsRes.ok) {
       const domainsJson = await domainsRes.json();
       const evars = (domainsJson.domains || []).find((d: { id: string }) => d.id === "evars");
-      setEvarsCoordinatorIds(evars?.coordinatorClerkUserIds || []);
+      setEvarsCoordinatorIds(evars?.coordinatorExternalUserIds || []);
     }
   }, []);
 
@@ -570,7 +570,7 @@ export default function TransversalSessionsTab({ isCoordinator }: Props) {
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
               <span className="text-[10px] font-black uppercase text-slate-400">Vous</span>
-              <p className="text-sm font-black text-slate-900">{clerkDisplayName}</p>
+              <p className="text-sm font-black text-slate-900">{sessionDisplayName}</p>
             </div>
 
             {lockedSubjectForSession(modal.session) ? (

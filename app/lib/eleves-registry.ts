@@ -2,6 +2,13 @@ import "server-only";
 
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { validateElevesJson } from "@/app/lib/eleves-config";
+import {
+  countElevesInDb,
+  isEntCoreDbEnabled,
+  listElevesFromDb,
+  replaceElevesInDb,
+  resolveCurrentEtablissementId,
+} from "@/app/lib/ent-core-db";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 
 /** Référentiel élèves unique du tenant — partagé par tous les modules. */
@@ -16,17 +23,39 @@ function normalizeName(str: string): string {
     .trim();
 }
 
-export async function loadElevesRegistry(): Promise<EleveConfig[]> {
+async function loadElevesFromS3(): Promise<EleveConfig[]> {
   const hit = await getJson<EleveConfig[]>(ELEVES_REGISTRY_KEY);
   if (!Array.isArray(hit?.data)) return [];
   const validated = validateElevesJson(hit.data);
   return validated.ok ? validated.eleves : [];
 }
 
+export async function loadElevesRegistry(): Promise<EleveConfig[]> {
+  if (isEntCoreDbEnabled()) {
+    try {
+      const etabId = await resolveCurrentEtablissementId();
+      if (etabId && (await countElevesInDb(etabId)) > 0) {
+        return await listElevesFromDb(etabId);
+      }
+    } catch (error) {
+      console.error("[eleves-registry] lecture DB", error);
+    }
+  }
+  return loadElevesFromS3();
+}
+
 export async function saveElevesRegistry(eleves: EleveConfig[]): Promise<EleveConfig[]> {
   const validated = validateElevesJson(eleves);
   if (!validated.ok) throw new Error(validated.error);
   await putJson(ELEVES_REGISTRY_KEY, validated.eleves);
+  if (isEntCoreDbEnabled()) {
+    try {
+      const etabId = await resolveCurrentEtablissementId();
+      if (etabId) await replaceElevesInDb(etabId, validated.eleves);
+    } catch (error) {
+      console.error("[eleves-registry] écriture DB", error);
+    }
+  }
   return validated.eleves;
 }
 

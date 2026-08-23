@@ -5,7 +5,7 @@ type TeacherRosterImportResult =
   | { ok: true; assignments: ClassAllocationTeacherAssignment[] }
   | { ok: false; error: string };
 
-type ClerkLookup = { clerkUserId: string; email: string; displayName: string };
+type DirectoryLookup = { externalUserId: string; email: string; displayName: string };
 
 function normHeader(v: unknown): string {
   return String(v ?? "")
@@ -31,8 +31,8 @@ function cellStr(row: unknown[], idx: number): string {
 function resolveTeacher(
   email: string,
   name: string,
-  users: ClerkLookup[],
-): ClerkLookup | null {
+  users: DirectoryLookup[],
+): DirectoryLookup | null {
   const mail = email.trim().toLowerCase();
   if (mail) {
     const byEmail = users.find((u) => u.email.toLowerCase() === mail);
@@ -49,7 +49,7 @@ function resolveTeacher(
 
 export function parseTeacherRosterExcelBuffer(
   buffer: ArrayBuffer,
-  users: ClerkLookup[],
+  users: DirectoryLookup[],
 ): TeacherRosterImportResult {
   let workbook: XLSX.WorkBook;
   try {
@@ -89,7 +89,7 @@ export function parseTeacherRosterExcelBuffer(
     }
     assignments.push({
       className,
-      clerkUserId: teacher.clerkUserId,
+      externalUserId: teacher.externalUserId,
       name: teacher.displayName,
       email: teacher.email,
     });

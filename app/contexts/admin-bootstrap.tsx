@@ -9,8 +9,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useUser } from "@clerk/nextjs";
 import DashboardBootstrapOverlay from "@/app/components/Dashboard/DashboardBootstrapOverlay";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import {
   applyDashboardBrandToDocument,
   readCachedDashboardAccent,
@@ -78,7 +78,7 @@ export function AdminBootstrapProvider({
   /** Désactiver sur /sign-in pour ne pas masquer le formulaire de connexion. */
   enableOverlay?: boolean;
 }) {
-  const { isLoaded: clerkLoaded, isSignedIn } = useUser();
+  const { isLoaded: sessionLoaded, isSignedIn } = useSessionUser();
 
   const [appContext, setAppContext] = useState<AppContextPayload | null>(null);
   const [sitePublic, setSitePublic] = useState<SitePublicIdentity | null>(null);
@@ -87,7 +87,8 @@ export function AdminBootstrapProvider({
   const [accentReady, setAccentReady] = useState(false);
   const [assetsReady, setAssetsReady] = useState(false);
   const [hasWarmCache, setHasWarmCache] = useState(false);
-  const shouldBlock = enableOverlay && (!clerkLoaded || ((loading || !assetsReady) && !hasWarmCache));
+  const shouldBlock =
+    enableOverlay && (!sessionLoaded || ((loading || !assetsReady) && !hasWarmCache));
   const [overlayOpen, setOverlayOpen] = useState(enableOverlay);
 
   useLayoutEffect(() => {
@@ -112,7 +113,7 @@ export function AdminBootstrapProvider({
   }, []);
 
   useEffect(() => {
-    if (!clerkLoaded) return;
+    if (!sessionLoaded) return;
 
     let cancelled = false;
     (async () => {
@@ -168,7 +169,7 @@ export function AdminBootstrapProvider({
     return () => {
       cancelled = true;
     };
-  }, [clerkLoaded, isSignedIn, enableOverlay, hasWarmCache]);
+  }, [sessionLoaded, isSignedIn, enableOverlay, hasWarmCache]);
 
   useEffect(() => {
     if (!enableOverlay) {

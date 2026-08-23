@@ -8,7 +8,7 @@ export type CovoiturageStatus = "active" | "complete" | "unregistered";
 export type CovoiturageDirection = "morning" | "evening" | "both";
 
 export type CovoiturageProfile = {
-  clerkUserId: string;
+  externalUserId: string;
   displayName: string;
   email: string;
   status: CovoiturageStatus;

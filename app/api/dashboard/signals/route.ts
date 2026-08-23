@@ -275,7 +275,7 @@ export async function GET() {
         let leavePersonnelId: string | undefined;
         try {
           const index = await getPersonnelIndex();
-          const self = index.find((e) => e.clerkUserId === userId && e.active !== false);
+          const self = index.find((e) => e.externalUserId === userId && e.active !== false);
           if (self) leavePersonnelId = self.id;
         } catch {
           leavePersonnelId = undefined;

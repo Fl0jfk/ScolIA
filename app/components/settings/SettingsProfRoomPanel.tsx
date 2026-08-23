@@ -3,17 +3,17 @@
 import type { Dispatch, SetStateAction } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import { SettingsSection } from "@/app/components/settings/SettingsChrome";
-import ProfRoomAdminPicker, { type ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import ProfRoomAdminPicker, { type DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 
 export default function SettingsProfRoomPanel({
-  clerkMembers,
+  directoryMembers,
   profRoomAdminIds,
   setProfRoomAdminIds,
   membersLoading,
   saving,
   saveSection,
 }: {
-  clerkMembers: ClerkMemberOption[];
+  directoryMembers: DirectoryMemberOption[];
   profRoomAdminIds: string[];
   setProfRoomAdminIds: Dispatch<SetStateAction<string[]>>;
   membersLoading: boolean;
@@ -24,10 +24,10 @@ export default function SettingsProfRoomPanel({
     <SettingsSection
       icon="🚪"
       title="Administrateurs du module réservation de salles"
-      description="Sélectionnez les personnes dans Clerk. Elles auront le mode administrateur dans l’espace réservation de salles et pourront gérer le paramétrage (salles, matières, couleurs)."
+      description="Sélectionnez les personnes dans le directory. Elles auront le mode administrateur dans l’espace réservation de salles et pourront gérer le paramétrage (salles, matières, couleurs)."
     >
       <ProfRoomAdminPicker
-        members={clerkMembers}
+        members={directoryMembers}
         selectedIds={profRoomAdminIds}
         onChange={setProfRoomAdminIds}
         loading={membersLoading}
@@ -37,7 +37,7 @@ export default function SettingsProfRoomPanel({
         disabled={saving || membersLoading}
         onClick={() =>
           saveSection("prof-room", {
-            adminClerkUserIds: profRoomAdminIds,
+            adminExternalUserIds: profRoomAdminIds,
           })
         }
       >

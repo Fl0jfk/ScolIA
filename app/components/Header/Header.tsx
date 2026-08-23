@@ -4,8 +4,8 @@ import { useState, useEffect, useMemo, useRef, type CSSProperties } from "react"
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useUser, useClerk } from "@clerk/nextjs";
 import { useSignOutWithPortalReset } from "@/app/hooks/useSignOutWithPortalReset";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useAdminBootstrap } from "@/app/contexts/admin-bootstrap";
 import { useData } from "@/app/contexts/data";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
@@ -25,8 +25,7 @@ const MOBILE_MODULE_LINKS = [
 ] as const;
 
 function UserPopover({ onClose }: { onClose: () => void }) {
-  const { user } = useUser();
-  const { openUserProfile } = useClerk();
+  const { user } = useSessionUser();
   const signOutWithPortalReset = useSignOutWithPortalReset();
   return (
     <div className="absolute top-12 right-0 z-50 w-64 animate-in overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-2xl">
@@ -52,15 +51,6 @@ function UserPopover({ onClose }: { onClose: () => void }) {
         </div>
       </div>
       <div className="flex flex-col gap-0.5 p-2">
-        <button
-          onClick={() => {
-            openUserProfile();
-            onClose();
-          }}
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-        >
-          <span className="text-base">⚙️</span> Modifier mon profil
-        </button>
         <Link
           href="/dashboard"
           onClick={onClose}
@@ -91,8 +81,7 @@ export default function Header() {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
-  const { isSignedIn, user, isLoaded } = useUser();
-  const { openUserProfile } = useClerk();
+  const { isSignedIn, user, isLoaded } = useSessionUser();
   const signOutWithPortalReset = useSignOutWithPortalReset();
   const { appContext, sitePublic: siteIdentity, loading: bootstrapLoading } = useAdminBootstrap();
   const data = useData();
@@ -245,7 +234,7 @@ export default function Header() {
               </div>
             ) : (
               <Link
-                href="/sign-in"
+                href="/auth/sign-in"
                 className="hidden h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition-all hover:bg-blue-600 hover:text-white md:flex"
                 title="Se connecter"
               >
@@ -360,28 +349,16 @@ export default function Header() {
           </nav>
           <div className="mt-5 flex flex-col gap-3">
             {isSignedIn ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    openUserProfile();
-                    setMobileOpen(false);
-                  }}
-                  className="w-full rounded-2xl bg-slate-100 py-3.5 text-center text-sm font-bold text-slate-700 transition hover:bg-slate-200"
-                >
-                  Modifier mon profil
-                </button>
-                <button
-                  type="button"
-                  onClick={() => signOutWithPortalReset("/")}
-                  className="w-full rounded-2xl bg-red-50 py-3.5 text-center text-sm font-bold text-red-500 transition hover:bg-red-100"
-                >
-                  Se déconnecter
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => signOutWithPortalReset("/")}
+                className="w-full rounded-2xl bg-red-50 py-3.5 text-center text-sm font-bold text-red-500 transition hover:bg-red-100"
+              >
+                Se déconnecter
+              </button>
             ) : (
               <Link
-                href="/sign-in"
+                href="/auth/sign-in"
                 className="rounded-2xl bg-slate-100 py-3.5 text-center text-sm font-bold text-slate-700 transition hover:bg-slate-200"
               >
                 Se connecter

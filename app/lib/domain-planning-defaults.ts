@@ -13,7 +13,7 @@ export const DEFAULT_DOMAIN_PLANNING_DOMAINS: DomainPlanningDomain[] = [
     name: "EVARS",
     description: "Éducation à la vie affective, relationnelle et à la sexualité",
     color: "bg-rose-600 text-white",
-    coordinatorClerkUserIds: [],
+    coordinatorExternalUserIds: [],
   },
 ];
 

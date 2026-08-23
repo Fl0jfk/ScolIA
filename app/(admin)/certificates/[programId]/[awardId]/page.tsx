@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useCallback, useEffect, useState } from "react";
 import { AwardStatusBadge } from "@/app/components/certificates/CertificatePendingSignaturesPanel";
 import { useAppContext } from "@/app/hooks/useAppContext";
@@ -15,7 +15,7 @@ import {
 } from "@/app/lib/certificates-types";
 
 type Peer = {
-  clerkUserId: string;
+  externalUserId: string;
   displayName: string;
   firstName?: string;
   lastName?: string;
@@ -23,7 +23,7 @@ type Peer = {
 
 export default function CertificateAwardPage() {
   const { programId, awardId } = useParams<{ programId: string; awardId: string }>();
-  const { user } = useUser();
+  const { user } = useSessionUser();
   const { data: appContext } = useAppContext();
   const userId = user?.id || "";
   const myRoles = appContext?.session?.intranetRoles ?? [];
@@ -59,7 +59,7 @@ export default function CertificateAwardPage() {
     setCanManageSignatories(Boolean(awardData.permissions?.canManageSignatories));
     setDirectionLabel(awardData.directionLabel || "Direction");
     setSelectedSignatories(
-      (awardData.award?.designatedSignatories || []).map((s: { clerkUserId: string }) => s.clerkUserId),
+      (awardData.award?.designatedSignatories || []).map((s: { externalUserId: string }) => s.externalUserId),
     );
   }, [awardId]);
 
@@ -68,11 +68,11 @@ export default function CertificateAwardPage() {
   }, [load]);
 
   const isDraft = award?.status === "draft";
-  const mySignatory = award?.designatedSignatories.find((s) => s.clerkUserId === userId);
+  const mySignatory = award?.designatedSignatories.find((s) => s.externalUserId === userId);
   const canSignProf = mySignatory?.status === "pending" && (award?.status === "submitted" || award?.status === "prof_signed");
 
   const collaboratorNames = (id: string) => {
-    const peer = peers.find((p) => p.clerkUserId === id);
+    const peer = peers.find((p) => p.externalUserId === id);
     if (peer) return formatCertificatePersonLabel(peer);
     return id === program?.ownerId ? program?.ownerName : "Enseignant";
   };
@@ -129,20 +129,20 @@ export default function CertificateAwardPage() {
     }
   }
 
-  async function removeSignatory(clerkUserId: string) {
+  async function removeSignatory(externalUserId: string) {
     if (!confirm("Retirer ce professeur des signataires ?")) return;
-    setBusy(`remove-${clerkUserId}`);
+    setBusy(`remove-${externalUserId}`);
     try {
       const res = await fetch(`/api/certificates/awards/${awardId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ removeSignatoryId: clerkUserId }),
+        body: JSON.stringify({ removeSignatoryId: externalUserId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur");
       setAward(data.award);
       setSelectedSignatories(
-        (data.award?.designatedSignatories || []).map((s: { clerkUserId: string }) => s.clerkUserId),
+        (data.award?.designatedSignatories || []).map((s: { externalUserId: string }) => s.externalUserId),
       );
       await load();
     } catch (e) {
@@ -176,7 +176,7 @@ export default function CertificateAwardPage() {
   }
 
   const availableToAddSignatory = eligibleIds.filter(
-    (id) => !award?.designatedSignatories.some((s) => s.clerkUserId === id),
+    (id) => !award?.designatedSignatories.some((s) => s.externalUserId === id),
   );
 
   const awaitingDirection =
@@ -406,7 +406,7 @@ export default function CertificateAwardPage() {
         ) : (
           <ul className="space-y-2 text-sm">
             {award.designatedSignatories.map((s) => (
-              <li key={s.clerkUserId} className="flex justify-between items-center gap-2">
+              <li key={s.externalUserId} className="flex justify-between items-center gap-2">
                 <span>{s.name}</span>
                 <div className="flex items-center gap-2">
                   <span className={s.status === "signed" ? "text-emerald-700 font-bold" : "text-amber-700"}>
@@ -417,8 +417,8 @@ export default function CertificateAwardPage() {
                   {canManageSignatories && s.status === "pending" && (
                     <button
                       type="button"
-                      disabled={busy === `remove-${s.clerkUserId}`}
-                      onClick={() => void removeSignatory(s.clerkUserId)}
+                      disabled={busy === `remove-${s.externalUserId}`}
+                      onClick={() => void removeSignatory(s.externalUserId)}
                       className="text-xs text-red-600 font-bold"
                     >
                       Retirer

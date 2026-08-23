@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import InternatDashboardPanel from "@/app/components/internat/InternatDashboardPanel";
@@ -89,7 +89,7 @@ function parseTab(raw: string | null): InternatTab {
 }
 
 export default function GestionInternatClient() {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeTab = parseTab(searchParams.get("tab"));

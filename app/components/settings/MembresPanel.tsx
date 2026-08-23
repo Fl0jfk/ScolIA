@@ -13,7 +13,7 @@ import { dash } from "@/app/lib/dashboard-brand";
 type RoleOption = { slug: string; label: string };
 
 type RegistryUserRow = {
-  clerkUserId: string;
+  externalUserId: string;
   email: string;
   firstName?: string;
   lastName?: string;
@@ -73,7 +73,7 @@ function labelFor(u: RegistryUserRow) {
   return u.displayName || `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
 }
 
-/** Gestion utilisateurs Clerk — onglet Paramètres généraux. */
+/** Gestion utilisateurs du directory — onglet Paramètres généraux. */
 export default function MembresPanel() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -122,7 +122,7 @@ export default function MembresPanel() {
     if (q) {
       list = list.filter((u) => {
         const blob = norm(
-          [labelFor(u), u.email, u.firstName, u.lastName, u.clerkUserId, ...u.roles, roleLabels(u.roles)].join(" "),
+          [labelFor(u), u.email, u.firstName, u.lastName, u.externalUserId, ...u.roles, roleLabels(u.roles)].join(" "),
         );
         return blob.includes(q);
       });
@@ -173,7 +173,7 @@ export default function MembresPanel() {
   };
 
   const startEdit = (u: RegistryUserRow) => {
-    setEditingKey(u.clerkUserId || u.email);
+    setEditingKey(u.externalUserId || u.email);
     setEditRoles([...u.roles]);
   };
 
@@ -189,7 +189,7 @@ export default function MembresPanel() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          clerkUserId: u.clerkUserId || undefined,
+          externalUserId: u.externalUserId || undefined,
           email: u.email,
           intranetRoles: editRoles,
         }),
@@ -206,10 +206,10 @@ export default function MembresPanel() {
   };
 
   const removeUser = async (u: RegistryUserRow) => {
-    if (!confirm(`Supprimer ${labelFor(u)} (${u.email}) du registre et de Clerk ?`)) return;
+    if (!confirm(`Supprimer ${labelFor(u)} (${u.email}) du registre et auth legacy ?`)) return;
     try {
       const q = new URLSearchParams();
-      if (u.clerkUserId) q.set("clerkUserId", u.clerkUserId);
+      if (u.externalUserId) q.set("externalUserId", u.externalUserId);
       else q.set("email", u.email);
       const res = await fetch(`/api/members?${q}`, { method: "DELETE" });
       const j = await res.json();
@@ -225,7 +225,7 @@ export default function MembresPanel() {
   return (
     <div className="space-y-6">
       <p className={`text-sm ${dash.textMid}`}>
-        Gestion directe via Clerk (invitations, rôles, suppression). Une instance = une application Clerk.
+        Gestion directe via Better-Auth (invitations, rôles, suppression). Une instance = une instance auth.
       </p>
 
       {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
@@ -336,7 +336,7 @@ export default function MembresPanel() {
       ) : (
         <ul className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
           {filteredUsers.map((u) => {
-            const key = u.clerkUserId || u.email;
+            const key = u.externalUserId || u.email;
             const name = labelFor(u);
             return (
               <li key={key} className="rounded-2xl border border-white/55 bg-white/55 p-4 backdrop-blur-xl hover:bg-white/75">

@@ -3,7 +3,6 @@ import { NextRequest } from "next/server";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 
-import { getClerkClientForTenant } from "@/app/lib/tenant-clerk";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import {
   getBucketName,
@@ -80,8 +79,8 @@ export async function POST(req: NextRequest) {
   const authUserId = session?.userId;
   if (!authUserId) return new Response("Non autorisé", { status: 401 });
   try {
-    const client = await getClerkClientForTenant();
-    const user = await client.users.getUser(userId);
+    const { resolveMemberProfileById } = await import("@/app/lib/members-db");
+    const profile = await resolveMemberProfileById(userId);
     const body = await req.json();
     const messages = await readMessagesFromS3( false);
     const newMessage = {
@@ -89,9 +88,11 @@ export async function POST(req: NextRequest) {
       channel: body.channel,
       content: body.content,
       createdAt: new Date().toISOString(),
-      authorName: body.isAnonymous ? "Anonyme" : `${user.firstName} ${user.lastName}`,
+      authorName: body.isAnonymous
+        ? "Anonyme"
+        : profile?.name || `${profile?.firstName ?? ""} ${profile?.lastName ?? ""}`.trim() || "Utilisateur",
       authorId: body.isAnonymous ? null : userId,
-      avatar: body.isAnonymous ? null : user.imageUrl,
+      avatar: body.isAnonymous ? null : profile?.imageUrl ?? null,
     };
     messages.push(newMessage);
     await putJson(FILE_KEY, messages);

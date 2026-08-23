@@ -24,7 +24,7 @@ export type ShareInfo = {
 };
 
 export type Peer = {
-  clerkUserId: string;
+  externalUserId: string;
   firstName?: string;
   lastName?: string;
   email: string;
@@ -159,7 +159,7 @@ export function buildAccessPeople(
   peers: Peer[],
   currentUserId: string,
 ): AccessPerson[] {
-  const peerById = new Map(peers.map((p) => [p.clerkUserId, p]));
+  const peerById = new Map(peers.map((p) => [p.externalUserId, p]));
   const people: AccessPerson[] = [];
 
   const pushPerson = (userId: string, isOwner: boolean) => {

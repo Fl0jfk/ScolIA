@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import Link from "next/link";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import StaffDossier from "@/app/components/personnel/StaffDossier";
 import {
   canViewPersonnelDashboard,
@@ -13,7 +13,7 @@ import {
 import { computeEntretienNextDue } from "@/app/lib/personnel-rh-cycles";
 
 export default function RhMoiPage() {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const [record, setRecord] = useState<PersonnelRecord | null>(null);
   const [sharedDocs, setSharedDocs] = useState<SharedPersonnelDocument[]>([]);
   const [loading, setLoading] = useState(true);

@@ -7,7 +7,7 @@ export type RgpdDocumentStatus =
   | "valide"
   | "non_applicable";
 
-export type RgpdPlatformDpaId = "microsoft365" | "aws" | "mistral" | "clerk";
+export type RgpdPlatformDpaId = "microsoft365" | "aws" | "mistral" | "better-auth";
 
 export type RgpdEstablishmentKind = "ecole" | "college" | "lycee" | "groupe";
 
@@ -66,7 +66,7 @@ export type RgpdQuestionnaireAnswers = {
   staffCount?: number;
   dpdDesignated: boolean;
   dpdName?: string;
-  dpdClerkUserId?: string;
+  dpdExternalUserId?: string;
   dpdEmail?: string;
   dpdInternal: boolean;
   directionReferent?: string;
@@ -98,7 +98,7 @@ export type RgpdQuestionnaireAnswers = {
     otherSaas: boolean;
     otherSaasList?: string;
   };
-  /** DPA des plateformes (Microsoft, AWS, Mistral, Clerk…) */
+  /** DPA des plateformes (Microsoft, AWS, Mistral, Better-Auth…) */
   platformDpas?: Partial<Record<RgpdPlatformDpaId, boolean>>;
   existingMeasures: {
     hasRegister: boolean;
@@ -270,7 +270,7 @@ export const DEFAULT_RGPD_ANSWERS: RgpdQuestionnaireAnswers = {
     microsoft365: true,
     aws: true,
     mistral: true,
-    clerk: true,
+    "better-auth": true,
   },
   existingMeasures: {
     hasRegister: false,

@@ -6,7 +6,7 @@ import type {
   RoutingAssignment,
   RoutingTask,
 } from "@/app/lib/app-config-schemas";
-import type { ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 
 function uid(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -15,7 +15,7 @@ function uid(prefix: string) {
 type Props = {
   config: RequestsRoutingConfig;
   onChange: (next: RequestsRoutingConfig) => void;
-  members: ClerkMemberOption[];
+  members: DirectoryMemberOption[];
   membersLoading: boolean;
 };
 
@@ -253,7 +253,7 @@ export default function RequestsRoutingEditor({ config, onChange, members, membe
           </button>
         </div>
 
-        {membersLoading && <p className="text-xs text-slate-400">Chargement des membres Clerk…</p>}
+        {membersLoading && <p className="text-xs text-slate-400">Chargement des membres…</p>}
 
         {config.assignments.map((asg, idx) => {
           const task = config.tasks.find((t) => t.id === asg.taskId);

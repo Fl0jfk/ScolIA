@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useOneDriveConnection } from "@/app/hooks/useOneDriveConnection";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import type { StageConvention, StageOffer } from "@/app/lib/stage-types";
@@ -61,10 +61,10 @@ function emptyOfferForm(): StagesOfferForm {
 
 function StagesContent() {
   const searchParams = useSearchParams();
-  const { user: clerkUser } = useUser();
+  const { user: sessionUser } = useSessionUser();
   const [oneDriveProfile, setOneDriveProfile] = useState<OneDriveUserProfile | null>(null);
   useEffect(() => {
-    if (!clerkUser) {
+    if (!sessionUser) {
       setOneDriveProfile(null);
       return;
     }
@@ -80,7 +80,7 @@ function StagesContent() {
     return () => {
       cancelled = true;
     };
-  }, [clerkUser]);
+  }, [sessionUser]);
   const od = useOneDriveConnection();
   const [board, setBoard] = useState<StagesHubBoard | null>(null);
   const [offers, setOffers] = useState<StageOffer[]>([]);
@@ -752,14 +752,14 @@ function StagesContent() {
                 </div>
               ) : (
                 <>
-                  {clerkUser && oneDriveProfile && detail.eleveMatch?.secteur && oneDriveProfile.secteur !== detail.eleveMatch.secteur && (
+                  {sessionUser && oneDriveProfile && detail.eleveMatch?.secteur && oneDriveProfile.secteur !== detail.eleveMatch.secteur && (
                     <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                       Cette convention concerne le secteur « {detail.eleveMatch.targetOneDriveLabel ?? detail.eleveMatch.secteur} » — connectez-vous avec le compte Microsoft correspondant.
                     </p>
                   )}
-                  {clerkUser && !oneDriveProfile && (
+                  {sessionUser && !oneDriveProfile && (
                     <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                      Profil OneDrive non reconnu pour votre compte Clerk — le dépôt utilisera l&apos;arborescence du secteur élève si configurée.
+                      Profil OneDrive non reconnu pour votre compte — le dépôt utilisera l&apos;arborescence du secteur élève si configurée.
                     </p>
                   )}
                   {oneDriveProfile && (

@@ -282,7 +282,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       if (body.jobTitle !== undefined) record.jobTitle = String(body.jobTitle || "");
       if (body.category) record.category = body.category;
       if (body.hireDate !== undefined) record.hireDate = body.hireDate;
-      if (body.clerkUserId !== undefined) record.clerkUserId = body.clerkUserId;
+      if (body.externalUserId !== undefined) record.externalUserId = body.externalUserId;
       if (body.active !== undefined) record.active = !!body.active;
       if (body.email) record.email = String(body.email).trim().toLowerCase();
       if (body.profile && typeof body.profile === "object") {

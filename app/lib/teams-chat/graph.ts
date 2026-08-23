@@ -95,7 +95,7 @@ export async function fetchTeamsGraphMe(accessToken: string): Promise<GraphMe> {
 }
 
 export async function getTeamsChatAccessContext(
-  clerkUserId: string,
+  externalUserId: string,
   graphAccessToken?: string,
 ): Promise<{
   accessToken: string;
@@ -107,7 +107,7 @@ export async function getTeamsChatAccessContext(
   if (headerToken) {
     const me = await fetchTeamsGraphMe(headerToken);
     if (!me.id) throw new TeamsChatUnlinkedError("Profil Microsoft sans id.");
-    const link = await loadTeamsChatLink(clerkUserId);
+    const link = await loadTeamsChatLink(externalUserId);
     if (link?.microsoftUserId && link.microsoftUserId !== me.id) {
       throw new TeamsChatUnlinkedError(
         "Le compte Microsoft ne correspond pas au compte déjà lié.",
@@ -121,7 +121,7 @@ export async function getTeamsChatAccessContext(
     };
   }
 
-  const link = await loadTeamsChatLink(clerkUserId);
+  const link = await loadTeamsChatLink(externalUserId);
   if (!link) throw new TeamsChatUnlinkedError();
 
   try {
@@ -138,7 +138,7 @@ export async function getTeamsChatAccessContext(
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
     if (/invalid_grant|AADSTS70000|AADSTS50173/i.test(msg)) {
-      await deleteTeamsChatLink(clerkUserId).catch(() => undefined);
+      await deleteTeamsChatLink(externalUserId).catch(() => undefined);
       throw new TeamsChatUnlinkedError("Session Microsoft expirée — veuillez relier votre compte.");
     }
     throw e;

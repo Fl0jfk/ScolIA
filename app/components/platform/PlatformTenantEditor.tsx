@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { clerkFrontendDomainFromPublishableKey } from "@/app/lib/clerk-pk-domain";
+import { frontendDomainFromPublishableKey } from "@/app/lib/publishable-key-domain";
 
 type TenantFormSecrets = {
-  clerkSecretKey: string;
-  clerkDevPublishableKey: string;
-  clerkDevSecretKey: string;
+  secretKey: string;
+  devPublishableKey: string;
+  devSecretKey: string;
   mistralApiKey: string;
   smtpUser: string;
   smtpPass: string;
@@ -28,7 +28,7 @@ type TenantFormState = {
   hostnames: string;
   appUrl: string;
   dataBucket: string;
-  clerkPublishableKey: string;
+  publishableKey: string;
   addressStreet: string;
   addressZip: string;
   addressCity: string;
@@ -44,13 +44,13 @@ type TenantEditResponse = {
     hostnames: string[];
     appUrl: string;
     dataBucket: string;
-    clerkPublishableKey: string;
+    publishableKey: string;
     postalAddress?: { street?: string; zip?: string; city?: string };
     logoUrl?: string;
   };
   configured: {
-    clerkSecretKey: boolean;
-    clerkDevKeys: boolean;
+    secretKey: boolean;
+    legacyDevKeys: boolean;
     mistral: boolean;
     smtp: boolean;
     microsoft: boolean;
@@ -60,9 +60,9 @@ type TenantEditResponse = {
 };
 
 const EMPTY_SECRETS: TenantFormSecrets = {
-  clerkSecretKey: "",
-  clerkDevPublishableKey: "",
-  clerkDevSecretKey: "",
+  secretKey: "",
+  devPublishableKey: "",
+  devSecretKey: "",
   mistralApiKey: "",
   smtpUser: "",
   smtpPass: "",
@@ -85,7 +85,7 @@ function emptyTenantForm(): TenantFormState {
     hostnames: "",
     appUrl: "",
     dataBucket: "",
-    clerkPublishableKey: "",
+    publishableKey: "",
     addressStreet: "",
     addressZip: "",
     addressCity: "",
@@ -102,7 +102,7 @@ function formFromEdit(t: TenantEditResponse): TenantFormState {
     hostnames: t.entry.hostnames.join("\n"),
     appUrl: t.entry.appUrl,
     dataBucket: t.entry.dataBucket,
-    clerkPublishableKey: t.entry.clerkPublishableKey,
+    publishableKey: t.entry.publishableKey,
     addressStreet: t.entry.postalAddress?.street ?? "",
     addressZip: t.entry.postalAddress?.zip ?? "",
     addressCity: t.entry.postalAddress?.city ?? "",
@@ -128,7 +128,7 @@ function payloadFromForm(form: TenantFormState) {
     hostnames: form.hostnames,
     appUrl: form.appUrl,
     dataBucket: form.dataBucket,
-    clerkPublishableKey: form.clerkPublishableKey,
+    publishableKey: form.publishableKey,
     postalAddress,
     logoUrl: form.logoUrl.trim() || undefined,
     secrets: Object.keys(secrets).length > 0 ? secrets : undefined,
@@ -184,7 +184,7 @@ function SecretField({
 }
 
 export default function PlatformTenantEditor({ mode, slug, writable, onClose, onSaved }: Props) {
-  const [tab, setTab] = useState<"general" | "clerk" | "integrations">("general");
+  const [tab, setTab] = useState<"general" | "auth" | "integrations">("general");
   const [form, setForm] = useState<TenantFormState>(emptyTenantForm());
   const [meta, setMeta] = useState<TenantEditResponse | null>(null);
   const [loading, setLoading] = useState(mode === "edit");
@@ -251,9 +251,9 @@ export default function PlatformTenantEditor({ mode, slug, writable, onClose, on
     setForm((f) => ({ ...f, secrets: { ...f.secrets, [key]: value } }));
   };
 
-  const clerkFrontendDomain = useMemo(
-    () => clerkFrontendDomainFromPublishableKey(form.clerkPublishableKey),
-    [form.clerkPublishableKey],
+  const authFrontendDomain = useMemo(
+    () => frontendDomainFromPublishableKey(form.publishableKey),
+    [form.publishableKey],
   );
 
   if (loading) {
@@ -288,7 +288,7 @@ export default function PlatformTenantEditor({ mode, slug, writable, onClose, on
       {error && <p className="mx-5 mt-4 text-sm text-red-600">{error}</p>}
 
       <div className="flex gap-2 px-5 pt-4 border-b border-slate-100">
-        {(["general", "clerk", "integrations"] as const).map((t) => (
+        {(["general", "auth", "integrations"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -299,7 +299,7 @@ export default function PlatformTenantEditor({ mode, slug, writable, onClose, on
                 : "text-slate-500 hover:text-slate-800"
             }`}
           >
-            {t === "general" ? "Général" : t === "clerk" ? "Clerk" : "Intégrations"}
+            {t === "general" ? "Général" : t === "auth" ? "Auth" : "Intégrations"}
           </button>
         ))}
       </div>
@@ -404,23 +404,22 @@ export default function PlatformTenantEditor({ mode, slug, writable, onClose, on
           </div>
         )}
 
-        {tab === "clerk" && (
+        {tab === "auth" && (
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block space-y-1 sm:col-span-2">
-              <span className="text-sm font-medium text-slate-700">Clé publique Clerk (pk_*) *</span>
+              <span className="text-sm font-medium text-slate-700">Clé publique (legacy) (pk_*) *</span>
               <input
-                value={form.clerkPublishableKey}
-                onChange={(e) => set("clerkPublishableKey", e.target.value)}
+                value={form.publishableKey}
+                onChange={(e) => set("publishableKey", e.target.value)}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
               />
-              {clerkFrontendDomain && (
+              {authFrontendDomain && (
                 <span className="text-xs text-slate-600">
-                  Domaine Clerk détecté : <code className="font-mono">{clerkFrontendDomain}</code>
+                  Domaine frontend détecté : <code className="font-mono">{authFrontendDomain}</code>
                   {form.hostnames.includes("lp.docslapro.com") &&
-                    clerkFrontendDomain !== "clerk.lp.docslapro.com" && (
+                    authFrontendDomain !== "accounts.lp.docslapro.com" && (
                       <span className="block mt-1 text-amber-800">
-                        Attention : pour LP, attendu <code>clerk.lp.docslapro.com</code> (clé de
-                        l&apos;app Clerk La Providence).
+                        Attention : domaine frontend legacy LP (clé de l&apos;app La Providence).
                       </span>
                     )}
                 </span>
@@ -428,27 +427,27 @@ export default function PlatformTenantEditor({ mode, slug, writable, onClose, on
             </label>
             <div className="sm:col-span-2">
               <SecretField
-                label="Clé secrète Clerk (sk_*)"
-                value={form.secrets.clerkSecretKey}
-                onChange={(v) => setSecret("clerkSecretKey", v)}
-                preview={meta?.secretsPreview.clerkSecretKey}
-                configured={meta?.configured.clerkSecretKey}
+                label="Clé secrète (legacy) (sk_*)"
+                value={form.secrets.secretKey}
+                onChange={(v) => setSecret("secretKey", v)}
+                preview={meta?.secretsPreview.secretKey}
+                configured={meta?.configured.secretKey}
                 required={mode === "create"}
               />
             </div>
             <SecretField
-              label="Clerk dev — clé publique (localhost)"
-              value={form.secrets.clerkDevPublishableKey}
-              onChange={(v) => setSecret("clerkDevPublishableKey", v)}
-              preview={meta?.secretsPreview.clerkDevPublishableKey}
-              configured={meta?.configured.clerkDevKeys}
+              label="Auth dev — clé publique (localhost)"
+              value={form.secrets.devPublishableKey}
+              onChange={(v) => setSecret("devPublishableKey", v)}
+              preview={meta?.secretsPreview.devPublishableKey}
+              configured={meta?.configured.legacyDevKeys}
             />
             <SecretField
-              label="Clerk dev — clé secrète"
-              value={form.secrets.clerkDevSecretKey}
-              onChange={(v) => setSecret("clerkDevSecretKey", v)}
-              preview={meta?.secretsPreview.clerkDevSecretKey}
-              configured={meta?.configured.clerkDevKeys}
+              label="Auth dev — clé secrète"
+              value={form.secrets.devSecretKey}
+              onChange={(v) => setSecret("devSecretKey", v)}
+              preview={meta?.secretsPreview.devSecretKey}
+              configured={meta?.configured.legacyDevKeys}
             />
           </div>
         )}

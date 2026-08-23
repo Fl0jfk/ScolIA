@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import PersonnelDashboard from "@/app/components/personnel/PersonnelDashboard";
 import PersonnelStaffCard from "@/app/components/personnel/PersonnelStaffCard";
 import RhHubNav, { type RhHubTab } from "@/app/components/personnel/RhHubNav";
@@ -75,7 +75,7 @@ export default function RhModuleClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeTab = parseTab(searchParams.get("tab"));
-  const { isLoaded, user } = useUser();
+  const { isLoaded, user } = useSessionUser();
 
   const [dashboard, setDashboard] = useState<PersonnelDashboardData | null>(null);
   const [index, setIndex] = useState<PersonnelIndexEntry[]>([]);

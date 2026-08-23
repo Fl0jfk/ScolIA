@@ -1,0 +1,35 @@
+{
+  "mcpServers": {
+    "browser": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@0.0.79"]
+    },
+    "fetch": {
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/uvx",
+      "args": ["mcp-server-fetch"]
+    },
+    "mistral": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mistral-mcp@0.8.2"],
+      "envFile": "${workspaceFolder}/.cursor/mcp.local.env"
+    },
+    "scaleway": {
+      "type": "stdio",
+      "command": "/opt/homebrew/bin/scw",
+      "args": [
+        "mcp",
+        "server",
+        "serve",
+        "namespaces=container,registry,object,rdb,tem,cockpit,iam"
+      ]
+    },
+    "postgres": {
+      "type": "stdio",
+      "command": "bash",
+      "args": ["${workspaceFolder}/.cursor/run-postgres-mcp.sh"]
+    }
+  }
+}

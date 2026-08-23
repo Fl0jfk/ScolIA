@@ -3,7 +3,9 @@ import { PERSONNEL_LEAVES_KEY, type PersonnelLeaveRequest } from "@/app/lib/pers
 
 export async function getPersonnelLeaveRequests(): Promise<PersonnelLeaveRequest[]> {
   const hit = await getJson<PersonnelLeaveRequest[]>(PERSONNEL_LEAVES_KEY);
-  return Array.isArray(hit?.data) ? hit.data : [];
+  return Array.isArray(hit?.data)
+    ? [...hit.data].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    : [];
 }
 
 async function savePersonnelLeaveRequests(requests: PersonnelLeaveRequest[]) {

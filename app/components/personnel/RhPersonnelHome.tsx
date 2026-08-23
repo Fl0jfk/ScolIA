@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import RhMoodPulseCard from "@/app/components/personnel/RhMoodPulseCard";
 import RhSelfDepositPanel from "@/app/components/personnel/RhSelfDepositPanel";
 import { canAccessHseModule, canCreateHseDemand } from "@/app/lib/demandes-hse-access";
@@ -48,7 +48,7 @@ function statusHse(s: string) {
 }
 
 export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const roles = useMemo(() => rolesFromUserLike(user), [user]);
 
   const showHse = canAccessHseModule(roles);

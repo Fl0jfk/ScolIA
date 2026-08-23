@@ -7,7 +7,7 @@ import type {
 } from "@/app/lib/app-config-schemas";
 import { normalizeIntranetRoles } from "@/app/lib/intranet-roles";
 
-type ClerkMember = {
+type DirectoryMember = {
   email?: string;
   firstName?: string;
   lastName?: string;
@@ -26,7 +26,7 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
-function displayName(m: ClerkMember, email: string) {
+function displayName(m: DirectoryMember, email: string) {
   const full =
     m.displayName?.trim() ||
     m.fullName?.trim() ||
@@ -46,7 +46,7 @@ type RowDraft = {
   fromAssignment: boolean;
 };
 
-/** Onglet admin : catalogue de tags + attribution au personnel Clerk (hors professeurs). */
+/** Onglet admin : catalogue de tags + attribution au personnel (hors professeurs). */
 export default function RequestPersonnelTagsPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -75,7 +75,7 @@ export default function RequestPersonnelTagsPanel() {
       setConfig(cfg);
       setCatalog([...(cfg.tagCatalog || [])]);
 
-      const members = (mem.users || []) as ClerkMember[];
+      const members = (mem.users || []) as DirectoryMember[];
       const tagsByEmail = new Map(
         (cfg.personnelTags || []).map((p) => [normalizeEmail(p.email), p]),
       );
@@ -85,7 +85,7 @@ export default function RequestPersonnelTagsPanel() {
           .map((a) => normalizeEmail(a.email)),
       );
 
-      // Tout le personnel Clerk sauf professeurs (rôle unique)
+      // Tout le personnel sauf professeurs (rôle unique)
       const staffMembers = members.filter((m) => {
         const email = normalizeEmail(m.email || "");
         if (!email) return false;
@@ -350,7 +350,7 @@ export default function RequestPersonnelTagsPanel() {
                 {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={3} className="px-4 py-8 text-center text-slate-400">
-                      Aucun personnel trouvé (Clerk hors professeurs).
+                      Aucun personnel trouvé (hors professeurs).
                     </td>
                   </tr>
                 ) : (

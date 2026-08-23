@@ -25,5 +25,5 @@ export async function saveCovoiturageMatches(matches: CovoiturageMatch[]) {
 
 export async function getProfileByUserId(userId: string): Promise<CovoiturageProfile | null> {
   const profiles = await getCovoiturageProfiles();
-  return profiles.find((p) => p.clerkUserId === userId && p.status !== "unregistered") ?? null;
+  return profiles.find((p) => p.externalUserId === userId && p.status !== "unregistered") ?? null;
 }

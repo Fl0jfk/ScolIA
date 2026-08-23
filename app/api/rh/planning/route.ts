@@ -3,7 +3,7 @@ import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { loadAppConfig } from "@/app/lib/app-config";
-import { listClerkMembers } from "@/app/lib/clerk-users";
+import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { normalizeIntranetRoles } from "@/app/lib/intranet-roles";
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import { getPersonnelIndex, getPersonnelRecord } from "@/app/lib/personnel-storage";
@@ -69,12 +69,12 @@ export async function GET(req: Request) {
     if (!canManage && !canViewAll) {
       return NextResponse.json({ error: "Liste réservée à la RH.", status: 403 });
     }
-    const members = await listClerkMembers();
+    const members = await listDirectoryMembers();
     const people = members
-      .filter((m) => m.clerkUserId && !m.pending)
+      .filter((m) => m.externalUserId && !m.pending)
       .filter((m) => normalizeIntranetRoles(m.roles).includes("professeur"))
       .map((m) => ({
-        id: m.clerkUserId,
+        id: m.externalUserId,
         displayName: m.displayName || m.email,
         category: "professeur",
         jobTitle: null as string | null,
@@ -87,12 +87,12 @@ export async function GET(req: Request) {
     if (!canManage && !canViewAll) {
       return NextResponse.json({ error: "Liste réservée à la RH.", status: 403 });
     }
-    const members = await listClerkMembers();
+    const members = await listDirectoryMembers();
     const people = members
-      .filter((m) => m.clerkUserId && !m.pending)
+      .filter((m) => m.externalUserId && !m.pending)
       .filter((m) => isStaffPlanningAudience(normalizeIntranetRoles(m.roles)))
       .map((m) => ({
-        id: m.clerkUserId,
+        id: m.externalUserId,
         displayName: m.displayName || m.email,
         category: staffCategoryFromRoles(normalizeIntranetRoles(m.roles)),
         jobTitle: null as string | null,
@@ -131,13 +131,13 @@ export async function GET(req: Request) {
     if (!isSelf && !canManage && !canViewAll) {
       return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
     }
-    const members = await listClerkMembers();
-    const m = members.find((x) => x.clerkUserId === subjectId);
+    const members = await listDirectoryMembers();
+    const m = members.find((x) => x.externalUserId === subjectId);
     displayName = m?.displayName || m?.email || subjectId;
     category = "professeur";
   } else {
-    const members = await listClerkMembers();
-    const m = members.find((x) => x.clerkUserId === subjectId);
+    const members = await listDirectoryMembers();
+    const m = members.find((x) => x.externalUserId === subjectId);
     if (m) {
       const isSelf = subjectId === gate.ctx.userId;
       if (!isSelf && !canManage && !canViewAll) {
@@ -152,14 +152,14 @@ export async function GET(req: Request) {
       if (!entry) {
         return NextResponse.json({ error: "Collaborateur introuvable." }, { status: 404 });
       }
-      const isSelf = entry.clerkUserId === gate.ctx.userId;
+      const isSelf = entry.externalUserId === gate.ctx.userId;
       if (!isSelf && !canManage && !canViewAll) {
         return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
       }
       displayName = entry.displayName || entry.email;
       category = entry.category;
       kind = "staff";
-      subjectId = entry.clerkUserId || entry.id;
+      subjectId = entry.externalUserId || entry.id;
     }
   }
 
@@ -240,7 +240,7 @@ export async function PUT(req: Request) {
   let allowed = canManage || personnelId === gate.ctx.userId;
   if (!allowed && kind === "staff") {
     const record = await getPersonnelRecord(personnelId);
-    allowed = !!record && record.clerkUserId === gate.ctx.userId;
+    allowed = !!record && record.externalUserId === gate.ctx.userId;
   }
 
   if (!allowed) {

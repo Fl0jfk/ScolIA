@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { usePathname, useSearchParams } from "next/navigation";
 import { hasMasterRole } from "@/app/lib/intranet-role-utils";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
@@ -20,7 +20,7 @@ function isPlatformMarketingHost(): boolean {
 
 /** Évite l'intranet établissement sur docslapro.com : renvoie vers le sous-domaine mémorisé. */
 export default function TenantCanonicalHostGuard() {
-  const { isLoaded, isSignedIn, user } = useUser();
+  const { isLoaded, isSignedIn, user } = useSessionUser();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 

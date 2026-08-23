@@ -4,12 +4,19 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "clerk:env": "clerk env pull",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "test:ocr-match": "npx tsx --test app/lib/ocr-eleve-match.test.ts",
-    "audit:knip": "knip"
+    "audit:knip": "knip",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "auth:set-password": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/set-better-auth-password.ts",
+    "ent:import-core": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/import-ent-core.ts",
+    "ent:migrate-relational": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/migrate-ent-relational.ts",
+    "ent:import-json": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/import-ent-json.ts",
+    "ent:normalize": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/normalize-ent-entities.ts"
   },
   "engines": {
     "node": ">=22.x"
@@ -18,13 +25,13 @@
     "@aws-sdk/client-s3": "latest",
     "@aws-sdk/s3-request-presigner": "latest",
     "@azure/msal-browser": "^4.26.1",
-    "@clerk/backend": "^3.2.8",
-    "@clerk/localizations": "latest",
-    "@clerk/nextjs": "^7.0.12",
     "@napi-rs/canvas": "^1.0.2",
     "@react-pdf/renderer": "^4.5.1",
     "@tailwindcss/postcss": "latest",
+    "better-auth": "^1.7.1",
     "docx": "^9.7.1",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
     "framer-motion": "latest",
     "imapflow": "^1.5.0",
     "jspdf": "^4.2.0",
@@ -35,17 +42,20 @@
     "nodemailer": "latest",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.1.200",
+    "postgres": "^3.4.9",
     "qrcode": "latest",
     "react": "latest",
     "react-dom": "latest",
     "server-only": "^0.0.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "latest",
     "@types/mailparser": "^3.4.6",
     "@types/node": "22.x",
     "@types/nodemailer": "latest",
+    "@types/pg": "^8.23.1",
     "@types/qrcode": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
@@ -54,6 +64,7 @@
     "knip": "^5.88.1",
     "postcss": "latest",
     "tailwindcss": "latest",
+    "tsx": "^4.23.12",
     "typescript": "latest"
   },
   "overrides": {

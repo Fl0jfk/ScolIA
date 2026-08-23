@@ -3,6 +3,8 @@ import { crossOriginOpenerPolicyHeaderValue } from "./app/lib/content-security-p
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Dev : Playwright / curl via 127.0.0.1 (HMR + assets)
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
   serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist"],
   typescript: { ignoreBuildErrors: false },
   images: {

@@ -25,7 +25,7 @@ export async function GET() {
     if (entry.status !== "submitted" && entry.status !== "prof_signed") continue;
     const award = await loadAward(entry.id);
     if (!award) continue;
-    const sig = award.designatedSignatories.find((s) => s.clerkUserId === userId);
+    const sig = award.designatedSignatories.find((s) => s.externalUserId === userId);
     if (!sig || sig.status === "signed") continue;
     const program = await loadProgram(award.programId);
     pending.push({

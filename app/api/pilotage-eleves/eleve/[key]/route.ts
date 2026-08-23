@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getClerkUserRoles } from "@/app/lib/clerk-users";
+import { getDirectoryUserRoles } from "@/app/lib/directory-members";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import {
@@ -16,7 +16,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
 
-  const roles = await getClerkUserRoles(gate.ctx.userId);
+  const roles = await getDirectoryUserRoles(gate.ctx.userId);
   if (!canAccessPilotageModule(roles)) {
     return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
   }

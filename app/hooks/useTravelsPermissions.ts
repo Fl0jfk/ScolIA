@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useMemo } from "react";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { canSignForEstablishmentLabel } from "@/app/lib/establishment-sign-permissions";
@@ -10,7 +10,7 @@ import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
 export function useTravelsPermissions(trip: TravelsTrip | null) {
-  const { user } = useUser();
+  const { user } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const roles = useMemo(() => {
     const fromContext = appCtx?.session?.intranetRoles;

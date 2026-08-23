@@ -4,7 +4,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { motion } from "framer-motion";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import GlassLayer from "@/app/components/GlassLayer";
-import ClerkPersonSelect from "@/app/components/settings/ClerkPersonSelect";
+import DirectoryPersonSelect from "@/app/components/settings/DirectoryPersonSelect";
 import {
   SettingsField,
   SettingsNotice,
@@ -12,7 +12,7 @@ import {
   settingsInputClass,
   settingsSelectClass,
 } from "@/app/components/settings/SettingsChrome";
-import type { ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import type { EstablishmentKind } from "@/app/lib/app-config-schemas";
 import { dash } from "@/app/lib/dashboard-brand";
 import {
@@ -26,10 +26,10 @@ import {
   inferEstablishmentKind,
   resolveEstablishmentColorHex,
 } from "@/app/lib/establishment-visual";
-import { clerkRoleSlugsForEstablishment, directionRoleForKind } from "@/app/lib/establishment-catalog";
+import { roleSlugsForEstablishment, directionRoleForKind } from "@/app/lib/establishment-catalog";
 import { type SettingsEstablishmentForm } from "@/app/lib/settings-page-model";
 
-function memberDisplayName(m: ClerkMemberOption): string {
+function memberDisplayName(m: DirectoryMemberOption): string {
   return m.displayName || `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || m.email;
 }
 
@@ -47,9 +47,9 @@ function formFromPreset(kind: EstablishmentKind, existingIds: Set<string>): Sett
     kind: preset.kind,
     directorName: "",
     directorEmail: "",
-    directorClerkUserId: "",
+    directorExternalUserId: "",
     colorHex: DEFAULT_ESTABLISHMENT_KIND_COLORS[preset.kind],
-    clerkRoleSlugs: clerkRoleSlugsForEstablishment(preset).join(", "),
+    roleSlugs: roleSlugsForEstablishment(preset).join(", "),
     active: true,
     grades: preset.grades,
     signaturePreviewUrl: null,
@@ -59,7 +59,7 @@ function formFromPreset(kind: EstablishmentKind, existingIds: Set<string>): Sett
 export default function SettingsEstablishmentsPanel({
   establishments,
   setEstablishments,
-  clerkMembers,
+  directoryMembers,
   membersLoading,
   uploadingSignatureId,
   saving,
@@ -69,7 +69,7 @@ export default function SettingsEstablishmentsPanel({
 }: {
   establishments: SettingsEstablishmentForm[];
   setEstablishments: Dispatch<SetStateAction<SettingsEstablishmentForm[]>>;
-  clerkMembers: ClerkMemberOption[];
+  directoryMembers: DirectoryMemberOption[];
   membersLoading: boolean;
   uploadingSignatureId: string | null;
   saving: boolean;
@@ -234,7 +234,7 @@ export default function SettingsEstablishmentsPanel({
                     patch(idx, {
                       kind: nextKind,
                       colorHex: keepCustom ? est.colorHex : DEFAULT_ESTABLISHMENT_KIND_COLORS[nextKind],
-                      clerkRoleSlugs: clerkRoleSlugsForEstablishment({ kind: nextKind }).join(", "),
+                      roleSlugs: roleSlugsForEstablishment({ kind: nextKind }).join(", "),
                     });
                   }}
                 >
@@ -284,20 +284,20 @@ export default function SettingsEstablishmentsPanel({
               <div className="space-y-3 rounded-2xl border border-white/70 bg-white/40 p-4">
                 <p className={`text-sm font-semibold ${dash.ink}`}>Responsable d’établissement</p>
                 <p className={`text-xs ${dash.textMid}`}>
-                  Choisissez la personne dans le personnel Clerk. Le nom et l’e-mail servent aux PDF
+                  Choisissez la personne dans le personnel. Le nom et l’e-mail servent aux PDF
                   (devis, stages, certificats) et aux notifications.
                 </p>
-                <ClerkPersonSelect
-                  members={clerkMembers}
-                  selectedId={est.directorClerkUserId}
+                <DirectoryPersonSelect
+                  members={directoryMembers}
+                  selectedId={est.directorExternalUserId}
                   loading={membersLoading}
                   onChange={(member) => {
                     if (!member) {
-                      patch(idx, { directorClerkUserId: "" });
+                      patch(idx, { directorExternalUserId: "" });
                       return;
                     }
                     patch(idx, {
-                      directorClerkUserId: member.clerkUserId,
+                      directorExternalUserId: member.externalUserId,
                       directorName: memberDisplayName(member),
                       directorEmail: member.email,
                     });
@@ -370,7 +370,7 @@ export default function SettingsEstablishmentsPanel({
               </div>
 
               <SettingsNotice tone="info">
-                Rôle Clerk assigné automatiquement au responsable :{" "}
+                Rôle intranet assigné automatiquement au responsable :{" "}
                 <span className={`font-semibold ${dash.ink}`}>{directionRoleForKind(kind)}</span>
               </SettingsNotice>
             </div>
@@ -424,12 +424,12 @@ export default function SettingsEstablishmentsPanel({
                 kind: inferEstablishmentKind(e),
                 directorName: e.directorName,
                 directorEmail: e.directorEmail,
-                directorClerkUserId: e.directorClerkUserId || undefined,
+                directorExternalUserId: e.directorExternalUserId || undefined,
                 colorHex: resolveEstablishmentColorHex(e),
                 signatureS3Key: e.signatureS3Key,
                 grades: e.grades,
                 active: e.active,
-                clerkRoleSlugs: clerkRoleSlugsForEstablishment({
+                roleSlugs: roleSlugsForEstablishment({
                   kind: inferEstablishmentKind(e),
                   id: e.id,
                   label: e.label,

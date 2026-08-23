@@ -22,10 +22,10 @@ import { loadAppConfig } from "@/app/lib/app-config";
 import { saveAward, saveProgram, saveVerifySnapshot } from "@/app/lib/certificates-storage";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
-import { listClerkMembers } from "@/app/lib/clerk-users";
-import type { ClerkActor } from "@/app/lib/clerk-user-types";
+import { listDirectoryMembers } from "@/app/lib/directory-members";
+import type { AppActor } from "@/app/lib/app-actor-types";
 
-function clerkDisplayName(user: ClerkActor | null | undefined): string {
+function sessionDisplayName(user: AppActor | null | undefined): string {
   return (
     user?.fullName?.trim() ||
     `${user?.firstName || ""} ${user?.lastName || ""}`.trim() ||
@@ -37,9 +37,9 @@ export function generateVerificationToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-export async function resolveClerkDisplayName(clerkUserId: string): Promise<string> {
-  const members = await listClerkMembers();
-  const hit = members.find((m) => m.clerkUserId === clerkUserId);
+export async function resolveDirectoryDisplayName(externalUserId: string): Promise<string> {
+  const members = await listDirectoryMembers();
+  const hit = members.find((m) => m.externalUserId === externalUserId);
   if (!hit) return "Enseignant";
   return hit.displayName || `${hit.firstName || ""} ${hit.lastName || ""}`.trim() || hit.email || "Enseignant";
 }
@@ -55,9 +55,9 @@ export function buildDesignatedSignatories(
   return signatoryIds
     .filter((id) => eligible.has(id))
     .filter((id, i, arr) => arr.indexOf(id) === i)
-    .map((clerkUserId) => ({
-      clerkUserId,
-      name: nameById.get(clerkUserId) || "Enseignant",
+    .map((externalUserId) => ({
+      externalUserId,
+      name: nameById.get(externalUserId) || "Enseignant",
       designatedBy,
       designatedAt: now,
       status: "pending" as const,
@@ -74,19 +74,19 @@ export function mergeAwardSignatories(
 ): DesignatedSignatory[] {
   const eligible = new Set(eligibleSignatoryIds(program));
   const signed = award.designatedSignatories.filter((s) => s.status === "signed");
-  const signedIds = new Set(signed.map((s) => s.clerkUserId));
+  const signedIds = new Set(signed.map((s) => s.externalUserId));
   const now = new Date().toISOString();
 
   const pendingIds = requestedIds.filter((id) => eligible.has(id) && !signedIds.has(id));
-  const finalIds = [...signed.map((s) => s.clerkUserId), ...pendingIds];
+  const finalIds = [...signed.map((s) => s.externalUserId), ...pendingIds];
 
-  return finalIds.map((clerkUserId) => {
-    const existingSigned = signed.find((s) => s.clerkUserId === clerkUserId);
+  return finalIds.map((externalUserId) => {
+    const existingSigned = signed.find((s) => s.externalUserId === externalUserId);
     if (existingSigned) return existingSigned;
-    const existingPending = award.designatedSignatories.find((s) => s.clerkUserId === clerkUserId);
+    const existingPending = award.designatedSignatories.find((s) => s.externalUserId === externalUserId);
     return {
-      clerkUserId,
-      name: nameById.get(clerkUserId) || existingPending?.name || "Enseignant",
+      externalUserId,
+      name: nameById.get(externalUserId) || existingPending?.name || "Enseignant",
       designatedBy: existingPending?.designatedBy || designatedBy,
       designatedAt: existingPending?.designatedAt || now,
       status: "pending" as const,
@@ -96,14 +96,14 @@ export function mergeAwardSignatories(
 
 export function removePendingSignatory(
   award: StudentAward,
-  clerkUserId: string,
+  externalUserId: string,
 ): StudentAward | { error: string } {
-  const target = award.designatedSignatories.find((s) => s.clerkUserId === clerkUserId);
+  const target = award.designatedSignatories.find((s) => s.externalUserId === externalUserId);
   if (!target) return { error: "Signataire introuvable." };
   if (target.status === "signed") {
     return { error: "Impossible de retirer un professeur qui a déjà signé." };
   }
-  const nextSignatories = award.designatedSignatories.filter((s) => s.clerkUserId !== clerkUserId);
+  const nextSignatories = award.designatedSignatories.filter((s) => s.externalUserId !== externalUserId);
   if (!nextSignatories.length) {
     return { error: "Il doit rester au moins un signataire professeur." };
   }
@@ -155,7 +155,7 @@ export async function signAwardAsProf(
   }
   const now = new Date().toISOString();
   const signatories = award.designatedSignatories.map((s) =>
-    s.clerkUserId === userId ? { ...s, status: "signed" as const, signedAt: now } : s,
+    s.externalUserId === userId ? { ...s, status: "signed" as const, signedAt: now } : s,
   );
   const allSigned = signatories.every((s) => s.status === "signed");
   return {
@@ -168,7 +168,7 @@ export async function signAwardAsProf(
 
 export async function signAwardAsDirection(
   award: StudentAward,
-  user: ClerkActor,
+  user: AppActor,
 ): Promise<StudentAward | { error: string }> {
   const userId = user?.id?.trim() || "";
   if (!userId) return { error: "Non authentifié." };
@@ -180,7 +180,7 @@ export async function signAwardAsDirection(
     ...award,
     directionSignature: {
       signedBy: userId,
-      signedByName: clerkDisplayName(user),
+      signedByName: sessionDisplayName(user),
       signedAt: now,
       level: award.student.secteur,
     },

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getClerkUserRoles } from "@/app/lib/clerk-users";
+import { getDirectoryUserRoles } from "@/app/lib/directory-members";
 import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
@@ -9,13 +9,13 @@ import {
   type CertificateProgram,
   type StudentAward,
 } from "@/app/lib/certificates-types";
-import type { ClerkActor } from "@/app/lib/clerk-user-types";
+import type { AppActor } from "@/app/lib/app-actor-types";
 
-function rolesOf(user: ClerkActor | null | undefined): string[] {
+function rolesOf(user: AppActor | null | undefined): string[] {
   return rolesFromUserLike(user);
 }
 
-export function canAccessCertificatesModule(user: ClerkActor | null | undefined): boolean {
+export function canAccessCertificatesModule(user: AppActor | null | undefined): boolean {
   const roles = rolesOf(user);
   if (hasGlobalAdminRole(roles)) return true;
   return hasRole(roles, "professeur") || hasRole(roles, "administratif") || isAnyDirectionRole(roles);
@@ -113,12 +113,12 @@ export function canSubmitAward(
 }
 
 function isDesignatedSignatory(award: StudentAward, userId: string): boolean {
-  return award.designatedSignatories.some((s) => s.clerkUserId === userId);
+  return award.designatedSignatories.some((s) => s.externalUserId === userId);
 }
 
 export function canSignAwardAsProf(award: StudentAward, userId: string): boolean {
   if (award.status !== "submitted" && award.status !== "prof_signed") return false;
-  const sig = award.designatedSignatories.find((s) => s.clerkUserId === userId);
+  const sig = award.designatedSignatories.find((s) => s.externalUserId === userId);
   return Boolean(sig && sig.status === "pending");
 }
 
@@ -135,20 +135,20 @@ function awardReadyForDirectionSignature(award: StudentAward): boolean {
   return ["submitted", "prof_signed", "direction_signed"].includes(award.status);
 }
 
-/** Vérification stricte : le slug exact doit être présent dans les rôles Clerk. */
+/** Vérification stricte : le slug exact doit être présent dans les rôles intranet. */
 export function canSignAwardAsDirectionWithRoles(roles: string[], award: StudentAward): boolean {
   if (!awardReadyForDirectionSignature(award)) return false;
   const directionRole = requiredDirectionRoleForAward(award);
   return roles.includes(directionRole);
 }
 
-/** Source de vérité : rôles relus depuis l'API Clerk (pas le JWT de session). */
+/** Source de vérité : rôles relus depuis l'API directory (pas le JWT de session). */
 export async function canSignAwardAsDirectionForUserId(
   userId: string,
   award: StudentAward,
 ): Promise<boolean> {
   if (!userId.trim()) return false;
-  const roles = await getClerkUserRoles(userId);
+  const roles = await getDirectoryUserRoles(userId);
   return canSignAwardAsDirectionWithRoles(roles, award);
 }
 
@@ -164,7 +164,7 @@ export function canViewAward(
   award: StudentAward,
   program: CertificateProgram,
   userId: string,
-  user?: ClerkActor | null,
+  user?: AppActor | null,
 ): boolean {
   if (canViewProgram(program, userId)) return true;
   if (isDesignatedSignatory(award, userId)) return true;
@@ -177,7 +177,7 @@ export function canDownloadAwardPdf(
   award: StudentAward,
   program: CertificateProgram,
   userId: string,
-  user?: ClerkActor | null,
+  user?: AppActor | null,
 ): boolean {
   if (award.status !== "issued") return false;
   return canViewAward(award, program, userId, user);

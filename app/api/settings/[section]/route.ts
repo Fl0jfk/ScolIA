@@ -20,11 +20,11 @@ import {
   parseTravelsModule,
 } from "@/app/lib/app-config-schemas";
 import { requireAdmin } from "@/app/lib/intranet-auth";
-import { normalizeProfRoomAdminClerkIds } from "@/app/lib/prof-room-auth";
+import { normalizeProfRoomAdminIds } from "@/app/lib/prof-room-auth";
 import { ensureSiteAddressCoordinates } from "@/app/lib/site-address-coordinates";
 import {
   syncEstablishmentDirectorRoles,
-  withDerivedClerkRoleSlugs,
+  withDerivedRoleSlugs,
 } from "@/app/lib/establishment-director-sync";
 
 const ALLOWED = new Set([
@@ -56,7 +56,7 @@ export async function PUT(req: Request, ctx: { params: Promise<{ section: string
       }
     } else if (section === "establishments") {
       const previous = await loadAllEstablishments();
-      const parsed = parseEstablishmentsFile(body).map(withDerivedClerkRoleSlugs);
+      const parsed = parseEstablishmentsFile(body).map(withDerivedRoleSlugs);
       await saveEstablishments(parsed);
       await syncEstablishmentDirectorRoles(previous, parsed);
       try {
@@ -75,10 +75,10 @@ export async function PUT(req: Request, ctx: { params: Promise<{ section: string
       await saveNotifications(parseNotifications(body));
     } else if (section === "prof-room") {
       const current = await loadAppConfig();
-      const adminClerkUserIds = Array.isArray(body?.adminClerkUserIds)
-        ? normalizeProfRoomAdminClerkIds(body.adminClerkUserIds)
-        : current.profRoom.adminClerkUserIds || [];
-      await saveProfRoomModule({ ...current.profRoom, adminClerkUserIds });
+      const adminExternalUserIds = Array.isArray(body?.adminExternalUserIds)
+        ? normalizeProfRoomAdminIds(body.adminExternalUserIds)
+        : current.profRoom.adminExternalUserIds || [];
+      await saveProfRoomModule({ ...current.profRoom, adminExternalUserIds });
     } else if (section === "integrations") {
       await saveIntegrations(parseIntegrations(body));
     } else if (section === "travels") {

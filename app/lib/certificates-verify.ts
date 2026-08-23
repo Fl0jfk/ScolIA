@@ -16,7 +16,7 @@ export function buildAwardContentHash(award: StudentAward): string {
       addedBy: l.addedBy,
     })),
     signatories: award.designatedSignatories.map((s) => ({
-      clerkUserId: s.clerkUserId,
+      externalUserId: s.externalUserId,
       name: s.name,
       signedAt: s.signedAt,
     })),

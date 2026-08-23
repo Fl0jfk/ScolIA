@@ -2,13 +2,13 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 
 /** Redirige vers le dashboard si l'utilisateur n'est pas admin intranet. */
 export default function RequireOrgAdmin({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isLoaded } = useUser();
+  const { isLoaded } = useSessionUser();
   const isOrgAdmin = useIsOrgAdmin();
 
   useEffect(() => {

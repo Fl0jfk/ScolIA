@@ -12,7 +12,7 @@ import {
   type ReactElement,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import ScoliaAiMark from "@/app/components/ScoliaAiMark";
 import {
   clearScoliaMemory,
@@ -142,7 +142,7 @@ type Props = {
 export default function ChatbotBubble({ pageMode = false }: Props) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isSignedIn } = useUser();
+  const { isSignedIn } = useSessionUser();
   const [open, setOpen] = useState(pageMode);
   const [layout, setLayout] = useState<LayoutMode>(pageMode ? "expanded" : "window");
   const [loading, setLoading] = useState(false);

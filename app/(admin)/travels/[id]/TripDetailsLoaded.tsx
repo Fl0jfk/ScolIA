@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import dynamic from "next/dynamic";
 import { useState, useEffect, useRef, useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -99,7 +99,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const highlightReminderId = searchParams.get("reminder");
   const tabFromUrl = searchParams.get("tab");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { user } = useUser();
+  const { user } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const classOptions = useMemo(
     () =>

@@ -1,0 +1,32 @@
+---
+description: Isolation multi-tenant, RBAC et validation Zod (critique)
+globs: "{app/**/*.ts,app/**/*.tsx,drizzle/**/*.ts,db/**/*.ts}"
+alwaysApply: false
+---
+
+# Multi-Tenant & Sécurité (CRITIQUE)
+
+## Isolation
+
+- Toute table métier (hors système/méta) **doit** avoir `etablissement_id`.
+- Chaque requête Drizzle / Server Action : session Better-Auth + filtre obligatoire :
+
+```typescript
+where(eq(schema.table.etablissementId, session.user.etablissementId))
+```
+
+- Ne jamais lire/écrire sans ce filtre, même en admin « global » sans garde explicite.
+
+## RBAC
+
+Rôles à appliquer dans Server Actions + layouts/middleware :
+`Admin` | `Direction` | `Secrétariat` | `Professeur` | `Élève` | `Parent`
+
+## Validation
+
+- Toute mutation (Server Action) : schéma **Zod** avant écriture BDD.
+- Pas de confiance aux inputs client.
+
+## Secrets
+
+- Clés API, URL BDD, secrets : uniquement via `process.env` (jamais en dur).

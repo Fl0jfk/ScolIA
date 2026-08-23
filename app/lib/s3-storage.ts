@@ -26,29 +26,21 @@ export async function getBucketName(): Promise<string> {
   return b;
 }
 
+/**
+ * Lecture document métier : Postgres relationnel uniquement (plus de JSON S3).
+ * Les modules typés (absences, élèves…) passent par leurs tables dédiées.
+ */
 export async function getJson<T>(relativePath: string): Promise<{ data: T; key: string } | null> {
-  const key = s3Key(relativePath);
-  try {
-    const res = await (await getS3Client()).send(new GetObjectCommand({ Bucket: await getBucketName(), Key: key }));
-    const raw = await res.Body?.transformToString();
-    if (!raw) return null;
-    return { data: JSON.parse(raw) as T, key };
-  } catch {
-    return null;
-  }
+  const { getJsonFromPostgres } = await import("@/app/lib/ent-json-postgres");
+  return getJsonFromPostgres<T>(relativePath);
 }
 
+/**
+ * Écriture document métier : Postgres relationnel uniquement (plus de JSON S3).
+ */
 export async function putJson(relativePath: string, data: unknown): Promise<string> {
-  const key = s3Key(relativePath);
-  await (await getS3Client()).send(
-    new PutObjectCommand({
-      Bucket: await getBucketName(),
-      Key: key,
-      Body: JSON.stringify(data, null, 2),
-      ContentType: "application/json",
-    }),
-  );
-  return key;
+  const { putJsonToPostgres } = await import("@/app/lib/ent-json-postgres");
+  return putJsonToPostgres(relativePath, data);
 }
 
 export async function putObject(

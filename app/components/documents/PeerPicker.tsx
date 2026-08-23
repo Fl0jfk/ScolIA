@@ -43,7 +43,7 @@ export default function PeerPicker({
     return filtered.sort((a, b) => comparePeersByName(a, b, sortBy));
   }, [peers, search, roleFilter, sortBy]);
 
-  const visibleIds = visiblePeers.map((p) => p.clerkUserId);
+  const visibleIds = visiblePeers.map((p) => p.externalUserId);
   const visibleSet = new Set(visibleIds);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.includes(id));
 
@@ -120,13 +120,13 @@ export default function PeerPicker({
         ) : (
           visiblePeers.map((p) => (
             <label
-              key={p.clerkUserId}
+              key={p.externalUserId}
               className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
             >
               <input
                 type="checkbox"
-                checked={selected.includes(p.clerkUserId)}
-                onChange={() => toggleOne(p.clerkUserId)}
+                checked={selected.includes(p.externalUserId)}
+                onChange={() => toggleOne(p.externalUserId)}
               />
               <span className="flex-1 min-w-0">
                 <span className="font-medium text-gray-800 block truncate">{formatPeerName(p, sortBy)}</span>

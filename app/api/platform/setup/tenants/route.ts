@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requirePlatformMaster } from "@/app/lib/intranet-auth";
 import { emailTenantSpaceReady } from "@/app/lib/platform-signup-email";
 import {
-  inviteAdminOnTenantClerk,
+  inviteAdminOnTenant,
   parseAdminContactFromBody,
 } from "@/app/lib/tenant-admin-invite";
 import { tenantSignInUrl } from "@/app/lib/tenant-portal";
@@ -46,13 +46,13 @@ export async function POST(req: Request) {
       },
     });
 
-    const secretKey = input.secrets?.clerkSecretKey?.trim();
+    const secretKey = input.secrets?.secretKey?.trim();
     if (!secretKey) {
-      return NextResponse.json({ error: "clerkSecretKey requis." }, { status: 400 });
+      return NextResponse.json({ error: "secretKey requis." }, { status: 400 });
     }
 
     const tenant = await createTenant(input);
-    await inviteAdminOnTenantClerk(secretKey, adminContact);
+    await inviteAdminOnTenant(secretKey, adminContact, tenant.slug);
 
     const host =
       tenant.hostnames.find((h) => h && h !== "localhost") || tenant.hostnames[0] || "localhost";

@@ -48,7 +48,7 @@ export type CertificateLine = {
 };
 
 export type DesignatedSignatory = {
-  clerkUserId: string;
+  externalUserId: string;
   name: string;
   designatedBy: string;
   designatedAt: string;
@@ -111,7 +111,7 @@ export const CERTIFICATE_S3 = {
   awardsIndex: "certificates/awards-index.json",
   pdf: (id: string) => `certificates/pdfs/${id}.pdf`,
   verify: (token: string) => `certificates/verify/${token}.json`,
-  profSignature: (clerkUserId: string) => `certificates/signatures/prof/${clerkUserId}.png`,
+  profSignature: (externalUserId: string) => `certificates/signatures/prof/${externalUserId}.png`,
 } as const;
 
 const CERTIFICATE_PROGRAM_STATUS_LABELS: Record<CertificateProgramStatus, string> = {

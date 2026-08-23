@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -25,7 +25,7 @@ const TripDetailsLoaded = dynamic(
 
 export default function TripDetails() {
   const { id } = useParams();
-  const { isLoaded: isUserLoaded } = useUser();
+  const { isLoaded: isUserLoaded } = useSessionUser();
   const [trip, setTrip] = useState<TravelsTrip | null>(null);
 
   useEffect(() => {

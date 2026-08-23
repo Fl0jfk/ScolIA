@@ -1,9 +1,9 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 
 export function useIsPlatformMaster(): boolean {
-  const { user } = useUser();
+  const { user } = useSessionUser();
   const meta = user?.publicMetadata as Record<string, unknown> | undefined;
   const roles = meta?.role;
   const arr = Array.isArray(roles) ? roles.map(String) : roles ? [String(roles)] : [];

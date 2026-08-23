@@ -1,4 +1,4 @@
-import type { ClerkLikeUser } from "@/app/lib/clerk-user-types";
+import type { SessionLikeUser } from "@/app/lib/app-actor-types";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 
 export type OneDriveUserProfile = {
@@ -26,7 +26,7 @@ export const ONEDRIVE_USER_BASES: Record<
 
 const ONEDRIVE_EMAIL_TO_BASE_KEY: Record<string, string> = {};
 
-export function getOneDriveProfileForClerkLastName(lastName: string): OneDriveUserProfile | null {
+export function getOneDriveProfileForLastName(lastName: string): OneDriveUserProfile | null {
   const key = lastName
     .toUpperCase()
     .normalize("NFD")
@@ -53,7 +53,7 @@ export function getOneDriveProfileForUser(input: {
     }
   }
   if (input.lastName?.trim()) {
-    return getOneDriveProfileForClerkLastName(input.lastName);
+    return getOneDriveProfileForLastName(input.lastName);
   }
   return null;
 }
@@ -64,7 +64,7 @@ export function getOneDriveProfileForSecteur(secteur: Secteur): OneDriveUserProf
   return { key: secteur, secteur, basePath: def.basePath, label: def.label };
 }
 
-export function getOneDriveProfileForClerkUser(user: ClerkLikeUser): OneDriveUserProfile | null {
+export function getOneDriveProfileForSessionUser(user: SessionLikeUser): OneDriveUserProfile | null {
   const emails = [
     user.primaryEmailAddress?.emailAddress,
     ...(user.emailAddresses?.map((e) => e.emailAddress) ?? []),

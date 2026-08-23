@@ -26,11 +26,11 @@ function parseAssignments(raw: unknown): StageClassReferentAssignment[] {
     if (!row || typeof row !== "object") continue;
     const o = row as Record<string, unknown>;
     const className = String(o.className ?? "").trim();
-    const clerkUserId = String(o.clerkUserId ?? "").trim();
+    const externalUserId = String(o.externalUserId ?? "").trim();
     const name = String(o.name ?? "").trim();
     const email = String(o.email ?? "").trim().toLowerCase();
-    if (!className || !clerkUserId || !name || !email) continue;
-    out.push({ className, clerkUserId, name, email });
+    if (!className || !externalUserId || !name || !email) continue;
+    out.push({ className, externalUserId, name, email });
   }
   return out;
 }

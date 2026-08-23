@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useAdminBootstrap } from "@/app/contexts/admin-bootstrap";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { resolveModuleIdFromPath } from "@/app/lib/intranet-modules";
@@ -42,7 +42,7 @@ export function useModuleTour() {
 
 export default function ModuleTourProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const bootstrap = useAdminBootstrap();
   const userId = user?.id ?? "";
 

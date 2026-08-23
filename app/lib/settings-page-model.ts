@@ -17,9 +17,9 @@ export type SettingsEstablishmentForm = {
   kind?: string;
   directorName: string;
   directorEmail: string;
-  directorClerkUserId: string;
+  directorExternalUserId: string;
   colorHex: string;
-  clerkRoleSlugs: string;
+  roleSlugs: string;
   active: boolean;
   grades?: string;
   signatureS3Key?: string;
@@ -33,9 +33,9 @@ export function emptySettingsEstablishmentForm(): SettingsEstablishmentForm {
     kind: "custom",
     directorName: "",
     directorEmail: "",
-    directorClerkUserId: "",
+    directorExternalUserId: "",
     colorHex: "#8B5CF6",
-    clerkRoleSlugs: "",
+    roleSlugs: "",
     active: true,
     signaturePreviewUrl: null,
   };

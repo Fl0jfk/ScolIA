@@ -19,7 +19,7 @@ import {
 function voterPepper() {
   return (
     process.env.RH_MOOD_PULSE_PEPPER?.trim() ||
-    process.env.CLERK_SECRET_KEY?.trim() ||
+    process.env.LEGACY_SECRET_KEY?.trim() ||
     "rh-mood-pulse-dev"
   );
 }

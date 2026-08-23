@@ -6,7 +6,7 @@ import { flushOcrJobTraces } from "@/app/lib/ocr-job-trace-store";
 /**
  * Relance interne du worker OCR (auto-chaînage serveur, onglet fermé).
  * Appelé uniquement par le worker lui-même, protégé par un secret partagé —
- * pas de session Clerk requise (route publique côté middleware).
+ * pas de session utilisateur requise (route publique côté middleware).
  */
 export const maxDuration = 60;
 

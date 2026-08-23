@@ -16,13 +16,13 @@ export async function isDomainCoordinator(userId: string, domainId: string): Pro
   if (!userId || !domainId) return false;
   const domains = await loadDomains();
   const domain = domains.find((d) => d.id === domainId);
-  return Boolean(domain?.coordinatorClerkUserIds.includes(userId));
+  return Boolean(domain?.coordinatorExternalUserIds.includes(userId));
 }
 
 async function isAnyDomainCoordinator(userId: string): Promise<boolean> {
   if (!userId) return false;
   const domains = await loadDomains();
-  return domains.some((d) => d.coordinatorClerkUserIds.includes(userId));
+  return domains.some((d) => d.coordinatorExternalUserIds.includes(userId));
 }
 
 async function canAccessDomainPlanningSettings(userId: string): Promise<boolean> {
@@ -33,21 +33,21 @@ async function canAccessDomainPlanningSettings(userId: string): Promise<boolean>
   return isAnyDomainCoordinator(userId);
 }
 
-/** Liste Clerk : paramétrage ou affectation de créneaux (responsables de domaine). */
-async function canListDomainPlanningClerkUsers(userId: string): Promise<boolean> {
+/** Liste directory : paramétrage ou affectation de créneaux (responsables de domaine). */
+async function canListDomainPlanningDirectoryUsers(userId: string): Promise<boolean> {
   return canAccessDomainPlanningSettings(userId);
 }
 
-export async function requireDomainPlanningClerkUsersList(): Promise<
+export async function requireDomainPlanningDirectoryUsersList(): Promise<
   { ok: true; ctx: AuthContext } | { ok: false; response: NextResponse }
 > {
   const gate = await requireAuth();
   if (!gate.ok) return gate;
-  if (!(await canListDomainPlanningClerkUsers(gate.ctx.userId))) {
+  if (!(await canListDomainPlanningDirectoryUsers(gate.ctx.userId))) {
     return {
       ok: false,
       response: NextResponse.json(
-        { error: "Non autorisé.", code: "DOMAIN_PLANNING_CLERK_USERS_DENIED" },
+        { error: "Non autorisé.", code: "DOMAIN_PLANNING_DIRECTORY_USERS_DENIED" },
         { status: 403 },
       ),
     };

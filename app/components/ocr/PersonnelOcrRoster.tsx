@@ -62,7 +62,7 @@ export default function PersonnelOcrRoster() {
       <h3 className="text-sm font-bold text-slate-800">Personnel OGEC (dossiers OCR)</h3>
       <p className="text-xs text-slate-600 leading-relaxed">
         Dossiers RH utilisés pour ranger automatiquement les PDF administratifs (contrats, paie,
-        formations…). Indépendant des enseignants. Les comptes Clerk existants sont liés par email si
+        formations…). Indépendant des enseignants. Les comptes existants sont liés par email si
         trouvés.
       </p>
       <div className="rounded-lg border border-teal-100 bg-white/80 px-3 py-2 text-xs text-slate-600 space-y-2">

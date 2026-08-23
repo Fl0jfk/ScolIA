@@ -26,7 +26,7 @@ export function requestOriginFromHostHeader(hostHeader: string): string {
 }
 
 export function localDevSignInUrl(origin: string, tenantSlug?: string): string {
-  const url = new URL("/sign-in", origin);
+  const url = new URL("/auth/sign-in", origin);
   if (tenantSlug?.trim()) {
     url.searchParams.set(LOCAL_DEV_TENANT_QUERY, tenantSlug.trim());
   }

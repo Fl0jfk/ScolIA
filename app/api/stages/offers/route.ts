@@ -46,7 +46,7 @@ export async function GET() {
       const mine = await Promise.all(
         index.filter(() => true).map(async (e) => {
           const o = await getStageOffer(e.id);
-          if (!o || o.submittedBy.clerkUserId !== gate.ctx.userId) return null;
+          if (!o || o.submittedBy.externalUserId !== gate.ctx.userId) return null;
           return o;
         }),
       );
@@ -93,7 +93,7 @@ export async function POST(req: Request) {
       status: "pending",
       schoolYear: currentStageSchoolYear(),
       submittedBy: {
-        clerkUserId: gate.ctx.userId,
+        externalUserId: gate.ctx.userId,
         displayName: displayName(user),
         email: userEmail(user),
       },

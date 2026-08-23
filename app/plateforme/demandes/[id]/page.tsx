@@ -18,8 +18,8 @@ export default function PlateformeDemandeDetailPage() {
     slug: "",
     hostname: "",
     dataBucket: "",
-    clerkPublishableKey: "",
-    clerkSecretKey: "",
+    publishableKey: "",
+    secretKey: "",
   });
 
   const reload = useCallback(async () => {
@@ -201,7 +201,7 @@ export default function PlateformeDemandeDetailPage() {
             <section className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5 space-y-4">
               <h2 className="font-bold text-violet-950">Provisioning tenant</h2>
               <p className="text-xs text-violet-800">
-                Créez l&apos;application Clerk dans le dashboard, puis saisissez les clés ci-dessous.
+                Créez l&apos;instance auth dans le dashboard, puis saisissez les clés ci-dessous.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-sm">
@@ -230,20 +230,20 @@ export default function PlateformeDemandeDetailPage() {
                   />
                 </label>
                 <label className="block space-y-1 text-sm sm:col-span-2">
-                  <span className="font-semibold">Clerk publishable key</span>
+                  <span className="font-semibold">Publishable key (legacy) key</span>
                   <input
                     className="w-full rounded-lg border px-3 py-2 font-mono text-sm"
-                    value={provision.clerkPublishableKey}
-                    onChange={(ev) => setProvision({ ...provision, clerkPublishableKey: ev.target.value })}
+                    value={provision.publishableKey}
+                    onChange={(ev) => setProvision({ ...provision, publishableKey: ev.target.value })}
                   />
                 </label>
                 <label className="block space-y-1 text-sm sm:col-span-2">
-                  <span className="font-semibold">Clerk secret key</span>
+                  <span className="font-semibold">Secret key (legacy) key</span>
                   <input
                     type="password"
                     className="w-full rounded-lg border px-3 py-2 font-mono text-sm"
-                    value={provision.clerkSecretKey}
-                    onChange={(ev) => setProvision({ ...provision, clerkSecretKey: ev.target.value })}
+                    value={provision.secretKey}
+                    onChange={(ev) => setProvision({ ...provision, secretKey: ev.target.value })}
                   />
                 </label>
               </div>

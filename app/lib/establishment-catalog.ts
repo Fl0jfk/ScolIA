@@ -31,7 +31,7 @@ export function directionRoleForKind(kind: EstablishmentKind | string | undefine
   return DIRECTION_ROLE_BY_KIND[inferEstablishmentKind({ kind })];
 }
 
-export function clerkRoleSlugsForEstablishment(est: {
+export function roleSlugsForEstablishment(est: {
   kind?: string;
   id?: string;
   label?: string;
@@ -169,12 +169,12 @@ export function userCanActAsDirectionFor(
 ): boolean {
   const est = matchEstablishment(establishments, etabRef);
   if (!est) return false;
-  if (est.directorClerkUserId && user?.id && est.directorClerkUserId === user.id) return true;
+  if (est.directorExternalUserId && user?.id && est.directorExternalUserId === user.id) return true;
   const roles = rolesOverride ?? rolesFromUser(user);
   const slugs =
-    est.clerkRoleSlugs && est.clerkRoleSlugs.length > 0
-      ? est.clerkRoleSlugs
-      : clerkRoleSlugsForEstablishment(est);
+    est.roleSlugs && est.roleSlugs.length > 0
+      ? est.roleSlugs
+      : roleSlugsForEstablishment(est);
   return slugs.some((s) => userRolesMatchSlug(roles, s));
 }
 
@@ -186,7 +186,7 @@ export function userIsAnyDirection(
   const roles = rolesOverride ?? rolesFromUser(user);
   if (isAnyDirectionRole(roles)) return true;
   if (user?.id) {
-    return getActiveEstablishments(establishments).some((e) => e.directorClerkUserId === user.id);
+    return getActiveEstablishments(establishments).some((e) => e.directorExternalUserId === user.id);
   }
   return false;
 }

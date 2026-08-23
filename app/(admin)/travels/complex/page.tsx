@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useState, Suspense, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAppContext } from "@/app/hooks/useAppContext";
@@ -18,7 +18,7 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 
 function ComplexTripFormContent() {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const classOptions = useMemo(
     () =>

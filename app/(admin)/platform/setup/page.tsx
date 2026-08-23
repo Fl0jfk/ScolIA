@@ -12,10 +12,10 @@ type TenantRow = {
   hostnames: string[];
   appUrl: string;
   dataBucket: string;
-  clerkPublishableKey: string;
+  publishableKey: string;
   configured: {
-    clerkSecretKey: boolean;
-    clerkDevKeys: boolean;
+    secretKey: boolean;
+    legacyDevKeys: boolean;
     mistral: boolean;
     smtp: boolean;
     microsoft: boolean;
@@ -34,7 +34,7 @@ type PlatformSetupPayload = {
   };
   currentTenantSlug: string;
   tenants: TenantRow[];
-  localDev: { clerkEnvOverride: boolean };
+  localDev: { legacyEnvOverride: boolean };
 };
 
 function ConfigDot({ ok }: { ok: boolean }) {
@@ -89,7 +89,7 @@ export default function PlatformSetupPage() {
             <div>
               <h1 className="text-2xl font-bold text-slate-900">Configuration plateforme</h1>
               <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-                Gestion du registry multi-tenant, clés Clerk et intégrations. Profil Master uniquement.
+                Gestion du registry multi-tenant, clés auth legacy et intégrations. Profil Master uniquement.
               </p>
             </div>
             {data?.writable && (
@@ -137,9 +137,9 @@ export default function PlatformSetupPage() {
                   clés IAM plateforme) sur Scaleway / l&apos;environnement de production.
                 </p>
               )}
-              {data.localDev.clerkEnvOverride && (
+              {data.localDev.legacyEnvOverride && (
                 <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  Override Clerk local via <code>.env.local</code> actif (prioritaire en dev).
+                  Overriauth legacy local via <code>.env.local</code> actif (prioritaire en dev).
                 </p>
               )}
             </section>
@@ -191,8 +191,8 @@ export default function PlatformSetupPage() {
                         <td className="px-4 py-3 text-xs">{t.hostnames.join(", ") || "—"}</td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-2 items-center text-xs text-slate-600">
-                            <span title="Clerk SK"><ConfigDot ok={t.configured.clerkSecretKey} /> Clerk</span>
-                            <span title="Clerk dev"><ConfigDot ok={t.configured.clerkDevKeys} /> Dev</span>
+                            <span title="Secret key"><ConfigDot ok={t.configured.secretKey} /> Auth</span>
+                            <span title="Auth dev"><ConfigDot ok={t.configured.legacyDevKeys} /> Dev</span>
                             <span title="AWS"><ConfigDot ok={t.configured.aws} /> AWS</span>
                             <span title="SMTP"><ConfigDot ok={t.configured.smtp} /> SMTP</span>
                             <span title="Mistral"><ConfigDot ok={t.configured.mistral} /> Mistral</span>

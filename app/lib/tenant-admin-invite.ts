@@ -1,6 +1,10 @@
 import "server-only";
 
-import { createClerkClient } from "@clerk/backend";
+import { eq } from "drizzle-orm";
+import { getDb, isDatabaseConfigured } from "@/db/index";
+import { user } from "@/db/schema";
+import { ensureEtablissementFromSlug } from "@/app/lib/etablissement-db";
+import { setUserRolesInDb, syncUserAdminFlagsInDb } from "@/app/lib/auth-roles-db";
 import { hasGlobalAdminRole } from "@/app/lib/intranet-roles";
 
 export type TenantAdminInviteContact = {
@@ -10,37 +14,61 @@ export type TenantAdminInviteContact = {
 };
 
 /**
- * Invite (ou promeut) l'administrateur global d'un tenant sur son app Clerk.
- * Seul ce mail peut accepter l'invitation et devenir org admin.
+ * Crée (ou promeut) l’administrateur d’un établissement en PostgreSQL.
+ * L’utilisateur devra activer son mot de passe via /auth/sign-up (claim).
  */
-export async function inviteAdminOnTenantClerk(
-  clerkSecretKey: string,
+export async function inviteAdminOnTenant(
+  _secretKey: string,
   admin: TenantAdminInviteContact,
+  tenantSlug?: string,
 ): Promise<void> {
-  const client = createClerkClient({ secretKey: clerkSecretKey });
+  if (!isDatabaseConfigured()) {
+    throw new Error("DATABASE_URL requise pour inviter un administrateur.");
+  }
   const email = admin.email.trim().toLowerCase();
   if (!email) throw new Error("E-mail administrateur requis.");
   const firstName = admin.firstName.trim();
   const lastName = admin.lastName.trim();
   const roles = ["admin"];
-  const existing = await client.users.getUserList({ emailAddress: [email], limit: 1 });
-  const user = existing.data?.[0];
-  if (user) {
-    await client.users.updateUser(user.id, {
-      ...(firstName ? { firstName } : {}),
-      ...(lastName ? { lastName } : {}),
-      publicMetadata: {
-        ...(user.publicMetadata as object),
-        role: roles,
-        org_admin: hasGlobalAdminRole(roles),
-      },
-    });
+  const slug = tenantSlug?.trim();
+  if (!slug) {
+    throw new Error("slug établissement requis pour l’invitation Better-Auth.");
+  }
+
+  const etablissementId = await ensureEtablissementFromSlug(slug);
+  const db = getDb();
+  const [existing] = await db.select().from(user).where(eq(user.email, email)).limit(1);
+
+  if (existing) {
+    await db
+      .update(user)
+      .set({
+        firstName: firstName || existing.firstName,
+        lastName: lastName || existing.lastName,
+        name: `${firstName} ${lastName}`.trim() || existing.name,
+        orgAdmin: hasGlobalAdminRole(roles),
+        etablissementId,
+        updatedAt: new Date(),
+      })
+      .where(eq(user.id, existing.id));
+    await setUserRolesInDb(existing.id, etablissementId, roles);
+    await syncUserAdminFlagsInDb(existing.id, roles);
     return;
   }
-  await client.invitations.createInvitation({
-    emailAddress: email,
-    publicMetadata: { role: roles, org_admin: true },
+
+  const id = crypto.randomUUID();
+  await db.insert(user).values({
+    id,
+    email,
+    name: `${firstName} ${lastName}`.trim() || email,
+    firstName: firstName || null,
+    lastName: lastName || null,
+    emailVerified: false,
+    etablissementId,
+    orgAdmin: true,
   });
+  await setUserRolesInDb(id, etablissementId, roles);
+  await syncUserAdminFlagsInDb(id, roles);
 }
 
 export function parseAdminContactFromBody(raw: unknown): TenantAdminInviteContact | null {

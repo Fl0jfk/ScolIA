@@ -1,27 +1,38 @@
 import { NextResponse } from "next/server";
-import { getClerkClientForTenant } from "@/app/lib/tenant-clerk";
-import { INTRANET_ROLE_OPTIONS, hasMasterRole, intranetRolesFromMetadata, normalizeIntranetRoles } from "@/app/lib/intranet-roles";
+import { isDatabaseConfigured } from "@/db/index";
+import { INTRANET_ROLE_OPTIONS, hasMasterRole, normalizeIntranetRoles } from "@/app/lib/intranet-roles";
 import { requireAdmin } from "@/app/lib/intranet-auth";
-import {
-  getClerkUserRoles,
-  listClerkMembers,
-  memberRowFromClerkUser,
-  syncClerkUserRoles,
-} from "@/app/lib/clerk-users";
+import { setUserRolesInDb, syncUserAdminFlagsInDb } from "@/app/lib/auth-roles-db";
+import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
+import { getTenant } from "@/app/lib/tenant-context";
+import { listDirectoryMembers } from "@/app/lib/directory-members";
+import { findDbUserByExternalId, listMembersFromDb } from "@/app/lib/members-db";
+import { membersApiSourceLabel } from "@/app/lib/members-sync";
+import { eq } from "drizzle-orm";
+import { getDb } from "@/db/index";
+import { user } from "@/db/schema";
 
 export async function GET() {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
   try {
-    const users = await listClerkMembers();
+    const tenant = await getTenant();
+    const etablissementId = isDatabaseConfigured()
+      ? await ensureEtablissementFromTenant(tenant)
+      : null;
+
+    const users = etablissementId
+      ? await listMembersFromDb(etablissementId)
+      : await listDirectoryMembers();
+
     return NextResponse.json({
       users,
       roleOptions: INTRANET_ROLE_OPTIONS,
-      source: "clerk",
+      source: membersApiSourceLabel(),
     });
   } catch (e) {
     console.error("members GET:", e);
-    return NextResponse.json({ error: "Impossible de charger les utilisateurs Clerk." }, { status: 500 });
+    return NextResponse.json({ error: "Impossible de charger les utilisateurs." }, { status: 500 });
   }
 }
 
@@ -48,41 +59,73 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Sélectionnez au moins un rôle." }, { status: 400 });
     }
 
-    const client = await getClerkClientForTenant();
-    const existing = await client.users.getUserList({ emailAddress: [email], limit: 1 });
-    const clerkUser = existing.data?.[0];
+    if (!isDatabaseConfigured()) {
+      return NextResponse.json({ error: "Base de données requise." }, { status: 503 });
+    }
 
-    if (clerkUser) {
-      const existingRoles = intranetRolesFromMetadata(clerkUser.publicMetadata);
-      if (hasMasterRole(existingRoles)) {
-        return NextResponse.json({ error: "Ce compte est protégé." }, { status: 403 });
+    const tenant = await getTenant();
+    const etablissementId = await ensureEtablissementFromTenant(tenant);
+    const { getDb } = await import("@/db/index");
+    const { user } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const db = getDb();
+
+    const [existing] = await db.select().from(user).where(eq(user.email, email)).limit(1);
+    if (existing) {
+      if (existing.etablissementId !== etablissementId) {
+        return NextResponse.json(
+          { error: "Cet e-mail est déjà utilisé sur un autre établissement." },
+          { status: 409 },
+        );
       }
-      await syncClerkUserRoles(clerkUser.id, roles);
-      if (firstName || lastName) {
-        await client.users.updateUser(clerkUser.id, {
-          ...(firstName ? { firstName } : {}),
-          ...(lastName ? { lastName } : {}),
-        });
-      }
-      const refreshed = await client.users.getUser(clerkUser.id);
+      await db
+        .update(user)
+        .set({
+          firstName: firstName || existing.firstName,
+          lastName: lastName || existing.lastName,
+          name: `${firstName} ${lastName}`.trim() || existing.name,
+          updatedAt: new Date(),
+        })
+        .where(eq(user.id, existing.id));
+      await setUserRolesInDb(existing.id, etablissementId, roles);
+      await syncUserAdminFlagsInDb(existing.id, roles);
       return NextResponse.json({
         success: true,
-        mode: "clerk_existing",
-        user: memberRowFromClerkUser(refreshed),
-        message: "Utilisateur mis à jour dans Clerk.",
+        mode: "better_auth_existing",
+        user: {
+          externalUserId: existing.externalUserId ?? existing.id,
+          email: existing.email,
+          firstName: firstName || existing.firstName || undefined,
+          lastName: lastName || existing.lastName || undefined,
+          roles,
+          pending: !existing.emailVerified,
+          createdAt: existing.createdAt.toISOString(),
+          updatedAt: new Date().toISOString(),
+          displayName: `${firstName} ${lastName}`.trim() || existing.name,
+        },
+        message: "Utilisateur mis à jour. Il peut se connecter ou activer son mot de passe via /auth/sign-up.",
       });
     }
 
-    await client.invitations.createInvitation({
-      emailAddress: email,
-      publicMetadata: { role: roles },
+    const id = crypto.randomUUID();
+    await db.insert(user).values({
+      id,
+      email,
+      name: `${firstName} ${lastName}`.trim() || email,
+      firstName: firstName || null,
+      lastName: lastName || null,
+      emailVerified: false,
+      etablissementId,
+      orgAdmin: roles.includes("admin"),
     });
+    await setUserRolesInDb(id, etablissementId, roles);
+    await syncUserAdminFlagsInDb(id, roles);
 
     return NextResponse.json({
       success: true,
-      mode: "clerk_invitation",
+      mode: "better_auth_created",
       user: {
-        clerkUserId: "",
+        externalUserId: id,
         email,
         firstName: firstName || undefined,
         lastName: lastName || undefined,
@@ -92,7 +135,8 @@ export async function POST(req: Request) {
         updatedAt: new Date().toISOString(),
         displayName: `${firstName} ${lastName}`.trim() || email,
       },
-      message: "Invitation Clerk envoyée.",
+      message:
+        "Compte créé. L’utilisateur doit activer son mot de passe sur /auth/sign-up (même e-mail).",
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Création impossible";
@@ -106,26 +150,49 @@ export async function PATCH(req: Request) {
   if (!gate.ok) return gate.response;
   try {
     const body = await req.json();
-    const clerkUserId = String(body.clerkUserId ?? body.userId ?? "").trim();
+    const externalUserId = String(body.externalUserId ?? body.userId ?? "").trim();
     const roles = normalizeIntranetRoles(body.intranetRoles ?? body.roles);
-    if (!clerkUserId) {
-      return NextResponse.json({ error: "clerkUserId requis." }, { status: 400 });
+    if (!externalUserId) {
+      return NextResponse.json({ error: "userId requis." }, { status: 400 });
     }
     if (roles.some((r) => r === "master")) {
       return NextResponse.json({ error: "Le rôle Master ne peut pas être attribué ici." }, { status: 403 });
     }
-    const existingRoles = await getClerkUserRoles(clerkUserId);
-    if (hasMasterRole(existingRoles)) {
-      return NextResponse.json({ error: "Ce compte est protégé." }, { status: 403 });
-    }
     if (roles.length === 0) {
       return NextResponse.json({ error: "Sélectionnez au moins un rôle." }, { status: 400 });
     }
+    if (!isDatabaseConfigured()) {
+      return NextResponse.json({ error: "Base de données requise." }, { status: 503 });
+    }
 
-    await syncClerkUserRoles(clerkUserId, roles);
-    const client = await getClerkClientForTenant();
-    const refreshed = await client.users.getUser(clerkUserId);
-    return NextResponse.json({ success: true, user: memberRowFromClerkUser(refreshed) });
+    const tenant = await getTenant();
+    const etablissementId = await ensureEtablissementFromTenant(tenant);
+    const dbUser = await findDbUserByExternalId(etablissementId, externalUserId);
+    if (!dbUser) {
+      return NextResponse.json({ error: "Utilisateur introuvable." }, { status: 404 });
+    }
+    const existingRoles = await listMembersFromDb(etablissementId).then(
+      (rows) => rows.find((r) => r.externalUserId === (dbUser.externalUserId ?? dbUser.id))?.roles ?? [],
+    );
+    if (hasMasterRole(existingRoles)) {
+      return NextResponse.json({ error: "Ce compte est protégé." }, { status: 403 });
+    }
+    await setUserRolesInDb(dbUser.id, etablissementId, roles);
+    await syncUserAdminFlagsInDb(dbUser.id, roles);
+    return NextResponse.json({
+      success: true,
+      user: {
+        externalUserId: dbUser.externalUserId ?? dbUser.id,
+        email: dbUser.email,
+        firstName: dbUser.firstName ?? undefined,
+        lastName: dbUser.lastName ?? undefined,
+        roles,
+        pending: !dbUser.emailVerified,
+        createdAt: dbUser.createdAt.toISOString(),
+        updatedAt: dbUser.updatedAt.toISOString(),
+        displayName: dbUser.name,
+      },
+    });
   } catch (e) {
     console.error("members PATCH:", e);
     return NextResponse.json({ error: "Mise à jour impossible" }, { status: 500 });
@@ -135,44 +202,41 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
-  const clerkUserId = new URL(req.url).searchParams.get("clerkUserId")?.trim();
+  const externalUserId = new URL(req.url).searchParams.get("externalUserId")?.trim();
   const email = new URL(req.url).searchParams.get("email")?.trim().toLowerCase();
-  if (!clerkUserId && !email) {
-    return NextResponse.json({ error: "clerkUserId ou email requis" }, { status: 400 });
+  if (!externalUserId && !email) {
+    return NextResponse.json({ error: "externalUserId ou email requis" }, { status: 400 });
   }
   try {
-    const client = await getClerkClientForTenant();
+    if (!isDatabaseConfigured()) {
+      return NextResponse.json({ error: "Base de données requise." }, { status: 503 });
+    }
+    const tenant = await getTenant();
+    const etablissementId = await ensureEtablissementFromTenant(tenant);
+    const db = getDb();
 
-    if (clerkUserId) {
-      const existingRoles = await getClerkUserRoles(clerkUserId);
-      if (hasMasterRole(existingRoles)) {
-        return NextResponse.json({ error: "Ce compte est protégé." }, { status: 403 });
-      }
-      await client.users.deleteUser(clerkUserId);
-      return NextResponse.json({ success: true });
+    let dbUser =
+      (externalUserId ? await findDbUserByExternalId(etablissementId, externalUserId) : null) ?? null;
+    if (!dbUser && email) {
+      const [byEmail] = await db.select().from(user).where(eq(user.email, email)).limit(1);
+      if (byEmail && byEmail.etablissementId === etablissementId) dbUser = byEmail;
+    }
+    if (!dbUser) {
+      return NextResponse.json({ error: "Utilisateur introuvable." }, { status: 404 });
     }
 
-    const found = await client.users.getUserList({ emailAddress: [email!], limit: 1 });
-    const u = found.data?.[0];
-    if (u) {
-      const existingRoles = intranetRolesFromMetadata(u.publicMetadata);
-      if (hasMasterRole(existingRoles)) {
-        return NextResponse.json({ error: "Ce compte est protégé." }, { status: 403 });
-      }
-      await client.users.deleteUser(u.id);
-      return NextResponse.json({ success: true });
+    const members = await listMembersFromDb(etablissementId);
+    const roles =
+      members.find((m) => m.externalUserId === (dbUser.externalUserId ?? dbUser.id))?.roles ?? [];
+    if (hasMasterRole(roles)) {
+      return NextResponse.json({ error: "Ce compte est protégé." }, { status: 403 });
     }
 
-    const invites = await client.invitations.getInvitationList({ status: "pending" });
-    const inv = invites.data.find((i) => i.emailAddress?.toLowerCase() === email);
-    if (inv) {
-      await client.invitations.revokeInvitation(inv.id);
-      return NextResponse.json({ success: true });
-    }
-
-    return NextResponse.json({ error: "Utilisateur introuvable." }, { status: 404 });
+    await db.delete(user).where(eq(user.id, dbUser.id));
+    return NextResponse.json({ success: true });
   } catch (e) {
     console.error("members DELETE:", e);
     return NextResponse.json({ error: "Suppression impossible" }, { status: 500 });
   }
 }
+

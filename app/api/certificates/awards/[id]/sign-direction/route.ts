@@ -5,7 +5,7 @@ import {
   canViewAward,
   requiredDirectionRoleForAward,
 } from "@/app/lib/certificates-auth";
-import { getClerkUserRoles } from "@/app/lib/clerk-users";
+import { getDirectoryUserRoles } from "@/app/lib/directory-members";
 import { loadAward, loadProgram, saveAward } from "@/app/lib/certificates-storage";
 import { signAwardAsDirection } from "@/app/lib/certificates-workflow";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
@@ -25,12 +25,12 @@ export async function POST(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
   }
 
-  const roles = await getClerkUserRoles(gate.ctx.userId);
+  const roles = await getDirectoryUserRoles(gate.ctx.userId);
   const requiredRole = requiredDirectionRoleForAward(award);
   if (!roles.includes(requiredRole)) {
     return NextResponse.json(
       {
-        error: `Réservé aux comptes avec le rôle « ${requiredRole} » dans Clerk.`,
+        error: `Réservé aux comptes avec le rôle « ${requiredRole} » dans le directory.`,
         code: "DIRECTION_ROLE_REQUIRED",
         requiredRole,
       },

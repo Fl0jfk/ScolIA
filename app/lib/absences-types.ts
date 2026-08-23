@@ -321,9 +321,13 @@ export function computeStartEndAt(input: {
   }
   const start = parseLocalDateTime(input.startDate, "08:00");
   const end = parseLocalDateTime(input.endDate, "18:00");
+  const fallbackStart = new Date(`${input.startDate}T08:00:00`);
+  const fallbackEnd = new Date(`${input.endDate}T18:00:00`);
+  const startAt = start ?? (Number.isNaN(fallbackStart.getTime()) ? new Date() : fallbackStart);
+  const endAt = end ?? (Number.isNaN(fallbackEnd.getTime()) ? startAt : fallbackEnd);
   return {
-    startAt: (start || new Date(`${input.startDate}T08:00:00`)).toISOString(),
-    endAt: (end || new Date(`${input.endDate}T18:00:00`)).toISOString(),
+    startAt: startAt.toISOString(),
+    endAt: endAt.toISOString(),
   };
 }
 

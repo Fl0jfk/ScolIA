@@ -1,6 +1,6 @@
 import { normRole } from "./intranet-role-utils";
 
-/** Slugs stockés dans Clerk `publicMetadata.role` (tableau de strings). */
+/** Slugs stockés dans le directory `publicMetadata.role` (tableau de strings). */
 export const INTRANET_ROLE_OPTIONS: { slug: string; label: string }[] = [
   { slug: "admin", label: "Admin (gestion utilisateurs & paramètres)" },
   { slug: "administratif", label: "Administratif" },
@@ -34,7 +34,7 @@ export function intranetRolesExceptParent(): string[] {
 const ALLOWED = new Set(INTRANET_ROLE_OPTIONS.map((r) => r.slug));
 const HIDDEN_ROLES = new Set(["master"]);
 
-/** Libellés historiques Clerk → slug catalogue (ne retire aucun slug déjà valide). */
+/** Libellés historiques → slug catalogue (ne retire aucun slug déjà valide). */
 function canonicalIntranetRole(raw: string): string | null {
   const s = raw.trim();
   if (!s) return null;
@@ -66,7 +66,7 @@ export function intranetRolesFromMetadata(meta: unknown): string[] {
   return normalizeIntranetRoles(role);
 }
 
-/** Rôles intranet depuis un user Clerk (client ou serveur). */
+/** Rôles intranet depuis un utilisateur (client ou serveur). */
 export function rolesFromUserLike(
   user: { publicMetadata?: unknown } | null | undefined,
 ): string[] {
@@ -74,8 +74,8 @@ export function rolesFromUserLike(
 }
 
 /**
- * Métadonnées publiques depuis le JWT de session Clerk.
- * `publicMetadata` n'y est pas par défaut — configurer le session token Clerk
+ * Métadonnées publiques depuis le JWT de session.
+ * `publicMetadata` n'y est pas par défaut — configurer le jeton de session
  * ou laisser le middleware recharger via l'API (repli).
  */
 export function publicMetadataFromSessionClaims(
@@ -102,7 +102,7 @@ export function publicMetadataFromSessionClaims(
   return undefined;
 }
 
-/** Rôles intranet depuis les claims JWT (session token Clerk personnalisé). */
+/** Rôles intranet depuis les claims JWT (jeton de session personnalisé). */
 export function intranetRolesFromSessionClaims(
   claims: Record<string, unknown> | null | undefined,
 ): string[] {

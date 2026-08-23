@@ -16,8 +16,8 @@ import {
 } from "@/app/lib/onedrive-eleves";
 import { loadPersonnelEntriesForOcr } from "@/app/lib/ocr-personnel-pool";
 import {
-  resolveOcrCapabilitiesForClerkUserServer,
-  resolveOneDriveProfileForClerkUserServer,
+  resolveOcrCapabilitiesForUserServer,
+  resolveOneDriveProfileForUserServer,
 } from "@/app/lib/onedrive-user-profiles.server";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import type { OcrResolvedFlux } from "@/app/lib/ocr-flux";
@@ -85,9 +85,9 @@ export async function POST(req: Request) {
             : null,
         }
       : null;
-    const caps = like ? await resolveOcrCapabilitiesForClerkUserServer(like) : { fluxes: [], primaryEleves: null };
+    const caps = like ? await resolveOcrCapabilitiesForUserServer(like) : { fluxes: [], primaryEleves: null };
     const profile =
-      caps.primaryEleves ?? (like ? await resolveOneDriveProfileForClerkUserServer(like) : null);
+      caps.primaryEleves ?? (like ? await resolveOneDriveProfileForUserServer(like) : null);
     if (!profile && caps.fluxes.length === 0) {
       return NextResponse.json(
         {

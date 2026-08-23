@@ -5,8 +5,8 @@ import RhStaffProfileFields from "@/app/components/personnel/RhStaffProfileField
 import { profileFromFormData } from "@/app/lib/personnel-profile";
 import { PERSONNEL_CATEGORY_OPTIONS, type PersonnelCategory } from "@/app/lib/personnel-types";
 
-type ClerkCandidate = {
-  clerkUserId: string;
+type DirectoryCandidate = {
+  externalUserId: string;
   email: string;
   firstName?: string;
   lastName?: string;
@@ -24,11 +24,11 @@ type Props = {
 };
 
 export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
-  const [candidates, setCandidates] = useState<ClerkCandidate[]>([]);
+  const [candidates, setCandidates] = useState<DirectoryCandidate[]>([]);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
-  const [clerkSearch, setClerkSearch] = useState("");
-  const [showClerkPicker, setShowClerkPicker] = useState(false);
-  const [linkedClerk, setLinkedClerk] = useState<ClerkCandidate | null>(null);
+  const [directorySearch, setDirectorySearch] = useState("");
+  const [showDirectoryPicker, setShowDirectoryPicker] = useState(false);
+  const [linkedDirectoryUser, setLinkedDirectoryUser] = useState<DirectoryCandidate | null>(null);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -36,22 +36,22 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
   const [jobTitle, setJobTitle] = useState("");
   const [hireDate, setHireDate] = useState("");
   const [category, setCategory] = useState<PersonnelCategory>("administratif");
-  const [createClerk, setCreateClerk] = useState(true);
+  const [createDirectoryUser, setCreateDirectoryUser] = useState(true);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const resetForm = () => {
-    setClerkSearch("");
-    setShowClerkPicker(false);
-    setLinkedClerk(null);
+    setDirectorySearch("");
+    setShowDirectoryPicker(false);
+    setLinkedDirectoryUser(null);
     setFirstName("");
     setLastName("");
     setEmail("");
     setJobTitle("");
     setHireDate("");
     setCategory("administratif");
-    setCreateClerk(true);
+    setCreateDirectoryUser(true);
     setError(null);
   };
 
@@ -59,7 +59,7 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
     if (!open) return;
     resetForm();
     setLoadingCandidates(true);
-    void fetch("/api/personnel/clerk-candidates", { cache: "no-store" })
+    void fetch("/api/personnel/directory-candidates", { cache: "no-store" })
       .then(async (res) => {
         const j = await res.json();
         if (!res.ok) throw new Error(j.error || "Chargement impossible");
@@ -69,8 +69,8 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
       .finally(() => setLoadingCandidates(false));
   }, [open]);
 
-  const filteredClerk = useMemo(() => {
-    const q = clerkSearch.trim().toLowerCase();
+  const filteredDirectory = useMemo(() => {
+    const q = directorySearch.trim().toLowerCase();
     if (!q) return candidates.slice(0, 12);
     return candidates
       .filter((c) => {
@@ -78,29 +78,29 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
         return hay.includes(q);
       })
       .slice(0, 12);
-  }, [candidates, clerkSearch]);
+  }, [candidates, directorySearch]);
 
-  const applyClerkLink = (c: ClerkCandidate) => {
-    setLinkedClerk(c);
+  const applyDirectoryLink = (c: DirectoryCandidate) => {
+    setLinkedDirectoryUser(c);
     setFirstName(c.firstName || "");
     setLastName(c.lastName || "");
     setEmail(c.email);
     setCategory(c.suggestedCategory);
-    setCreateClerk(false);
-    setShowClerkPicker(false);
-    setClerkSearch("");
+    setCreateDirectoryUser(false);
+    setShowDirectoryPicker(false);
+    setDirectorySearch("");
   };
 
-  const clearClerkLink = () => {
-    setLinkedClerk(null);
-    setCreateClerk(true);
+  const clearDirectoryLink = () => {
+    setLinkedDirectoryUser(null);
+    setCreateDirectoryUser(true);
   };
 
   const onEmailBlur = () => {
     const normalized = email.trim().toLowerCase();
-    if (!normalized || linkedClerk) return;
+    if (!normalized || linkedDirectoryUser) return;
     const match = candidates.find((c) => c.email.toLowerCase() === normalized);
-    if (match) applyClerkLink(match);
+    if (match) applyDirectoryLink(match);
   };
 
   const submit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -120,13 +120,13 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
       profile: profileFromFormData(fd),
     };
 
-    if (linkedClerk) {
-      payload.mode = "link-clerk";
-      payload.clerkUserId = linkedClerk.clerkUserId || undefined;
-      payload.email = linkedClerk.email;
+    if (linkedDirectoryUser) {
+      payload.mode = "link-directory";
+      payload.externalUserId = linkedDirectoryUser.externalUserId || undefined;
+      payload.email = linkedDirectoryUser.email;
     } else {
       payload.mode = "create";
-      payload.createClerkUser = createClerk;
+      payload.createDirectoryUserUser = createDirectoryUser;
     }
 
     try {
@@ -154,7 +154,7 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
         <div className="p-6 border-b border-slate-100 shrink-0">
           <h2 className="text-lg font-black text-slate-900">Nouveau collaborateur</h2>
           <p className="text-xs text-slate-500 mt-1">
-            Un seul formulaire : associez un compte Clerk existant si possible, sinon création d&apos;une invitation.
+            Un seul formulaire : associez un compte existant si possible, sinon création d&apos;une invitation.
           </p>
         </div>
 
@@ -163,60 +163,60 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
 
           <section className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-black uppercase tracking-widest text-indigo-800">Compte Clerk</p>
-              {!linkedClerk && (
+              <p className="text-xs font-black uppercase tracking-widest text-indigo-800">Compte</p>
+              {!linkedDirectoryUser && (
                 <button
                   type="button"
-                  onClick={() => setShowClerkPicker((v) => !v)}
+                  onClick={() => setShowDirectoryPicker((v) => !v)}
                   className="text-xs font-bold text-indigo-600 underline"
                 >
-                  {showClerkPicker ? "Masquer la liste" : `Associer depuis Clerk (${candidates.length})`}
+                  {showDirectoryPicker ? "Masquer la liste" : `Associer depuis l’annuaire (${candidates.length})`}
                 </button>
               )}
             </div>
 
-            {linkedClerk ? (
+            {linkedDirectoryUser ? (
               <div className="flex items-start justify-between gap-3 rounded-xl bg-white border border-emerald-200 p-3">
                 <div>
-                  <p className="text-sm font-bold text-emerald-800">Compte Clerk associé</p>
-                  <p className="text-sm text-slate-800 mt-0.5">{linkedClerk.displayName || linkedClerk.email}</p>
-                  <p className="text-xs text-slate-500">{linkedClerk.email}</p>
+                  <p className="text-sm font-bold text-emerald-800">Compte associé</p>
+                  <p className="text-sm text-slate-800 mt-0.5">{linkedDirectoryUser.displayName || linkedDirectoryUser.email}</p>
+                  <p className="text-xs text-slate-500">{linkedDirectoryUser.email}</p>
                   <p className="text-[10px] font-bold text-indigo-600 mt-1 uppercase">
-                    {linkedClerk.roleLabel}
-                    {linkedClerk.pending && " · invitation en attente"}
+                    {linkedDirectoryUser.roleLabel}
+                    {linkedDirectoryUser.pending && " · invitation en attente"}
                   </p>
-                  <p className="text-xs text-emerald-700 mt-2">Aucun doublon Clerk ne sera créé.</p>
+                  <p className="text-xs text-emerald-700 mt-2">Aucun doublon ne sera créé.</p>
                 </div>
                 <button
                   type="button"
-                  onClick={clearClerkLink}
+                  onClick={clearDirectoryLink}
                   className="text-xs font-bold text-slate-500 underline shrink-0"
                 >
                   Dissocier
                 </button>
               </div>
-            ) : showClerkPicker ? (
+            ) : showDirectoryPicker ? (
               <div className="space-y-2">
                 <input
                   type="search"
-                  value={clerkSearch}
-                  onChange={(e) => setClerkSearch(e.target.value)}
-                  placeholder="Rechercher dans Clerk…"
+                  value={directorySearch}
+                  onChange={(e) => setDirectorySearch(e.target.value)}
+                  placeholder="Rechercher dans le directory…"
                   className="w-full border rounded-xl p-2.5 text-sm bg-white"
                 />
                 {loadingCandidates ? (
                   <p className="text-xs text-slate-400 text-center py-3">Chargement…</p>
-                ) : filteredClerk.length === 0 ? (
+                ) : filteredDirectory.length === 0 ? (
                   <p className="text-xs text-slate-400 italic text-center py-3">
-                    Aucun compte Clerk disponible sans dossier RH.
+                    Aucun compte disponible sans dossier RH.
                   </p>
                 ) : (
                   <ul className="space-y-1.5 max-h-40 overflow-y-auto">
-                    {filteredClerk.map((c) => (
-                      <li key={c.clerkUserId || c.email}>
+                    {filteredDirectory.map((c) => (
+                      <li key={c.externalUserId || c.email}>
                         <button
                           type="button"
-                          onClick={() => applyClerkLink(c)}
+                          onClick={() => applyDirectoryLink(c)}
                           className="w-full text-left rounded-lg border border-slate-200 bg-white px-3 py-2 hover:border-indigo-300 transition"
                         >
                           <p className="font-bold text-sm">{c.displayName || c.email}</p>
@@ -229,7 +229,7 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
               </div>
             ) : (
               <p className="text-xs text-slate-600">
-                Saisissez l&apos;email ci-dessous : s&apos;il existe dans Clerk, il sera associé automatiquement.
+                Saisissez l&apos;email ci-dessous : s&apos;il existe dans le directory, il sera associé automatiquement.
               </p>
             )}
           </section>
@@ -291,16 +291,16 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
               </select>
             </div>
 
-            {!linkedClerk && (
+            {!linkedDirectoryUser && (
               <label className="flex items-start gap-2 text-sm text-slate-600 mt-3">
                 <input
                   type="checkbox"
-                  checked={createClerk}
-                  onChange={(e) => setCreateClerk(e.target.checked)}
+                  checked={createDirectoryUser}
+                  onChange={(e) => setCreateDirectoryUser(e.target.checked)}
                   className="mt-1"
                 />
                 <span>
-                  Créer un compte Clerk si l&apos;email n&apos;existe pas encore
+                  Créer un compte si l&apos;email n&apos;existe pas encore
                   <span className="block text-xs text-slate-400">
                     Une invitation sera envoyée uniquement pour un nouvel email.
                   </span>
@@ -322,7 +322,7 @@ export default function RhNewStaffModal({ open, onClose, onCreated }: Props) {
             disabled={busy}
             className="flex-1 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-sm disabled:opacity-50"
           >
-            {busy ? "Création…" : linkedClerk ? "Créer le dossier (Clerk associé)" : "Créer le dossier"}
+            {busy ? "Création…" : linkedDirectoryUser ? "Créer le dossier (compte associé)" : "Créer le dossier"}
           </button>
         </div>
       </div>

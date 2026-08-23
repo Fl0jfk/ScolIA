@@ -1,5 +1,5 @@
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import { isLocalDevHostname } from "@/app/lib/clerk-tenant-keys";
+import { isLocalDevHostname } from "@/app/lib/local-host-keys";
 import { getPlatformS3Client } from "@/app/lib/s3-clients";
 import { isPlatformHostname } from "@/app/lib/platform-hostname";
 import { isPlatformTenantSlug, platformTenantFromEnv } from "@/app/lib/platform-tenant";
@@ -54,9 +54,9 @@ export function parseTenantIndexEntry(raw: unknown): TenantIndexEntry | null {
   const o = raw as Record<string, unknown>;
   const slug = typeof o.slug === "string" ? o.slug.trim() : "";
   const dataBucket = typeof o.dataBucket === "string" ? o.dataBucket.trim() : "";
-  const clerkPublishableKey =
-    typeof o.clerkPublishableKey === "string" ? o.clerkPublishableKey.trim() : "";
-  if (!slug || !dataBucket || !clerkPublishableKey) return null;
+  const publishableKey =
+    typeof o.publishableKey === "string" ? o.publishableKey.trim() : "";
+  if (!slug || !dataBucket || !publishableKey) return null;
 
   const kind = o.kind === "standalone" ? "standalone" : "groupe";
   const label = typeof o.label === "string" && o.label.trim() ? o.label.trim() : slug;
@@ -67,9 +67,9 @@ export function parseTenantIndexEntry(raw: unknown): TenantIndexEntry | null {
   const hostnames = Array.isArray(o.hostnames)
     ? o.hostnames.map((h) => normalizeHostname(String(h))).filter(Boolean)
     : [];
-  const clerkSecretKey =
-    typeof o.clerkSecretKey === "string" && o.clerkSecretKey.trim()
-      ? o.clerkSecretKey.trim()
+  const secretKey =
+    typeof o.secretKey === "string" && o.secretKey.trim()
+      ? o.secretKey.trim()
       : undefined;
 
   const postalRaw = o.postalAddress;
@@ -97,8 +97,8 @@ export function parseTenantIndexEntry(raw: unknown): TenantIndexEntry | null {
     hostnames,
     dataBucket,
     appUrl,
-    clerkPublishableKey,
-    clerkSecretKey,
+    publishableKey,
+    secretKey,
     ...(postalAddress ? { postalAddress } : {}),
     ...(logoUrl ? { logoUrl } : {}),
   };
@@ -107,18 +107,18 @@ export function parseTenantIndexEntry(raw: unknown): TenantIndexEntry | null {
 function parseTenantSecrets(raw: unknown): TenantSecrets | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
-  const clerkSecretKey =
-    typeof o.clerkSecretKey === "string" ? o.clerkSecretKey.trim() : "";
-  if (!clerkSecretKey) return null;
+  const secretKey =
+    typeof o.secretKey === "string" ? o.secretKey.trim() : "";
+  if (!secretKey) return null;
 
-  const secrets: TenantSecrets = { clerkSecretKey };
+  const secrets: TenantSecrets = { secretKey };
 
-  const clerkDevPublishableKey =
-    typeof o.clerkDevPublishableKey === "string" ? o.clerkDevPublishableKey.trim() : "";
-  const clerkDevSecretKey =
-    typeof o.clerkDevSecretKey === "string" ? o.clerkDevSecretKey.trim() : "";
-  if (clerkDevPublishableKey) secrets.clerkDevPublishableKey = clerkDevPublishableKey;
-  if (clerkDevSecretKey) secrets.clerkDevSecretKey = clerkDevSecretKey;
+  const devPublishableKey =
+    typeof o.devPublishableKey === "string" ? o.devPublishableKey.trim() : "";
+  const devSecretKey =
+    typeof o.devSecretKey === "string" ? o.devSecretKey.trim() : "";
+  if (devPublishableKey) secrets.devPublishableKey = devPublishableKey;
+  if (devSecretKey) secrets.devSecretKey = devSecretKey;
 
   const mistral = o.mistral as Record<string, unknown> | undefined;
   if (mistral && typeof mistral.apiKey === "string" && mistral.apiKey.trim()) {
@@ -251,31 +251,30 @@ async function resolveSecretsForSlug(slug: string): Promise<TenantSecrets | null
 }
 
 async function hydrateTenant(entry: TenantIndexEntry): Promise<TenantConfig | null> {
-  let clerkSecretKey = entry.clerkSecretKey?.trim() ?? "";
+  let secretKey = entry.secretKey?.trim() ?? "";
   let extraSecrets: TenantSecrets | null = null;
 
-  if (!clerkSecretKey) {
+  if (!secretKey) {
     extraSecrets = await resolveSecretsForSlug(entry.slug);
-    clerkSecretKey = extraSecrets?.clerkSecretKey ?? "";
+    secretKey = extraSecrets?.secretKey ?? "";
   } else if (isMultiTenantEnabled()) {
     extraSecrets = await resolveSecretsForSlug(entry.slug);
   }
 
-  if (!clerkSecretKey) {
-    console.error(
-      `[tenant-registry] tenant « ${entry.slug} » : clerkSecretKey manquant (fichier ${secretsKeyForSlug(entry.slug)} ou index legacy).`,
-    );
-    return null;
+  // Better-Auth : les clés auth legacy ne sont plus obligatoires pour charger un tenant.
+  if (!secretKey) {
+    secretKey = "unused-better-auth";
   }
 
-  const { clerkSecretKey: _drop, ...indexRest } = entry;
+  const { secretKey: _drop, ...indexRest } = entry;
   const config: TenantConfig = {
     ...indexRest,
-    clerkSecretKey,
+    secretKey,
+    publishableKey: entry.publishableKey?.trim() || "unused-better-auth",
   };
 
   if (extraSecrets) {
-    const { clerkSecretKey: _sk, ...rest } = extraSecrets;
+    const { secretKey: _sk, ...rest } = extraSecrets;
     if (Object.keys(rest).length > 0) {
       config.secrets = rest;
     }
@@ -288,13 +287,14 @@ export function defaultTenantFromEnv(): TenantConfig {
   const dataBucket =
     process.env.BUCKET_NAME?.trim() ||
     process.env.REGISTRY_BUCKET?.trim();
-  const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
-  const clerkSecretKey = process.env.CLERK_SECRET_KEY?.trim();
-  if (!dataBucket || !clerkPublishableKey || !clerkSecretKey) {
+  if (!dataBucket) {
     throw new Error(
-      "Configuration tenant manquante (BUCKET_NAME ou REGISTRY_BUCKET, NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY).",
+      "Configuration tenant manquante (BUCKET_NAME ou REGISTRY_BUCKET).",
     );
   }
+  const publishableKey =
+    process.env.NEXT_PUBLIC_LEGACY_PUBLISHABLE_KEY?.trim() || "unused-better-auth";
+  const secretKey = process.env.LEGACY_SECRET_KEY?.trim() || "unused-better-auth";
 
   const slug = process.env.DEFAULT_TENANT_SLUG?.trim() || "default";
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
@@ -321,8 +321,8 @@ export function defaultTenantFromEnv(): TenantConfig {
     hostnames,
     dataBucket,
     appUrl,
-    clerkPublishableKey,
-    clerkSecretKey,
+    publishableKey,
+    secretKey,
   };
 }
 
@@ -402,8 +402,8 @@ export async function saveTenantSecretsFile(slug: string, secrets: TenantSecrets
   if (!bucket) {
     throw new Error("REGISTRY_BUCKET non configuré — écriture impossible.");
   }
-  if (!secrets.clerkSecretKey?.trim()) {
-    throw new Error("clerkSecretKey requis dans le fichier secrets.");
+  if (!secrets.secretKey?.trim()) {
+    throw new Error("secretKey requis dans le fichier secrets.");
   }
   await getPlatformS3Client().send(
     new PutObjectCommand({
@@ -556,7 +556,7 @@ export async function getTenantSecrets(slug: string): Promise<TenantSecrets | nu
   const tenant = await resolveTenantBySlug(slug);
   if (!tenant) return null;
   return {
-    clerkSecretKey: tenant.clerkSecretKey,
+    secretKey: tenant.secretKey,
     ...tenant.secrets,
   };
 }

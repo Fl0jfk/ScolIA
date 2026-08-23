@@ -10,15 +10,15 @@ import {
 } from "@/app/components/settings/SettingsChrome";
 import { dash } from "@/app/lib/dashboard-brand";
 
-type ClerkUser = { clerkUserId: string; email: string; displayName: string };
-type Assignment = { className: string; clerkUserId: string; name: string; email: string };
+type DirectoryUser = { externalUserId: string; email: string; displayName: string };
+type Assignment = { className: string; externalUserId: string; name: string; email: string };
 type Roster = { teacherCatalog: string[]; classAssignments: Assignment[]; updatedAt?: string };
 
 export default function SchoolRosterPanel() {
   const [elevesCount, setElevesCount] = useState<number | null>(null);
   const [roster, setRoster] = useState<Roster | null>(null);
   const [classes, setClasses] = useState<string[]>([]);
-  const [users, setUsers] = useState<ClerkUser[]>([]);
+  const [users, setUsers] = useState<DirectoryUser[]>([]);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
   const [teacherCatalogText, setTeacherCatalogText] = useState("");
   const [elevesSource, setElevesSource] = useState<"auto" | "pronote" | "ecoledirecte">("auto");
@@ -32,8 +32,8 @@ export default function SchoolRosterPanel() {
   const teachersInputRef = useRef<HTMLInputElement>(null);
 
   const userById = useMemo(() => {
-    const m = new Map<string, ClerkUser>();
-    for (const u of users) m.set(u.clerkUserId, u);
+    const m = new Map<string, DirectoryUser>();
+    for (const u of users) m.set(u.externalUserId, u);
     return m;
   }, [users]);
 
@@ -51,7 +51,7 @@ export default function SchoolRosterPanel() {
       setTeacherCatalogText((j.roster?.teacherCatalog || []).join("\n"));
       const map: Record<string, string> = {};
       for (const a of (j.roster?.classAssignments || []) as Assignment[]) {
-        map[a.className] = a.clerkUserId;
+        map[a.className] = a.externalUserId;
       }
       setAssignments(map);
     } catch (e: unknown) {
@@ -111,12 +111,12 @@ export default function SchoolRosterPanel() {
     setErr(null);
     try {
       const classAssignments = Object.entries(assignments)
-        .filter(([, clerkUserId]) => clerkUserId)
-        .map(([className, clerkUserId]) => {
-          const u = userById.get(clerkUserId);
+        .filter(([, externalUserId]) => externalUserId)
+        .map(([className, externalUserId]) => {
+          const u = userById.get(externalUserId);
           return {
             className,
-            clerkUserId,
+            externalUserId,
             name: u?.displayName || "",
             email: u?.email || "",
           };
@@ -285,7 +285,7 @@ export default function SchoolRosterPanel() {
               >
                 <option value="">— Professeur —</option>
                 {users.map((u) => (
-                  <option key={u.clerkUserId} value={u.clerkUserId}>
+                  <option key={u.externalUserId} value={u.externalUserId}>
                     {u.displayName}
                   </option>
                 ))}

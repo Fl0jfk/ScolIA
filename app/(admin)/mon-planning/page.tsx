@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import PlanningWeekCalendar from "@/app/components/personnel/PlanningWeekCalendar";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -32,7 +32,7 @@ const RhPlanningPanel = dynamic(() => import("@/app/components/personnel/RhPlann
 type Tab = "mine" | "gestion";
 
 export default function MonPlanningClient() {
-  const { isLoaded, user } = useUser();
+  const { isLoaded, user } = useSessionUser();
   const [tab, setTab] = useState<Tab>("mine");
   const [planning, setPlanning] = useState<RhPlanningDoc | null>(null);
   const [kind, setKind] = useState<RhPlanningKind>("teacher");

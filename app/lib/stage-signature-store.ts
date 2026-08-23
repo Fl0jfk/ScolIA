@@ -3,8 +3,8 @@ import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 import { STAGE_S3 } from "@/app/lib/stage-types";
 
-export async function loadReferentSignatureBytes(clerkUserId: string): Promise<Uint8Array | null> {
-  const id = clerkUserId.trim();
+export async function loadReferentSignatureBytes(externalUserId: string): Promise<Uint8Array | null> {
+  const id = externalUserId.trim();
   if (!id) return null;
   try {
     const s3Client = await getTenantDataS3Client();
@@ -21,8 +21,8 @@ export async function loadReferentSignatureBytes(clerkUserId: string): Promise<U
   }
 }
 
-export async function saveReferentSignature(clerkUserId: string, pngBytes: Buffer): Promise<void> {
-  const id = clerkUserId.trim();
+export async function saveReferentSignature(externalUserId: string, pngBytes: Buffer): Promise<void> {
+  const id = externalUserId.trim();
   if (!id) throw new Error("Utilisateur invalide.");
   const s3Client = await getTenantDataS3Client();
   await s3Client.send(

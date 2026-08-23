@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { ClerkAssigneeOption } from "@/app/components/domain-planning/DomainAssigneePicker";
+import type { DirectoryAssigneeOption } from "@/app/components/domain-planning/DomainAssigneePicker";
 import TravelsTeacherPicker from "@/app/components/travels/TravelsTeacherPicker";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
@@ -11,14 +11,14 @@ type Props = {
 };
 
 export default function TravelsOwnerRepairSection({ trip, onRepaired }: Props) {
-  const [users, setUsers] = useState<ClerkAssigneeOption[]>([]);
+  const [users, setUsers] = useState<DirectoryAssigneeOption[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
   const [selectedId, setSelectedId] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/travels/clerk-users")
+    fetch("/api/travels/directory-users")
       .then((res) => res.json())
       .then((data) => {
         if (!cancelled) setUsers(Array.isArray(data.users) ? data.users : []);
@@ -35,7 +35,7 @@ export default function TravelsOwnerRepairSection({ trip, onRepaired }: Props) {
   }, []);
 
   const selected = useMemo(
-    () => users.find((u) => u.clerkUserId === selectedId) ?? null,
+    () => users.find((u) => u.externalUserId === selectedId) ?? null,
     [users, selectedId],
   );
 
@@ -56,7 +56,7 @@ export default function TravelsOwnerRepairSection({ trip, onRepaired }: Props) {
     try {
       const updatedTrip: TravelsTrip = {
         ...trip,
-        ownerId: selected.clerkUserId,
+        ownerId: selected.externalUserId,
         ownerName,
         ownerEmail: selected.email,
         history: [
@@ -103,7 +103,7 @@ export default function TravelsOwnerRepairSection({ trip, onRepaired }: Props) {
         value={selectedId}
         loading={loadingUsers}
         disabled={saving}
-        onChange={(u) => setSelectedId(u?.clerkUserId || "")}
+        onChange={(u) => setSelectedId(u?.externalUserId || "")}
       />
       <button
         type="button"

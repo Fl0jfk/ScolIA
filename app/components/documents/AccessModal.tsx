@@ -15,7 +15,7 @@ export default function AccessModal({
   return (
     <DocumentModal title={`Qui a accès — ${title}`} onClose={onClose} wide>
       <p className="text-sm text-gray-500 mb-3">
-        Personnel Clerk autorisé à consulter ce partage.
+        Personnel autorisé à consulter ce partage.
       </p>
       <ul className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
         {people.map((person) => (

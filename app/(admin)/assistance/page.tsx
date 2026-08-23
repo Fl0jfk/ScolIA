@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useEffect, useRef, useState } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";
@@ -13,7 +13,7 @@ const MAX_FILES = 8;
 type ScopeOption = { id: string; label: string };
 
 export default function AssistancePage() {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const fileRef = useRef<HTMLInputElement>(null);
   const [options, setOptions] = useState<ScopeOption[]>([]);
   const [scope, setScope] = useState("");

@@ -5,18 +5,13 @@ import { parseCalendarDateLocal } from "@/app/lib/domain-planning-dates";
 import { findDomainById, loadBookings, saveBookings } from "@/app/lib/domain-planning-storage";
 import type { DomainPlanningBooking } from "@/app/lib/domain-planning-types";
 import { requireAuth, isIntranetAdmin } from "@/app/lib/intranet-auth";
-import { getClerkClientForTenant } from "@/app/lib/tenant-clerk";
+import { resolveMemberProfileById } from "@/app/lib/members-db";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
 
-async function resolveClerkUserEmail(userId: string): Promise<string> {
+async function resolveDirectoryUserEmail(userId: string): Promise<string> {
   try {
-    const client = await getClerkClientForTenant();
-    const u = await client.users.getUser(userId);
-    return (
-      u.emailAddresses.find((e) => e.id === u.primaryEmailAddressId)?.emailAddress ??
-      u.emailAddresses[0]?.emailAddress ??
-      ""
-    );
+    const profile = await resolveMemberProfileById(userId);
+    return profile?.email ?? "";
   } catch {
     return "";
   }
@@ -97,7 +92,7 @@ export async function POST(req: NextRequest) {
     let bookingEmail = email?.trim() || "";
     if (assignmentKind === "coordinator") {
       if (!bookingEmail && targetUserId?.trim()) {
-        bookingEmail = await resolveClerkUserEmail(String(targetUserId).trim());
+        bookingEmail = await resolveDirectoryUserEmail(String(targetUserId).trim());
       }
       if (!bookingEmail) {
         return NextResponse.json(

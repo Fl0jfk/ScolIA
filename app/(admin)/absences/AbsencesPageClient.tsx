@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useRouter, useSearchParams } from "next/navigation";
 import AbsencesCalendar from "@/app/components/absences/AbsencesCalendar";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -58,7 +58,7 @@ export default function AbsencesPageClient({
   /** Affiché dans le hub RH (`/rh?tab=absences&view=…`). */
   embeddedInRh?: boolean;
 } = {}) {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const establishments = appCtx?.establishments ?? [];
   const [items, setItems] = useState<AbsenceItem[]>([]);

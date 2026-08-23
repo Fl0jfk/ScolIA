@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import {
   readDashboardSignalsCache,
   writeDashboardSignalsCache,
@@ -42,7 +42,7 @@ type Options = {
  */
 export function useDashboardSignals(options: Options = {}) {
   const { pollIntervalMs = DEFAULT_POLL_MS, onFetched } = options;
-  const { isLoaded, user } = useUser();
+  const { isLoaded, user } = useSessionUser();
   const userId = user?.id ?? null;
 
   const [signals, setSignals] = useState<DashboardSignals>(EMPTY_SIGNALS);

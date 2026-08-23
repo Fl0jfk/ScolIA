@@ -20,15 +20,15 @@ function parseDomain(raw: unknown): DomainPlanningDomain | null {
   const id = typeof o.id === "string" ? o.id.trim() : "";
   const name = typeof o.name === "string" ? o.name.trim() : "";
   if (!id || !name) return null;
-  const coordinatorClerkUserIds = Array.isArray(o.coordinatorClerkUserIds)
-    ? o.coordinatorClerkUserIds.map((x) => String(x).trim()).filter(Boolean)
+  const coordinatorExternalUserIds = Array.isArray(o.coordinatorExternalUserIds)
+    ? o.coordinatorExternalUserIds.map((x) => String(x).trim()).filter(Boolean)
     : [];
   return {
     id,
     name,
     description: typeof o.description === "string" ? o.description.trim() : undefined,
     color: typeof o.color === "string" ? o.color.trim() : undefined,
-    coordinatorClerkUserIds,
+    coordinatorExternalUserIds,
   };
 }
 
@@ -137,7 +137,9 @@ function parseSignup(raw: unknown): DomainPlanningSignup | null {
 
 export async function loadSignups(): Promise<DomainPlanningSignup[]> {
   const hit = await getJson<DomainPlanningSignup[]>(SIGNUPS_KEY);
-  return Array.isArray(hit?.data) ? hit.data.map(parseSignup).filter(Boolean) as DomainPlanningSignup[] : [];
+  return Array.isArray(hit?.data)
+    ? (hit.data.map(parseSignup).filter(Boolean) as DomainPlanningSignup[])
+    : [];
 }
 
 export async function saveSignups(signups: DomainPlanningSignup[]): Promise<void> {

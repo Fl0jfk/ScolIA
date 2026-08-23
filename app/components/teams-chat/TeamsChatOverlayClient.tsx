@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { isEleveBienEtreProfile } from "@/app/lib/bien-etre-profile";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { isPublicVisitorPath } from "@/app/lib/public-site-paths";
@@ -19,7 +19,7 @@ const TeamsChatOverlay = dynamic(() => import("./TeamsChatOverlay"), { ssr: fals
 
 export default function TeamsChatOverlayClient() {
   const pathname = usePathname();
-  const { user, isLoaded, isSignedIn } = useUser();
+  const { user, isLoaded, isSignedIn } = useSessionUser();
   const [status, setStatus] = useState<TeamsChatStatus | null>(null);
 
   const skip =

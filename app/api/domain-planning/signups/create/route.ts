@@ -22,8 +22,8 @@ export async function POST(req: Request) {
   if (!gate.ok) return gate.response;
 
   const authUser = await getDomainPlanningUserDisplay();
-  const clerkUser = await safeCurrentUser();
-  const roles = intranetRolesFromMetadata(clerkUser?.publicMetadata);
+  const sessionUser = await safeCurrentUser();
+  const roles = intranetRolesFromMetadata(sessionUser?.publicMetadata);
 
   const body = await req.json();
   const sessionId = String(body.sessionId || "").trim();
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
   if (!canUserSignupOnSession(session, roles, isCoordinator)) {
     if (session.intervenantConstraint === "psy_inf") {
       return NextResponse.json(
-        { error: "Cette séance est réservée aux psychologues et infirmières (rôle Clerk requis)." },
+        { error: "Cette séance est réservée aux psychologues et infirmières (rôle intranet requis)." },
         { status: 403 },
       );
     }

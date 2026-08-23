@@ -3,19 +3,19 @@ import { platformHostnames } from "@/app/lib/platform-hostname";
 
 /** Tenant synthétique pour scolia.fr — auth Master + console plateforme (pas de données métier). */
 export function platformTenantFromEnv(): TenantConfig {
-  const clerkPublishableKey =
-    process.env.PLATFORM_CLERK_PUBLISHABLE_KEY?.trim() ||
-    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim();
-  const clerkSecretKey =
-    process.env.PLATFORM_CLERK_SECRET_KEY?.trim() || process.env.CLERK_SECRET_KEY?.trim();
+  const publishableKey =
+    process.env.PLATFORM_AUTH_PUBLISHABLE_KEY?.trim() ||
+    process.env.NEXT_PUBLIC_LEGACY_PUBLISHABLE_KEY?.trim();
+  const secretKey =
+    process.env.PLATFORM_LEGACY_SECRET_KEY?.trim() || process.env.LEGACY_SECRET_KEY?.trim();
   const dataBucket =
     process.env.PLATFORM_DATA_BUCKET?.trim() ||
     process.env.REGISTRY_BUCKET?.trim() ||
     process.env.BUCKET_NAME?.trim();
 
-  if (!clerkPublishableKey || !clerkSecretKey) {
+  if (!publishableKey || !secretKey) {
     throw new Error(
-      "Clerk plateforme manquant (PLATFORM_CLERK_* ou NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY / CLERK_SECRET_KEY).",
+      "Configuration auth plateforme manquante (PLATFORM_AUTH_* ou NEXT_PUBLIC_LEGACY_PUBLISHABLE_KEY / LEGACY_SECRET_KEY).",
     );
   }
   if (!dataBucket) {
@@ -34,8 +34,8 @@ export function platformTenantFromEnv(): TenantConfig {
     hostnames: platformHostnames(),
     dataBucket,
     appUrl,
-    clerkPublishableKey,
-    clerkSecretKey,
+    publishableKey,
+    secretKey,
   };
 }
 

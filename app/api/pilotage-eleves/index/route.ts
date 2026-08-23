@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getClerkUserRoles } from "@/app/lib/clerk-users";
+import { getDirectoryUserRoles } from "@/app/lib/directory-members";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { resolveEleveFolderName } from "@/app/lib/eleves-config";
 import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import { oneDrivePathForEleve } from "@/app/lib/onedrive-eleves";
-import { resolveOcrCapabilitiesForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
+import { resolveOcrCapabilitiesForUserServer } from "@/app/lib/onedrive-user-profiles.server";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { elevesSecteursFromCapabilities } from "@/app/lib/ocr-flux";
 import {
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
 
-  const roles = await getClerkUserRoles(gate.ctx.userId);
+  const roles = await getDirectoryUserRoles(gate.ctx.userId);
   if (!canIndexPilotage(roles)) {
     return NextResponse.json({ error: "Seul le secrétariat peut indexer OneDrive." }, { status: 403 });
   }
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
   const allowed = await resolvePilotageSecteursForRoles(roles, gate.ctx.userId);
   const user = await safeCurrentUser();
-  const caps = user ? await resolveOcrCapabilitiesForClerkUserServer(user) : null;
+  const caps = user ? await resolveOcrCapabilitiesForUserServer(user) : null;
   const ocrSecteurs = elevesSecteursFromCapabilities(caps);
   const basePathFor = (secteur: Secteur): string => {
     const flux = caps?.fluxes.find((f) => f.kind === "eleves" && f.secteur === secteur);

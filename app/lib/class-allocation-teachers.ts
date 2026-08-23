@@ -14,7 +14,7 @@ import {
 
 export type ClassAllocationTeacherAssignment = {
   className: string;
-  clerkUserId: string;
+  externalUserId: string;
   name: string;
   email: string;
 };
@@ -51,17 +51,17 @@ async function loadTeacherAssignmentsFromRoster(): Promise<ClassAllocationTeache
 }
 
 export async function listClassesForTeacherUser(
-  clerkUserId: string,
+  externalUserId: string,
   _campaignId?: string,
 ): Promise<string[]> {
   const roster = await loadSchoolRoster();
   const fromRoster = roster.classAssignments
-    .filter((a) => a.clerkUserId === clerkUserId)
+    .filter((a) => a.externalUserId === externalUserId)
     .map((a) => a.className);
   if (fromRoster.length) {
     return fromRoster.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
   }
-  return listClassesForReferentUser(clerkUserId, currentStageSchoolYear());
+  return listClassesForReferentUser(externalUserId, currentStageSchoolYear());
 }
 
 function teacherCatalogFromRoster(roster: SchoolRosterConfig): string[] {

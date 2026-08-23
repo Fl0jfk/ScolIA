@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { canAccessDomainPlanningSettingsFromRoles } from "@/app/lib/intranet-role-utils";
 import TransversalSessionsTab from "@/app/components/domain-planning/TransversalSessionsTab";
@@ -20,20 +20,20 @@ const DomainPlanningSettingsTab = dynamic(
 type DomainPlanningTab = "positionnements" | "settings";
 
 function DomainPlanningPageContent() {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const isOrgAdmin = useIsOrgAdmin();
   const intranetRoles = intranetRolesFromMetadata(user?.publicMetadata);
-  const [domains, setDomains] = useState<{ id: string; coordinatorClerkUserIds?: string[] }[]>([]);
+  const [domains, setDomains] = useState<{ id: string; coordinatorExternalUserIds?: string[] }[]>([]);
   const [activeTab, setActiveTab] = useState<DomainPlanningTab>("positionnements");
 
   const isEvarsCoordinator = Boolean(
-    user?.id && domains.find((d) => d.id === "evars")?.coordinatorClerkUserIds?.includes(user.id),
+    user?.id && domains.find((d) => d.id === "evars")?.coordinatorExternalUserIds?.includes(user.id),
   );
 
   const canAccessSettings =
     isOrgAdmin ||
     canAccessDomainPlanningSettingsFromRoles(intranetRoles) ||
-    Boolean(user?.id && domains.some((d) => d.coordinatorClerkUserIds?.includes(user.id)));
+    Boolean(user?.id && domains.some((d) => d.coordinatorExternalUserIds?.includes(user.id)));
 
   useEffect(() => {
     fetch("/api/domain-planning/domains", { cache: "no-store" })
@@ -71,7 +71,7 @@ function DomainPlanningPageContent() {
         <DomainPlanningSettingsTab />
       ) : (
         <>
-          {canAccessSettings && domains.some((d) => d.id === "evars" && !d.coordinatorClerkUserIds?.length) && (
+          {canAccessSettings && domains.some((d) => d.id === "evars" && !d.coordinatorExternalUserIds?.length) && (
             <div className="mb-4 rounded-2xl bg-amber-50 border border-amber-200 py-3 px-4 text-sm text-amber-900">
               <span className="font-black">Première configuration :</span> ouvrez l&apos;onglet{" "}
               <button type="button" className="font-black underline" onClick={() => setActiveTab("settings")}>

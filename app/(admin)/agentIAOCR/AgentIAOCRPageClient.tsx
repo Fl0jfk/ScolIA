@@ -1,7 +1,7 @@
 'use client';
 import { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import * as msal from "@azure/msal-browser";
 import { consumeDashboardUpload } from "@/app/lib/dashboard-upload-bridge";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
@@ -74,11 +74,11 @@ async function restoreOneDriveToken(account: msal.AccountInfo): Promise<string |
 
 function OneDriveUpDocsOCRAIContent() {
   const searchParams = useSearchParams();
-  const { user: clerkUser } = useUser();
+  const { user: sessionUser } = useSessionUser();
   const [oneDriveProfile, setOneDriveProfile] = useState<OneDriveUserProfile | null>(null);
   const [ocrFluxes, setOcrFluxes] = useState<OcrFluxSummary[]>([]);
   useEffect(() => {
-    if (!clerkUser) {
+    if (!sessionUser) {
       setOneDriveProfile(null);
       setOcrFluxes([]);
       return;
@@ -101,7 +101,7 @@ function OneDriveUpDocsOCRAIContent() {
     return () => {
       cancelled = true;
     };
-  }, [clerkUser]);
+  }, [sessionUser]);
   const [account, setAccount] = useState<msal.AccountInfo | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -629,7 +629,7 @@ function OneDriveUpDocsOCRAIContent() {
       if (stRes.status === 401) {
         setBatchPollIssue("auth");
         setError(
-          "Session expirée — reconnectez-vous à l'intranet (Clerk), puis recliquez sur « Reprendre le suivi ».",
+          "Session expirée — reconnectez-vous à l'intranet, puis recliquez sur « Reprendre le suivi ».",
         );
         return;
       }
@@ -672,7 +672,7 @@ function OneDriveUpDocsOCRAIContent() {
   }, [applyBatchJobStatusToUi, forgetPersistedBatchJob, persistFinishedBatchJob, triggerBatchWorker]);
 
   useEffect(() => {
-    if (!clerkUser?.id) return;
+    if (!sessionUser?.id) return;
     void (async () => {
       try {
         const listRes = await fetch("/api/agentIAOCR/batch-job/list");
@@ -721,7 +721,7 @@ function OneDriveUpDocsOCRAIContent() {
         /* ignore */
       }
     })();
-  }, [clerkUser?.id, applyBatchJobStatusToUi, forgetPersistedBatchJob, persistFinishedBatchJob]);
+  }, [sessionUser?.id, applyBatchJobStatusToUi, forgetPersistedBatchJob, persistFinishedBatchJob]);
 
   useEffect(() => {
     if (!activeBatchJobId || batchJobNeedsToken) return;
@@ -1300,11 +1300,11 @@ function OneDriveUpDocsOCRAIContent() {
       <OcrOneDriveConnectBar
         dropsAvailable={dropsAvailable}
         accountName={account?.name}
-        clerkUnmapped={
-          clerkUser && !oneDriveProfile && ocrFluxes.length === 0
+        userUnmapped={
+          sessionUser && !oneDriveProfile && ocrFluxes.length === 0
             ? {
-                lastName: clerkUser.lastName,
-                email: clerkUser.primaryEmailAddress?.emailAddress,
+                lastName: sessionUser.lastName,
+                email: sessionUser.primaryEmailAddress?.emailAddress,
               }
             : null
         }

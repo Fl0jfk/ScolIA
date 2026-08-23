@@ -1,0 +1,10 @@
+---
+description: Vision métier Scola/ENT et règle zéro fainéantise
+alwaysApply: true
+---
+
+# Vision & Qualité — Scola / ENT
+
+- Objectif : SaaS / ENT souverain, fluide, proactif, intelligent ; zéro friction administrative pour les établissements.
+- **Zéro fainéantise :** jamais de code partiel, jamais de `// TODO`, `// ...`, fonctions tronquées ou stubs. Toujours du code complet, prêt pour la prod.
+- Préférer une solution complète et propre à un patch rapide incomplet.

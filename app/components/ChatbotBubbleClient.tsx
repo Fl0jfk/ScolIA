@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { useMemo } from "react";
 import { usePathname } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { isEleveBienEtreProfile } from "@/app/lib/bien-etre-profile";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { isPublicVisitorPath } from "@/app/lib/public-site-paths";
@@ -13,7 +13,7 @@ const ChatbotBubbleBienEtre = dynamic(() => import("./ChatbotBubbleBienEtre"), {
 
 export default function ChatbotBubbleClient() {
   const pathname = usePathname();
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const bienEtreMode = useMemo(() => {
     if (!isLoaded || !user) return false;
     return isEleveBienEtreProfile(rolesFromUserLike(user));

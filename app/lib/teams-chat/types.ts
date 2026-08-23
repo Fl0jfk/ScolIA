@@ -1,5 +1,5 @@
 export type TeamsChatLink = {
-  clerkUserId: string;
+  externalUserId: string;
   refreshToken: string;
   microsoftUserId: string;
   upn?: string;

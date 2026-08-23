@@ -52,14 +52,14 @@ export type Establishment = {
   kind?: EstablishmentKind;
   directorName?: string;
   directorEmail?: string;
-  /** Utilisateur Clerk désigné comme responsable de l’établissement. */
-  directorClerkUserId?: string;
+  /** Utilisateur désigné comme responsable de l’établissement. */
+  directorExternalUserId?: string;
   /** Couleur d’affichage (#RRGGBB) — voyages, filtres, badges. */
   colorHex?: string;
   /** Clé S3 relative dans le dataBucket (ex. settings/signatures/ecole.png) — jamais une URL publique. */
   signatureS3Key?: string;
   grades?: string;
-  clerkRoleSlugs?: string[];
+  roleSlugs?: string[];
   active?: boolean;
 };
 
@@ -83,10 +83,10 @@ type OneDriveSecteurBase = {
   label?: string;
 };
 
-/** Associe un utilisateur Clerk (ou e-mail / nom) à un cycle, pour le classement OCR/stages. */
+/** Associe un utilisateur (ou e-mail / nom) à un cycle, pour le classement OCR/stages. */
 type OneDriveUserSecteur = {
-  /** Identifiant Clerk — préféré pour le matching. */
-  clerkUserId?: string;
+  /** Identifiant utilisateur — préféré pour le matching. */
+  externalUserId?: string;
   /** E-mail (repli et affichage). */
   match: string;
   /** Nom affiché dans les paramètres. */
@@ -103,10 +103,10 @@ export type OcrFluxConfigId =
   | "enseignants_lycee"
   | "personnel_ogec";
 
-/** Un flux OCR rattaché à une personne Clerk + dossier OneDrive. */
+/** Un flux OCR rattaché à une personne + dossier OneDrive. */
 export type OcrFluxConfigRow = {
   id: OcrFluxConfigId;
-  clerkUserId?: string;
+  externalUserId?: string;
   match?: string;
   displayName?: string;
   basePath?: string;
@@ -128,7 +128,7 @@ export type MicrosoftOneDriveIntegration = {
   basesBySecteur?: Partial<Record<OneDriveSecteur, OneDriveSecteurBase>>;
   /** Mapping utilisateur → cycle (legacy — migré vers ocrFlux). */
   userSecteurs?: OneDriveUserSecteur[];
-  /** Grille flux OCR → personne Clerk + dossier racine. */
+  /** Grille flux OCR → personne + dossier racine. */
   ocrFlux?: OcrFluxConfigRow[];
   /** OneDrive cible RH (meta publique ; refresh token dans secrets tenant). */
   rhDrive?: MicrosoftRhDriveIntegration;
@@ -209,8 +209,8 @@ export type ProfRoomModuleConfig = {
   hoursStart: number;
   hoursEnd: number;
   bookingHorizonDays: number;
-  /** Utilisateurs Clerk autorisés comme administrateurs du module. */
-  adminClerkUserIds: string[];
+  /** Utilisateurs autorisés comme administrateurs du module. */
+  adminExternalUserIds: string[];
 };
 
 export type DomainPlanningModuleConfig = {
@@ -396,7 +396,7 @@ export function parseEstablishment(raw: unknown): Establishment {
     kind,
     directorName: str(o.directorName) || undefined,
     directorEmail: email || undefined,
-    directorClerkUserId: str(o.directorClerkUserId).trim() || undefined,
+    directorExternalUserId: str(o.directorExternalUserId).trim() || undefined,
     colorHex: (() => {
       const raw = str(o.colorHex).trim();
       if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw.toUpperCase();
@@ -405,7 +405,7 @@ export function parseEstablishment(raw: unknown): Establishment {
     })(),
     signatureS3Key: str(o.signatureS3Key).trim() || undefined,
     grades: str(o.grades) || undefined,
-    clerkRoleSlugs: strArr(o.clerkRoleSlugs),
+    roleSlugs: strArr(o.roleSlugs),
     active: o.active !== false,
   };
 }
@@ -567,7 +567,7 @@ function parseOcrFluxId(value: unknown): OcrFluxConfigId | null {
 function parseOcrFluxRows(raw: unknown): OcrFluxConfigRow[] {
   if (!Array.isArray(raw)) return [];
   const byId = new Map<OcrFluxConfigId, OcrFluxConfigRow>();
-  let unified: Pick<OcrFluxConfigRow, "clerkUserId" | "match" | "displayName" | "basePath"> | null =
+  let unified: Pick<OcrFluxConfigRow, "externalUserId" | "match" | "displayName" | "basePath"> | null =
     null;
 
   for (const item of raw) {
@@ -577,7 +577,7 @@ function parseOcrFluxRows(raw: unknown): OcrFluxConfigRow[] {
     // Ancienne config brève : une seule ligne "enseignants"
     if (rawId === "enseignants") {
       unified = {
-        clerkUserId: str(row.clerkUserId) || undefined,
+        externalUserId: str(row.externalUserId) || undefined,
         match: str(row.match) || undefined,
         displayName: str(row.displayName) || undefined,
         basePath: str(row.basePath) || ENSEIGNANTS_SHARED_BASE_PATH,
@@ -588,7 +588,7 @@ function parseOcrFluxRows(raw: unknown): OcrFluxConfigRow[] {
     if (!id) continue;
     byId.set(id, {
       id,
-      clerkUserId: str(row.clerkUserId) || undefined,
+      externalUserId: str(row.externalUserId) || undefined,
       match: str(row.match) || undefined,
       displayName: str(row.displayName) || undefined,
       basePath: str(row.basePath) || undefined,
@@ -598,8 +598,8 @@ function parseOcrFluxRows(raw: unknown): OcrFluxConfigRow[] {
   if (unified) {
     for (const id of ["enseignants_ecole", "enseignants_college", "enseignants_lycee"] as const) {
       const current = byId.get(id) ?? { id };
-      if (!current.clerkUserId && !current.match) {
-        current.clerkUserId = unified.clerkUserId;
+      if (!current.externalUserId && !current.match) {
+        current.externalUserId = unified.externalUserId;
         current.match = unified.match;
         current.displayName = unified.displayName;
       }
@@ -649,20 +649,20 @@ function parseOneDriveIntegration(raw: Record<string, unknown>): MicrosoftOneDri
     for (const item of raw.userSecteurs) {
       if (!item || typeof item !== "object") continue;
       const row = item as Record<string, unknown>;
-      const clerkUserId = str(row.clerkUserId) || undefined;
+      const externalUserId = str(row.externalUserId) || undefined;
       const match = str(row.match);
       const displayName = str(row.displayName) || undefined;
       const secteur = parseOneDriveSecteur(row.secteur);
-      const resolvedMatch = match || clerkUserId;
+      const resolvedMatch = match || externalUserId;
       if (secteur && resolvedMatch) {
-        list.push({ clerkUserId, match: resolvedMatch, displayName, secteur });
+        list.push({ externalUserId, match: resolvedMatch, displayName, secteur });
       }
     }
     if (list.length > 0) result.userSecteurs = list;
   }
 
   const parsedFlux = parseOcrFluxRows(raw.ocrFlux);
-  const hasFluxAssignee = parsedFlux.some((row) => row.clerkUserId || row.match);
+  const hasFluxAssignee = parsedFlux.some((row) => row.externalUserId || row.match);
   if (hasFluxAssignee || parsedFlux.some((row) => row.basePath) || Array.isArray(raw.ocrFlux)) {
     result.ocrFlux = parsedFlux;
   }
@@ -677,8 +677,8 @@ function parseOneDriveIntegration(raw: Record<string, unknown>): MicrosoftOneDri
             : "eleves_lycee"
       ) as OcrFluxConfigId;
       const current = migrated.find((r) => r.id === id);
-      if (!current || current.clerkUserId || current.match) continue;
-      current.clerkUserId = legacy.clerkUserId;
+      if (!current || current.externalUserId || current.match) continue;
+      current.externalUserId = legacy.externalUserId;
       current.match = legacy.match;
       current.displayName = legacy.displayName;
     }
@@ -789,7 +789,7 @@ export function parseProfRoomModule(raw: unknown): ProfRoomModuleConfig {
     hoursStart: typeof o.hoursStart === "number" ? o.hoursStart : 8,
     hoursEnd: typeof o.hoursEnd === "number" ? o.hoursEnd : 17,
     bookingHorizonDays: typeof o.bookingHorizonDays === "number" ? o.bookingHorizonDays : 56,
-    adminClerkUserIds: strArr(o.adminClerkUserIds),
+    adminExternalUserIds: strArr(o.adminExternalUserIds),
   };
 }
 

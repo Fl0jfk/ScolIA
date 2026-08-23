@@ -1,10 +1,16 @@
 import { getJson, putJson } from "@/app/lib/s3-storage";
+import {
+  countPersonnelInDb,
+  getPersonnelFromDb,
+  isEntCoreDbEnabled,
+  listPersonnelFromDb,
+  resolveCurrentEtablissementId,
+  upsertPersonnelInDb,
+} from "@/app/lib/ent-core-db";
 import { computeNextEntretienDue, normalizeMedecineTravail } from "@/app/lib/personnel-rh-cycles";
 import {
-  PERSONNEL_INDEX_KEY,
   PERSONNEL_SHARED_DOCS_KEY,
   normalizePersonnelRecord,
-  personnelRecordKey,
   toIndexEntry,
   type PersonnelIndexEntry,
   type PersonnelRecord,
@@ -12,12 +18,16 @@ import {
 } from "@/app/lib/personnel-types";
 
 export async function getPersonnelIndex(): Promise<PersonnelIndexEntry[]> {
-  const hit = await getJson<PersonnelIndexEntry[]>(PERSONNEL_INDEX_KEY);
-  return Array.isArray(hit?.data) ? hit.data : [];
-}
-
-async function savePersonnelIndex(index: PersonnelIndexEntry[]) {
-  await putJson(PERSONNEL_INDEX_KEY, index);
+  if (!isEntCoreDbEnabled()) return [];
+  try {
+    const etabId = await resolveCurrentEtablissementId();
+    if (!etabId) return [];
+    const records = await listPersonnelFromDb(etabId);
+    return records.map(toIndexEntry);
+  } catch (error) {
+    console.error("[personnel-storage] index DB", error);
+    return [];
+  }
 }
 
 function enrichPersonnelRecord(record: PersonnelRecord): PersonnelRecord {
@@ -32,28 +42,27 @@ function enrichPersonnelRecord(record: PersonnelRecord): PersonnelRecord {
 }
 
 export async function getPersonnelRecord(id: string): Promise<PersonnelRecord | null> {
-  const hit = await getJson<PersonnelRecord>(personnelRecordKey(id));
-  return hit?.data ? enrichPersonnelRecord(normalizePersonnelRecord(hit.data)) : null;
+  if (!isEntCoreDbEnabled()) return null;
+  try {
+    const etabId = await resolveCurrentEtablissementId();
+    if (!etabId) return null;
+    const fromDb = await getPersonnelFromDb(etabId, id);
+    return fromDb ? enrichPersonnelRecord(fromDb) : null;
+  } catch (error) {
+    console.error("[personnel-storage] lecture DB", error);
+    return null;
+  }
 }
 
 export async function savePersonnelRecord(record: PersonnelRecord): Promise<PersonnelRecord> {
   const normalized = enrichPersonnelRecord(
     normalizePersonnelRecord({ ...record, updatedAt: new Date().toISOString() }),
   );
-  await putJson(personnelRecordKey(normalized.id), normalized);
-  const index = await getPersonnelIndex();
-  const entry = toIndexEntry(normalized);
-  const idx = index.findIndex((e) => e.id === normalized.id);
-  if (idx >= 0) index[idx] = entry;
-  else index.push(entry);
-  await savePersonnelIndex(index);
+  if (!isEntCoreDbEnabled()) throw new Error("[personnel] Postgres requis");
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) throw new Error("[personnel] établissement introuvable");
+  await upsertPersonnelInDb(etabId, normalized);
   return normalized;
-}
-
-async function deletePersonnelRecord(id: string) {
-  const index = await getPersonnelIndex();
-  await savePersonnelIndex(index.filter((e) => e.id !== id));
-  // record file left on S3 intentionally (soft) — could delete with deleteObject if needed
 }
 
 export async function getSharedPersonnelDocuments(): Promise<SharedPersonnelDocument[]> {
@@ -66,9 +75,16 @@ export async function saveSharedPersonnelDocuments(docs: SharedPersonnelDocument
 }
 
 export async function getAllPersonnelRecords(): Promise<PersonnelRecord[]> {
-  const index = await getPersonnelIndex();
-  const records = await Promise.all(index.map((e) => getPersonnelRecord(e.id)));
-  return records.filter((r): r is PersonnelRecord => !!r && r.active !== false);
+  if (!isEntCoreDbEnabled()) return [];
+  try {
+    const etabId = await resolveCurrentEtablissementId();
+    if (!etabId) return [];
+    if ((await countPersonnelInDb(etabId)) === 0) return [];
+    return (await listPersonnelFromDb(etabId)).map(enrichPersonnelRecord);
+  } catch (error) {
+    console.error("[personnel-storage] lecture DB", error);
+    return [];
+  }
 }
 
 export async function findPersonnelByEmail(email: string): Promise<PersonnelRecord | null> {
@@ -84,9 +100,9 @@ export async function findPersonnelByEmail(email: string): Promise<PersonnelReco
   return getPersonnelRecord(hit.id);
 }
 
-export async function findPersonnelByClerkId(clerkUserId: string): Promise<PersonnelRecord | null> {
+export async function findPersonnelByExternalId(externalUserId: string): Promise<PersonnelRecord | null> {
   const index = await getPersonnelIndex();
-  const hit = index.find((e) => e.clerkUserId === clerkUserId);
+  const hit = index.find((e) => e.externalUserId === externalUserId);
   if (!hit) return null;
   return getPersonnelRecord(hit.id);
 }

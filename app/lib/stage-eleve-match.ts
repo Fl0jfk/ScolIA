@@ -76,17 +76,17 @@ export async function resolveConventionSecteur(
   return null;
 }
 
-/** Profil OneDrive (arborescence) déduit de la convention, sans compte Clerk. */
+/** Profil OneDrive (arborescence) déduit de la convention, sans compte. */
 export async function resolveOneDriveProfileForConvention(
   convention: StageConvention,
-  clerkProfile?: OneDriveUserProfile | null,
+  directoryProfile?: OneDriveUserProfile | null,
 ): Promise<OneDriveUserProfile | null> {
   const secteur = await resolveConventionSecteur(convention);
   if (secteur) {
     const fromSecteur = getOneDriveProfileForSecteur(secteur);
     if (fromSecteur) return fromSecteur;
   }
-  return clerkProfile ?? null;
+  return directoryProfile ?? null;
 }
 
 export async function matchEleveForConvention(

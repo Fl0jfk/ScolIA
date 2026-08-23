@@ -233,27 +233,19 @@ export const PARTNERS = [
     logoPath: "/partners/microsoft.svg",
     sovereign: false,
   },
-  {
-    id: "clerk",
-    name: "Clerk",
-    role: "Authentification",
-    detail: "Connexion sécurisée des comptes établissement.",
-    logoPath: "/partners/clerk.svg",
-    sovereign: false,
-  },
 ] as const;
 
 /** Message souveraineté — page d'accueil & tarifs. */
 export const SOVEREIGNTY = {
   title: "Souveraineté numérique",
   intro:
-    "ScolIA s'appuie prioritairement sur des acteurs français : hébergement Scaleway, intelligence artificielle Mistral, paiements EasyTransac, messagerie OVH. Hors France : Microsoft Éducation (licences) et Clerk (authentification).",
+    "ScolIA s'appuie prioritairement sur des acteurs français : hébergement Scaleway, intelligence artificielle Mistral, paiements EasyTransac, messagerie OVH. Authentification Better-Auth (sessions en France). Hors France : Microsoft Éducation (licences).",
   bullets: [
     "Scaleway — cloud français, hébergement à Paris.",
     "Mistral AI — IA française pour l'assistant, l'analyse et l'OCR.",
     "EasyTransac — startup française pour les mensualités.",
     "OVH — messagerie professionnelle gérée en France.",
-    "Licences Microsoft Éducation · authentification Clerk.",
+    "Licences Microsoft Éducation · authentification Better-Auth.",
   ],
 } as const;
 
@@ -264,7 +256,7 @@ export const RGPD_COMPACT = {
   bullets: [
     "Les dossiers élèves sensibles sont orientés vers vos espaces Microsoft : l'établissement reste maître de ses données.",
     "Hébergement France (Scaleway) · IA française (Mistral) · paiement français (EasyTransac) · mail OVH.",
-    "Licences Microsoft A1 / A3 Éducation selon effectif · authentification Clerk.",
+    "Licences Microsoft A1 / A3 Éducation selon effectif · authentification Better-Auth.",
   ],
 } as const;
 
@@ -303,7 +295,7 @@ export const RGPD_HIGHLIGHTS = {
     },
     {
       label: "Authentification",
-      detail: "Clerk pour la connexion des comptes.",
+      detail: "Better-Auth — sessions hébergées en France (PostgreSQL).",
     },
   ],
   reassurance:
@@ -311,7 +303,7 @@ export const RGPD_HIGHLIGHTS = {
 } as const;
 
 const TRUST_ITEMS = RGPD_COMPACT.bullets.map((detail, i) => ({
-  label: ["Vos données", "Stack française", "Microsoft & Clerk"][i] ?? "Confiance",
+  label: ["Vos données", "Stack française", "Microsoft & auth"][i] ?? "Confiance",
   detail,
 }));
 
@@ -489,7 +481,7 @@ export const PRICING_FAQ = [
   },
   {
     q: "Où sont hébergées les données ?",
-    a: "En France, chez Scaleway (Paris), cloud français. L'IA et l'OCR s'appuient sur Mistral AI. La messagerie passe par OVH. La bureautique repose sur Microsoft Éducation ; l'authentification sur Clerk.",
+    a: "En France, chez Scaleway (Paris), cloud français. L'IA et l'OCR s'appuient sur Mistral AI. La messagerie passe par OVH. La bureautique repose sur Microsoft Éducation ; l'authentification sur Better-Auth (PostgreSQL France).",
   },
   {
     q: "Comment sont réglées les mensualités ?",

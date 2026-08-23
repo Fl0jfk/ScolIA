@@ -1,11 +1,11 @@
 /** Aligné sur la logique « canSign » de la fiche voyage (direction par établissement). */
 
-import type { ClerkLikeUser } from "@/app/lib/clerk-user-types";
+import type { SessionLikeUser } from "@/app/lib/app-actor-types";
 import { directionRolesMatchEstablishmentRef } from "@/app/lib/establishment-catalog";
 import { userRoleSlugs } from "@/app/lib/establishment-sign-permissions";
 
 export function canSignTravelsDirectionForEtab(
-  user: ClerkLikeUser | null | undefined,
+  user: SessionLikeUser | null | undefined,
   etablissement: string | null | undefined,
 ): boolean {
   if (!user) return false;
@@ -17,14 +17,14 @@ export function canSignTravelsDirectionForEtab(
   );
 }
 
-export function isTripOwner(tripOwnerId: string | null | undefined, clerkUserId: string | null | undefined): boolean {
-  return Boolean(tripOwnerId && clerkUserId && tripOwnerId === clerkUserId);
+export function isTripOwner(tripOwnerId: string | null | undefined, externalUserId: string | null | undefined): boolean {
+  return Boolean(tripOwnerId && externalUserId && tripOwnerId === externalUserId);
 }
 
-/** ownerId Clerk en priorité, repli sur ownerName pour dossiers anciens. */
+/** ownerId en priorité, repli sur ownerName pour dossiers anciens. */
 export function isTripOwnerOrCreator(
   trip: { ownerId?: string | null; ownerName?: string | null },
-  user: ClerkLikeUser | null | undefined,
+  user: SessionLikeUser | null | undefined,
 ): boolean {
   if (!user) return false;
   if (isTripOwner(trip.ownerId, user.id)) return true;

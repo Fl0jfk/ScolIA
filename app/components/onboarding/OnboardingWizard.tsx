@@ -11,13 +11,13 @@ import type {
   SiteIdentity,
   TravelsModuleConfig,
 } from "@/app/lib/app-config-schemas";
-import { clerkRoleSlugsForEstablishment } from "@/app/lib/establishment-catalog";
+import { roleSlugsForEstablishment } from "@/app/lib/establishment-catalog";
 import {
   normalizeOnboardingStep,
   ONBOARDING_WIZARD_VERSION,
   TOTAL_CHAPTERS,
 } from "@/app/lib/onboarding-chapters";
-import type { ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import OnboardingShell from "@/app/components/onboarding/OnboardingShell";
 import ChapterWelcome from "@/app/components/onboarding/chapters/ChapterWelcome";
 import ChapterIdentity from "@/app/components/onboarding/chapters/ChapterIdentity";
@@ -45,7 +45,7 @@ export default function OnboardingWizard() {
   const [wantQuickLinks, setWantQuickLinks] = useState(false);
   const [hasInternat, setHasInternat] = useState(false);
   const [existingConfigDetected, setExistingConfigDetected] = useState(false);
-  const [clerkMembers, setClerkMembers] = useState<ClerkMemberOption[]>([]);
+  const [directoryMembers, setDirectoryMembers] = useState<DirectoryMemberOption[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
 
   const patchIdentity = (patch: Partial<SiteIdentity>) =>
@@ -133,7 +133,7 @@ export default function OnboardingWizard() {
       .then((res) => res.json().then((j) => ({ ok: res.ok, j })))
       .then(({ ok, j }) => {
         if (cancelled) return;
-        if (ok) setClerkMembers((j.users || []) as ClerkMemberOption[]);
+        if (ok) setDirectoryMembers((j.users || []) as DirectoryMemberOption[]);
       })
       .catch(() => {})
       .finally(() => {
@@ -168,9 +168,9 @@ export default function OnboardingWizard() {
       kind: e.kind,
       directorName: e.directorName,
       directorEmail: e.directorEmail,
-      directorClerkUserId: e.directorClerkUserId,
+      directorExternalUserId: e.directorExternalUserId,
       grades: e.grades,
-      clerkRoleSlugs: clerkRoleSlugsForEstablishment(e),
+      roleSlugs: roleSlugsForEstablishment(e),
       active: e.active !== false,
     }));
     const res = await fetch("/api/settings/establishments", {
@@ -425,7 +425,7 @@ export default function OnboardingWizard() {
           identity={identity}
           establishments={establishments}
           onChange={setEstablishments}
-          clerkMembers={clerkMembers}
+          directoryMembers={directoryMembers}
           membersLoading={membersLoading}
         />
       )}

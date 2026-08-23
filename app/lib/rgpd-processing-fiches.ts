@@ -329,7 +329,7 @@ function fiche4(answers: RgpdQuestionnaireAnswers): RgpdTemplateSection[] {
       "Mistral AI — API analyse, France, DPA, données non utilisées pour entraînement [À documenter]",
       "AWS — Textract + S3 temporaire, zone Europe (Paris/Frankfurt) [À confirmer], SCC/RGPD",
       "Microsoft OneDrive / Office 365 — stockage permanent, zone France si configurée",
-      "Scola (intranet) — orchestration, Clerk (authentification), AWS S3 (stockage)",
+      "Scola (intranet) — orchestration, Better-Auth (authentification), AWS S3 (stockage)",
     ]),
     block("DURÉE DE CONSERVATION", [
       `Zones temporaires (AWS + OneDrive temp) : ${tempDays} jours maximum (suppression automatique)`,

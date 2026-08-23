@@ -11,7 +11,7 @@ import {
   resolveTenantByHostname,
   resolveTenantBySlug,
 } from "@/app/lib/tenant-registry";
-import { isLocalDevHostname } from "@/app/lib/clerk-tenant-keys";
+import { isLocalDevHostname } from "@/app/lib/local-host-keys";
 import { tenantOrigin } from "@/app/lib/tenant-auth-urls";
 import { isPlatformHostname } from "@/app/lib/platform-hostname";
 import { platformTenantFromEnv } from "@/app/lib/platform-tenant";

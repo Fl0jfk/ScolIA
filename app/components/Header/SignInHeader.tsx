@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useAdminBootstrap } from "@/app/contexts/admin-bootstrap";
 import Logo from "../../../public/Logo header.png";
 
-/** En-tête minimal pour /sign-in : logo seul, sans doublon avec la carte Clerk. */
+/** En-tête minimal pour /sign-in : logo seul, sans doublon avec la carte de connexion. */
 export default function SignInHeader() {
   const { sitePublic: siteIdentity, loading } = useAdminBootstrap();
   const logoAlt = siteIdentity?.shortName || siteIdentity?.name || "Établissement";

@@ -1,15 +1,12 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useAppUser } from "@/app/hooks/useAppUser";
 
 export function useIsOrgAdmin(): boolean {
-  const { user } = useUser();
-  const meta = user?.publicMetadata as Record<string, unknown> | undefined;
-  const roles = meta?.role;
-  const arr = Array.isArray(roles) ? roles.map(String) : roles ? [String(roles)] : [];
-  if (arr.includes("admin")) return true;
-  if (arr.includes("master")) return true;
-  if (meta?.org_admin === true) return true;
-  if (meta?.platform_admin === true) return true;
-  return arr.includes("platform_admin");
+  const { user } = useAppUser();
+  if (!user) return false;
+  if (user.orgAdmin) return true;
+  if (user.roles.includes("admin")) return true;
+  if (user.roles.includes("master")) return true;
+  return false;
 }

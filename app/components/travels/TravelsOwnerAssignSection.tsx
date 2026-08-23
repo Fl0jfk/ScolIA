@@ -1,9 +1,9 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useEffect, useMemo, useState } from "react";
 import TravelsTeacherPicker from "@/app/components/travels/TravelsTeacherPicker";
-import type { ClerkAssigneeOption } from "@/app/components/domain-planning/DomainAssigneePicker";
+import type { DirectoryAssigneeOption } from "@/app/components/domain-planning/DomainAssigneePicker";
 import { userHasAdministratifRoleFromMetadata } from "@/app/lib/travels-roles";
 
 export type TravelsOwnerFields = {
@@ -23,15 +23,15 @@ export default function TravelsOwnerAssignSection({
   onOwnerFieldsChange,
   onPendingChange,
 }: Props) {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const isAdministratif = userHasAdministratifRoleFromMetadata(user?.publicMetadata as Record<string, unknown>);
   const [assignForOther, setAssignForOther] = useState(false);
-  const [users, setUsers] = useState<ClerkAssigneeOption[]>([]);
+  const [users, setUsers] = useState<DirectoryAssigneeOption[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [selectedId, setSelectedId] = useState("");
 
   const selected = useMemo(
-    () => users.find((u) => u.clerkUserId === selectedId) ?? null,
+    () => users.find((u) => u.externalUserId === selectedId) ?? null,
     [users, selectedId],
   );
 
@@ -39,7 +39,7 @@ export default function TravelsOwnerAssignSection({
     if (!isLoaded || !isAdministratif || disabled) return;
     let cancelled = false;
     setLoadingUsers(true);
-    fetch("/api/travels/clerk-users")
+    fetch("/api/travels/directory-users")
       .then((res) => res.json())
       .then((data) => {
         if (!cancelled) setUsers(Array.isArray(data.users) ? data.users : []);
@@ -69,7 +69,7 @@ export default function TravelsOwnerAssignSection({
       `${selected.firstName ?? ""} ${selected.lastName ?? ""}`.trim() ||
       selected.email;
     onOwnerFieldsChange({
-      ownerId: selected.clerkUserId,
+      ownerId: selected.externalUserId,
       ownerName,
       ownerEmail: selected.email,
     });
@@ -107,7 +107,7 @@ export default function TravelsOwnerAssignSection({
             users={users}
             value={selectedId}
             loading={loadingUsers}
-            onChange={(u) => setSelectedId(u?.clerkUserId ?? "")}
+            onChange={(u) => setSelectedId(u?.externalUserId ?? "")}
           />
           {assignForOther && !selectedId && !loadingUsers && (
             <p className="mt-2 text-xs font-semibold text-amber-800">

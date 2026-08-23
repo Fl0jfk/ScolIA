@@ -84,7 +84,7 @@ export default function MentionsLegalesPage() {
                 l&apos;établissement.
               </li>
               <li>
-                <strong>Clerk</strong> — authentification et gestion des comptes.
+                <strong>Better-Auth</strong> — authentification et gestion des comptes.
               </li>
             </ul>
           </LegalBlock>

@@ -1,0 +1,25 @@
+---
+description: Processus self-healing — tests BDD + Browser avant de rendre la main
+alwaysApply: true
+---
+
+# Validation Autonome (Self-Healing)
+
+Après **toute** feature, module ou correctif majeur, ne pas rendre la main avant :
+
+## 1. BDD (MCP PostgreSQL)
+
+Si mutation (create / update / delete) :
+- Vérifier via MCP Postgres : bonne table, format correct, `etablissement_id` renseigné.
+- Si Postgres MCP indisponible : le dire clairement, ne pas inventer le résultat.
+
+## 2. UI (MCP Browser / Playwright)
+
+- Ouvrir l’URL locale du serveur de dev.
+- Parcourir le flux utilisateur (submit, clics, refresh).
+- Console navigateur : **aucune** erreur JS, hydratation, ni 400/500 réseau.
+
+## 3. Boucle d’auto-correction
+
+Si échec → analyser → corriger → **relancer** les étapes 1–2.
+Rendre la main **uniquement** quand le flux bout-en-bout est validé.

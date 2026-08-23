@@ -1,8 +1,8 @@
 import "server-only";
 
-import { getClerkClientForTenant } from "@/app/lib/tenant-clerk";
+import { resolveMemberProfileById } from "@/app/lib/members-db";
 import { canReassignTravelsOwner } from "@/app/lib/travels-roles";
-import type { ClerkActor } from "@/app/lib/clerk-user-types";
+import type { AppActor } from "@/app/lib/app-actor-types";
 
 type TravelsOwnerProfile = {
   ownerId: string;
@@ -10,21 +10,19 @@ type TravelsOwnerProfile = {
   ownerEmail: string;
 };
 
-async function resolveTravelsOwnerFromClerk(
-  clerkUserId: string,
+async function resolveTravelsOwnerFromDirectory(
+  externalUserId: string,
 ): Promise<TravelsOwnerProfile | null> {
-  const id = clerkUserId.trim();
+  const id = externalUserId.trim();
   if (!id) return null;
   try {
-    const client = await getClerkClientForTenant();
-    const u = await client.users.getUser(id);
-    const ownerEmail =
-      u.emailAddresses.find((e) => e.id === u.primaryEmailAddressId)?.emailAddress ??
-      u.emailAddresses[0]?.emailAddress ??
-      "";
-    if (!ownerEmail) return null;
-    const ownerName = `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || ownerEmail;
-    return { ownerId: u.id, ownerName, ownerEmail };
+    const profile = await resolveMemberProfileById(id);
+    if (!profile?.email) return null;
+    return {
+      ownerId: profile.id,
+      ownerName: profile.name || profile.email,
+      ownerEmail: profile.email,
+    };
   } catch {
     return null;
   }
@@ -33,7 +31,7 @@ async function resolveTravelsOwnerFromClerk(
 /** Applique ownerId / ownerName / ownerEmail avec contrôle administratif si tiers. */
 export async function applyTravelsOwnerAssignment(
   objectToSave: Record<string, unknown>,
-  actor: ClerkActor | null | undefined,
+  actor: AppActor | null | undefined,
   existingTrip?: Record<string, unknown> | null,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const actorId = actor?.id?.trim() || "";
@@ -47,12 +45,12 @@ export async function applyTravelsOwnerAssignment(
       canReassignTravelsOwner(actor);
 
     if (adminTransfers) {
-      const profile = await resolveTravelsOwnerFromClerk(requestedOwnerId);
+      const profile = await resolveTravelsOwnerFromDirectory(requestedOwnerId);
       if (!profile) {
         return {
           ok: false,
           status: 400,
-          error: "Utilisateur Clerk introuvable ou sans adresse e-mail.",
+          error: "Utilisateur introuvable ou sans adresse e-mail.",
         };
       }
       objectToSave.ownerId = profile.ownerId;
@@ -79,7 +77,7 @@ export async function applyTravelsOwnerAssignment(
   }
 
   if (requestedOwnerId === actorId) {
-    const profile = await resolveTravelsOwnerFromClerk(requestedOwnerId);
+    const profile = await resolveTravelsOwnerFromDirectory(requestedOwnerId);
     if (profile) {
       objectToSave.ownerId = profile.ownerId;
       objectToSave.ownerName = profile.ownerName;
@@ -96,12 +94,12 @@ export async function applyTravelsOwnerAssignment(
     };
   }
 
-  const profile = await resolveTravelsOwnerFromClerk(requestedOwnerId);
+  const profile = await resolveTravelsOwnerFromDirectory(requestedOwnerId);
   if (!profile) {
     return {
       ok: false,
       status: 400,
-      error: "Utilisateur Clerk introuvable ou sans adresse e-mail.",
+      error: "Utilisateur introuvable ou sans adresse e-mail.",
     };
   }
 

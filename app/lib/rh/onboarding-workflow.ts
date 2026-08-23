@@ -2,7 +2,7 @@ import "server-only";
 
 import { loadAppConfig } from "@/app/lib/app-config";
 import { ensureFolderPath, uploadFileToOneDriveFolder } from "@/app/lib/graph-onedrive-folders";
-import { findClerkMemberByEmail, ensureClerkUserForPersonnel } from "@/app/lib/personnel-clerk";
+import { findDirectoryMemberByEmail, ensureDirectoryUserForPersonnel } from "@/app/lib/personnel-directory";
 import type { PersonnelCategory } from "@/app/lib/personnel-types";
 import { getRhDriveAccessToken } from "@/app/lib/rh/graph-rh-drive";
 import { renderOnboardingPdfBuffers } from "@/app/lib/rh/onboarding-pdf";
@@ -166,7 +166,7 @@ export async function provisionRhOnboarding(
     },
   ];
 
-  const clerk = await ensureClerkUserForPersonnel({
+  const directoryUser = await ensureDirectoryUserForPersonnel({
     email: form.email,
     firstName: form.firstName,
     lastName: form.lastName,
@@ -174,7 +174,7 @@ export async function provisionRhOnboarding(
     roles: mapCategory(form) === "professeur" ? ["professeur"] : undefined,
   });
 
-  if (clerk.clerkUserId) meta.clerkUserId = clerk.clerkUserId;
+  if (directoryUser.externalUserId) meta.externalUserId = directoryUser.externalUserId;
 
   const saved = await writeMetaRh(folderName, meta);
   if (!saved.ok) throw new Error(saved.error);
@@ -198,8 +198,8 @@ export async function provisionRhOnboarding(
     validatedAt: new Date().toISOString(),
     validatedBy,
     validationNote: validationNote?.trim() || null,
-    clerkUserId: clerk.clerkUserId,
-    clerkPending: clerk.pending || !clerk.clerkUserId,
+    externalUserId: directoryUser.externalUserId,
+    invitePending: directoryUser.pending || !directoryUser.externalUserId,
   };
   await saveOnboardingRecord(next);
   return next;
@@ -216,14 +216,14 @@ export async function activateRhOnboarding(recordId: string): Promise<RhOnboardi
   }
 
   const email = record.form.email.trim().toLowerCase();
-  let clerkUserId = record.clerkUserId;
-  if (!clerkUserId) {
-    const member = await findClerkMemberByEmail(email);
-    clerkUserId = member?.clerkUserId ?? null;
+  let externalUserId = record.externalUserId;
+  if (!externalUserId) {
+    const member = await findDirectoryMemberByEmail(email);
+    externalUserId = member?.externalUserId ?? null;
   }
-  if (!clerkUserId) {
+  if (!externalUserId) {
     throw new Error(
-      "Compte Clerk introuvable — le collaborateur doit d'abord accepter l'invitation reçue par e-mail.",
+      "Compte introuvable — le collaborateur doit d'abord accepter l'invitation reçue par e-mail.",
     );
   }
 
@@ -238,7 +238,7 @@ export async function activateRhOnboarding(recordId: string): Promise<RhOnboardi
 
   const meta: MetaRhDocument = {
     ...metaHit.meta,
-    clerkUserId,
+    externalUserId,
     accountStatus: "active",
     onboarding: metaHit.meta.onboarding
       ? { ...metaHit.meta.onboarding, status: "termine" }
@@ -259,8 +259,8 @@ export async function activateRhOnboarding(recordId: string): Promise<RhOnboardi
   const next: RhOnboardingRecord = {
     ...record,
     status: "active",
-    clerkUserId,
-    clerkPending: false,
+    externalUserId,
+    invitePending: false,
     activatedAt: new Date().toISOString(),
   };
   await saveOnboardingRecord(next);

@@ -24,6 +24,13 @@ import {
   type TravelsModuleConfig,
 } from "@/app/lib/app-config-schemas";
 import {
+  countSitesInDb,
+  isEntCoreDbEnabled,
+  listSitesFromDb,
+  replaceSitesInDb,
+  resolveCurrentEtablissementId,
+} from "@/app/lib/ent-core-db";
+import {
   defaultDomainPlanningModule,
   defaultEstablishments,
   defaultExternalLinks,
@@ -227,7 +234,17 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
   let identity = identityRaw?.data
     ? parseSiteIdentity(identityRaw.data, { allowEmptyName: true })
     : defaultSiteIdentity();
-  const allEstablishments = await maybeBackfillLegacyEstablishments(estRaw, identity);
+  let allEstablishments = await maybeBackfillLegacyEstablishments(estRaw, identity);
+  if (isEntCoreDbEnabled()) {
+    try {
+      const etabId = await resolveCurrentEtablissementId();
+      if (etabId && (await countSitesInDb(etabId)) > 0) {
+        allEstablishments = await listSitesFromDb(etabId);
+      }
+    } catch (error) {
+      console.error("[app-config] lecture sites DB", error);
+    }
+  }
   identity = await maybeMigrateLegacyOnboarding(identityRaw, identity, allEstablishments);
   identity = withInferredOrganizationKind(identity, allEstablishments);
   const notifications = notifRaw?.data ? parseNotifications(notifRaw.data) : defaultNotifications();
@@ -293,6 +310,14 @@ export async function saveSiteIdentity(data: SiteIdentity, opts?: { allowEmptyNa
 export async function saveEstablishments(establishments: Establishment[]) {
   const parsed = establishments.map(parseEstablishment);
   await putJson("settings/establishments.json", { establishments: parsed });
+  if (isEntCoreDbEnabled()) {
+    try {
+      const etabId = await resolveCurrentEtablissementId();
+      if (etabId) await replaceSitesInDb(etabId, parsed);
+    } catch (error) {
+      console.error("[app-config] écriture sites DB", error);
+    }
+  }
   invalidateAppConfigCache();
 }
 

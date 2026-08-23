@@ -92,7 +92,7 @@ export type BrainToolDefinition = {
   pathPrefix?: string;
   /** Module id pour logs / filtre. */
   moduleId?: string;
-  /** Exige une session Clerk. */
+  /** Exige une session authentifiée. */
   requiresAuth: boolean;
   mutates: boolean;
   handler: (ctx: BrainToolCtx, args: Record<string, unknown>) => Promise<BrainToolResult>;

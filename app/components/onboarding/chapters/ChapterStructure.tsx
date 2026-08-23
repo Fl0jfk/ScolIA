@@ -3,12 +3,12 @@
 import type { Establishment, SiteIdentity } from "@/app/lib/app-config-schemas";
 import { OnboardingField, onboardingInputClass } from "@/app/components/onboarding/OnboardingShell";
 import { ESTABLISHMENT_KIND_PRESETS } from "@/app/lib/establishment-visual";
-import { clerkRoleSlugsForEstablishment, directionRoleForKind } from "@/app/lib/establishment-catalog";
-import ClerkPersonSelect from "@/app/components/settings/ClerkPersonSelect";
-import type { ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import { roleSlugsForEstablishment, directionRoleForKind } from "@/app/lib/establishment-catalog";
+import DirectoryPersonSelect from "@/app/components/settings/DirectoryPersonSelect";
+import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import { dash } from "@/app/lib/dashboard-brand";
 
-function memberDisplayName(m: ClerkMemberOption): string {
+function memberDisplayName(m: DirectoryMemberOption): string {
   return m.displayName || `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || m.email;
 }
 
@@ -16,7 +16,7 @@ type Props = {
   identity: Partial<SiteIdentity>;
   establishments: Establishment[];
   onChange: (list: Establishment[]) => void;
-  clerkMembers: ClerkMemberOption[];
+  directoryMembers: DirectoryMemberOption[];
   membersLoading: boolean;
 };
 
@@ -24,7 +24,7 @@ export default function ChapterStructure({
   identity,
   establishments,
   onChange,
-  clerkMembers,
+  directoryMembers,
   membersLoading,
 }: Props) {
   const addPreset = (preset: (typeof ESTABLISHMENT_KIND_PRESETS)[number]) => {
@@ -39,8 +39,8 @@ export default function ChapterStructure({
         grades: preset.grades,
         directorName: "",
         directorEmail: "",
-        directorClerkUserId: "",
-        clerkRoleSlugs: clerkRoleSlugsForEstablishment(preset),
+        directorExternalUserId: "",
+        roleSlugs: roleSlugsForEstablishment(preset),
         active: true,
       },
     ]);
@@ -97,23 +97,23 @@ export default function ChapterStructure({
             </button>
           </div>
           <p className={`mb-3 text-xs ${dash.textMid}`}>
-            Rôle Clerk : {directionRoleForKind(e.kind || e.id)}
+            Rôle intranet : {directionRoleForKind(e.kind || e.id)}
           </p>
 
-          {clerkMembers.length > 0 ? (
+          {directoryMembers.length > 0 ? (
             <OnboardingField label="Responsable (personnel déjà invité)">
-              <ClerkPersonSelect
-                members={clerkMembers}
-                selectedId={e.directorClerkUserId || ""}
+              <DirectoryPersonSelect
+                members={directoryMembers}
+                selectedId={e.directorExternalUserId || ""}
                 loading={membersLoading}
                 onChange={(member) => {
                   const copy = [...establishments];
                   if (!member) {
-                    copy[idx] = { ...copy[idx], directorClerkUserId: "" };
+                    copy[idx] = { ...copy[idx], directorExternalUserId: "" };
                   } else {
                     copy[idx] = {
                       ...copy[idx],
-                      directorClerkUserId: member.clerkUserId,
+                      directorExternalUserId: member.externalUserId,
                       directorName: memberDisplayName(member),
                       directorEmail: member.email,
                     };

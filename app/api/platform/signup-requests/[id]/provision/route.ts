@@ -22,8 +22,8 @@ export async function POST(req: Request, ctx: Ctx) {
     slug?: string;
     hostname?: string;
     dataBucket?: string;
-    clerkPublishableKey?: string;
-    clerkSecretKey?: string;
+    publishableKey?: string;
+    secretKey?: string;
   };
   try {
     body = await req.json();
@@ -31,8 +31,8 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "JSON invalide." }, { status: 400 });
   }
 
-  if (!body.clerkPublishableKey?.trim() || !body.clerkSecretKey?.trim()) {
-    return NextResponse.json({ error: "Clés Clerk requises." }, { status: 400 });
+  if (!body.publishableKey?.trim() || !body.secretKey?.trim()) {
+    return NextResponse.json({ error: "Clés auth requises." }, { status: 400 });
   }
 
   try {
@@ -43,8 +43,8 @@ export async function POST(req: Request, ctx: Ctx) {
         slug: body.slug,
         hostname: body.hostname,
         dataBucket: body.dataBucket,
-        clerkPublishableKey: body.clerkPublishableKey,
-        clerkSecretKey: body.clerkSecretKey,
+        publishableKey: body.publishableKey,
+        secretKey: body.secretKey,
       },
       user?.id,
     );

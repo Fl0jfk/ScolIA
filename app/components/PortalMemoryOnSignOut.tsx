@@ -1,12 +1,12 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
 import { useEffect, useRef } from "react";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { clearLastPortalTenant } from "@/app/lib/tenant-portal-client";
 
-/** Oublie le dernier établissement quand la session Clerk se termine (ex. UserButton). */
+/** Oublie le dernier établissement quand la session se termine. */
 export default function PortalMemoryOnSignOut() {
-  const { isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn } = useSessionUser();
   const wasSignedIn = useRef(false);
 
   useEffect(() => {

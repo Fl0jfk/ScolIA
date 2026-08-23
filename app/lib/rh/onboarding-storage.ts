@@ -97,7 +97,7 @@ export async function createOnboardingInvite(input: {
     candidateEmailHint: input.candidateEmailHint?.trim().toLowerCase() || null,
     publicPath: input.publicPath,
     form: null,
-    clerkPending: false,
+    invitePending: false,
   };
   await saveOnboardingRecord(record);
   return record;

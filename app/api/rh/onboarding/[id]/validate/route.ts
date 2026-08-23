@@ -6,7 +6,7 @@ import { canManagePersonnel } from "@/app/lib/personnel-types";
 import { provisionRhOnboarding } from "@/app/lib/rh/onboarding-workflow";
 
 
-/** Valide le dossier : OneDrive + PDF + invitation Clerk (pending). */
+/** Valide le dossier : OneDrive + PDF + invitation (pending). */
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> },

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 
 type BubbleMessage = {
   role: "user" | "assistant";
@@ -21,7 +21,7 @@ function renderMessageContent(content: string) {
 }
 
 export default function ChatbotBubbleBienEtre() {
-  const { isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn } = useSessionUser();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);

@@ -19,7 +19,7 @@ export const UNIFIED_ENSEIGNANTS_FLUX_ID = "enseignants" as const;
 
 export type OcrFluxAssignment = {
   id: OcrFluxId;
-  clerkUserId?: string;
+  externalUserId?: string;
   match?: string;
   displayName?: string;
   basePath?: string;
@@ -31,7 +31,7 @@ export type OcrResolvedFlux = {
   secteur: Secteur | null;
   basePath: string;
   label: string;
-  clerkUserId?: string;
+  externalUserId?: string;
   match?: string;
   displayName?: string;
 };
@@ -123,7 +123,7 @@ export function emptyOcrFluxGrid(): OcrFluxAssignment[] {
 
 type LooseFluxRow = {
   id?: string;
-  clerkUserId?: string;
+  externalUserId?: string;
   match?: string;
   displayName?: string;
   basePath?: string;
@@ -136,14 +136,14 @@ type LooseFluxRow = {
  */
 export function mergeOcrFluxGrid(raw: OcrFluxAssignment[] | LooseFluxRow[] | undefined | null): OcrFluxAssignment[] {
   const byId = new Map<OcrFluxId, OcrFluxAssignment>();
-  let unified: Pick<OcrFluxAssignment, "clerkUserId" | "match" | "displayName" | "basePath"> | null =
+  let unified: Pick<OcrFluxAssignment, "externalUserId" | "match" | "displayName" | "basePath"> | null =
     null;
 
   for (const item of raw ?? []) {
     const id = String(item.id ?? "").trim();
     if (id === UNIFIED_ENSEIGNANTS_FLUX_ID) {
       unified = {
-        clerkUserId: item.clerkUserId?.trim() || undefined,
+        externalUserId: item.externalUserId?.trim() || undefined,
         match: item.match?.trim() || undefined,
         displayName: item.displayName?.trim() || undefined,
         basePath: item.basePath?.trim() || ENSEIGNANTS_SHARED_BASE_PATH,
@@ -153,7 +153,7 @@ export function mergeOcrFluxGrid(raw: OcrFluxAssignment[] | LooseFluxRow[] | und
     if (!isOcrFluxId(id)) continue;
     byId.set(id, {
       id,
-      clerkUserId: item.clerkUserId?.trim() || undefined,
+      externalUserId: item.externalUserId?.trim() || undefined,
       match: item.match?.trim() || undefined,
       displayName: item.displayName?.trim() || undefined,
       basePath: item.basePath?.trim() || undefined,
@@ -163,8 +163,8 @@ export function mergeOcrFluxGrid(raw: OcrFluxAssignment[] | LooseFluxRow[] | und
   if (unified) {
     for (const id of ["enseignants_ecole", "enseignants_college", "enseignants_lycee"] as const) {
       const current = byId.get(id) ?? { id };
-      if (!current.clerkUserId && !current.match) {
-        current.clerkUserId = unified.clerkUserId;
+      if (!current.externalUserId && !current.match) {
+        current.externalUserId = unified.externalUserId;
         current.match = unified.match;
         current.displayName = unified.displayName;
       }
@@ -190,7 +190,7 @@ export function mergeOcrFluxGrid(raw: OcrFluxAssignment[] | LooseFluxRow[] | und
 }
 
 type LegacyUserSecteur = {
-  clerkUserId?: string;
+  externalUserId?: string;
   match?: string;
   displayName?: string;
   secteur?: string;
@@ -206,15 +206,15 @@ export function migrateLegacyUserSecteursToOcrFlux(input: {
   personnelBasePath?: string | null;
 }): OcrFluxAssignment[] {
   const grid = mergeOcrFluxGrid(input.ocrFlux);
-  const hasAnyAssignee = grid.some((row) => row.clerkUserId || row.match);
+  const hasAnyAssignee = grid.some((row) => row.externalUserId || row.match);
   if (!hasAnyAssignee && input.userSecteurs?.length) {
     for (const row of input.userSecteurs) {
       const secteur = String(row.secteur ?? "").trim().toLowerCase();
       if (secteur !== "ecole" && secteur !== "college" && secteur !== "lycee") continue;
       const id = elevesFluxIdForSecteur(secteur);
       const current = grid.find((g) => g.id === id);
-      if (!current || current.clerkUserId || current.match) continue;
-      current.clerkUserId = row.clerkUserId?.trim() || undefined;
+      if (!current || current.externalUserId || current.match) continue;
+      current.externalUserId = row.externalUserId?.trim() || undefined;
       current.match = row.match?.trim() || undefined;
       current.displayName = row.displayName?.trim() || undefined;
     }
@@ -244,7 +244,7 @@ export function resolveOcrFluxRow(row: OcrFluxAssignment): OcrResolvedFlux {
     secteur: meta.secteur,
     basePath: resolvedBasePath(row),
     label: meta.label,
-    clerkUserId: row.clerkUserId,
+    externalUserId: row.externalUserId,
     match: row.match,
     displayName: row.displayName,
   };
@@ -254,7 +254,7 @@ export function fluxesAssignedToUser(
   grid: OcrFluxAssignment[],
   user: { id?: string | null; lastName?: string | null; emails?: string[] },
 ): OcrResolvedFlux[] {
-  const clerkId = user.id?.trim();
+  const directoryUserId = user.id?.trim();
   const identifiers = [
     ...(user.emails ?? []).map(normalizeMatch),
     user.lastName ? normalizeMatch(user.lastName) : "",
@@ -262,7 +262,7 @@ export function fluxesAssignedToUser(
 
   return grid
     .filter((row) => {
-      if (clerkId && row.clerkUserId?.trim() === clerkId) return true;
+      if (directoryUserId && row.externalUserId?.trim() === directoryUserId) return true;
       const target = normalizeMatch(row.match ?? "");
       if (!target) return false;
       return identifiers.some((id) => id === target || id.includes(target) || target.includes(id));

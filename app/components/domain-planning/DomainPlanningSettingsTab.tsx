@@ -10,14 +10,14 @@ import {
 import type { DomainPlanningSession } from "@/app/lib/domain-planning-types";
 import { PROF_ROOM_COLOR_PRESETS } from "@/app/lib/prof-room-subject-colors";
 import SubjectColorEditor from "@/app/components/prof-room/SubjectColorEditor";
-import DomainCoordinatorPicker, { type ClerkMemberOption } from "./DomainCoordinatorPicker";
+import DomainCoordinatorPicker, { type DirectoryMemberOption } from "./DomainCoordinatorPicker";
 
 type Domain = {
   id: string;
   name: string;
   description?: string;
   color?: string;
-  coordinatorClerkUserIds: string[];
+  coordinatorExternalUserIds: string[];
 };
 
 type ModuleConfig = {
@@ -53,7 +53,7 @@ export default function DomainPlanningSettingsTab() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [domains, setDomains] = useState<Domain[]>([]);
-  const [members, setMembers] = useState<ClerkMemberOption[]>([]);
+  const [members, setMembers] = useState<DirectoryMemberOption[]>([]);
   const [config, setConfig] = useState<ModuleConfig>({
     classesByPole: {},
     activityColors: {},
@@ -72,7 +72,7 @@ export default function DomainPlanningSettingsTab() {
         const [domainsRes, configRes, usersRes, sessionsRes] = await Promise.all([
           fetch("/api/domain-planning/domains"),
           fetch("/api/domain-planning/module-config"),
-          fetch("/api/domain-planning/clerk-users"),
+          fetch("/api/domain-planning/directory-users"),
           fetch("/api/domain-planning/sessions"),
         ]);
         const domainsJson = await domainsRes.json();
@@ -95,9 +95,9 @@ export default function DomainPlanningSettingsTab() {
           }),
         );
         if (!usersRes.ok) {
-          throw new Error(usersJson.error || "Impossible de charger les utilisateurs Clerk.");
+          throw new Error(usersJson.error || "Impossible de charger les utilisateurs du directory.");
         }
-        setMembers((usersJson.users || []) as ClerkMemberOption[]);
+        setMembers((usersJson.users || []) as DirectoryMemberOption[]);
         if (sessionsRes.ok) {
           const sessionsJson = await sessionsRes.json();
           setSessions(sessionsJson.sessions || []);
@@ -123,7 +123,7 @@ export default function DomainPlanningSettingsTab() {
             ...d,
             name,
             id: isNew ? uniqueDomainId(name, domains, idx) : d.id.trim(),
-            coordinatorClerkUserIds: d.coordinatorClerkUserIds || [],
+            coordinatorExternalUserIds: d.coordinatorExternalUserIds || [],
           };
         });
       const res = await fetch("/api/domain-planning/domains", {
@@ -261,7 +261,7 @@ export default function DomainPlanningSettingsTab() {
         <h2 className="text-lg font-black text-slate-900">Domaines & responsables</h2>
         <p className="text-sm text-slate-600 leading-relaxed">
           Créez un domaine (ex. EVARS), choisissez sa couleur, puis sélectionnez ses <strong>responsables</strong>{" "}
-          dans la liste Clerk. La responsable EVARS peut modifier les séances et gérer les positionnements des
+          dans la liste directory. La responsable EVARS peut modifier les séances et gérer les positionnements des
           professeurs.
         </p>
         {domains.map((domain, idx) => {
@@ -311,23 +311,23 @@ export default function DomainPlanningSettingsTab() {
             />
             <div className="pt-1 border-t border-slate-100">
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">
-                {domain.id === "evars" ? "Responsable(s) EVARS" : "Responsables du domaine"} (Clerk)
+                {domain.id === "evars" ? "Responsable(s) EVARS" : "Responsables du domaine"}
               </p>
-              {domain.coordinatorClerkUserIds.length > 0 && (
+              {domain.coordinatorExternalUserIds.length > 0 && (
                 <p className="text-sm font-bold text-violet-800 mb-2">
                   {members
-                    .filter((m) => domain.coordinatorClerkUserIds.includes(m.clerkUserId))
+                    .filter((m) => domain.coordinatorExternalUserIds.includes(m.externalUserId))
                     .map((m) => m.displayName || `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || m.email)
-                    .join(" · ") || `${domain.coordinatorClerkUserIds.length} responsable(s) sélectionné(s)`}
+                    .join(" · ") || `${domain.coordinatorExternalUserIds.length} responsable(s) sélectionné(s)`}
                 </p>
               )}
               <DomainCoordinatorPicker
                 domainName={domain.name.trim() || "Domaine"}
                 members={members}
-                selectedIds={domain.coordinatorClerkUserIds}
+                selectedIds={domain.coordinatorExternalUserIds}
                 onChange={(ids) => {
                   const next = [...domains];
-                  next[idx] = { ...domain, coordinatorClerkUserIds: ids };
+                  next[idx] = { ...domain, coordinatorExternalUserIds: ids };
                   setDomains(next);
                 }}
               />
@@ -346,7 +346,7 @@ export default function DomainPlanningSettingsTab() {
                   id: `domaine-${Date.now()}`,
                   name: "",
                   color: PROF_ROOM_COLOR_PRESETS[domains.length % PROF_ROOM_COLOR_PRESETS.length].value,
-                  coordinatorClerkUserIds: [],
+                  coordinatorExternalUserIds: [],
                 },
               ])
             }

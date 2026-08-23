@@ -61,10 +61,10 @@ export async function POST(req: NextRequest) {
     const newReservationsAdded: any[] = [];
     const conflictLabels: string[] = [];
     let skippedBeyondHorizon = 0;
-    const clerkUser = await safeCurrentUser();
+    const sessionUser = await safeCurrentUser();
     const canBookForOther = await isListedProfRoomAdmin();
-    const bookedByFirstName = String(clerkUser?.firstName || "").trim();
-    const bookedByLastName = String(clerkUser?.lastName || "").trim().toUpperCase();
+    const bookedByFirstName = String(sessionUser?.firstName || "").trim();
+    const bookedByLastName = String(sessionUser?.lastName || "").trim().toUpperCase();
     const requestedFirst = String(firstNameBody || "").trim();
     const requestedLast = String(lastNameBody || "").trim().toUpperCase();
     const bookedForOther =
@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
     let mailSkipReason: string | null = null;
     const to = String(email || "").trim();
     if (!to) {
-      mailSkipReason = "aucun e-mail destinataire (compte Clerk sans adresse ?)";
+      mailSkipReason = "aucun e-mail destinataire (compte sans adresse ?)";
     } else {
       try {
         const smtp = await getTenantSmtpConfig();

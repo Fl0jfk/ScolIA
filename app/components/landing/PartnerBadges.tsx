@@ -5,7 +5,7 @@ import { useState } from "react";
 import { PARTNERS } from "@/app/lib/marketing-site";
 
 /**
- * Bandeau partenaires (souveraineté FR + Microsoft / Clerk).
+ * Bandeau partenaires (souveraineté FR + Microsoft).
  * Logos dans public/partners/ — voir README.txt.
  */
 export default function PartnerBadges() {

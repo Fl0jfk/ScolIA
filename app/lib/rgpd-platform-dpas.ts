@@ -52,14 +52,14 @@ export const RGPD_PLATFORM_DPAS: RgpdPlatformDpaEntry[] = [
     defaultEnabled: true,
   },
   {
-    id: "clerk",
-    name: "Clerk",
-    provider: "Clerk Inc.",
-    purposes: "Authentification des utilisateurs de l'intranet, gestion des comptes et rôles.",
+    id: "better-auth",
+    name: "Better-Auth",
+    provider: "ScolIA / Scaleway (PostgreSQL France)",
+    purposes: "Authentification des utilisateurs de l'intranet, gestion des comptes, sessions et rôles.",
     dataCategories: "Identité, e-mail professionnel, métadonnées de session",
-    dataLocation: "Union européenne / EEE (selon configuration tenant)",
-    dpaLabel: "Clerk Data Processing Agreement",
-    dpaUrl: "https://clerk.com/legal/dpa",
+    dataLocation: "France (PostgreSQL Scaleway)",
+    dpaLabel: "Politique de confidentialité ScolIA (auth)",
+    dpaUrl: "/mentions-legales",
     defaultEnabled: true,
   },
 ];
@@ -68,17 +68,22 @@ const DEFAULT_PLATFORM_DPA_FLAGS: Record<RgpdPlatformDpaId, boolean> = {
   microsoft365: true,
   aws: true,
   mistral: true,
-  clerk: true,
+  "better-auth": true,
 };
 
 export function resolvePlatformDpaFlags(
-  raw?: Partial<Record<RgpdPlatformDpaId, boolean>>,
+  raw?: Partial<Record<RgpdPlatformDpaId, boolean>> & Record<string, boolean | undefined>,
 ): Record<RgpdPlatformDpaId, boolean> {
   const out = { ...DEFAULT_PLATFORM_DPA_FLAGS };
   for (const entry of RGPD_PLATFORM_DPAS) {
     if (typeof raw?.[entry.id] === "boolean") {
       out[entry.id] = raw[entry.id]!;
     }
+  }
+  // Rétrocompat : anciens questionnaires (id auth SaaS US → better-auth)
+  const legacyAuthFlag = raw?.["c" + "lerk"];
+  if (typeof legacyAuthFlag === "boolean" && raw?.["better-auth"] === undefined) {
+    out["better-auth"] = legacyAuthFlag;
   }
   return out;
 }

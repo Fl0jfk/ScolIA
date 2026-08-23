@@ -61,8 +61,8 @@ export type RhOnboardingRecord = {
   form?: RhOnboardingFormData | null;
   personnelId?: string | null;
   folderName?: string | null;
-  clerkUserId?: string | null;
-  clerkPending?: boolean;
+  externalUserId?: string | null;
+  invitePending?: boolean;
   publicPath?: string | null;
   validationNote?: string | null;
   validatedBy?: string | null;
@@ -99,7 +99,7 @@ export const RH_ONBOARDING_STATUS_LABELS: Record<RhOnboardingRecordStatus, strin
   awaiting_candidate: "En attente du candidat",
   submitted: "Formulaire reçu",
   validation_rh: "Validation RH",
-  provisioned: "Dossier créé · Clerk en attente",
+  provisioned: "Dossier créé · invitation en attente",
   active: "Actif",
   cancelled: "Annulé",
 };
@@ -222,8 +222,8 @@ export function normalizeRhOnboardingRecord(raw: unknown): RhOnboardingRecord | 
     form: o.form ? normalizeRhOnboardingForm(o.form) : null,
     personnelId: o.personnelId ? String(o.personnelId) : null,
     folderName: o.folderName ? String(o.folderName) : null,
-    clerkUserId: o.clerkUserId ? String(o.clerkUserId) : null,
-    clerkPending: o.clerkPending === true,
+    externalUserId: o.externalUserId ? String(o.externalUserId) : null,
+    invitePending: o.invitePending === true,
     publicPath: o.publicPath ? String(o.publicPath) : null,
     validationNote: o.validationNote ? String(o.validationNote) : null,
     validatedBy: o.validatedBy ? String(o.validatedBy) : null,

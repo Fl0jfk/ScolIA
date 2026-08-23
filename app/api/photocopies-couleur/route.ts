@@ -1,7 +1,6 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,

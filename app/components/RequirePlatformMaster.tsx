@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useIsPlatformMaster } from "@/app/hooks/useIsPlatformMaster";
 
 /** Redirige si l'utilisateur n'est pas Master plateforme. */
@@ -14,7 +14,7 @@ export default function RequirePlatformMaster({
   redirectTo?: string;
 }) {
   const router = useRouter();
-  const { isLoaded } = useUser();
+  const { isLoaded } = useSessionUser();
   const isPlatformMaster = useIsPlatformMaster();
 
   useEffect(() => {

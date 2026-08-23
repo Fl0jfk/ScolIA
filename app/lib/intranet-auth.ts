@@ -1,25 +1,29 @@
 import { NextResponse } from "next/server";
 import {
-  CLERK_ENCRYPTION_KEY_HINT,
-  isClerkDynamicKeyError,
-} from "@/app/lib/clerk-request-error";
+  AUTH_CONFIG_HINT,
+  isAuthConfigError,
+} from "@/app/lib/auth-request-error";
+import { requireAppUser } from "@/app/lib/app-session";
+import {
+  isOrgAdminFromAppUser,
+  isPlatformMasterFromAppUser,
+} from "@/app/lib/auth-roles-db";
 import {
   isOrgAdminFromPublicMetadata,
   isPlatformMasterFromPublicMetadata,
-  resolveSession,
-  safeCurrentUser,
-} from "@/app/lib/intranet-session";
+} from "@/app/lib/intranet-auth-metadata";
+import { resolveSession, safeCurrentUser } from "@/app/lib/intranet-session";
 
 export type AuthContext = {
   userId: string;
 };
 
-function clerkServerConfigResponse(): NextResponse {
+function authServerConfigResponse(): NextResponse {
   return NextResponse.json(
     {
-      error: "Configuration Clerk serveur incomplète pour ce tenant.",
-      code: "CLERK_SERVER_CONFIG",
-      hint: CLERK_ENCRYPTION_KEY_HINT,
+      error: "Configuration auth serveur incomplète pour ce tenant.",
+      code: "AUTH_SERVER_CONFIG",
+      hint: AUTH_CONFIG_HINT,
     },
     { status: 503 },
   );
@@ -38,8 +42,8 @@ export async function requireAuth(): Promise<
     }
     return { ok: true, ctx: { userId: session.userId } };
   } catch (error) {
-    if (isClerkDynamicKeyError(error)) {
-      return { ok: false, response: clerkServerConfigResponse() };
+    if (isAuthConfigError(error)) {
+      return { ok: false, response: authServerConfigResponse() };
     }
     console.error("[requireAuth]", error);
     return {
@@ -53,11 +57,15 @@ export async function requireAuth(): Promise<
 }
 
 async function isPlatformMaster(): Promise<boolean> {
+  const appUser = await requireAppUser();
+  if (appUser.ok) return isPlatformMasterFromAppUser(appUser.user);
   const user = await safeCurrentUser();
   return isPlatformMasterFromPublicMetadata(user?.publicMetadata);
 }
 
 export async function isIntranetAdmin(): Promise<boolean> {
+  const appUser = await requireAppUser();
+  if (appUser.ok) return isOrgAdminFromAppUser(appUser.user);
   const user = await safeCurrentUser();
   return isOrgAdminFromPublicMetadata(user?.publicMetadata);
 }

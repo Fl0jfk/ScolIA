@@ -389,7 +389,7 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
         body: "Barre d'outils en haut à droite. Quand un dossier partagé est ouvert, deux boutons utiles apparaissent en plus des actions habituelles.",
         bullets: [
           "+ Dossier / + Ajouter un fichier : dans Mon cloud ou dans un dossier partagé où vous avez les droits.",
-          "+ Dossier partagé : crée un espace commun et choisissez les collègues (personnel Clerk de l'établissement).",
+          "+ Dossier partagé : crée un espace commun et choisissez les collègues (personnel de l'établissement).",
           "Voir qui a accès (bouton indigo) : visible dès qu'un dossier partagé est ouvert — propriétaire 👑, membres et rôles, pour tout le monde qui a accès (pas seulement le propriétaire).",
           "Modifier les accès (bouton sombre, propriétaire seulement) : ajouter ou retirer des membres — remplace l'ancien « Gérer le partage ».",
           "Supprimer le dossier partagé (propriétaire, racine du dossier) : efface tout le contenu et retire le dossier pour tous les membres.",
@@ -453,7 +453,7 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
       },
       {
         title: "Qui voit quoi ?",
-        body: "Seuls les utilisateurs du personnel inscrits sur l'intranet Clerk de votre établissement apparaissent dans les listes de partage et dans la fenêtre Voir qui a accès.",
+        body: "Seuls les utilisateurs du personnel inscrits sur l'intranet de votre établissement apparaissent dans les listes de partage et dans la fenêtre Voir qui a accès.",
         bullets: [
           "Mon cloud : strictement privé — pas d'entrée Voir qui a accès.",
           "Dossier partagé : propriétaire + membres désignés, visibles dans la fenêtre.",

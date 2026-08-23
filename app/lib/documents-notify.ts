@@ -1,5 +1,5 @@
 import { loadAppConfig } from "@/app/lib/app-config";
-import { listClerkMembers } from "@/app/lib/clerk-users";
+import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 
@@ -43,8 +43,8 @@ export async function notifySharedFolderInvites(params: {
   );
   const signInLink = await tenantAbsolutePath("/sign-in");
 
-  const members = await listClerkMembers();
-  const byId = new Map(members.filter((m) => m.clerkUserId).map((m) => [m.clerkUserId, m]));
+  const members = await listDirectoryMembers();
+  const byId = new Map(members.filter((m) => m.externalUserId).map((m) => [m.externalUserId, m]));
 
   let sent = 0;
   let skipped = 0;

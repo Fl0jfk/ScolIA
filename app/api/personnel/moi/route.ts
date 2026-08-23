@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
 import {
-  findPersonnelByClerkId,
+  findPersonnelByExternalId,
   findPersonnelByEmail,
   getSharedPersonnelDocuments,
 } from "@/app/lib/personnel-storage";
@@ -27,7 +27,7 @@ export async function GET() {
   try {
     const email = user?.primaryEmailAddress?.emailAddress || "";
     let record =
-      (user?.id ? await findPersonnelByClerkId(user.id) : null) ||
+      (user?.id ? await findPersonnelByExternalId(user.id) : null) ||
       (email ? await findPersonnelByEmail(email) : null);
 
     const sharedDocs = await getSharedPersonnelDocuments();

@@ -4,9 +4,9 @@ import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 
 export async function loadCertificateProfSignatureBytes(
-  clerkUserId: string,
+  externalUserId: string,
 ): Promise<Uint8Array | null> {
-  const id = clerkUserId.trim();
+  const id = externalUserId.trim();
   if (!id) return null;
   try {
     const s3Client = await getTenantDataS3Client();
@@ -24,10 +24,10 @@ export async function loadCertificateProfSignatureBytes(
 }
 
 export async function saveCertificateProfSignature(
-  clerkUserId: string,
+  externalUserId: string,
   pngBytes: Buffer,
 ): Promise<void> {
-  const id = clerkUserId.trim();
+  const id = externalUserId.trim();
   if (!id) throw new Error("Utilisateur invalide.");
   const s3Client = await getTenantDataS3Client();
   await s3Client.send(

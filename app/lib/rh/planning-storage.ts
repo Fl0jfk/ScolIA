@@ -37,11 +37,11 @@ async function readStaffPlanning(personnelId: string): Promise<StaffPlanningDoc>
 }
 
 /**
- * Planning OGEC identifié par l’utilisateur Clerk (stockage Scaleway).
+ * Planning OGEC identifié par l’utilisateur (stockage Scaleway).
  * Repli : ancienne clé dossier RH, si un JSON existait déjà.
  */
-export async function readStaffPlanningForClerkUser(clerkUserId: string): Promise<StaffPlanningDoc> {
-  const id = clerkUserId.trim();
+export async function readStaffPlanningForExternalUser(externalUserId: string): Promise<StaffPlanningDoc> {
+  const id = externalUserId.trim();
   if (!id) return { ...emptyStaffPlanning(""), updatedAt: "" };
 
   const primary = await readStaffPlanning(id);
@@ -51,7 +51,7 @@ export async function readStaffPlanningForClerkUser(clerkUserId: string): Promis
 
   try {
     const index = await getPersonnelIndex();
-    const self = index.find((e) => e.clerkUserId === id && e.active !== false);
+    const self = index.find((e) => e.externalUserId === id && e.active !== false);
     if (self?.id && self.id !== id) {
       const legacy = await readStaffPlanning(self.id);
       if (legacy.updatedAt || staffHasContent(legacy)) {
@@ -70,7 +70,7 @@ export async function readRhPlanning(
   personnelId: string,
 ): Promise<RhPlanningDoc> {
   if (kind === "teacher") return readTeacherPlanning(personnelId);
-  return readStaffPlanningForClerkUser(personnelId);
+  return readStaffPlanningForExternalUser(personnelId);
 }
 
 export async function writeRhPlanning(doc: RhPlanningDoc): Promise<RhPlanningDoc> {

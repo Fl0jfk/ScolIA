@@ -73,7 +73,7 @@ function sanitizeProfileForClient(
     .filter((m) => m.status === "pending" || m.status === "revealed")
     .map((m) => {
       const otherId = otherPartyId(m, userId);
-      const other = allProfiles.find((p) => p.clerkUserId === otherId);
+      const other = allProfiles.find((p) => p.externalUserId === otherId);
       const revealed = m.status === "revealed";
       return {
         id: m.id,
@@ -109,8 +109,8 @@ async function runMatchingAndNotify(profile: CovoiturageProfile) {
   await saveCovoiturageMatches(allMatches);
 
   for (const match of newMatches) {
-    const profileA = profiles.find((p) => p.clerkUserId === match.profileA);
-    const profileB = profiles.find((p) => p.clerkUserId === match.profileB);
+    const profileA = profiles.find((p) => p.externalUserId === match.profileA);
+    const profileB = profiles.find((p) => p.externalUserId === match.profileB);
     if (profileA?.status === "active") {
       await notifyCovoiturageMatchPotential({ profile: profileA, match }).catch(() => {});
     }
@@ -174,14 +174,14 @@ export async function POST(req: Request) {
     const now = new Date().toISOString();
     const email = userEmail(user);
     if (!email) {
-      return NextResponse.json({ error: "E-mail Clerk requis pour le covoiturage." }, { status: 400 });
+      return NextResponse.json({ error: "E-mail requis pour le covoiturage." }, { status: 400 });
     }
 
     const profiles = await getCovoiturageProfiles();
-    const existingIdx = profiles.findIndex((p) => p.clerkUserId === userId);
+    const existingIdx = profiles.findIndex((p) => p.externalUserId === userId);
 
     const profile: CovoiturageProfile = {
-      clerkUserId: userId,
+      externalUserId: userId,
       displayName: displayName(user),
       email,
       status: "active",
@@ -211,7 +211,7 @@ export async function POST(req: Request) {
 
   if (action === "complete") {
     const profiles = await getCovoiturageProfiles();
-    const idx = profiles.findIndex((p) => p.clerkUserId === userId && p.status !== "unregistered");
+    const idx = profiles.findIndex((p) => p.externalUserId === userId && p.status !== "unregistered");
     if (idx < 0) return NextResponse.json({ error: "Profil introuvable." }, { status: 404 });
 
     profiles[idx] = {
@@ -233,7 +233,7 @@ export async function POST(req: Request) {
 
   if (action === "reactivate") {
     const profiles = await getCovoiturageProfiles();
-    const idx = profiles.findIndex((p) => p.clerkUserId === userId && p.status === "complete");
+    const idx = profiles.findIndex((p) => p.externalUserId === userId && p.status === "complete");
     if (idx < 0) return NextResponse.json({ error: "Profil introuvable." }, { status: 404 });
 
     profiles[idx] = {
@@ -254,7 +254,7 @@ export async function POST(req: Request) {
 
   if (action === "unregister") {
     const profiles = await getCovoiturageProfiles();
-    const idx = profiles.findIndex((p) => p.clerkUserId === userId && p.status !== "unregistered");
+    const idx = profiles.findIndex((p) => p.externalUserId === userId && p.status !== "unregistered");
     if (idx < 0) return NextResponse.json({ error: "Profil introuvable." }, { status: 404 });
 
     profiles[idx] = {

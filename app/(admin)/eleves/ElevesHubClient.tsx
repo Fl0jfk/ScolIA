@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import PillarModuleDashboard from "@/app/components/module-hub/PillarModuleDashboard";
 import { useData } from "@/app/contexts/data";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
@@ -13,7 +13,7 @@ import { resolveLegacyPillarTab } from "@/app/lib/pillar-module-routes";
 export default function ElevesHubClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isLoaded, user } = useUser();
+  const { isLoaded, user } = useSessionUser();
   const isOrgAdmin = useIsOrgAdmin();
   const data = useData();
 

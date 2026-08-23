@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import { dash } from "@/app/lib/dashboard-brand";
 
-export type ClerkMemberOption = {
-  clerkUserId: string;
+export type DirectoryMemberOption = {
+  externalUserId: string;
   email: string;
   firstName?: string;
   lastName?: string;
@@ -12,7 +12,7 @@ export type ClerkMemberOption = {
   pending?: boolean;
 };
 
-function memberLabel(m: ClerkMemberOption): string {
+function memberLabel(m: DirectoryMemberOption): string {
   const name = m.displayName || `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim();
   return name || m.email;
 }
@@ -24,7 +24,7 @@ export default function ProfRoomAdminPicker({
   loading,
   footerHint,
 }: {
-  members: ClerkMemberOption[];
+  members: DirectoryMemberOption[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   loading?: boolean;
@@ -33,7 +33,7 @@ export default function ProfRoomAdminPicker({
   const [search, setSearch] = useState("");
 
   const activeMembers = useMemo(
-    () => members.filter((m) => m.clerkUserId && !m.pending),
+    () => members.filter((m) => m.externalUserId && !m.pending),
     [members],
   );
 
@@ -52,7 +52,7 @@ export default function ProfRoomAdminPicker({
   };
 
   if (loading) {
-    return <p className={`text-sm ${dash.textMid}`}>Chargement des utilisateurs Clerk…</p>;
+    return <p className={`text-sm ${dash.textMid}`}>Chargement des utilisateurs du directory…</p>;
   }
 
   return (
@@ -69,13 +69,13 @@ export default function ProfRoomAdminPicker({
         ) : (
           filtered.map((m) => (
             <label
-              key={m.clerkUserId}
+              key={m.externalUserId}
               className={`flex cursor-pointer items-center gap-3 px-4 py-3 text-sm ${dash.hoverBgSoft}`}
             >
               <input
                 type="checkbox"
-                checked={selectedIds.includes(m.clerkUserId)}
-                onChange={() => toggle(m.clerkUserId)}
+                checked={selectedIds.includes(m.externalUserId)}
+                onChange={() => toggle(m.externalUserId)}
                 className="rounded border-slate-300"
               />
               <span className="flex-1 min-w-0">
@@ -93,7 +93,7 @@ export default function ProfRoomAdminPicker({
       </div>
       <p className={`text-xs ${dash.textMid}`}>
         {footerHint ??
-          `${selectedIds.length} administrateur(s) sélectionné(s). Le mode admin du planning utilise le nom de famille Clerk de chaque personne.`}
+          `${selectedIds.length} administrateur(s) sélectionné(s). Le mode admin du planning utilise le nom de famille de chaque personne.`}
       </p>
     </div>
   );

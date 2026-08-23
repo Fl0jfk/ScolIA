@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_PROF_ROOM_SUBJECT_COLORS } from "@/app/lib/prof-room-defaults";
 import { PROF_ROOM_COLOR_PRESETS } from "@/app/lib/prof-room-subject-colors";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
-import ProfRoomAdminPicker, { type ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import ProfRoomAdminPicker, { type DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import ProfRoomGlassCard from "@/app/components/prof-room/ProfRoomGlassCard";
 import { dash } from "@/app/lib/dashboard-brand";
 import SubjectColorEditor from "./SubjectColorEditor";
@@ -53,16 +53,16 @@ export default function ProfRoomSettingsTab() {
   const [newSubjectColor, setNewSubjectColor] = useState(PROF_ROOM_COLOR_PRESETS[0].value);
   const [newPoleName, setNewPoleName] = useState("");
   const [newClassByPole, setNewClassByPole] = useState<Record<string, string>>({});
-  const [adminClerkUserIds, setAdminClerkUserIds] = useState<string[]>([]);
-  const [clerkMembers, setClerkMembers] = useState<ClerkMemberOption[]>([]);
+  const [adminExternalUserIds, setAdminExternalUserIds] = useState<string[]>([]);
+  const [directoryMembers, setDirectoryMembers] = useState<DirectoryMemberOption[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
 
   const selectedAdmins = useMemo(
     () =>
-      adminClerkUserIds
-        .map((id) => clerkMembers.find((m) => m.clerkUserId === id))
-        .filter((m): m is ClerkMemberOption => Boolean(m)),
-    [adminClerkUserIds, clerkMembers],
+      adminExternalUserIds
+        .map((id) => directoryMembers.find((m) => m.externalUserId === id))
+        .filter((m): m is DirectoryMemberOption => Boolean(m)),
+    [adminExternalUserIds, directoryMembers],
   );
 
   useEffect(() => {
@@ -71,7 +71,7 @@ export default function ProfRoomSettingsTab() {
         const [roomsRes, configRes, usersRes] = await Promise.all([
           fetch("/api/reservation-rooms/rooms"),
           fetch("/api/reservation-rooms/module-config"),
-          fetch("/api/reservation-rooms/clerk-users"),
+          fetch("/api/reservation-rooms/directory-users"),
         ]);
         const roomsJson = await roomsRes.json();
         const configJson = await configRes.json();
@@ -84,13 +84,13 @@ export default function ProfRoomSettingsTab() {
           ...loaded,
           subjectColors: { ...DEFAULT_PROF_ROOM_SUBJECT_COLORS, ...loaded.subjectColors },
         });
-        setAdminClerkUserIds(
-          Array.isArray(configJson.adminClerkUserIds) ? configJson.adminClerkUserIds : [],
+        setAdminExternalUserIds(
+          Array.isArray(configJson.adminExternalUserIds) ? configJson.adminExternalUserIds : [],
         );
         if (usersRes.ok) {
-          setClerkMembers((usersJson.users || []) as ClerkMemberOption[]);
+          setDirectoryMembers((usersJson.users || []) as DirectoryMemberOption[]);
         } else {
-          setError(usersJson.error || "Impossible de charger les utilisateurs Clerk.");
+          setError(usersJson.error || "Impossible de charger les utilisateurs du directory.");
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erreur de chargement");
@@ -139,11 +139,11 @@ export default function ProfRoomSettingsTab() {
       const res = await fetch("/api/reservation-rooms/module-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adminClerkUserIds }),
+        body: JSON.stringify({ adminExternalUserIds }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Échec enregistrement administrateurs");
-      if (Array.isArray(j.adminClerkUserIds)) setAdminClerkUserIds(j.adminClerkUserIds);
+      if (Array.isArray(j.adminExternalUserIds)) setAdminExternalUserIds(j.adminExternalUserIds);
       alert("Administrateurs enregistrés.");
       window.location.reload();
     } catch (e) {
@@ -154,7 +154,7 @@ export default function ProfRoomSettingsTab() {
   };
 
   const removeAdmin = (id: string) => {
-    setAdminClerkUserIds((prev) => prev.filter((x) => x !== id));
+    setAdminExternalUserIds((prev) => prev.filter((x) => x !== id));
   };
 
   const saveModuleConfig = async () => {
@@ -251,7 +251,7 @@ export default function ProfRoomSettingsTab() {
       <ProfRoomGlassCard bodyClassName="space-y-4 p-5 sm:p-6">
         <h2 className={`text-lg font-semibold tracking-tight ${dash.ink}`}>Administrateurs du module</h2>
         <p className={`text-sm ${dash.textMid}`}>
-          Ajoutez ou retirez des personnes depuis Clerk. Elles auront le mode administrateur dans la réservation
+          Ajoutez ou retirez des personnes depuis l’annuaire. Elles auront le mode administrateur dans la réservation
           de salles et pourront modifier ce paramétrage.
         </p>
 
@@ -259,13 +259,13 @@ export default function ProfRoomSettingsTab() {
           <div className="flex flex-wrap gap-2">
             {selectedAdmins.map((m) => (
               <span
-                key={m.clerkUserId}
+                key={m.externalUserId}
                 className={`inline-flex items-center gap-2 rounded-full border bg-white/80 px-3 py-1.5 text-xs font-semibold ${dash.borderSoft} ${dash.ink}`}
               >
                 <span className="max-w-[12rem] truncate">{m.displayName || m.email}</span>
                 <button
                   type="button"
-                  onClick={() => removeAdmin(m.clerkUserId)}
+                  onClick={() => removeAdmin(m.externalUserId)}
                   className={`cursor-pointer ${dash.textMid} hover:text-rose-600`}
                   title="Retirer cet administrateur"
                 >
@@ -276,14 +276,14 @@ export default function ProfRoomSettingsTab() {
           </div>
         ) : (
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Aucun administrateur Clerk sélectionné. Les administrateurs org Clerk conservent l&apos;accès.
+            Aucun administrateur sélectionné. Les administrateurs org conservent l&apos;accès.
           </p>
         )}
 
         <ProfRoomAdminPicker
-          members={clerkMembers}
-          selectedIds={adminClerkUserIds}
-          onChange={setAdminClerkUserIds}
+          members={directoryMembers}
+          selectedIds={adminExternalUserIds}
+          onChange={setAdminExternalUserIds}
           loading={membersLoading}
           footerHint="Cochez ou décochez pour ajouter ou retirer un administrateur. Enregistrez pour appliquer."
         />

@@ -15,7 +15,7 @@ test("migre userSecteurs vers les flux élèves sans perdre le rattachement", ()
   const grid = migrateLegacyUserSecteursToOcrFlux({
     userSecteurs: [
       {
-        clerkUserId: "user_lycee",
+        externalUserId: "user_lycee",
         match: "fh@ecole.fr",
         displayName: "François",
         secteur: "lycee",
@@ -24,9 +24,9 @@ test("migre userSecteurs vers les flux élèves sans perdre le rattachement", ()
     basesBySecteur: { lycee: { basePath: "Dossier élèves/Lycée LaPro" } },
   });
   const lycee = grid.find((r) => r.id === "eleves_lycee");
-  assert.equal(lycee?.clerkUserId, "user_lycee");
+  assert.equal(lycee?.externalUserId, "user_lycee");
   assert.equal(lycee?.basePath, "Dossier élèves/Lycée LaPro");
-  assert.equal(grid.find((r) => r.id === "eleves_college")?.clerkUserId, undefined);
+  assert.equal(grid.find((r) => r.id === "eleves_college")?.externalUserId, undefined);
 });
 
 test("ne recouvre pas un ocrFlux déjà renseigné", () => {
@@ -34,20 +34,20 @@ test("ne recouvre pas un ocrFlux déjà renseigné", () => {
     ocrFlux: [
       {
         id: "eleves_lycee",
-        clerkUserId: "nouveau",
+        externalUserId: "nouveau",
         match: "n@ecole.fr",
       },
     ],
-    userSecteurs: [{ clerkUserId: "ancien", match: "a@ecole.fr", secteur: "lycee" }],
+    userSecteurs: [{ externalUserId: "ancien", match: "a@ecole.fr", secteur: "lycee" }],
   });
-  assert.equal(grid.find((r) => r.id === "eleves_lycee")?.clerkUserId, "nouveau");
+  assert.equal(grid.find((r) => r.id === "eleves_lycee")?.externalUserId, "nouveau");
 });
 
 test("autorise la même personne sur plusieurs flux enseignants", () => {
   const grid = mergeOcrFluxGrid([
-    { id: "eleves_college", clerkUserId: "col", match: "c@ecole.fr" },
-    { id: "enseignants_college", clerkUserId: "col", match: "c@ecole.fr" },
-    { id: "enseignants_lycee", clerkUserId: "col", match: "c@ecole.fr" },
+    { id: "eleves_college", externalUserId: "col", match: "c@ecole.fr" },
+    { id: "enseignants_college", externalUserId: "col", match: "c@ecole.fr" },
+    { id: "enseignants_lycee", externalUserId: "col", match: "c@ecole.fr" },
   ]);
   const assigned = fluxesAssignedToUser(grid, { id: "col", emails: ["c@ecole.fr"] });
   assert.deepEqual(
@@ -63,8 +63,8 @@ test("les 3 flux enseignants partagent le même chemin OneDrive par défaut", ()
   assert.equal(OCR_FLUX_META.enseignants_lycee.defaultBasePath, ENSEIGNANTS_SHARED_BASE_PATH);
 
   const grid = mergeOcrFluxGrid([
-    { id: "enseignants_college", clerkUserId: "col", match: "c@ecole.fr" },
-    { id: "enseignants_lycee", clerkUserId: "col", match: "c@ecole.fr" },
+    { id: "enseignants_college", externalUserId: "col", match: "c@ecole.fr" },
+    { id: "enseignants_lycee", externalUserId: "col", match: "c@ecole.fr" },
   ]);
   const assigned = fluxesAssignedToUser(grid, { id: "col", emails: ["c@ecole.fr"] });
   const caps = capabilitiesFromFluxes(assigned);
@@ -77,13 +77,13 @@ test("migre l’ancien id unique enseignants vers les 3 lignes", () => {
   const grid = mergeOcrFluxGrid([
     {
       id: "enseignants",
-      clerkUserId: "col",
+      externalUserId: "col",
       match: "c@ecole.fr",
       basePath: "Dossier enseignants",
     },
   ] as Parameters<typeof mergeOcrFluxGrid>[0]);
-  assert.equal(grid.find((r) => r.id === "enseignants_college")?.clerkUserId, "col");
-  assert.equal(grid.find((r) => r.id === "enseignants_lycee")?.clerkUserId, "col");
+  assert.equal(grid.find((r) => r.id === "enseignants_college")?.externalUserId, "col");
+  assert.equal(grid.find((r) => r.id === "enseignants_lycee")?.externalUserId, "col");
   assert.equal(grid.find((r) => r.id === "enseignants_ecole")?.basePath, "Dossier enseignants");
 });
 
@@ -91,7 +91,7 @@ test("collapse les anciens chemins …/Collège vers la racine commune", () => {
   const grid = mergeOcrFluxGrid([
     {
       id: "enseignants_college",
-      clerkUserId: "col",
+      externalUserId: "col",
       match: "c@ecole.fr",
       basePath: "Dossier enseignants/Collège",
     },

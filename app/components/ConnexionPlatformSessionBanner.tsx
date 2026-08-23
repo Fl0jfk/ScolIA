@@ -1,12 +1,13 @@
 "use client";
 
-import { useUser, useClerk } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
+import { useSignOutWithPortalReset } from "@/app/hooks/useSignOutWithPortalReset";
 import { platformAdminSignInUrl } from "@/app/lib/platform-portal-url";
 
 /** Alerte si une session administration Scola est encore active sur le portail connexion. */
 export default function ConnexionPlatformSessionBanner() {
-  const { isLoaded, isSignedIn } = useUser();
-  const { signOut } = useClerk();
+  const { isLoaded, isSignedIn } = useSessionUser();
+  const signOut = useSignOutWithPortalReset();
 
   if (!isLoaded || !isSignedIn) return null;
 
@@ -20,7 +21,7 @@ export default function ConnexionPlatformSessionBanner() {
       <div className="mt-3 flex flex-wrap gap-3">
         <button
           type="button"
-          onClick={() => signOut({ redirectUrl: window.location.href })}
+          onClick={() => signOut(window.location.href)}
           className="rounded-full bg-white px-4 py-2 text-xs font-bold text-violet-800 ring-1 ring-violet-200 hover:bg-violet-100"
         >
           Se déconnecter de l&apos;administration

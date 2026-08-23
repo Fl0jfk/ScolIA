@@ -4,7 +4,7 @@ import RequestsRoutingEditor from "@/app/components/settings/RequestsRoutingEdit
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import type { RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
 
-type Member = { clerkUserId: string; email: string; displayName: string };
+type Member = { externalUserId: string; email: string; displayName: string };
 
 export default function RequestsRoutingPanel({
   requestsRouting,

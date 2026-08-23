@@ -78,7 +78,7 @@ export function laprovidenceEstablishments(): Establishment[] {
       directorEmail: SCHOOL.ecole.email,
       colorHex: "#F59E0B",
       grades: SCHOOL.ecole.grades,
-      clerkRoleSlugs: ["direction_ecole", "direction école"],
+      roleSlugs: ["direction_ecole", "direction école"],
       active: true,
     },
     {
@@ -89,7 +89,7 @@ export function laprovidenceEstablishments(): Establishment[] {
       directorEmail: SCHOOL.college.email,
       colorHex: "#0EA5E9",
       grades: SCHOOL.college.grades,
-      clerkRoleSlugs: ["direction_college", "direction collège"],
+      roleSlugs: ["direction_college", "direction collège"],
       active: true,
     },
     {
@@ -100,7 +100,7 @@ export function laprovidenceEstablishments(): Establishment[] {
       directorEmail: SCHOOL.lycee.email,
       colorHex: "#F43F5E",
       grades: SCHOOL.lycee.grades,
-      clerkRoleSlugs: ["direction_lycee", "direction_lycee"],
+      roleSlugs: ["direction_lycee", "direction_lycee"],
       active: true,
     },
   ];

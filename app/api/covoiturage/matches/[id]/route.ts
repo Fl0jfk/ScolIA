@@ -42,8 +42,8 @@ export async function POST(req: Request, ctx: RouteCtx) {
 
     if (updated.status === "revealed") {
       const profiles = await getCovoiturageProfiles();
-      const profileA = profiles.find((p) => p.clerkUserId === updated.profileA);
-      const profileB = profiles.find((p) => p.clerkUserId === updated.profileB);
+      const profileA = profiles.find((p) => p.externalUserId === updated.profileA);
+      const profileB = profiles.find((p) => p.externalUserId === updated.profileB);
       if (profileA && profileB) {
         await Promise.all([
           notifyCovoiturageContactRevealed({ profile: profileA, other: profileB, match: updated }).catch(() => {}),

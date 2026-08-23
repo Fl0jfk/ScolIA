@@ -3,7 +3,7 @@ import { requireAdmin } from "@/app/lib/intranet-auth";
 import { countElevesRegistry } from "@/app/lib/eleves-registry";
 import {
   loadSchoolRoster,
-  listTeacherClerkOptions,
+  listTeacherDirectoryOptions,
   saveSchoolRoster,
   type SchoolRosterConfig,
 } from "@/app/lib/school-roster";
@@ -15,7 +15,7 @@ export async function GET() {
   const [roster, elevesCount, users, classes] = await Promise.all([
     loadSchoolRoster(),
     countElevesRegistry(),
-    listTeacherClerkOptions(),
+    listTeacherDirectoryOptions(),
     listStageReferentClassNames(),
   ]);
   return NextResponse.json({ roster, elevesCount, users, classes });

@@ -1,4 +1,4 @@
-import { isLocalDevHostname } from "@/app/lib/clerk-tenant-keys";
+import { isLocalDevHostname } from "@/app/lib/local-host-keys";
 import { isPlatformTenantSlug } from "@/app/lib/platform-tenant";
 import { normalizeHostname } from "@/app/lib/tenant-registry";
 

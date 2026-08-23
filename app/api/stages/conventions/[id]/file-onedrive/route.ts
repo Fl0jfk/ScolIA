@@ -5,7 +5,7 @@ import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { canFileConventionToOneDrive } from "@/app/lib/stage-access";
 import { fileSignedConventionToOneDrive } from "@/app/lib/stage-onedrive-filing";
-import { resolveOneDriveProfileForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
+import { resolveOneDriveProfileForUserServer } from "@/app/lib/onedrive-user-profiles.server";
 
 function displayName(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
   const first = user?.firstName?.trim() || "";
@@ -24,7 +24,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return NextResponse.json({ error: "Réservé à l'administratif." }, { status: 403 });
     }
 
-    const odProfile = user ? await resolveOneDriveProfileForClerkUserServer(user) : null;
+    const odProfile = user ? await resolveOneDriveProfileForUserServer(user) : null;
     if (!odProfile) {
       return NextResponse.json(
         {

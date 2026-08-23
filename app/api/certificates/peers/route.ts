@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
-import { listClerkMembers } from "@/app/lib/clerk-users";
+import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { canAccessCertificatesModule } from "@/app/lib/certificates-auth";
 import { formatCertificatePersonLabel } from "@/app/lib/certificates-person-label";
 
@@ -20,15 +20,15 @@ export async function GET() {
   if (!canAccessCertificatesModule(user)) {
     return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
   }
-  const users = await listClerkMembers();
+  const users = await listDirectoryMembers();
   const peers = users
-    .filter((u) => u.clerkUserId && !u.pending)
+    .filter((u) => u.externalUserId && !u.pending)
     .map((u) => {
       const firstName = (u.firstName || "").trim();
       const lastName = (u.lastName || "").trim();
       const displayName = u.displayName || `${firstName} ${lastName}`.trim() || u.email;
       return {
-        clerkUserId: u.clerkUserId,
+        externalUserId: u.externalUserId,
         firstName,
         lastName,
         displayName,

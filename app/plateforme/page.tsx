@@ -12,7 +12,7 @@ type TenantRow = {
   label: string;
   hostnames: string[];
   appUrl: string;
-  configured: { clerkSecretKey: boolean };
+  configured: { secretKey: boolean };
 };
 
 type SetupPayload = {
@@ -50,7 +50,7 @@ export default function PlateformePage() {
               Espace <span className={SCOLA_GRADIENT_TEXT}>plateforme</span>
             </h1>
             <p className="mt-2 max-w-xl text-sm text-stone-600">
-              Créez un nouvel établissement : sous-domaine, bucket S3 et clés Clerk. Réservé au
+              Créez un nouvel établissement : sous-domaine, bucket S3 et clés auth legacy. Réservé au
               profil Master.
             </p>
             <p className="mt-3">
@@ -91,9 +91,9 @@ export default function PlateformePage() {
                       </div>
                       <div className="flex items-center gap-3">
                         <span
-                          className={`text-xs ${t.configured.clerkSecretKey ? "text-emerald-700" : "text-amber-700"}`}
+                          className={`text-xs ${t.configured.secretKey ? "text-emerald-700" : "text-amber-700"}`}
                         >
-                          {t.configured.clerkSecretKey ? "Clerk OK" : "Clerk manquant"}
+                          {t.configured.secretKey ? "Auth OK" : "Auth manquante"}
                         </span>
                         {t.appUrl && (
                           <a
@@ -122,7 +122,7 @@ export default function PlateformePage() {
             <ol className="list-decimal list-inside space-y-1">
               <li>Pointer le DNS du sous-domaine vers l&apos;application (Scaleway / hébergeur).</li>
               <li>
-                Se connecter sur le nouveau domaine avec un compte <code>admin</code> Clerk de
+                Se connecter sur le nouveau domaine avec un compte <code>admin</code> de
                 l&apos;établissement.
               </li>
               <li>L&apos;assistant de configuration guide l&apos;admin (identité, modules, etc.).</li>

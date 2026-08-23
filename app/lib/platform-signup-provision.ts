@@ -7,7 +7,7 @@ import {
   slugifyEstablishmentName,
   type TenantSignupRequest,
 } from "@/app/lib/platform-signup-request";
-import { inviteAdminOnTenantClerk } from "@/app/lib/tenant-admin-invite";
+import { inviteAdminOnTenant } from "@/app/lib/tenant-admin-invite";
 import { createTenant } from "@/app/lib/tenant-registry-admin";
 import { billingFromSignupRequest } from "@/app/lib/tenant-billing";
 import { tenantSignInUrl } from "@/app/lib/tenant-portal";
@@ -17,8 +17,8 @@ type ProvisionSignupInput = {
   slug?: string;
   hostname?: string;
   dataBucket?: string;
-  clerkPublishableKey: string;
-  clerkSecretKey: string;
+  publishableKey: string;
+  secretKey: string;
 };
 
 async function provisionSignupRequest(
@@ -51,13 +51,13 @@ async function provisionSignupRequest(
     hostnames: [hostname, "localhost"],
     appUrl,
     dataBucket,
-    clerkPublishableKey: input.clerkPublishableKey.trim(),
+    publishableKey: input.publishableKey.trim(),
     postalAddress: request.establishment.postalAddress,
     billing: billingFromSignupRequest(request),
-    secrets: { clerkSecretKey: input.clerkSecretKey.trim() },
+    secrets: { secretKey: input.secretKey.trim() },
   });
 
-  await inviteAdminOnTenantClerk(input.clerkSecretKey.trim(), request.adminContact);
+  await inviteAdminOnTenant(input.secretKey.trim(), request.adminContact, slug);
 
   const active = await saveSignupRequest(
     { ...provisioning, status: "active", provisionedTenantSlug: slug },

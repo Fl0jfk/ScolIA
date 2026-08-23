@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
@@ -72,7 +72,7 @@ export default function DemandesHsePanel({
 }: {
   embeddedInRh?: boolean;
 } = {}) {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const establishments = appCtx?.establishments ?? [];
   const [items, setItems] = useState<HseItem[]>([]);
@@ -279,7 +279,7 @@ export default function DemandesHsePanel({
 
       {creator && !userEmail && (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 mb-6">
-          Compte sans e-mail principal : vous ne pouvez pas déposer une demande tant que Clerk n’a pas d’adresse joignable pour vous (réception de la décision).
+          Compte sans e-mail principal : vous ne pouvez pas déposer une demande tant qu’aucune adresse n’est joignable pour vous (réception de la décision).
         </div>
       )}
 

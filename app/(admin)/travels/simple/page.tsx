@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useState, useEffect, useMemo, Suspense } from "react";
 import {
   enumerateWeeklyDatesInRange,
@@ -41,7 +41,7 @@ const CUISINE_ROWS = [
 ];
 
 function SimpleTripFormContent() {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const classOptions = useMemo(
     () =>

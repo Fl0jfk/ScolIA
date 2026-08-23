@@ -6,7 +6,7 @@ import { canManagePersonnel } from "@/app/lib/personnel-types";
 import { activateRhOnboarding } from "@/app/lib/rh/onboarding-workflow";
 
 
-/** Active le compte (Clerk accepté → statut active dans meta-rh). */
+/** Active le compte (invitation acceptée → statut active dans meta-rh). */
 export async function POST(
   _req: Request,
   ctx: { params: Promise<{ id: string }> },

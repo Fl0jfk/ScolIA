@@ -1,0 +1,22 @@
+---
+description: Stack technique obligatoire Scola (Next.js, Drizzle, Better-Auth, Mistral)
+alwaysApply: true
+---
+
+# Stack Technique Obligatoire
+
+| Domaine | Choix |
+|---------|--------|
+| Framework | Next.js App Router, Server Actions, RSC |
+| BDD | PostgreSQL (Scaleway / France) |
+| ORM | Drizzle ORM (typesafe, schémas clairs) |
+| Auth | **Better-Auth** (sessions en PostgreSQL, RBAC, multi-tenant) |
+| UI | Tailwind CSS + Lucide React |
+| Langage | TypeScript **strict** — aucun `any` |
+| OCR / IA | API Mistral AI (PDF : PAP, fiches santé, attestations) |
+
+## Interdits
+
+- **PAS auth legacy**, **PAS de NextAuth** pour l’auth cible.
+- Secrets en dur : uniquement `process.env`.
+- Types `any` : interdits ; typer explicitement ou utiliser `unknown` + narrowing.

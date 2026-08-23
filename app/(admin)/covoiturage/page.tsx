@@ -1,6 +1,6 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -28,7 +28,7 @@ type MatchView = {
 };
 
 type ProfileView = {
-  clerkUserId: string;
+  externalUserId: string;
   displayName: string;
   email: string;
   status: CovoiturageStatus;
@@ -62,7 +62,7 @@ function statusLabel(status: CovoiturageStatus) {
 }
 
 export default function CovoituragePage() {
-  const { isLoaded } = useUser();
+  const { isLoaded } = useSessionUser();
   const [data, setData] = useState<BoardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

@@ -2,7 +2,7 @@ import "server-only";
 
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
-import type { ClerkLikeUser } from "@/app/lib/clerk-user-types";
+import type { SessionLikeUser } from "@/app/lib/app-actor-types";
 import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 import {
   capabilitiesFromFluxes,
@@ -43,7 +43,7 @@ function normalizeMatch(value: string): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
-function collectUserIdentifiers(user: ClerkLikeUser): string[] {
+function collectUserIdentifiers(user: SessionLikeUser): string[] {
   const out: string[] = [];
   if (user.lastName?.trim()) out.push(normalizeMatch(user.lastName));
   if (user.primaryEmailAddress?.emailAddress) {
@@ -55,7 +55,7 @@ function collectUserIdentifiers(user: ClerkLikeUser): string[] {
   return out;
 }
 
-function collectEmails(user: ClerkLikeUser): string[] {
+function collectEmails(user: SessionLikeUser): string[] {
   return [
     user.primaryEmailAddress?.emailAddress,
     ...(user.emailAddresses?.map((e) => e.emailAddress) ?? []),
@@ -95,8 +95,8 @@ function applyElevesPathDefaults(
 /**
  * Résout tous les flux OCR rattachés à l'utilisateur (ocrFlux, avec repli userSecteurs).
  */
-export async function resolveOcrCapabilitiesForClerkUserServer(
-  user: ClerkLikeUser,
+export async function resolveOcrCapabilitiesForUserServer(
+  user: SessionLikeUser,
 ): Promise<OcrUserCapabilities> {
   const { od, establishments } = await loadOneDriveConfig();
   const defaults = defaultBaseBySecteur(establishments);
@@ -118,10 +118,10 @@ export async function resolveOcrCapabilitiesForClerkUserServer(
  * Résout le profil OneDrive (dossier racine + cycle) d'un utilisateur.
  * Inchangé pour un secrétariat qui n'a qu'un flux élèves : même chemin, même secteur.
  */
-export async function resolveOneDriveProfileForClerkUserServer(
-  user: ClerkLikeUser,
+export async function resolveOneDriveProfileForUserServer(
+  user: SessionLikeUser,
 ): Promise<OneDriveUserProfile | null> {
-  const caps = await resolveOcrCapabilitiesForClerkUserServer(user);
+  const caps = await resolveOcrCapabilitiesForUserServer(user);
   if (caps.primaryEleves) return caps.primaryEleves;
 
   let profile: OneDriveUserProfile | null = null;
@@ -130,9 +130,9 @@ export async function resolveOneDriveProfileForClerkUserServer(
   const defaults = defaultBaseBySecteur(establishments);
 
   if (!profile && od?.userSecteurs?.length) {
-    const clerkId = user.id?.trim();
-    if (clerkId) {
-      const byId = od.userSecteurs.find((m) => m.clerkUserId?.trim() === clerkId);
+    const directoryUserId = user.id?.trim();
+    if (directoryUserId) {
+      const byId = od.userSecteurs.find((m) => m.externalUserId?.trim() === directoryUserId);
       if (byId) {
         const def = defaults[byId.secteur];
         profile = { key: byId.secteur, secteur: byId.secteur, basePath: def.basePath, label: def.label };

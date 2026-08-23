@@ -5,7 +5,7 @@
 #
 # Obligatoires :
 #   SECRET_ACCESS_KEY              Secret Access Key (login registry + API)
-#   PLATFORM_CLERK_PUBLISHABLE_KEY pk_… Clerk plateforme
+#   PLATFORM_AUTH_PUBLISHABLE_KEY pk_… Better-Auth plateforme
 #   NEXT_PUBLIC_APP_URL            URL publique
 #
 # Recommandés :
@@ -20,7 +20,7 @@
 #   NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST
 #
 # Runtime conteneur (console cloud, pas GitHub) :
-#   PLATFORM_CLERK_SECRET_KEY, ACCESS_KEY_ID, SECRET_ACCESS_KEY, MISTRAL_API_KEY,
+#   PLATFORM_LEGACY_SECRET_KEY, ACCESS_KEY_ID, SECRET_ACCESS_KEY, MISTRAL_API_KEY,
 #   EASYTRANSAC_API_KEY, EASYTRANSAC_ENV=production, EASYTRANSAC_WEBHOOK_SECRET,
 #   MAILER_* (SMTP Scaleway TEM + IMAP), TRAVEL_EMAIL_INGEST_SECRET, OCR_WORKER_SECRET
 # EasyTransac notification URL : /api/billing/easytransac/webhook
@@ -56,11 +56,11 @@ jobs:
       - name: Vérifier les secrets requis
         env:
           SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
-          PLATFORM_CLERK_PUBLISHABLE_KEY: ${{ secrets.PLATFORM_CLERK_PUBLISHABLE_KEY }}
+          PLATFORM_AUTH_PUBLISHABLE_KEY: ${{ secrets.PLATFORM_AUTH_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
         run: |
           missing=0
-          for name in SECRET_ACCESS_KEY PLATFORM_CLERK_PUBLISHABLE_KEY NEXT_PUBLIC_APP_URL; do
+          for name in SECRET_ACCESS_KEY PLATFORM_AUTH_PUBLISHABLE_KEY NEXT_PUBLIC_APP_URL; do
             if [ -z "${!name}" ]; then
               echo "::error::Secret GitHub manquant ou vide : $name"
               missing=1
@@ -101,12 +101,12 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           build-args: |
-            PLATFORM_CLERK_PUBLISHABLE_KEY=${{ secrets.PLATFORM_CLERK_PUBLISHABLE_KEY }}
-            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ secrets.PLATFORM_CLERK_PUBLISHABLE_KEY }}
+            PLATFORM_AUTH_PUBLISHABLE_KEY=${{ secrets.PLATFORM_AUTH_PUBLISHABLE_KEY }}
+            NEXT_PUBLIC_LEGACY_PUBLISHABLE_KEY=${{ secrets.PLATFORM_AUTH_PUBLISHABLE_KEY }}
             NEXT_PUBLIC_APP_URL=${{ secrets.NEXT_PUBLIC_APP_URL }}
             NEXT_PUBLIC_PLATFORM_APP_URL=${{ secrets.NEXT_PUBLIC_PLATFORM_APP_URL }}
-            NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
-            NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/dashboard
+            NEXT_PUBLIC_AFTER_SIGN_IN_URL=/dashboard
+            NEXT_PUBLIC_AFTER_SIGN_UP_URL=/dashboard
             NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST=${{ secrets.NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST || 'scolia-images.s3.fr-par.scw.cloud' }}
             PLATFORM_APP_URL=${{ secrets.PLATFORM_APP_URL }}
             PLATFORM_HOSTNAMES=${{ secrets.PLATFORM_HOSTNAMES }}

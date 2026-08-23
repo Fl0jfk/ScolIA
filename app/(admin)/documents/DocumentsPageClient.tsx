@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import AccessModal from "@/app/components/documents/AccessModal";
 import DocumentItemCard from "@/app/components/documents/DocumentItemCard";
 import DocumentModal from "@/app/components/documents/DocumentModal";
@@ -35,7 +35,7 @@ import {
 } from "@/app/lib/documents-page-model";
 
 export default function DocumentsPage() {
-  const { isLoaded, user } = useUser();
+  const { isLoaded, user } = useSessionUser();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [scope, setScope] = useState<DocumentScope>("personal");
@@ -631,7 +631,7 @@ export default function DocumentsPage() {
         <ModulePageHeader
           eyebrow="Services"
           title="Documents"
-          description="Cloud personnel et dossiers partagés avec le personnel Clerk."
+          description="Cloud personnel et dossiers partagés avec le personnel."
         />
       </div>
 
@@ -967,7 +967,7 @@ export default function DocumentsPage() {
       {showShareManage && activeShare && (
         <DocumentModal title={`Modifier les accès — ${activeShare.name}`} onClose={() => setShowShareManage(false)} wide>
           <p className="text-sm text-gray-500 mb-3">
-            Vous êtes propriétaire. Ajoutez ou retirez des personnes du personnel Clerk.
+            Vous êtes propriétaire. Ajoutez ou retirez des personnes du personnel.
           </p>
           <PeerPicker
             peers={peers}

@@ -5,7 +5,7 @@ type CertificatePersonLabelInput = {
   email?: string | null;
 };
 
-/** Libellé unique : NOM Prénom (sans doublon avec displayName Clerk). */
+/** Libellé unique : NOM Prénom (sans doublon avec displayName). */
 export function formatCertificatePersonLabel(person: CertificatePersonLabelInput): string {
   const firstName = String(person.firstName || "").trim();
   const lastName = String(person.lastName || "").trim();

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 
 const MAX_FILES = 12;
 
@@ -49,7 +49,7 @@ export default function FaireUneDemandeForm({
   hideIdentityCard = false,
   initialDescription = "",
 }: Props) {
-  const { isLoaded, isSignedIn, user } = useUser();
+  const { isLoaded, isSignedIn, user } = useSessionUser();
   const fileRef = useRef<HTMLInputElement>(null);
   const [description, setDescription] = useState(initialDescription);
   const [firstName, setFirstName] = useState("");
@@ -71,7 +71,9 @@ export default function FaireUneDemandeForm({
     setFirstName(user.firstName || "");
     setLastName(user.lastName || "");
     setEmail(user.primaryEmailAddress?.emailAddress || "");
-    const metaPhone = (user.publicMetadata?.phone as string) || (user.unsafeMetadata?.phone as string) || "";
+    const meta = user.publicMetadata as Record<string, unknown>;
+    const metaPhone =
+      (typeof meta.phone === "string" ? meta.phone : "") || "";
     if (metaPhone) setPhone(metaPhone);
   }, [isSignedIn, user]);
 

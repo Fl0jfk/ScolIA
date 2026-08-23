@@ -12,7 +12,7 @@ export const STAGE_S3 = {
   offerCandidatureToken: (token: string) => `stages/offer-candidature-tokens/${token}.json`,
   offerApplications: (offerId: string) => `stages/offer-applications/${offerId}.json`,
   referentsConfig: (schoolYear: string) => `stages/referents/${schoolYear}.json`,
-  referentSignature: (clerkUserId: string) => `stages/signatures/referents/${clerkUserId}.png`,
+  referentSignature: (externalUserId: string) => `stages/signatures/referents/${externalUserId}.png`,
 } as const;
 
 export type StageOfferKind = "pfmp" | "stage_observation" | "job_ete" | "autre";
@@ -24,7 +24,7 @@ export type StageOffer = {
   kind: StageOfferKind;
   status: StageOfferStatus;
   schoolYear: string;
-  submittedBy: { clerkUserId: string; displayName: string; email: string };
+  submittedBy: { externalUserId: string; displayName: string; email: string };
   companyName: string;
   companyAddress?: string;
   companySiret?: string;

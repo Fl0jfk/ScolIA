@@ -22,7 +22,7 @@ import {
   mergeAwardSignatories,
   removePendingSignatory,
   recomputeAwardSigningStatus,
-  resolveClerkDisplayName,
+  resolveDirectoryDisplayName,
 } from "@/app/lib/certificates-workflow";
 
 type Params = { params: Promise<{ id: string }> };
@@ -120,7 +120,7 @@ export async function PATCH(req: Request, { params }: Params) {
     }
     const nameById = new Map<string, string>();
     for (const cid of eligibleSignatoryIds(program)) {
-      nameById.set(cid, await resolveClerkDisplayName(cid));
+      nameById.set(cid, await resolveDirectoryDisplayName(cid));
     }
     if (award.status === "draft") {
       if (!ids.length) {

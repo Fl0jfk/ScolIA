@@ -2,21 +2,21 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
-import type { ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import RequestsRoutingEditor from "@/app/components/settings/RequestsRoutingEditor";
 import type { RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
 
 export default function SettingsRequestsRoutingPanel({
   requestsRouting,
   setRequestsRouting,
-  clerkMembers,
+  directoryMembers,
   membersLoading,
   saving,
   onSave,
 }: {
   requestsRouting: RequestsRoutingConfig | null;
   setRequestsRouting: Dispatch<SetStateAction<RequestsRoutingConfig | null>>;
-  clerkMembers: ClerkMemberOption[];
+  directoryMembers: DirectoryMemberOption[];
   membersLoading: boolean;
   saving: boolean;
   onSave: () => void;
@@ -30,7 +30,7 @@ export default function SettingsRequestsRoutingPanel({
       <RequestsRoutingEditor
         config={requestsRouting}
         onChange={(next) => setRequestsRouting(next)}
-        members={clerkMembers}
+        members={directoryMembers}
         membersLoading={membersLoading}
       />
       <ModuleButton variant="primary" disabled={saving} onClick={onSave}>

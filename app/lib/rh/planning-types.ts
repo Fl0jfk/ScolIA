@@ -463,7 +463,7 @@ export function estimateAnnualBalance(doc: StaffPlanningDoc): AnnualBalanceEstim
   };
 }
 
-/** Catégories RH OGEC → mode staff. Les professeurs utilisent le modèle teacher (Clerk). */
+/** Catégories RH OGEC → mode staff. Les professeurs utilisent le modèle teacher. */
 function planningKindForCategory(category: string): RhPlanningKind {
   return category === "professeur" ? "teacher" : "staff";
 }

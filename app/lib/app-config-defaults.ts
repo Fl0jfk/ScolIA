@@ -85,7 +85,7 @@ export function defaultProfRoomModule(): ProfRoomModuleConfig {
     hoursStart: 8,
     hoursEnd: 17,
     bookingHorizonDays: 56,
-    adminClerkUserIds: [],
+    adminExternalUserIds: [],
   };
 }
 

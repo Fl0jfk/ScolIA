@@ -159,7 +159,7 @@ export type PersonnelOnboarding = {
 
 export type PersonnelRecord = {
   id: string;
-  clerkUserId?: string | null;
+  externalUserId?: string | null;
   /** Email principal (pro de préférence) — compat modules existants */
   email: string;
   /** Email personnel */
@@ -194,7 +194,7 @@ export type PersonnelIndexEntry = {
   emailPerso?: string;
   emailPro?: string;
   category: PersonnelCategory;
-  clerkUserId?: string | null;
+  externalUserId?: string | null;
   active: boolean;
   hireDate?: string | null;
   onboardingStatus?: OnboardingStatus | null;
@@ -299,7 +299,7 @@ export function canViewRecord(
   viewerEmail?: string | null,
 ) {
   if (canViewPersonnelDashboard(roles)) return true;
-  if (record.clerkUserId && viewerUserId && record.clerkUserId === viewerUserId) return true;
+  if (record.externalUserId && viewerUserId && record.externalUserId === viewerUserId) return true;
   const email = (viewerEmail || "").trim().toLowerCase();
   if (email && record.email.trim().toLowerCase() === email) return true;
   return false;
@@ -314,7 +314,7 @@ function filterDocumentsForViewer(
 ): PersonnelDocument[] {
   const isRh = canViewPersonnelDashboard(roles);
   const isSelf =
-    (record.clerkUserId && viewerUserId && record.clerkUserId === viewerUserId) ||
+    (record.externalUserId && viewerUserId && record.externalUserId === viewerUserId) ||
     (viewerEmail && record.email.trim().toLowerCase() === viewerEmail.trim().toLowerCase());
 
   return docs.filter((d) => {
@@ -418,7 +418,7 @@ export function normalizePersonnelRecord(raw: unknown): PersonnelRecord {
 
   return {
     id,
-    clerkUserId: str(o.clerkUserId) || null,
+    externalUserId: str(o.externalUserId) || null,
     email,
     emailPerso: emailPerso || (legacyEmail && !emailPro ? legacyEmail : undefined),
     emailPro,
@@ -460,7 +460,7 @@ export function toIndexEntry(record: PersonnelRecord): PersonnelIndexEntry {
     emailPerso: record.emailPerso,
     emailPro: record.emailPro,
     category: record.category,
-    clerkUserId: record.clerkUserId,
+    externalUserId: record.externalUserId,
     active: record.active,
     hireDate: record.hireDate,
     onboardingStatus: record.onboarding?.status ?? null,

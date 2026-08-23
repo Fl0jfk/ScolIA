@@ -22,7 +22,7 @@ import {
   type OcrUserCapabilities,
 } from "@/app/lib/ocr-flux";
 import { schedulePilotageDossierRefresh } from "@/app/lib/pilotage-eleves-analyze";
-import { resolveOcrCapabilitiesForClerkUserServer, resolveOneDriveProfileForClerkUserServer } from "@/app/lib/onedrive-user-profiles.server";
+import { resolveOcrCapabilitiesForUserServer, resolveOneDriveProfileForUserServer } from "@/app/lib/onedrive-user-profiles.server";
 import type { KnownStudent } from "@/app/lib/ocr-segmentation";
 import { extractPdfPagesBytes, getPdfPageCountFromS3 } from "@/app/lib/ocr-extract-pages";
 import {
@@ -43,7 +43,6 @@ import {
 import { buildTextFromPages } from "@/app/lib/eleves-config";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import { getMicrosoftAccessTokenFromRefresh } from "@/app/lib/graph-microsoft-delegated";
-import { getClerkClientForTenant } from "@/app/lib/tenant-clerk";
 import { getTenant } from "@/app/lib/tenant-context";
 import { getTenantSecrets } from "@/app/lib/tenant-registry";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
@@ -349,7 +348,7 @@ async function patchJob(jobId: string, patch: Partial<OcrBatchJob>) {
   return next;
 }
 
-function clerkLikeFromUser(user: {
+function directoryLikeFromUser(user: {
   id: string;
   lastName: string | null;
   emailAddresses: Array<{ emailAddress: string }>;
@@ -369,11 +368,16 @@ async function getOcrContextForUser(userId: string): Promise<{
   odProfile: OneDriveUserProfile | null;
   caps: OcrUserCapabilities;
 }> {
-  const clerk = await getClerkClientForTenant();
-  const user = await clerk.users.getUser(userId);
-  const like = clerkLikeFromUser(user);
-  const caps = await resolveOcrCapabilitiesForClerkUserServer(like);
-  const odProfile = caps.primaryEleves ?? (await resolveOneDriveProfileForClerkUserServer(like));
+  const { resolveMemberProfileById } = await import("@/app/lib/members-db");
+  const profile = await resolveMemberProfileById(userId);
+  const like = directoryLikeFromUser({
+    id: profile?.id ?? userId,
+    lastName: profile?.lastName ?? null,
+    emailAddresses: profile?.email ? [{ emailAddress: profile.email }] : [],
+    primaryEmailAddress: profile?.email ? { emailAddress: profile.email } : null,
+  });
+  const caps = await resolveOcrCapabilitiesForUserServer(like);
+  const odProfile = caps.primaryEleves ?? (await resolveOneDriveProfileForUserServer(like));
   return { odProfile, caps };
 }
 

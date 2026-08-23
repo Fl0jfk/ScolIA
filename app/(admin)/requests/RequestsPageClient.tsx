@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import MesDemandesSuivi from "@/app/(admin)/requests/MesDemandesSuivi";
 import CompleteRequestModal, {
   type CompleteRequestTarget,
@@ -210,14 +210,14 @@ function RequestAttachmentLinks({
 }
 
 export default function RequestsPage() {
-  const { isLoaded, user } = useUser();
+  const { isLoaded, user } = useSessionUser();
   const isOrgAdmin = useIsOrgAdmin();
   const [mainTab, setMainTab] = useState<RequestsMainTab>("board");
   const [requestsRouting, setRequestsRouting] = useState<RequestsRoutingConfig | null>(null);
   const [routingMsg, setRoutingMsg] = useState<string | null>(null);
   const [routingBusy, setRoutingBusy] = useState(false);
-  const [clerkMembers, setClerkMembers] = useState<
-    Array<{ clerkUserId: string; email: string; displayName: string }>
+  const [directoryMembers, setDirectoryMembers] = useState<
+    Array<{ externalUserId: string; email: string; displayName: string }>
   >([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [items, setItems] = useState<RequestRecord[]>([]);
@@ -609,22 +609,22 @@ export default function RequestsPage() {
         /* ignore */
       }
     }
-    if (clerkMembers.length === 0) {
+    if (directoryMembers.length === 0) {
       setMembersLoading(true);
       try {
-        const res = await fetch("/api/reservation-rooms/clerk-users");
+        const res = await fetch("/api/reservation-rooms/directory-users");
         const j = await res.json();
         if (res.ok && Array.isArray(j.users)) {
-          setClerkMembers(
+          setDirectoryMembers(
             j.users.map(
               (u: {
                 id?: string;
-                clerkUserId?: string;
+                externalUserId?: string;
                 email?: string;
                 displayName?: string;
                 name?: string;
               }) => ({
-                clerkUserId: String(u.clerkUserId || u.id || ""),
+                externalUserId: String(u.externalUserId || u.id || ""),
                 email: String(u.email || ""),
                 displayName: String(u.displayName || u.name || u.email || ""),
               }),
@@ -637,7 +637,7 @@ export default function RequestsPage() {
         setMembersLoading(false);
       }
     }
-  }, [requestsRouting, clerkMembers.length]);
+  }, [requestsRouting, directoryMembers.length]);
 
   const saveRouting = async () => {
     if (!requestsRouting) return;
@@ -686,7 +686,7 @@ export default function RequestsPage() {
       <ModulePageShell maxWidthClass="max-w-3xl">
         <p className="text-sm text-slate-700">
           Accès refusé. Le suivi des demandes est réservé aux enseignants (leurs dépôts) et au personnel figurant dans la table
-          équipe des demandes ou disposant d’un rôle personnel adapté dans Clerk.
+          équipe des demandes ou disposant d’un rôle personnel adapté dans le directory.
         </p>
       </ModulePageShell>
     );
@@ -763,7 +763,7 @@ export default function RequestsPage() {
         <RequestsRoutingPanel
           requestsRouting={requestsRouting}
           onChange={setRequestsRouting}
-          members={clerkMembers}
+          members={directoryMembers}
           membersLoading={membersLoading}
           routingMsg={routingMsg}
           routingBusy={routingBusy}

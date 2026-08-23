@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { UserButton, useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
+import { useSignOutWithPortalReset } from "@/app/hooks/useSignOutWithPortalReset";
 import { useIsPlatformMaster } from "@/app/hooks/useIsPlatformMaster";
 import { platformConnexionUrl } from "@/app/lib/platform-portal-url";
 
@@ -10,14 +11,13 @@ const connectClassName =
 
 /** Bouton connexion / espace Master dans le header marketing. */
 export default function PlatformMasterNav() {
-  const { isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn } = useSessionUser();
   const isMaster = useIsPlatformMaster();
+  const signOut = useSignOutWithPortalReset();
 
-  // Toujours afficher « Se connecter » tant que Clerk n'a pas confirmé une session
-  // (évite un skeleton invisible si Clerk charge lentement ou échoue sur le domaine).
   if (!isLoaded || !isSignedIn) {
     return (
-      <Link href={platformConnexionUrl()} className={connectClassName}>
+      <Link href="/auth/sign-in" className={connectClassName}>
         Se connecter
       </Link>
     );
@@ -33,7 +33,19 @@ export default function PlatformMasterNav() {
           Espace plateforme
         </Link>
       )}
-      <UserButton />
+      <Link
+        href={platformConnexionUrl()}
+        className="hidden rounded-full border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-900 sm:inline-flex"
+      >
+        Portail
+      </Link>
+      <button
+        type="button"
+        onClick={() => signOut("/")}
+        className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+      >
+        Déconnexion
+      </button>
     </div>
   );
 }

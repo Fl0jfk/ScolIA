@@ -33,8 +33,8 @@ function formatDateLong(iso: string): string {
   });
 }
 
-async function loadProfSigDataUri(clerkUserId: string): Promise<string | null> {
-  const bytes = await loadCertificateProfSignatureBytes(clerkUserId);
+async function loadProfSigDataUri(externalUserId: string): Promise<string | null> {
+  const bytes = await loadCertificateProfSignatureBytes(externalUserId);
   if (!bytes?.length) return null;
   return `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`;
 }
@@ -160,7 +160,7 @@ export async function generateCertificatePdf(
 
   const signedProfs = award.designatedSignatories.filter((s) => s.status === "signed");
   for (const prof of signedProfs) {
-    const sigData = await loadProfSigDataUri(prof.clerkUserId);
+    const sigData = await loadProfSigDataUri(prof.externalUserId);
     signatureCards.push({
       kind: "prof",
       role: "Enseignant",

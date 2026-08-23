@@ -1,4 +1,4 @@
-import { isLocalDevHostname } from "@/app/lib/clerk-tenant-keys";
+import { isLocalDevHostname } from "@/app/lib/local-host-keys";
 import {
   localDevDashboardUrl,
   localDevSignInUrl,
@@ -69,7 +69,7 @@ export function tenantCanonicalHostname(tenant: TenantConfig): string | null {
 }
 
 /** URL absolue après connexion — sur le domaine courant en local, sinon canonique. */
-export function clerkAfterSignInUrl(tenant: TenantConfig, host: string): string {
+export function afterSignInUrl(tenant: TenantConfig, host: string): string {
   const normalized = normalizeHostname(host);
   if (isLocalDevHostname(normalized)) {
     const origin = requestOriginFromHostHeader(host);
@@ -84,17 +84,17 @@ export function clerkAfterSignInUrl(tenant: TenantConfig, host: string): string 
   return `${tenantCanonicalOrigin(tenant)}/dashboard`;
 }
 
-export function clerkSignInPageUrl(tenant: TenantConfig, host: string): string {
+export function signInPageUrl(tenant: TenantConfig, host: string): string {
   const normalized = normalizeHostname(host);
   if (isLocalDevHostname(normalized)) {
     const origin = requestOriginFromHostHeader(host);
     if (isPlatformTenantSlug(tenant.slug) || isPlatformHostname(normalized)) {
-      return `${origin}/sign-in`;
+      return `${origin}/auth/sign-in`;
     }
     return localDevSignInUrl(origin, tenant.slug);
   }
   if (isPlatformTenantSlug(tenant.slug) || isPlatformHostname(normalized)) {
-    return `${platformAppOrigin()}/sign-in`;
+    return `${platformAppOrigin()}/auth/sign-in`;
   }
-  return `${tenantCanonicalOrigin(tenant)}/sign-in`;
+  return `${tenantCanonicalOrigin(tenant)}/auth/sign-in`;
 }

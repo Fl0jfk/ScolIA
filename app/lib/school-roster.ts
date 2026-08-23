@@ -1,6 +1,12 @@
 import "server-only";
 
-import { listClerkMembers } from "@/app/lib/clerk-users";
+import { listDirectoryMembers } from "@/app/lib/directory-members";
+import {
+  isEntCoreDbEnabled,
+  loadSchoolRosterFromDb,
+  replaceSchoolRosterInDb,
+  resolveCurrentEtablissementId,
+} from "@/app/lib/ent-core-db";
 import { classKey } from "@/app/lib/stage-referents-config";
 import {
   saveStageReferentsConfig,
@@ -30,6 +36,17 @@ function defaultSchoolRoster(): SchoolRosterConfig {
 }
 
 export async function loadSchoolRoster(): Promise<SchoolRosterConfig> {
+  if (isEntCoreDbEnabled()) {
+    try {
+      const etabId = await resolveCurrentEtablissementId();
+      if (etabId) {
+        const fromDb = await loadSchoolRosterFromDb(etabId);
+        if (fromDb) return fromDb;
+      }
+    } catch (error) {
+      console.error("[school-roster] lecture DB", error);
+    }
+  }
   const hit = await getJson<SchoolRosterConfig>(ROSTER_KEY);
   if (!hit?.data) return defaultSchoolRoster();
   return {
@@ -42,11 +59,11 @@ export async function loadSchoolRoster(): Promise<SchoolRosterConfig> {
       ? hit.data.classAssignments
           .map((a) => ({
             className: String(a.className ?? "").trim(),
-            clerkUserId: String(a.clerkUserId ?? "").trim(),
+            externalUserId: String(a.externalUserId ?? "").trim(),
             name: String(a.name ?? "").trim(),
             email: String(a.email ?? "").trim().toLowerCase(),
           }))
-          .filter((a) => a.className && a.clerkUserId && a.email)
+          .filter((a) => a.className && a.externalUserId && a.email)
       : [],
   };
 }
@@ -55,7 +72,7 @@ async function syncStageReferentsFromRoster(config: SchoolRosterConfig): Promise
   const year = currentStageSchoolYear();
   const assignments: StageClassReferentAssignment[] = config.classAssignments.map((a) => ({
     className: a.className,
-    clerkUserId: a.clerkUserId,
+    externalUserId: a.externalUserId,
     name: a.name,
     email: a.email,
   }));
@@ -77,21 +94,29 @@ export async function saveSchoolRoster(
     classAssignments: config.classAssignments
       .map((a) => ({
         className: a.className.trim(),
-        clerkUserId: a.clerkUserId.trim(),
+        externalUserId: a.externalUserId.trim(),
         name: a.name.trim(),
         email: a.email.trim().toLowerCase(),
       }))
-      .filter((a) => a.className && a.clerkUserId && a.name && a.email),
+      .filter((a) => a.className && a.externalUserId && a.name && a.email),
   };
   await putJson(ROSTER_KEY, next);
+  if (isEntCoreDbEnabled()) {
+    try {
+      const etabId = await resolveCurrentEtablissementId();
+      if (etabId) await replaceSchoolRosterInDb(etabId, next);
+    } catch (error) {
+      console.error("[school-roster] écriture DB", error);
+    }
+  }
   await syncStageReferentsFromRoster(next);
   return next;
 }
 
-async function listClassesForTeacherFromRoster(clerkUserId: string): Promise<string[]> {
+async function listClassesForTeacherFromRoster(externalUserId: string): Promise<string[]> {
   const roster = await loadSchoolRoster();
   return roster.classAssignments
-    .filter((a) => a.clerkUserId === clerkUserId)
+    .filter((a) => a.externalUserId === externalUserId)
     .map((a) => a.className)
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
@@ -114,7 +139,7 @@ export async function importAssignmentsFromStageReferents(
     teacherCatalog: current.teacherCatalog,
     classAssignments: (stage?.assignments ?? []).map((a) => ({
       className: a.className,
-      clerkUserId: a.clerkUserId,
+      externalUserId: a.externalUserId,
       name: a.name,
       email: a.email,
     })),
@@ -122,11 +147,11 @@ export async function importAssignmentsFromStageReferents(
   });
 }
 
-/** Professeurs Clerk éligibles (prof / éducation). */
-export async function listTeacherClerkOptions() {
-  const members = await listClerkMembers();
+/** Professeurs éligibles (prof / éducation). */
+export async function listTeacherDirectoryOptions() {
+  const members = await listDirectoryMembers();
   return members
-    .filter((m) => m.clerkUserId && !m.pending)
+    .filter((m) => m.externalUserId && !m.pending)
     .filter(
       (m) =>
         m.roles.includes("professeur") ||
@@ -134,7 +159,7 @@ export async function listTeacherClerkOptions() {
         m.roles.includes("cpe"),
     )
     .map((m) => ({
-      clerkUserId: m.clerkUserId,
+      externalUserId: m.externalUserId,
       email: m.email,
       displayName: m.displayName || m.email,
     }));

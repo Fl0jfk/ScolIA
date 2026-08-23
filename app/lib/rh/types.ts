@@ -169,7 +169,7 @@ export type RhPersonnelIndexEntry = {
   email: string;
   emailPerso?: string;
   emailPro?: string;
-  clerkUserId?: string | null;
+  externalUserId?: string | null;
   category: RhCategory;
   active: boolean;
   accountStatus: RhAccountStatus;
@@ -184,7 +184,7 @@ export type MetaRhDocument = {
   contract: RhContract;
   banking?: { iban?: string | null; bic?: string | null };
   emergencyContact?: { name?: string | null; phone?: string | null };
-  clerkUserId?: string | null;
+  externalUserId?: string | null;
   accountStatus: RhAccountStatus;
   category: RhCategory;
   active: boolean;
@@ -266,7 +266,7 @@ export function createEmptyMetaRh(input: {
     contract,
     banking: {},
     emergencyContact: {},
-    clerkUserId: null,
+    externalUserId: null,
     accountStatus: input.accountStatus ?? "pending",
     category: input.category ?? "administratif",
     active: true,
@@ -298,7 +298,7 @@ export function metaToIndexEntry(meta: MetaRhDocument): RhPersonnelIndexEntry {
     folderName: buildPersonnelFolderName(meta.identity.lastName, meta.identity.firstName),
     displayName: `${meta.identity.firstName} ${meta.identity.lastName}`.trim(),
     email: meta.identity.email,
-    clerkUserId: meta.clerkUserId ?? null,
+    externalUserId: meta.externalUserId ?? null,
     category: meta.category,
     active: meta.active !== false,
     accountStatus: meta.accountStatus,
@@ -374,7 +374,7 @@ export function normalizeMetaRhDocument(raw: unknown): MetaRhDocument {
       o.emergencyContact && typeof o.emergencyContact === "object"
         ? (o.emergencyContact as MetaRhDocument["emergencyContact"])
         : {},
-    clerkUserId: str(o.clerkUserId) || null,
+    externalUserId: str(o.externalUserId) || null,
     accountStatus: asAccountStatus(o.accountStatus),
     category: asCategory(o.category),
     active: o.active !== false,
@@ -411,7 +411,7 @@ export function normalizeRhPersonnelIndex(raw: unknown, basePath = RH_DEFAULT_BA
       folderName,
       displayName: String(r.displayName ?? folderName).trim(),
       email,
-      clerkUserId: typeof r.clerkUserId === "string" ? r.clerkUserId : null,
+      externalUserId: typeof r.externalUserId === "string" ? r.externalUserId : null,
       category: asCategory(r.category),
       active: r.active !== false,
       accountStatus: asAccountStatus(r.accountStatus),

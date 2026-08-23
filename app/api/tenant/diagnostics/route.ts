@@ -6,9 +6,9 @@ import { resolveTenantCurrentUser, resolveTenantSession } from "@/app/lib/tenant
 import { getJson } from "@/app/lib/s3-storage";
 import { getTenant } from "@/app/lib/tenant-context";
 import { isMultiTenantEnabled } from "@/app/lib/tenant-registry";
-import { clerkFrontendDomainFromPublishableKey } from "@/app/lib/clerk-pk-domain";
+import { frontendDomainFromPublishableKey } from "@/app/lib/publishable-key-domain";
 
-/** Diagnostic rapide tenant + Clerk + S3 (admin org). */
+/** Diagnostic rapide tenant + auth + S3 (admin org). */
 export async function GET() {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
@@ -23,8 +23,8 @@ export async function GET() {
     report.tenant = {
       slug: tenant.slug,
       dataBucket: tenant.dataBucket,
-      clerkFrontendDomain: clerkFrontendDomainFromPublishableKey(tenant.clerkPublishableKey),
-      hasClerkSecretKey: Boolean(tenant.clerkSecretKey?.trim()),
+      authFrontendDomain: frontendDomainFromPublishableKey(tenant.publishableKey),
+      hasSecretKey: Boolean(tenant.secretKey?.trim()),
       hasAwsOverride: Boolean(tenant.secrets?.aws?.roleArn || tenant.secrets?.aws?.accessKeyId),
     };
     (report.checks as Record<string, unknown>).tenant = "ok";
@@ -64,8 +64,8 @@ export async function GET() {
     }
   }
 
-  const encryptionKeyConfigured = Boolean(process.env.CLERK_ENCRYPTION_KEY?.trim());
-  (report.checks as Record<string, unknown>).clerkEncryptionKeyEnv = encryptionKeyConfigured
+  const encryptionKeyConfigured = Boolean(process.env.AUTH_PARENT_SECRET_FALLBACK?.trim());
+  (report.checks as Record<string, unknown>).authEncryptionKeyEnv = encryptionKeyConfigured
     ? "present"
     : "missing";
 
@@ -97,7 +97,7 @@ export async function GET() {
   if (checks.tenantSession !== "ok") {
     report.ok = false;
     report.hint =
-      "Session intranet illisible côté serveur. Vérifiez la clé secrète Clerk LP (sk_live_…) dans /platform/setup → secrets tenant.";
+      "Session intranet illisible côté serveur. Vérifiez la clé secrète auth LP (sk_live_…) dans /platform/setup → secrets tenant.";
   }
 
   return NextResponse.json(report, { status: report.ok ? 200 : 503 });

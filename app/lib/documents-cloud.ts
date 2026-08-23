@@ -14,7 +14,7 @@ import {
   putJson,
   putObject,
 } from "@/app/lib/s3-storage";
-import { listClerkMembers, type ClerkMemberRow } from "@/app/lib/clerk-users";
+import { listDirectoryMembers, type DirectoryMemberRow } from "@/app/lib/directory-members";
 
 export const DOCUMENTS_QUOTA_BYTES = 2 * 1024 * 1024 * 1024;
 export { DOCUMENTS_MAX_FILE_BYTES, DOCUMENTS_MAX_FILE_LABEL };
@@ -780,9 +780,9 @@ export async function markSharedFolderSeen(userId: string, shareId: string): Pro
   await putJson(shareMetaRel(shareId), updated);
 }
 
-export async function listDocumentPeers(excludeUserId: string): Promise<ClerkMemberRow[]> {
-  const members = await listClerkMembers();
-  return members.filter((m) => m.clerkUserId && m.clerkUserId !== excludeUserId && !m.pending);
+export async function listDocumentPeers(excludeUserId: string): Promise<DirectoryMemberRow[]> {
+  const members = await listDirectoryMembers();
+  return members.filter((m) => m.externalUserId && m.externalUserId !== excludeUserId && !m.pending);
 }
 
 async function assertWriteAccess(

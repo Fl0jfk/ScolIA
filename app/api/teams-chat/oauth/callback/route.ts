@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
     if (!me.id) throw new Error("Profil Microsoft sans id.");
 
     await saveTeamsChatLink({
-      clerkUserId: gate.ctx.userId,
+      externalUserId: gate.ctx.userId,
       refreshToken: tokens.refreshToken,
       microsoftUserId: me.id,
       upn: me.userPrincipalName || me.mail,

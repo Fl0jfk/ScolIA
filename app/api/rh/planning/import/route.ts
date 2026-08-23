@@ -68,7 +68,7 @@ export async function POST(req: Request) {
     }
   } else if (!canManage && personnelId !== gate.ctx.userId) {
     const record = await getPersonnelRecord(personnelId);
-    if (!record || record.clerkUserId !== gate.ctx.userId) {
+    if (!record || record.externalUserId !== gate.ctx.userId) {
       return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
     }
   }

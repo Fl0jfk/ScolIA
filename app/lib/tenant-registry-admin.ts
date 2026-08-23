@@ -13,9 +13,9 @@ import type { TenantBillingState } from "@/app/lib/tenant-billing-types";
 import type { TenantConfig, TenantIndexEntry, TenantPostalAddress, TenantSecrets } from "@/app/lib/tenant-types";
 
 type TenantSecretsPatch = {
-  clerkSecretKey?: string;
-  clerkDevPublishableKey?: string;
-  clerkDevSecretKey?: string;
+  secretKey?: string;
+  devPublishableKey?: string;
+  devSecretKey?: string;
   mistralApiKey?: string;
   smtpUser?: string;
   smtpPass?: string;
@@ -37,7 +37,7 @@ type TenantUpsertInput = {
   hostnames: string[];
   appUrl: string;
   dataBucket: string;
-  clerkPublishableKey: string;
+  publishableKey: string;
   postalAddress?: TenantPostalAddress;
   logoUrl?: string;
   billing?: TenantBillingState;
@@ -45,19 +45,19 @@ type TenantUpsertInput = {
 };
 
 type TenantEditPayload = {
-  entry: Omit<TenantIndexEntry, "clerkSecretKey">;
+  entry: Omit<TenantIndexEntry, "secretKey">;
   configured: {
-    clerkSecretKey: boolean;
-    clerkDevKeys: boolean;
+    secretKey: boolean;
+    legacyDevKeys: boolean;
     mistral: boolean;
     smtp: boolean;
     microsoft: boolean;
     aws: boolean;
   };
   secretsPreview: {
-    clerkSecretKey: string | null;
-    clerkDevPublishableKey: string | null;
-    clerkDevSecretKey: string | null;
+    secretKey: string | null;
+    devPublishableKey: string | null;
+    devSecretKey: string | null;
     mistralApiKey: string | null;
     smtpUser: string | null;
     microsoftClientId: string | null;
@@ -102,7 +102,7 @@ function indexEntryFromInput(input: TenantUpsertInput): TenantIndexEntry {
     hostnames,
     dataBucket: input.dataBucket.trim(),
     appUrl,
-    clerkPublishableKey: input.clerkPublishableKey.trim(),
+    publishableKey: input.publishableKey.trim(),
     ...(postalAddress ? { postalAddress } : {}),
     ...(logoUrl ? { logoUrl } : {}),
     ...(billing ? { billing } : {}),
@@ -110,23 +110,23 @@ function indexEntryFromInput(input: TenantUpsertInput): TenantIndexEntry {
 }
 
 function mergeSecrets(existing: TenantSecrets | null, patch: TenantSecretsPatch | undefined): TenantSecrets {
-  const base: TenantSecrets = existing ? { ...existing } : { clerkSecretKey: "" };
+  const base: TenantSecrets = existing ? { ...existing } : { secretKey: "" };
 
   const set = (key: keyof TenantSecretsPatch, value: string | undefined) => {
     const v = value?.trim();
     if (v === undefined) return;
     if (!v && key !== "smtpHost" && key !== "awsRegion" && key !== "awsImageBucket") return;
     switch (key) {
-      case "clerkSecretKey":
-        base.clerkSecretKey = v;
+      case "secretKey":
+        base.secretKey = v;
         break;
-      case "clerkDevPublishableKey":
-        if (v) base.clerkDevPublishableKey = v;
-        else delete base.clerkDevPublishableKey;
+      case "devPublishableKey":
+        if (v) base.devPublishableKey = v;
+        else delete base.devPublishableKey;
         break;
-      case "clerkDevSecretKey":
-        if (v) base.clerkDevSecretKey = v;
-        else delete base.clerkDevSecretKey;
+      case "devSecretKey":
+        if (v) base.devSecretKey = v;
+        else delete base.devSecretKey;
         break;
       case "mistralApiKey":
         if (v) base.mistral = { apiKey: v };
@@ -185,24 +185,24 @@ function mergeSecrets(existing: TenantSecrets | null, patch: TenantSecretsPatch 
 
 export function tenantToEditPayload(tenant: TenantConfig): TenantEditPayload {
   const secrets = {
-    clerkSecretKey: tenant.clerkSecretKey,
+    secretKey: tenant.secretKey,
     ...tenant.secrets,
   };
-  const { clerkSecretKey: _sk, ...indexRest } = tenant;
+  const { secretKey: _sk, ...indexRest } = tenant;
   return {
     entry: indexRest,
     configured: {
-      clerkSecretKey: Boolean(secrets.clerkSecretKey),
-      clerkDevKeys: Boolean(secrets.clerkDevPublishableKey && secrets.clerkDevSecretKey),
+      secretKey: Boolean(secrets.secretKey),
+      legacyDevKeys: Boolean(secrets.devPublishableKey && secrets.devSecretKey),
       mistral: Boolean(secrets.mistral?.apiKey),
       smtp: Boolean(secrets.smtp?.user),
       microsoft: Boolean(secrets.microsoft?.clientId),
       aws: Boolean(secrets.aws?.roleArn || secrets.aws?.accessKeyId),
     },
     secretsPreview: {
-      clerkSecretKey: maskSecret(secrets.clerkSecretKey),
-      clerkDevPublishableKey: maskSecret(secrets.clerkDevPublishableKey),
-      clerkDevSecretKey: maskSecret(secrets.clerkDevSecretKey),
+      secretKey: maskSecret(secrets.secretKey),
+      devPublishableKey: maskSecret(secrets.devPublishableKey),
+      devSecretKey: maskSecret(secrets.devSecretKey),
       mistralApiKey: maskSecret(secrets.mistral?.apiKey),
       smtpUser: maskSecret(secrets.smtp?.user),
       microsoftClientId: maskSecret(secrets.microsoft?.clientId),
@@ -228,16 +228,16 @@ function validateTenantUpsertInput(
     return "Slug invalide (lettres minuscules, chiffres et tirets uniquement).";
   }
   if (!input.dataBucket.trim()) return "Bucket données requis.";
-  if (!input.clerkPublishableKey.trim()) return "Clé publique Clerk requise.";
-  if (!input.clerkPublishableKey.trim().startsWith("pk_")) {
-    return "Clé publique Clerk invalide (doit commencer par pk_).";
+  if (!input.publishableKey.trim()) return "Clé publique (legacy) requise.";
+  if (!input.publishableKey.trim().startsWith("pk_")) {
+    return "Clé publique (legacy) invalide (doit commencer par pk_).";
   }
-  if (options.isCreate && !input.secrets?.clerkSecretKey?.trim()) {
-    return "Clé secrète Clerk requise pour un nouveau tenant.";
+  if (options.isCreate && !input.secrets?.secretKey?.trim()) {
+    return "Clé secrète (legacy) requise pour un nouveau tenant.";
   }
-  const sk = input.secrets?.clerkSecretKey?.trim();
+  const sk = input.secrets?.secretKey?.trim();
   if (sk && !sk.startsWith("sk_")) {
-    return "Clé secrète Clerk invalide (doit commencer par sk_).";
+    return "Clé secrète (legacy) invalide (doit commencer par sk_).";
   }
   return null;
 }
@@ -262,7 +262,7 @@ export async function createTenant(input: TenantUpsertInput): Promise<TenantConf
   }
 
   const secrets = mergeSecrets(null, input.secrets);
-  if (!secrets.clerkSecretKey) throw new Error("clerkSecretKey requis.");
+  if (!secrets.secretKey) throw new Error("secretKey requis.");
 
   await saveTenantSecretsFile(entry.slug, secrets);
   await saveRegistryIndexEntries([...entries, entry]);
@@ -302,8 +302,8 @@ export async function updateTenant(slug: string, input: TenantUpsertInput): Prom
 
   const existingSecrets = await loadTenantSecretsFile(normalized);
   const merged = mergeSecrets(existingSecrets, input.secrets);
-  if (!merged.clerkSecretKey) {
-    throw new Error("clerkSecretKey manquant — renseignez la clé secrète Clerk.");
+  if (!merged.secretKey) {
+    throw new Error("secretKey manquant — renseignez la clé secrète auth.");
   }
 
   const nextEntries = [...entries];
@@ -325,12 +325,12 @@ function secretsPatchFromBody(raw: unknown): TenantSecretsPatch | undefined {
   const o = raw as Record<string, unknown>;
   const str = (k: string) => (typeof o[k] === "string" ? (o[k] as string).trim() : undefined);
   const patch: TenantSecretsPatch = {};
-  const clerkSecretKey = str("clerkSecretKey");
-  if (clerkSecretKey !== undefined) patch.clerkSecretKey = clerkSecretKey;
-  const clerkDevPublishableKey = str("clerkDevPublishableKey");
-  if (clerkDevPublishableKey !== undefined) patch.clerkDevPublishableKey = clerkDevPublishableKey;
-  const clerkDevSecretKey = str("clerkDevSecretKey");
-  if (clerkDevSecretKey !== undefined) patch.clerkDevSecretKey = clerkDevSecretKey;
+  const secretKey = str("secretKey");
+  if (secretKey !== undefined) patch.secretKey = secretKey;
+  const devPublishableKey = str("devPublishableKey");
+  if (devPublishableKey !== undefined) patch.devPublishableKey = devPublishableKey;
+  const devSecretKey = str("devSecretKey");
+  if (devSecretKey !== undefined) patch.devSecretKey = devSecretKey;
   const mistralApiKey = str("mistralApiKey");
   if (mistralApiKey !== undefined) patch.mistralApiKey = mistralApiKey;
   const smtpUser = str("smtpUser");
@@ -397,7 +397,7 @@ export function upsertInputFromBody(raw: unknown): TenantUpsertInput {
     hostnames,
     appUrl: String(o.appUrl ?? ""),
     dataBucket: String(o.dataBucket ?? ""),
-    clerkPublishableKey: String(o.clerkPublishableKey ?? ""),
+    publishableKey: String(o.publishableKey ?? ""),
     postalAddress,
     logoUrl: typeof o.logoUrl === "string" ? o.logoUrl : undefined,
     billing,

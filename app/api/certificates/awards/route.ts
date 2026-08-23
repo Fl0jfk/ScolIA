@@ -14,7 +14,7 @@ import { findCertificateStudentByKey } from "@/app/lib/certificates-students";
 import {
   buildDesignatedSignatories,
   generateVerificationToken,
-  resolveClerkDisplayName,
+  resolveDirectoryDisplayName,
 } from "@/app/lib/certificates-workflow";
 
 export async function GET(req: Request) {
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
   }
   const nameById = new Map<string, string>();
   for (const id of eligibleSignatoryIds(program)) {
-    nameById.set(id, await resolveClerkDisplayName(id));
+    nameById.set(id, await resolveDirectoryDisplayName(id));
   }
   const now = new Date().toISOString();
   const award: StudentAward = {

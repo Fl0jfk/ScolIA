@@ -12,7 +12,7 @@ function safeFileName(name: string) {
 }
 
 export async function depositRhSelfDocument(input: {
-  clerkUserId: string;
+  externalUserId: string;
   email: string;
   uploadedBy: string;
   fileName: string;
@@ -27,7 +27,7 @@ export async function depositRhSelfDocument(input: {
 
   const entry = resolveRhIndexEntryForUser(
     indexHit.index.entries,
-    input.clerkUserId,
+    input.externalUserId,
     input.email,
   );
   if (!entry) {

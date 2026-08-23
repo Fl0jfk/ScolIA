@@ -31,7 +31,7 @@ export async function GET() {
   for (const r of all) {
     const rec = await getPersonnelRecord(r.personnelId);
     if (!rec) continue;
-    if (rec.clerkUserId === user?.id || rec.email === email) mine.push(r);
+    if (rec.externalUserId === user?.id || rec.email === email) mine.push(r);
   }
   return NextResponse.json({ requests: mine });
 }
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     if (!record) return NextResponse.json({ error: "Dossier introuvable." }, { status: 404 });
 
     const email = user?.primaryEmailAddress?.emailAddress?.toLowerCase() || "";
-    const isSelf = record.clerkUserId === user?.id || record.email === email;
+    const isSelf = record.externalUserId === user?.id || record.email === email;
     if (!isSelf && !canManagePersonnel(roles)) {
       return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
     }
@@ -123,7 +123,7 @@ export async function POST(req: Request) {
     if (!item) return NextResponse.json({ error: "Demande introuvable." }, { status: 404 });
     const rec = await getPersonnelRecord(item.personnelId);
     const email = user?.primaryEmailAddress?.emailAddress?.toLowerCase() || "";
-    const isSelf = rec && (rec.clerkUserId === user?.id || rec.email === email);
+    const isSelf = rec && (rec.externalUserId === user?.id || rec.email === email);
     if (!isSelf && !canManagePersonnel(roles)) {
       return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
     }

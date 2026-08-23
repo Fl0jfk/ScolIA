@@ -1,8 +1,8 @@
 "use client";
 
-import ProfRoomAdminPicker, { type ClerkMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import ProfRoomAdminPicker, { type DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 
-export type { ClerkMemberOption };
+export type { DirectoryMemberOption };
 
 export default function DomainCoordinatorPicker({
   domainName,
@@ -12,7 +12,7 @@ export default function DomainCoordinatorPicker({
   loading,
 }: {
   domainName: string;
-  members: ClerkMemberOption[];
+  members: DirectoryMemberOption[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   loading?: boolean;

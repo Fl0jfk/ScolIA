@@ -14,8 +14,8 @@ import type { RgpdEntPresetId, RgpdQuestionnaireAnswers } from "@/app/lib/rgpd-t
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400";
 
-type ClerkUserOption = {
-  clerkUserId: string;
+type DirectoryUserOption = {
+  externalUserId: string;
   email: string;
   firstName?: string;
   lastName?: string;
@@ -23,7 +23,7 @@ type ClerkUserOption = {
   roles: string[];
 };
 
-function clerkUserLabel(u: ClerkUserOption): string {
+function directoryUserLabel(u: DirectoryUserOption): string {
   return u.displayName || `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
 }
 
@@ -53,29 +53,29 @@ function Toggle({
 
 export default function RgpdQuestionnaireWizard({ answers, onChange, onSave, saving }: Props) {
   const step = Math.min(answers.questionnaireStep, RGPD_TOTAL_STEPS);
-  const [clerkUsers, setClerkUsers] = useState<ClerkUserOption[]>([]);
-  const [clerkUsersLoading, setClerkUsersLoading] = useState(false);
-  const [clerkUsersError, setClerkUsersError] = useState<string | null>(null);
+  const [directoryUsers, setDirectoryUsers] = useState<DirectoryUserOption[]>([]);
+  const [directoryUsersLoading, setDirectoryUsersLoading] = useState(false);
+  const [directoryUsersError, setDirectoryUsersError] = useState<string | null>(null);
 
   useEffect(() => {
     if (step !== 2 || !answers.dpdDesignated || !answers.dpdInternal) return;
     let cancelled = false;
-    setClerkUsersLoading(true);
-    setClerkUsersError(null);
-    fetch("/api/rgpd/clerk-users", { cache: "no-store" })
+    setDirectoryUsersLoading(true);
+    setDirectoryUsersError(null);
+    fetch("/api/rgpd/directory-users", { cache: "no-store" })
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Chargement impossible");
-        if (!cancelled) setClerkUsers(data.users ?? []);
+        if (!cancelled) setDirectoryUsers(data.users ?? []);
       })
       .catch((e) => {
         if (!cancelled) {
-          setClerkUsersError(e instanceof Error ? e.message : String(e));
-          setClerkUsers([]);
+          setDirectoryUsersError(e instanceof Error ? e.message : String(e));
+          setDirectoryUsers([]);
         }
       })
       .finally(() => {
-        if (!cancelled) setClerkUsersLoading(false);
+        if (!cancelled) setDirectoryUsersLoading(false);
       });
     return () => {
       cancelled = true;
@@ -354,43 +354,43 @@ export default function RgpdQuestionnaireWizard({ answers, onChange, onSave, sav
                       dpdInternal: v,
                       ...(v
                         ? {}
-                        : { dpdClerkUserId: undefined, dpdEmail: undefined }),
+                        : { dpdExternalUserId: undefined, dpdEmail: undefined }),
                     })
                   }
                 />
                 {answers.dpdInternal ? (
                   <label className="text-sm block">
-                    DPD — membre de l&apos;établissement (Clerk)
+                    DPD — membre de l&apos;établissement
                     <select
                       className={inputClass + " mt-1"}
-                      value={answers.dpdClerkUserId ?? ""}
-                      disabled={clerkUsersLoading}
+                      value={answers.dpdExternalUserId ?? ""}
+                      disabled={directoryUsersLoading}
                       onChange={(e) => {
                         const id = e.target.value;
-                        const user = clerkUsers.find((u) => u.clerkUserId === id);
+                        const user = directoryUsers.find((u) => u.externalUserId === id);
                         onChange({
-                          dpdClerkUserId: id || undefined,
-                          dpdName: user ? clerkUserLabel(user) : undefined,
+                          dpdExternalUserId: id || undefined,
+                          dpdName: user ? directoryUserLabel(user) : undefined,
                           dpdEmail: user?.email,
                         });
                       }}
                     >
                       <option value="">
-                        {clerkUsersLoading ? "Chargement…" : "— Choisir un utilisateur —"}
+                        {directoryUsersLoading ? "Chargement…" : "— Choisir un utilisateur —"}
                       </option>
-                      {clerkUsers.map((u) => (
-                        <option key={u.clerkUserId} value={u.clerkUserId}>
-                          {clerkUserLabel(u)}
+                      {directoryUsers.map((u) => (
+                        <option key={u.externalUserId} value={u.externalUserId}>
+                          {directoryUserLabel(u)}
                           {u.email ? ` (${u.email})` : ""}
                         </option>
                       ))}
                     </select>
-                    {clerkUsersError && (
-                      <p className="text-xs text-red-600 mt-1">{clerkUsersError}</p>
+                    {directoryUsersError && (
+                      <p className="text-xs text-red-600 mt-1">{directoryUsersError}</p>
                     )}
-                    {!clerkUsersLoading && clerkUsers.length === 0 && !clerkUsersError && (
+                    {!directoryUsersLoading && directoryUsers.length === 0 && !directoryUsersError && (
                       <p className="text-xs text-slate-500 mt-1">
-                        Aucun utilisateur Clerk actif trouvé.
+                        Aucun utilisateur actif trouvé.
                       </p>
                     )}
                   </label>
@@ -404,7 +404,7 @@ export default function RgpdQuestionnaireWizard({ answers, onChange, onSave, sav
                       onChange={(e) =>
                         onChange({
                           dpdName: e.target.value,
-                          dpdClerkUserId: undefined,
+                          dpdExternalUserId: undefined,
                           dpdEmail: undefined,
                         })
                       }

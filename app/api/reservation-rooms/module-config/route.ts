@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { loadAppConfig, saveProfRoomModule } from "@/app/lib/app-config";
 import { parseProfRoomModule, type ProfRoomModuleConfig } from "@/app/lib/app-config-schemas";
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { isProfRoomModuleAdmin, normalizeProfRoomAdminClerkIds, requireProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
+import { isProfRoomModuleAdmin, normalizeProfRoomAdminIds, requireProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
 import { withDefaultProfRoomSubjects } from "@/app/lib/prof-room-defaults";
 
 export async function GET() {
@@ -11,11 +11,11 @@ export async function GET() {
   try {
     const config = await loadAppConfig();
     const merged = withDefaultProfRoomSubjects(config.profRoom);
-    const { adminClerkUserIds, ...moduleConfig } = merged;
+    const { adminExternalUserIds, ...moduleConfig } = merged;
     const isAdmin = await isProfRoomModuleAdmin();
     return NextResponse.json({
       config: moduleConfig,
-      ...(isAdmin ? { adminClerkUserIds: adminClerkUserIds || [] } : {}),
+      ...(isAdmin ? { adminExternalUserIds: adminExternalUserIds || [] } : {}),
     });
   } catch (err: unknown) {
     console.error("GET /module-config:", err);
@@ -29,10 +29,10 @@ export async function PUT(req: Request) {
   try {
     const body = await req.json();
     const current = await loadAppConfig();
-    let adminClerkUserIds = current.profRoom.adminClerkUserIds || [];
+    let adminExternalUserIds = current.profRoom.adminExternalUserIds || [];
 
-    if (Array.isArray(body?.adminClerkUserIds)) {
-      adminClerkUserIds = normalizeProfRoomAdminClerkIds(body.adminClerkUserIds);
+    if (Array.isArray(body?.adminExternalUserIds)) {
+      adminExternalUserIds = normalizeProfRoomAdminIds(body.adminExternalUserIds);
     }
 
     const merged: ProfRoomModuleConfig = {
@@ -51,14 +51,14 @@ export async function PUT(req: Request) {
           : current.profRoom.bookingHorizonDays,
       hoursStart: current.profRoom.hoursStart,
       hoursEnd: current.profRoom.hoursEnd,
-      adminClerkUserIds,
+      adminExternalUserIds,
     };
     await saveProfRoomModule(merged);
-    const { adminClerkUserIds: savedAdminIds, ...moduleConfig } = merged;
+    const { adminExternalUserIds: savedAdminIds, ...moduleConfig } = merged;
     return NextResponse.json({
       success: true,
       config: moduleConfig,
-      adminClerkUserIds: savedAdminIds,
+      adminExternalUserIds: savedAdminIds,
     });
   } catch (err: unknown) {
     console.error("PUT /module-config:", err);

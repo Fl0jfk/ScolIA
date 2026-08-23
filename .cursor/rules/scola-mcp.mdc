@@ -1,0 +1,17 @@
+---
+description: Quand et comment utiliser les MCP (Postgres, Fetch, Browser, Mistral, Scaleway)
+alwaysApply: true
+---
+
+# Serveurs MCP — Usage Obligatoire
+
+| MCP | Usage |
+|-----|--------|
+| **postgres** | Vérifier schéma, migrations Drizzle, état des tables avant/après mutation |
+| **fetch** | Doc officielle récente (Better-Auth, Drizzle, Next.js App Router) — éviter syntaxe obsolète |
+| **browser** | Playwright MCP : tester UI locale (login, formulaires, clics, refresh) — **pas Puppeteer** |
+| **mistral** | Valider extraction OCR / PDF uploadés |
+| **scaleway** | Infra (containers, logs, buckets) quand pertinent |
+
+- Ne pas inventer l’état de la BDD ou de la prod : **vérifier via MCP** quand le serveur est disponible.
+- Postgres MCP peut être absent tant qu’aucune base n’est configurée ; le signaler, ne pas inventer.

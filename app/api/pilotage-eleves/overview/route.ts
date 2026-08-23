@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getClerkUserRoles } from "@/app/lib/clerk-users";
+import { getDirectoryUserRoles } from "@/app/lib/directory-members";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import {
   canAccessPilotageModule,
@@ -13,7 +13,7 @@ export async function GET() {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
 
-  const roles = await getClerkUserRoles(gate.ctx.userId);
+  const roles = await getDirectoryUserRoles(gate.ctx.userId);
   if (!canAccessPilotageModule(roles)) {
     return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
   }

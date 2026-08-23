@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useSessionUser } from "@/app/hooks/useAppUser";
 import Image from "next/image";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import ReplayModuleTourButton from "@/app/components/module-tour/ReplayModuleTourButton";
@@ -27,7 +27,7 @@ type Message = {
   avatar: string | null;
 };
 
-type ClerkUser = {
+type DirectoryUser = {
   id: string;
   name: string;
   avatar: string;
@@ -36,7 +36,7 @@ type ClerkUser = {
 const AUTHORIZED_ADMINS = ["HACQUEVILLE-MATHI", "DONA", "DUMOUCHEL","PLANTEC", "LEBLOND"];
 
 export default function ProfChatPage() {
-  const { user, isLoaded } = useUser();
+  const { user, isLoaded } = useSessionUser();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannel, setActiveChannel] = useState("general");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -45,7 +45,7 @@ export default function ProfChatPage() {
   const [showModal, setShowModal] = useState(false);
   const [showMembersModal, setShowMembersModal] = useState(false);
   const [newChanName, setNewChanName] = useState("");
-  const [allUsers, setAllUsers] = useState<ClerkUser[]>([]);
+  const [allUsers, setAllUsers] = useState<DirectoryUser[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
   const [isPrivate, setIsPrivate] = useState(false);
   const [nameError, setNameError] = useState(false);
@@ -101,7 +101,7 @@ export default function ProfChatPage() {
     try {
       const res = await fetch("/api/channels/users/list");
       const data = await res.json();
-      setAllUsers(data.filter((p: ClerkUser) => p.id !== user?.id));
+      setAllUsers(data.filter((p: DirectoryUser) => p.id !== user?.id));
     } catch (err) {
       console.error("Erreur liste profs:", err);
     }
