@@ -476,6 +476,29 @@ export const eleveAccessAudit = pgTable(
   ],
 );
 
+/** Journal RGPD — lectures / exports de données sensibles (listes massives, RH, documents). */
+export const dataAccessAudit = pgTable(
+  "data_access_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id"),
+    action: text("action").notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    metadata: jsonb("metadata").$type<Record<string, unknown> | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("data_access_audit_etab_created_idx").on(t.etablissementId, t.createdAt),
+    index("data_access_audit_resource_idx").on(t.etablissementId, t.resourceType, t.createdAt),
+  ],
+);
+
 export const preinscription = pgTable(
   "preinscription",
   {
@@ -641,6 +664,7 @@ export const appSchema = {
   eleveDocument,
   documentAccessRequest,
   eleveAccessAudit,
+  dataAccessAudit,
   preinscription,
   schoolRosterMeta,
   schoolClassAssignment,
