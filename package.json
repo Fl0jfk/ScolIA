@@ -17,7 +17,8 @@
     "ent:migrate-relational": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/migrate-ent-relational.ts",
     "ent:import-json": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/import-ent-json.ts",
     "ent:normalize": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/normalize-ent-entities.ts",
-    "seed:edt-prof-test": "NODE_TLS_REJECT_UNAUTHORIZED=0 node --require ./scripts/stub-server-only.cjs --import tsx scripts/seed-edt-prof-test.ts"
+    "seed:edt-prof-test": "NODE_TLS_REJECT_UNAUTHORIZED=0 node --require ./scripts/stub-server-only.cjs --import tsx scripts/seed-edt-prof-test.ts",
+    "migrate:teacher-planning": "NODE_TLS_REJECT_UNAUTHORIZED=0 node --require ./scripts/stub-server-only.cjs --import tsx scripts/migrate-teacher-planning.ts"
   },
   "engines": {
     "node": ">=22.x"

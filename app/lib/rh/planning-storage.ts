@@ -13,6 +13,12 @@ import {
   type StaffPlanningDoc,
   type TeacherPlanningDoc,
 } from "@/app/lib/rh/planning-types";
+import {
+  listTeacherPlanningsFromDb,
+  readTeacherPlanningFromDb,
+  resolveTeacherPlanningEtabId,
+  writeTeacherPlanningToDb,
+} from "@/app/lib/rh/planning-teacher-db";
 
 function staffHasContent(doc: StaffPlanningDoc): boolean {
   if (doc.fixedSlots.length > 0) return true;
@@ -20,12 +26,34 @@ function staffHasContent(doc: StaffPlanningDoc): boolean {
   return doc.rotations.some((r) => r.slots.length > 0);
 }
 
-async function readTeacherPlanning(personnelId: string): Promise<TeacherPlanningDoc> {
+function teacherHasContent(doc: TeacherPlanningDoc): boolean {
+  return (
+    doc.weekA.length > 0 ||
+    doc.weekB.length > 0 ||
+    (doc.replacements?.length ?? 0) > 0 ||
+    Boolean(doc.updatedAt)
+  );
+}
+
+async function readTeacherPlanningLegacy(personnelId: string): Promise<TeacherPlanningDoc> {
   const hit = await getJson<unknown>(planningKeyFor("teacher", personnelId));
   if (!hit?.data) {
     return { ...emptyTeacherPlanning(personnelId), updatedAt: "" };
   }
   return normalizeTeacherPlanning(hit.data, personnelId);
+}
+
+async function readTeacherPlanning(personnelId: string): Promise<TeacherPlanningDoc> {
+  const etabId = await resolveTeacherPlanningEtabId();
+  if (etabId) {
+    try {
+      const fromDb = await readTeacherPlanningFromDb(etabId, personnelId);
+      if (fromDb && teacherHasContent(fromDb)) return fromDb;
+    } catch (error) {
+      console.error("[planning] lecture teacher_planning", error);
+    }
+  }
+  return readTeacherPlanningLegacy(personnelId);
 }
 
 async function readStaffPlanning(personnelId: string): Promise<StaffPlanningDoc> {
@@ -37,7 +65,7 @@ async function readStaffPlanning(personnelId: string): Promise<StaffPlanningDoc>
 }
 
 /**
- * Planning OGEC identifié par l’utilisateur (stockage Scaleway).
+ * Planning OGEC identifié par l’utilisateur (stockage Scaleway / collection).
  * Repli : ancienne clé dossier RH, si un JSON existait déjà.
  */
 export async function readStaffPlanningForExternalUser(externalUserId: string): Promise<StaffPlanningDoc> {
@@ -85,6 +113,41 @@ export async function writeRhPlanning(doc: RhPlanningDoc): Promise<RhPlanningDoc
     source: normalized.source || (doc.source ?? "manual"),
     sourceFileName: normalized.sourceFileName || doc.sourceFileName,
   } as RhPlanningDoc;
+
+  if (next.kind === "teacher") {
+    const etabId = await resolveTeacherPlanningEtabId();
+    if (etabId) {
+      const saved = await writeTeacherPlanningToDb(etabId, next);
+      // Miroir collection JSON pour compat lecture legacy / outils.
+      try {
+        await putJson(key, saved);
+      } catch (error) {
+        console.error("[planning] miroir JSON teacher", error);
+      }
+      return saved;
+    }
+  }
+
   await putJson(key, next);
   return next;
+}
+
+/** Charge tous les EDT profs : tables relationnelles + repli collections JSON. */
+export async function listAllTeacherPlanningsForEtab(): Promise<
+  { personnelId: string; planning: TeacherPlanningDoc }[]
+> {
+  const etabId = await resolveTeacherPlanningEtabId();
+  const byId = new Map<string, TeacherPlanningDoc>();
+
+  if (etabId) {
+    try {
+      for (const doc of await listTeacherPlanningsFromDb(etabId)) {
+        byId.set(doc.personnelId, doc);
+      }
+    } catch (error) {
+      console.error("[planning] listTeacherPlanningsFromDb", error);
+    }
+  }
+
+  return [...byId.entries()].map(([personnelId, planning]) => ({ personnelId, planning }));
 }

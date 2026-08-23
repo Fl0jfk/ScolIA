@@ -560,6 +560,81 @@ export const schoolClassAssignment = pgTable(
   ],
 );
 
+/** Meta EDT professeur (semaines types A/B + remplacements). */
+export const teacherPlanning = pgTable(
+  "teacher_planning",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    /** Id métier (Better-Auth business / external) — clé historique S3. */
+    externalUserId: text("external_user_id").notNull(),
+    source: text("source"),
+    sourceFileName: text("source_file_name"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedBy: text("updated_by").notNull().default(""),
+  },
+  (t) => [
+    uniqueIndex("teacher_planning_etab_user_uidx").on(t.etablissementId, t.externalUserId),
+    index("teacher_planning_etablissement_idx").on(t.etablissementId),
+  ],
+);
+
+/** Créneau semaine type A ou B. */
+export const teacherPlanningSlot = pgTable(
+  "teacher_planning_slot",
+  {
+    id: text("id").primaryKey(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    planningId: uuid("planning_id")
+      .notNull()
+      .references(() => teacherPlanning.id, { onDelete: "cascade" }),
+    /** A | B */
+    weekType: text("week_type").notNull(),
+    /** 1–5 (lun–ven) */
+    day: integer("day").notNull(),
+    startTime: text("start_time").notNull(),
+    endTime: text("end_time").notNull(),
+    subject: text("subject").notNull(),
+    classes: text("classes").array().notNull().default([]),
+    room: text("room"),
+  },
+  (t) => [
+    index("teacher_planning_slot_planning_idx").on(t.planningId, t.weekType),
+    index("teacher_planning_slot_etab_idx").on(t.etablissementId),
+  ],
+);
+
+/** Remplacement daté (hors semaine type). */
+export const teacherPlanningReplacement = pgTable(
+  "teacher_planning_replacement",
+  {
+    id: text("id").primaryKey(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    planningId: uuid("planning_id")
+      .notNull()
+      .references(() => teacherPlanning.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    startTime: text("start_time").notNull(),
+    endTime: text("end_time").notNull(),
+    subject: text("subject").notNull(),
+    classes: text("classes").array().notNull().default([]),
+    room: text("room"),
+    note: text("note"),
+    createdBy: text("created_by").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("teacher_planning_repl_planning_idx").on(t.planningId, t.date),
+    index("teacher_planning_repl_etab_date_idx").on(t.etablissementId, t.date),
+  ],
+);
+
 /**
  * Fiche personnel OGEC (cœur).
  * Nested RH → tables filles (personnel_document, personnel_attr…).
@@ -668,6 +743,9 @@ export const appSchema = {
   preinscription,
   schoolRosterMeta,
   schoolClassAssignment,
+  teacherPlanning,
+  teacherPlanningSlot,
+  teacherPlanningReplacement,
   personnel,
   entEntity,
   tenantDocument,

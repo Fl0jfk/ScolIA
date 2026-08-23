@@ -29,6 +29,21 @@ async function loadTeacherPlanningEntriesFresh(): Promise<TeacherPlanningEntry[]
   const teachers = members.filter(
     (m) => m.externalUserId && !m.pending && hasRole(normalizeIntranetRoles(m.roles), "professeur"),
   );
+  const nameById = new Map(
+    teachers.map((m) => [m.externalUserId, m.displayName || m.email] as const),
+  );
+
+  const { listAllTeacherPlanningsForEtab } = await import("@/app/lib/rh/planning-storage");
+  const fromDb = await listAllTeacherPlanningsForEtab();
+  if (fromDb.length > 0) {
+    return fromDb
+      .filter((row) => teacherPlanningHasContent(row.planning))
+      .map((row) => ({
+        personnelId: row.personnelId,
+        displayName: nameById.get(row.personnelId) || row.personnelId,
+        planning: row.planning,
+      }));
+  }
 
   const entries = await Promise.all(
     teachers.map(async (m) => {

@@ -15,6 +15,7 @@ import {
 } from "../db/schema";
 import { upsertCollectionRecord } from "../app/lib/ent-collection-db";
 import { jsonPathToCollection } from "../app/lib/ent-json-postgres";
+import { writeTeacherPlanningToDb } from "../app/lib/rh/planning-teacher-db";
 import { emptyTeacherPlanning, type TeacherPlanningDoc } from "../app/lib/rh/planning-types";
 
 function loadEnvFile(path: string) {
@@ -212,13 +213,14 @@ async function main() {
   }
 
   const planning = buildTeacherEdt(externalUserId);
+  await writeTeacherPlanningToDb(etab.id, planning);
   const relativePath = `rh/planning/teachers/${externalUserId}.json`;
   const { collection, recordId } = jsonPathToCollection(relativePath);
   await upsertCollectionRecord(etab.id, collection, recordId, {
     ...planning,
     id: recordId,
   });
-  console.log("[seed] EDT written", relativePath, {
+  console.log("[seed] EDT relational + mirror", relativePath, {
     weekA: planning.weekA.length,
     weekB: planning.weekB.length,
     classes: [PP_CLASS, SUBJECT_CLASS],
