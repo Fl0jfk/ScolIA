@@ -37,17 +37,30 @@ export function scolaImageUrl(path: string): string {
   return `${SCOLA_IMAGE_CDN_BASE}/${clean}`;
 }
 
-/** Réécrit une URL absolue legacy AWS vers le CDN actuel (sinon inchangée). */
+/**
+ * Réécrit une URL absolue legacy AWS vers le CDN actuel, et normalise
+ * l'encodage du chemin CDN (`+` / double-encodage → segments `encodeURIComponent`).
+ * Sans cela, Next/Image double-encode `%XX` et S3 renvoie 404 sur les clés avec espaces.
+ */
 export function normalizePublicImageUrl(url: string | null | undefined): string {
   const trimmed = String(url || "").trim();
   if (!trimmed) return trimmed;
   try {
     const parsed = new URL(trimmed);
+    const pathStylePrefix = `/${SCOLA_IMAGE_BUCKET}/`;
     if (LEGACY_PUBLIC_IMAGE_HOSTS.has(parsed.hostname)) {
-      return scolaImageUrl(decodeURIComponent(parsed.pathname.replace(/^\//, "")));
+      return scolaImageUrl(parsed.pathname.replace(/^\//, ""));
     }
-    // Déjà sur le CDN courant
-    if (parsed.hostname === SCOLA_IMAGE_CDN_HOST) return trimmed;
+    if (parsed.hostname === SCOLA_IMAGE_CDN_HOST) {
+      return scolaImageUrl(parsed.pathname.replace(/^\//, ""));
+    }
+    // Path-style Scaleway : s3.fr-par.scw.cloud/<bucket>/...
+    if (
+      parsed.hostname === "s3.fr-par.scw.cloud" &&
+      parsed.pathname.startsWith(pathStylePrefix)
+    ) {
+      return scolaImageUrl(parsed.pathname.slice(pathStylePrefix.length));
+    }
   } catch {
     /* relative / invalide */
   }

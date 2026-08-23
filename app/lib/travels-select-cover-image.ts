@@ -1,4 +1,5 @@
 import { getMistralApiKey } from "@/app/lib/tenant-config";
+import { normalizePublicImageUrl } from "@/app/lib/scola-image";
 import IMAGE_CATALOG from "@/app/api/travels/update/image-catalog.json";
 
 type TravelCatalogImage = {
@@ -8,7 +9,14 @@ type TravelCatalogImage = {
   keywords?: string;
 };
 
-const catalog = IMAGE_CATALOG as TravelCatalogImage[];
+const catalog = (IMAGE_CATALOG as TravelCatalogImage[]).map((img) => ({
+  ...img,
+  url: normalizePublicImageUrl(img.url),
+}));
+
+function withNormalizedUrl(img: TravelCatalogImage): TravelCatalogImage {
+  return { ...img, url: normalizePublicImageUrl(img.url) };
+}
 
 function normalizeId(value: string | undefined | null): string {
   return String(value || "")
@@ -41,7 +49,7 @@ export async function selectTravelCoverImage(opts: {
 
   try {
     const mistralKey = await getMistralApiKey();
-    if (!mistralKey) return fallbackImage(excludeId);
+    if (!mistralKey) return withNormalizedUrl(fallbackImage(excludeId));
 
     const catalogSummary = catalog.map((i) => `${i.id} (${i.label})`).join(", ");
     const avoidHint = excludeId
@@ -82,11 +90,11 @@ export async function selectTravelCoverImage(opts: {
       catalog[0];
 
     if (excludeId && normalizeId(matched.id) === normalizeId(excludeId)) {
-      return fallbackImage(excludeId);
+      return withNormalizedUrl(fallbackImage(excludeId));
     }
-    return matched;
+    return withNormalizedUrl(matched);
   } catch (err) {
     console.error("[travels-select-cover-image]", err);
-    return fallbackImage(excludeId);
+    return withNormalizedUrl(fallbackImage(excludeId));
   }
 }

@@ -7,6 +7,7 @@ import {
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
 import { selectTravelCoverImage } from "@/app/lib/travels-select-cover-image";
+import { normalizePublicImageUrl } from "@/app/lib/scola-image";
 import { notifyComptaTravelsPhase, type TravelsTripForNotify } from "@/app/lib/travels-notify";
 import { applyTravelsOwnerAssignment } from "@/app/lib/travels-owner-server";
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -33,11 +34,13 @@ export async function POST(req: Request) {
     if (!objectToSave.imageUrl) {
       try {
         const matchedImage = await selectTravelCoverImage({ title, destination });
-        objectToSave.imageUrl = matchedImage.url;
+        objectToSave.imageUrl = normalizePublicImageUrl(matchedImage.url);
         objectToSave.imageConfigId = matchedImage.id;
       } catch (err) {
         console.error("Erreur IA:", err);
       }
+    } else if (typeof objectToSave.imageUrl === "string") {
+      objectToSave.imageUrl = normalizePublicImageUrl(objectToSave.imageUrl);
     }
     const tripRel = `travels/${tripId}.json`;
     const existingHit = await getJson<Record<string, unknown>>(tripRel);
