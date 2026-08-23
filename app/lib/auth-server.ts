@@ -142,12 +142,16 @@ function createAuth() {
       },
     },
     advanced: {
-      // Cookie partagé *.scolia.fr pour le portail → intranet.
-      // L’isolation est garantie par assertUserBelongsToTenant dans le proxy.
-      crossSubDomainCookies: {
-        enabled: true,
-        domain: process.env.BETTER_AUTH_COOKIE_DOMAIN?.trim() || "scolia.fr",
-      },
+      // Cookie partagé *.scolia.fr pour le portail → intranet (prod uniquement).
+      // En local, Domain=scolia.fr empêcherait la session sur localhost.
+      ...(process.env.NODE_ENV === "production"
+        ? {
+            crossSubDomainCookies: {
+              enabled: true,
+              domain: process.env.BETTER_AUTH_COOKIE_DOMAIN?.trim() || "scolia.fr",
+            },
+          }
+        : {}),
       useSecureCookies: process.env.NODE_ENV === "production",
       ipAddress: {
         // Scaleway Containers / reverse proxy : IP client réelle.
