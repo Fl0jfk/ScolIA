@@ -17,7 +17,7 @@ export default function PlatformMasterNav() {
 
   if (!isLoaded || !isSignedIn) {
     return (
-      <Link href="/auth/sign-in" className={connectClassName}>
+      <Link href="/connexion" className={connectClassName}>
         Se connecter
       </Link>
     );

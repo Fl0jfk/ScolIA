@@ -33,17 +33,17 @@ function primaryHostname(tenant: TenantConfig): string | null {
   return host ?? tenant.hostnames[0] ?? null;
 }
 
-/** URL de connexion pour un tenant (origine du sous-domaine + /sign-in). */
+/** URL de connexion pour un tenant (origine du sous-domaine + /auth/sign-in). */
 export function tenantSignInUrl(tenant: TenantConfig, portalHost: string): string {
   if (isLocalDevHostname(portalHost)) {
-    return `/sign-in?${LOCAL_DEV_TENANT_QUERY}=${encodeURIComponent(tenant.slug)}`;
+    return `/auth/sign-in?${LOCAL_DEV_TENANT_QUERY}=${encodeURIComponent(tenant.slug)}`;
   }
 
   const appUrl = tenant.appUrl?.trim().replace(/\/$/, "");
   if (appUrl) {
     try {
       const origin = appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
-      return `${new URL(origin).origin}/sign-in`;
+      return `${new URL(origin).origin}/auth/sign-in`;
     } catch {
       /* fall through */
     }
@@ -51,10 +51,10 @@ export function tenantSignInUrl(tenant: TenantConfig, portalHost: string): strin
 
   const host = primaryHostname(tenant);
   if (host && !isLocalDevHostname(host)) {
-    return `https://${host}/sign-in`;
+    return `https://${host}/auth/sign-in`;
   }
 
-  return "/sign-in";
+  return "/auth/sign-in";
 }
 
 function tenantToCatalogEntry(

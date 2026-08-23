@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import MarketingShell from "@/app/components/landing/MarketingShell";
 import ConnexionPlatformSessionBanner from "@/app/components/ConnexionPlatformSessionBanner";
@@ -11,7 +11,6 @@ import {
   readLastPortalTenant,
   saveLastPortalTenant,
   syncSavedPortalTenantFromCatalog,
-  tenantSelectLabel,
 } from "@/app/lib/tenant-portal-client";
 import { isBrowserLocalDev } from "@/app/lib/local-dev";
 import { platformAdminSignInUrl } from "@/app/lib/platform-portal-url";
@@ -50,7 +49,6 @@ function goToTenantSignIn(tenant: TenantEntry, signInHref: string) {
 
 export default function ConnexionPage() {
   const [tenants, setTenants] = useState<TenantEntry[]>([]);
-  const [selectedSlug, setSelectedSlug] = useState("");
   const [loading, setLoading] = useState(true);
   const [redirecting, setRedirecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,18 +98,12 @@ export default function ConnexionPage() {
     };
   }, []);
 
-  const selectedTenant = useMemo(
-    () => tenants.find((t) => t.slug === selectedSlug) ?? null,
-    [tenants, selectedSlug],
-  );
-
-  const handleContinue = useCallback(() => {
-    if (!selectedTenant) return;
-    goToTenantSignIn(selectedTenant, catalogEntrySignInUrl(selectedTenant));
-  }, [selectedTenant]);
+  const handleChoose = useCallback((tenant: TenantEntry) => {
+    goToTenantSignIn(tenant, catalogEntrySignInUrl(tenant));
+  }, []);
 
   const adminSignInHref = isLocalDev
-    ? `/sign-in?redirect_url=${encodeURIComponent("/plateforme")}`
+    ? `/auth/sign-in?redirect_url=${encodeURIComponent("/plateforme")}`
     : platformAdminSignInUrl();
 
   if (redirecting) {
@@ -126,15 +118,13 @@ export default function ConnexionPage() {
 
   return (
     <MarketingShell>
-      <main className="mx-auto max-w-lg px-6 py-12">
+      <main className="mx-auto max-w-3xl px-6 py-12">
         <div className="text-center">
           <h1 className="text-3xl font-black text-[#14231A]">
             Connexion à votre <span className={SCOLA_GRADIENT_TEXT}>intranet</span>
           </h1>
           <p className="mx-auto mt-3 max-w-md text-sm text-stone-600">
-            {isLocalDev
-              ? "Retrouvez la liste des établissements pour accéder à l’intranet (localhost en développement)."
-              : "Retrouvez la liste des établissements pour accéder à l’intranet."}
+            Choisissez votre établissement pour accéder à l’intranet.
           </p>
         </div>
 
@@ -144,61 +134,46 @@ export default function ConnexionPage() {
         {error && <p className="mt-12 text-center text-sm text-red-600">{error}</p>}
 
         {!loading && !error && tenants.length > 0 && (
-          <div className="mt-10 space-y-6">
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-stone-700">Établissement scolaire</span>
-              <select
-                value={selectedSlug}
-                onChange={(event) => setSelectedSlug(event.target.value)}
-                className="w-full rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-800 shadow-sm outline-none transition focus:border-[#2F6B4A] focus:ring-2 focus:ring-[#2F6B4A]/20"
-              >
-                <option value="">Sélectionnez votre établissement…</option>
-                {tenants.map((tenant) => (
-                  <option key={tenant.slug} value={tenant.slug}>
-                    {tenantSelectLabel(tenant)}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {selectedTenant && (
-              <div className="flex flex-col items-center rounded-2xl border border-stone-200/80 bg-white px-5 py-6 text-center shadow-sm">
-                {selectedTenant.logoUrl ? (
-                  <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-stone-50 p-2 shadow-inner">
-                    <Image
-                      src={selectedTenant.logoUrl}
-                      alt=""
-                      width={72}
-                      height={72}
-                      className="h-full w-full object-contain"
-                      unoptimized
-                    />
+          <ul className="mt-10 grid gap-4 sm:grid-cols-2">
+            {tenants.map((tenant) => (
+              <li key={tenant.slug}>
+                <button
+                  type="button"
+                  onClick={() => handleChoose(tenant)}
+                  className="group flex w-full flex-col items-center gap-3 rounded-2xl border border-stone-200/90 bg-white px-5 py-6 text-center shadow-sm transition hover:-translate-y-0.5 hover:border-[#2F6B4A]/40 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2F6B4A]"
+                >
+                  {tenant.logoUrl ? (
+                    <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-stone-50 p-3 shadow-inner ring-1 ring-stone-100 transition group-hover:ring-[#2F6B4A]/30">
+                      <Image
+                        src={tenant.logoUrl}
+                        alt=""
+                        width={88}
+                        height={88}
+                        className="h-full w-full object-contain"
+                        unoptimized
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100 text-3xl font-black text-[#2F6B4A] shadow-inner">
+                      {tenant.label.charAt(0)}
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-base font-bold text-[#14231A]">{tenant.label}</p>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-[#2F6B4A]/80">
+                      {tenant.kindLabel}
+                    </p>
+                    {tenant.postalAddressLabel ? (
+                      <p className="mt-2 text-sm text-stone-600">{tenant.postalAddressLabel}</p>
+                    ) : null}
                   </div>
-                ) : (
-                  <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100 text-2xl font-black text-[#2F6B4A]">
-                    {selectedTenant.label.charAt(0)}
-                  </div>
-                )}
-                <p className="mt-4 text-lg font-bold text-[#14231A]">{selectedTenant.label}</p>
-                <p className="mt-1 text-sm text-stone-500">{selectedTenant.kindLabel}</p>
-                {selectedTenant.postalAddressLabel ? (
-                  <p className="mt-2 text-sm text-stone-600">{selectedTenant.postalAddressLabel}</p>
-                ) : null}
-                {selectedTenant.primaryHostname && (
-                  <p className="mt-2 font-mono text-[11px] text-stone-400">{selectedTenant.primaryHostname}</p>
-                )}
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={handleContinue}
-              disabled={!selectedTenant}
-              className="w-full rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-5 py-3.5 text-sm font-bold text-white shadow-md transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Continuer
-            </button>
-          </div>
+                  <span className="mt-1 rounded-full bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-1.5 text-xs font-bold text-white opacity-90 transition group-hover:opacity-100">
+                    Se connecter
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
 
         {!loading && !error && tenants.length === 0 && (

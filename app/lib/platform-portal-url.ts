@@ -20,5 +20,5 @@ export function platformConnexionUrl(): string {
 /** Connexion Master plateforme — toujours sur scolia.fr, jamais sur un sous-domaine établissement. */
 export function platformAdminSignInUrl(): string {
   const redirect = encodeURIComponent("/plateforme");
-  return `${platformAppOrigin()}/sign-in?redirect_url=${redirect}`;
+  return `${platformAppOrigin()}/auth/sign-in?redirect_url=${redirect}`;
 }

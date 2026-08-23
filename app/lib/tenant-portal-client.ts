@@ -22,14 +22,14 @@ export function catalogEntrySignInUrl(entry: {
 
   const host = entry.primaryHostname?.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
   if (host && host !== "localhost" && host !== "127.0.0.1") {
-    return `https://${host}/sign-in`;
+    return `https://${host}/auth/sign-in`;
   }
 
   const appUrl = entry.appUrl?.trim().replace(/\/$/, "");
   if (appUrl) {
     try {
       const origin = appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
-      return `${new URL(origin).origin}/sign-in`;
+      return `${new URL(origin).origin}/auth/sign-in`;
     } catch {
       /* fall through */
     }

@@ -55,8 +55,10 @@ export function parseTenantIndexEntry(raw: unknown): TenantIndexEntry | null {
   const slug = typeof o.slug === "string" ? o.slug.trim() : "";
   const dataBucket = typeof o.dataBucket === "string" ? o.dataBucket.trim() : "";
   const publishableKey =
-    typeof o.publishableKey === "string" ? o.publishableKey.trim() : "";
-  if (!slug || !dataBucket || !publishableKey) return null;
+    (typeof o.publishableKey === "string" ? o.publishableKey.trim() : "") ||
+    (typeof o.clerkPublishableKey === "string" ? o.clerkPublishableKey.trim() : "") ||
+    "unused-better-auth";
+  if (!slug || !dataBucket) return null;
 
   const kind = o.kind === "standalone" ? "standalone" : "groupe";
   const label = typeof o.label === "string" && o.label.trim() ? o.label.trim() : slug;
@@ -108,8 +110,9 @@ function parseTenantSecrets(raw: unknown): TenantSecrets | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const secretKey =
-    typeof o.secretKey === "string" ? o.secretKey.trim() : "";
-  if (!secretKey) return null;
+    (typeof o.secretKey === "string" ? o.secretKey.trim() : "") ||
+    (typeof o.clerkSecretKey === "string" ? o.clerkSecretKey.trim() : "") ||
+    "unused-better-auth";
 
   const secrets: TenantSecrets = { secretKey };
 

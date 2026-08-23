@@ -34,6 +34,11 @@ function createAuth() {
       base,
       ...localDevOrigins,
       ...(process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",").map((s) => s.trim()) ?? []),
+      // Sous-domaines intranet connus (fallback si env incomplet).
+      "https://www.scolia.fr",
+      "https://scolia.fr",
+      "https://lpnb.scolia.fr",
+      "https://lp.docslapro.com",
     ].filter(Boolean),
     database: drizzleAdapter(db, {
       provider: "pg",
@@ -51,6 +56,12 @@ function createAuth() {
         lastName: { type: "string", required: false },
         platformAdmin: { type: "boolean", required: false, defaultValue: false, input: false },
         orgAdmin: { type: "boolean", required: false, defaultValue: false, input: false },
+      },
+    },
+    advanced: {
+      crossSubDomainCookies: {
+        enabled: true,
+        domain: process.env.BETTER_AUTH_COOKIE_DOMAIN?.trim() || "scolia.fr",
       },
     },
     plugins: [nextCookies()],

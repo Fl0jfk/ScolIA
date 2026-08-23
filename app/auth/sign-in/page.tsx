@@ -44,9 +44,19 @@ export default function BetterAuthSignInPage() {
         onSubmit={onSubmit}
         className="w-full max-w-md space-y-4 rounded-2xl border border-emerald-100 bg-white p-8 shadow-xl shadow-emerald-900/10"
       >
-        <div>
-          <h1 className="text-xl font-semibold text-emerald-950">Connexion ScolIA</h1>
-          <p className="mt-1 text-sm text-emerald-800/70">Authentification souveraine (Better-Auth)</p>
+        <div className="flex items-start gap-3">
+          <div
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#2F6B4A] to-[#1E4A32] text-lg font-black text-white shadow-md"
+            aria-hidden
+          >
+            IA
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold text-emerald-950">Connexion intranet</h1>
+            <p className="mt-1 text-sm text-emerald-800/70">
+              Identifiants ScolIA (e-mail et mot de passe)
+            </p>
+          </div>
         </div>
         {error ? (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
