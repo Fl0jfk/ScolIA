@@ -164,10 +164,10 @@ export function canAdminIngest(roles: string[]) {
   return canViewCalendar(roles);
 }
 
-/** Administratif (et direction) : saisir une demande d’absence pour un collègue, même circuit de validation. */
+/** Administratif, comptabilité et direction uniquement — pas CPE, profs, éducation, etc. */
 export function canDeclareAbsenceOnBehalf(roles: string[]) {
   const flags = getRoleFlags(roles);
-  return flags.isAdministratif || flags.isDirection;
+  return flags.isAdministratif || flags.isCompta || flags.isDirection;
 }
 
 /** Scope effectif (certains enregistrements legacy n'ont pas data.scope). */

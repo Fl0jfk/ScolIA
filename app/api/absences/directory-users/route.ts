@@ -5,7 +5,7 @@ import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { canDeclareAbsenceOnBehalf } from "@/app/lib/absences-types";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
 
-/** Annuaire pour déclaration d’absence pour un collègue (rôle administratif). */
+/** Annuaire pour déclaration d’absence pour un collègue (administratif, compta, direction). */
 export async function GET() {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;

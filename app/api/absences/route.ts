@@ -196,7 +196,7 @@ export async function POST(req: Request) {
     if (onBehalfUserId) {
       if (!canDeclareAbsenceOnBehalf(roles)) {
         return NextResponse.json(
-          { error: "Seuls les administratifs peuvent déclarer une absence pour un collègue." },
+          { error: "Seuls l’administratif, la comptabilité et la direction peuvent déclarer une absence pour un collègue." },
           { status: 403 },
         );
       }

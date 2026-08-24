@@ -111,8 +111,11 @@ export default function AbsencesPageClient({
 
   useEffect(() => {
     if (!isLoaded) return;
-    if ((activeTab === "calendrier" || activeTab === "autre-personne") && !showCalendar && !canOnBehalf) {
+    if (activeTab === "calendrier" && !showCalendar) {
       router.replace(absencesHref("se-declarer"));
+    }
+    if (activeTab === "autre-personne" && !canOnBehalf) {
+      router.replace(absencesHref(showCalendar ? "calendrier" : "se-declarer"));
     }
     if (rawTab === "declarer" || rawTab === "mes-demandes") {
       router.replace(absencesHref("se-declarer"));
@@ -414,7 +417,7 @@ export default function AbsencesPageClient({
     {
       id: "autre-personne",
       label: "Pour un collègue",
-      show: showCalendar || canOnBehalf,
+      show: canOnBehalf,
     },
     { id: "se-declarer", label: "Se déclarer", show: true },
     { id: "a-traiter", label: "À traiter", show: canTreat },
@@ -450,16 +453,14 @@ export default function AbsencesPageClient({
         </div>
       ) : null}
 
-      {activeTab === "autre-personne" && (showCalendar || canOnBehalf) ? (
+      {activeTab === "autre-personne" && canOnBehalf ? (
         <div className="space-y-8">
-          {canOnBehalf ? (
-            <AbsencesDeclareOnBehalf
-              onSuccess={() => {
-                setCalendarRefresh((n) => n + 1);
-                void fetchItems();
-              }}
-            />
-          ) : null}
+          <AbsencesDeclareOnBehalf
+            onSuccess={() => {
+              setCalendarRefresh((n) => n + 1);
+              void fetchItems();
+            }}
+          />
           {showCalendar ? (
             <details className="group rounded-3xl border border-slate-200 bg-white open:shadow-sm">
               <summary className="cursor-pointer list-none px-6 py-4 font-bold text-slate-800 marker:content-none [&::-webkit-details-marker]:hidden">
