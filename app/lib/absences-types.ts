@@ -5,6 +5,7 @@ import {
   directionRolesMatchEstablishmentRef,
   isAnyDirectionRole,
 } from "@/app/lib/establishment-catalog";
+import { parseParisDateTime, parisDateKey } from "@/app/lib/paris-time";
 
 export type AbsenceScope = "professeur" | "ogec";
 export type Etablissement = string;
@@ -304,20 +305,13 @@ export function isAbsencePendingForManager(
   return canManageAbsence(abs, roles, { ...ctx, userId: viewerUserId });
 }
 
+/**
+ * Heure murale établissement (Europe/Paris) → Date UTC.
+ * Ne pas utiliser `new Date(y, m, d, h, …)` : sur un serveur UTC ça stocke
+ * l’heure saisie comme si elle était déjà en UTC (+2 h à l’affichage Paris en été).
+ */
 export function parseLocalDateTime(dateStr: string, timeStr: string): Date | null {
-  const ds = String(dateStr || "").trim();
-  const ts = String(timeStr || "").trim();
-  if (!ds || !ts) return null;
-  const timeNorm = ts.length === 5 ? `${ts}:00` : ts;
-  const [y, mo, d] = ds.split("-").map((v) => Number(v));
-  const tp = timeNorm.split(":");
-  const h = Number(tp[0]);
-  const mi = Number(tp[1] ?? 0);
-  const sec = Number(tp[2] ?? 0);
-  if (![y, mo, d, h, mi, sec].every((n) => Number.isFinite(n))) return null;
-  const dt = new Date(y, mo - 1, d, h, mi, sec, 0);
-  if (Number.isNaN(dt.getTime())) return null;
-  return dt;
+  return parseParisDateTime(dateStr, timeStr);
 }
 
 export function computeStartEndAt(input: {
@@ -328,16 +322,14 @@ export function computeStartEndAt(input: {
   endTime?: string | null;
 }): { startAt: string; endAt: string } {
   if (input.periodType === "single_day" && input.startTime && input.endTime) {
-    const start = parseLocalDateTime(input.startDate, input.startTime);
-    const end = parseLocalDateTime(input.endDate, input.endTime);
+    const start = parseParisDateTime(input.startDate, input.startTime);
+    const end = parseParisDateTime(input.endDate, input.endTime);
     if (start && end) return { startAt: start.toISOString(), endAt: end.toISOString() };
   }
-  const start = parseLocalDateTime(input.startDate, "08:00");
-  const end = parseLocalDateTime(input.endDate, "18:00");
-  const fallbackStart = new Date(`${input.startDate}T08:00:00`);
-  const fallbackEnd = new Date(`${input.endDate}T18:00:00`);
-  const startAt = start ?? (Number.isNaN(fallbackStart.getTime()) ? new Date() : fallbackStart);
-  const endAt = end ?? (Number.isNaN(fallbackEnd.getTime()) ? startAt : fallbackEnd);
+  const start = parseParisDateTime(input.startDate, "08:00");
+  const end = parseParisDateTime(input.endDate, "18:00");
+  const startAt = start ?? new Date();
+  const endAt = end ?? startAt;
   return {
     startAt: startAt.toISOString(),
     endAt: endAt.toISOString(),
@@ -448,9 +440,9 @@ export function buildAdminAbsenceRecord(params: {
     data: {
       scope,
       etablissement: scope === "ogec" ? null : params.etablissement,
-      periodType: params.startAt.slice(0, 10) === params.endAt.slice(0, 10) ? "single_day" : "multi_day",
-      startDate: params.startAt.slice(0, 10),
-      endDate: params.endAt.slice(0, 10),
+      periodType: parisDateKey(params.startAt) === parisDateKey(params.endAt) ? "single_day" : "multi_day",
+      startDate: parisDateKey(params.startAt),
+      endDate: parisDateKey(params.endAt),
       startTime: null,
       endTime: null,
       startAt: params.startAt,

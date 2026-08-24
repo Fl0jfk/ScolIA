@@ -1,6 +1,13 @@
 import { getPublicAbsenceReason } from "@/app/lib/absences-privacy";
 import { normalizeAbsencePersonName } from "@/app/lib/absences-shared-utils";
 import { resolveAbsenceScope, type AbsenceRecord } from "@/app/lib/absences-types";
+import {
+  formatParisTimeLabel,
+  formatWallTimeLabel,
+  listParisDateKeysFromTo,
+  parisDateKey,
+  parisWallTimeToDate,
+} from "@/app/lib/paris-time";
 
 export type CalendarEvent = {
   key: string;
@@ -8,25 +15,16 @@ export type CalendarEvent = {
   displayName: string;
   scope: "professeur" | "ogec";
   reason: string;
+  /** Instant ISO (UTC). */
   startAt: string;
   endAt: string;
+  /** Jour calendaire Europe/Paris `YYYY-MM-DD` (placement dans la grille). */
+  dayKey: string;
   hasDocument: boolean;
   documentCount: number;
   displayTime: string;
   isOgec: boolean;
 };
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-
-function formatTimeFR(date: Date) {
-  return `${pad2(date.getHours())}h${pad2(date.getMinutes())}`;
-}
-
-function sameDay(date: Date, y: number, m: number, d: number) {
-  return date.getFullYear() === y && date.getMonth() === m && date.getDate() === d;
-}
 
 export function sortCalendarEvents(events: CalendarEvent[]) {
   return [...events].sort((a, b) => {
@@ -40,7 +38,7 @@ export function dedupeCalendarEventsForDisplay(events: CalendarEvent[]): Calenda
   const map = new Map<string, CalendarEvent>();
 
   for (const event of events) {
-    const dayKey = event.startAt.slice(0, 10);
+    const dayKey = event.dayKey || parisDateKey(event.startAt);
     const personKey = normalizeAbsencePersonName(event.displayName);
     const key = `${personKey}|${dayKey}|${event.scope}`;
     const existing = map.get(key);
@@ -83,33 +81,49 @@ export function absencesToCalendarEvents(
     const scope = resolveAbsenceScope(item);
     const isOgec = scope === "ogec";
 
-    const day = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-    const last = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-    for (let cursor = new Date(day); cursor <= last; cursor.setDate(cursor.getDate() + 1)) {
-      const y = cursor.getFullYear();
-      const m = cursor.getMonth();
-      const d = cursor.getDate();
-      const isFirstDay = sameDay(cursor, start.getFullYear(), start.getMonth(), start.getDate());
-      const isLastDay = sameDay(cursor, end.getFullYear(), end.getMonth(), end.getDate());
-      const startAt = isFirstDay ? start.toISOString() : new Date(y, m, d, 0, 0, 0, 0).toISOString();
-      const endAt = isLastDay ? end.toISOString() : new Date(y, m, d, 23, 59, 0, 0).toISOString();
+    const wallStart = String(item.data.startTime || "").trim().slice(0, 5);
+    const wallEnd = String(item.data.endTime || "").trim().slice(0, 5);
+    const hasWallTimes = /^\d{2}:\d{2}$/.test(wallStart) && /^\d{2}:\d{2}$/.test(wallEnd);
+
+    const dayKeys = listParisDateKeysFromTo(item.data.startAt, item.data.endAt);
+    for (let i = 0; i < dayKeys.length; i += 1) {
+      const dayKey = dayKeys[i];
+      const isFirstDay = i === 0;
+      const isLastDay = i === dayKeys.length - 1;
+
+      const dayStart =
+        isFirstDay
+          ? start
+          : parisWallTimeToDate(dayKey, 0, 0, 0, 0) ?? start;
+      const dayEnd =
+        isLastDay
+          ? end
+          : parisWallTimeToDate(dayKey, 23, 59, 0, 0) ?? end;
+
       const displayTime =
-        isFirstDay && isLastDay
-          ? `${formatTimeFR(start)} - ${formatTimeFR(end)}`
-          : isFirstDay
-            ? `à partir de ${formatTimeFR(start)}`
-            : isLastDay
-              ? `jusqu'à ${formatTimeFR(end)}`
-              : "journée";
+        isFirstDay && isLastDay && hasWallTimes
+          ? `${formatWallTimeLabel(wallStart)} - ${formatWallTimeLabel(wallEnd)}`
+          : isFirstDay && isLastDay
+            ? `${formatParisTimeLabel(start)} - ${formatParisTimeLabel(end)}`
+            : isFirstDay
+              ? hasWallTimes
+                ? `à partir de ${formatWallTimeLabel(wallStart)}`
+                : `à partir de ${formatParisTimeLabel(start)}`
+              : isLastDay
+                ? hasWallTimes
+                  ? `jusqu'à ${formatWallTimeLabel(wallEnd)}`
+                  : `jusqu'à ${formatParisTimeLabel(end)}`
+                : "journée";
 
       out.push({
-        key: `${item.id}_${y}-${pad2(m + 1)}-${pad2(d)}`,
+        key: `${item.id}_${dayKey}`,
         id: item.id,
         displayName: item.displayName,
         scope,
         reason: getPublicAbsenceReason(item),
-        startAt,
-        endAt,
+        startAt: dayStart.toISOString(),
+        endAt: dayEnd.toISOString(),
+        dayKey,
         hasDocument: documentCount > 0,
         documentCount,
         displayTime,

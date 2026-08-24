@@ -19,6 +19,7 @@ import {
 import { useAppContext } from "@/app/hooks/useAppContext";
 import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
 import { PaperclipIcon, PrinterIcon, printDaySummary } from "@/app/components/absences/AbsencesCalendarPrint";
+import { formatParisHm, parisDateKey } from "@/app/lib/paris-time";
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
@@ -44,9 +45,16 @@ function pad2(n: number) {
 }
 
 function isoToTime(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  if (!iso) return "";
+  try {
+    return formatParisHm(iso);
+  } catch {
+    return "";
+  }
+}
+
+function dayKeyFromYmd(year: number, monthIndex: number, day: number) {
+  return `${year}-${pad2(monthIndex + 1)}-${pad2(day)}`;
 }
 
 function recordToEditForm(record: AbsenceRecord) {
@@ -283,11 +291,9 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
 
     for (let day = 1; day <= daysInMonth; day += 1) {
       const date = new Date(year, month, day);
+      const cellDayKey = dayKeyFromYmd(year, month, day);
       const dayEvents = dedupeCalendarEventsForDisplay(
-        events.filter((event) => {
-          const eventDate = new Date(event.startAt);
-          return sameDay(eventDate, year, month, day);
-        }),
+        events.filter((event) => (event.dayKey || parisDateKey(event.startAt)) === cellDayKey),
       );
       cells.push({ key: `d-${day}`, date, events: dayEvents });
     }
@@ -305,10 +311,7 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
     const day = now.getDate();
     const date = new Date(year, month, day);
     const dayEvents = dedupeCalendarEventsForDisplay(
-      events.filter((event) => {
-        const eventDate = new Date(event.startAt);
-        return sameDay(eventDate, year, month, day);
-      }),
+      events.filter((event) => (event.dayKey || parisDateKey(event.startAt)) === dayKeyFromYmd(year, month, day)),
     );
     return { key: "mobile-today", date, events: dayEvents };
   }, [events]);
@@ -317,10 +320,10 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
     years.add(new Date().getFullYear());
     years.add(selectedYear);
     for (const item of items) {
-      const y1 = new Date(item.data.startAt).getFullYear();
-      const y2 = new Date(item.data.endAt).getFullYear();
-      if (!Number.isNaN(y1)) years.add(y1);
-      if (!Number.isNaN(y2)) years.add(y2);
+      const y1 = Number(parisDateKey(item.data.startAt).slice(0, 4));
+      const y2 = Number(parisDateKey(item.data.endAt).slice(0, 4));
+      if (Number.isFinite(y1)) years.add(y1);
+      if (Number.isFinite(y2)) years.add(y2);
     }
     const list = [...years].sort((a, b) => a - b);
     const min = list[0] ?? selectedYear;

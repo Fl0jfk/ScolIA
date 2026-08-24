@@ -68,7 +68,6 @@ const PILLAR_TAB_TO_MODULE: Record<DashboardPillarId, Record<string, string>> = 
   compta_rh: {
     rh: "rh",
     planning: "mon-planning",
-    cloud: "documents",
   },
   sante: {
     sante: "sante",

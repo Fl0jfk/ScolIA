@@ -14,6 +14,11 @@ import {
   type Etablissement,
 } from "@/app/lib/absences-types";
 import { getAbsenceIndex, purgeExpiredAbsences, saveAbsenceIndex, saveOrMergeAbsenceRecord } from "@/app/lib/absences-storage";
+import {
+  listParisDateKeysFromTo,
+  parisDateKey,
+  parisWallTimeToDate,
+} from "@/app/lib/paris-time";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getTenantBucketName, requireMistralApiKey } from "@/app/lib/tenant-config";
 
@@ -204,45 +209,6 @@ function dedupeSlots(slots: ParsedSlot[]) {
   return out.sort((a, b) => +new Date(a.startAt) - +new Date(b.startAt));
 }
 
-const PARIS_TZ = "Europe/Paris";
-
-function parisDateKey(iso: string): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: PARIS_TZ }).format(new Date(iso));
-}
-
-function addCalendarDay(dateKey: string): string {
-  const [y, m, d] = dateKey.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
-}
-
-/** Heure murale à Paris → instant UTC (gère +01 / +02). */
-function parisWallTimeToUtc(
-  dateKey: string,
-  hour: number,
-  minute: number,
-  second: number,
-  ms: number,
-): number {
-  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
-  for (const offset of ["+02:00", "+01:00"]) {
-    const iso = `${dateKey}T${pad(hour)}:${pad(minute)}:${pad(second)}.${pad(ms, 3)}${offset}`;
-    if (parisDateKey(iso) === dateKey) return +new Date(iso);
-  }
-  return +new Date(`${dateKey}T${pad(hour)}:${pad(minute)}:${pad(second)}+02:00`);
-}
-
-function listParisDateKeysFromTo(startIso: string, endIso: string): string[] {
-  const keys: string[] = [];
-  let k = parisDateKey(startIso);
-  const last = parisDateKey(endIso);
-  while (true) {
-    keys.push(k);
-    if (k === last) break;
-    k = addCalendarDay(k);
-  }
-  return keys;
-}
-
 /** Découpe un créneau multi-jours en segments par jour (heures réelles chaque jour). */
 function expandSlotToDaySegments(slot: ParsedSlot): ParsedSlot[] {
   const startMs = +new Date(slot.startAt);
@@ -251,10 +217,11 @@ function expandSlotToDaySegments(slot: ParsedSlot): ParsedSlot[] {
 
   const out: ParsedSlot[] = [];
   for (const dayKey of listParisDateKeysFromTo(slot.startAt, slot.endAt)) {
-    const dayStart = parisWallTimeToUtc(dayKey, 0, 0, 0, 0);
-    const dayEnd = parisWallTimeToUtc(dayKey, 23, 59, 59, 999);
-    const segStart = Math.max(startMs, dayStart);
-    const segEnd = Math.min(endMs, dayEnd);
+    const dayStartDate = parisWallTimeToDate(dayKey, 0, 0, 0, 0);
+    const dayEndDate = parisWallTimeToDate(dayKey, 23, 59, 59, 999);
+    if (!dayStartDate || !dayEndDate) continue;
+    const segStart = Math.max(startMs, +dayStartDate);
+    const segEnd = Math.min(endMs, +dayEndDate);
     if (segEnd > segStart) {
       out.push({
         startAt: new Date(segStart).toISOString(),

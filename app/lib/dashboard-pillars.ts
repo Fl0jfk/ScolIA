@@ -93,7 +93,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     href: "/compta-rh",
     description: "RH, paie, facturation, absences pro",
     allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin", "maintenance"],
-    moduleIds: ["rh", "mon-planning", "documents", "conformite-rgpd"],
+    moduleIds: ["rh", "mon-planning", "conformite-rgpd"],
   },
   {
     id: "sante",

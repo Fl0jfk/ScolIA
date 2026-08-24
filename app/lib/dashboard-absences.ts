@@ -34,7 +34,7 @@ function formatDayLabel(dayKey: string): string {
 }
 
 function eventOnDayKey(event: CalendarEvent, dayKey: string): boolean {
-  return event.startAt.slice(0, 10) === dayKey;
+  return (event.dayKey || event.startAt.slice(0, 10)) === dayKey;
 }
 
 function calendarEventToTodayRow(event: CalendarEvent): AbsenceTodayRow {
