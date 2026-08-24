@@ -25,6 +25,13 @@ export type AbsenceRecord = {
     email: string;
     roles: string[];
   };
+  /** Si renseigné : la demande a été saisie par un administratif pour le compte de createdBy. */
+  submittedBy?: {
+    userId: string;
+    name: string;
+    email: string;
+    roles: string[];
+  } | null;
   data: {
     scope: AbsenceScope;
     etablissement: Etablissement | null;
@@ -154,6 +161,12 @@ export function canViewCalendar(roles: string[]) {
 
 export function canAdminIngest(roles: string[]) {
   return canViewCalendar(roles);
+}
+
+/** Administratif (et direction) : saisir une demande d’absence pour un collègue, même circuit de validation. */
+export function canDeclareAbsenceOnBehalf(roles: string[]) {
+  const flags = getRoleFlags(roles);
+  return flags.isAdministratif || flags.isDirection;
 }
 
 /** Scope effectif (certains enregistrements legacy n'ont pas data.scope). */

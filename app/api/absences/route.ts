@@ -21,6 +21,7 @@ import {
   validateHoursTreatmentForAbsence,
 } from "@/app/lib/absence-hours-treatment";
 import {
+  canDeclareAbsenceOnBehalf,
   canManageAbsence,
   canViewAbsence,
   canViewCalendar,
@@ -33,6 +34,7 @@ import {
   type AbsenceScope,
   type Etablissement,
 } from "@/app/lib/absences-types";
+import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import { getAbsenceDocumentKeys, isDocumentKeyReferenced } from "@/app/lib/absences-documents";
 import {
@@ -177,7 +179,56 @@ export async function POST(req: Request) {
     const body = await req.json();
     const payload = body?.data || {};
 
-    const scope: AbsenceScope = resolveSelfDeclarationScope(roles, payload.scope);
+    const now = new Date().toISOString();
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const actorName = user?.fullName || user?.firstName || "Utilisateur";
+    const actorEmail = user?.primaryEmailAddress?.emailAddress || "";
+
+    const onBehalfRaw = body?.onBehalfOf && typeof body.onBehalfOf === "object" ? body.onBehalfOf : null;
+    const onBehalfUserId = onBehalfRaw ? String(onBehalfRaw.userId || "").trim() : "";
+
+    let subjectUserId = userId;
+    let subjectName = actorName;
+    let subjectEmail = actorEmail;
+    let subjectRoles = roles;
+    let submittedBy: AbsenceRecord["submittedBy"] = null;
+
+    if (onBehalfUserId) {
+      if (!canDeclareAbsenceOnBehalf(roles)) {
+        return NextResponse.json(
+          { error: "Seuls les administratifs peuvent déclarer une absence pour un collègue." },
+          { status: 403 },
+        );
+      }
+      if (onBehalfUserId === userId) {
+        return NextResponse.json(
+          { error: "Pour vous-même, utilisez « Se déclarer »." },
+          { status: 400 },
+        );
+      }
+      const members = await listDirectoryMembers();
+      const subject = members.find((m) => m.externalUserId === onBehalfUserId && !m.pending);
+      if (!subject) {
+        return NextResponse.json({ error: "Collègue introuvable dans l’annuaire." }, { status: 404 });
+      }
+      subjectUserId = subject.externalUserId;
+      subjectName =
+        subject.displayName?.trim() ||
+        `${subject.firstName ?? ""} ${subject.lastName ?? ""}`.trim() ||
+        subject.email;
+      subjectEmail = subject.email || "";
+      subjectRoles = Array.isArray(subject.roles) ? subject.roles : [];
+      submittedBy = {
+        userId,
+        name: actorName,
+        email: actorEmail,
+        roles,
+      };
+    }
+
+    const scope: AbsenceScope = onBehalfUserId
+      ? resolveSelfDeclarationScope(subjectRoles, payload.scope)
+      : resolveSelfDeclarationScope(roles, payload.scope);
     const etablissement: Etablissement | null =
       scope === "ogec" ? null : (payload.etablissement as Etablissement | null) || null;
     const periodResult = normalizeAbsencePeriodInput({
@@ -202,10 +253,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Établissement requis pour une absence professeur." }, { status: 400 });
     }
 
-    const now = new Date().toISOString();
-    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const creatorName = user?.fullName || user?.firstName || "Utilisateur";
-    const creatorEmail = user?.primaryEmailAddress?.emailAddress || "";
     const { startAt, endAt } = computeStartEndAt({
       periodType: period.periodType,
       startDate: period.startDate,
@@ -219,14 +266,15 @@ export async function POST(req: Request) {
       createdAt: now,
       updatedAt: now,
       source: "self",
-      displayName: creatorName,
+      displayName: subjectName,
       calendarVisible: false,
       createdBy: {
-        userId,
-        name: creatorName,
-        email: creatorEmail,
-        roles,
+        userId: subjectUserId,
+        name: subjectName,
+        email: subjectEmail,
+        roles: subjectRoles,
       },
+      ...(submittedBy ? { submittedBy } : {}),
       data: {
         scope,
         etablissement: scope === "ogec" ? null : etablissement,
@@ -250,21 +298,23 @@ export async function POST(req: Request) {
               fileName: String(justificationPayload.fileName),
               fileUrl: String(justificationPayload.fileUrl),
               uploadedAt: now,
-              uploadedBy: creatorName,
+              uploadedBy: actorName,
             }
           : null,
       history: [
         {
           at: now,
-          by: creatorName,
+          by: actorName,
           action: "CREATION",
-          note: "Déclaration d'absence créée",
+          note: submittedBy
+            ? `Demande créée par ${actorName} pour le compte de ${subjectName}`
+            : "Déclaration d'absence créée",
         },
         ...(justificationPayload?.fileName && justificationPayload?.fileUrl
           ? [
               {
                 at: now,
-                by: creatorName,
+                by: actorName,
                 action: "JUSTIFICATIF_DEPOSE",
                 note: "Justificatif ajouté à la création",
               },
@@ -277,7 +327,7 @@ export async function POST(req: Request) {
     const { index: nextIndex, record: saved, merged } = await saveOrMergeAbsenceRecord(
       index,
       record,
-      creatorName,
+      actorName,
     );
     await saveAbsenceIndex(nextIndex);
 
@@ -302,7 +352,10 @@ export async function POST(req: Request) {
           ``,
           `Type : ${scope === "ogec" ? "Personnel OGEC" : "Professeur"}`,
           `Établissement : ${scope === "ogec" ? "OGEC" : etablissement || "—"}`,
-          `Créateur : ${creatorName} (${creatorEmail || "email non renseigné"})`,
+          `Personne concernée : ${subjectName} (${subjectEmail || "email non renseigné"})`,
+          submittedBy
+            ? `Saisie par (administratif) : ${submittedBy.name} (${submittedBy.email || "email non renseigné"})`
+            : `Créateur : ${subjectName} (${subjectEmail || "email non renseigné"})`,
           `Période : ${formatAbsencePeriod(saved.data)}`,
           `Motif : ${reason}`,
           details ? `Détails : ${details}` : "",
@@ -362,13 +415,14 @@ export async function PATCH(req: Request) {
 
     const actor = user?.fullName || user?.firstName || "Direction";
     const isOwner = current.createdBy.userId === userId;
+    const isSubmitter = current.submittedBy?.userId === userId;
     const bundle = await loadAppConfig();
     const canManage = canManageAbsence(current, roles, {
       establishments: bundle.establishments,
       userId,
     });
 
-    if (action === "DEPOSER_JUSTIFICATIF" && !isOwner && !canManage) {
+    if (action === "DEPOSER_JUSTIFICATIF" && !isOwner && !isSubmitter && !canManage) {
       return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
     }
     if (

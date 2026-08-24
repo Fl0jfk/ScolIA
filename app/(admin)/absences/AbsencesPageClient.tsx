@@ -15,6 +15,7 @@ import { useAppContext } from "@/app/hooks/useAppContext";
 import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import {
   canChooseDeclarationScope,
+  canDeclareAbsenceOnBehalf,
   canManageAbsence,
   canManageAbsenceAttachment,
   canViewAbsenceAttachment,
@@ -47,6 +48,11 @@ import {
 
 const AbsencesDeclareOther = dynamic(
   () => import("@/app/components/absences/AbsencesDeclareOther"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
+
+const AbsencesDeclareOnBehalf = dynamic(
+  () => import("@/app/components/absences/AbsencesDeclareOnBehalf"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
 
@@ -86,6 +92,7 @@ export default function AbsencesPageClient({
   const searchParams = useSearchParams();
   const showCalendar = canViewCalendar(roles);
   const canTreat = isAnyDirectionRole(roles);
+  const canOnBehalf = canDeclareAbsenceOnBehalf(roles);
 
   const asRecord = (item: AbsenceItem) => item as unknown as AbsenceRecord;
 
@@ -104,7 +111,7 @@ export default function AbsencesPageClient({
 
   useEffect(() => {
     if (!isLoaded) return;
-    if ((activeTab === "calendrier" || activeTab === "autre-personne") && !showCalendar) {
+    if ((activeTab === "calendrier" || activeTab === "autre-personne") && !showCalendar && !canOnBehalf) {
       router.replace(absencesHref("se-declarer"));
     }
     if (rawTab === "declarer" || rawTab === "mes-demandes") {
@@ -112,7 +119,7 @@ export default function AbsencesPageClient({
     }
     // absencesHref is stable for a given embeddedInRh
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, rawTab, showCalendar, isLoaded, router, embeddedInRh]);
+  }, [activeTab, rawTab, showCalendar, canOnBehalf, isLoaded, router, embeddedInRh]);
   const fetchItems = async () => {
     try {
       setLoading(true);
@@ -404,7 +411,11 @@ export default function AbsencesPageClient({
   const pendingSelfCount = selfItems.filter(isPendingAbsence).length;
   const tabs = [
     { id: "calendrier", label: "Calendrier", show: showCalendar },
-    { id: "autre-personne", label: "Déclarer pour une autre personne", show: showCalendar },
+    {
+      id: "autre-personne",
+      label: "Pour un collègue",
+      show: showCalendar || canOnBehalf,
+    },
     { id: "se-declarer", label: "Se déclarer", show: true },
     { id: "a-traiter", label: "À traiter", show: canTreat },
   ].filter((t) => t.show);
@@ -439,8 +450,30 @@ export default function AbsencesPageClient({
         </div>
       ) : null}
 
-      {activeTab === "autre-personne" && showCalendar ? (
-        <AbsencesDeclareOther onSuccess={() => setCalendarRefresh((n) => n + 1)} />
+      {activeTab === "autre-personne" && (showCalendar || canOnBehalf) ? (
+        <div className="space-y-8">
+          {canOnBehalf ? (
+            <AbsencesDeclareOnBehalf
+              onSuccess={() => {
+                setCalendarRefresh((n) => n + 1);
+                void fetchItems();
+              }}
+            />
+          ) : null}
+          {showCalendar ? (
+            <details className="group rounded-3xl border border-slate-200 bg-white open:shadow-sm">
+              <summary className="cursor-pointer list-none px-6 py-4 font-bold text-slate-800 marker:content-none [&::-webkit-details-marker]:hidden">
+                Saisie calendrier / PDF (sans validation direction)
+                <span className="ml-2 text-xs font-semibold text-slate-500">
+                  — convocations, import OCR
+                </span>
+              </summary>
+              <div className="border-t border-slate-100 px-6 pb-6 pt-2">
+                <AbsencesDeclareOther onSuccess={() => setCalendarRefresh((n) => n + 1)} />
+              </div>
+            </details>
+          ) : null}
+        </div>
       ) : null}
 
       {activeTab === "se-declarer" ? (
