@@ -156,7 +156,7 @@ export async function POST(req: Request) {
       // Merge dans le référentiel global
       const existing = await loadElevesRegistry();
       const merged = mergeElevesLists(existing, parsed.eleves);
-      await saveElevesRegistry(merged);
+      await saveElevesRegistry(merged.eleves);
 
       const entries = elevesToInternatRosterEntries(parsed.eleves);
       if (!entries.length) {
@@ -206,7 +206,7 @@ export async function POST(req: Request) {
       withRegime.length > 0
         ? parsed.eleves
         : parsed.eleves.map((e) => ({ ...e, regime: e.regime || "Interne" }));
-    await saveElevesRegistry(mergeElevesLists(existing, toMerge));
+    await saveElevesRegistry(mergeElevesLists(existing, toMerge).eleves);
 
     const result = await persistAndApply(entries, access.userName);
     return NextResponse.json({
