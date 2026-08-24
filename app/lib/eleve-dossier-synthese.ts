@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getElevePhotoUrl } from "@/app/lib/eleve-photos";
 import { getInternatRooms, getInternatStudents } from "@/app/lib/internat-storage";
 import type { InternatStudent } from "@/app/lib/internat-types";
 import {
@@ -8,6 +9,7 @@ import {
   resolveSiteLabel,
   type EleveDossierClassCatalog,
 } from "@/app/lib/eleve-dossier-catalog";
+import { buildEleveFolderName } from "@/app/lib/eleves-config";
 
 export type EleveRegimeRestauration = "externe" | "demi_pension" | "interne";
 
@@ -215,12 +217,26 @@ export async function buildEleveSyntheseSnapshot(params: {
     ? classOptionLabel(params.eleve.classe, siteLabel)
     : null;
 
+  let photoUrl: string | null = null;
+  try {
+    photoUrl = await getElevePhotoUrl({
+      ine: params.eleve.ine ?? "",
+      nom: params.eleve.nom,
+      prenom: params.eleve.prenom,
+      folderName:
+        params.eleve.folderName?.trim() ||
+        buildEleveFolderName(params.eleve.nom, params.eleve.prenom),
+    });
+  } catch {
+    photoUrl = null;
+  }
+
   return {
     statusLabel: eleveStatusLabel(params.eleve.status),
     classeLabel,
     siteLabel,
     initials: eleveInitials(params.eleve.prenom, params.eleve.nom),
-    photoUrl: null,
+    photoUrl,
     restauration,
     internat: {
       actif: interne,

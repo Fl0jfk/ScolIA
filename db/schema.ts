@@ -180,6 +180,33 @@ export const userRole = pgTable(
   ],
 );
 
+/**
+ * Rattachement compte ↔ établissement (1 login, N contextes).
+ * Source de vérité pour savoir où une personne peut se connecter — pas un cookie.
+ */
+export const userMembership = pgTable(
+  "user_membership",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    /** staff | parent | eleve */
+    context: text("context").notNull().default("staff"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("user_membership_user_etablissement_uidx").on(t.userId, t.etablissementId),
+    index("user_membership_user_idx").on(t.userId),
+    index("user_membership_etablissement_idx").on(t.etablissementId),
+  ],
+);
+
 /** Correspondance id métier historique → user interne. */
 export const authUserMapping = pgTable(
   "auth_user_mapping",
@@ -728,6 +755,7 @@ export const authSchema = {
 export const appSchema = {
   etablissement,
   userRole,
+  userMembership,
   authUserMapping,
   anneeScolaire,
   etablissementSite,

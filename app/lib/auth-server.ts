@@ -9,6 +9,7 @@ import { getDb } from "@/db/index";
 import { authSchema } from "@/db/schema";
 import { betterAuthBaseUrl, isBetterAuthConfigured } from "@/app/lib/auth-config";
 import { ensureEtablissementFromSlug } from "@/app/lib/etablissement-db";
+import { ensureUserMembership } from "@/app/lib/user-membership";
 import {
   PASSWORD_MIN_LENGTH,
   validatePasswordPolicy,
@@ -217,6 +218,21 @@ function createAuth() {
                   payload.email,
               },
             };
+          },
+          after: async (created) => {
+            const etabId =
+              typeof created.etablissementId === "string" ? created.etablissementId : null;
+            if (created.id && etabId) {
+              try {
+                await ensureUserMembership({
+                  userId: created.id,
+                  etablissementId: etabId,
+                  context: "staff",
+                });
+              } catch (e) {
+                console.error("[auth] ensureUserMembership after create", e);
+              }
+            }
           },
         },
       },

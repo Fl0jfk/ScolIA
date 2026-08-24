@@ -5,6 +5,8 @@ import { normalizeParentContact } from "@/app/lib/internat-outing";
 import type { InternatEtablissement, InternatStudent } from "@/app/lib/internat-types";
 import { internatEtablissementFromRaw, newId } from "@/app/lib/internat-types";
 import { loadAppConfig } from "@/app/lib/app-config";
+import { buildEleveFolderName, type EleveConfig } from "@/app/lib/eleves-config";
+import { isRegimeInterne } from "@/app/lib/eleve-regime";
 
 export const INTERNAT_ROSTER_KEY = "internat/roster.json";
 
@@ -216,4 +218,38 @@ export async function previewRosterEntry(entry: InternatRosterEntry) {
     mefResolved: mef && mefMap.has(mef),
     secteurHint: secteur,
   };
+}
+
+/** Convertit une liste (déjà filtrée ou Excel « internes ») en roster, sans re-filtrer le régime. */
+export function elevesAsInternatRosterEntries(eleves: EleveConfig[]): InternatRosterEntry[] {
+  const entries: InternatRosterEntry[] = [];
+  const keys = new Set<string>();
+
+  for (const e of eleves) {
+    const nom = e.nom.trim();
+    const prenom = e.prenom.trim();
+    if (!nom || !prenom) continue;
+    const folderName = e.folderName?.trim() || buildEleveFolderName(nom, prenom);
+    const entry: InternatRosterEntry = {
+      nom,
+      prenom,
+      folderName,
+      ine: e.ine?.trim() || undefined,
+      mef: e.mef || e.formation,
+      formation: e.formation,
+      secteur: e.secteur,
+      classe: e.classe,
+      sexe: e.sexe,
+    };
+    const key = rosterKey(entry);
+    if (keys.has(key)) continue;
+    keys.add(key);
+    entries.push(entry);
+  }
+  return entries;
+}
+
+/** Convertit des élèves du référentiel (filtrés internes) en entrées roster. */
+export function elevesToInternatRosterEntries(eleves: EleveConfig[]): InternatRosterEntry[] {
+  return elevesAsInternatRosterEntries(eleves.filter((e) => isRegimeInterne(e.regime)));
 }

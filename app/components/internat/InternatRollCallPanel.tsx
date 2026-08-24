@@ -19,6 +19,7 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
   const [period, setPeriod] = useState<"matin" | "soir">("soir");
   const [rollCall, setRollCall] = useState<InternatRollCall | null>(null);
   const [students, setStudents] = useState<InternatStudent[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [canValidate, setCanValidate] = useState(false);
   const [boysComplete, setBoysComplete] = useState(false);
   const [girlsComplete, setGirlsComplete] = useState(false);
@@ -35,6 +36,9 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
     if (!res.ok) throw new Error(data?.error || "Chargement impossible");
     setRollCall(data.rollCall);
     setStudents(data.students || []);
+    setPhotoUrls(
+      data.photoUrls && typeof data.photoUrls === "object" ? (data.photoUrls as Record<string, string>) : {},
+    );
     setCanValidate(!!data.canValidate);
     setBoysComplete(!!data.boysComplete);
     setGirlsComplete(!!data.girlsComplete);
@@ -233,6 +237,8 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
           {list.map((s) => {
             const mark = sectionData?.marks[s.id];
             const isSaving = savingStudentId === s.id;
+            const photo = photoUrls[s.id];
+            const initials = `${s.eleveRef.prenom?.[0] ?? ""}${s.eleveRef.nom?.[0] ?? ""}`.toUpperCase();
             return (
               <li
                 key={s.id}
@@ -240,12 +246,24 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                   isSaving ? "border-indigo-200 opacity-80" : "border-slate-200"
                 }`}
               >
-                <div>
-                  <p className="font-bold text-slate-900">{studentDisplayName(s)}</p>
-                  <p className="text-xs text-slate-500">
-                    {s.classe} · {s.etablissement}
-                    {!mark && !locked && <span className="text-slate-400"> · non marqué</span>}
-                  </p>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full bg-slate-100 border border-slate-200">
+                    {photo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={photo} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center text-xs font-bold text-slate-500">
+                        {initials || "?"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-bold text-slate-900 truncate">{studentDisplayName(s)}</p>
+                    <p className="text-xs text-slate-500">
+                      {s.classe} · {s.etablissement}
+                      {!mark && !locked && <span className="text-slate-400"> · non marqué</span>}
+                    </p>
+                  </div>
                 </div>
                 <div className="flex gap-1">
                   {MARKS.map((m) => (

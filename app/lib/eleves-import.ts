@@ -22,7 +22,9 @@ type FieldKey =
   | "parent1Phone"
   | "parent2Phone"
   | "folderName"
-  | "dateNaissance";
+  | "dateNaissance"
+  | "regime"
+  | "sexe";
 
 const COLUMN_ALIASES: Record<FieldKey, string[]> = {
   nom: [
@@ -128,6 +130,18 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "date of birth",
     "dob",
   ],
+  regime: [
+    "regime",
+    "régime",
+    "code regime",
+    "code régime",
+    "code_regime",
+    "regime scolaire",
+    "régime scolaire",
+    "interne",
+    "statut regime",
+  ],
+  sexe: ["sexe", "genre", "sex", "code sexe", "code_sexe"],
 };
 
 function normalizeHeader(value: unknown): string {
@@ -280,6 +294,9 @@ function mergeEleveFields(existing: EleveConfig, incoming: EleveConfig): EleveCo
   if (incoming.parent1Phone?.trim()) merged.parent1Phone = incoming.parent1Phone.trim();
   if (incoming.parent2Phone?.trim()) merged.parent2Phone = incoming.parent2Phone.trim();
   if (incoming.dateNaissance?.trim()) merged.dateNaissance = incoming.dateNaissance.trim();
+  if (incoming.regime?.trim()) merged.regime = incoming.regime.trim();
+  if (incoming.sexe) merged.sexe = incoming.sexe;
+  if (incoming.photoKey?.trim()) merged.photoKey = incoming.photoKey.trim();
 
   return merged;
 }
@@ -371,6 +388,20 @@ function parseRowsToEleves(
     if (p2Tel) entry.parent2Phone = p2Tel;
     const dateNaissance = normalizeEleveDateNaissance(cellStr(row, colMap.dateNaissance));
     if (dateNaissance) entry.dateNaissance = dateNaissance;
+    const regimeRaw = cellStr(row, colMap.regime);
+    if (regimeRaw) {
+      const n = normalizeHeader(regimeRaw);
+      if (n === "oui" || n === "o" || n === "yes" || n === "true" || n === "1" || n === "x") {
+        entry.regime = "Interne";
+      } else if (n === "non" || n === "no" || n === "false" || n === "0") {
+        entry.regime = "Externe";
+      } else {
+        entry.regime = regimeRaw;
+      }
+    }
+    const sexeRaw = cellStr(row, colMap.sexe).toUpperCase();
+    if (sexeRaw === "F" || sexeRaw === "2" || sexeRaw.startsWith("F")) entry.sexe = "F";
+    else if (sexeRaw === "M" || sexeRaw === "1" || sexeRaw.startsWith("M")) entry.sexe = "M";
 
     eleves.push(entry);
   }

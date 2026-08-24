@@ -50,6 +50,8 @@ export default function InternatStudentsPanel({
   const [rosterMeta, setRosterMeta] = useState<RosterMeta | null>(null);
   const [rosterMessage, setRosterMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const excelXmlInputRef = useRef<HTMLInputElement>(null);
+  const photosInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingParentsId, setEditingParentsId] = useState<string | null>(null);
@@ -149,6 +151,75 @@ export default function InternatStudentsPanel({
       alert(e instanceof Error ? e.message : "Erreur");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const syncFromEleves = async () => {
+    setBusy(true);
+    setRosterMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/internat/students/roster", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "syncFromEleves" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Sync impossible");
+      setRosterMessage(data.message);
+      await loadRoster();
+      await onRefresh();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadExcelOrSiecle = async (file: File) => {
+    setBusy(true);
+    setRosterMessage(null);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const isXml = file.name.toLowerCase().endsWith(".xml");
+      fd.set("action", isXml ? "importSiecle" : "importFile");
+      const res = await fetch("/api/internat/students/roster", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Import impossible");
+      setRosterMessage(data.message || "Import OK.");
+      await loadRoster();
+      await onRefresh();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+      if (excelXmlInputRef.current) excelXmlInputRef.current.value = "";
+    }
+  };
+
+  const uploadPhotos = async (list: FileList | null) => {
+    if (!list?.length) return;
+    setBusy(true);
+    setRosterMessage(null);
+    setError(null);
+    try {
+      const fd = new FormData();
+      Array.from(list).forEach((f, i) => fd.append("files", f, f.name || `photo-${i}.jpg`));
+      const res = await fetch("/api/eleves/photos/bulk", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Photos impossibles");
+      const extra =
+        Array.isArray(data.unmatched) && data.unmatched.length
+          ? ` Non reconnues : ${data.unmatched.slice(0, 5).join(", ")}${data.unmatched.length > 5 ? "…" : ""}`
+          : "";
+      setRosterMessage((data.message || "Photos OK.") + extra);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+      if (photosInputRef.current) photosInputRef.current.value = "";
     }
   };
 
@@ -276,14 +347,24 @@ export default function InternatStudentsPanel({
       {canManage && (
         <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-5 space-y-4 text-sm text-indigo-950">
           <div>
-            <p className="font-bold mb-1">Liste des internes (fichier dédié)</p>
+            <p className="font-bold mb-1">Internes pour l&apos;appel — import rapide</p>
             <p>
-              Chargez un JSON séparé de <code className="text-xs bg-white px-1 rounded">eleves.json</code> : uniquement
-              les élèves internes. Le collège / lycée est déduit du MEF (table Paramètres → MEF) ou du champ{" "}
-              <code className="text-xs bg-white px-1 rounded">etablissement</code>.
+              Importez les internes depuis un <strong>Excel</strong> (colonnes Nom, Prénom, éventuellement INE,
+              Classe, Régime) ou le XML Siècle <code className="text-xs bg-white px-1 rounded">ElevesSansAdresses.xml</code>
+              . Les élèves en régime interne (codes 2/3 ou libellé « Interne ») sont poussés dans l&apos;appel.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 items-center">
+            <input
+              ref={excelXmlInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv,.xml,application/xml,text/xml"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void uploadExcelOrSiecle(f);
+              }}
+            />
             <input
               ref={fileInputRef}
               type="file"
@@ -294,22 +375,54 @@ export default function InternatStudentsPanel({
                 if (f) void uploadRosterFile(f);
               }}
             />
+            <input
+              ref={photosInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png"
+              multiple
+              className="hidden"
+              onChange={(e) => void uploadPhotos(e.target.files)}
+            />
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => excelXmlInputRef.current?.click()}
+              className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-sm"
+            >
+              Excel ou XML Siècle
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void syncFromEleves()}
+              className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-sm"
+            >
+              Sync depuis référentiel élèves
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => photosInputRef.current?.click()}
+              className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm"
+            >
+              Photos NOM Prenom…
+            </button>
             <button
               type="button"
               disabled={busy}
               onClick={() => fileInputRef.current?.click()}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-sm"
+              className="border border-indigo-300 bg-white text-indigo-800 px-4 py-2 rounded-xl font-bold text-sm"
             >
-              Charger la liste JSON
+              JSON (avancé)
             </button>
             {rosterEntries.length > 0 && (
               <button
                 type="button"
                 disabled={busy}
                 onClick={applyRoster}
-                className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-sm"
+                className="bg-teal-600 text-white px-4 py-2 rounded-xl font-bold text-sm"
               >
-                Importer les {rosterEntries.length} internes
+                Ré-appliquer les {rosterEntries.length} internes
               </button>
             )}
             {rosterEntries.length > 0 && (
@@ -322,6 +435,11 @@ export default function InternatStudentsPanel({
               </button>
             )}
           </div>
+          {error && (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700" role="alert">
+              {error}
+            </p>
+          )}
           {rosterMeta?.updatedAt && (
             <p className="text-xs text-indigo-800/80">
               Liste enregistrée le {new Date(rosterMeta.updatedAt).toLocaleString("fr-FR")}
@@ -333,18 +451,15 @@ export default function InternatStudentsPanel({
           )}
           {rosterMessage && <p className="text-xs font-semibold text-emerald-800">{rosterMessage}</p>}
           <details className="text-xs">
-            <summary className="cursor-pointer font-bold">Format JSON attendu</summary>
-            <pre className="mt-2 p-3 bg-white rounded-lg overflow-x-auto text-[11px]">{`[
-  {
-    "nom": "Dupont",
-    "prenom": "Marie",
-    "ine": "123456789AB",
-    "classe": "3eA",
-    "mef": "32033421320",
-    "sexe": "F",
-    "parent1": { "email": "parent@exemple.fr" }
-  }
-]`}</pre>
+            <summary className="cursor-pointer font-bold">Formats acceptés</summary>
+            <ul className="mt-2 list-disc pl-5 space-y-1">
+              <li>
+                Excel : Nom, Prénom (+ INE, Classe, Régime ou colonne Interne = Oui). Sans colonne régime, tout le
+                fichier est traité comme liste d&apos;internes.
+              </li>
+              <li>XML Siècle : ElevesSansAdresses.xml — filtre CODE_REGIME 2/3 (interne).</li>
+              <li>Photos : fichiers <code className="bg-white px-1 rounded">NOM Prenom.jpg</code> (ou _ / -).</li>
+            </ul>
           </details>
         </div>
       )}

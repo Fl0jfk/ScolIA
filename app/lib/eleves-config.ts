@@ -82,6 +82,12 @@ export type EleveConfig = {
   /** Alias de mef si l'export nomme la colonne « formation ». */
   formation?: string;
   secteur?: string;
+  /** Régime Siècle / Charlemagne (CODE_REGIME, « Interne », « DP »…). */
+  regime?: string;
+  /** Sexe M/F (Siècle CODE_SEXE). */
+  sexe?: "M" | "F";
+  /** Clé S3 photo élève (eleves/photos/…). */
+  photoKey?: string;
 };
 
 export function validateElevesJson(
@@ -117,6 +123,11 @@ export function validateElevesJson(
     const parent1Phone = String(o.parent1Phone ?? "").trim();
     const parent2Phone = String(o.parent2Phone ?? "").trim();
     const dateNaissance = normalizeEleveDateNaissance(o.dateNaissance ?? o.date_naissance ?? "");
+    const regime = String(o.regime ?? o.codeRegime ?? o.code_regime ?? "").trim();
+    const sexeRaw = String(o.sexe ?? "").trim().toUpperCase();
+    const sexe: "M" | "F" | undefined =
+      sexeRaw === "F" || sexeRaw === "2" ? "F" : sexeRaw === "M" || sexeRaw === "1" ? "M" : undefined;
+    const photoKey = String(o.photoKey ?? "").trim();
     if (!nom || !prenom || !folderName) {
       return {
         ok: false,
@@ -146,6 +157,9 @@ export function validateElevesJson(
       ...(dateNaissance ? { dateNaissance } : {}),
       ...(mef ? { mef } : {}),
       ...(secteur ? { secteur } : {}),
+      ...(regime ? { regime } : {}),
+      ...(sexe ? { sexe } : {}),
+      ...(photoKey ? { photoKey } : {}),
     });
   }
   return { ok: true, eleves };

@@ -289,7 +289,7 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
     return authUnavailableResponse(request, tenant);
   }
 
-  const betterAuthState = await resolveBetterAuthProxyState(request);
+  const betterAuthState = await resolveBetterAuthProxyState(request, tenant);
   if (!betterAuthState) {
     return unauthorizedResponse(request, tenant, host);
   }
@@ -298,7 +298,8 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
   const isOrgAdmin = betterAuthState.orgAdmin || betterAuthState.platformAdmin;
 
   const tenantGate = await assertUserBelongsToTenant({
-    userEtablissementId: betterAuthState.etablissementId,
+    userId: betterAuthState.authUserId,
+    userEtablissementId: betterAuthState.homeEtablissementId,
     platformAdmin: betterAuthState.platformAdmin,
     tenant,
   });

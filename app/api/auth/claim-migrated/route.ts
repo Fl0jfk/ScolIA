@@ -7,6 +7,7 @@ import { isBetterAuthConfigured } from "@/app/lib/auth-config";
 import { validatePasswordPolicy } from "@/app/lib/password-policy";
 import { consumeRateLimit } from "@/app/lib/rate-limit";
 import { writeSecurityAudit } from "@/app/lib/security-audit";
+import { ensureUserMembership } from "@/app/lib/user-membership";
 
 type ClaimBody = {
   email?: string;
@@ -112,6 +113,12 @@ export async function POST(request: Request) {
       updatedAt: new Date(),
     })
     .where(eq(user.id, row.id));
+
+  await ensureUserMembership({
+    userId: row.id,
+    etablissementId: row.etablissementId,
+    context: "staff",
+  });
 
   await writeSecurityAudit({
     userId: row.id,

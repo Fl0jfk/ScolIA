@@ -5,14 +5,20 @@ import { and, eq } from "drizzle-orm";
 import { isBetterAuthActive } from "@/app/lib/auth-config";
 import { getBetterAuth } from "@/app/lib/auth-server";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
+import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
+import { isPlatformTenantSlug } from "@/app/lib/platform-tenant";
 import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
+import type { TenantConfig } from "@/app/lib/tenant-types";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { user } from "@/db/schema";
 
 export type BetterAuthProxyState = {
   userId: string;
   authUserId: string;
+  /** Établissement du hostname courant (rôles scopés). */
   etablissementId: string | null;
+  /** Établissement « maison » sur la ligne user (legacy / primaire). */
+  homeEtablissementId: string | null;
   roles: string[];
   publicMetadata: Record<string, unknown>;
   orgAdmin: boolean;
@@ -24,6 +30,7 @@ export type BetterAuthProxyState = {
 
 export async function resolveBetterAuthProxyState(
   request: NextRequest,
+  tenant?: TenantConfig,
 ): Promise<BetterAuthProxyState | null> {
   if (!isDatabaseConfigured()) return null;
   try {
@@ -41,11 +48,19 @@ export async function resolveBetterAuthProxyState(
 
     const db = getDb();
     const [row] = await db.select().from(user).where(eq(user.id, u.id)).limit(1);
-    const etablissementId = row?.etablissementId ?? u.etablissementId ?? null;
-    const roles = etablissementId ? await listUserRolesFromDb(u.id, etablissementId) : [];
-    const businessUserId = row?.externalUserId?.trim() || u.id;
+    const homeEtablissementId = row?.etablissementId ?? u.etablissementId ?? null;
     const orgAdmin = Boolean(row?.orgAdmin ?? u.orgAdmin);
     const platformAdmin = Boolean(row?.platformAdmin ?? u.platformAdmin);
+
+    let activeEtablissementId = homeEtablissementId;
+    if (tenant && !platformAdmin && !isPlatformTenantSlug(tenant.slug)) {
+      activeEtablissementId = await ensureEtablissementFromTenant(tenant);
+    }
+
+    const roles = activeEtablissementId
+      ? await listUserRolesFromDb(u.id, activeEtablissementId)
+      : [];
+    const businessUserId = row?.externalUserId?.trim() || u.id;
     const mustChangePassword = Boolean(row?.mustChangePassword ?? u.mustChangePassword);
     const twoFactorEnabled = Boolean(row?.twoFactorEnabled ?? u.twoFactorEnabled);
     const requiresTwoFactorSetup =
@@ -54,7 +69,8 @@ export async function resolveBetterAuthProxyState(
     return {
       userId: businessUserId,
       authUserId: u.id,
-      etablissementId,
+      etablissementId: activeEtablissementId,
+      homeEtablissementId,
       roles,
       publicMetadata: {
         role: roles,
@@ -99,6 +115,7 @@ export async function resolveBetterAuthProxyStateByUserId(
     userId: row.externalUserId?.trim() || row.id,
     authUserId: row.id,
     etablissementId: row.etablissementId,
+    homeEtablissementId: row.etablissementId,
     roles,
     publicMetadata: {
       role: roles,
@@ -128,6 +145,7 @@ export function isMustChangePasswordAllowedPath(pathname: string): boolean {
     "/api/auth",
     "/api/auth/me",
     "/api/auth/status",
+    "/api/auth/memberships",
   ];
   return allow.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
@@ -144,6 +162,7 @@ export function isTwoFactorSetupAllowedPath(pathname: string): boolean {
     "/api/auth",
     "/api/auth/me",
     "/api/auth/status",
+    "/api/auth/memberships",
   ];
   return allow.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }

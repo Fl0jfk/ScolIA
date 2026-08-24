@@ -6,6 +6,10 @@ import { etablissement } from "@/db/schema";
 import type { TenantConfig } from "@/app/lib/tenant-types";
 import { isPlatformTenantSlug } from "@/app/lib/platform-tenant";
 import { resolveTenantBySlug } from "@/app/lib/tenant-registry";
+import {
+  ensureUserMembership,
+  userHasActiveMembership,
+} from "@/app/lib/user-membership";
 
 export async function ensureEtablissementFromTenant(
   tenant: TenantConfig,
@@ -51,11 +55,13 @@ export async function ensureEtablissementFromSlug(slug: string): Promise<string>
 }
 
 /**
- * Un utilisateur d’établissement ne peut accéder qu’à son tenant.
+ * Un utilisateur ne peut accéder qu’aux établissements où il a un membership actif.
+ * Fallback legacy : `user.etablissement_id` (auto-guérit en créant le membership).
  * Master plateforme (`platformAdmin`) peut traverser les tenants.
  * Sur le hostname plateforme (scolia.fr), pas de cloisonnement métier.
  */
 export async function assertUserBelongsToTenant(opts: {
+  userId: string;
   userEtablissementId: string | null | undefined;
   platformAdmin: boolean;
   tenant: TenantConfig;
@@ -64,14 +70,26 @@ export async function assertUserBelongsToTenant(opts: {
   if (isPlatformTenantSlug(opts.tenant.slug)) return { ok: true };
 
   const tenantEtablissementId = await ensureEtablissementFromTenant(opts.tenant);
-  const userEtab = opts.userEtablissementId?.trim() || "";
-  if (!userEtab || userEtab !== tenantEtablissementId) {
-    return {
-      ok: false,
-      code: "TENANT_FORBIDDEN",
-      message:
-        "Ce compte n’appartient pas à cet établissement. Utilisez le sous-domaine de votre intranet.",
-    };
+  const userId = opts.userId.trim();
+  if (userId && (await userHasActiveMembership(userId, tenantEtablissementId))) {
+    return { ok: true };
   }
-  return { ok: true };
+
+  const userEtab = opts.userEtablissementId?.trim() || "";
+  if (userId && userEtab && userEtab === tenantEtablissementId) {
+    // Legacy : appartenance uniquement sur user.etablissement_id → matérialiser en membership
+    await ensureUserMembership({
+      userId,
+      etablissementId: tenantEtablissementId,
+      context: "staff",
+    });
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    code: "TENANT_FORBIDDEN",
+    message:
+      "Ce compte n’appartient pas à cet établissement. Connectez-vous depuis scolia.fr avec votre e-mail.",
+  };
 }
