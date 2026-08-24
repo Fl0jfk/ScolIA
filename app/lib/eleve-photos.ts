@@ -70,7 +70,8 @@ export async function resolvePhotoUrlsForInternatStudents(
       });
       if (!key) return;
       try {
-        out[s.id] = await getSignedReadUrl(key, 60 * 60);
+        const url = await getSignedReadUrl(key, 60 * 60);
+        if (url) out[s.id] = url;
       } catch {
         /* ignore missing object */
       }
