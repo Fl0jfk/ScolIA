@@ -1,4 +1,5 @@
 import { loadAppConfig } from "@/app/lib/app-config";
+import type { Establishment, EstablishmentKind } from "@/app/lib/app-config-schemas";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
@@ -7,12 +8,17 @@ import {
   outingDateTimeLabel,
   participantsForEtab,
 } from "@/app/lib/internat-outing";
-import type { InternatRollCallRecipients } from "@/app/lib/internat-types";
-import { studentDisplayName } from "@/app/lib/internat-types";
-import type { InternatOuting, InternatRollCall, InternatStudent } from "@/app/lib/internat-types";
-import { rollCallAbsentStudents, rollCallStudentsByMark } from "@/app/lib/internat-stats";
+import type {
+  InternatOuting,
+  InternatRollCall,
+  InternatRollCallRecipients,
+  InternatRollMark,
+  InternatStudent,
+} from "@/app/lib/internat-types";
 import { INTERNAT_ROLL_MARK_LABELS } from "@/app/lib/internat-types";
 import { internatEligibleEstablishments } from "@/app/lib/establishment-catalog";
+import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
+import { renderInternatRollCallPdfBuffer } from "@/app/lib/internat-roll-call-pdf";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 
 async function getInternatMailer() {
@@ -32,6 +38,50 @@ function parseRollCallRecipients(raw: InternatRollCallRecipients | undefined) {
   return [...emails];
 }
 
+function addEmail(set: Set<string>, raw: string | undefined | null) {
+  const e = String(raw || "").trim();
+  if (e) set.add(e);
+}
+
+function directorEmailsForKind(establishments: Establishment[], kind: EstablishmentKind): string[] {
+  return establishments
+    .filter((e) => inferEstablishmentKind(e) === kind)
+    .map((e) => e.directorEmail?.trim() || "")
+    .filter(Boolean);
+}
+
+function establishmentLabelForKind(establishments: Establishment[], kind: "college" | "lycee"): string {
+  const hit = establishments.find((e) => inferEstablishmentKind(e) === kind);
+  if (hit?.label) return hit.label;
+  return kind === "college" ? "Collège" : "Lycée";
+}
+
+function rollCallMarkForStudent(
+  rollCall: InternatRollCall,
+  student: InternatStudent,
+): InternatRollMark | undefined {
+  return student.sexe === "F" ? rollCall.girls.marks[student.id] : rollCall.boys.marks[student.id];
+}
+
+function recipientsForRollCallKind(params: {
+  kind: "college" | "lycee";
+  establishments: Establishment[];
+  notif?: InternatRollCallRecipients;
+}): string[] {
+  const set = new Set<string>();
+  for (const email of directorEmailsForKind(params.establishments, params.kind)) {
+    addEmail(set, email);
+  }
+  addEmail(set, params.notif?.appelContact);
+  if (params.kind === "college") {
+    addEmail(set, params.notif?.cpeCollege);
+  } else {
+    addEmail(set, params.notif?.directionLycee);
+    addEmail(set, params.notif?.cpeLycee);
+  }
+  return [...set];
+}
+
 export async function notifyInternatRollCallValidated(params: {
   rollCall: InternatRollCall;
   students: InternatStudent[];
@@ -40,7 +90,7 @@ export async function notifyInternatRollCallValidated(params: {
   const mail = await getInternatMailer();
   if (!mail) {
     console.warn("[internat-notify] SMTP non configuré.");
-    return { sent: false, reason: "smtp" };
+    return { sent: false, reason: "smtp" as const };
   }
   const { smtp, transporter } = mail;
 
@@ -48,41 +98,10 @@ export async function notifyInternatRollCallValidated(params: {
   const notif = bundle.notifications as typeof bundle.notifications & {
     internatRollCallRecipients?: InternatRollCallRecipients;
   };
-  const recipients = parseRollCallRecipients(notif.internatRollCallRecipients);
-  if (recipients.length === 0) {
-    const internatSites = internatEligibleEstablishments(bundle.establishments);
-    const fallback = internatSites[internatSites.length - 1]?.directorEmail;
-    if (fallback) recipients.push(fallback);
-  }
-  if (recipients.length === 0) {
-    console.warn("[internat-notify] Aucun destinataire appel internat.");
-    return { sent: false, reason: "no_recipients" };
-  }
-
-  const active = params.students.filter((s) => s.actif);
-  const presentBoys = active.filter(
-    (s) =>
-      s.sexe === "M" &&
-      (params.rollCall.boys.marks[s.id] === "present" || params.rollCall.boys.marks[s.id] === "activite"),
-  );
-  const presentGirls = active.filter(
-    (s) =>
-      s.sexe === "F" &&
-      (params.rollCall.girls.marks[s.id] === "present" || params.rollCall.girls.marks[s.id] === "activite"),
-  );
-  const absents = rollCallAbsentStudents(params.rollCall, params.students);
-  const activities = rollCallStudentsByMark(params.rollCall, params.students, "activite");
-  const groupByEtab = <T extends { student: InternatStudent }>(items: T[]) => {
-    const map = new Map<string, T[]>();
-    for (const item of items) {
-      const label = item.student.etablissement || "Établissement";
-      const list = map.get(label) || [];
-      list.push(item);
-      map.set(label, list);
-    }
-    return [...map.entries()];
-  };
-
+  const establishments = internatEligibleEstablishments(bundle.establishments);
+  const schoolName = bundle.identity.shortName || bundle.identity.name || "Établissement";
+  const period = params.rollCall.period || "soir";
+  const periodLabel = period === "matin" ? "Appel du matin" : "Appel du soir";
   const link = await tenantAbsolutePath("/gestion-internat?tab=appel");
   const dateLabel = new Date(params.rollCall.date).toLocaleDateString("fr-FR", {
     weekday: "long",
@@ -90,41 +109,126 @@ export async function notifyInternatRollCallValidated(params: {
     month: "long",
     year: "numeric",
   });
+  const dateFile = params.rollCall.date.replace(/-/g, "");
 
-  const text = [
-    "Bonjour,",
-    "",
-    `L'appel du soir de l'internat du ${dateLabel} a été validé par ${params.validatedBy}.`,
-    "",
-    `Présents : ${presentBoys.length} garçon(s), ${presentGirls.length} fille(s).`,
-    "",
-    ...groupByEtab(activities).map(
-      ([label, list]) =>
-        `Activité extérieure — ${label} :\n${list.map((a) => `• ${studentDisplayName(a.student)}`).join("\n")}`,
-    ),
-    "",
-    ...groupByEtab(absents).map(
-      ([label, list]) =>
-        `Absents / excusés — ${label} :\n${list.map((a) => `• ${studentDisplayName(a.student)} — ${INTERNAT_ROLL_MARK_LABELS[a.mark]}`).join("\n")}`,
-    ),
-    absents.length === 0 ? "Aucun absent." : null,
-    "",
-    `Consulter le détail : ${link}`,
-    "",
-    "Cordialement,",
-    bundle.identity.shortName || bundle.identity.name,
-  ]
-    .filter((line) => line != null)
-    .join("\n");
+  const active = params.students.filter((s) => s.actif);
+  const allRecipients: string[] = [];
+  const sentKinds: Array<"college" | "lycee"> = [];
 
-  await transporter.sendMail({
-    from: `"Internat ${bundle.identity.shortName || bundle.identity.name || "Établissement"}" <${smtp.user}>`,
-    to: recipients.join(", "),
-    subject: `Appel internat — ${params.rollCall.date}`,
-    text,
-  });
+  for (const kind of ["college", "lycee"] as const) {
+    const kindStudents = active.filter(
+      (s) => inferEstablishmentKind({ label: s.etablissement }) === kind,
+    );
+    if (kindStudents.length === 0) continue;
 
-  return { sent: true, recipients };
+    const recipients = recipientsForRollCallKind({
+      kind,
+      establishments,
+      notif: notif.internatRollCallRecipients,
+    });
+    if (recipients.length === 0) {
+      console.warn(`[internat-notify] Aucun destinataire pour l'appel ${kind}.`);
+      continue;
+    }
+
+    const rows = kindStudents
+      .map((s) => {
+        const mark = rollCallMarkForStudent(params.rollCall, s);
+        return {
+          nom: s.eleveRef.nom || "",
+          prenom: s.eleveRef.prenom || "",
+          classe: s.classe || "",
+          sexe: s.sexe === "F" ? "F" : "M",
+          statut: mark ? INTERNAT_ROLL_MARK_LABELS[mark] : "Non pointé",
+          mark,
+        };
+      })
+      .sort((a, b) => a.nom.localeCompare(b.nom, "fr") || a.prenom.localeCompare(b.prenom, "fr"));
+
+    const counts = {
+      present: rows.filter((r) => r.mark === "present").length,
+      absent: rows.filter((r) => r.mark === "absent").length,
+      excuse: rows.filter((r) => r.mark === "excuse").length,
+      activite: rows.filter((r) => r.mark === "activite").length,
+    };
+
+    const etabLabel = establishmentLabelForKind(establishments, kind);
+    const kindTitle = kind === "college" ? "Collège" : "Lycée";
+    const pdf = renderInternatRollCallPdfBuffer({
+      title: `Récapitulatif ${periodLabel.toLowerCase()} — Internat`,
+      etablissementLabel: etabLabel,
+      schoolName,
+      dateLabel,
+      periodLabel,
+      validatedBy: params.validatedBy,
+      rows: rows.map(({ nom, prenom, classe, sexe, statut }) => ({
+        nom,
+        prenom,
+        classe,
+        sexe,
+        statut,
+      })),
+      counts,
+    });
+
+    const absents = rows.filter((r) => r.mark === "absent" || r.mark === "excuse");
+    const activities = rows.filter((r) => r.mark === "activite");
+
+    const text = [
+      "Bonjour,",
+      "",
+      `L'${periodLabel.toLowerCase()} de l'internat du ${dateLabel} a été validé par ${params.validatedBy}.`,
+      "",
+      `Récapitulatif ${kindTitle} (${kindStudents.length} interne(s)) :`,
+      `• Présents : ${counts.present}`,
+      `• Absents : ${counts.absent}`,
+      `• Excusés : ${counts.excuse}`,
+      `• Activité extérieure : ${counts.activite}`,
+      "",
+      activities.length
+        ? `Activité extérieure :\n${activities.map((a) => `• ${a.prenom} ${a.nom} (${a.classe})`).join("\n")}`
+        : null,
+      absents.length
+        ? `Absents / excusés :\n${absents.map((a) => `• ${a.prenom} ${a.nom} (${a.classe}) — ${a.statut}`).join("\n")}`
+        : "Aucun absent ni excusé.",
+      "",
+      "Le PDF récapitulatif complet est joint à ce message (archivage direction).",
+      `Consulter le détail en ligne : ${link}`,
+      "",
+      "Cordialement,",
+      schoolName,
+    ]
+      .filter((line) => line != null)
+      .join("\n");
+
+    const filename = `appel-internat-${kind}-${dateFile}-${period}.pdf`;
+
+    await transporter.sendMail({
+      from: `"Internat ${schoolName}" <${smtp.user}>`,
+      to: recipients.join(", "),
+      subject: `Appel internat ${kindTitle} — ${params.rollCall.date} (${periodLabel.toLowerCase()})`,
+      text,
+      attachments: [
+        {
+          filename,
+          content: pdf,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+
+    sentKinds.push(kind);
+    for (const r of recipients) {
+      if (!allRecipients.includes(r)) allRecipients.push(r);
+    }
+  }
+
+  if (allRecipients.length === 0) {
+    console.warn("[internat-notify] Aucun destinataire appel internat (collège/lycée).");
+    return { sent: false, reason: "no_recipients" as const };
+  }
+
+  return { sent: true, recipients: allRecipients, kinds: sentKinds };
 }
 
 export async function notifyInternatEmergency(params: {

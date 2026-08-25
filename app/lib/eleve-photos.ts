@@ -139,7 +139,7 @@ export async function applyElevePhotosBulk(
   const { eleves, fromRegistry } = await elevesForPhotoMatch();
   if (!eleves.length) {
     throw new Error(
-      "Aucun élève pour associer les photos — importez d’abord le roster internes (Excel / Siècle) ou le référentiel élèves.",
+      "Aucun élève pour associer les photos — importez d’abord le référentiel élèves (Paramètres → Liste des élèves).",
     );
   }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { InternatBuilding, InternatRoom, InternatStudent } from "@/app/lib/internat-types";
 import { roomLocationLabel, studentDisplayName } from "@/app/lib/internat-types";
@@ -57,7 +58,6 @@ export default function InternatStudentsPanel({
   const [rosterMessage, setRosterMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const excelXmlInputRef = useRef<HTMLInputElement>(null);
-  const photosInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editingParentsId, setEditingParentsId] = useState<string | null>(null);
@@ -202,30 +202,6 @@ export default function InternatStudentsPanel({
     } finally {
       setBusy(false);
       if (excelXmlInputRef.current) excelXmlInputRef.current.value = "";
-    }
-  };
-
-  const uploadPhotos = async (list: FileList | null) => {
-    if (!list?.length) return;
-    setBusy(true);
-    setRosterMessage(null);
-    setError(null);
-    try {
-      const fd = new FormData();
-      Array.from(list).forEach((f, i) => fd.append("files", f, f.name || `photo-${i}.jpg`));
-      const res = await fetch("/api/eleves/photos/bulk", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Photos impossibles");
-      const extra =
-        Array.isArray(data.unmatched) && data.unmatched.length
-          ? ` Non reconnues : ${data.unmatched.slice(0, 5).join(", ")}${data.unmatched.length > 5 ? "…" : ""}`
-          : "";
-      setRosterMessage((data.message || "Photos OK.") + extra);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-      if (photosInputRef.current) photosInputRef.current.value = "";
     }
   };
 
@@ -382,14 +358,6 @@ export default function InternatStudentsPanel({
                 if (f) void uploadRosterFile(f);
               }}
             />
-            <input
-              ref={photosInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png"
-              multiple
-              className="hidden"
-              onChange={(e) => void uploadPhotos(e.target.files)}
-            />
             <button
               type="button"
               disabled={busy}
@@ -406,14 +374,12 @@ export default function InternatStudentsPanel({
             >
               Sync depuis référentiel élèves
             </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => photosInputRef.current?.click()}
-              className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm"
+            <Link
+              href="/parametres?tab=photos"
+              className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm inline-flex items-center"
             >
-              Photos NOM Prenom…
-            </button>
+              Photos élèves (Paramètres)
+            </Link>
             <button
               type="button"
               disabled={busy}
@@ -465,7 +431,13 @@ export default function InternatStudentsPanel({
                 fichier est traité comme liste d&apos;internes.
               </li>
               <li>XML Siècle : ElevesSansAdresses.xml — filtre CODE_REGIME 2/3 (interne).</li>
-              <li>Photos : fichiers <code className="bg-white px-1 rounded">NOM Prenom.jpg</code> (ou _ / -).</li>
+              <li>
+                Photos de tous les élèves :{" "}
+                <Link href="/parametres?tab=photos" className="font-bold text-indigo-700 underline">
+                  Paramètres → Photos élèves
+                </Link>{" "}
+                (fichiers <code className="bg-white px-1 rounded">NOM Prenom.jpg</code>).
+              </li>
             </ul>
           </details>
         </div>

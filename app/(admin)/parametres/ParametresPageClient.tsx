@@ -71,6 +71,10 @@ const SchoolRosterPanel = dynamic(
   () => import("@/app/components/settings/SchoolRosterPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
+const ElevePhotosBulkPanel = dynamic(
+  () => import("@/app/components/settings/ElevePhotosBulkPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 const DashboardQuickLinksPanel = dynamic(
   () => import("@/app/components/settings/DashboardQuickLinksPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
@@ -95,6 +99,7 @@ const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
   { id: "module-access", label: "Droits modules", icon: "🔐" },
   { id: "identite", label: "Identité", icon: "🪪" },
   { id: "referentiel", label: "Liste des élèves", icon: "🎒" },
+  { id: "photos", label: "Photos élèves", icon: "🖼️" },
   { id: "annees", label: "Année scolaire", icon: "📅" },
   { id: "siecle", label: "Éducation nationale", icon: "🇫🇷" },
   { id: "mef", label: "Formations MEF", icon: "📚" },
@@ -133,6 +138,7 @@ export default function ParametresPage() {
     const t = searchParams.get("tab");
     if (
       t === "referentiel" ||
+      t === "photos" ||
       t === "annees" ||
       t === "siecle" ||
       t === "site" ||
@@ -661,6 +667,8 @@ export default function ParametresPage() {
         )}
 
         {tab === "referentiel" && <SchoolRosterPanel />}
+
+        {tab === "photos" && <ElevePhotosBulkPanel />}
 
         {tab === "annees" && <AnneeScolairePanel />}
 

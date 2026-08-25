@@ -8,6 +8,7 @@ export type Tab =
   | "travels"
   | "integrations"
   | "referentiel"
+  | "photos"
   | "annees"
   | "siecle"
   | "dashboard-links"

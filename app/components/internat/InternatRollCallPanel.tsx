@@ -157,7 +157,11 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
       setRollCall(data.rollCall);
       setCanValidate(false);
       await onRefresh();
-      alert(data.mail?.sent ? "Appel validé et mail envoyé." : "Appel validé (mail non envoyé — vérifiez SMTP / destinataires).");
+      alert(
+        data.mail?.sent
+          ? "Appel validé. Un mail avec PDF récapitulatif a été envoyé aux directions collège / lycée."
+          : "Appel validé (mail non envoyé — vérifiez SMTP et les e-mails des directrices dans Paramètres).",
+      );
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Erreur");
     } finally {
