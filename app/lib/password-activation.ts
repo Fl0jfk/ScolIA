@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
-import { account, session, user } from "@/db/schema";
+import { account, session, twoFactor, user } from "@/db/schema";
 import { betterAuthBaseUrl } from "@/app/lib/auth-config";
 import { getBetterAuth } from "@/app/lib/auth-server";
 import { getPlatformSmtpConfig } from "@/app/lib/tenant-mail";
@@ -19,15 +19,18 @@ export type PasswordActivationTarget = {
 export type PasswordActivationResult = {
   email: string;
   ok: boolean;
-  skipped?: "mfa_already_enabled" | "not_found" | "smtp_unavailable";
+  resetMfa?: boolean;
+  skipped?: "not_found" | "smtp_unavailable";
   detail?: string;
 };
 
 export async function listPasswordActivationTargets(opts?: {
   etablissementId?: string;
   email?: string;
+  /** Si true, inclut aussi les comptes déjà en MFA (reset complet). */
+  includeMfa?: boolean;
 }): Promise<PasswordActivationTarget[]> {
-  const conditions = [eq(user.twoFactorEnabled, false)];
+  const conditions = opts?.includeMfa ? [] : [eq(user.twoFactorEnabled, false)];
   const etablissementId = opts?.etablissementId?.trim();
   const email = opts?.email?.trim().toLowerCase();
 
@@ -37,6 +40,8 @@ export async function listPasswordActivationTargets(opts?: {
   if (email) {
     conditions.push(sql`lower(${user.email}) = ${email}`);
   }
+
+  const where = conditions.length ? and(...conditions) : undefined;
 
   return getDb()
     .select({
@@ -48,19 +53,15 @@ export async function listPasswordActivationTargets(opts?: {
       twoFactorEnabled: user.twoFactorEnabled,
     })
     .from(user)
-    .where(and(...conditions))
+    .where(where)
     .orderBy(user.email);
 }
 
-/** Statut d’un compte pour l’envoi d’un lien d’invitation (hors MFA déjà active). */
+/** Statut d’un compte pour l’envoi d’un lien d’invitation. */
 export async function resolveInvitationTarget(opts: {
   email: string;
   etablissementId: string;
-}): Promise<
-  | { status: "ready"; target: PasswordActivationTarget }
-  | { status: "not_found" }
-  | { status: "mfa_already_enabled"; email: string }
-> {
+}): Promise<{ status: "ready"; target: PasswordActivationTarget } | { status: "not_found" }> {
   const email = opts.email.trim().toLowerCase();
   const [row] = await getDb()
     .select({
@@ -76,18 +77,18 @@ export async function resolveInvitationTarget(opts: {
     .limit(1);
 
   if (!row) return { status: "not_found" };
-  if (row.twoFactorEnabled) {
-    return { status: "mfa_already_enabled", email: row.email };
-  }
   return { status: "ready", target: row };
 }
 
+/**
+ * Invalide MDP + sessions, et optionnellement la MFA (repart de zéro).
+ * Puis envoie le mail de lien d’invitation / reset.
+ */
 export async function sendPasswordActivationToUser(
   target: PasswordActivationTarget,
+  opts?: { resetMfa?: boolean },
 ): Promise<PasswordActivationResult> {
-  if (target.twoFactorEnabled) {
-    return { email: target.email, ok: false, skipped: "mfa_already_enabled" };
-  }
+  const resetMfa = opts?.resetMfa === true || target.twoFactorEnabled;
 
   if (!getPlatformSmtpConfig()) {
     return {
@@ -107,10 +108,16 @@ export async function sendPasswordActivationToUser(
     await db
       .delete(account)
       .where(and(eq(account.userId, target.id), eq(account.providerId, "credential")));
+
+    if (resetMfa) {
+      await db.delete(twoFactor).where(eq(twoFactor.userId, target.id));
+    }
+
     await db
       .update(user)
       .set({
         mustChangePassword: true,
+        ...(resetMfa ? { twoFactorEnabled: false } : {}),
         updatedAt: new Date(),
       })
       .where(eq(user.id, target.id));
@@ -122,7 +129,7 @@ export async function sendPasswordActivationToUser(
       },
     });
 
-    return { email: target.email, ok: true };
+    return { email: target.email, ok: true, resetMfa };
   } catch (error) {
     return {
       email: target.email,
@@ -136,18 +143,24 @@ export async function sendPasswordActivationBatch(opts?: {
   etablissementId?: string;
   email?: string;
   delayMs?: number;
+  /** Bulk : par défaut on n’inclut pas les comptes MFA déjà activés. */
+  includeMfa?: boolean;
 }): Promise<{
   baseUrl: string;
   redirectTo: string;
   results: PasswordActivationResult[];
 }> {
   const delayMs = Math.max(0, opts?.delayMs ?? 400);
-  const targets = await listPasswordActivationTargets(opts);
+  const targets = await listPasswordActivationTargets({
+    etablissementId: opts?.etablissementId,
+    email: opts?.email,
+    includeMfa: opts?.includeMfa,
+  });
   const redirectTo = `${betterAuthBaseUrl()}/auth/reset-password`;
   const results: PasswordActivationResult[] = [];
 
   for (const target of targets) {
-    results.push(await sendPasswordActivationToUser(target));
+    results.push(await sendPasswordActivationToUser(target, { resetMfa: opts?.includeMfa === true }));
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }

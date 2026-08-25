@@ -15,8 +15,8 @@ const bodySchema = z.object({
 });
 
 /**
- * Envoie un lien d’invitation (création / reset MDP) à un utilisateur de l’établissement.
- * Réservé admin établissement.
+ * Envoie un lien d’invitation (reset MDP, et MFA si déjà active) à un utilisateur
+ * de l’établissement. Réservé admin établissement.
  */
 export async function POST(req: Request) {
   const gate = await requireAdmin();
@@ -51,18 +51,8 @@ export async function POST(req: Request) {
       );
     }
 
-    if (resolved.status === "mfa_already_enabled") {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Ce compte est déjà activé (double authentification en place). La personne peut se connecter normalement, ou utiliser « Mot de passe oublié » si besoin.",
-        },
-        { status: 409 },
-      );
-    }
-
-    const result = await sendPasswordActivationToUser(resolved.target);
+    const hadMfa = resolved.target.twoFactorEnabled;
+    const result = await sendPasswordActivationToUser(resolved.target, { resetMfa: true });
     if (!result.ok) {
       return NextResponse.json(
         {
@@ -77,7 +67,10 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       email: result.email,
-      message: `Lien d’invitation envoyé à ${result.email}. Valable 1 heure — la personne crée son mot de passe puis active la MFA.`,
+      resetMfa: result.resetMfa === true,
+      message: hadMfa
+        ? `Lien d’invitation envoyé à ${result.email}. L’ancien mot de passe et la MFA ont été réinitialisés — la personne repart de zéro (nouveau MDP puis nouvelle MFA). Lien valable 1 heure.`
+        : `Lien d’invitation envoyé à ${result.email}. Valable 1 heure — la personne crée son mot de passe puis active la MFA.`,
       baseUrl: betterAuthBaseUrl(),
       redirectTo: `${betterAuthBaseUrl()}/auth/reset-password`,
     });

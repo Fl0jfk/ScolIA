@@ -397,7 +397,14 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "admin-settings",
-    pathPrefixes: ["/parametres", "/api/settings", "/membres", "/api/members", "/api/nomenclature"],
+    pathPrefixes: [
+      "/parametres",
+      "/api/settings",
+      "/api/admin/auth",
+      "/membres",
+      "/api/members",
+      "/api/nomenclature",
+    ],
     allowedRoles: [],
     orgAdminOnly: true,
     dashboard: {

@@ -20,6 +20,7 @@ type RegistryUserRow = {
   displayName?: string;
   roles: string[];
   pending?: boolean;
+  mfaEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -224,15 +225,21 @@ export default function MembresPanel() {
 
   const sendInvitationLink = async (u: RegistryUserRow) => {
     const name = labelFor(u);
-    if (
-      !confirm(
-        `Envoyer un lien d’invitation à ${name} (${u.email}) ?\n\n` +
-          `La personne reçoit un e-mail pour créer son mot de passe (lien valable 1 h), puis active la double authentification à la première connexion.\n` +
-          `Un éventuel ancien mot de passe ne fonctionnera plus.`,
-      )
-    ) {
-      return;
-    }
+    const mfa = u.mfaEnabled === true;
+    const confirmMsg = mfa
+      ? `Réinitialiser l’accès de ${name} (${u.email}) ?\n\n` +
+        `ATTENTION : ce compte a déjà la MFA.\n` +
+        `Le lien d’invitation va :\n` +
+        `• invalider l’ancien mot de passe\n` +
+        `• supprimer la double authentification actuelle\n` +
+        `• envoyer un e-mail (lien 1 h) pour tout recommencer (nouveau MDP + nouvelle MFA)\n\n` +
+        `À utiliser seulement si la personne a perdu l’accès ou doit repartir de zéro.`
+      : `Envoyer un lien d’invitation à ${name} (${u.email}) ?\n\n` +
+        `La personne reçoit un e-mail pour créer son mot de passe (lien valable 1 h), puis active la MFA.\n` +
+        `Un éventuel ancien mot de passe ne fonctionnera plus.`;
+
+    if (!confirm(confirmMsg)) return;
+
     setInvitingEmail(u.email);
     setError(null);
     setSuccess(null);
@@ -245,6 +252,7 @@ export default function MembresPanel() {
       const j = (await res.json()) as { ok?: boolean; error?: string; message?: string };
       if (!res.ok || !j.ok) throw new Error(j.error || "Envoi impossible");
       setSuccess(j.message || `Lien d’invitation envoyé à ${u.email}.`);
+      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -263,10 +271,10 @@ export default function MembresPanel() {
       <SettingsSection>
         <h3 className={`text-sm font-semibold ${dash.ink}`}>Lien d’invitation</h3>
         <p className={`mt-1 text-sm ${dash.textMid}`}>
-          Sur chaque personne, utilisez <strong>Lien d’invitation</strong> pour lui envoyer un e-mail
-          d’accès. Elle crée son mot de passe (lien valable 1&nbsp;heure), se connecte, puis active la
-          double authentification (MFA). Si le compte est déjà activé (MFA en place), le bouton
-          n’envoie pas de nouveau lien — la personne se connecte normalement.
+          Envoie un e-mail pour créer le mot de passe (lien 1&nbsp;h), puis activer la MFA. Sur un
+          compte <strong>déjà activé (MFA)</strong>, le bouton devient une{" "}
+          <strong>réinitialisation complète</strong> : ancien MDP + MFA effacés, la personne repart
+          de zéro — à réserver aux cas où l’accès est perdu.
         </p>
       </SettingsSection>
 
@@ -390,7 +398,12 @@ export default function MembresPanel() {
                     {editingKey !== key && (
                       <p className={`mt-1 text-xs font-medium ${dash.textPrimary}`}>{roleLabels(u.roles)}</p>
                     )}
-                    {u.pending && <span className="text-xs text-amber-600 font-bold">Invitation en attente</span>}
+                    {u.pending && !u.mfaEnabled && (
+                      <span className="text-xs text-amber-600 font-bold">Invitation / activation en attente</span>
+                    )}
+                    {u.mfaEnabled && (
+                      <span className="text-xs text-emerald-700 font-bold">Compte activé (MFA)</span>
+                    )}
                   </div>
                   <div className="flex flex-wrap gap-3 shrink-0">
                     {editingKey !== key && (
@@ -400,8 +413,17 @@ export default function MembresPanel() {
                           onClick={() => void sendInvitationLink(u)}
                           disabled={invitingEmail === u.email}
                           className={`text-sm font-semibold ${dash.textPrimary} disabled:opacity-50`}
+                          title={
+                            u.mfaEnabled
+                              ? "Réinitialise MDP + MFA et renvoie un lien d’invitation"
+                              : "Envoie un lien d’invitation (création du mot de passe)"
+                          }
                         >
-                          {invitingEmail === u.email ? "Envoi…" : "Lien d’invitation"}
+                          {invitingEmail === u.email
+                            ? "Envoi…"
+                            : u.mfaEnabled
+                              ? "Réinit. accès"
+                              : "Lien d’invitation"}
                         </button>
                         <button type="button" onClick={() => startEdit(u)} className={`text-sm font-semibold ${dash.textPrimary}`}>
                           Modifier

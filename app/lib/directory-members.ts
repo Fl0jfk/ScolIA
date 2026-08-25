@@ -14,6 +14,8 @@ export type DirectoryMemberRow = {
   displayName?: string;
   roles: string[];
   pending: boolean;
+  /** Compte déjà passé par MFA (activation terminée). */
+  mfaEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
 };

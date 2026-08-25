@@ -1,11 +1,10 @@
 "use client";
 
-import { useSessionUser } from "@/app/hooks/useAppUser";
+import { useAppUser } from "@/app/hooks/useAppUser";
 
 export function useIsPlatformMaster(): boolean {
-  const { user } = useSessionUser();
-  const meta = user?.publicMetadata as Record<string, unknown> | undefined;
-  const roles = meta?.role;
-  const arr = Array.isArray(roles) ? roles.map(String) : roles ? [String(roles)] : [];
-  return arr.includes("master");
+  const { isLoaded, user } = useAppUser();
+  if (!isLoaded || !user) return false;
+  if (user.platformAdmin) return true;
+  return user.roles.includes("master");
 }

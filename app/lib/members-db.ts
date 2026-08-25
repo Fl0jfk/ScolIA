@@ -20,7 +20,8 @@ export async function listMembersFromDb(etablissementId: string): Promise<Direct
       lastName: u.lastName ?? undefined,
       displayName: u.name,
       roles,
-      pending: !u.emailVerified,
+      pending: !u.emailVerified || u.mustChangePassword || !u.twoFactorEnabled,
+      mfaEnabled: u.twoFactorEnabled,
       createdAt: u.createdAt.toISOString(),
       updatedAt: u.updatedAt.toISOString(),
     });

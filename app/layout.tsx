@@ -4,6 +4,7 @@ import ChatbotBubbleClient from "./components/ChatbotBubbleClient";
 import InteractiveCursor from "./components/InteractiveCursor";
 import PortalMemoryOnSignOut from "./components/PortalMemoryOnSignOut";
 import TeamsChatOverlayClient from "./components/teams-chat/TeamsChatOverlayClient";
+import { AppUserProvider } from "./hooks/useAppUser";
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // nonce réservé CSP (headers middleware)
@@ -11,11 +12,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="fr">
       <body>
-        <InteractiveCursor />
-        <PortalMemoryOnSignOut />
-        {children}
-        <ChatbotBubbleClient />
-        <TeamsChatOverlayClient />
+        <AppUserProvider>
+          <InteractiveCursor />
+          <PortalMemoryOnSignOut />
+          {children}
+          <ChatbotBubbleClient />
+          <TeamsChatOverlayClient />
+        </AppUserProvider>
       </body>
     </html>
   );
