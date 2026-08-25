@@ -1,12 +1,10 @@
-import { redirect } from "next/navigation";
+import { Suspense } from "react";
+import PillarHubClient from "@/app/components/module-hub/PillarHubClient";
 
-/** Legacy hub Établissement → Administratif. */
-export default async function EtablissementLegacyRedirect({
-  searchParams,
-}: {
-  searchParams: Promise<{ tab?: string }>;
-}) {
-  const { tab } = await searchParams;
-  if (tab) redirect(`/administratif?tab=${tab}`);
-  redirect("/administratif");
+export default function EtablissementHubPage() {
+  return (
+    <Suspense fallback={<p className="p-10 text-center text-slate-500">Chargement…</p>}>
+      <PillarHubClient pillarId="etablissement" loadingLabel="Chargement de l’espace établissement…" />
+    </Suspense>
+  );
 }

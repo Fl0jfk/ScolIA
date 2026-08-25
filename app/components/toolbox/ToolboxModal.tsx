@@ -52,6 +52,10 @@ export default function ToolboxModal({ open, onClose }: Props) {
       router.push("/toolbox/repartition-classes");
       return;
     }
+    if (tool.id === "covoiturage") {
+      router.push("/covoiturage");
+      return;
+    }
     if (tool.publicPath) {
       window.open(tool.publicPath, "_blank", "noopener,noreferrer");
       return;
@@ -92,7 +96,7 @@ export default function ToolboxModal({ open, onClose }: Props) {
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Scola</p>
               <h2 className="text-xl font-black text-slate-900">Boîte à outils</h2>
-              <p className="text-xs text-slate-500 mt-0.5">QR code · Photocopies couleur</p>
+              <p className="text-xs text-slate-500 mt-0.5">QR code · Photocopies · outils activés</p>
             </div>
             <button
               type="button"

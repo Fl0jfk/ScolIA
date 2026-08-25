@@ -139,6 +139,19 @@ function PhotocopiesToolboxIcon({ className = "w-10 h-10" }: IconProps) {
   );
 }
 
+function CovoiturageToolboxIcon({ className = "w-10 h-10" }: IconProps) {
+  return (
+    <svg viewBox="0 0 48 48" className={className} aria-hidden>
+      <rect x="6" y="20" width="36" height="14" rx="4" fill="currentColor" opacity="0.9" />
+      <path d="M10 20 L16 12 H32 L38 20" fill="currentColor" opacity="0.75" />
+      <circle cx="14" cy="34" r="4" fill="currentColor" />
+      <circle cx="34" cy="34" r="4" fill="currentColor" />
+      <circle cx="14" cy="34" r="1.5" fill="white" opacity="0.9" />
+      <circle cx="34" cy="34" r="1.5" fill="white" opacity="0.9" />
+    </svg>
+  );
+}
+
 export function renderToolboxIcon(id: ToolboxToolId, className?: string) {
   switch (id) {
     case "qrcreator":
@@ -155,6 +168,8 @@ export function renderToolboxIcon(id: ToolboxToolId, className?: string) {
       return <PortesOuvertesToolboxIcon className={className} />;
     case "repartition-classes":
       return <RepartitionClassesToolboxIcon className={className} />;
+    case "covoiturage":
+      return <CovoiturageToolboxIcon className={className} />;
     default:
       return <ToolboxFolderIcon className={className} />;
   }

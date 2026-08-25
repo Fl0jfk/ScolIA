@@ -27,6 +27,7 @@ import {
   type CovoiturageProfile,
 } from "@/app/lib/covoiturage-types";
 import { requireAuth } from "@/app/lib/intranet-auth";
+import { isCovoiturageToolEnabled } from "@/app/lib/toolbox-config";
 
 function displayName(user: NonNullable<Awaited<ReturnType<typeof safeCurrentUser>>>) {
   const first = user?.firstName?.trim() || "";
@@ -125,6 +126,13 @@ export async function GET() {
   if (!gate.ok) return gate.response;
   const { userId } = gate.ctx;
 
+  if (!(await isCovoiturageToolEnabled())) {
+    return NextResponse.json(
+      { error: "Le covoiturage n’est pas activé pour cet établissement." },
+      { status: 403 },
+    );
+  }
+
   const bundle = await loadAppConfig();
   const establishments = bundle.establishments.filter((e) => e.active !== false);
   const [profile, matches, allProfiles] = await Promise.all([
@@ -148,6 +156,13 @@ export async function POST(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
   const { userId } = gate.ctx;
+
+  if (!(await isCovoiturageToolEnabled())) {
+    return NextResponse.json(
+      { error: "Le covoiturage n’est pas activé pour cet établissement." },
+      { status: 403 },
+    );
+  }
 
   const user = await safeCurrentUser();
   if (!user) return NextResponse.json({ error: "Utilisateur introuvable." }, { status: 401 });

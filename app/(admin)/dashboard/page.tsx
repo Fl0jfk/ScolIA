@@ -70,7 +70,6 @@ export default function Home() {
     todayNews,
     notifications,
     hasCurrentWeek,
-    anneeScolaireLabel,
     loading: signalsLoading,
     refresh: loadSignals,
   } = useDashboardSignals({ onFetched: onSignalsFetched });
@@ -148,11 +147,6 @@ export default function Home() {
               >
                 <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--dash-mid)]">
                   Tableau de bord
-                  {anneeScolaireLabel ? (
-                    <span className="ml-2 font-bold normal-case tracking-normal text-[var(--dash-primary)]">
-                      · {anneeScolaireLabel}
-                    </span>
-                  ) : null}
                 </p>
                 <h1 className="mt-1 text-[1.75rem] font-semibold tracking-tight text-[var(--dash-ink)] md:text-[2rem] lg:text-[2.15rem]">
                   {firstName ? (
@@ -194,11 +188,6 @@ export default function Home() {
               >
                 <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-[var(--dash-mid)]">
                   Tableau de bord
-                  {anneeScolaireLabel ? (
-                    <span className="ml-2 font-bold normal-case tracking-normal text-[var(--dash-primary)]">
-                      · {anneeScolaireLabel}
-                    </span>
-                  ) : null}
                 </p>
                 <h1 className="mt-1 text-[1.75rem] font-semibold tracking-tight text-[var(--dash-ink)]">
                   {firstName ? (

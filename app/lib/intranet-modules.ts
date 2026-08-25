@@ -174,7 +174,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       link: "/toolbox",
       external: false,
       variant: "toolbox",
-      description: "QR code et photocopies couleur.",
+      description: "QR code, photocopies et outils activables.",
     },
   },
   {
@@ -584,15 +584,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "covoiturage",
     pathPrefixes: ["/covoiturage", "/api/covoiturage"],
-    allowedRoles: ["parent"],
-    dashboard: {
-      id: 26,
-      name: "Covoiturage",
-      img: "",
-      link: "/covoiturage",
-      external: false,
-      variant: "default",
-    },
+    allowedRoles: ["parent", ...DIRECTIONS, "administratif", "admin"],
+    // Tuile dashboard retirée : outil activable via Boîte à outils (désactivé par défaut).
   },
   {
     id: "assistance",
@@ -610,7 +603,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "notes",
     pathPrefixes: ["/notes", "/api/notes"],
-    allowedRoles: [...DIRECTIONS, "professeur", "administratif", "cpe", "education", "admin"],
+    allowedRoles: [],
+    orgAdminOnly: true,
     dashboard: {
       id: 51,
       name: "Notes & bulletins",
@@ -637,14 +631,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "facturation-familles",
     pathPrefixes: ["/facturation", "/api/facturation"],
     allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin"],
-    dashboard: {
-      id: 53,
-      name: "Facturation familles",
-      img: "",
-      link: "/facturation",
-      external: false,
-      description: "Catalogue tarifs, factures foyers, SEPA (Phase 1b Charlemagne).",
-    },
+    // Tuile dashboard masquée : module pas encore prêt.
   },
   {
     id: "sante",
@@ -682,6 +669,11 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [...DIRECTIONS, "administratif", "admin", "professeur"],
   },
   {
+    id: "pillar-etablissement",
+    pathPrefixes: ["/etablissement"],
+    allowedRoles: [...DIRECTIONS, "administratif", "admin"],
+  },
+  {
     id: "pillar-services",
     pathPrefixes: ["/services"],
     allowedRoles: [
@@ -712,7 +704,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "legacy-hub-redirects",
-    pathPrefixes: ["/eleves", "/etablissement", "/rh"],
+    pathPrefixes: ["/eleves", "/rh"],
     allowedRoles: [...ROLES_EXCEPT_PARENT],
   },
   {

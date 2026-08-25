@@ -11,6 +11,7 @@ import {
   saveCovoiturageMatches,
 } from "@/app/lib/covoiturage-storage";
 import { requireAuth } from "@/app/lib/intranet-auth";
+import { isCovoiturageToolEnabled } from "@/app/lib/toolbox-config";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
@@ -18,6 +19,13 @@ export async function POST(req: Request, ctx: RouteCtx) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
   const { userId } = gate.ctx;
+
+  if (!(await isCovoiturageToolEnabled())) {
+    return NextResponse.json(
+      { error: "Le covoiturage n’est pas activé pour cet établissement." },
+      { status: 403 },
+    );
+  }
 
   const { id } = await ctx.params;
   const body = (await req.json()) as Record<string, unknown>;

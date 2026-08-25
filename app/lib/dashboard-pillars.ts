@@ -8,6 +8,7 @@ import {
 
 export type DashboardPillarId =
   | "administratif"
+  | "etablissement"
   | "services"
   | "vie_scolaire"
   | "compta_rh"
@@ -35,7 +36,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     id: "administratif",
     title: "Administratif",
     href: "/administratif",
-    description: "Dossiers, notes & bulletins, stages, établissement",
+    description: "Dossiers élèves, notes & bulletins, stages",
     // Profs : pilier visible mais modules réduits (voir moduleIdsForPillarViewer).
     allowedRoles: [...DIRECTIONS, "administratif", "admin", "professeur"],
     moduleIds: [
@@ -46,10 +47,19 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "agent-ia-ocr",
       "certificates",
       "pilotage-eleves",
+    ],
+  },
+  {
+    id: "etablissement",
+    title: "Établissement",
+    href: "/etablissement",
+    description: "Paramètres, événements, annuaire, communication",
+    allowedRoles: [...DIRECTIONS, "administratif", "admin"],
+    moduleIds: [
+      "admin-settings",
       "organigramme",
       "evenements",
       "communication",
-      "admin-settings",
       "conformite-rgpd",
       "chatbot-knowledge",
     ],
@@ -102,7 +112,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     href: "/compta-rh",
     description: "RH, paie, facturation, absences pro",
     allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin", "maintenance"],
-    moduleIds: ["rh", "mon-planning", "facturation-familles", "conformite-rgpd"],
+    moduleIds: ["rh", "mon-planning", "conformite-rgpd"],
   },
   {
     id: "sante",
@@ -124,12 +134,12 @@ const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
   "agent-ia-ocr": "administratif",
   certificates: "administratif",
   "pilotage-eleves": "administratif",
-  organigramme: "administratif",
-  evenements: "administratif",
-  communication: "administratif",
-  "admin-settings": "administratif",
-  "conformite-rgpd": "administratif",
-  "chatbot-knowledge": "administratif",
+  organigramme: "etablissement",
+  evenements: "etablissement",
+  communication: "etablissement",
+  "admin-settings": "etablissement",
+  "conformite-rgpd": "etablissement",
+  "chatbot-knowledge": "etablissement",
   travels: "services",
   "prof-room": "services",
   "requests-staff": "services",

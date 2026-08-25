@@ -1126,9 +1126,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     {
       moduleId: "toolbox",
       label: "Boîte à outils",
-      detail: "QR code · Photocopies couleur",
+      detail: "QR code · Photocopies · outils activables",
     },
-    { moduleId: "covoiturage", label: "Covoiturage" },
     { moduleId: "channels", label: "Salons" },
     { moduleId: "assistance", label: "Assistance" },
   ];
@@ -1136,7 +1135,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     if (!has(s.moduleId)) continue;
     shortcuts.push({
       id: s.moduleId,
-      pillarId: "administratif",
+      pillarId: "services",
       moduleId: s.moduleId,
       href: moduleHref(s.moduleId),
       label: s.label,
@@ -1171,30 +1170,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       rich: true,
       detail: "Saisie, compétences LSU, bulletins PDF",
       tone: "info",
-    });
-  }
-  if (has("facturation-familles")) {
-    shortcuts.push({
-      id: "facturation-familles",
-      pillarId: "administratif",
-      moduleId: "facturation-familles",
-      href: moduleHref("facturation-familles"),
-      label: "Facturation familles",
-      rich: true,
-      detail:
-        facturesEnRetard > 0
-          ? `${facturesEnRetard} facture(s) en retard`
-          : "Tarifs, factures, SEPA, export CSV",
-      badge: facturesEnRetard > 0 ? String(facturesEnRetard) : undefined,
-      tone: facturesEnRetard > 0 ? "warn" : "info",
-    });
-    pushNotif({
-      id: "facturation-en-retard",
-      moduleId: "facturation-familles",
-      label: "Factures en retard",
-      count: facturesEnRetard,
-      href: moduleHref("facturation-familles"),
-      detail: "Échéance dépassée — relance ou encaissement",
     });
   }
   if (has("vs-appels")) {
@@ -1345,27 +1320,13 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     if (!has(s.moduleId)) continue;
     shortcuts.push({
       id: s.moduleId,
-      pillarId: "administratif",
+      pillarId: "etablissement",
       moduleId: s.moduleId,
       href: moduleHref(s.moduleId),
       label: s.label,
       ...(s.detail
         ? { rich: true as const, detail: s.detail, tone: "neutral" as const }
         : {}),
-    });
-  }
-
-  // —— Paramètres / année (toujours utile en admin) ——
-  if (has("admin-settings") && anneeScolaireLabel) {
-    shortcuts.push({
-      id: "annee-scolaire",
-      pillarId: "administratif",
-      moduleId: "admin-settings",
-      href: "/parametres?tab=annees",
-      label: `Année ${anneeScolaireLabel}`,
-      rich: true,
-      detail: "Année scolaire courante — ouvrir / basculer",
-      tone: "info",
     });
   }
 

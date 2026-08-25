@@ -37,6 +37,15 @@ export const TOOLBOX_TOOLS_META: ToolboxToolMeta[] = [
     bg: "bg-indigo-50",
     season: "Fin d'année",
   },
+  {
+    id: "covoiturage",
+    label: "Covoiturage",
+    shortLabel: "Covoit.",
+    description: "Mise en relation familles pour les trajets quotidiens (désactivé tant que non prêt).",
+    adminPath: "/covoiturage",
+    color: "text-emerald-800",
+    bg: "bg-emerald-50",
+  },
 ];
 
 /** Liens permanents du hub (pas de toggle on/off). */

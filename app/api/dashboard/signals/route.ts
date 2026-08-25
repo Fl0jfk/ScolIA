@@ -379,20 +379,6 @@ export async function GET() {
       anneeScolaireLabel = null;
     }
 
-    if (accessibleModuleIds.has("facturation-familles")) {
-      try {
-        const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
-        const { countFacturesEnRetard } = await import("@/app/lib/facturation-db");
-        const { parisDateKey } = await import("@/app/lib/paris-time");
-        const etabId = await resolveCurrentEtablissementId();
-        if (etabId) {
-          facturesEnRetard = await countFacturesEnRetard(etabId, parisDateKey(new Date()));
-        }
-      } catch {
-        facturesEnRetard = 0;
-      }
-    }
-
     if (
       accessibleModuleIds.has("vs-absences") ||
       accessibleModuleIds.has("vs-appels") ||

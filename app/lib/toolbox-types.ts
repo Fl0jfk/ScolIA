@@ -12,9 +12,15 @@ export type ToolboxToolId =
   | "simulateur-tarifs"
   | "simulateur-fournitures"
   | "portes-ouvertes"
-  | "repartition-classes";
+  | "repartition-classes"
+  | "covoiturage";
 
 export type RepartitionClassesToolConfig = {
+  enabled: boolean;
+  label: string;
+};
+
+export type CovoiturageToolConfig = {
   enabled: boolean;
   label: string;
 };
@@ -76,6 +82,7 @@ export type ToolboxConfig = {
     "simulateur-fournitures": FournituresToolConfig;
     "portes-ouvertes": PortesOuvertesToolConfig;
     "repartition-classes": RepartitionClassesToolConfig;
+    covoiturage: CovoiturageToolConfig;
   };
 };
 
@@ -133,6 +140,10 @@ export function defaultToolboxConfig(): ToolboxConfig {
       "repartition-classes": {
         enabled: true,
         label: "Répartition des classes",
+      },
+      covoiturage: {
+        enabled: false,
+        label: "Covoiturage",
       },
     },
   };

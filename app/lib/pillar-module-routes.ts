@@ -57,10 +57,13 @@ const PILLAR_TAB_TO_MODULE: Record<DashboardPillarId, Record<string, string>> = 
     ocr: "agent-ia-ocr",
     certificates: "certificates",
     pilotage: "pilotage-eleves",
+  },
+  etablissement: {
     organigramme: "organigramme",
     evenements: "evenements",
     communication: "communication",
     parametres: "admin-settings",
+    identite: "admin-settings",
     rgpd: "conformite-rgpd",
     brain: "chatbot-knowledge",
   },

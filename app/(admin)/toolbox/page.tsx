@@ -125,13 +125,14 @@ export default function ToolboxAdminPage() {
     config && "enabled" in config.tools["repartition-classes"]
       ? config.tools["repartition-classes"].enabled
       : false;
+  const covoiturageEnabled = config?.tools.covoiturage?.enabled === true;
 
   return (
     <ModulePageShell maxWidthClass="max-w-[1280px]">
       <ModulePageHeader
         eyebrow="Services"
         title="Boîte à outils"
-        description="QR code et photocopies couleur — les petits utilitaires du quotidien."
+        description="QR code, photocopies et petits utilitaires activables (covoiturage, répartition…)."
       />
 
       {error && (
@@ -195,6 +196,29 @@ export default function ToolboxAdminPage() {
                   </p>
                   <span className={`mt-2 inline-block text-xs font-semibold underline ${dash.textPrimary}`}>
                     Ouvrir →
+                  </span>
+                </div>
+              </div>
+            </ModuleCard>
+          </Link>
+        )}
+
+        {(covoiturageEnabled || isOrgAdmin) && (
+          <Link href="/covoiturage">
+            <ModuleCard bodyClassName="p-5 transition hover:-translate-y-0.5">
+              <div className="flex items-start gap-4">
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-800">
+                  {renderToolboxIcon("covoiturage", "w-8 h-8")}
+                </span>
+                <div>
+                  <h2 className={`font-semibold ${dash.ink}`}>Covoiturage</h2>
+                  <p className={`mt-1 text-xs ${dash.textMid}`}>
+                    {covoiturageEnabled
+                      ? "Mise en relation familles pour les trajets quotidiens."
+                      : "Désactivé — activez l’outil ci-dessous quand il sera prêt."}
+                  </p>
+                  <span className={`mt-2 inline-block text-xs font-semibold underline ${dash.textPrimary}`}>
+                    {covoiturageEnabled ? "Ouvrir →" : "Aperçu →"}
                   </span>
                 </div>
               </div>

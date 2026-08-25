@@ -38,4 +38,4 @@ export function isProfesseurScopedDossierViewer(opts: {
 }
 
 /** Modules du pilier Administratif visibles pour un prof (vue réduite). */
-export const ADMINISTRATIF_PROF_MODULE_IDS = ["eleve-dossier", "notes"] as const;
+export const ADMINISTRATIF_PROF_MODULE_IDS = ["eleve-dossier"] as const;

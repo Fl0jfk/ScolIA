@@ -194,6 +194,31 @@ export default function CovoituragePage() {
     );
   }
 
+  const toolDisabled =
+    Boolean(error) &&
+    /n.est pas activ|pas activé|désactiv/i.test(error || "");
+
+  if (toolDisabled) {
+    return (
+      <ModulePageShell maxWidthClass="max-w-3xl">
+        <ModulePageHeader
+          eyebrow="Boîte à outils"
+          title="Covoiturage"
+          description="Outil désactivé pour cet établissement."
+        />
+        <ModuleCard bodyClassName="p-6">
+          <p className={`text-sm ${dash.textMid}`}>
+            Le covoiturage n’est pas encore activé. Un administrateur peut l’activer depuis la{" "}
+            <a href="/toolbox" className={`font-semibold underline ${dash.textPrimary}`}>
+              boîte à outils
+            </a>
+            .
+          </p>
+        </ModuleCard>
+      </ModulePageShell>
+    );
+  }
+
   const profile = data?.profile ?? null;
   const showMultiEst = (data?.establishments.length ?? 0) > 1;
   const pendingMatches = (data?.matches ?? []).filter((m) => m.status === "pending");
@@ -202,7 +227,7 @@ export default function CovoituragePage() {
   return (
     <ModulePageShell maxWidthClass="max-w-3xl" className="pb-24">
       <ModulePageHeader
-        eyebrow="Familles"
+        eyebrow="Boîte à outils"
         title="Covoiturage"
         description="Mise en relation entre familles par zone (code postal) et établissement. Aucune adresse exacte n'est stockée. Les coordonnées ne sont échangées qu'avec votre accord."
       />

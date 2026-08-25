@@ -85,6 +85,10 @@ export function parseToolboxConfig(raw: unknown): ToolboxConfig {
     tools["repartition-classes"] && typeof tools["repartition-classes"] === "object"
       ? (tools["repartition-classes"] as Record<string, unknown>)
       : {};
+  const covoiturage =
+    tools.covoiturage && typeof tools.covoiturage === "object"
+      ? (tools.covoiturage as Record<string, unknown>)
+      : {};
 
   const ens = tarifs.enseignement && typeof tarifs.enseignement === "object" ? tarifs.enseignement : {};
   const demi = tarifs.demiPension && typeof tarifs.demiPension === "object" ? tarifs.demiPension : {};
@@ -162,6 +166,10 @@ export function parseToolboxConfig(raw: unknown): ToolboxConfig {
         enabled: repartition.enabled !== false,
         label: String(repartition.label || defaults.tools["repartition-classes"].label).trim(),
       },
+      covoiturage: {
+        enabled: covoiturage.enabled === true,
+        label: String(covoiturage.label || defaults.tools.covoiturage.label).trim(),
+      },
     },
   };
 }
@@ -218,5 +226,12 @@ export function toolboxEnabledTools(config: ToolboxConfig): ToolboxToolId[] {
   if (config.tools.qrcreator.enabled) ids.push("qrcreator");
   // événements → /etablissement/evenements ; tarifs → Communication ; fournitures → Rentrée
   if (config.tools["repartition-classes"].enabled) ids.push("repartition-classes");
+  if (config.tools.covoiturage.enabled) ids.push("covoiturage");
   return ids;
+}
+
+/** Covoiturage activé dans la boîte à outils (désactivé par défaut). */
+export async function isCovoiturageToolEnabled(): Promise<boolean> {
+  const config = await getToolboxConfig();
+  return config.tools.covoiturage.enabled === true;
 }
