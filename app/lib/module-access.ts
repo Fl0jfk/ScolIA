@@ -317,23 +317,8 @@ export function dossierSectionsForRolesWithAccess(
   if (opts.platformAdmin || opts.orgAdmin || hasGlobalAdminRole(roles) || roles.includes("admin")) {
     return new Set(ALL_DOSSIER_SECTIONS);
   }
-  const userOv = findUserOverride(access, lookup);
-  if (userOv?.dossierSections?.length) {
-    return new Set(userOv.dossierSections);
-  }
-  const hasRoleOverride = Boolean(access && Object.keys(access.byRole).length > 0);
-  if (!hasRoleOverride) {
-    return eleveDossierSectionsForRoles(roles, opts);
-  }
-  const out = new Set<EleveDossierSection>();
-  for (const role of roles) {
-    for (const s of effectiveDossierSectionsForRole(role, access)) out.add(s);
-  }
-  if (out.size === 0) {
-    out.add("identite");
-    out.add("scolarite");
-  }
-  return out;
+  // Defaults métier (ROLE_DEFAULT_DOSSIER_SECTIONS) + overrides personne/rôle.
+  return new Set(effectiveDossierSectionsForUser(roles, access, lookup));
 }
 
 export { getIntranetModuleById };

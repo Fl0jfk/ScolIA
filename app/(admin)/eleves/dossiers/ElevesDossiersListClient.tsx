@@ -75,22 +75,65 @@ export default function ElevesDossiersListClient() {
   const [listMessage, setListMessage] = useState<string | null>(null);
   const [metaReady, setMetaReady] = useState(false);
   const [q, setQ] = useState(() => searchParams.get("q")?.trim() || "");
-  const [siteFilter, setSiteFilter] = useState("");
+  const [siteFilter, setSiteFilter] = useState(() => searchParams.get("site")?.trim() || "");
   const [classeFilter, setClasseFilter] = useState(
     () => searchParams.get("classe")?.trim() || "",
   );
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState(
+    () => searchParams.get("status")?.trim() || "",
+  );
   const [preSiteFilter, setPreSiteFilter] = useState("");
-  const [tab, setTab] = useState<"dossiers" | "preinscriptions" | "acces">("dossiers");
+  const [tab, setTab] = useState<"dossiers" | "preinscriptions" | "acces">(() => {
+    const t = searchParams.get("tab");
+    if (t === "preinscriptions" || t === "acces") return t;
+    return "dossiers";
+  });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const nextClasse = searchParams.get("classe")?.trim() || "";
     const nextQ = searchParams.get("q")?.trim() || "";
-    if (nextClasse) setClasseFilter(nextClasse);
-    if (nextQ) setQ(nextQ);
+    const nextSite = searchParams.get("site")?.trim() || "";
+    const nextStatus = searchParams.get("status")?.trim() || "";
+    const nextTab = searchParams.get("tab");
+    setClasseFilter(nextClasse);
+    setQ(nextQ);
+    setSiteFilter(nextSite);
+    setStatusFilter(nextStatus);
+    if (nextTab === "preinscriptions" || nextTab === "acces" || nextTab === "dossiers") {
+      setTab(nextTab);
+    }
   }, [searchParams]);
+
+  const listQueryString = useMemo(() => {
+    const p = new URLSearchParams();
+    if (q.trim()) p.set("q", q.trim());
+    if (classeFilter) p.set("classe", classeFilter);
+    if (siteFilter) p.set("site", siteFilter);
+    if (statusFilter) p.set("status", statusFilter);
+    if (tab !== "dossiers") p.set("tab", tab);
+    const s = p.toString();
+    return s ? `?${s}` : "";
+  }, [q, classeFilter, siteFilter, statusFilter, tab]);
+
+  useEffect(() => {
+    if (!metaReady) return;
+    const target = `/eleves/dossiers${listQueryString}`;
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (current !== target) {
+      router.replace(target, { scroll: false });
+    }
+  }, [listQueryString, metaReady, router]);
+
+  const dossierHref = useCallback(
+    (eleveId: string) => {
+      const retour = listQueryString || "";
+      if (!retour) return `/eleves/dossier/${eleveId}`;
+      return `/eleves/dossier/${eleveId}?retour=${encodeURIComponent(retour)}`;
+    },
+    [listQueryString],
+  );
 
   const loadDossiers = useCallback(async () => {
     const res = await fetch("/api/eleves/dossiers/list", { cache: "no-store" });
@@ -216,7 +259,7 @@ export default function ElevesDossiersListClient() {
     }
     setPreinsc((prev) => prev.filter((p) => p.id !== id));
     if (action === "accept" && j.eleve?.id) {
-      router.push(`/eleves/dossier/${j.eleve.id}`);
+      router.push(dossierHref(j.eleve.id));
     }
   }
 
@@ -390,7 +433,7 @@ export default function ElevesDossiersListClient() {
                     </p>
                   </div>
                   <Link
-                    href={`/eleves/dossier/${e.id}`}
+                    href={dossierHref(e.id)}
                     className="text-sm font-bold text-indigo-600 hover:underline"
                   >
                     Ouvrir
@@ -507,7 +550,7 @@ export default function ElevesDossiersListClient() {
                 <div className="flex gap-2 items-center">
                   {r.eleveId ? (
                     <Link
-                      href={`/eleves/dossier/${r.eleveId}`}
+                      href={dossierHref(r.eleveId)}
                       className="text-xs font-bold text-indigo-600 hover:underline"
                     >
                       Dossier

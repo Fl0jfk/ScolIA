@@ -11,7 +11,6 @@ import {
 import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import {
-  CATEGORIE_TIROIRS,
   tiroirsForCategories,
   type EleveDocCategorie,
 } from "@/app/lib/eleve-doc-categories";
@@ -167,8 +166,6 @@ export function eleveDocCategoriesMetaForRoles(
   );
 }
 
-export { CATEGORIE_TIROIRS };
-
 /** Enregistrement d’un document (upload) selon tiroir et confidentialité. */
 export function canRegisterEleveDocument(
   tiroir: EleveDocTiroir,
@@ -309,11 +306,12 @@ export async function listEleveDocumentsForViewer(opts: {
     lockedReason: "tiroir" | "confidentialite" | null;
   }> = [];
 
+  const allowedTiroirs = eleveDocTiroirsForRoles(opts.roles, {
+    orgAdmin: opts.orgAdmin,
+    platformAdmin: opts.platformAdmin,
+  });
+
   for (const doc of docs) {
-    const allowedTiroirs = eleveDocTiroirsForRoles(opts.roles, {
-      orgAdmin: opts.orgAdmin,
-      platformAdmin: opts.platformAdmin,
-    });
     const tiroirAllowed = allowedTiroirs.has(doc.tiroir as EleveDocTiroir);
 
     let canOpen = canOpenDocumentWithoutGrant(doc, opts.roles, {

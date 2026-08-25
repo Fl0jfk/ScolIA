@@ -203,7 +203,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     });
   }
 
-  const documents = sections.includes("documents")
+  const documentsRaw = sections.includes("documents")
     ? await listEleveDocumentsForViewer({
         etablissementId: etabId,
         eleveId: id,
@@ -213,6 +213,11 @@ export async function GET(_req: Request, ctx: Ctx) {
         platformAdmin,
       })
     : [];
+  const documents = documentsRaw.map((d) => ({
+    ...d,
+    createdAt:
+      d.createdAt instanceof Date ? d.createdAt.toISOString() : String(d.createdAt ?? ""),
+  }));
 
   const sites = await db
     .select({
@@ -259,14 +264,18 @@ export async function GET(_req: Request, ctx: Ctx) {
           .limit(50)
       : [];
 
-  await recordEleveAccessAudit({
-    etablissementId: etabId,
-    actorUserId: authUserId,
-    resourceType: "fiche_eleve",
-    resourceId: id,
-    eleveId: id,
-    action: "view",
-  });
+  try {
+    await recordEleveAccessAudit({
+      etablissementId: etabId,
+      actorUserId: authUserId,
+      resourceType: "fiche_eleve",
+      resourceId: id,
+      eleveId: id,
+      action: "view",
+    });
+  } catch (auditErr) {
+    console.error("[eleves/dossier] audit view", auditErr);
+  }
 
   let enCoursMaintenant = await (async () => {
     try {
@@ -276,11 +285,30 @@ export async function GET(_req: Request, ctx: Ctx) {
         zone: cfg.identity.schoolHolidayZone ?? null,
       });
     } catch {
-      return resolveEleveLiveCourse({ classe: row.classe });
+      try {
+        return resolveEleveLiveCourse({ classe: row.classe });
+      } catch {
+        return {
+          activity: null,
+          reason: "pas_edt" as const,
+          label: "Emploi du temps indisponible",
+        };
+      }
     }
   })();
 
-  const catalog = await buildEleveDossierClassCatalog(sites);
+  let catalog;
+  try {
+    catalog = await buildEleveDossierClassCatalog(sites);
+  } catch (catalogErr) {
+    console.error("[eleves/dossier] catalog", catalogErr);
+    catalog = {
+      sites: sites.map((s) => ({ siteId: s.siteId, label: s.label, kind: s.kind })),
+      siteLabelById: new Map(sites.map((s) => [s.siteId, s.label])),
+      classToSiteId: new Map<string, string>(),
+      classOptions: [],
+    };
+  }
   const currentScolarite = scolarites[0] ?? null;
   const siteIdFromScolarite = currentScolarite?.siteId ?? null;
 

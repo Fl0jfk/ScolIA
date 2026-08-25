@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import {
@@ -20,6 +20,24 @@ import {
   type EleveGrilleRepasDay,
   type MealDayKey,
 } from "@/app/lib/eleve-grille-repas";
+
+function dossiersListHrefFromRetour(retour: string | null, fallbackClasse?: string | null): string {
+  if (retour) {
+    const decoded = (() => {
+      try {
+        return decodeURIComponent(retour);
+      } catch {
+        return retour;
+      }
+    })();
+    if (decoded.startsWith("/eleves/dossiers")) return decoded;
+    if (decoded.startsWith("?")) return `/eleves/dossiers${decoded}`;
+  }
+  if (fallbackClasse?.trim()) {
+    return `/eleves/dossiers?classe=${encodeURIComponent(fallbackClasse.trim())}`;
+  }
+  return "/eleves/dossiers";
+}
 
 function IconUpload({ className }: { className?: string }) {
   return (
@@ -223,7 +241,12 @@ const emptyResp = {
 
 export default function EleveDossierClient() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = String(params.id || "");
+  const listHref = dossiersListHrefFromRetour(
+    searchParams.get("retour"),
+    searchParams.get("classe"),
+  );
   const [data, setData] = useState<DossierPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("synthese");
@@ -265,27 +288,36 @@ export default function EleveDossierClient() {
 
   const load = useCallback(async () => {
     setError(null);
-    const res = await fetch(`/api/eleves/${id}/dossier`);
-    if (!res.ok) {
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      setError(j.error || `Erreur ${res.status}`);
+    try {
+      const res = await fetch(`/api/eleves/${id}/dossier`);
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
+      } & Partial<DossierPayload>;
+      if (!res.ok) {
+        const detail = typeof j.detail === "string" && j.detail.trim() ? ` (${j.detail})` : "";
+        setError((j.error || `Erreur ${res.status}`) + detail);
+        setData(null);
+        return;
+      }
+      const payload = j as DossierPayload;
+      setData(payload);
+      const firstTiroir = payload.meta?.tiroirs?.[0];
+      if (firstTiroir) {
+        setUploadMeta((m) =>
+          payload.meta.tiroirs.includes(m.tiroir) ? m : { ...m, tiroir: firstTiroir },
+        );
+      }
+      const cats = payload.meta?.docCategories ?? [];
+      setDocCategory((prev) => {
+        if (prev === "tous") return cats.length === 1 ? cats[0]! : "tous";
+        if (cats.includes(prev)) return prev;
+        return cats.length === 1 ? cats[0]! : "tous";
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur réseau");
       setData(null);
-      return;
     }
-    const payload = (await res.json()) as DossierPayload;
-    setData(payload);
-    const firstTiroir = payload.meta.tiroirs[0];
-    if (firstTiroir) {
-      setUploadMeta((m) =>
-        payload.meta.tiroirs.includes(m.tiroir) ? m : { ...m, tiroir: firstTiroir },
-      );
-    }
-    const cats = payload.meta.docCategories ?? [];
-    setDocCategory((prev) => {
-      if (prev === "tous") return cats.length === 1 ? cats[0]! : "tous";
-      if (cats.includes(prev)) return prev;
-      return cats.length === 1 ? cats[0]! : "tous";
-    });
   }, [id]);
 
   useEffect(() => {
@@ -506,7 +538,7 @@ export default function EleveDossierClient() {
     return (
       <ModulePageShell maxWidthClass="max-w-3xl">
         <p className="text-red-600">{error}</p>
-        <Link href="/eleves/dossiers" className="text-sm font-semibold text-indigo-600">
+        <Link href={listHref} className="text-sm font-semibold text-indigo-600">
           ← Retour liste
         </Link>
       </ModulePageShell>
@@ -594,7 +626,7 @@ export default function EleveDossierClient() {
           <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
             {e.classe ? (
               <Link
-                href={`/eleves/dossiers?classe=${encodeURIComponent(e.classe)}`}
+                href={listHref}
                 className="text-base font-bold text-indigo-700 hover:underline"
               >
                 {classeDisplay}
@@ -612,7 +644,7 @@ export default function EleveDossierClient() {
           </span>
         }
         actions={
-          <Link href="/eleves/dossiers" className="text-sm font-bold text-indigo-600 hover:underline">
+          <Link href={listHref} className="text-sm font-bold text-indigo-600 hover:underline">
             Liste des dossiers
           </Link>
         }
@@ -670,7 +702,7 @@ export default function EleveDossierClient() {
                 </h2>
                 {e.classe ? (
                   <Link
-                    href={`/eleves/dossiers?classe=${encodeURIComponent(e.classe)}`}
+                    href={listHref}
                     className="mt-2 inline-flex items-center gap-2 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-xl font-black text-indigo-900 transition hover:border-indigo-400 hover:bg-indigo-100"
                     title="Voir tous les élèves de cette classe"
                   >
