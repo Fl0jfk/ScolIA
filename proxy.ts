@@ -412,7 +412,11 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL(dest, request.url));
   }
 
-  if (!canAccessIntranetPath(pathname, roles, isOrgAdmin)) {
+  if (
+    !canAccessIntranetPath(pathname, roles, isOrgAdmin) &&
+    !isMustChangePasswordAllowedPath(pathname) &&
+    !isTwoFactorSetupAllowedPath(pathname)
+  ) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json(
         { error: "Accès refusé à ce module.", code: "MODULE_FORBIDDEN" },

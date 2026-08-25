@@ -66,6 +66,8 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/api/teams-chat",
   "/api/tenant/public",
   "/api/tenant/diagnostics",
+  /** Compte : MDP / e-mail / events — sinon « Accès refusé à ce module » au premier login. */
+  "/api/account",
   "/onboarding",
   "/configuration-en-cours",
   "/abonnement-suspendu",
