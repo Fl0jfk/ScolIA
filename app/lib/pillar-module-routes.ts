@@ -56,7 +56,6 @@ const PILLAR_TAB_TO_MODULE: Record<DashboardPillarId, Record<string, string>> = 
     stages: "stages",
     ocr: "agent-ia-ocr",
     certificates: "certificates",
-    pilotage: "pilotage-eleves",
   },
   etablissement: {
     organigramme: "organigramme",

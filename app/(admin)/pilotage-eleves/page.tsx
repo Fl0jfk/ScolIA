@@ -1,7 +1,6 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import PilotageElevesClient from "@/app/components/pilotage-eleves/PilotageElevesClient";
-
-export default function PilotageElevesPage() {
-  return <PilotageElevesClient />;
+/** Module masqué — redirigé vers le pilier Administratif. */
+export default function PilotageElevesHiddenPage() {
+  redirect("/administratif");
 }

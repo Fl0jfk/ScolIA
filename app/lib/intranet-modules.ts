@@ -462,8 +462,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "pilotage-eleves",
     pathPrefixes: ["/pilotage-eleves", "/api/pilotage-eleves"],
-    allowedRoles: ["direction_ecole", "direction_college", "direction_lycee", "administratif"],
-    // Retiré du dashboard / pilier Administratif — module peu utile en l’état.
+    // Module masqué (UI + raccourcis) — API conservée pour OCR / jobs internes.
+    allowedRoles: [],
   },
   {
     id: "internat",
@@ -804,15 +804,11 @@ export function rolesAllowModule(
   userRef?: string | { userId?: string | null; businessUserId?: string | null } | null,
 ): boolean {
   if (hasMasterRole(roles)) return true;
-  if (module.id === "pilotage-eleves") {
-    const allowed = new Set(
-      ["direction_ecole", "direction_college", "direction_lycee", "administratif"].map(normRole),
-    );
-    return roles.some((r) => allowed.has(normRole(r)));
-  }
   // Admin établissement (flag ou rôle) : tous les modules du tenant.
   if (isOrgAdmin || hasGlobalAdminRole(roles)) return true;
   if (module.orgAdminOnly) return false;
+  // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
+  if (module.id === "pilotage-eleves") return false;
 
   // Hubs piliers : accessible dès qu’un module du pilier l’est (matrice / defaults).
   if (module.id.startsWith("pillar-")) {

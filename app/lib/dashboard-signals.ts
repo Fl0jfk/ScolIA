@@ -676,17 +676,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     });
   }
 
-  if (has("pilotage-eleves")) {
-    shortcuts.push({
-      id: "pilotage-eleves",
-      pillarId: "vie_scolaire",
-      moduleId: "pilotage-eleves",
-      href: moduleHref("pilotage-eleves"),
-      label: "Pilotage élèves",
-      detail: "Aide documentaire au conseil de classe",
-    });
-  }
-
   // —— RH : Absences ——
   if (has("rh") || has("mon-planning")) {
     if (has("mon-planning")) {
