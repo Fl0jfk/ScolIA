@@ -135,6 +135,14 @@ export default function BetterAuthSignInPage() {
         >
           {loading ? "Connexion…" : "Se connecter"}
         </button>
+        <p className="text-center text-sm">
+          <a
+            href="/auth/forgot-password"
+            className="font-medium text-[#2F6B4A] underline underline-offset-2"
+          >
+            Mot de passe oublié ou premier accès
+          </a>
+        </p>
       </form>
     </div>
   );

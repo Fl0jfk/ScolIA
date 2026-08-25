@@ -5,8 +5,9 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { twoFactor } from "better-auth/plugins";
+import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
-import { authSchema } from "@/db/schema";
+import { authSchema, user as userTable } from "@/db/schema";
 import { betterAuthBaseUrl, isBetterAuthConfigured } from "@/app/lib/auth-config";
 import { ensureEtablissementFromSlug } from "@/app/lib/etablissement-db";
 import { ensureUserMembership } from "@/app/lib/user-membership";
@@ -21,6 +22,7 @@ async function sendPlatformMail(opts: {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 }): Promise<boolean> {
   const transporter = createPlatformTransporter();
   if (!transporter) {
@@ -37,12 +39,81 @@ async function sendPlatformMail(opts: {
       to: opts.to,
       subject: opts.subject,
       text: opts.text,
+      ...(opts.html ? { html: opts.html } : {}),
     });
     return true;
   } catch (error) {
     console.error("[auth] envoi mail", error);
     return false;
   }
+}
+
+/** Corps du mail d’activation / reset MDP (texte + HTML). */
+export function buildPasswordActivationEmail(opts: {
+  firstName?: string | null;
+  url: string;
+}): { subject: string; text: string; html: string } {
+  const prenom = opts.firstName?.trim() || "";
+  const hello = prenom ? `Bonjour ${prenom},` : "Bonjour,";
+  const subject = "ScolIA — Activez votre compte et créez votre mot de passe";
+  const text = `${hello}
+
+Pour simplifier la connexion à l’intranet ScolIA, nous vous invitons à activer votre compte et à créer un nouveau mot de passe personnel.
+
+Important : l’ancien mot de passe (s’il existait) ne fonctionne plus. Utilisez uniquement le lien ci-dessous.
+
+1) Ouvrez ce lien (valable une heure) pour choisir votre nouveau mot de passe :
+${opts.url}
+
+2) Après connexion, vous devrez activer la double authentification (MFA) avec une application d’authentification. C’est obligatoire pour protéger les données de l’établissement.
+
+Applications possibles (gratuites) :
+- Microsoft Authenticator (Windows / Android / iPhone)
+- Google Authenticator (Android / iPhone)
+- Mots de passe d’Apple (iPhone / Mac) — section « Codes » / authentification à deux facteurs
+
+Comment ça marche en bref :
+- Lors de la première connexion après ce mail, l’écran affiche un QR code.
+- Ouvrez votre appli d’authentification → ajoutez un compte → scannez le QR code.
+- Saisissez le code à 6 chiffres généré par l’appli pour valider.
+- Ensuite, à chaque connexion : e-mail + mot de passe + code de l’appli.
+
+Si le lien a expiré, demandez un nouveau lien via « Mot de passe oublié » sur la page de connexion, ou contactez l’établissement.
+
+Si vous n’êtes pas concerné par ce message, ignorez-le.
+
+— L’équipe ScolIA
+`;
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<body style="font-family:Segoe UI,Helvetica,Arial,sans-serif;line-height:1.5;color:#0f172a;max-width:560px;margin:0 auto;padding:24px;">
+  <p>${hello}</p>
+  <p>Pour simplifier la connexion à l’intranet <strong>ScolIA</strong>, activez votre compte et créez un <strong>nouveau mot de passe personnel</strong>.</p>
+  <p style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px;"><strong>Important :</strong> l’ancien mot de passe (s’il existait) ne fonctionne plus. Utilisez uniquement le bouton ci-dessous.</p>
+  <p style="text-align:center;margin:28px 0;">
+    <a href="${opts.url}" style="display:inline-block;background:#2F6B4A;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600;">Créer mon mot de passe</a>
+  </p>
+  <p style="font-size:13px;color:#64748b;">Lien valable <strong>1 heure</strong>. Si le bouton ne fonctionne pas, copiez cette adresse :<br/><a href="${opts.url}">${opts.url}</a></p>
+  <h2 style="font-size:16px;margin-top:28px;">Ensuite : double authentification (MFA)</h2>
+  <p>Après connexion, vous activerez une application d’authentification (obligatoire pour la sécurité de l’établissement) :</p>
+  <ul>
+    <li><strong>Microsoft Authenticator</strong> (Windows / Android / iPhone)</li>
+    <li><strong>Google Authenticator</strong> (Android / iPhone)</li>
+    <li><strong>Mots de passe d’Apple</strong> (iPhone / Mac) — codes à deux facteurs</li>
+  </ul>
+  <ol>
+    <li>L’écran affiche un QR code.</li>
+    <li>Dans l’appli : ajouter un compte → scanner le QR code.</li>
+    <li>Saisir le code à 6 chiffres pour valider.</li>
+    <li>À chaque connexion suivante : e-mail + mot de passe + code de l’appli.</li>
+  </ol>
+  <p style="font-size:13px;color:#64748b;">Lien expiré ? Utilisez « Mot de passe oublié » sur la page de connexion, ou contactez l’établissement.</p>
+  <p style="margin-top:32px;font-size:13px;color:#64748b;">— L’équipe ScolIA</p>
+</body>
+</html>`;
+
+  return { subject, text, html };
 }
 
 function createAuth() {
@@ -89,6 +160,39 @@ function createAuth() {
       enabled: true,
       requireEmailVerification,
       minPasswordLength: PASSWORD_MIN_LENGTH,
+      resetPasswordTokenExpiresIn: 60 * 60,
+      revokeSessionsOnPasswordReset: true,
+      sendResetPassword: async ({ user, url }) => {
+        const mail = buildPasswordActivationEmail({
+          firstName:
+            typeof user.firstName === "string"
+              ? user.firstName
+              : typeof (user as { name?: string }).name === "string"
+                ? (user as { name?: string }).name?.split(/\s+/)[0]
+                : null,
+          url,
+        });
+        void sendPlatformMail({
+          to: user.email,
+          subject: mail.subject,
+          text: mail.text,
+          html: mail.html,
+        });
+      },
+      onPasswordReset: async ({ user }) => {
+        try {
+          await getDb()
+            .update(userTable)
+            .set({
+              mustChangePassword: false,
+              emailVerified: true,
+              updatedAt: new Date(),
+            })
+            .where(eq(userTable.id, user.id));
+        } catch (e) {
+          console.error("[auth] onPasswordReset update user", e);
+        }
+      },
     },
     emailVerification: {
       sendOnSignUp: true,

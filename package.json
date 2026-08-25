@@ -13,6 +13,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "auth:set-password": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/set-better-auth-password.ts",
+    "auth:bulk-activation": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/bulk-send-password-activation.ts",
     "ent:import-core": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/import-ent-core.ts",
     "ent:migrate-relational": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/migrate-ent-relational.ts",
     "ent:import-json": "node --require ./scripts/stub-server-only.cjs --import tsx scripts/import-ent-json.ts",
