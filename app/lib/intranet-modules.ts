@@ -11,6 +11,10 @@
 import { hasGlobalAdminRole, hasMasterRole, hasRole, isEleveOnlyRoleSet, normRole } from "./intranet-role-utils";
 import { INTRANET_DIRECTION_SLUGS, intranetRolesExceptParent, rolesFromUserLike } from "./intranet-roles";
 import { RGPD_MODULE_ROLES } from "./rgpd-access";
+import {
+  customDefaultModulesForRole,
+  hasCustomRoleDefaults,
+} from "./module-access-defaults";
 
 const DIRECTIONS = [...INTRANET_DIRECTION_SLUGS];
 const ROLES_EXCEPT_PARENT = intranetRolesExceptParent();
@@ -481,7 +485,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-calendrier",
     pathPrefixes: ["/vie-scolaire/calendrier", "/api/vie-scolaire/calendrier"],
-    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe"],
+    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe", "professeur"],
     dashboard: {
       id: 241,
       name: "Calendrier & EDT",
@@ -669,7 +673,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "pillar-etablissement",
     pathPrefixes: ["/etablissement"],
-    allowedRoles: [...DIRECTIONS, "administratif", "admin"],
+    allowedRoles: [...DIRECTIONS, "administratif", "admin", "professeur"],
   },
   {
     id: "pillar-services",
@@ -693,7 +697,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "pillar-compta-rh",
     pathPrefixes: ["/compta-rh"],
-    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin", "maintenance"],
+    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin", "maintenance", "professeur"],
   },
   {
     id: "scolia-ai",
@@ -845,20 +849,37 @@ export function rolesAllowModule(
   }
 
   const hasRoleOverrides = Boolean(byRole && Object.keys(byRole).length > 0);
-  if (!hasRoleOverrides) {
-    return module.allowedRoles.some((r) => hasRole(roles, r));
+  if (hasRoleOverrides) {
+    for (const role of roles) {
+      if (role === "admin") return true;
+      const override = byRole![role];
+      if (override) {
+        if ((override.modules ?? []).includes(module.id)) return true;
+        continue;
+      }
+      if (module.allowedRoles.some((r) => hasRole([role], r))) return true;
+    }
+    return false;
   }
 
+  // Defaults métier explicites (ex. professeur) = source de vérité.
+  const fromCustom = new Set<string>();
+  let anyCustom = false;
   for (const role of roles) {
-    if (role === "admin") return true;
-    const override = byRole![role];
-    if (override) {
-      if ((override.modules ?? []).includes(module.id)) return true;
-      continue;
-    }
-    if (module.allowedRoles.some((r) => hasRole([role], r))) return true;
+    if (!hasCustomRoleDefaults(role)) continue;
+    anyCustom = true;
+    for (const id of customDefaultModulesForRole(role) ?? []) fromCustom.add(id);
   }
-  return false;
+  if (anyCustom) {
+    for (const role of roles) {
+      if (hasCustomRoleDefaults(role)) continue;
+      if (role === "admin") return true;
+      if (module.allowedRoles.some((r) => hasRole([role], r))) return true;
+    }
+    return fromCustom.has(module.id);
+  }
+
+  return module.allowedRoles.some((r) => hasRole(roles, r));
 }
 
 /** Modules enfants des hubs piliers (alignés sur DASHBOARD_PILLARS.moduleIds). */
@@ -888,6 +909,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "toolbox",
     "channels",
     "assistance",
+    "photocopies-couleur",
   ],
   "pillar-vie-scolaire": [
     "internat",
@@ -897,7 +919,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "vs-calendrier",
     "groupes-pedagogiques",
   ],
-  "pillar-compta-rh": ["rh", "mon-planning", "conformite-rgpd"],
+  "pillar-compta-rh": ["rh", "mon-planning", "conformite-rgpd", "absences", "demandes-hse"],
 };
 
 export function canAccessIntranetPath(

@@ -53,7 +53,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     title: "Établissement",
     href: "/etablissement",
     description: "Paramètres, événements, annuaire, communication",
-    allowedRoles: [...DIRECTIONS, "administratif", "admin"],
+    allowedRoles: [...DIRECTIONS, "administratif", "admin", "professeur"],
     moduleIds: [
       "admin-settings",
       "organigramme",
@@ -109,7 +109,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     title: "Comptabilité & RH",
     href: "/compta-rh",
     description: "RH, paie, facturation, absences pro",
-    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin", "maintenance"],
+    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin", "maintenance", "professeur"],
     moduleIds: ["rh", "mon-planning", "conformite-rgpd"],
   },
   {

@@ -70,7 +70,6 @@ export function eleveDossierSectionsForRoles(
     ]);
   }
   if (hasRole(roles, "professeur")) {
-    out.add("documents");
     out.add("notes");
   }
   if (hasRole(roles, "cpe") || hasRole(roles, "education")) {

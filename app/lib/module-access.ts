@@ -11,6 +11,10 @@ import {
   type IntranetModule,
 } from "@/app/lib/intranet-modules";
 import { DASHBOARD_PILLARS, moduleIdToPillarId } from "@/app/lib/dashboard-pillars";
+import {
+  customDefaultDossierSectionsForRole,
+  customDefaultModulesForRole,
+} from "@/app/lib/module-access-defaults";
 
 /** Modules exclus de la matrice admin. */
 const SKIP_MODULE_IDS = new Set([
@@ -112,12 +116,16 @@ export function listConfigurableModules(): IntranetModule[] {
 }
 
 export function defaultModulesForRole(role: string): string[] {
+  const custom = customDefaultModulesForRole(role);
+  if (custom) return custom;
   return listConfigurableModules()
     .filter((m) => m.allowedRoles.some((r) => hasRole([role], r)))
     .map((m) => m.id);
 }
 
 export function defaultDossierSectionsForRole(role: string): EleveDossierSection[] {
+  const custom = customDefaultDossierSectionsForRole(role);
+  if (custom) return custom as EleveDossierSection[];
   return [...eleveDossierSectionsForRoles([role])];
 }
 
