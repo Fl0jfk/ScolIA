@@ -5,7 +5,7 @@ import { hasGlobalAdminRole, intranetRolesFromMetadata } from "@/app/lib/intrane
 export function canAccessInternatModule(roles: string[]) {
   if (hasGlobalAdminRole(roles)) return true;
   return (
-    hasRole(roles, "education") ||
+    hasRole(roles, "surveillant") ||
     hasRole(roles, "cpe") ||
     hasRole(roles, "administratif") ||
     isAnyDirectionRole(roles)
@@ -14,7 +14,7 @@ export function canAccessInternatModule(roles: string[]) {
 
 /** Signal dashboard « appel du soir » : réservé à la vie scolaire / éducation. */
 export function canSeeInternatRollCallSignal(roles: string[]) {
-  return hasRole(roles, "education") || hasRole(roles, "cpe");
+  return hasRole(roles, "surveillant") || hasRole(roles, "cpe");
 }
 
 export function canAccessInternatFromMetadata(meta: unknown) {
@@ -25,7 +25,7 @@ export function canAccessInternatFromMetadata(meta: unknown) {
 export function canManageInternatConfig(roles: string[]) {
   if (hasGlobalAdminRole(roles)) return true;
   return (
-    hasRole(roles, "education") ||
+    hasRole(roles, "surveillant") ||
     hasRole(roles, "cpe") ||
     hasRole(roles, "administratif") ||
     isAnyDirectionRole(roles)

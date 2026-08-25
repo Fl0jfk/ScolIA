@@ -115,10 +115,12 @@ export const INTRANET_MODULES: IntranetModule[] = [
       ...DIRECTIONS,
       "administratif",
       "comptabilite",
-      "education",
+      "surveillant",
       "cpe",
       "professeur",
       "maintenance",
+      "infirmerie",
+      "psychologue",
     ],
     dashboard: {
       id: 1,
@@ -135,7 +137,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       ...DIRECTIONS,
       "administratif",
       "comptabilite",
-      "education",
+      "surveillant",
       "cpe",
       "professeur",
       "maintenance",
@@ -149,9 +151,10 @@ export const INTRANET_MODULES: IntranetModule[] = [
       ...DIRECTIONS,
       "administratif",
       "comptabilite",
-      "education",
+      "surveillant",
       "cpe",
       "professeur",
+      "infirmerie",
     ],
     dashboard: {
       id: 4,
@@ -188,7 +191,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
-      "education",
+      "surveillant",
       "cpe",
       "professeur",
       "maintenance",
@@ -208,7 +211,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
-      "education",
+      "surveillant",
       "cpe",
       "professeur",
       "infirmerie",
@@ -227,7 +230,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "agent-ia-ocr",
     pathPrefixes: ["/agentIAOCR", "/api/agentIAOCR", "/api/eleves", "/api/mef-secteurs", "/api/enseignants"],
-    allowedRoles: ["administratif", "comptabilite", "education", "cpe", ...DIRECTIONS],
+    allowedRoles: ["administratif", "comptabilite", "surveillant", "cpe", ...DIRECTIONS],
     dashboard: {
       id: 10,
       name: "Ajout de documents IA",
@@ -250,10 +253,11 @@ export const INTRANET_MODULES: IntranetModule[] = [
       ...DIRECTIONS,
       "administratif",
       "comptabilite",
-      "education",
+      "surveillant",
       "cpe",
       "professeur",
       "infirmerie",
+      "psychologue",
     ],
     dashboard: {
       id: 42,
@@ -282,11 +286,13 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
-      "education",
+      "surveillant",
       "cpe",
       "comptabilite",
       "professeur",
       "maintenance",
+      "infirmerie",
+      "psychologue",
     ],
     // Tuile dashboard retirée : module absorbé dans RH (`/rh?tab=absences`).
   },
@@ -324,8 +330,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/api/posters",
       "/api/posters/drafts",
     ],
-    allowedRoles: [],
-    orgAdminOnly: true,
+    allowedRoles: [...DIRECTIONS, "administratif", "admin"],
     dashboard: {
       id: 32,
       name: "Communication",
@@ -349,10 +354,12 @@ export const INTRANET_MODULES: IntranetModule[] = [
       ...DIRECTIONS,
       "administratif",
       "comptabilite",
-      "education",
+      "surveillant",
       "cpe",
       "professeur",
       "maintenance",
+      "infirmerie",
+      "psychologue",
     ],
     dashboard: {
       id: 3,
@@ -410,8 +417,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/api/members",
       "/api/nomenclature",
     ],
-    allowedRoles: [],
-    orgAdminOnly: true,
+    allowedRoles: [...DIRECTIONS, "admin"],
     dashboard: {
       id: 21,
       name: "Paramètres",
@@ -428,10 +434,12 @@ export const INTRANET_MODULES: IntranetModule[] = [
       ...DIRECTIONS,
       "administratif",
       "comptabilite",
-      "education",
+      "surveillant",
       "cpe",
       "maintenance",
       "professeur",
+      "infirmerie",
+      "psychologue",
     ],
     dashboard: {
       id: 23,
@@ -449,10 +457,12 @@ export const INTRANET_MODULES: IntranetModule[] = [
       ...DIRECTIONS,
       "administratif",
       "comptabilite",
-      "education",
+      "surveillant",
       "cpe",
       "maintenance",
       "professeur",
+      "infirmerie",
+      "psychologue",
     ],
     dashboard: {
       id: 32,
@@ -472,7 +482,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "internat",
     pathPrefixes: ["/gestion-internat", "/api/internat"],
-    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe"],
+    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe", "infirmerie"],
     dashboard: {
       id: 24,
       name: "Internat",
@@ -485,7 +495,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-calendrier",
     pathPrefixes: ["/vie-scolaire/calendrier", "/api/vie-scolaire/calendrier"],
-    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe", "professeur"],
+    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe", "professeur"],
     dashboard: {
       id: 241,
       name: "Calendrier & EDT",
@@ -502,7 +512,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/vie-scolaire/appels",
       "/api/vie-scolaire/appels",
     ],
-    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe", "professeur"],
+    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe", "professeur"],
     dashboard: {
       id: 242,
       name: "Appels & absences",
@@ -515,13 +525,13 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-absences",
     pathPrefixes: ["/vie-scolaire/absences", "/api/vie-scolaire/absences"],
-    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe"],
+    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe"],
     // Tuile absorbée dans « Appels & absences » (`vs-appels` → /vie-scolaire/presence).
   },
   {
     id: "vs-sanctions",
     pathPrefixes: ["/vie-scolaire/sanctions", "/api/vie-scolaire/sanctions"],
-    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe"],
+    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe"],
     dashboard: {
       id: 244,
       name: "Sanctions",
@@ -534,7 +544,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-carnet",
     pathPrefixes: ["/vie-scolaire/carnet", "/api/vie-scolaire/carnet"],
-    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe", "professeur"],
+    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe", "professeur"],
     dashboard: {
       id: 245,
       name: "Carnet",
@@ -552,7 +562,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       ...DIRECTIONS,
       "administratif",
       "professeur",
-      "education",
+      "surveillant",
       "cpe",
       "parent",
     ],
@@ -573,6 +583,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       ...DIRECTIONS,
       "administratif",
       "professeur",
+      "cpe",
     ],
     dashboard: {
       id: 29,
@@ -605,8 +616,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "notes",
     pathPrefixes: ["/notes", "/api/notes"],
-    allowedRoles: [],
-    orgAdminOnly: true,
+    allowedRoles: [...DIRECTIONS, "administratif", "admin", "cpe"],
     dashboard: {
       id: 51,
       name: "Notes & bulletins",
@@ -619,7 +629,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "groupes-pedagogiques",
     pathPrefixes: ["/groupes-pedagogiques", "/api/groupes-pedagogiques"],
-    allowedRoles: [...DIRECTIONS, "professeur", "administratif", "cpe", "education", "admin"],
+    allowedRoles: [...DIRECTIONS, "professeur", "administratif", "cpe", "surveillant", "admin"],
     dashboard: {
       id: 52,
       name: "Groupes pédagogiques",
@@ -651,7 +661,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "bien-etre-referent",
     pathPrefixes: ["/bien-etre/referent", "/bien-etre/config", "/api/bien-etre/config", "/api/bien-etre/signalements"],
-    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe", "infirmerie", "psychologue"],
+    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe", "infirmerie", "psychologue"],
     // Tuile dashboard masquée pour l’instant (module pas encore prêt).
   },
   {
@@ -683,7 +693,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "administratif",
       "professeur",
       "cpe",
-      "education",
+      "surveillant",
       "comptabilite",
       "maintenance",
       "admin",
@@ -692,7 +702,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "pillar-vie-scolaire",
     pathPrefixes: ["/vie-scolaire"],
-    allowedRoles: [...DIRECTIONS, "cpe", "education", "administratif", "admin", "professeur"],
+    allowedRoles: [...DIRECTIONS, "cpe", "surveillant", "administratif", "admin", "professeur"],
   },
   {
     id: "pillar-compta-rh",
@@ -732,7 +742,7 @@ const INTRANET_EXTERNAL_QUICK_LINKS: ExternalQuickLink[] = [
       "maintenance",
       "comptabilite",
       "infirmerie",
-      "education",
+      "surveillant",
       "cpe",
     ],
   },

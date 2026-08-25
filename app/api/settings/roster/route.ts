@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { classifyRegime } from "@/app/lib/eleve-regime";
 import { countElevesRegistry, loadElevesRegistry } from "@/app/lib/eleves-registry";
 import {
@@ -11,7 +11,7 @@ import {
 import { listStageReferentClassNames } from "@/app/lib/stage-referents-config";
 
 export async function GET() {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   const [roster, elevesCount, users, classesFromStages, eleves] = await Promise.all([
     loadSchoolRoster(),
@@ -50,7 +50,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   const body = (await req.json()) as Partial<SchoolRosterConfig>;
   const current = await loadSchoolRoster();

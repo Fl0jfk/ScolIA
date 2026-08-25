@@ -176,7 +176,7 @@ export function laprovidenceExternalLinks(): ExternalQuickLinkConfig[] {
         "maintenance",
         "comptabilite",
         "infirmerie",
-        "education",
+        "surveillant",
       ],
     },
     {

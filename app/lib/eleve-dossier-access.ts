@@ -63,7 +63,7 @@ export function eleveDocCategoriesForRoles(
   if (hasRole(roles, "infirmerie") || hasRole(roles, "psychologue")) {
     out.add("sante");
   }
-  if (hasRole(roles, "cpe") || hasRole(roles, "education")) {
+  if (hasRole(roles, "cpe") || hasRole(roles, "surveillant")) {
     out.add("administratif");
   }
   if (hasRole(roles, "professeur")) {
@@ -105,12 +105,16 @@ export function eleveDossierSectionsForRoles(
   if (hasRole(roles, "professeur")) {
     out.add("notes");
   }
-  if (hasRole(roles, "cpe") || hasRole(roles, "education")) {
+  if (hasRole(roles, "cpe")) {
     out.add("vie_scolaire");
     out.add("documents");
     out.add("famille");
+    out.add("notes");
   }
-  if (hasRole(roles, "infirmerie") || hasRole(roles, "psychologue")) {
+  if (hasRole(roles, "surveillant")) {
+    out.add("famille");
+  }
+  if (hasRole(roles, "infirmerie")) {
     out.add("sante");
     out.add("famille");
     out.add("documents");
@@ -124,6 +128,8 @@ export function eleveDossierSectionsForRoles(
     out.add("famille");
     out.add("documents");
     out.add("facturation");
+    out.add("notes");
+    out.add("vie_scolaire");
   }
   return out;
 }
@@ -143,7 +149,7 @@ export function eleveDocTiroirsForRoles(
     // Prof : scolaire + voyages uniquement (pas inscription / vie scolaire docs).
     return new Set<EleveDocTiroir>(["scolaire", "voyages"]);
   }
-  if (hasRole(roles, "cpe") || hasRole(roles, "education")) {
+  if (hasRole(roles, "cpe") || hasRole(roles, "surveillant")) {
     tiroirs.add("vie_scolaire");
     tiroirs.add("scolaire");
   }

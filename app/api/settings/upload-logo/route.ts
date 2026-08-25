@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { resolveHeaderLogoDisplayUrl } from "@/app/lib/branding-logo";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
@@ -21,7 +21,7 @@ function safeFileName(name: string): string {
 
 /** Aperçu signé du logo header actuel. */
 export async function GET() {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   const config = await loadAppConfig();
   const previewUrl = await resolveHeaderLogoDisplayUrl(config.identity.headerLogoUrl);
@@ -29,7 +29,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
 
   try {

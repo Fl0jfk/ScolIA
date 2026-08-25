@@ -9,7 +9,7 @@ export const DEFAULT_QUICK_LINK_ROLES = [
   "direction_college",
   "direction_lycee",
   "comptabilite",
-  "education",
+  "surveillant",
   "cpe",
   "maintenance",
   "infirmerie",

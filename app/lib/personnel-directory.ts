@@ -9,7 +9,7 @@ import {
 /** Rôles OGEC typiques (hors professeur) — utilisé pour suggestion de catégorie. */
 const RH_OGEC_LEGACY_AUTH_ROLES = [
   "administratif",
-  "education",
+  "surveillant",
   "cpe",
   "comptabilite",
   "maintenance",

@@ -218,7 +218,7 @@ function canSeeTodayTripHighlight(roles: string[]): boolean {
   if (isDirectionRole(roles) || isCompta(roles)) return false;
   return (
     hasRole(roles, "administratif") ||
-    hasRole(roles, "education") ||
+    hasRole(roles, "surveillant") ||
     hasRole(roles, "cpe") ||
     hasRole(roles, "professeur")
   );

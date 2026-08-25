@@ -2,14 +2,14 @@ import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { NextResponse } from "next/server";
 
 import { parseRequestsRouting } from "@/app/lib/app-config-schemas";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import {
   getRequestsRoutingConfig,
   saveRequestsRoutingConfig,
 } from "@/app/lib/requests-routing-config";
 
 export async function GET() {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   try {
     const config = await getRequestsRoutingConfig();
@@ -21,7 +21,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   try {
     const body = await req.json();

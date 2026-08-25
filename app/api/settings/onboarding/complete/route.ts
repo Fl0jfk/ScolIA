@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { markOnboardingComplete } from "@/app/lib/app-config";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 
 export async function PUT() {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   try {
     await markOnboardingComplete();

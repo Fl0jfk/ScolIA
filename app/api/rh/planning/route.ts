@@ -46,7 +46,7 @@ function isStaffPlanningAudience(roles: string[]) {
   return (
     hasRole(roles, "administratif") ||
     hasRole(roles, "comptabilite") ||
-    hasRole(roles, "education") ||
+    hasRole(roles, "surveillant") ||
     hasRole(roles, "cpe") ||
     hasRole(roles, "maintenance")
   );

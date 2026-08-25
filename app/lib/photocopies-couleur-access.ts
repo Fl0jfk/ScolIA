@@ -15,7 +15,7 @@ export function getPhotocopiesRoleFlags(roles: string[]) {
     isDirection: isAnyDirectionRole(roles),
     isAdministratif: hasRole(roles, "administratif"),
     isProfesseur: hasRole(roles, "professeur"),
-    isEducation: hasRole(roles, "education") || hasRole(roles, "cpe"),
+    isEducation: hasRole(roles, "surveillant") || hasRole(roles, "cpe"),
   };
 }
 

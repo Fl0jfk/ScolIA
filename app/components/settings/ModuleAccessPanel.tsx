@@ -91,11 +91,21 @@ export default function ModuleAccessPanel() {
 
   const filteredMembers = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return members.filter((m) => {
+    const list = members.filter((m) => {
       if (roleFilter && !m.roles.includes(roleFilter)) return false;
       if (!q) return true;
       const blob = `${m.displayName} ${m.email} ${m.roles.join(" ")}`.toLowerCase();
       return blob.includes(q);
+    });
+    // Tri par nom de famille (dernier mot du displayName), puis prénom.
+    return [...list].sort((a, b) => {
+      const partsA = a.displayName.trim().split(/\s+/);
+      const partsB = b.displayName.trim().split(/\s+/);
+      const lastA = partsA.length > 1 ? partsA[partsA.length - 1]! : partsA[0] || a.email;
+      const lastB = partsB.length > 1 ? partsB[partsB.length - 1]! : partsB[0] || b.email;
+      const byLast = lastA.localeCompare(lastB, "fr", { sensitivity: "base" });
+      if (byLast !== 0) return byLast;
+      return a.displayName.localeCompare(b.displayName, "fr", { sensitivity: "base" });
     });
   }, [members, roleFilter, query]);
 

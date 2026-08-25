@@ -412,7 +412,7 @@ export default function ChapterContacts(props: Props) {
         <OnboardingField label="Responsables des surveillants (virgules)">
           <input
             className={onboardingInputClass}
-            placeholder="Notifiés si absence d'un personnel Éducation / surveillance"
+            placeholder="Notifiés si absence d'un personnel Surveillant"
             value={
               Array.isArray(notifications.absencesNotifySurveillanceResponsables)
                 ? notifications.absencesNotifySurveillanceResponsables.join(", ")

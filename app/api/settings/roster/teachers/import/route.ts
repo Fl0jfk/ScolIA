@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { importAssignmentsFromStageReferents, loadSchoolRoster, saveSchoolRoster } from "@/app/lib/school-roster";
 import { listTeacherDirectoryOptions } from "@/app/lib/school-roster";
 import { parseTeacherRosterExcelBuffer } from "@/app/lib/teacher-roster-import";
 
 export async function POST(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   const formData = await req.formData();
   const file = formData.get("file");

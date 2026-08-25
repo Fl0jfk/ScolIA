@@ -529,5 +529,5 @@ function planningKindForCategory(category: string): RhPlanningKind {
  * CPE, admin, compta, maintenance : semaine type fixe + exceptions / quota.
  */
 export function defaultStaffModeForCategory(category: string): "fixed" | "rotation" {
-  return category === "education" ? "rotation" : "fixed";
+  return category === "surveillant" ? "rotation" : "fixed";
 }

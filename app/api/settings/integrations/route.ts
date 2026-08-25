@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { loadAppConfig, saveIntegrations } from "@/app/lib/app-config";
 import { parseIntegrations } from "@/app/lib/app-config-schemas";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 
 export async function GET() {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   const config = await loadAppConfig();
   return NextResponse.json({ integrations: config.integrations });
 }
 
 export async function PUT(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   try {
     const body = await req.json();

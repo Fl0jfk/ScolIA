@@ -50,7 +50,7 @@ function canManageCalendrier(roles: string[], orgAdmin: boolean): boolean {
   return (
     hasRole(roles, "administratif") ||
     hasRole(roles, "cpe") ||
-    hasRole(roles, "education")
+    hasRole(roles, "surveillant")
   );
 }
 

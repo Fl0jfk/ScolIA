@@ -74,6 +74,13 @@ function labelFor(u: RegistryUserRow) {
   return u.displayName || `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
 }
 
+function sortNameKey(u: RegistryUserRow): string {
+  const last = (u.lastName ?? "").trim();
+  const first = (u.firstName ?? "").trim();
+  if (last || first) return `${last} ${first}`.trim();
+  return labelFor(u);
+}
+
 /** Gestion utilisateurs du directory — onglet Paramètres généraux. */
 export default function MembresPanel() {
   const [loading, setLoading] = useState(true);
@@ -138,9 +145,9 @@ export default function MembresPanel() {
       if (sortBy === "role") {
         const ra = a.roles[0] ?? "";
         const rb = b.roles[0] ?? "";
-        return ra.localeCompare(rb, "fr") || labelFor(a).localeCompare(labelFor(b), "fr");
+        return ra.localeCompare(rb, "fr") || sortNameKey(a).localeCompare(sortNameKey(b), "fr");
       }
-      return labelFor(a).localeCompare(labelFor(b), "fr", { sensitivity: "base" });
+      return sortNameKey(a).localeCompare(sortNameKey(b), "fr", { sensitivity: "base" });
     });
     return list;
   }, [users, search, roleFilter, sortBy, roleLabels]);

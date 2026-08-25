@@ -144,7 +144,7 @@ export function getRoleFlags(roles: string[]) {
     isDirection,
     isCompta: hasToken("compta") || hasToken("comptabilite") || hasRole(roles, "comptabilite"),
     isAdministratif: hasToken("administratif"),
-    isEducation: hasToken("education") || hasRole(roles, "cpe"),
+    isEducation: hasToken("surveillant") || hasRole(roles, "surveillant") || hasRole(roles, "cpe"),
   };
 }
 
@@ -154,7 +154,7 @@ export function canViewCalendar(roles: string[]) {
   if (flags.isCompta) return true;
   const normalized = roles.map((r) => normRoleSpaced(r));
   return normalized.some((r) =>
-    ["administratif", "direction ecole", "direction college", "direction lycee", "direction", "education", "cpe"].some((allowed) =>
+    ["administratif", "direction ecole", "direction college", "direction lycee", "direction", "surveillant", "cpe"].some((allowed) =>
       r.includes(allowed),
     ),
   );
@@ -265,12 +265,12 @@ export function filterAbsenceForViewer(
   return redactAbsenceAttachments(abs);
 }
 
-/** Personnel « éducation / surveillance » (vie scolaire) — hors CPE. */
+/** Personnel « surveillant » (hors CPE). */
 export function isEducationSurveillanceStaff(roles: string[] | null | undefined): boolean {
   if (!Array.isArray(roles) || roles.length === 0) return false;
   return roles.some((r) => {
     const n = normRole(r);
-    return n === "education" || n.includes("surveillant");
+    return n === "surveillant" || n.includes("surveill") || n.includes("educat");
   });
 }
 

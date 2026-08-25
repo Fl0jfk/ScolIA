@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { geocodeFrenchAddress } from "@/app/lib/geocode-address";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 
 export async function POST(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   try {
     const body = await req.json();

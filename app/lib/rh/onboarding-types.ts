@@ -169,7 +169,7 @@ export function normalizeRhOnboardingForm(raw: unknown): RhOnboardingFormData | 
     grossMonthlySalary: str(o.grossMonthlySalary) || null,
     category:
       o.category === "administratif" ||
-      o.category === "education" ||
+      o.category === "surveillant" ||
       o.category === "cpe" ||
       o.category === "comptabilite" ||
       o.category === "maintenance" ||

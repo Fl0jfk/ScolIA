@@ -725,7 +725,7 @@ export default function AbsencesPageClient({
                     </p>
                     {isEducationSurveillanceStaff(item.createdBy.roles) ? (
                       <p className="text-xs font-semibold text-violet-700 mt-0.5">
-                        Profil Éducation / surveillance
+                        Profil Surveillant
                       </p>
                     ) : null}
                     <p className="text-xs text-slate-500">

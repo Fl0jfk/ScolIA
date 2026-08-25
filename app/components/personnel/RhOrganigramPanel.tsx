@@ -7,7 +7,7 @@ import {
   type PersonnelIndexEntry,
 } from "@/app/lib/personnel-types";
 
-const ORDER: PersonnelCategory[] = ["cpe", "education", "administratif", "comptabilite", "maintenance"];
+const ORDER: PersonnelCategory[] = ["cpe", "surveillant", "administratif", "comptabilite", "maintenance"];
 
 export default function RhOrganigramPanel({ index }: { index: PersonnelIndexEntry[] }) {
   const active = index.filter((p) => p.active);

@@ -10,7 +10,7 @@ export type { PersonnelProfile };
 export type PersonnelCategory =
   | "administratif"
   | "maintenance"
-  | "education"
+  | "surveillant"
   | "cpe"
   | "comptabilite";
 
@@ -216,7 +216,7 @@ export const PERSONNEL_SIGNATURE_TOKEN_PREFIX = "personnel-ogec/signature-tokens
 const OGEC_STAFF_ROLES = [
   "administratif",
   "maintenance",
-  "education",
+  "surveillant",
   "cpe",
   "comptabilite",
 ] as const;
@@ -224,7 +224,7 @@ const OGEC_STAFF_ROLES = [
 export const PERSONNEL_CATEGORY_LABELS: Record<PersonnelCategory, string> = {
   administratif: "Administratif",
   maintenance: "Maintenance",
-  education: "Éducation / surveillance",
+  surveillant: "Surveillant",
   cpe: "CPE",
   comptabilite: "Comptabilité",
 };
@@ -242,7 +242,7 @@ function getPersonnelRoleFlags(roles: string[]) {
     isCompta: hasRole(roles, "comptabilite"),
     isAdministratif: hasRole(roles, "administratif"),
     isMaintenance: hasRole(roles, "maintenance"),
-    isEducation: hasRole(roles, "education"),
+    isEducation: hasRole(roles, "surveillant"),
     isCpe: hasRole(roles, "cpe"),
     isDirection: isAnyDirectionRole(roles),
     isOgecStaff: OGEC_STAFF_ROLES.some((r) => hasRole(roles, r)) || isAnyDirectionRole(roles),
@@ -280,7 +280,7 @@ export function inferCategoryFromRoles(roles: string[]): PersonnelCategory | nul
   if (hasRole(roles, "comptabilite")) return "comptabilite";
   if (hasRole(roles, "maintenance")) return "maintenance";
   if (hasRole(roles, "cpe")) return "cpe";
-  if (hasRole(roles, "education")) return "education";
+  if (hasRole(roles, "surveillant")) return "surveillant";
   if (hasRole(roles, "administratif")) return "administratif";
   if (
     hasRole(roles, "direction_ecole") ||
@@ -397,7 +397,7 @@ export function normalizePersonnelRecord(raw: unknown): PersonnelRecord {
   const firstName = str(o.firstName).trim();
   const lastName = str(o.lastName).trim();
   const category = (
-    ["administratif", "maintenance", "education", "cpe", "comptabilite"] as const
+    ["administratif", "maintenance", "surveillant", "cpe", "comptabilite"] as const
   ).includes(o.category as PersonnelCategory)
     ? (o.category as PersonnelCategory)
     : "administratif";
@@ -447,7 +447,7 @@ export function normalizePersonnelRecord(raw: unknown): PersonnelRecord {
 export const PERSONNEL_CATEGORY_OPTIONS: { value: PersonnelCategory; label: string }[] = [
   { value: "administratif", label: "Administratif" },
   { value: "cpe", label: "CPE" },
-  { value: "education", label: "Éducation / surveillance" },
+  { value: "surveillant", label: "Surveillant" },
   { value: "comptabilite", label: "Comptabilité" },
   { value: "maintenance", label: "Maintenance" },
 ];

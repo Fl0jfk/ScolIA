@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
-import RequireOrgAdmin from "@/app/components/RequireOrgAdmin";
+import RequireAdminSettings from "@/app/components/RequireAdminSettings";
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import SettingsSitePanel from "@/app/components/settings/SettingsSitePanel";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -11,7 +11,7 @@ import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import ModuleTabNav, { type ModuleTabItem } from "@/app/components/module-chrome/ModuleTabNav";
 import type { RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
-import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
+import { useCanAccessAdminSettings } from "@/app/hooks/useCanAccessAdminSettings";
 import { useIsPlatformMaster } from "@/app/hooks/useIsPlatformMaster";
 import {
   SettingsAtmosphere,
@@ -105,7 +105,7 @@ const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
 
 export default function ParametresPage() {
   const searchParams = useSearchParams();
-  const isOrgAdmin = useIsOrgAdmin();
+  const canAccessSettings = useCanAccessAdminSettings();
   const isPlatformMaster = useIsPlatformMaster();
   const [tab, setTab] = useState<Tab>("site");
   const [loading, setLoading] = useState(true);
@@ -154,7 +154,7 @@ export default function ParametresPage() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (!isOrgAdmin) {
+    if (!canAccessSettings) {
       setLoading(false);
       return;
     }
@@ -242,10 +242,10 @@ export default function ParametresPage() {
         setLoading(false);
       }
     })();
-  }, [isOrgAdmin]);
+  }, [canAccessSettings]);
 
   useEffect(() => {
-    if (!isOrgAdmin || (tab !== "prof-room" && tab !== "requests-routing" && tab !== "establishments" && tab !== "notifications" && tab !== "integrations")) return;
+    if (!canAccessSettings || (tab !== "prof-room" && tab !== "requests-routing" && tab !== "establishments" && tab !== "notifications" && tab !== "integrations")) return;
     let cancelled = false;
     (async () => {
       setMembersLoading(true);
@@ -265,7 +265,7 @@ export default function ParametresPage() {
     return () => {
       cancelled = true;
     };
-  }, [isOrgAdmin, tab]);
+  }, [canAccessSettings, tab]);
 
   const activeEstablishmentKinds = useMemo(() => {
     return new Set(
@@ -488,19 +488,19 @@ export default function ParametresPage() {
 
   if (loading) {
     return (
-      <RequireOrgAdmin>
+      <RequireAdminSettings>
         <ModulePageShell maxWidthClass="max-w-[1280px]" className="relative space-y-6">
           <SettingsAtmosphere />
           <div className="relative">
             <SettingsLoading label="Chargement des paramètres…" />
           </div>
         </ModulePageShell>
-      </RequireOrgAdmin>
+      </RequireAdminSettings>
     );
   }
 
   return (
-    <RequireOrgAdmin>
+    <RequireAdminSettings>
       <ModulePageShell maxWidthClass="max-w-[1280px]" className="relative space-y-6">
         <SettingsAtmosphere />
         <div className="relative space-y-6">
@@ -675,6 +675,6 @@ export default function ParametresPage() {
         {tab === "identite" && <IdentitePanel />}
         </div>
       </ModulePageShell>
-    </RequireOrgAdmin>
+    </RequireAdminSettings>
   );
 }

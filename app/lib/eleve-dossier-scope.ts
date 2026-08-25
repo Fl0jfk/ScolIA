@@ -17,7 +17,7 @@ export function canViewFullElevesDossierHub(opts: {
   if (INTRANET_DIRECTION_SLUGS.some((slug) => opts.roles.includes(slug))) return true;
   return (
     hasRole(opts.roles, "administratif") ||
-    hasRole(opts.roles, "education") ||
+    hasRole(opts.roles, "surveillant") ||
     hasRole(opts.roles, "cpe") ||
     opts.roles.includes("admin")
   );

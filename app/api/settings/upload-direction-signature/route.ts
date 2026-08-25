@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { loadAppConfig, saveEstablishments } from "@/app/lib/app-config";
 import {
   directionSignatureObjectKey,
@@ -20,7 +20,7 @@ function extForType(type: string): "png" | "jpg" | "webp" {
 
 /** Aperçu signé : ?establishmentId=ecole */
 export async function GET(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   const establishmentId = new URL(req.url).searchParams.get("establishmentId")?.trim() || "";
   if (!establishmentId) {
@@ -31,7 +31,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
 
   try {
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
 
   try {

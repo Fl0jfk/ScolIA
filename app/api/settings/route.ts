@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { loadAllEstablishments, loadAppConfig } from "@/app/lib/app-config";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 import { resolveHeaderLogoDisplayUrl } from "@/app/lib/branding-logo";
 
 export async function GET(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
 
   const tenant = await requireTenantId();

@@ -18,7 +18,7 @@ const CATEGORY_ALIASES: Record<PersonnelCategory, string[]> = {
   administratif: ["administratif", "admin", "secretariat", "secrétariat", "accueil"],
   comptabilite: ["comptabilite", "comptabilité", "compta", "finance"],
   cpe: ["cpe", "vie scolaire"],
-  education: ["education", "éducation", "surveillance", "aed", "assistant"],
+  surveillant: ["surveillant", "education", "éducation", "surveillance", "aed", "assistant"],
   maintenance: ["maintenance", "technique", "intendance"],
 };
 
@@ -93,7 +93,7 @@ function parseCategoryFromFonction(raw: string): PersonnelCategory {
   }
   if (/compta|comptable|finance|paie|treasury/.test(s)) return "comptabilite";
   if (/cpe|vie scolaire|assistante d/.test(s)) return "cpe";
-  if (/surveill|aed|agent|veilleur|education/.test(s)) return "education";
+  if (/surveill|aed|agent|veilleur|education/.test(s)) return "surveillant";
   if (/maintenance|technicien|intendant|agent d entretien/.test(s)) return "maintenance";
   if (/secretaire|secretariat|accueil|administratif|direction adjointe/.test(s)) return "administratif";
   return "administratif";

@@ -196,7 +196,7 @@ function hasPsyInfRole(roles: string[]): boolean {
 }
 
 function hasTeacherRole(roles: string[]): boolean {
-  return hasRole(roles, "professeur") || hasRole(roles, "education");
+  return hasRole(roles, "professeur") || hasRole(roles, "surveillant");
 }
 
 export function canUserSignupOnSession(

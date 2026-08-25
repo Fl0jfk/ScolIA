@@ -40,7 +40,7 @@ export function canManageAllClassAllocationStudents(roles: string[]): boolean {
   return (
     roles.some((r) => INTRANET_DIRECTION_SLUGS.includes(r as (typeof INTRANET_DIRECTION_SLUGS)[number])) ||
     roles.includes("administratif") ||
-    roles.includes("education") ||
+    roles.includes("surveillant") ||
     roles.includes("cpe")
   );
 }

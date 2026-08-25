@@ -13,7 +13,7 @@ import { RH_DEFAULT_BASE_PATH } from "@/app/lib/rh/paths";
 export type RhCategory =
   | "administratif"
   | "maintenance"
-  | "education"
+  | "surveillant"
   | "cpe"
   | "comptabilite"
   | "professeur"
@@ -203,7 +203,7 @@ export type MetaRhDocument = {
 export const RH_CATEGORY_LABELS: Record<RhCategory, string> = {
   administratif: "Administratif",
   maintenance: "Maintenance",
-  education: "Éducation / surveillance",
+  surveillant: "Surveillant",
   cpe: "CPE",
   comptabilite: "Comptabilité",
   professeur: "Professeur",

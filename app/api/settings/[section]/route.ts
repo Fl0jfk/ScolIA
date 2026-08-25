@@ -19,7 +19,7 @@ import {
   parseSiteIdentity,
   parseTravelsModule,
 } from "@/app/lib/app-config-schemas";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { normalizeProfRoomAdminIds } from "@/app/lib/prof-room-auth";
 import { ensureSiteAddressCoordinates } from "@/app/lib/site-address-coordinates";
 import {
@@ -37,7 +37,7 @@ const ALLOWED = new Set([
 ]);
 
 export async function PUT(req: Request, ctx: { params: Promise<{ section: string }> }) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   const { section } = await ctx.params;
   if (!ALLOWED.has(section)) {

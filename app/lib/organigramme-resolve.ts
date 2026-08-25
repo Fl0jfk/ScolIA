@@ -289,7 +289,7 @@ export function suggestSlotsFromPersonnel(
         ? "accounting"
         : e.category === "maintenance"
           ? "maintenance"
-          : e.category === "education" || e.category === "cpe"
+          : e.category === "surveillant" || e.category === "cpe"
             ? "poles"
             : "admin";
     const name = splitName(e.displayName || email.split("@")[0] || "");

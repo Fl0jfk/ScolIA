@@ -155,7 +155,7 @@ export async function listTeacherDirectoryOptions() {
     .filter(
       (m) =>
         m.roles.includes("professeur") ||
-        m.roles.includes("education") ||
+        m.roles.includes("surveillant") ||
         m.roles.includes("cpe"),
     )
     .map((m) => ({

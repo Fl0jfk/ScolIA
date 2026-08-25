@@ -88,7 +88,7 @@ export function peerFullName(p: Peer): string {
 }
 
 export function peerRoleChipLabel(slug: string): string {
-  if (slug === "education") return "Éducation";
+  if (slug === "surveillant") return "Surveillant";
   const label = INTRANET_ROLE_OPTIONS.find((o) => o.slug === slug)?.label ?? slug;
   return label.replace(/\s*\(.*\)\s*$/, "");
 }

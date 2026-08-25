@@ -247,7 +247,7 @@ export default function RhPlanningPanel() {
       fd.append("kind", kind);
       fd.append("mergeStrategy", mergeStrategy);
       if (kind === "staff") {
-        fd.append("staffMode", staff?.mode || (category === "education" ? "rotation" : "fixed"));
+        fd.append("staffMode", staff?.mode || (category === "surveillant" ? "rotation" : "fixed"));
       }
       const res = await fetch("/api/rh/planning/import", { method: "POST", body: fd });
       const j = await res.json();

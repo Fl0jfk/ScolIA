@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { seedAppSettingsFromDefaults, seedAppSettingsFromLaProvidence } from "@/app/lib/app-config";
 
 export async function POST(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
   try {
     const url = new URL(req.url);

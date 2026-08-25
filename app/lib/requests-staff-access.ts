@@ -1,7 +1,7 @@
 import { isListedAsRequestsStaff } from "@/app/lib/staff-directory";
 import { getRequestsRoutingConfig, isListedInRouting } from "@/app/lib/requests-routing-config";
 
-const STAFF_ROLES_FOR_REQUESTS = ["administratif","direction_ecole","direction_college","direction_lycee", "maintenance","comptabilite","education","cpe","infirmerie",] as const;
+const STAFF_ROLES_FOR_REQUESTS = ["administratif","direction_ecole","direction_college","direction_lycee", "maintenance","comptabilite","surveillant","cpe","infirmerie",] as const;
 
 function normalizeRole(value: string) {
   return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\s-]+/g, "_");

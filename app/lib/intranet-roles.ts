@@ -13,7 +13,7 @@ export const INTRANET_ROLE_OPTIONS: { slug: string; label: string }[] = [
   { slug: "maintenance", label: "Maintenance" },
   { slug: "infirmerie", label: "Infirmerie" },
   { slug: "psychologue", label: "Psychologue" },
-  { slug: "education", label: "Éducation / surveillance (vie scolaire)" },
+  { slug: "surveillant", label: "Surveillant" },
   { slug: "cpe", label: "CPE" },
   { slug: "parent", label: "Parent" },
   { slug: "eleve", label: "Élève (bot bien-être)" },
@@ -47,6 +47,14 @@ function canonicalIntranetRole(raw: string): string | null {
   if (n.includes("direction") && n.includes("college")) return "direction_college";
   if (n.includes("direction") && n.includes("lycee")) return "direction_lycee";
   if (n === "direction") return "direction";
+  // Ancien slug / libellés « éducation / surveillance / vie scolaire » → surveillant
+  if (
+    n.includes("educat") ||
+    n.includes("surveill") ||
+    (n.includes("vie") && n.includes("scolaire"))
+  ) {
+    return "surveillant";
+  }
   return null;
 }
 

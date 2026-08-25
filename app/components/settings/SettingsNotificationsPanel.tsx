@@ -181,7 +181,7 @@ export default function SettingsNotificationsPanel({
         </SettingsField>
         <SettingsField
           label="Responsables des surveillants"
-          hint="Notifiés après validation d'une absence d'un personnel Éducation / surveillance (en plus de la compta)."
+          hint="Notifiés après validation d'une absence d'un personnel Surveillant (en plus de la compta)."
           as="div"
         >
           <DirectoryPeopleSelect

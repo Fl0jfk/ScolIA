@@ -2,7 +2,7 @@ const ROLE_SERVICE_LABELS: Record<string, string> = {
   administratif: "Administratif",
   comptabilite: "Comptabilité",
   maintenance: "Maintenance",
-  education: "Vie scolaire",
+  surveillant: "Surveillant",
   direction_ecole: "Direction — école",
   direction_college: "Direction — collège",
   direction_lycee: "Direction — lycée",

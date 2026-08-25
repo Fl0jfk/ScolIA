@@ -50,7 +50,7 @@ export const SCHOOL = {
   /**
    * Routage absences (demande d'autorisation → validation direction → notification après validation).
    * Prof : mail création → direction de l'établissement ; validation → destinataires config (secrétariat cycle).
-   * OGEC : mail création → direction ; validation → compta RH (+ responsables des surveillants si profil Éducation / surveillance).
+   * OGEC : mail création → direction ; validation → compta RH (+ responsables des surveillants si profil Surveillant).
    */
   absences: {
     /** Après validation d'une absence professeur — École */
