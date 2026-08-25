@@ -25,6 +25,8 @@ async function persistAndApply(
   added: number;
   updated: number;
   skipped: number;
+  sorties: number;
+  reactivated: number;
   total: number;
   rosterCount: number;
 }> {
@@ -61,6 +63,8 @@ async function persistAndApply(
         added: result.added,
         updated: result.updated,
         skipped: result.skipped,
+        sorties: result.sorties,
+        reactivated: result.reactivated,
       },
     },
     entries,
@@ -70,9 +74,29 @@ async function persistAndApply(
     added: result.added,
     updated: result.updated,
     skipped: result.skipped,
+    sorties: result.sorties,
+    reactivated: result.reactivated,
     total: result.students.filter((s) => s.actif).length,
     rosterCount: entries.length,
   };
+}
+
+function formatApplyMessage(prefix: string, result: {
+  added: number;
+  updated: number;
+  skipped: number;
+  sorties: number;
+  reactivated: number;
+  rosterCount: number;
+}): string {
+  const parts = [
+    `${result.rosterCount} interne(s)`,
+    `${result.added} ajouté(s)`,
+    `${result.updated} mis à jour`,
+  ];
+  if (result.reactivated) parts.push(`${result.reactivated} réactivé(s)`);
+  if (result.sorties) parts.push(`${result.sorties} sortie(s)`);
+  return `${prefix} : ${parts.join(", ")}.`;
 }
 
 export async function GET() {
@@ -174,7 +198,7 @@ export async function POST(req: Request) {
         ...result,
         totalEleves: parsed.total,
         internesDetected: parsed.internesCount,
-        message: `Siècle : ${parsed.internesCount} interne(s) → ${result.added} ajouté(s), ${result.updated} mis à jour. Appel prêt.`,
+        message: formatApplyMessage(`Siècle (${parsed.internesCount} internes détectés)`, result),
       });
     }
 
@@ -211,7 +235,7 @@ export async function POST(req: Request) {
     const result = await persistAndApply(entries, access.userName);
     return NextResponse.json({
       ...result,
-      message: `Excel : ${entries.length} interne(s) → ${result.added} ajouté(s), ${result.updated} mis à jour.`,
+      message: formatApplyMessage("Excel", result),
     });
   }
 
@@ -236,7 +260,7 @@ export async function POST(req: Request) {
     const result = await persistAndApply(entries, access.userName);
     return NextResponse.json({
       ...result,
-      message: `Sync référentiel : ${entries.length} interne(s) → ${result.added} ajouté(s), ${result.updated} mis à jour.`,
+      message: formatApplyMessage("Sync référentiel", result),
     });
   }
 
@@ -263,6 +287,6 @@ export async function POST(req: Request) {
   const result = await persistAndApply(entries, access.userName);
   return NextResponse.json({
     ...result,
-    message: `${result.added} ajouté(s), ${result.updated} mis à jour, ${result.skipped} inchangé(s).`,
+    message: formatApplyMessage("Application roster", result),
   });
 }

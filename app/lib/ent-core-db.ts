@@ -104,6 +104,8 @@ export function eleveRowToConfig(row: EleveRow): EleveConfig {
     ...(row.dateNaissance ? { dateNaissance: String(row.dateNaissance) } : {}),
     ...(row.mef ? { mef: row.mef } : {}),
     ...(row.secteur ? { secteur: row.secteur } : {}),
+    ...(row.regime ? { regime: row.regime } : {}),
+    ...(row.sexe === "M" || row.sexe === "F" ? { sexe: row.sexe } : {}),
   };
 }
 
@@ -130,6 +132,8 @@ function eleveConfigToValues(etablissementId: string, e: EleveConfig) {
     dateNaissance: dateOrNull(e.dateNaissance),
     mef: emptyToNull(e.mef ?? e.formation),
     secteur: emptyToNull(e.secteur),
+    regime: emptyToNull(e.regime),
+    sexe: e.sexe === "M" || e.sexe === "F" ? e.sexe : null,
     pilotageKey: slugPilotageKey(e.ine, folderName),
     updatedAt: new Date(),
   };

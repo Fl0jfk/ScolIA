@@ -20,7 +20,13 @@ type RosterMeta = {
   updatedAt?: string;
   updatedBy?: string;
   lastAppliedAt?: string;
-  lastApplySummary?: { added: number; updated: number; skipped: number };
+  lastApplySummary?: {
+    added: number;
+    updated: number;
+    skipped: number;
+    sorties?: number;
+    reactivated?: number;
+  };
 };
 
 function formatRoomOption(buildings: InternatBuilding[], room: InternatRoom) {
@@ -351,7 +357,8 @@ export default function InternatStudentsPanel({
             <p>
               Importez les internes depuis un <strong>Excel</strong> (colonnes Nom, Prénom, éventuellement INE,
               Classe, Régime) ou le XML Siècle <code className="text-xs bg-white px-1 rounded">ElevesSansAdresses.xml</code>
-              . Les élèves en régime interne (codes 2/3 ou libellé « Interne ») sont poussés dans l&apos;appel.
+              . À chaque mise à jour : nouveaux internes ajoutés ; ceux qui ne sont plus internes passent en{" "}
+              <strong>sortie</strong> (grisés, réactivables) — jamais effacés.
             </p>
           </div>
           <div className="flex flex-wrap gap-3 items-center">
@@ -608,9 +615,15 @@ export default function InternatStudentsPanel({
                     <button
                       type="button"
                       className="text-xs text-red-600 font-bold"
-                      onClick={() => updateStudent(s.id, { actif: false })}
+                      onClick={() =>
+                        updateStudent(s.id, {
+                          actif: false,
+                          sortieMotif: "Désactivation manuelle",
+                          note: "Désactivation manuelle",
+                        })
+                      }
                     >
-                      Désactiver
+                      Sortie
                     </button>
                   </td>
                 )}
@@ -619,6 +632,65 @@ export default function InternatStudentsPanel({
           </tbody>
         </table>
       </div>
+
+      {students.some((s) => !s.actif) && (
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden opacity-80">
+          <div className="px-4 py-3 border-b border-slate-200">
+            <h3 className="font-bold text-slate-700 text-sm">
+              Sorties en cours d&apos;année ({students.filter((s) => !s.actif).length})
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Fiches conservées — exclus de l&apos;appel. Réactivables en un clic si erreur.
+            </p>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-100/80 text-left text-slate-500">
+              <tr>
+                <th className="p-3 font-bold">Élève</th>
+                <th className="p-3 font-bold">Classe</th>
+                <th className="p-3 font-bold">Motif</th>
+                <th className="p-3 font-bold">Depuis</th>
+                {canManage && <th className="p-3 font-bold">Actions</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {students
+                .filter((s) => !s.actif)
+                .sort((a, b) => String(b.sortieAt || b.updatedAt).localeCompare(String(a.sortieAt || a.updatedAt)))
+                .map((s) => (
+                  <tr key={s.id} className="border-t border-slate-200/80 text-slate-400">
+                    <td className="p-3 font-semibold line-through decoration-slate-300">
+                      {studentDisplayName(s)}
+                    </td>
+                    <td className="p-3">{s.classe}</td>
+                    <td className="p-3 text-xs">{s.sortieMotif || "Sortie"}</td>
+                    <td className="p-3 text-xs">
+                      {s.sortieAt
+                        ? new Date(s.sortieAt).toLocaleDateString("fr-FR")
+                        : "—"}
+                    </td>
+                    {canManage && (
+                      <td className="p-3">
+                        <button
+                          type="button"
+                          className="text-xs text-emerald-700 font-bold no-underline"
+                          onClick={() =>
+                            updateStudent(s.id, {
+                              actif: true,
+                              note: "Réactivation manuelle",
+                            })
+                          }
+                        >
+                          Réactiver
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {detailId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 overflow-y-auto">

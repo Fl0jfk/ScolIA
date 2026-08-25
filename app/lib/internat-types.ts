@@ -120,7 +120,12 @@ export type InternatStudent = {
   specialAuthorizations?: InternatStudentSpecialAuth[];
   underWatch?: boolean;
   underWatchNote?: string;
+  /** false = sortie (fiche conservée, grisée, réactivable). */
   actif: boolean;
+  /** Date ISO de sortie (changement de régime ou manuelle). */
+  sortieAt?: string;
+  /** Motif affiché (ex. « Régime → Demi pensionnaire »). */
+  sortieMotif?: string;
   createdAt: string;
   updatedAt: string;
   history?: Array<{ at: string; by: string; action: string; note?: string }>;

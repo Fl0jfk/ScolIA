@@ -307,6 +307,10 @@ export const eleve = pgTable(
     status: text("status").notNull().default("inscrit"),
     mef: text("mef"),
     secteur: text("secteur"),
+    /** Régime scolaire (INT / DP / EXT ou libellé). */
+    regime: text("regime"),
+    /** Sexe M/F. */
+    sexe: text("sexe"),
     pilotageKey: text("pilotage_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

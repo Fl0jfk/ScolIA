@@ -56,6 +56,15 @@ export async function saveElevesRegistry(eleves: EleveConfig[]): Promise<EleveCo
       console.error("[eleves-registry] écriture DB", error);
     }
   }
+  // Zéro friction : régimes connus → ajouts / sorties internat (fiche conservée).
+  if (validated.eleves.some((e) => e.regime?.trim()) && process.env.ENT_IMPORT_SCRIPT !== "1") {
+    try {
+      const { syncInternatFromElevesRegime } = await import("@/app/lib/internat-import");
+      await syncInternatFromElevesRegime(validated.eleves, "sync-regime-eleves");
+    } catch (error) {
+      console.error("[eleves-registry] sync internat régime", error);
+    }
+  }
   return validated.eleves;
 }
 

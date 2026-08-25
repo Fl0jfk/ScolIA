@@ -55,12 +55,43 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "identifiant national",
     "identifiant national eleve",
     "id national",
+    "id. national",
     "n° ine",
     "no ine",
   ],
-  classe: ["classe", "division", "groupe", "classe eleve", "classe élève", "class"],
-  mef: ["mef", "code mef", "formation", "filiere", "filière", "parcours", "option"],
-  email: ["email", "e-mail", "mail", "courriel", "email eleve", "email élève", "mail eleve"],
+  classe: [
+    "libelle classe",
+    "libellé classe",
+    "classe",
+    "division",
+    "groupe",
+    "classe eleve",
+    "classe élève",
+    "class",
+    "code classe",
+  ],
+  mef: [
+    "libelle formation",
+    "libellé formation",
+    "mef",
+    "code mef",
+    "code formation",
+    "formation",
+    "filiere",
+    "filière",
+    "parcours",
+    "option",
+  ],
+  email: [
+    "email eleve",
+    "email élève",
+    "mail eleve",
+    "courriel eleve",
+    "email",
+    "e-mail",
+    "mail",
+    "courriel",
+  ],
   parentEmail: [
     "email parent",
     "e-mail parent",
@@ -69,8 +100,11 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "responsable légal",
     "email responsable",
     "courriel parent",
+    "email personnel resp",
   ],
   parent1Email: [
+    "email personnel resp",
+    "email bureau resp",
     "email parent 1",
     "e-mail parent 1",
     "mail parent 1",
@@ -79,6 +113,8 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "email tuteur 1",
   ],
   parent2Email: [
+    "email personnel conjoint",
+    "email bureau conjoint",
     "email parent 2",
     "e-mail parent 2",
     "mail parent 2",
@@ -95,8 +131,11 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "tel responsable",
     "téléphone responsable",
     "telephone responsable",
+    "tel portable resp",
   ],
   parent1Phone: [
+    "tel portable resp",
+    "tel bureau resp",
     "tel parent 1",
     "téléphone parent 1",
     "telephone parent 1",
@@ -106,6 +145,8 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "parent 1 telephone",
   ],
   parent2Phone: [
+    "tel portable conjoint",
+    "tel bureau conjoint",
     "tel parent 2",
     "téléphone parent 2",
     "telephone parent 2",
@@ -131,11 +172,14 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "dob",
   ],
   regime: [
-    "regime",
-    "régime",
+    "libelle regime",
+    "libellé régime",
+    "libelle régime",
     "code regime",
     "code régime",
     "code_regime",
+    "regime",
+    "régime",
     "regime scolaire",
     "régime scolaire",
     "interne",
@@ -150,7 +194,8 @@ function normalizeHeader(value: unknown): string {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[_\-]+/g, " ")
+    // Charlemagne : « Id. National », « Tél. portable Resp », etc.
+    .replace(/[._\-'+]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -161,6 +206,10 @@ function headerMatchesAlias(header: string, alias: string): boolean {
   const a = normalizeHeader(alias);
   if (!h || !a) return false;
   if (h === a) return true;
+  // Alias mono-mot trop génériques (email, mail…) : exact uniquement.
+  if (!a.includes(" ") && ["email", "e mail", "mail", "courriel", "sexe", "nom", "prenom"].includes(a)) {
+    return false;
+  }
   if (a.includes(" ")) {
     return h.includes(a);
   }
@@ -171,38 +220,29 @@ function headerMatchesAlias(header: string, alias: string): boolean {
   );
 }
 
-function matchColumn(header: string, source: ElevesImportSource): FieldKey | null {
+function matchColumn(header: string, _source: ElevesImportSource): FieldKey | null {
   const h = normalizeHeader(header);
   if (!h) return null;
 
-  const priority: FieldKey[] =
-    source === "ecoledirecte"
-      ? [
-          "nom",
-          "prenom",
-          "ine",
-          "classe",
-          "mef",
-          "email",
-          "parentEmail",
-          "parent1Email",
-          "parent2Email",
-          "folderName",
-          "dateNaissance",
-        ]
-      : [
-          "nom",
-          "prenom",
-          "ine",
-          "classe",
-          "mef",
-          "email",
-          "parentEmail",
-          "parent1Email",
-          "parent2Email",
-          "folderName",
-          "dateNaissance",
-        ];
+  // Parents avant email élève : « Email Personnel Resp » ne doit pas matcher « email ».
+  const priority: FieldKey[] = [
+    "nom",
+    "prenom",
+    "ine",
+    "classe",
+    "mef",
+    "parent1Email",
+    "parent2Email",
+    "parentEmail",
+    "parent1Phone",
+    "parent2Phone",
+    "parentPhone",
+    "email",
+    "folderName",
+    "dateNaissance",
+    "regime",
+    "sexe",
+  ];
 
   for (const field of priority) {
     for (const alias of COLUMN_ALIASES[field]) {
@@ -214,6 +254,11 @@ function matchColumn(header: string, source: ElevesImportSource): FieldKey | nul
   return null;
 }
 
+function prefersLibelleHeader(header: string): boolean {
+  const h = normalizeHeader(header);
+  return h.startsWith("libelle ") || h.includes(" libelle ");
+}
+
 function buildColumnMap(
   headers: unknown[],
   source: ElevesImportSource,
@@ -221,7 +266,14 @@ function buildColumnMap(
   const map: Partial<Record<FieldKey, number>> = {};
   headers.forEach((h, idx) => {
     const field = matchColumn(String(h), source);
-    if (field && map[field] === undefined) {
+    if (!field) return;
+    const prev = map[field];
+    if (prev === undefined) {
+      map[field] = idx;
+      return;
+    }
+    // Charlemagne : préférer « Libellé X » à « Code X » (classe, régime, formation).
+    if (prefersLibelleHeader(String(h)) && !prefersLibelleHeader(String(headers[prev] ?? ""))) {
       map[field] = idx;
     }
   });

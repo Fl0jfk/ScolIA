@@ -166,10 +166,33 @@ export async function PATCH(req: Request) {
         ? String(body.underWatchNote || "").trim() || undefined
         : prev.underWatchNote,
     actif: body.actif !== undefined ? Boolean(body.actif) : prev.actif,
+    sortieAt:
+      body.actif === false
+        ? now
+        : body.actif === true
+          ? undefined
+          : prev.sortieAt,
+    sortieMotif:
+      body.actif === false
+        ? String(body.sortieMotif || body.note || "Désactivation manuelle").trim() ||
+          "Désactivation manuelle"
+        : body.actif === true
+          ? undefined
+          : prev.sortieMotif,
     updatedAt: now,
     history: [
       ...(prev.history || []),
-      { at: now, by: access.userName, action: "MODIFICATION", note: String(body.note || "") || undefined },
+      {
+        at: now,
+        by: access.userName,
+        action:
+          body.actif === false
+            ? "SORTIE_MANUELLE"
+            : body.actif === true && !prev.actif
+              ? "REACTIVATION_MANUELLE"
+              : "MODIFICATION",
+        note: String(body.note || body.sortieMotif || "") || undefined,
+      },
     ],
   };
   students[idx] = updated;
