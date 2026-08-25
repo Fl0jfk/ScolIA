@@ -48,7 +48,7 @@ export type ExternalQuickLink = {
   allowedRoles: string[];
 };
 
-type IntranetModule = {
+export type IntranetModule = {
   id: string;
   allowedRoles: string[];
   orgAdminOnly?: boolean;
@@ -68,6 +68,7 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/api/tenant/diagnostics",
   /** Compte : MDP / e-mail / events — sinon « Accès refusé à ce module » au premier login. */
   "/api/account",
+  "/api/me/module-access",
   "/onboarding",
   "/configuration-en-cours",
   "/abonnement-suspendu",
@@ -462,14 +463,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "pilotage-eleves",
     pathPrefixes: ["/pilotage-eleves", "/api/pilotage-eleves"],
     allowedRoles: ["direction_ecole", "direction_college", "direction_lycee", "administratif"],
-    dashboard: {
-      id: 41,
-      name: "Pilotage élèves",
-      img: "",
-      link: "/pilotage-eleves",
-      external: false,
-      description: "Aide documentaire au conseil de classe — dossiers classés, pas la vie scolaire live",
-    },
+    // Retiré du dashboard / pilier Administratif — module peu utile en l’état.
   },
   {
     id: "internat",
@@ -499,29 +493,26 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "vs-appels",
-    pathPrefixes: ["/vie-scolaire/appels", "/api/vie-scolaire/appels"],
+    pathPrefixes: [
+      "/vie-scolaire/presence",
+      "/vie-scolaire/appels",
+      "/api/vie-scolaire/appels",
+    ],
     allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe", "professeur"],
     dashboard: {
       id: 242,
-      name: "Appel de classe",
+      name: "Appels & absences",
       img: "",
-      link: "/vie-scolaire/appels",
+      link: "/vie-scolaire/presence",
       external: false,
-      description: "Présents, absents, retards — saisie rapide",
+      description: "Appel de classe, absents, justificatifs et relances CPE",
     },
   },
   {
     id: "vs-absences",
     pathPrefixes: ["/vie-scolaire/absences", "/api/vie-scolaire/absences"],
     allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe"],
-    dashboard: {
-      id: 243,
-      name: "Absences élèves",
-      img: "",
-      link: "/vie-scolaire/absences",
-      external: false,
-      description: "Justificatifs, relances, suivi CPE",
-    },
+    // Tuile absorbée dans « Appels & absences » (`vs-appels` → /vie-scolaire/presence).
   },
   {
     id: "vs-sanctions",
@@ -697,7 +688,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "pillar-vie-scolaire",
     pathPrefixes: ["/vie-scolaire"],
-    allowedRoles: [...DIRECTIONS, "cpe", "education"],
+    allowedRoles: [...DIRECTIONS, "cpe", "education", "administratif", "admin", "professeur"],
   },
   {
     id: "pillar-compta-rh",
@@ -806,6 +797,11 @@ export function rolesAllowModule(
   roles: string[],
   module: IntranetModule,
   isOrgAdmin: boolean,
+  access?: {
+    byRole?: Record<string, { modules?: string[] }>;
+    byUser?: Record<string, { modules?: string[] }>;
+  } | null,
+  userRef?: string | { userId?: string | null; businessUserId?: string | null } | null,
 ): boolean {
   if (hasMasterRole(roles)) return true;
   if (module.id === "pilotage-eleves") {
@@ -817,14 +813,106 @@ export function rolesAllowModule(
   // Admin établissement (flag ou rôle) : tous les modules du tenant.
   if (isOrgAdmin || hasGlobalAdminRole(roles)) return true;
   if (module.orgAdminOnly) return false;
+
+  // Hubs piliers : accessible dès qu’un module du pilier l’est (matrice / defaults).
+  if (module.id.startsWith("pillar-")) {
+    const childIds = PILLAR_HUB_CHILD_MODULES[module.id];
+    if (childIds?.length) {
+      return childIds.some((id) => {
+        const child = getIntranetModuleById(id);
+        return child ? rolesAllowModule(roles, child, isOrgAdmin, access, userRef) : false;
+      });
+    }
+  }
+
   if (!module.allowedRoles.length) return false;
-  return module.allowedRoles.some((r) => hasRole(roles, r));
+
+  const byRole = access?.byRole;
+  const byUser = access?.byUser;
+  const candidateIds =
+    typeof userRef === "string"
+      ? [userRef.trim()].filter(Boolean)
+      : [userRef?.userId, userRef?.businessUserId]
+          .map((x) => (typeof x === "string" ? x.trim() : ""))
+          .filter(Boolean);
+  let userOv: { modules?: string[] } | undefined;
+  if (byUser && candidateIds.length) {
+    for (const id of candidateIds) {
+      if (byUser[id]) {
+        userOv = byUser[id];
+        break;
+      }
+    }
+  }
+  if (userOv) {
+    return (userOv.modules ?? []).includes(module.id);
+  }
+
+  const hasRoleOverrides = Boolean(byRole && Object.keys(byRole).length > 0);
+  if (!hasRoleOverrides) {
+    return module.allowedRoles.some((r) => hasRole(roles, r));
+  }
+
+  for (const role of roles) {
+    if (role === "admin") return true;
+    const override = byRole![role];
+    if (override) {
+      if ((override.modules ?? []).includes(module.id)) return true;
+      continue;
+    }
+    if (module.allowedRoles.some((r) => hasRole([role], r))) return true;
+  }
+  return false;
 }
+
+/** Modules enfants des hubs piliers (alignés sur DASHBOARD_PILLARS.moduleIds). */
+const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
+  "pillar-administratif": [
+    "eleve-dossier",
+    "notes",
+    "groupes-pedagogiques",
+    "stages",
+    "agent-ia-ocr",
+    "certificates",
+  ],
+  "pillar-etablissement": [
+    "admin-settings",
+    "organigramme",
+    "evenements",
+    "communication",
+    "conformite-rgpd",
+    "chatbot-knowledge",
+  ],
+  "pillar-services": [
+    "travels",
+    "prof-room",
+    "requests-staff",
+    "domain-planning",
+    "documents",
+    "toolbox",
+    "channels",
+    "assistance",
+  ],
+  "pillar-vie-scolaire": [
+    "internat",
+    "vs-appels",
+    "vs-sanctions",
+    "vs-carnet",
+    "vs-calendrier",
+    "groupes-pedagogiques",
+  ],
+  "pillar-compta-rh": ["rh", "mon-planning", "conformite-rgpd"],
+};
 
 export function canAccessIntranetPath(
   pathname: string,
   roles: string[],
   isOrgAdmin: boolean,
+  access?: {
+    byRole?: Record<string, { modules?: string[] }>;
+    byUser?: Record<string, { modules?: string[] }>;
+  } | null,
+  userRef?: string | { userId?: string | null; businessUserId?: string | null } | null,
 ): boolean {
   const normalized = normalizePathname(pathname);
 
@@ -853,7 +941,7 @@ export function canAccessIntranetPath(
   const modules = findMatchingModules(normalized);
   if (modules.length === 0) return false;
 
-  return modules.some((m) => rolesAllowModule(roles, m, isOrgAdmin));
+  return modules.some((m) => rolesAllowModule(roles, m, isOrgAdmin, access, userRef));
 }
 
 export function getIntranetModuleById(moduleId: string): IntranetModule | undefined {

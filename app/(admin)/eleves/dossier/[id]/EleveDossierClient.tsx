@@ -1453,7 +1453,7 @@ export default function EleveDossierClient() {
             </div>
             <div className="flex flex-wrap gap-2">
               <Link
-                href="/vie-scolaire/absences"
+                href="/vie-scolaire/presence?tab=absences"
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
               >
                 Suivi absences

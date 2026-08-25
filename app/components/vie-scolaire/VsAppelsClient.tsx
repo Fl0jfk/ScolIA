@@ -53,7 +53,7 @@ function initials(prenom: string, nom: string): string {
   return `${prenom.slice(0, 1)}${nom.slice(0, 1)}`.toUpperCase();
 }
 
-export default function VsAppelsClient() {
+export default function VsAppelsClient({ embedded = false }: { embedded?: boolean }) {
   const [classe, setClasse] = useState("");
   const [dateAppel, setDateAppel] = useState(todayIso());
   const [creneaux, setCreneaux] = useState<CreneauRow[]>([]);
@@ -218,7 +218,8 @@ export default function VsAppelsClient() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
+    <div className={embedded ? "space-y-5" : "max-w-2xl mx-auto px-4 py-6 space-y-5"}>
+      {!embedded ? (
       <header>
         <h1 className="text-2xl font-black text-slate-900">Appel de classe</h1>
         <p className="text-sm text-slate-600 mt-1">
@@ -237,13 +238,18 @@ export default function VsAppelsClient() {
             EDT & calendrier
           </Link>
           <Link
-            href="/vie-scolaire/absences"
+            href="/vie-scolaire/presence?tab=absences"
             className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-slate-50"
           >
             Absences
           </Link>
         </div>
       </header>
+      ) : manquants > 0 && !appelId ? (
+        <p className="text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+          {manquants} créneau(x) déjà commencé(s) sans appel clôturé.
+        </p>
+      ) : null}
 
       {!appelId && (
         <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">

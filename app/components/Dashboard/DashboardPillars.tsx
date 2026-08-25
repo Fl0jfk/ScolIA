@@ -28,6 +28,7 @@ type Props = {
   pulseKey?: string;
   roles?: string[];
   orgAdmin?: boolean;
+  accessibleModuleIds?: Set<string>;
 };
 
 const PILLAR_ORB: Record<DashboardPillarId, string> = {
@@ -371,9 +372,10 @@ export default function DashboardPillars({
   pulseKey,
   roles = [],
   orgAdmin = false,
+  accessibleModuleIds,
 }: Props) {
   const pillars = DASHBOARD_PILLARS.filter((p) =>
-    pillarHasVisibleModules(p, categories, roles, { orgAdmin }),
+    pillarHasVisibleModules(p, categories, roles, { orgAdmin, accessibleModuleIds }),
   );
 
   const pruned = useCallback(

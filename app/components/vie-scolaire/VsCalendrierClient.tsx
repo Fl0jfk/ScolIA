@@ -145,7 +145,7 @@ export default function VsCalendrierClient() {
           Initialiser vacances (exemple)
         </button>
         <Link
-          href="/vie-scolaire/appels"
+          href="/vie-scolaire/presence?tab=appel"
           className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-800 hover:bg-indigo-100"
         >
           Appels du jour →

@@ -1172,71 +1172,63 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       tone: "info",
     });
   }
-  if (has("vs-appels")) {
+  if (has("vs-appels") || has("vs-absences")) {
+    const warnCount =
+      (has("vs-appels") ? vsAppelsManquants : 0) +
+      (has("vs-absences") ? Math.max(vsAbsencesJustifFamille, vsAbsencesATraiter > 0 ? vsAbsencesATraiter : 0) : 0);
+    const detailParts: string[] = [];
+    if (has("vs-appels") && vsAppelsManquants > 0) {
+      detailParts.push(`${vsAppelsManquants} appel(s) manquant(s)`);
+    }
+    if (has("vs-absences") && vsAbsencesJustifFamille > 0) {
+      detailParts.push(`${vsAbsencesJustifFamille} justificatif(s) famille`);
+    } else if (has("vs-absences") && vsAbsencesATraiter > 0) {
+      detailParts.push(`${vsAbsencesATraiter} absence(s) à traiter`);
+    }
     shortcuts.push({
-      id: "vs-appels",
+      id: "vs-presence",
       pillarId: "vie_scolaire",
       moduleId: "vs-appels",
-      href: moduleHref("vs-appels"),
-      label: "Appel de classe",
-      rich: true,
-      detail:
-        vsAppelsManquants > 0
-          ? `${vsAppelsManquants} créneau(x) sans appel clôturé`
-          : "Présents · absents · retards",
-      badge: vsAppelsManquants > 0 ? String(vsAppelsManquants) : undefined,
-      tone: vsAppelsManquants > 0 ? "warn" : "info",
-    });
-    pushNotif({
-      id: "vs-appels-manquants",
-      moduleId: "vs-appels",
-      label: "Appels manquants",
-      count: vsAppelsManquants,
-      href: moduleHref("vs-appels"),
-      detail: "Créneaux commencés sans appel clôturé",
-    });
-  }
-  if (has("vs-absences")) {
-    shortcuts.push({
-      id: "vs-absences",
-      pillarId: "vie_scolaire",
-      moduleId: "vs-absences",
       href:
-        vsAbsencesJustifFamille > 0
-          ? `${moduleHref("vs-absences")}?filtre=justif_famille`
-          : moduleHref("vs-absences"),
-      label: "Absences élèves",
+        has("vs-absences") && vsAbsencesJustifFamille > 0
+          ? `${moduleHref("vs-absences")}&filtre=justif_famille`
+          : has("vs-appels") && vsAppelsManquants > 0
+            ? `${moduleHref("vs-appels")}?tab=appel`
+            : moduleHref("vs-appels"),
+      label: "Appels & absences",
       rich: true,
-      detail:
-        vsAbsencesJustifFamille > 0
-          ? `${vsAbsencesJustifFamille} justificatif(s) famille à valider`
-          : vsAbsencesATraiter > 0
-            ? `${vsAbsencesATraiter} à justifier / relancer`
-            : "Justifs & relances CPE",
-      badge:
-        vsAbsencesJustifFamille > 0
-          ? String(vsAbsencesJustifFamille)
-          : vsAbsencesATraiter > 0
-            ? String(vsAbsencesATraiter)
-            : undefined,
-      tone: vsAbsencesATraiter > 0 || vsAbsencesJustifFamille > 0 ? "warn" : "info",
+      detail: detailParts.length > 0 ? detailParts.join(" · ") : "Présence en classe · justificatifs",
+      badge: warnCount > 0 ? String(warnCount) : undefined,
+      tone: warnCount > 0 ? "warn" : "info",
     });
-    pushNotif({
-      id: "vs-absences-a-traiter",
-      moduleId: "vs-absences",
-      label: "Absences à traiter",
-      count: vsAbsencesATraiter,
-      href: moduleHref("vs-absences"),
-      detail: "Justificatifs et relances familles",
-    });
-    pushNotif({
-      id: "vs-absences-justif-famille",
-      moduleId: "vs-absences",
-      label: "Justificatifs famille",
-      count: vsAbsencesJustifFamille,
-      href: `${moduleHref("vs-absences")}?filtre=justif_famille`,
-      detail: "Motifs parents à valider côté CPE",
-    });
+    if (has("vs-appels")) {
+      pushNotif({
+        id: "vs-appels-manquants",
+        moduleId: "vs-appels",
+        label: "Appels manquants",
+        count: vsAppelsManquants,
+        href: `${moduleHref("vs-appels")}?tab=appel`,
+        detail: "Créneaux commencés sans appel clôturé",
+      });
+    }
+    if (has("vs-absences")) {
+      pushNotif({
+        id: "vs-absences-a-traiter",
+        moduleId: "vs-absences",
+        label: "Absences à traiter",
+        count: vsAbsencesATraiter,
+        href: `${moduleHref("vs-absences")}`,
+        detail: "Justificatifs et relances familles",
+      });
+      pushNotif({
+        id: "vs-absences-justif-famille",
+        moduleId: "vs-absences",
+        label: "Justificatifs famille",
+        count: vsAbsencesJustifFamille,
+        href: `${moduleHref("vs-absences")}&filtre=justif_famille`,
+        detail: "Motifs parents à valider côté CPE",
+      });
+    }
   }
   if (has("vs-sanctions")) {
     shortcuts.push({

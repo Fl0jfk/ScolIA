@@ -28,7 +28,7 @@ function parseFiltreJustif(raw: string | null): FiltreJustif {
   return "tous";
 }
 
-export default function VsAbsencesClient() {
+export default function VsAbsencesClient({ embedded = false }: { embedded?: boolean }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -132,14 +132,21 @@ export default function VsAbsencesClient() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
+    <div className={embedded ? "space-y-5" : "max-w-3xl mx-auto px-4 py-6 space-y-5"}>
       <header className="flex flex-wrap items-end justify-between gap-3">
+        {!embedded ? (
         <div>
           <h1 className="text-2xl font-black text-slate-900">Absences élèves</h1>
           <p className="text-sm text-slate-600 mt-1">
             Suivi CPE — justificatifs familles et relances après les appels.
           </p>
         </div>
+        ) : (
+          <div>
+            <h2 className="text-lg font-black text-slate-900">Suivi des absences</h2>
+            <p className="text-sm text-slate-600 mt-0.5">Justificatifs familles et relances CPE.</p>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full bg-amber-50 text-amber-900 px-3 py-1 text-sm font-bold">
             {aTraiter} à traiter
@@ -155,12 +162,14 @@ export default function VsAbsencesClient() {
           >
             Export PDF
           </a>
+          {!embedded ? (
           <Link
-            href="/vie-scolaire/appels"
+            href="/vie-scolaire/presence?tab=appel"
             className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
           >
-            Appels
+            Appel
           </Link>
+          ) : null}
         </div>
       </header>
 

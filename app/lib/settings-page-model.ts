@@ -12,7 +12,8 @@ export type Tab =
   | "siecle"
   | "dashboard-links"
   | "utilisateurs"
-  | "identite";
+  | "identite"
+  | "module-access";
 
 export type SettingsEstablishmentForm = {
   id: string;

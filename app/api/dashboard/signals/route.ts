@@ -69,8 +69,27 @@ export async function GET() {
     const email = user?.primaryEmailAddress?.emailAddress ?? "";
     const isOrgAdmin = isOrgAdminFromPublicMetadata(user?.publicMetadata);
 
+    const { loadModuleAccess } = await import("@/app/lib/module-access-store");
+    const moduleAccess = await loadModuleAccess();
+    let authUserId: string | null = null;
+    let businessUserId: string | null = userId;
+    try {
+      const { requireAppUser } = await import("@/app/lib/app-session");
+      const appUser = await requireAppUser();
+      if (appUser.ok) {
+        authUserId = appUser.user.id;
+        businessUserId = appUser.user.businessUserId;
+      }
+    } catch {
+      /* repli gate.ctx */
+    }
     const accessibleModuleIds = new Set(
-      INTRANET_MODULES.filter((m) => rolesAllowModule(roles, m, isOrgAdmin)).map((m) => m.id),
+      INTRANET_MODULES.filter((m) =>
+        rolesAllowModule(roles, m, isOrgAdmin, moduleAccess, {
+          userId: authUserId,
+          businessUserId,
+        }),
+      ).map((m) => m.id),
     );
     if (accessibleModuleIds.has("rh")) {
       accessibleModuleIds.add("absences");

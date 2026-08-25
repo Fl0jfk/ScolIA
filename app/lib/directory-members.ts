@@ -7,6 +7,8 @@ import { isDatabaseConfigured } from "@/db/index";
 import { intranetRolesFromMetadata, normalizeIntranetRoles } from "@/app/lib/intranet-roles";
 
 export type DirectoryMemberRow = {
+  /** Id Better-Auth (clé droits modules). */
+  userId?: string;
   externalUserId: string;
   email: string;
   firstName?: string;

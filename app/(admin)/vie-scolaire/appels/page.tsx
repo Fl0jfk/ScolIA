@@ -1,5 +1,6 @@
-import VsAppelsClient from "@/app/components/vie-scolaire/VsAppelsClient";
+import { redirect } from "next/navigation";
 
-export default function VsAppelsPage() {
-  return <VsAppelsClient />;
+/** Ancienne URL — fusionnée dans Appels & absences. */
+export default function VsAppelsLegacyRedirect() {
+  redirect("/vie-scolaire/presence?tab=appel");
 }

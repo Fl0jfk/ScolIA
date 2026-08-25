@@ -14,6 +14,7 @@ export async function listMembersFromDb(etablissementId: string): Promise<Direct
   for (const u of users) {
     const roles = await listUserRolesFromDb(u.id, etablissementId);
     rows.push({
+      userId: u.id,
       externalUserId: u.externalUserId ?? u.id,
       email: u.email,
       firstName: u.firstName ?? undefined,

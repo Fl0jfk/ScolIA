@@ -83,10 +83,12 @@ export default function Home() {
   const uniqueCategories = useMemo(() => {
     if (!isLoaded || !user || !data?.categories) return [];
     const roles = intranetRolesFromMetadata(user.publicMetadata);
+    const accessible = data.accessibleModuleIds;
     const filtered = data.categories.filter((category) => {
       // Admin établissement : accès complet au catalogue (dont Paramètres).
       if (isOrgAdmin || hasGlobalAdminRole(roles)) return true;
       if (category.orgAdminOnly) return false;
+      if (accessible) return accessible.has(category.moduleId);
       return (category.allowedRoles ?? []).some((r) => hasRole(roles, r));
     });
     return Array.from(new Map(filtered.map((cat) => [cat.moduleId, cat])).values());
@@ -116,7 +118,10 @@ export default function Home() {
   }, [user, userRoles]);
 
   const hasPillars = DASHBOARD_PILLARS.some((p) =>
-    pillarHasVisibleModules(p, dashboardCategories, userRoles, { orgAdmin: isOrgAdmin }),
+    pillarHasVisibleModules(p, dashboardCategories, userRoles, {
+      orgAdmin: isOrgAdmin,
+      accessibleModuleIds: data.accessibleModuleIds ?? undefined,
+    }),
   );
 
   if (!isLoaded) return null;
@@ -228,6 +233,7 @@ export default function Home() {
                   pulseKey={pulseKey}
                   roles={userRoles}
                   orgAdmin={isOrgAdmin}
+                  accessibleModuleIds={data.accessibleModuleIds ?? undefined}
                 />
               ) : (
                 user && (

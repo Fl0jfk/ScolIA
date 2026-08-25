@@ -47,6 +47,15 @@ import {
 } from "@/app/lib/proxy-better-auth";
 import { assertUserBelongsToTenant } from "@/app/lib/etablissement-db";
 
+async function loadModuleAccessForProxy() {
+  try {
+    const { loadModuleAccess } = await import("@/app/lib/module-access-store");
+    return await loadModuleAccess();
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Équivalent `createRouteMatcher` : patterns style `/path(.*)`.
  */
@@ -452,7 +461,16 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
   }
 
   if (
-    !canAccessIntranetPath(pathname, roles, isOrgAdmin) &&
+    !canAccessIntranetPath(
+      pathname,
+      roles,
+      isOrgAdmin,
+      await loadModuleAccessForProxy(),
+      {
+        userId: betterAuthState.authUserId,
+        businessUserId: betterAuthState.userId,
+      },
+    ) &&
     !isMustChangePasswordAllowedPath(pathname) &&
     !isTwoFactorSetupAllowedPath(pathname)
   ) {

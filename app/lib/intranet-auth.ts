@@ -155,7 +155,14 @@ export async function requireModule(
   }
 
   const isOrgAdmin = isOrgAdminFromAppUser(resolved.user);
-  if (!rolesAllowModule(resolved.user.roles, module, isOrgAdmin)) {
+  const { loadModuleAccess } = await import("@/app/lib/module-access-store");
+  const access = await loadModuleAccess();
+  if (
+    !rolesAllowModule(resolved.user.roles, module, isOrgAdmin, access, {
+      userId: resolved.user.id,
+      businessUserId: resolved.user.businessUserId,
+    })
+  ) {
     return { ok: false, response: moduleForbiddenResponse(moduleId) };
   }
 
@@ -175,9 +182,17 @@ export async function requireAnyModule(
   if (!resolved.ok) return resolved;
 
   const isOrgAdmin = isOrgAdminFromAppUser(resolved.user);
+  const { loadModuleAccess } = await import("@/app/lib/module-access-store");
+  const access = await loadModuleAccess();
   for (const moduleId of moduleIds) {
     const module = getIntranetModuleById(moduleId);
-    if (module && rolesAllowModule(resolved.user.roles, module, isOrgAdmin)) {
+    if (
+      module &&
+      rolesAllowModule(resolved.user.roles, module, isOrgAdmin, access, {
+        userId: resolved.user.id,
+        businessUserId: resolved.user.businessUserId,
+      })
+    ) {
       return {
         ok: true,
         moduleId,

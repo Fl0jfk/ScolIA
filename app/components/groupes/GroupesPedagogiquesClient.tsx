@@ -142,7 +142,7 @@ export default function GroupesPedagogiquesClient() {
             <Link href="/vie-scolaire/calendrier" className="text-indigo-600 hover:underline">
               EDT
             </Link>
-            <Link href="/vie-scolaire/appels" className="text-indigo-600 hover:underline">
+            <Link href="/vie-scolaire/presence?tab=appel" className="text-indigo-600 hover:underline">
               Appels
             </Link>
             <Link href="/toolbox/repartition-classes" className="text-emerald-700 hover:underline">

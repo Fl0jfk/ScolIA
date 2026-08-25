@@ -38,9 +38,10 @@ export default function PillarHubClient({ pillarId, loadingLabel }: Props) {
   }, [user]);
 
   const accessible = useMemo(() => {
-    if (!isLoaded || !user || !data?.categories) return new Set<string>();
+    if (!isLoaded || !user) return new Set<string>();
+    if (data?.accessibleModuleIds) return data.accessibleModuleIds;
     const ids = new Set<string>();
-    for (const category of data.categories) {
+    for (const category of data?.categories ?? []) {
       if (isOrgAdmin || hasGlobalAdminRole(roles)) {
         ids.add(category.moduleId);
         continue;
@@ -65,7 +66,10 @@ export default function PillarHubClient({ pillarId, loadingLabel }: Props) {
 
   if (
     !pillar ||
-    !pillarAllowedForRoles(pillar, roles, { orgAdmin: isOrgAdmin })
+    !pillarAllowedForRoles(pillar, roles, {
+      orgAdmin: isOrgAdmin,
+      accessibleModuleIds: accessible,
+    })
   ) {
     return (
       <p className="p-10 text-center text-slate-500">

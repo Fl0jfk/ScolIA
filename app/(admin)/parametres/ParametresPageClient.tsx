@@ -83,11 +83,16 @@ const IdentitePanel = dynamic(
   () => import("@/app/components/settings/IdentitePanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
+const ModuleAccessPanel = dynamic(
+  () => import("@/app/components/settings/ModuleAccessPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
   { id: "site", label: "Établissement", icon: "🏫" },
   { id: "establishments", label: "Sites / directions", icon: "🗺️" },
   { id: "utilisateurs", label: "Utilisateurs", icon: "👥" },
+  { id: "module-access", label: "Droits modules", icon: "🔐" },
   { id: "identite", label: "Identité", icon: "🪪" },
   { id: "referentiel", label: "Liste des élèves", icon: "🎒" },
   { id: "annees", label: "Année scolaire", icon: "📅" },
@@ -141,6 +146,7 @@ export default function ParametresPage() {
       t === "dashboard-links" ||
       t === "utilisateurs" ||
       t === "identite" ||
+      t === "module-access" ||
       t === "membres"
     ) {
       setTab(t === "membres" ? "utilisateurs" : t);
@@ -663,6 +669,8 @@ export default function ParametresPage() {
         {tab === "dashboard-links" && <DashboardQuickLinksPanel />}
 
         {tab === "utilisateurs" && <MembresPanel />}
+
+        {tab === "module-access" && <ModuleAccessPanel />}
 
         {tab === "identite" && <IdentitePanel />}
         </div>

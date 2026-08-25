@@ -46,7 +46,6 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "stages",
       "agent-ia-ocr",
       "certificates",
-      "pilotage-eleves",
     ],
   },
   {
@@ -94,15 +93,14 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     id: "vie_scolaire",
     title: "Vie scolaire",
     href: "/vie-scolaire",
-    description: "Internat, absences élèves, vie scolaire live",
-    allowedRoles: [...DIRECTIONS, "cpe", "education"],
+    description: "Internat, appels & absences, sanctions, carnet",
+    allowedRoles: [...DIRECTIONS, "cpe", "education", "administratif", "admin", "professeur"],
     moduleIds: [
       "internat",
-      "vs-calendrier",
       "vs-appels",
-      "vs-absences",
       "vs-sanctions",
       "vs-carnet",
+      "vs-calendrier",
       "groupes-pedagogiques",
     ],
   },
@@ -201,11 +199,14 @@ export function categoriesForPillar(
     .sort((a, b) => (order.get(a.moduleId) ?? 0) - (order.get(b.moduleId) ?? 0));
 }
 
-/** Le rôle a-t-il le droit de voir ce pilier (indépendamment des modules) ? */
+/** Le rôle a-t-il le droit de voir ce pilier ?
+ * Règle produit : le pilier apparaît dès qu’au moins un de ses modules est accessible
+ * (sauf Santé, cloisonnement strict).
+ */
 export function pillarAllowedForRoles(
   pillar: DashboardPillarDef,
   roles: string[],
-  opts?: { orgAdmin?: boolean },
+  opts?: { orgAdmin?: boolean; accessibleModuleIds?: Set<string> },
 ): boolean {
   // Santé : cloisonnement strict (infirmier / psychologue uniquement).
   if (pillar.id === "sante") {
@@ -214,6 +215,10 @@ export function pillarAllowedForRoles(
   if (hasMasterRole(roles) || hasGlobalAdminRole(roles) || opts?.orgAdmin) {
     return true;
   }
+  if (opts?.accessibleModuleIds) {
+    const moduleIds = moduleIdsForPillarViewer(pillar, roles, opts);
+    return moduleIds.some((id) => opts.accessibleModuleIds!.has(id));
+  }
   return pillar.allowedRoles.some((r) => hasRole(roles, r));
 }
 
@@ -221,7 +226,7 @@ export function pillarHasVisibleModules(
   pillar: DashboardPillarDef,
   categories: DashboardCategory[],
   roles?: string[],
-  opts?: { orgAdmin?: boolean },
+  opts?: { orgAdmin?: boolean; accessibleModuleIds?: Set<string> },
 ): boolean {
   if (roles && !pillarAllowedForRoles(pillar, roles, opts)) {
     return false;
@@ -232,5 +237,9 @@ export function pillarHasVisibleModules(
     );
     if (hasRh) return true;
   }
-  return categoriesForPillar(pillar, categories, roles, opts).length > 0;
+  const visible = categoriesForPillar(pillar, categories, roles, opts);
+  if (opts?.accessibleModuleIds) {
+    return visible.some((c) => opts.accessibleModuleIds!.has(c.moduleId));
+  }
+  return visible.length > 0;
 }

@@ -17,7 +17,6 @@ import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import {
   canRegisterEleveDocument,
-  eleveDossierSectionsForRoles,
   listEleveDocumentsForViewer,
   recordEleveAccessAudit,
   type EleveDocConfidentialite,
@@ -108,6 +107,7 @@ async function resolveViewer(etabId: string) {
 }
 
 export async function GET(_req: Request, ctx: Ctx) {
+  try {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
 
@@ -122,7 +122,17 @@ export async function GET(_req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   }
   const { userId: authUserId, businessUserId, roles, orgAdmin, platformAdmin } = viewer;
-  const sections = [...eleveDossierSectionsForRoles(roles, { orgAdmin, platformAdmin })];
+  const { loadModuleAccess } = await import("@/app/lib/module-access-store");
+  const { dossierSectionsForRolesWithAccess } = await import("@/app/lib/module-access");
+  const access = await loadModuleAccess();
+  const sections = [
+    ...dossierSectionsForRolesWithAccess(
+      roles,
+      { orgAdmin, platformAdmin },
+      access,
+      { userId: authUserId, businessUserId },
+    ),
+  ];
   const profRestrictedView = isProfesseurScopedDossierViewer({ roles, orgAdmin, platformAdmin });
 
   const db = getDb();
@@ -489,6 +499,17 @@ export async function GET(_req: Request, ctx: Ctx) {
     enCoursMaintenant,
     synthese,
   });
+  } catch (error) {
+    console.error("[eleves/dossier GET]", error);
+    return NextResponse.json(
+      {
+        error: "Impossible de charger le dossier élève.",
+        code: "DOSSIER_GET_ERROR",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 },
+    );
+  }
 }
 
 type DossierBody = {
@@ -548,7 +569,15 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   }
   const { userId: authUserId, businessUserId, roles, orgAdmin, platformAdmin } = viewer;
-  const sections = eleveDossierSectionsForRoles(roles, { orgAdmin, platformAdmin });
+  const { loadModuleAccess } = await import("@/app/lib/module-access-store");
+  const { dossierSectionsForRolesWithAccess } = await import("@/app/lib/module-access");
+  const access = await loadModuleAccess();
+  const sections = dossierSectionsForRolesWithAccess(
+    roles,
+    { orgAdmin, platformAdmin },
+    access,
+    { userId: authUserId, businessUserId },
+  );
   const body = (await req.json()) as DossierBody;
   const action = String(body.action || "");
 

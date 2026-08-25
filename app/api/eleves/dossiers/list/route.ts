@@ -21,6 +21,7 @@ import { etablissementSite } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 export async function GET(req: NextRequest) {
+  try {
   const gate = await requireModule("eleve-dossier");
   if (!gate.ok) return gate.response;
 
@@ -148,4 +149,15 @@ export async function GET(req: NextRequest) {
     siteLabelById,
     classOptions,
   });
+  } catch (error) {
+    console.error("[eleves/dossiers/list]", error);
+    return NextResponse.json(
+      {
+        error: "Impossible de charger les dossiers élèves.",
+        code: "DOSSIER_LIST_ERROR",
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 },
+    );
+  }
 }
