@@ -409,6 +409,26 @@ export default function ChapterContacts(props: Props) {
             }
           />
         </OnboardingField>
+        <OnboardingField label="Responsables des surveillants (virgules)">
+          <input
+            className={onboardingInputClass}
+            placeholder="Notifiés si absence d'un personnel Éducation / surveillance"
+            value={
+              Array.isArray(notifications.absencesNotifySurveillanceResponsables)
+                ? notifications.absencesNotifySurveillanceResponsables.join(", ")
+                : ""
+            }
+            onChange={(e) =>
+              setNotifications({
+                ...notifications,
+                absencesNotifySurveillanceResponsables: e.target.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              })
+            }
+          />
+        </OnboardingField>
       </Accordion>
 
       <Accordion

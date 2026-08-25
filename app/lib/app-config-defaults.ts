@@ -31,6 +31,7 @@ export function defaultNotifications(): NotificationsConfig {
   return {
     travelsCompta: [],
     absencesNotifyOgecCompta: [],
+    absencesNotifySurveillanceResponsables: [],
   };
 }
 

@@ -89,9 +89,9 @@ export const KEY_PILLARS = [
     title: "Ressources humaines",
     hook: "Absences et arrivées, au même endroit.",
     accent: "#6B3A4A",
-    lead: "Se déclarer absent, et aussi accueillir un nouveau salarié — vrai module RH.",
+    lead: "Demander une autorisation d’absence, et aussi accueillir un nouveau salarié — vrai module RH.",
     outcomes: [
-      "Déclaration d’absence simple",
+      "Demande d’autorisation d’absence simple",
       "Onboarding nouveaux collaborateurs",
       "Dossiers et validations selon les droits",
     ],

@@ -168,6 +168,11 @@ export type NotificationsConfig = {
   /** @deprecated Préférer absencesNotifyProfCollege / absencesNotifyProfLycee */
   absencesNotifyProfCollegeLycee?: { label?: string; email: string };
   absencesNotifyOgecCompta: string[];
+  /**
+   * Après validation d'une absence OGEC d'un personnel « éducation / surveillance » :
+   * copie aux responsables des surveillants (en plus de la compta RH).
+   */
+  absencesNotifySurveillanceResponsables?: string[];
   internatRollCallRecipients?: InternatRollCallRecipients;
   internatEmergencyRecipients?: string[];
   /** Préconventions / conventions de stage — file administratif. */
@@ -420,6 +425,7 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const compta = strArr(o.travelsCompta).filter(isEmail);
   const ogec = strArr(o.absencesNotifyOgecCompta).filter(isEmail);
+  const surveillance = strArr(o.absencesNotifySurveillanceResponsables).filter(isEmail);
   const parseNotify = (block: unknown) => {
     if (!block || typeof block !== "object") return undefined;
     const b = block as Record<string, unknown>;
@@ -453,6 +459,7 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
     absencesNotifyProfLycee: parseNotify(o.absencesNotifyProfLycee),
     absencesNotifyProfCollegeLycee: parseNotify(o.absencesNotifyProfCollegeLycee),
     absencesNotifyOgecCompta: ogec,
+    absencesNotifySurveillanceResponsables: surveillance,
     internatRollCallRecipients: parseInternatRollCall(o.internatRollCallRecipients),
     internatEmergencyRecipients: strArr(o.internatEmergencyRecipients).filter(isEmail),
     stagesAdminEmails: strArr(o.stagesAdminEmails).filter(isEmail),

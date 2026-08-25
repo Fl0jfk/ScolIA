@@ -41,7 +41,7 @@ export async function handleCreateAbsence(
   args: Record<string, unknown>,
 ): Promise<BrainToolResult> {
   if (!ctx.userId) {
-    return { ok: false, error: "Connexion requise pour déclarer une absence.", code: "AUTH_REQUIRED" };
+    return { ok: false, error: "Connexion requise pour demander une autorisation d'absence.", code: "AUTH_REQUIRED" };
   }
 
   const scopeHint = typeof args.scope === "string" ? args.scope : undefined;
@@ -101,7 +101,7 @@ export async function handleCreateAbsence(
     return choicesResult(
       "create_absence",
       "startDate",
-      label("Déclarons votre absence. Quel jour ?"),
+      label("Demandons une autorisation d'absence. Quel jour ?"),
       buildDateQuickOptions(calendarDateKeyParis()),
       draft(),
     );
@@ -244,7 +244,7 @@ export async function handleCreateAbsence(
         detailsResolved: true,
       },
       summaryFr:
-        `Récap — Déclarer mon absence le ${weekdayLabelFr(startDate)}` +
+        `Récap — Demande d'autorisation d'absence le ${weekdayLabelFr(startDate)}` +
         (endDate !== startDate ? ` → ${weekdayLabelFr(endDate)}` : "") +
         ` — motif : ${reason}` +
         (etablissement ? ` (${etablissement})` : "") +
@@ -310,7 +310,7 @@ export async function handleCreateAbsence(
         at: now,
         by: creatorName,
         action: "CREATION",
-        note: "Déclaration d'absence créée via ScolIA (wizard)",
+        note: "Demande d'autorisation d'absence créée via ScolIA (wizard)",
       },
     ],
   };
@@ -331,7 +331,7 @@ export async function handleCreateAbsence(
       followUrl: "/rh?tab=absences",
     },
     summaryFr: merged
-      ? `Absence fusionnée avec une déclaration existante (${saved.id}).`
-      : `Absence déclarée (${saved.id}). Vous pourrez ajouter un justificatif dans RH.`,
+      ? `Demande fusionnée avec une demande existante (${saved.id}).`
+      : `Demande d'autorisation d'absence envoyée (${saved.id}). Vous pourrez ajouter un justificatif dans RH.`,
   };
 }

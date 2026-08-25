@@ -48,10 +48,9 @@ export const SCHOOL = {
     internPlaces: 125,
   },
   /**
-   * Routage absences (déclaration → validation direction → notification après validation).
-   * Prof : mail création → direction de l'établissement choisi ; validation → même direction uniquement.
-   * OGEC : mail création + validation → direction lycée (Mme Dona) uniquement.
-   * Adresses « après validation » : à ajuster quand les boîtes définitives sont confirmées.
+   * Routage absences (demande d'autorisation → validation direction → notification après validation).
+   * Prof : mail création → direction de l'établissement ; validation → destinataires config (secrétariat cycle).
+   * OGEC : mail création → direction ; validation → compta RH (+ responsables des surveillants si profil Éducation / surveillance).
    */
   absences: {
     /** Après validation d'une absence professeur — École */

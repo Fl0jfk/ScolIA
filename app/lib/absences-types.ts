@@ -205,15 +205,11 @@ function canViewOgecAbsenceAttachments(roles: string[]) {
 }
 
 /** Pièces jointes absences professeurs : administratif et direction de l'établissement. */
-/** Pièces jointes absences : jamais exposées dans l’UI (données sensibles). */
-const ABSENCE_ATTACHMENTS_DISABLED = true;
-
 function canViewProfAbsenceAttachments(
   abs: AbsenceRecord,
   roles: string[],
   ctx?: DirectionAuthCtx,
 ) {
-  if (ABSENCE_ATTACHMENTS_DISABLED) return false;
   const flags = getRoleFlags(roles);
   if (flags.isAdministratif) return true;
   return directionRolesMatchEstablishmentRef(
@@ -224,22 +220,27 @@ function canViewProfAbsenceAttachments(
   );
 }
 
-export function canViewAbsenceAttachment(abs: AbsenceRecord, viewerUserId: string, roles: string[]) {
-  if (ABSENCE_ATTACHMENTS_DISABLED) return false;
+export function canViewAbsenceAttachment(
+  abs: AbsenceRecord,
+  viewerUserId: string,
+  roles: string[],
+  ctx?: DirectionAuthCtx,
+) {
+  if (abs.createdBy.userId === viewerUserId) return true;
   const scope = resolveAbsenceScope(abs);
-  if (scope === "ogec") {
-    if (abs.createdBy.userId === viewerUserId) return true;
-    return canViewOgecAbsenceAttachments(roles);
-  }
-  return canViewProfAbsenceAttachments(abs, roles);
+  if (scope === "ogec") return canViewOgecAbsenceAttachments(roles);
+  return canViewProfAbsenceAttachments(abs, roles, ctx);
 }
 
 /** Ajout / suppression de pièces jointes (hors dépôt par le demandeur sur sa propre demande). */
-export function canManageAbsenceAttachment(abs: AbsenceRecord, roles: string[]) {
-  if (ABSENCE_ATTACHMENTS_DISABLED) return false;
+export function canManageAbsenceAttachment(
+  abs: AbsenceRecord,
+  roles: string[],
+  ctx?: DirectionAuthCtx,
+) {
   const scope = resolveAbsenceScope(abs);
   if (scope === "ogec") return canViewOgecAbsenceAttachments(roles);
-  return canViewProfAbsenceAttachments(abs, roles);
+  return canViewProfAbsenceAttachments(abs, roles, ctx);
 }
 
 function redactAbsenceAttachments(abs: AbsenceRecord): AbsenceRecord {
@@ -254,9 +255,23 @@ function redactAbsenceAttachments(abs: AbsenceRecord): AbsenceRecord {
   };
 }
 
-export function filterAbsenceForViewer(abs: AbsenceRecord, viewerUserId: string, roles: string[]): AbsenceRecord {
-  if (canViewAbsenceAttachment(abs, viewerUserId, roles)) return abs;
+export function filterAbsenceForViewer(
+  abs: AbsenceRecord,
+  viewerUserId: string,
+  roles: string[],
+  ctx?: DirectionAuthCtx,
+): AbsenceRecord {
+  if (canViewAbsenceAttachment(abs, viewerUserId, roles, ctx)) return abs;
   return redactAbsenceAttachments(abs);
+}
+
+/** Personnel « éducation / surveillance » (vie scolaire) — hors CPE. */
+export function isEducationSurveillanceStaff(roles: string[] | null | undefined): boolean {
+  if (!Array.isArray(roles) || roles.length === 0) return false;
+  return roles.some((r) => {
+    const n = normRole(r);
+    return n === "education" || n.includes("surveillant");
+  });
 }
 
 export function canViewAbsence(

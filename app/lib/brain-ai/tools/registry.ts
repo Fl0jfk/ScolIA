@@ -219,7 +219,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_absence",
     description:
-      "Démarre / poursuit un wizard d'absence (soi uniquement). Appeler immédiatement (même sans args) : date → durée → motif → établissement si prof → confirmation.",
+      "Démarre / poursuit un wizard de demande d'autorisation d'absence (soi uniquement). Appeler immédiatement (même sans args) : date → durée → motif → établissement si prof → confirmation.",
     parameters: {
       type: "object",
       properties: {

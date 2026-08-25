@@ -102,14 +102,14 @@ export default function RhMoiPage() {
         <div>
           <p className="font-black text-slate-900 text-sm">Absences</p>
           <p className="text-xs text-slate-500 mt-0.5">
-            Déclarez une absence depuis le module RH (congés scolaires imposés — hors périmètre).
+            Demandez une autorisation d&apos;absence depuis le module RH (congés scolaires imposés — hors périmètre).
           </p>
         </div>
         <Link
           href="/rh?tab=absences&view=se-declarer#nouvelle-absence"
           className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold"
         >
-          Déclarer une absence
+          Demander une autorisation d&apos;absence
         </Link>
       </div>
 

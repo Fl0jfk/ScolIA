@@ -114,14 +114,14 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
         <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600">Espace personnel</p>
         <h2 className="text-2xl font-black text-slate-900 mt-1">Bonjour {firstName}</h2>
         <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-          Votre coin RH : déclarer une absence, suivre vos demandes et déposer un document.
+          Votre coin RH : demander une autorisation d&apos;absence, suivre vos demandes et déposer un document.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Link
             href="/rh?tab=absences&view=se-declarer#nouvelle-absence"
             className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow-sm hover:bg-indigo-700"
           >
-            Déclarer une absence
+            Demander une autorisation d&apos;absence
           </Link>
           {canCreateHse && (
             <Link
@@ -165,7 +165,7 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
           {loading ? (
             <p className="text-sm text-slate-400">Chargement…</p>
           ) : upcoming.length === 0 && recent.length === 0 ? (
-            <p className="text-sm text-slate-400 italic">Aucune absence déclarée pour le moment.</p>
+            <p className="text-sm text-slate-400 italic">Aucune demande d&apos;autorisation d&apos;absence pour le moment.</p>
           ) : (
             <div className="space-y-4">
               {upcoming.length > 0 && (
@@ -292,7 +292,7 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
                 href="/rh?tab=absences&view=se-declarer#nouvelle-absence"
                 className="rounded-xl border border-slate-100 px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50"
               >
-                Déclarer une absence →
+                Demander une autorisation d&apos;absence →
               </Link>
               <Link
                 href="/rh?tab=annuaire"

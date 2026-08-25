@@ -21,6 +21,7 @@ import {
   canViewAbsenceAttachment,
   canViewCalendar,
   isAbsencePendingForManager,
+  isEducationSurveillanceStaff,
   resolveAbsenceScope,
   resolveSelfDeclarationScope,
   type AbsenceRecord,
@@ -97,9 +98,16 @@ export default function AbsencesPageClient({
   const asRecord = (item: AbsenceItem) => item as unknown as AbsenceRecord;
 
   const canViewJustificatif = (item: AbsenceItem) =>
-    canViewAbsenceAttachment(asRecord(item), user?.id || "", roles);
+    canViewAbsenceAttachment(asRecord(item), user?.id || "", roles, {
+      establishments,
+      userId: user?.id,
+    });
 
-  const canDeleteJustificatif = (item: AbsenceItem) => canManageAbsenceAttachment(asRecord(item), roles);
+  const canDeleteJustificatif = (item: AbsenceItem) =>
+    canManageAbsenceAttachment(asRecord(item), roles, {
+      establishments,
+      userId: user?.id,
+    });
   const defaultTab = showCalendar ? "calendrier" : "se-declarer";
   const rawTab = embeddedInRh ? searchParams.get("view") : searchParams.get("tab");
   const activeTab =
@@ -404,9 +412,14 @@ export default function AbsencesPageClient({
   const pendingItems = useMemo(
     () =>
       sorted
-        .filter((i) => isAbsencePendingForManager(i as unknown as AbsenceRecord, user?.id || "", roles))
+        .filter((i) =>
+          isAbsencePendingForManager(i as unknown as AbsenceRecord, user?.id || "", roles, {
+            establishments,
+            userId: user?.id,
+          }),
+        )
         .sort((a, b) => compareAbsenceRecordsAlphabetically(asRecord(a), asRecord(b))),
-    [sorted, user?.id, roles],
+    [sorted, user?.id, roles, establishments],
   );
   const treatedItems = selfItems.filter(
     (i) => !isPendingAbsence(i) && (i.workflowStatus === "CLOTUREE" || itemDecision(i) !== "EN_ATTENTE"),
@@ -419,7 +432,7 @@ export default function AbsencesPageClient({
       label: "Pour un collègue",
       show: canOnBehalf,
     },
-    { id: "se-declarer", label: "Se déclarer", show: true },
+    { id: "se-declarer", label: "Demande d'autorisation", show: true },
     { id: "a-traiter", label: "À traiter", show: canTreat },
   ].filter((t) => t.show);
 
@@ -480,7 +493,7 @@ export default function AbsencesPageClient({
       {activeTab === "se-declarer" ? (
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div id="nouvelle-absence" data-tour="absences-declare" className="xl:col-span-1 bg-white border border-slate-200 rounded-3xl p-6 h-fit scroll-mt-24">
-          <h2 className="text-xl font-black text-slate-900 mb-4">Nouvelle absence</h2>
+          <h2 className="text-xl font-black text-slate-900 mb-4">Nouvelle demande d&apos;autorisation d&apos;absence</h2>
           <div className="space-y-4">
             {canChooseScope ? (
               <div>
@@ -612,14 +625,14 @@ export default function AbsencesPageClient({
               disabled={saving}
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl disabled:opacity-60"
             >
-              {saving ? "Enregistrement..." : "Déclarer l'absence"}
+              {saving ? "Envoi..." : "Envoyer la demande d'autorisation"}
             </button>
           </div>
         </div>
         <div className="xl:col-span-2 space-y-4">
           <div className="bg-white border border-slate-200 rounded-3xl p-4">
-            <h3 className="font-black text-slate-900">Mes demandes</h3>
-            <p className="text-xs text-slate-500">Vos déclarations et leur statut.</p>
+            <h3 className="font-black text-slate-900">Mes demandes d&apos;autorisation</h3>
+            <p className="text-xs text-slate-500">Vos demandes d&apos;autorisation d&apos;absence et leur statut.</p>
           </div>
           {loading ? (
             <div className="bg-white border border-slate-200 rounded-3xl p-8 text-slate-500">Chargement…</div>
@@ -640,6 +653,18 @@ export default function AbsencesPageClient({
                 <p className="text-sm text-slate-700 mt-1">
                   <span className="font-bold">Motif :</span> {item.data.reason}
                 </p>
+                {item.justification?.fileUrl && canViewJustificatif(item) ? (
+                  <p className="text-sm text-slate-700 mt-2">
+                    <span className="font-bold">Justificatif :</span>{" "}
+                    <button
+                      type="button"
+                      onClick={() => openAbsenceDocument(item.id)}
+                      className="text-indigo-700 underline font-semibold"
+                    >
+                      {item.justification.fileName || "Voir le fichier"}
+                    </button>
+                  </p>
+                ) : null}
                 {item.justificatifRelanceAt && isPendingAbsence(item) && (
                   <div className="mt-3">
                     <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold cursor-pointer hover:bg-slate-50">
@@ -679,7 +704,9 @@ export default function AbsencesPageClient({
         <div data-tour="absences-treat" className="space-y-4">
           <div className="bg-white border border-slate-200 rounded-3xl p-4">
             <h3 className="font-black text-slate-900">En attente de décision</h3>
-            <p className="text-xs text-slate-500">Absences à valider, refuser ou relancer pour justificatif.</p>
+            <p className="text-xs text-slate-500">
+              Demandes d&apos;autorisation d&apos;absence à valider, refuser ou relancer pour justificatif.
+            </p>
           </div>
           {loading ? (
             <div className="bg-white border border-slate-200 rounded-3xl p-8 text-slate-500">Chargement des absences...</div>
@@ -696,6 +723,11 @@ export default function AbsencesPageClient({
                         ? "Personnel OGEC"
                         : `Professeur (${item.data.etablissement || "—"})`}
                     </p>
+                    {isEducationSurveillanceStaff(item.createdBy.roles) ? (
+                      <p className="text-xs font-semibold text-violet-700 mt-0.5">
+                        Profil Éducation / surveillance
+                      </p>
+                    ) : null}
                     <p className="text-xs text-slate-500">
                       {formatAbsencePeriod(item.data)} • {item.createdBy.email || "email non renseigné"}
                     </p>
@@ -722,25 +754,35 @@ export default function AbsencesPageClient({
                     <span className="font-bold">Note direction/compta:</span> {item.managerNote}
                   </p>
                 )}
-                {item.justification?.fileUrl && canViewJustificatif(item) && (
-                  <p className="text-sm text-slate-700 mb-3 flex flex-wrap items-center gap-2">
-                    <span>
-                      <span className="font-bold">Justificatif:</span>{" "}
-                      <button type="button" onClick={() => openAbsenceDocument(item.id)} className="text-indigo-700 underline font-semibold">
-                        {item.justification.fileName || "Voir le fichier"}
-                      </button>
-                    </span>
-                    {canDeleteJustificatif(item) && (
+                {item.justification?.fileUrl && canViewJustificatif(item) ? (
+                  <div className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2.5">
+                    <p className="text-[11px] font-black uppercase tracking-wide text-indigo-700">
+                      Pièce justificative
+                    </p>
+                    <p className="mt-1 text-sm text-slate-800 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => deleteJustificatif(item.id)}
-                        className="text-xs font-bold text-rose-700 underline"
+                        onClick={() => openAbsenceDocument(item.id)}
+                        className="text-indigo-700 underline font-semibold"
                       >
-                        Supprimer
+                        {item.justification.fileName || "Voir le fichier"}
                       </button>
-                    )}
+                      {canDeleteJustificatif(item) && (
+                        <button
+                          type="button"
+                          onClick={() => deleteJustificatif(item.id)}
+                          className="text-xs font-bold text-rose-700 underline"
+                        >
+                          Supprimer
+                        </button>
+                      )}
+                    </p>
+                  </div>
+                ) : item.workflowStatus === "JUSTIFICATIF_DEPOSE" && !canViewJustificatif(item) ? (
+                  <p className="text-sm text-slate-500 mb-3 italic">
+                    Un justificatif a été déposé (non consultable avec vos droits).
                   </p>
-                )}
+                ) : null}
                 {item.justificatifRelanceAt && isPendingAbsence(item) && (
                   <p className="text-sm text-amber-700 mb-3 font-semibold">
                     {item.justification?.fileUrl ? "Complément demandé" : "Justificatif en attente"} (relance envoyée le{" "}
@@ -863,7 +905,7 @@ export default function AbsencesPageClient({
         <div className="mb-2">
           <h2 className="text-xl font-black text-slate-900">Absences</h2>
           <p className="text-sm text-slate-500 mt-1">
-            Déclaration, suivi et calendrier — intégré au module RH.
+            Demandes d&apos;autorisation d&apos;absence, suivi et calendrier — intégré au module RH.
           </p>
         </div>
         {body}
@@ -875,7 +917,7 @@ export default function AbsencesPageClient({
     <ModulePageShell maxWidthClass="max-w-[1500px]" tourModuleId="absences">
       <ModulePageHeader
         title="Absences"
-        description="Déclaration, suivi et calendrier des absences."
+        description="Demandes d'autorisation d'absence, suivi et calendrier."
       />
       {body}
     </ModulePageShell>

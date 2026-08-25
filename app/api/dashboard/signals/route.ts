@@ -9,7 +9,9 @@ import {
   type AbsenceRecord,
 } from "@/app/lib/absences-types";
 import { getAbsenceIndex } from "@/app/lib/absences-storage";
+import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { getJson } from "@/app/lib/s3-storage";
+import { loadAppConfig } from "@/app/lib/app-config";
 import { loadWeekSheetData } from "@/app/lib/dashboard-week-sheet-storage";
 import { listPendingSignaturesForUser } from "@/app/lib/stage-pending-signatures";
 import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
@@ -43,7 +45,6 @@ import {
   type LeaveSpan,
 } from "@/app/lib/rh/planning-calendar";
 import { readRhPlanning } from "@/app/lib/rh/planning-storage";
-import { loadAppConfig } from "@/app/lib/app-config";
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import type { RhPlanningDoc } from "@/app/lib/rh/planning-types";
 import { listUnseenSharedFolderInvites } from "@/app/lib/documents-cloud";
@@ -81,7 +82,7 @@ export async function GET() {
       : Promise.resolve(null);
 
     const absencesPromise =
-      accessibleModuleIds.has("rh") && canViewCalendar(roles)
+      accessibleModuleIds.has("rh") && (canViewCalendar(roles) || isAnyDirectionRole(roles))
         ? getAbsenceIndex().catch(() => [] as AbsenceRecord[])
         : Promise.resolve([] as AbsenceRecord[]);
 
@@ -162,10 +163,13 @@ export async function GET() {
     const roomSubjectColors = withDefaultProfRoomSubjects(
       profRoomRaw ? parseProfRoomModule(profRoomRaw) : defaultProfRoomModule(),
     ).subjectColors;
+    const appConfig = await loadAppConfig();
+    const establishments = appConfig.establishments;
+    const absenceDirCtx = { establishments, userId };
     const absences = absencesRaw.filter(
       (a) =>
         isAbsenceVisibleOnCalendar(a, userId, roles) ||
-        isAbsencePendingForManager(a, userId, roles),
+        isAbsencePendingForManager(a, userId, roles, absenceDirCtx),
     );
     const hse = Array.isArray(hseRaw)
       ? hseRaw.filter((h) => canViewHseDemand(h, userId, roles))
@@ -374,7 +378,7 @@ export async function GET() {
       weekSheet,
       moodPulseSubmittedToday,
       planningNow,
-      establishments: (await loadAppConfig()).establishments,
+      establishments,
       unseenSharedFolders,
     });
 

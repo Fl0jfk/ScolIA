@@ -157,7 +157,7 @@ export default function AbsencesDeclareOnBehalf({ onSuccess }: Props) {
       if (!res.ok) throw new Error(payload?.error || "Échec création");
 
       setSuccess(
-        `Demande enregistrée pour ${directoryMemberLabel(colleague)} — en attente de validation direction (comme une auto-déclaration).`,
+        `Demande d'autorisation d'absence enregistrée pour ${directoryMemberLabel(colleague)} — en attente de validation direction.`,
       );
       setColleague(null);
       setPeriodType("multi_day");
@@ -180,9 +180,9 @@ export default function AbsencesDeclareOnBehalf({ onSuccess }: Props) {
   return (
     <div className="space-y-6 max-w-3xl">
       <section className="bg-white border border-emerald-200 rounded-3xl p-6 shadow-sm">
-        <h2 className="text-xl font-black text-slate-900 mb-1">Demande pour un collègue</h2>
+        <h2 className="text-xl font-black text-slate-900 mb-1">Demande d&apos;autorisation pour un collègue</h2>
         <p className="text-sm text-slate-600 mb-4">
-          Même circuit qu&apos;une auto-déclaration : la demande part en{" "}
+          Même circuit qu&apos;une demande d&apos;autorisation d&apos;absence : la demande part en{" "}
           <strong>attente de validation</strong> auprès de la direction. Utile si un collègue est en
           difficulté pour saisir lui-même.
         </p>

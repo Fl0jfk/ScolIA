@@ -541,16 +541,16 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
     steps: [
       {
         title: "Vue d'ensemble",
-        body: "Déclarez vos absences (professeur ou personnel OGEC), déposez un justificatif si demandé, et suivez le traitement par la direction ou le secrétariat.",
+        body: "Déposez une demande d'autorisation d'absence (professeur ou personnel OGEC), joignez un justificatif si demandé, et suivez le traitement par la direction ou le secrétariat.",
       },
       {
         target: "absences-tabs",
         title: "Les onglets",
-        body: "« Se déclarer » pour votre propre absence. « Calendrier » pour la vue collective (si vous y avez accès). « À traiter » pour les responsables qui valident ou refusent. « Déclarer pour une autre personne » pour le secrétariat.",
+        body: "« Demande d'autorisation » pour votre propre absence. « Calendrier » pour la vue collective (si vous y avez accès). « À traiter » pour les responsables qui valident ou refusent. « Pour un collègue » pour le secrétariat.",
       },
       {
         target: "absences-declare",
-        title: "Déclarer une absence",
+        title: "Demande d'autorisation d'absence",
         body: "Indiquez le type (prof / OGEC), l'établissement, les dates, le motif et éventuellement un justificatif PDF. Une fois validée, l'absence est transmise au secrétariat ou à la comptabilité selon le cas.",
       },
       {
@@ -565,7 +565,7 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
       {
         target: "absences-calendar",
         title: "Calendrier",
-        body: "Vue mensuelle des absences déclarées — utile pour la vie scolaire et les directions.",
+        body: "Vue mensuelle des demandes d'autorisation d'absence — utile pour la vie scolaire et les directions.",
       },
     ],
   },

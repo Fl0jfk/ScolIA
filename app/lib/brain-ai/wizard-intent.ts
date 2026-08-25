@@ -50,7 +50,8 @@ export function detectWizardStartTool(message: string): string | null {
 
   // Absence
   if (
-    (/\b(declar|declarer|poser|signaler|annoncer)\b/.test(t) && /\babsence\b/.test(t)) ||
+    (/\b(declar|declarer|poser|signaler|annoncer|autorisation)\b/.test(t) && /\babsence\b/.test(t)) ||
+    /\b(demande d['']autorisation d['']absence)\b/.test(t) ||
     /\b(je (suis|serai) absent|mon absence)\b/.test(t)
   ) {
     return "create_absence";

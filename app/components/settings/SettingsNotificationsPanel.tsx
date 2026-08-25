@@ -139,7 +139,7 @@ export default function SettingsNotificationsPanel({
       <SettingsSection
         icon="🗓️"
         title="Absences"
-        description="Notifications après validation direction."
+        description="Notifications après validation direction (compta RH, secrétariat, responsables des surveillants)."
       >
         {activeEstablishmentKinds.has("ecole") ? (
           <SettingsField label="Professeurs — école" as="div">
@@ -177,6 +177,18 @@ export default function SettingsNotificationsPanel({
             loading={membersLoading}
             selectedEmails={emailsOf(notifications.absencesNotifyOgecCompta)}
             onChange={(emails) => patch({ absencesNotifyOgecCompta: emails })}
+          />
+        </SettingsField>
+        <SettingsField
+          label="Responsables des surveillants"
+          hint="Notifiés après validation d'une absence d'un personnel Éducation / surveillance (en plus de la compta)."
+          as="div"
+        >
+          <DirectoryPeopleSelect
+            members={directoryMembers}
+            loading={membersLoading}
+            selectedEmails={emailsOf(notifications.absencesNotifySurveillanceResponsables)}
+            onChange={(emails) => patch({ absencesNotifySurveillanceResponsables: emails })}
           />
         </SettingsField>
       </SettingsSection>

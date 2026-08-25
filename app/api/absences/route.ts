@@ -26,6 +26,7 @@ import {
   canViewAbsence,
   canViewCalendar,
   isAbsenceVisibleOnCalendar,
+  isEducationSurveillanceStaff,
   computeStartEndAt,
   filterAbsenceForViewer,
   resolveAbsenceScope,
@@ -95,23 +96,34 @@ async function getMailer() {
 async function resolveValidationRecipients(record: AbsenceRecord) {
   const bundle = await loadAppConfig();
   const n = bundle.notifications;
+  const emails = new Set<string>();
+
   if (record.data.scope === "ogec") {
-    return [...n.absencesNotifyOgecCompta].filter(Boolean);
+    for (const e of n.absencesNotifyOgecCompta) {
+      if (e) emails.add(e.trim().toLowerCase());
+    }
+    if (isEducationSurveillanceStaff(record.createdBy.roles)) {
+      for (const e of n.absencesNotifySurveillanceResponsables || []) {
+        if (e) emails.add(e.trim().toLowerCase());
+      }
+    }
+    return [...emails];
   }
+
   const est = matchEstablishment(bundle.establishments, record.data.etablissement);
   const kind = est ? inferEstablishmentKind(est) : inferEstablishmentKind({ label: record.data.etablissement || "" });
   if (kind === "ecole") {
-    return n.absencesNotifyProfEcole?.email ? [n.absencesNotifyProfEcole.email] : [];
-  }
-  if (kind === "college") {
+    if (n.absencesNotifyProfEcole?.email) emails.add(n.absencesNotifyProfEcole.email.trim().toLowerCase());
+  } else if (kind === "college") {
     const email = n.absencesNotifyProfCollege?.email || n.absencesNotifyProfCollegeLycee?.email;
-    return email ? [email] : [];
-  }
-  if (kind === "lycee") {
+    if (email) emails.add(email.trim().toLowerCase());
+  } else if (kind === "lycee") {
     const email = n.absencesNotifyProfLycee?.email || n.absencesNotifyProfCollegeLycee?.email;
-    return email ? [email] : [];
+    if (email) emails.add(email.trim().toLowerCase());
+  } else if (n.absencesNotifyProfCollegeLycee?.email) {
+    emails.add(n.absencesNotifyProfCollegeLycee.email.trim().toLowerCase());
   }
-  return n.absencesNotifyProfCollegeLycee?.email ? [n.absencesNotifyProfCollegeLycee.email] : [];
+  return [...emails];
 }
 
 function isTodayOverlap(record: AbsenceRecord) {
@@ -160,7 +172,7 @@ export async function GET(req: Request) {
     }
 
     visible.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-    const payload = visible.map((abs) => filterAbsenceForViewer(abs, userId, roles));
+    const payload = visible.map((abs) => filterAbsenceForViewer(abs, userId, roles, ctx));
     return NextResponse.json(payload);
   } catch (error) {
     console.error("Absences list error:", error);
@@ -196,13 +208,13 @@ export async function POST(req: Request) {
     if (onBehalfUserId) {
       if (!canDeclareAbsenceOnBehalf(roles)) {
         return NextResponse.json(
-          { error: "Seuls l’administratif, la comptabilité et la direction peuvent déclarer une absence pour un collègue." },
+          { error: "Seuls l’administratif, la comptabilité et la direction peuvent déposer une demande d'autorisation d'absence pour un collègue." },
           { status: 403 },
         );
       }
       if (onBehalfUserId === userId) {
         return NextResponse.json(
-          { error: "Pour vous-même, utilisez « Se déclarer »." },
+          { error: "Pour vous-même, utilisez l’onglet « Demande d'autorisation »." },
           { status: 400 },
         );
       }
@@ -308,7 +320,7 @@ export async function POST(req: Request) {
           action: "CREATION",
           note: submittedBy
             ? `Demande créée par ${actorName} pour le compte de ${subjectName}`
-            : "Déclaration d'absence créée",
+            : "Demande d'autorisation d'absence créée",
         },
         ...(justificationPayload?.fileName && justificationPayload?.fileUrl
           ? [
@@ -344,11 +356,11 @@ export async function POST(req: Request) {
       await transporter.sendMail({
         from: `"Absences" <${smtp.user}>`,
         to: target.email,
-        subject: `Nouvelle absence à traiter — ${scope === "ogec" ? "Personnel OGEC" : `Professeur ${etablissement || ""}`}`.trim(),
+        subject: `Nouvelle demande d'autorisation d'absence — ${scope === "ogec" ? "Personnel OGEC" : `Professeur ${etablissement || ""}`}`.trim(),
         text: [
           `Bonjour ${target.name},`,
           ``,
-          `Une nouvelle absence a été déclarée et nécessite votre décision.`,
+          `Une nouvelle demande d'autorisation d'absence nécessite votre décision.`,
           ``,
           `Type : ${scope === "ogec" ? "Personnel OGEC" : "Professeur"}`,
           `Établissement : ${scope === "ogec" ? "OGEC" : etablissement || "—"}`,
@@ -627,7 +639,7 @@ export async function PATCH(req: Request) {
               ``,
               current.justification?.fileName
                 ? `La direction a examiné le justificatif déjà transmis (${current.justification.fileName}) et souhaiterait un complément ou un autre document pour finaliser votre dossier.`
-                : `Votre déclaration d'absence a bien été reçue.`,
+                : `Votre demande d'autorisation d'absence a bien été reçue.`,
               ``,
               current.justification?.fileName
                 ? `Merci de déposer le document complémentaire sur l'espace Absences. Il remplacera le fichier actuel.`

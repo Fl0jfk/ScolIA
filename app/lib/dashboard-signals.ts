@@ -13,7 +13,7 @@ import { pickExactCurrentWeekSheet } from "@/app/lib/dashboard-week-sheet-active
 import type { WeekSheetData, WeekSheetEvent } from "@/app/lib/dashboard-week-sheet-types";
 import { WEEK_DAYS, type WeekDayKey } from "@/app/lib/dashboard-week-sheet-types";
 import { canAccessHseModule, getHseRoleFlags, type HseRecordLike } from "@/app/lib/demandes-hse-access";
-import { directionRolesMatchEstablishmentRef } from "@/app/lib/establishment-catalog";
+import { directionRolesMatchEstablishmentRef, isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import { hasRole } from "@/app/lib/intranet-role-utils";
@@ -191,7 +191,7 @@ function formatEventTime(ev: WeekSheetEvent): string | undefined {
 }
 
 function isDirectionRole(roles: string[]): boolean {
-  return getRoleFlags(roles).isDirection;
+  return isAnyDirectionRole(roles) || getRoleFlags(roles).isDirection;
 }
 
 function isCompta(roles: string[]): boolean {
@@ -714,8 +714,9 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       }
     }
 
-    if (has("rh") && canViewCalendar(roles)) {
+    if (has("rh") && (canViewCalendar(roles) || isDirectionRole(roles))) {
       const flags = getRoleFlags(roles);
+      const dirCtx = { establishments, userId };
       let scoped = absences;
       let labelSingular = "personne absente";
       let labelPlural = "personnes absentes";
@@ -730,8 +731,38 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         labelPlural = "profs absents";
       }
 
-      const count = absencesToday(scoped).length;
-      const pendingManager = absences.filter((a) => isAbsencePendingForManager(a, userId, roles));
+      const count = canViewCalendar(roles) ? absencesToday(scoped).length : 0;
+      const pendingManager = absences.filter((a) =>
+        isAbsencePendingForManager(a, userId, roles, dirCtx),
+      );
+
+      if (pendingManager.length > 0) {
+        shortcuts.push({
+          id: "absences-pending",
+          pillarId: "compta_rh",
+          moduleId: "absences",
+          href: "/rh?tab=absences&view=a-traiter",
+          label: "Absences à traiter",
+          rich: true,
+          badge: `${pendingManager.length} à traiter`,
+          detail:
+            pendingManager.length === 1
+              ? "1 demande d'autorisation d'absence en attente"
+              : `${pendingManager.length} demandes d'autorisation d'absence en attente`,
+          tone: "warn",
+        });
+        pushNotif({
+          id: "absences-pending",
+          moduleId: "absences",
+          label: "Absences à traiter",
+          count: pendingManager.length,
+          href: "/rh?tab=absences&view=a-traiter",
+          detail:
+            pendingManager.length === 1
+              ? "1 demande d'autorisation d'absence en attente de votre décision"
+              : `${pendingManager.length} demandes d'autorisation d'absence en attente de votre décision`,
+        });
+      }
 
       if (count > 0) {
         shortcuts.push({
@@ -750,36 +781,10 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "absences",
           pillarId: "compta_rh",
           moduleId: "absences",
-          href: "/rh?tab=absences&view=se-declarer",
+          href: isDirectionRole(roles)
+            ? "/rh?tab=absences&view=a-traiter"
+            : "/rh?tab=absences&view=se-declarer",
           label: "Absences",
-        });
-      }
-
-      if (pendingManager.length > 0) {
-        shortcuts.push({
-          id: "absences-pending",
-          pillarId: "compta_rh",
-          moduleId: "absences",
-          href: "/rh?tab=absences&view=a-traiter",
-          label: "Absences à traiter",
-          rich: true,
-          badge: `${pendingManager.length} à traiter`,
-          detail:
-            pendingManager.length === 1
-              ? "1 absence en attente de votre décision"
-              : `${pendingManager.length} absences en attente de votre décision`,
-          tone: "warn",
-        });
-        pushNotif({
-          id: "absences-pending",
-          moduleId: "absences",
-          label: "Absences à traiter",
-          count: pendingManager.length,
-          href: "/rh?tab=absences&view=a-traiter",
-          detail:
-            pendingManager.length === 1
-              ? "1 absence en attente de votre décision"
-              : `${pendingManager.length} absences en attente de votre décision`,
         });
       }
     } else if (has("rh")) {
@@ -1125,7 +1130,31 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       href: moduleHref("notes"),
       label: "Notes & bulletins",
       rich: true,
-      detail: "Module P4 — bientôt",
+      detail: "Saisie, compétences LSU, bulletins PDF",
+      tone: "info",
+    });
+  }
+  if (has("vs-appels")) {
+    shortcuts.push({
+      id: "vs-appels",
+      pillarId: "vie_scolaire",
+      moduleId: "vs-appels",
+      href: moduleHref("vs-appels"),
+      label: "Appel de classe",
+      rich: true,
+      detail: "Présents · absents · retards",
+      tone: "info",
+    });
+  }
+  if (has("vs-absences")) {
+    shortcuts.push({
+      id: "vs-absences",
+      pillarId: "vie_scolaire",
+      moduleId: "vs-absences",
+      href: moduleHref("vs-absences"),
+      label: "Absences élèves",
+      rich: true,
+      detail: "Justifs & relances CPE",
       tone: "info",
     });
   }

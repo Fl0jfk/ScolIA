@@ -36,7 +36,7 @@ const PHASE_LABEL: Record<Phase, string> = {
 };
 
 const TOAST: Record<Phase, string> = {
-  form: "Déclaration d'absence…",
+  form: "Demande d'autorisation d'absence…",
   envoi: "Demande transmise",
   calendrier: "Visibilité équipe",
   switch: "Onboarding nouveau salarié",
@@ -109,7 +109,7 @@ export default function WorkflowAbsencesAnimation() {
         <div className={`${WORKFLOW_ANIMATION_BODY} grid gap-2.5 sm:grid-cols-2`}>
           <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-2.5">
             <p className="text-[10px] font-bold uppercase tracking-wider text-rose-200/60">
-              {absMode ? "Se déclarer" : "Arrivée"}
+              {absMode ? "Demande d'autorisation" : "Arrivée"}
             </p>
             <div className="relative mt-1.5 min-h-0 flex-1">
               <AnimatePresence mode="wait">
@@ -136,7 +136,7 @@ export default function WorkflowAbsencesAnimation() {
                         transition={{ repeat: Infinity, duration: 1.6 }}
                         className="rounded-lg bg-rose-500/35 py-2 text-center text-[11px] font-black text-white"
                       >
-                        Envoyer la déclaration
+                        Envoyer la demande
                       </motion.div>
                     ) : phase === "envoi" ? (
                       <p className="text-center text-[11px] font-bold text-amber-200">
