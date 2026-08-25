@@ -206,7 +206,7 @@ export default function MembresPanel() {
   };
 
   const removeUser = async (u: RegistryUserRow) => {
-    if (!confirm(`Supprimer ${labelFor(u)} (${u.email}) du registre et auth legacy ?`)) return;
+    if (!confirm(`Supprimer ${labelFor(u)} (${u.email}) ? Le compte ne pourra plus se connecter.`)) return;
     try {
       const q = new URLSearchParams();
       if (u.externalUserId) q.set("externalUserId", u.externalUserId);

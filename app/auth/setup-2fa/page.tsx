@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
+import SwitchAccountLink from "@/app/components/auth/SwitchAccountLink";
 import { authClient } from "@/app/lib/auth-client";
 
 type Step = "password" | "verify" | "done";
@@ -182,6 +183,8 @@ function Setup2faForm() {
             </button>
           </div>
         ) : null}
+
+        {step !== "done" ? <SwitchAccountLink /> : null}
       </div>
     </div>
   );

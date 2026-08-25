@@ -21,6 +21,15 @@ export default function BetterAuthSignInPage() {
         const { data } = await authClient.getSession();
         if (cancelled) return;
         if (data?.session) {
+          const u = data.user as { mustChangePassword?: boolean; twoFactorEnabled?: boolean } | undefined;
+          // Session encore « provisoire » : ne pas renvoyer vers le dashboard (boucle),
+          // laisser le formulaire pour un autre compte après déconnexion côté autre page.
+          if (u?.mustChangePassword) {
+            router.replace(
+              `/auth/change-password-required?redirect_url=${encodeURIComponent(redirectTo)}`,
+            );
+            return;
+          }
           router.replace(redirectTo);
           return;
         }
@@ -50,9 +59,7 @@ export default function BetterAuthSignInPage() {
       if (/verif/i.test(msg) && /email/i.test(msg)) {
         setError("E-mail non vérifié. Consultez votre boîte mail pour le lien d’activation.");
       } else if (/not found|invalid|incorrect|credential/i.test(msg)) {
-        setError(
-          "Identifiants incorrects. Si ton compte est déjà provisionné, choisis d’abord un mot de passe via « Activer mon compte ».",
-        );
+        setError("Identifiants incorrects. Vérifiez l’e-mail (celui du registre) et le mot de passe.");
       } else {
         setError(msg);
       }
@@ -128,15 +135,6 @@ export default function BetterAuthSignInPage() {
         >
           {loading ? "Connexion…" : "Se connecter"}
         </button>
-        <p className="text-center text-sm text-emerald-800/70">
-          Compte déjà provisionné ?{" "}
-          <a
-            href="/auth/sign-up"
-            className="font-medium text-emerald-700 underline-offset-2 hover:underline"
-          >
-            Activer mon compte
-          </a>
-        </p>
       </form>
     </div>
   );

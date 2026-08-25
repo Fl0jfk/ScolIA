@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import PasswordRequirementsChecklist from "@/app/components/auth/PasswordRequirementsChecklist";
+import SwitchAccountLink from "@/app/components/auth/SwitchAccountLink";
 import { validatePasswordPolicy } from "@/app/lib/password-policy";
 
 function ChangePasswordRequiredForm() {
@@ -132,6 +133,7 @@ function ChangePasswordRequiredForm() {
         >
           {busy ? "Enregistrement…" : "Enregistrer et continuer"}
         </button>
+        <SwitchAccountLink />
       </form>
     </div>
   );
