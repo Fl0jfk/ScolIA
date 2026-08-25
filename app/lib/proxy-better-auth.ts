@@ -49,7 +49,6 @@ export async function resolveBetterAuthProxyState(
     const db = getDb();
     const [row] = await db.select().from(user).where(eq(user.id, u.id)).limit(1);
     const homeEtablissementId = row?.etablissementId ?? u.etablissementId ?? null;
-    const orgAdmin = Boolean(row?.orgAdmin ?? u.orgAdmin);
     const platformAdmin = Boolean(row?.platformAdmin ?? u.platformAdmin);
 
     let activeEtablissementId = homeEtablissementId;
@@ -60,6 +59,9 @@ export async function resolveBetterAuthProxyState(
     const roles = activeEtablissementId
       ? await listUserRolesFromDb(u.id, activeEtablissementId)
       : [];
+    // Aligné sur useIsOrgAdmin / isOrgAdminFromAppUser : flag DB OU rôle admin.
+    const orgAdmin =
+      Boolean(row?.orgAdmin ?? u.orgAdmin) || platformAdmin || roles.includes("admin");
     const businessUserId = row?.externalUserId?.trim() || u.id;
     const mustChangePassword = Boolean(row?.mustChangePassword ?? u.mustChangePassword);
     const twoFactorEnabled = Boolean(row?.twoFactorEnabled ?? u.twoFactorEnabled);
@@ -104,11 +106,13 @@ export async function resolveBetterAuthProxyStateByUserId(
     .limit(1);
   if (!row) return null;
   const roles = await listUserRolesFromDb(row.id, etablissementId);
+  const orgAdmin =
+    Boolean(row.orgAdmin) || Boolean(row.platformAdmin) || roles.includes("admin");
   const twoFactorEnabled = Boolean(row.twoFactorEnabled);
   const requiresTwoFactorSetup =
     roleRequiresTwoFactor({
       platformAdmin: row.platformAdmin,
-      orgAdmin: row.orgAdmin,
+      orgAdmin,
       roles,
     }) && !twoFactorEnabled;
   return {
@@ -119,12 +123,12 @@ export async function resolveBetterAuthProxyStateByUserId(
     roles,
     publicMetadata: {
       role: roles,
-      org_admin: row.orgAdmin,
+      org_admin: orgAdmin,
       platform_admin: row.platformAdmin,
       must_change_password: row.mustChangePassword,
       two_factor_enabled: twoFactorEnabled,
     },
-    orgAdmin: row.orgAdmin,
+    orgAdmin,
     platformAdmin: row.platformAdmin,
     mustChangePassword: row.mustChangePassword,
     twoFactorEnabled,
@@ -146,6 +150,8 @@ export function isMustChangePasswordAllowedPath(pathname: string): boolean {
     "/api/auth/me",
     "/api/auth/status",
     "/api/auth/memberships",
+    "/api/famille",
+    "/famille",
   ];
   return allow.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
@@ -163,6 +169,8 @@ export function isTwoFactorSetupAllowedPath(pathname: string): boolean {
     "/api/auth/me",
     "/api/auth/status",
     "/api/auth/memberships",
+    "/api/famille",
+    "/famille",
   ];
   return allow.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }

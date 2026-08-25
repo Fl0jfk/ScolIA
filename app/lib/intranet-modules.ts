@@ -73,6 +73,9 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/abonnement-suspendu",
   "/api/onboarding/status",
   "/api/billing/tenant/status",
+  /** Portail famille / app mobile parents — hors modules intranet staff. */
+  "/api/famille",
+  "/famille",
 ];
 
 /** Profil élève : accès minimal (dashboard + bulle bien-être). */
@@ -391,7 +394,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "admin-settings",
-    pathPrefixes: ["/parametres", "/api/settings", "/membres", "/api/members"],
+    pathPrefixes: ["/parametres", "/api/settings", "/membres", "/api/members", "/api/nomenclature"],
     allowedRoles: [],
     orgAdminOnly: true,
     dashboard: {
@@ -472,6 +475,71 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "vs-calendrier",
+    pathPrefixes: ["/vie-scolaire/calendrier", "/api/vie-scolaire/calendrier"],
+    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe"],
+    dashboard: {
+      id: 241,
+      name: "Calendrier & EDT",
+      img: "",
+      link: "/vie-scolaire/calendrier",
+      external: false,
+      description: "Vacances scolaires et créneaux EDT classe",
+    },
+  },
+  {
+    id: "vs-appels",
+    pathPrefixes: ["/vie-scolaire/appels", "/api/vie-scolaire/appels"],
+    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe", "professeur"],
+    dashboard: {
+      id: 242,
+      name: "Appel de classe",
+      img: "",
+      link: "/vie-scolaire/appels",
+      external: false,
+      description: "Présents, absents, retards — saisie rapide",
+    },
+  },
+  {
+    id: "vs-absences",
+    pathPrefixes: ["/vie-scolaire/absences", "/api/vie-scolaire/absences"],
+    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe"],
+    dashboard: {
+      id: 243,
+      name: "Absences élèves",
+      img: "",
+      link: "/vie-scolaire/absences",
+      external: false,
+      description: "Justificatifs, relances, suivi CPE",
+    },
+  },
+  {
+    id: "vs-sanctions",
+    pathPrefixes: ["/vie-scolaire/sanctions", "/api/vie-scolaire/sanctions"],
+    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe"],
+    dashboard: {
+      id: 244,
+      name: "Sanctions",
+      img: "",
+      link: "/vie-scolaire/sanctions",
+      external: false,
+      description: "Catalogue court — avertissement, colle, blâme",
+    },
+  },
+  {
+    id: "vs-carnet",
+    pathPrefixes: ["/vie-scolaire/carnet", "/api/vie-scolaire/carnet"],
+    allowedRoles: [...DIRECTIONS, "administratif", "education", "cpe", "professeur"],
+    dashboard: {
+      id: 245,
+      name: "Carnet",
+      img: "",
+      link: "/vie-scolaire/carnet",
+      external: false,
+      description: "Correspondance établissement → famille + accusé",
+    },
+  },
+  {
     id: "stages",
     pathPrefixes: ["/stages", "/api/stages"],
     excludePrefixes: ["/stages/eleve", "/stages/signer", "/stages/candidater", "/api/stages/public"],
@@ -538,15 +606,41 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "notes",
-    pathPrefixes: ["/notes"],
-    allowedRoles: [...DIRECTIONS, "professeur"],
+    pathPrefixes: ["/notes", "/api/notes"],
+    allowedRoles: [...DIRECTIONS, "professeur", "administratif", "cpe", "education", "admin"],
     dashboard: {
       id: 51,
       name: "Notes & bulletins",
       img: "",
       link: "/notes/espace",
       external: false,
-      description: "Notes, évaluations et bulletins — module Administratif (P4).",
+      description: "Référentiels, saisie, compétences LSU collège et bulletins PDF.",
+    },
+  },
+  {
+    id: "groupes-pedagogiques",
+    pathPrefixes: ["/groupes-pedagogiques", "/api/groupes-pedagogiques"],
+    allowedRoles: [...DIRECTIONS, "professeur", "administratif", "cpe", "education", "admin"],
+    dashboard: {
+      id: 52,
+      name: "Groupes pédagogiques",
+      img: "",
+      link: "/groupes-pedagogiques",
+      external: false,
+      description: "Options, LV2, groupes transversaux Notes + Vie scolaire.",
+    },
+  },
+  {
+    id: "facturation-familles",
+    pathPrefixes: ["/facturation", "/api/facturation"],
+    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin"],
+    dashboard: {
+      id: 53,
+      name: "Facturation familles",
+      img: "",
+      link: "/facturation",
+      external: false,
+      description: "Catalogue tarifs, factures foyers, SEPA (Phase 1b Charlemagne).",
     },
   },
   {
@@ -713,8 +807,9 @@ export function rolesAllowModule(
     );
     return roles.some((r) => allowed.has(normRole(r)));
   }
-  if (module.orgAdminOnly) return isOrgAdmin;
-  if (hasGlobalAdminRole(roles)) return true;
+  // Admin établissement (flag ou rôle) : tous les modules du tenant.
+  if (isOrgAdmin || hasGlobalAdminRole(roles)) return true;
+  if (module.orgAdminOnly) return false;
   if (!module.allowedRoles.length) return false;
   return module.allowedRoles.some((r) => hasRole(roles, r));
 }

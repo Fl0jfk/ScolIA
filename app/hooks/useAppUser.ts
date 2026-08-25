@@ -81,7 +81,11 @@ export function useAppUser(): State & { refresh: () => Promise<void> } {
           name: u.name,
           imageUrl: u.imageUrl,
           roles: Array.isArray(u.roles) ? u.roles : [],
-          orgAdmin: Boolean(u.orgAdmin || u.platformAdmin),
+          orgAdmin: Boolean(
+            u.orgAdmin ||
+              u.platformAdmin ||
+              (Array.isArray(u.roles) && u.roles.includes("admin")),
+          ),
           platformAdmin: Boolean(u.platformAdmin),
           isSignedIn: true,
           authSource: u.authSource ?? "better-auth",

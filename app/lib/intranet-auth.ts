@@ -154,7 +154,7 @@ export async function requireModule(
     return { ok: false, response: moduleForbiddenResponse(moduleId) };
   }
 
-  const isOrgAdmin = resolved.user.orgAdmin || resolved.user.platformAdmin;
+  const isOrgAdmin = isOrgAdminFromAppUser(resolved.user);
   if (!rolesAllowModule(resolved.user.roles, module, isOrgAdmin)) {
     return { ok: false, response: moduleForbiddenResponse(moduleId) };
   }
@@ -174,7 +174,7 @@ export async function requireAnyModule(
   const resolved = await resolveModuleUser();
   if (!resolved.ok) return resolved;
 
-  const isOrgAdmin = resolved.user.orgAdmin || resolved.user.platformAdmin;
+  const isOrgAdmin = isOrgAdminFromAppUser(resolved.user);
   for (const moduleId of moduleIds) {
     const module = getIntranetModuleById(moduleId);
     if (module && rolesAllowModule(resolved.user.roles, module, isOrgAdmin)) {

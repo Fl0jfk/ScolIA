@@ -84,8 +84,9 @@ export default function Home() {
     if (!isLoaded || !user || !data?.categories) return [];
     const roles = intranetRolesFromMetadata(user.publicMetadata);
     const filtered = data.categories.filter((category) => {
-      if (category.orgAdminOnly) return isOrgAdmin;
-      if (hasGlobalAdminRole(roles)) return true;
+      // Admin établissement : accès complet au catalogue (dont Paramètres).
+      if (isOrgAdmin || hasGlobalAdminRole(roles)) return true;
+      if (category.orgAdminOnly) return false;
       return (category.allowedRoles ?? []).some((r) => hasRole(roles, r));
     });
     return Array.from(new Map(filtered.map((cat) => [cat.moduleId, cat])).values());
@@ -122,7 +123,7 @@ export default function Home() {
 
   return (
     <DashboardThemeRoot>
-      <div className="relative overflow-hidden">
+      <div className="relative overflow-x-hidden">
         {/* Atmosphere */}
         <div className="pointer-events-none absolute inset-0" aria-hidden>
           <div className="absolute -left-24 top-0 h-[28rem] w-[28rem] rounded-full bg-[color:var(--dash-soft)]/80 blur-3xl" />
@@ -135,8 +136,8 @@ export default function Home() {
           />
         </div>
 
-        <main className="relative mx-auto flex min-h-[calc(100dvh-4.5rem)] w-full max-w-[1600px] flex-col px-4 sm:px-6 lg:h-[calc(100dvh-4.5rem)] lg:max-h-[calc(100dvh-4.5rem)] lg:overflow-hidden lg:px-8">
-          <div className="flex min-h-0 flex-1 flex-col gap-3 py-3 lg:gap-3.5 lg:overflow-hidden lg:py-4">
+        <main className="relative mx-auto flex min-h-[calc(100dvh-4.5rem)] w-full max-w-[1600px] flex-col px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-1 flex-col gap-3 py-3 lg:gap-3.5 lg:py-4">
             <header className="hidden shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-4 md:grid">
               <motion.div
                 className="min-w-0 justify-self-start"
@@ -218,7 +219,7 @@ export default function Home() {
               />
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col gap-3 lg:overflow-hidden">
+            <div className="flex flex-1 flex-col gap-3">
               {hasPillars ? (
                 <DashboardPillars
                   categories={dashboardCategories}

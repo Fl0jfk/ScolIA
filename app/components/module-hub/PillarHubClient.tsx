@@ -41,14 +41,12 @@ export default function PillarHubClient({ pillarId, loadingLabel }: Props) {
     if (!isLoaded || !user || !data?.categories) return new Set<string>();
     const ids = new Set<string>();
     for (const category of data.categories) {
-      if (category.orgAdminOnly) {
-        if (isOrgAdmin) ids.add(category.moduleId);
+      if (isOrgAdmin || hasGlobalAdminRole(roles)) {
+        ids.add(category.moduleId);
         continue;
       }
-      if (
-        hasGlobalAdminRole(roles) ||
-        (category.allowedRoles ?? []).some((r) => hasRole(roles, r))
-      ) {
+      if (category.orgAdminOnly) continue;
+      if ((category.allowedRoles ?? []).some((r) => hasRole(roles, r))) {
         ids.add(category.moduleId);
       }
     }
