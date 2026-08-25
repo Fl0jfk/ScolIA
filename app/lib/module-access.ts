@@ -142,6 +142,23 @@ export function defaultModulesForRoles(roles: string[]): string[] {
 }
 
 export function defaultDossierSectionsForRoles(roles: string[]): EleveDossierSection[] {
+  const out = new Set<EleveDossierSection>();
+  let anyCustom = false;
+  for (const role of roles) {
+    const custom = customDefaultDossierSectionsForRole(role);
+    if (custom) {
+      anyCustom = true;
+      for (const s of custom) out.add(s as EleveDossierSection);
+    }
+  }
+  if (anyCustom) {
+    // Union des defaults métier + sections natives des rôles sans defaults custom.
+    for (const role of roles) {
+      if (customDefaultDossierSectionsForRole(role)) continue;
+      for (const s of eleveDossierSectionsForRoles([role])) out.add(s);
+    }
+    return [...out];
+  }
   return [...eleveDossierSectionsForRoles(roles)];
 }
 

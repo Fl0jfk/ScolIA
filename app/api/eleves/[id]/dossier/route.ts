@@ -17,6 +17,8 @@ import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import {
   canRegisterEleveDocument,
+  eleveDocCategoriesMetaForRoles,
+  eleveDocTiroirsForRoles,
   listEleveDocumentsForViewer,
   recordEleveAccessAudit,
   type EleveDocConfidentialite,
@@ -493,7 +495,8 @@ export async function GET(_req: Request, ctx: Ctx) {
       canEditStructure: canEditStructure(roles, { orgAdmin, platformAdmin }),
       canDecideAccess: canDecideAccess(roles, { orgAdmin, platformAdmin }),
       profRestrictedView,
-      tiroirs: TIROIRS,
+      tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
+      docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),
     },
     pendingAccessRequests: pendingAccess,
     enCoursMaintenant,

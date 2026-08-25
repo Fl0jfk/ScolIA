@@ -5,6 +5,13 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import {
+  CATEGORIE_TIROIRS,
+  DOC_CATEGORIE_LABELS,
+  TIROIR_LABELS,
+  TIROIR_TO_CATEGORIE,
+  type EleveDocCategorie,
+} from "@/app/lib/eleve-doc-categories";
 import EleveFinancesPanel from "@/app/components/eleves/EleveFinancesPanel";
 import {
   grilleFromMealDays,
@@ -103,6 +110,7 @@ type DossierPayload = {
     canDecideAccess: boolean;
     profRestrictedView?: boolean;
     tiroirs: string[];
+    docCategories?: Array<"administratif" | "financier" | "sante">;
   };
   pendingAccessRequests: Array<{
     id: string;
@@ -203,15 +211,6 @@ type TabId =
   | "notes"
   | "vie_scolaire";
 
-const TIROIR_LABELS: Record<string, string> = {
-  scolaire: "Scolaire",
-  inscription: "Inscription",
-  facturation: "Facturation",
-  voyages: "Voyages",
-  sante: "Santé",
-  vie_scolaire: "Vie scolaire",
-};
-
 const emptyResp = {
   nom: "",
   prenom: "",
@@ -257,6 +256,7 @@ export default function EleveDossierClient() {
     confidentialite: "standard",
     title: "",
   });
+  const [docCategory, setDocCategory] = useState<EleveDocCategorie | "tous">("tous");
   const [accessForm, setAccessForm] = useState<{
     documentId: string;
     durationDays: number;
@@ -272,7 +272,20 @@ export default function EleveDossierClient() {
       setData(null);
       return;
     }
-    setData((await res.json()) as DossierPayload);
+    const payload = (await res.json()) as DossierPayload;
+    setData(payload);
+    const firstTiroir = payload.meta.tiroirs[0];
+    if (firstTiroir) {
+      setUploadMeta((m) =>
+        payload.meta.tiroirs.includes(m.tiroir) ? m : { ...m, tiroir: firstTiroir },
+      );
+    }
+    const cats = payload.meta.docCategories ?? [];
+    setDocCategory((prev) => {
+      if (prev === "tous") return cats.length === 1 ? cats[0]! : "tous";
+      if (cats.includes(prev)) return prev;
+      return cats.length === 1 ? cats[0]! : "tous";
+    });
   }, [id]);
 
   useEffect(() => {
@@ -293,6 +306,50 @@ export default function EleveDossierClient() {
     ];
     return list.filter((t) => t.show);
   }, [data]);
+
+  const allowedDocCategories = useMemo((): EleveDocCategorie[] => {
+    if (!data?.meta.docCategories?.length) {
+      const fromTiroirs = new Set<EleveDocCategorie>();
+      for (const t of data?.meta.tiroirs ?? []) {
+        const c = TIROIR_TO_CATEGORIE[t as keyof typeof TIROIR_TO_CATEGORIE];
+        if (c) fromTiroirs.add(c);
+      }
+      return (["administratif", "financier", "sante"] as EleveDocCategorie[]).filter((c) =>
+        fromTiroirs.has(c),
+      );
+    }
+    return data.meta.docCategories;
+  }, [data]);
+
+  const uploadTiroirsForCategory = useMemo(() => {
+    if (!data) return [] as string[];
+    const active =
+      docCategory === "tous"
+        ? allowedDocCategories
+        : allowedDocCategories.filter((c) => c === docCategory);
+    const allowed = new Set(data.meta.tiroirs);
+    const out: string[] = [];
+    for (const cat of active) {
+      for (const t of CATEGORIE_TIROIRS[cat]) {
+        if (allowed.has(t)) out.push(t);
+      }
+    }
+    return out.length ? out : data.meta.tiroirs;
+  }, [data, docCategory, allowedDocCategories]);
+
+  const filteredDocuments = useMemo(() => {
+    if (!data) return [];
+    if (docCategory === "tous") return data.documents;
+    const tiroirs = new Set(CATEGORIE_TIROIRS[docCategory]);
+    return data.documents.filter((d) => tiroirs.has(d.tiroir as keyof typeof TIROIR_TO_CATEGORIE));
+  }, [data, docCategory]);
+
+  useEffect(() => {
+    if (!uploadTiroirsForCategory.length) return;
+    if (!uploadTiroirsForCategory.includes(uploadMeta.tiroir)) {
+      setUploadMeta((m) => ({ ...m, tiroir: uploadTiroirsForCategory[0]! }));
+    }
+  }, [uploadTiroirsForCategory, uploadMeta.tiroir]);
 
   async function postAction(payload: Record<string, unknown>) {
     setBusy(true);
@@ -1631,7 +1688,44 @@ export default function EleveDossierClient() {
           ) : null}
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-            <h2 className="text-sm font-bold text-slate-800">Documents du dossier</h2>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <h2 className="text-sm font-bold text-slate-800">Documents du dossier</h2>
+              <p className="text-xs text-slate-500">
+                Classés automatiquement : administratif, financier / comptable, santé.
+              </p>
+            </div>
+
+            {allowedDocCategories.length > 0 ? (
+              <div className="flex flex-wrap gap-2 border-b border-slate-100 pb-3">
+                {allowedDocCategories.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => setDocCategory("tous")}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                      docCategory === "tous"
+                        ? "bg-slate-900 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Tous
+                  </button>
+                ) : null}
+                {allowedDocCategories.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setDocCategory(cat)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                      docCategory === cat
+                        ? "bg-slate-900 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {DOC_CATEGORIE_LABELS[cat]}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             <div className="grid gap-3 sm:grid-cols-3">
               <label className="text-xs font-semibold text-slate-600">
@@ -1641,9 +1735,12 @@ export default function EleveDossierClient() {
                   onChange={(ev) => setUploadMeta((m) => ({ ...m, tiroir: ev.target.value }))}
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 >
-                  {data.meta.tiroirs.map((t) => (
+                  {uploadTiroirsForCategory.map((t) => (
                     <option key={t} value={t}>
                       {TIROIR_LABELS[t] || t}
+                      {TIROIR_TO_CATEGORIE[t as keyof typeof TIROIR_TO_CATEGORIE]
+                        ? ` · ${DOC_CATEGORIE_LABELS[TIROIR_TO_CATEGORIE[t as keyof typeof TIROIR_TO_CATEGORIE]]}`
+                        : ""}
                     </option>
                   ))}
                 </select>
@@ -1661,7 +1758,9 @@ export default function EleveDossierClient() {
                   {!data.meta.profRestrictedView ? (
                     <>
                       <option value="restreint">Restreint</option>
-                      <option value="sante">Santé</option>
+                      {allowedDocCategories.includes("sante") ? (
+                        <option value="sante">Santé</option>
+                      ) : null}
                     </>
                   ) : null}
                 </select>
@@ -1709,16 +1808,17 @@ export default function EleveDossierClient() {
               </label>
             </div>
 
-            {data.documents.length === 0 ? (
-              <p className="text-sm text-slate-500">Aucun document.</p>
+            {filteredDocuments.length === 0 ? (
+              <p className="text-sm text-slate-500">Aucun document dans cette catégorie.</p>
             ) : (
               <ul className="grid gap-3 sm:grid-cols-2">
-                {data.documents.map((d) => {
+                {filteredDocuments.map((d) => {
                   const isImage =
                     d.canOpen &&
                     Boolean(d.fileUrl) &&
                     (d.mimeType?.startsWith("image/") ||
                       /\.(jpe?g|png|gif|webp)$/i.test(d.fileUrl || ""));
+                  const cat = TIROIR_TO_CATEGORIE[d.tiroir as keyof typeof TIROIR_TO_CATEGORIE];
                   return (
                     <li
                       key={d.id}
@@ -1740,6 +1840,7 @@ export default function EleveDossierClient() {
                       <div className="min-w-0 flex-1">
                         <p className="font-semibold text-slate-900 truncate">{d.title}</p>
                         <p className="text-xs text-slate-500">
+                          {cat ? `${DOC_CATEGORIE_LABELS[cat]} · ` : ""}
                           {TIROIR_LABELS[d.tiroir] || d.tiroir} · {d.confidentialite}
                           {d.anneeLabel ? ` · ${d.anneeLabel}` : ""}
                         </p>

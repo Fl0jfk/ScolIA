@@ -10,6 +10,11 @@ import {
 } from "@/db/schema";
 import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { hasRole } from "@/app/lib/intranet-role-utils";
+import {
+  CATEGORIE_TIROIRS,
+  tiroirsForCategories,
+  type EleveDocCategorie,
+} from "@/app/lib/eleve-doc-categories";
 
 function isExactAdmin(roles: string[]): boolean {
   return roles.includes("admin") || hasGlobalAdminRole(roles);
@@ -38,6 +43,34 @@ export type EleveDocTiroir =
   | "vie_scolaire";
 
 export type EleveDocConfidentialite = "standard" | "restreint" | "sante";
+
+/** Catégories documents visibles nativement pour le rôle. */
+export function eleveDocCategoriesForRoles(
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): Set<EleveDocCategorie> {
+  if (opts?.platformAdmin || opts?.orgAdmin || isExactAdmin(roles) || isDirection(roles)) {
+    return new Set<EleveDocCategorie>(["administratif", "financier", "sante"]);
+  }
+  const out = new Set<EleveDocCategorie>();
+  if (hasRole(roles, "administratif")) {
+    out.add("administratif");
+    out.add("financier");
+  }
+  if (hasRole(roles, "comptabilite")) {
+    out.add("financier");
+  }
+  if (hasRole(roles, "infirmerie") || hasRole(roles, "psychologue")) {
+    out.add("sante");
+  }
+  if (hasRole(roles, "cpe") || hasRole(roles, "education")) {
+    out.add("administratif");
+  }
+  if (hasRole(roles, "professeur")) {
+    out.add("administratif");
+  }
+  return out;
+}
 
 /** Sections visibles sur la fiche selon les rôles intranet. */
 export function eleveDossierSectionsForRoles(
@@ -77,11 +110,12 @@ export function eleveDossierSectionsForRoles(
     out.add("documents");
     out.add("famille");
   }
-  if (hasRole(roles, "infirmerie")) {
+  if (hasRole(roles, "infirmerie") || hasRole(roles, "psychologue")) {
     out.add("sante");
     out.add("famille");
+    out.add("documents");
   }
-  if (hasRole(roles, "comptabilite") || hasRole(roles, "administratif")) {
+  if (hasRole(roles, "comptabilite")) {
     out.add("famille");
     out.add("documents");
     out.add("facturation");
@@ -89,6 +123,7 @@ export function eleveDossierSectionsForRoles(
   if (hasRole(roles, "administratif")) {
     out.add("famille");
     out.add("documents");
+    out.add("facturation");
   }
   return out;
 }
@@ -98,42 +133,35 @@ export function eleveDocTiroirsForRoles(
   roles: string[],
   opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
 ): Set<EleveDocTiroir> {
-  const sections = eleveDossierSectionsForRoles(roles, opts);
-  const tiroirs = new Set<EleveDocTiroir>();
-  if (sections.has("notes") || sections.has("scolarite")) tiroirs.add("scolaire");
-  if (sections.has("facturation") || hasRole(roles, "administratif") || opts?.orgAdmin) {
-    tiroirs.add("inscription");
-    tiroirs.add("facturation");
+  const categories = eleveDocCategoriesForRoles(roles, opts);
+  const tiroirs = new Set<EleveDocTiroir>(
+    tiroirsForCategories(categories) as EleveDocTiroir[],
+  );
+
+  // Affinages métier dans la catégorie administratif
+  if (hasRole(roles, "professeur") && !isDirection(roles) && !opts?.orgAdmin) {
+    // Prof : scolaire + voyages uniquement (pas inscription / vie scolaire docs).
+    return new Set<EleveDocTiroir>(["scolaire", "voyages"]);
   }
-  if (sections.has("vie_scolaire")) tiroirs.add("vie_scolaire");
-  if (sections.has("sante")) tiroirs.add("sante");
-  if (
-    opts?.orgAdmin ||
-    opts?.platformAdmin ||
-    isExactAdmin(roles) ||
-    isDirection(roles)
-  ) {
-    return new Set([
-      "scolaire",
-      "inscription",
-      "facturation",
-      "voyages",
-      "sante",
-      "vie_scolaire",
-    ]);
-  }
-  if (hasRole(roles, "professeur")) {
+  if (hasRole(roles, "cpe") || hasRole(roles, "education")) {
+    tiroirs.add("vie_scolaire");
     tiroirs.add("scolaire");
-    tiroirs.add("voyages");
   }
-  if (hasRole(roles, "administratif")) {
-    tiroirs.add("inscription");
-    tiroirs.add("facturation");
-    tiroirs.add("voyages");
-    // PAS sante / PAP par défaut
-  }
+
   return tiroirs;
 }
+
+export function eleveDocCategoriesMetaForRoles(
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): EleveDocCategorie[] {
+  const allowed = eleveDocCategoriesForRoles(roles, opts);
+  return (["administratif", "financier", "sante"] as EleveDocCategorie[]).filter((c) =>
+    allowed.has(c),
+  );
+}
+
+export { CATEGORIE_TIROIRS };
 
 /** Enregistrement d’un document (upload) selon tiroir et confidentialité. */
 export function canRegisterEleveDocument(
@@ -276,6 +304,12 @@ export async function listEleveDocumentsForViewer(opts: {
   }> = [];
 
   for (const doc of docs) {
+    const allowedTiroirs = eleveDocTiroirsForRoles(opts.roles, {
+      orgAdmin: opts.orgAdmin,
+      platformAdmin: opts.platformAdmin,
+    });
+    const tiroirAllowed = allowedTiroirs.has(doc.tiroir as EleveDocTiroir);
+
     let canOpen = canOpenDocumentWithoutGrant(doc, opts.roles, {
       orgAdmin: opts.orgAdmin,
       platformAdmin: opts.platformAdmin,
@@ -289,14 +323,11 @@ export async function listEleveDocumentsForViewer(opts: {
       });
       if (grant) {
         canOpen = true;
+      } else if (!tiroirAllowed) {
+        // Hors catégorie métier (ex. santé pour la compta) : invisible, pas « demander l’accès ».
+        continue;
       } else {
-        const tiroirs = eleveDocTiroirsForRoles(opts.roles, {
-          orgAdmin: opts.orgAdmin,
-          platformAdmin: opts.platformAdmin,
-        });
-        lockedReason = tiroirs.has(doc.tiroir as EleveDocTiroir)
-          ? "confidentialite"
-          : "tiroir";
+        lockedReason = "confidentialite";
       }
     }
     out.push({
