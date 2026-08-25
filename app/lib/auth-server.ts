@@ -163,17 +163,22 @@ function createAuth() {
       resetPasswordTokenExpiresIn: 60 * 60,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url }) => {
+        const u = user as {
+          email: string;
+          name?: string | null;
+          firstName?: string | null;
+        };
         const mail = buildPasswordActivationEmail({
           firstName:
-            typeof user.firstName === "string"
-              ? user.firstName
-              : typeof (user as { name?: string }).name === "string"
-                ? (user as { name?: string }).name?.split(/\s+/)[0]
+            typeof u.firstName === "string" && u.firstName.trim()
+              ? u.firstName
+              : typeof u.name === "string"
+                ? u.name.split(/\s+/)[0] || null
                 : null,
           url,
         });
         void sendPlatformMail({
-          to: user.email,
+          to: u.email,
           subject: mail.subject,
           text: mail.text,
           html: mail.html,
