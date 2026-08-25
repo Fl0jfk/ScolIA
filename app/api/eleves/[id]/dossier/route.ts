@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   anneeScolaire,
@@ -49,6 +49,7 @@ import { listCarnetForEleve } from "@/app/lib/vs-carnet-db";
 import { countFacturesEnRetardForEleve } from "@/app/lib/facturation-db";
 import { listGroupesForEleve } from "@/app/lib/groupes-pedagogiques-db";
 import { parisDateKey } from "@/app/lib/paris-time";
+import { ensureEleveScolariteGrilleRepasColumn } from "@/app/lib/eleve-scolarite-schema";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -154,6 +155,8 @@ export async function GET(_req: Request, ctx: Ctx) {
       return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
     }
   }
+
+  await ensureEleveScolariteGrilleRepasColumn();
 
   const scolarites = await db
     .select()
@@ -813,9 +816,7 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ error: "Grille repas invalide." }, { status: 400 });
     }
 
-    await db.execute(
-      sql.raw(`ALTER TABLE "eleve_scolarite" ADD COLUMN IF NOT EXISTS "grille_repas" jsonb`),
-    );
+    await ensureEleveScolariteGrilleRepasColumn();
 
     let scolariteId = String(body.scolariteId || "").trim();
     if (!scolariteId) {
