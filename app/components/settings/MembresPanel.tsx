@@ -78,6 +78,7 @@ export default function MembresPanel() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [users, setUsers] = useState<RegistryUserRow[]>([]);
   const [roleOptions, setRoleOptions] = useState<RoleOption[]>([]);
   const [email, setEmail] = useState("");
@@ -87,6 +88,7 @@ export default function MembresPanel() {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editRoles, setEditRoles] = useState<string[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [invitingEmail, setInvitingEmail] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("name");
@@ -220,6 +222,36 @@ export default function MembresPanel() {
     }
   };
 
+  const sendInvitationLink = async (u: RegistryUserRow) => {
+    const name = labelFor(u);
+    if (
+      !confirm(
+        `Envoyer un lien d’invitation à ${name} (${u.email}) ?\n\n` +
+          `La personne reçoit un e-mail pour créer son mot de passe (lien valable 1 h), puis active la double authentification à la première connexion.\n` +
+          `Un éventuel ancien mot de passe ne fonctionnera plus.`,
+      )
+    ) {
+      return;
+    }
+    setInvitingEmail(u.email);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch("/api/admin/auth/send-activation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: u.email }),
+      });
+      const j = (await res.json()) as { ok?: boolean; error?: string; message?: string };
+      if (!res.ok || !j.ok) throw new Error(j.error || "Envoi impossible");
+      setSuccess(j.message || `Lien d’invitation envoyé à ${u.email}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setInvitingEmail(null);
+    }
+  };
+
   if (loading) return <SettingsLoading label="Chargement des utilisateurs…" />;
 
   return (
@@ -228,7 +260,18 @@ export default function MembresPanel() {
         Gestion directe via Better-Auth (invitations, rôles, suppression). Une instance = une instance auth.
       </p>
 
+      <SettingsSection>
+        <h3 className={`text-sm font-semibold ${dash.ink}`}>Lien d’invitation</h3>
+        <p className={`mt-1 text-sm ${dash.textMid}`}>
+          Sur chaque personne, utilisez <strong>Lien d’invitation</strong> pour lui envoyer un e-mail
+          d’accès. Elle crée son mot de passe (lien valable 1&nbsp;heure), se connecte, puis active la
+          double authentification (MFA). Si le compte est déjà activé (MFA en place), le bouton
+          n’envoie pas de nouveau lien — la personne se connecte normalement.
+        </p>
+      </SettingsSection>
+
       {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
+      {success ? <SettingsNotice tone="ok">{success}</SettingsNotice> : null}
 
       <SettingsSection className="sticky top-2 z-10">
         <div className="flex flex-wrap gap-3 items-end">
@@ -349,9 +392,17 @@ export default function MembresPanel() {
                     )}
                     {u.pending && <span className="text-xs text-amber-600 font-bold">Invitation en attente</span>}
                   </div>
-                  <div className="flex gap-3 shrink-0">
+                  <div className="flex flex-wrap gap-3 shrink-0">
                     {editingKey !== key && (
                       <>
+                        <button
+                          type="button"
+                          onClick={() => void sendInvitationLink(u)}
+                          disabled={invitingEmail === u.email}
+                          className={`text-sm font-semibold ${dash.textPrimary} disabled:opacity-50`}
+                        >
+                          {invitingEmail === u.email ? "Envoi…" : "Lien d’invitation"}
+                        </button>
                         <button type="button" onClick={() => startEdit(u)} className={`text-sm font-semibold ${dash.textPrimary}`}>
                           Modifier
                         </button>

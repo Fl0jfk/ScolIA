@@ -5,6 +5,7 @@ import { getDb } from "@/db/index";
 import { account, session, user } from "@/db/schema";
 import { betterAuthBaseUrl } from "@/app/lib/auth-config";
 import { getBetterAuth } from "@/app/lib/auth-server";
+import { getPlatformSmtpConfig } from "@/app/lib/tenant-mail";
 
 export type PasswordActivationTarget = {
   id: string;
@@ -18,7 +19,7 @@ export type PasswordActivationTarget = {
 export type PasswordActivationResult = {
   email: string;
   ok: boolean;
-  skipped?: "mfa_already_enabled" | "not_found";
+  skipped?: "mfa_already_enabled" | "not_found" | "smtp_unavailable";
   detail?: string;
 };
 
@@ -51,11 +52,50 @@ export async function listPasswordActivationTargets(opts?: {
     .orderBy(user.email);
 }
 
+/** Statut d’un compte pour l’envoi d’un lien d’invitation (hors MFA déjà active). */
+export async function resolveInvitationTarget(opts: {
+  email: string;
+  etablissementId: string;
+}): Promise<
+  | { status: "ready"; target: PasswordActivationTarget }
+  | { status: "not_found" }
+  | { status: "mfa_already_enabled"; email: string }
+> {
+  const email = opts.email.trim().toLowerCase();
+  const [row] = await getDb()
+    .select({
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      etablissementId: user.etablissementId,
+      twoFactorEnabled: user.twoFactorEnabled,
+    })
+    .from(user)
+    .where(and(eq(user.etablissementId, opts.etablissementId), sql`lower(${user.email}) = ${email}`))
+    .limit(1);
+
+  if (!row) return { status: "not_found" };
+  if (row.twoFactorEnabled) {
+    return { status: "mfa_already_enabled", email: row.email };
+  }
+  return { status: "ready", target: row };
+}
+
 export async function sendPasswordActivationToUser(
   target: PasswordActivationTarget,
 ): Promise<PasswordActivationResult> {
   if (target.twoFactorEnabled) {
     return { email: target.email, ok: false, skipped: "mfa_already_enabled" };
+  }
+
+  if (!getPlatformSmtpConfig()) {
+    return {
+      email: target.email,
+      ok: false,
+      skipped: "smtp_unavailable",
+      detail: "Envoi d’e-mail indisponible (SMTP non configuré sur cet environnement).",
+    };
   }
 
   const db = getDb();

@@ -55,17 +55,17 @@ export function buildPasswordActivationEmail(opts: {
 }): { subject: string; text: string; html: string } {
   const prenom = opts.firstName?.trim() || "";
   const hello = prenom ? `Bonjour ${prenom},` : "Bonjour,";
-  const subject = "ScolIA — Activez votre compte et créez votre mot de passe";
+  const subject = "ScolIA — Lien d’invitation : activez votre compte";
   const text = `${hello}
 
-Pour simplifier la connexion à l’intranet ScolIA, nous vous invitons à activer votre compte et à créer un nouveau mot de passe personnel.
+Voici votre lien d’invitation pour accéder à l’intranet ScolIA de votre établissement.
 
-Important : l’ancien mot de passe (s’il existait) ne fonctionne plus. Utilisez uniquement le lien ci-dessous.
-
-1) Ouvrez ce lien (valable une heure) pour choisir votre nouveau mot de passe :
+1) Ouvrez le lien ci-dessous (valable une heure) pour créer votre mot de passe personnel :
 ${opts.url}
 
-2) Après connexion, vous devrez activer la double authentification (MFA) avec une application d’authentification. C’est obligatoire pour protéger les données de l’établissement.
+2) Connectez-vous avec votre e-mail et ce nouveau mot de passe.
+
+3) Activez ensuite la double authentification (MFA) avec une application d’authentification — c’est obligatoire pour protéger les données de l’établissement.
 
 Applications possibles (gratuites) :
 - Microsoft Authenticator (Windows / Android / iPhone)
@@ -73,12 +73,14 @@ Applications possibles (gratuites) :
 - Mots de passe d’Apple (iPhone / Mac) — section « Codes » / authentification à deux facteurs
 
 Comment ça marche en bref :
-- Lors de la première connexion après ce mail, l’écran affiche un QR code.
+- Après connexion, l’écran affiche un QR code.
 - Ouvrez votre appli d’authentification → ajoutez un compte → scannez le QR code.
 - Saisissez le code à 6 chiffres généré par l’appli pour valider.
 - Ensuite, à chaque connexion : e-mail + mot de passe + code de l’appli.
 
-Si le lien a expiré, demandez un nouveau lien via « Mot de passe oublié » sur la page de connexion, ou contactez l’établissement.
+Important : si un ancien mot de passe existait, il ne fonctionne plus. Utilisez uniquement ce lien.
+
+Si le lien a expiré, demandez un nouveau lien d’invitation à l’administrateur de l’établissement, ou utilisez « Mot de passe oublié » sur la page de connexion.
 
 Si vous n’êtes pas concerné par ce message, ignorez-le.
 
@@ -89,8 +91,8 @@ Si vous n’êtes pas concerné par ce message, ignorez-le.
 <html lang="fr">
 <body style="font-family:Segoe UI,Helvetica,Arial,sans-serif;line-height:1.5;color:#0f172a;max-width:560px;margin:0 auto;padding:24px;">
   <p>${hello}</p>
-  <p>Pour simplifier la connexion à l’intranet <strong>ScolIA</strong>, activez votre compte et créez un <strong>nouveau mot de passe personnel</strong>.</p>
-  <p style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px;"><strong>Important :</strong> l’ancien mot de passe (s’il existait) ne fonctionne plus. Utilisez uniquement le bouton ci-dessous.</p>
+  <p>Voici votre <strong>lien d’invitation</strong> pour accéder à l’intranet <strong>ScolIA</strong> de votre établissement.</p>
+  <p style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px;"><strong>Important :</strong> si un ancien mot de passe existait, il ne fonctionne plus. Utilisez uniquement le bouton ci-dessous.</p>
   <p style="text-align:center;margin:28px 0;">
     <a href="${opts.url}" style="display:inline-block;background:#2F6B4A;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600;">Créer mon mot de passe</a>
   </p>
@@ -108,7 +110,7 @@ Si vous n’êtes pas concerné par ce message, ignorez-le.
     <li>Saisir le code à 6 chiffres pour valider.</li>
     <li>À chaque connexion suivante : e-mail + mot de passe + code de l’appli.</li>
   </ol>
-  <p style="font-size:13px;color:#64748b;">Lien expiré ? Utilisez « Mot de passe oublié » sur la page de connexion, ou contactez l’établissement.</p>
+  <p style="font-size:13px;color:#64748b;">Lien expiré ? Demandez un nouveau lien d’invitation à l’administrateur, ou utilisez « Mot de passe oublié » sur la page de connexion.</p>
   <p style="margin-top:32px;font-size:13px;color:#64748b;">— L’équipe ScolIA</p>
 </body>
 </html>`;
@@ -177,12 +179,15 @@ function createAuth() {
                 : null,
           url,
         });
-        void sendPlatformMail({
+        const ok = await sendPlatformMail({
           to: u.email,
           subject: mail.subject,
           text: mail.text,
           html: mail.html,
         });
+        if (!ok) {
+          throw new Error("Échec d'envoi de l'e-mail d'invitation (SMTP).");
+        }
       },
       onPasswordReset: async ({ user }) => {
         try {
