@@ -1,5 +1,7 @@
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import type { Secteur } from "@/app/lib/onedrive-eleves";
+import { isEntCoreDbEnabled, resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { loadMefSecteurMapFromNomenclature } from "@/app/lib/mef-secteurs-nomenclature";
 
 export const MEF_SECTEURS_KEY = "settings/mef-secteurs.json";
 
@@ -66,11 +68,33 @@ function buildMefToSecteurMap(config: MefSecteursConfig): Map<string, Secteur> {
 }
 
 export async function loadMefSecteurMap(): Promise<Map<string, Secteur>> {
-  const hit = await getJson<MefSecteursConfig>( MEF_SECTEURS_KEY);
-  if (!hit?.data) return new Map();
-  const parsed = parseMefSecteursConfig(hit.data);
-  if (!parsed.ok) return new Map();
-  return buildMefToSecteurMap(parsed.config);
+  const map = new Map<string, Secteur>();
+
+  const hit = await getJson<MefSecteursConfig>(MEF_SECTEURS_KEY);
+  if (hit?.data) {
+    const parsed = parseMefSecteursConfig(hit.data);
+    if (parsed.ok) {
+      for (const [code, secteur] of buildMefToSecteurMap(parsed.config)) {
+        map.set(code, secteur);
+      }
+    }
+  }
+
+  if (isEntCoreDbEnabled()) {
+    try {
+      const etabId = await resolveCurrentEtablissementId();
+      if (etabId) {
+        const nomMap = await loadMefSecteurMapFromNomenclature(etabId);
+        for (const [code, secteur] of nomMap) {
+          if (!map.has(code)) map.set(code, secteur);
+        }
+      }
+    } catch (error) {
+      console.error("[mef-secteurs] nomenclature", error);
+    }
+  }
+
+  return map;
 }
 
 export async function saveMefSecteursConfig( config: MefSecteursConfig) {

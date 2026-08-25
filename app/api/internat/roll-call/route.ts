@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireInternatAccess } from "@/app/api/internat/_auth";
 import { resolvePhotoUrlsForInternatStudents } from "@/app/lib/eleve-photos";
+import { buildInternatCourseAbsenceHints } from "@/app/lib/internat-course-absences";
 import {
   getInternatRollCall,
   getInternatStudents,
@@ -61,12 +62,16 @@ export async function GET(req: Request) {
   const date = String(searchParams.get("date") || todayDateParis());
   const period = parsePeriod(searchParams.get("period"));
   const [rollCall, students] = await Promise.all([getInternatRollCall(date, period), getInternatStudents()]);
-  const photoUrls = await resolvePhotoUrlsForInternatStudents(students);
+  const [photoUrls, courseAbsenceHints] = await Promise.all([
+    resolvePhotoUrlsForInternatStudents(students),
+    buildInternatCourseAbsenceHints(date, students),
+  ]);
 
   return NextResponse.json({
     rollCall,
     students,
     photoUrls,
+    courseAbsenceHints,
     canValidate: rollCallCanValidate(rollCall, students),
     boysComplete: sectionIsComplete(rollCall.boys, students, "M"),
     girlsComplete: sectionIsComplete(rollCall.girls, students, "F"),

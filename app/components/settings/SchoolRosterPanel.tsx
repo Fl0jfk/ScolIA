@@ -16,6 +16,14 @@ type Roster = { teacherCatalog: string[]; classAssignments: Assignment[]; update
 
 export default function SchoolRosterPanel() {
   const [elevesCount, setElevesCount] = useState<number | null>(null);
+  const [elevesSansClasse, setElevesSansClasse] = useState(0);
+  const [elevesSansIne, setElevesSansIne] = useState(0);
+  const [regimeCounts, setRegimeCounts] = useState({
+    interne: 0,
+    demi_pension: 0,
+    externe: 0,
+    inconnu: 0,
+  });
   const [roster, setRoster] = useState<Roster | null>(null);
   const [classes, setClasses] = useState<string[]>([]);
   const [users, setUsers] = useState<DirectoryUser[]>([]);
@@ -45,6 +53,14 @@ export default function SchoolRosterPanel() {
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Erreur");
       setElevesCount(j.elevesCount ?? 0);
+      setElevesSansClasse(Number(j.elevesSansClasse ?? 0));
+      setElevesSansIne(Number(j.elevesSansIne ?? 0));
+      setRegimeCounts({
+        interne: Number(j.regimeCounts?.interne ?? 0),
+        demi_pension: Number(j.regimeCounts?.demi_pension ?? 0),
+        externe: Number(j.regimeCounts?.externe ?? 0),
+        inconnu: Number(j.regimeCounts?.inconnu ?? 0),
+      });
       setRoster(j.roster || null);
       setClasses(j.classes || []);
       setUsers(j.users || []);
@@ -161,7 +177,76 @@ export default function SchoolRosterPanel() {
         description="Une seule source de vérité : listes élèves, professeurs par classe et catalogue profs. Stages, certificats, répartition des classes et Documents IA s’appuient sur ces données."
       >
         {elevesCount != null ? (
-          <p className={`text-sm font-semibold ${dash.textPrimary}`}>{elevesCount} élève(s) dans eleves.json</p>
+          <div className="space-y-3">
+            <p className={`text-sm font-semibold ${dash.textPrimary}`}>
+              {elevesCount} élève(s) dans le registre
+            </p>
+            <div className="flex flex-wrap gap-2 text-xs font-bold">
+              {elevesSansClasse > 0 ? (
+                <span className="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 text-amber-900">
+                  {elevesSansClasse} sans classe
+                </span>
+              ) : (
+                <span className="rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-emerald-800">
+                  Classes renseignées
+                </span>
+              )}
+              {elevesSansIne > 0 ? (
+                <span className="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 text-amber-900">
+                  {elevesSansIne} sans INE
+                </span>
+              ) : (
+                <span className="rounded-lg bg-emerald-50 border border-emerald-200 px-2.5 py-1 text-emerald-800">
+                  INE OK
+                </span>
+              )}
+              <span className="rounded-lg bg-slate-50 border border-slate-200 px-2.5 py-1 text-slate-700">
+                {classes.length} classe(s)
+              </span>
+            </div>
+            <div className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 space-y-1.5">
+              <p className="text-xs font-black text-slate-700 uppercase tracking-wide">
+                Régimes (Passage / cantine / internat)
+              </p>
+              <div className="flex flex-wrap gap-2 text-xs font-bold">
+                <span className="rounded-lg bg-white border border-slate-200 px-2.5 py-1 text-slate-800">
+                  {regimeCounts.interne} internes
+                </span>
+                <span className="rounded-lg bg-white border border-slate-200 px-2.5 py-1 text-slate-800">
+                  {regimeCounts.demi_pension} demi-pension
+                </span>
+                <span className="rounded-lg bg-white border border-slate-200 px-2.5 py-1 text-slate-800">
+                  {regimeCounts.externe} externes
+                </span>
+                {regimeCounts.inconnu > 0 ? (
+                  <span className="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 text-amber-900">
+                    {regimeCounts.inconnu} régime inconnu
+                  </span>
+                ) : null}
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Grille DP = source Administratif (registre). Passage cantine : screens à brancher plus
+                tard — ops VS + conso facturation.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs font-bold">
+              <Link href="/parametres?tab=siecle" className="text-indigo-600 hover:underline">
+                Pont Éducation nationale (Siècle)
+              </Link>
+              <Link href="/parametres?tab=annees" className="text-indigo-600 hover:underline">
+                Année scolaire
+              </Link>
+              <Link href="/parametres?tab=identite" className="text-indigo-600 hover:underline">
+                Identité comptes
+              </Link>
+              <Link href="/toolbox/repartition-classes" className="text-emerald-700 hover:underline">
+                Composition de classes
+              </Link>
+              <Link href="/eleves/dossiers" className="text-indigo-600 hover:underline">
+                Dossiers élèves
+              </Link>
+            </div>
+          </div>
         ) : null}
       </SettingsSection>
 

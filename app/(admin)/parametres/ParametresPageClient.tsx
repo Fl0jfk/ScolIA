@@ -51,6 +51,14 @@ const SettingsMefPanel = dynamic(
   () => import("@/app/components/settings/SettingsMefPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
+const AnneeScolairePanel = dynamic(
+  () => import("@/app/components/settings/AnneeScolairePanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
+const NomenclatureImportPanel = dynamic(
+  () => import("@/app/components/settings/NomenclatureImportPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 const SettingsProfRoomPanel = dynamic(
   () => import("@/app/components/settings/SettingsProfRoomPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
@@ -71,12 +79,19 @@ const MembresPanel = dynamic(
   () => import("@/app/components/settings/MembresPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
+const IdentitePanel = dynamic(
+  () => import("@/app/components/settings/IdentitePanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
   { id: "site", label: "Établissement", icon: "🏫" },
   { id: "establishments", label: "Sites / directions", icon: "🗺️" },
   { id: "utilisateurs", label: "Utilisateurs", icon: "👥" },
+  { id: "identite", label: "Identité", icon: "🪪" },
   { id: "referentiel", label: "Liste des élèves", icon: "🎒" },
+  { id: "annees", label: "Année scolaire", icon: "📅" },
+  { id: "siecle", label: "Éducation nationale", icon: "🇫🇷" },
   { id: "mef", label: "Formations MEF", icon: "📚" },
   { id: "notifications", label: "Notifications", icon: "✉️" },
   { id: "integrations", label: "Intégrations", icon: "🔌" },
@@ -113,6 +128,8 @@ export default function ParametresPage() {
     const t = searchParams.get("tab");
     if (
       t === "referentiel" ||
+      t === "annees" ||
+      t === "siecle" ||
       t === "site" ||
       t === "establishments" ||
       t === "notifications" ||
@@ -123,6 +140,7 @@ export default function ParametresPage() {
       t === "integrations" ||
       t === "dashboard-links" ||
       t === "utilisateurs" ||
+      t === "identite" ||
       t === "membres"
     ) {
       setTab(t === "membres" ? "utilisateurs" : t);
@@ -638,9 +656,15 @@ export default function ParametresPage() {
 
         {tab === "referentiel" && <SchoolRosterPanel />}
 
+        {tab === "annees" && <AnneeScolairePanel />}
+
+        {tab === "siecle" && <NomenclatureImportPanel />}
+
         {tab === "dashboard-links" && <DashboardQuickLinksPanel />}
 
         {tab === "utilisateurs" && <MembresPanel />}
+
+        {tab === "identite" && <IdentitePanel />}
         </div>
       </ModulePageShell>
     </RequireOrgAdmin>

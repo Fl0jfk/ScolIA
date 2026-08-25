@@ -177,14 +177,25 @@ export default function MonPlanningClient() {
           </>
         }
         actions={
-          showGestion ? (
-            <Link
-              href="/edt-etablissement"
-              className="text-sm font-bold text-indigo-600 hover:underline"
-            >
-              EDT établissement
+          <div className="flex flex-wrap gap-3 text-sm font-bold">
+            <Link href="/rh/moi" className="text-indigo-600 hover:underline">
+              Mon dossier RH
             </Link>
-          ) : undefined
+            <Link
+              href="/rh?tab=absences&view=se-declarer#nouvelle-absence"
+              className="text-indigo-600 hover:underline"
+            >
+              Demander une absence
+            </Link>
+            <Link href="/vie-scolaire/calendrier" className="text-indigo-600 hover:underline">
+              EDT classes / VS
+            </Link>
+            {showGestion ? (
+              <Link href="/edt-etablissement" className="text-indigo-600 hover:underline">
+                EDT établissement
+              </Link>
+            ) : null}
+          </div>
         }
       />
       {tabs.length > 1 ? (

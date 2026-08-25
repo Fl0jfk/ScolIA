@@ -14,9 +14,19 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { etablissement } from "./etablissement-table";
+import { charlemagneP1Schema } from "./schema-charlemagne-p1";
+import { charlemagneP2Schema } from "./schema-charlemagne-p2";
+import { charlemagneP3Schema } from "./schema-charlemagne-p3";
+import { charlemagneP4Schema } from "./schema-charlemagne-p4";
+import { charlemagneP5Schema } from "./schema-charlemagne-p5";
 
 export { etablissement };
 export * from "./schema-ent-relational";
+export * from "./schema-charlemagne-p1";
+export * from "./schema-charlemagne-p2";
+export * from "./schema-charlemagne-p3";
+export * from "./schema-charlemagne-p4";
+export * from "./schema-charlemagne-p5";
 
 /** Utilisateur Better-Auth (multi-tenant via etablissement_id). */
 export const user = pgTable(
@@ -311,6 +321,8 @@ export const eleve = pgTable(
     regime: text("regime"),
     /** Sexe M/F. */
     sexe: text("sexe"),
+    /** Clé objet photo (S3 / storage) — eleves/photos/…. */
+    photoKey: text("photo_key"),
     pilotageKey: text("pilotage_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -346,6 +358,8 @@ export const eleveScolarite = pgTable(
     statut: text("statut").notNull().default("en_cours"),
     demiPension: boolean("demi_pension").notNull().default(false),
     repasParSemaine: integer("repas_par_semaine"),
+    /** Grille L–V : midi / soir / étude / garderie / sort seul (Passage). */
+    grilleRepas: jsonb("grille_repas").$type<Record<string, unknown> | null>(),
     etablissementPrecedent: text("etablissement_precedent"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -781,6 +795,11 @@ export const appSchema = {
   personnel,
   entEntity,
   tenantDocument,
+  ...charlemagneP1Schema,
+  ...charlemagneP2Schema,
+  ...charlemagneP3Schema,
+  ...charlemagneP4Schema,
+  ...charlemagneP5Schema,
 };
 
 export const schema = {

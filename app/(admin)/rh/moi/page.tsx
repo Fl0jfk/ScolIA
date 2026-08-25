@@ -68,13 +68,24 @@ export default function RhMoiPage() {
 
   return (
     <div className="max-w-[1280px] mx-auto p-4 sm:p-6 space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-2">
         <p className="text-xs font-black uppercase tracking-widest text-slate-400">Mon dossier RH</p>
-        {isRh && (
-          <Link href="/rh" className="text-sm font-bold text-indigo-600 hover:underline">
-            Module RH →
+        <div className="flex flex-wrap gap-3 text-sm font-bold">
+          <Link href="/mon-planning" className="text-indigo-600 hover:underline">
+            Mon planning
           </Link>
-        )}
+          <Link
+            href="/rh?tab=absences&view=se-declarer#nouvelle-absence"
+            className="text-indigo-600 hover:underline"
+          >
+            Absences
+          </Link>
+          {isRh && (
+            <Link href="/rh" className="text-indigo-600 hover:underline">
+              Module RH →
+            </Link>
+          )}
+        </div>
       </div>
 
       {(medNext || entretienNext) && (

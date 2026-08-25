@@ -152,6 +152,9 @@ export function isMustChangePasswordAllowedPath(pathname: string): boolean {
     "/api/auth/memberships",
     "/api/famille",
     "/famille",
+    "/api/eleve",
+    "/api/mobile",
+    "/app-mobile",
   ];
   return allow.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
@@ -171,6 +174,9 @@ export function isTwoFactorSetupAllowedPath(pathname: string): boolean {
     "/api/auth/memberships",
     "/api/famille",
     "/famille",
+    "/api/eleve",
+    "/api/mobile",
+    "/app-mobile",
   ];
   return allow.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }

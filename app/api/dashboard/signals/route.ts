@@ -360,6 +360,102 @@ export async function GET() {
       }
     }
 
+    let vsAbsencesATraiter = 0;
+    let vsAbsencesJustifFamille = 0;
+    let vsAppelsManquants = 0;
+    let vsSanctionsAujourdhui = 0;
+    let vsCarnetNonSignees = 0;
+    let facturesEnRetard = 0;
+    let anneeScolaireLabel: string | null = null;
+
+    try {
+      const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
+      const { resolveAnneeCouranteMeta } = await import("@/app/lib/annees-scolaires-db");
+      const etabId = await resolveCurrentEtablissementId();
+      if (etabId) {
+        anneeScolaireLabel = (await resolveAnneeCouranteMeta(etabId)).label;
+      }
+    } catch {
+      anneeScolaireLabel = null;
+    }
+
+    if (accessibleModuleIds.has("facturation-familles")) {
+      try {
+        const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
+        const { countFacturesEnRetard } = await import("@/app/lib/facturation-db");
+        const { parisDateKey } = await import("@/app/lib/paris-time");
+        const etabId = await resolveCurrentEtablissementId();
+        if (etabId) {
+          facturesEnRetard = await countFacturesEnRetard(etabId, parisDateKey(new Date()));
+        }
+      } catch {
+        facturesEnRetard = 0;
+      }
+    }
+
+    if (
+      accessibleModuleIds.has("vs-absences") ||
+      accessibleModuleIds.has("vs-appels") ||
+      accessibleModuleIds.has("vs-calendrier") ||
+      accessibleModuleIds.has("vs-sanctions") ||
+      accessibleModuleIds.has("vs-carnet")
+    ) {
+      try {
+        const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
+        const {
+          countAbsencesATraiter,
+          countAbsencesJustifFamilleEnAttente,
+          countAppelsManquants,
+        } = await import("@/app/lib/vs-absences-db");
+        const { countSanctionsAujourdhui } = await import("@/app/lib/vs-sanctions-db");
+        const { countCarnetNonSignees } = await import("@/app/lib/vs-carnet-db");
+        const { parisDateKey } = await import("@/app/lib/paris-time");
+        const etabId = await resolveCurrentEtablissementId();
+        if (etabId) {
+          const tasks: Promise<void>[] = [];
+          if (accessibleModuleIds.has("vs-absences")) {
+            tasks.push(
+              countAbsencesATraiter(etabId).then((n) => {
+                vsAbsencesATraiter = n;
+              }),
+            );
+            tasks.push(
+              countAbsencesJustifFamilleEnAttente(etabId).then((n) => {
+                vsAbsencesJustifFamille = n;
+              }),
+            );
+          }
+          if (accessibleModuleIds.has("vs-appels") || accessibleModuleIds.has("vs-absences")) {
+            tasks.push(
+              countAppelsManquants(etabId).then((n) => {
+                vsAppelsManquants = n;
+              }),
+            );
+          }
+          if (accessibleModuleIds.has("vs-sanctions")) {
+            tasks.push(
+              countSanctionsAujourdhui(etabId, parisDateKey(new Date())).then((n) => {
+                vsSanctionsAujourdhui = n;
+              }),
+            );
+          }
+          if (accessibleModuleIds.has("vs-carnet")) {
+            tasks.push(
+              countCarnetNonSignees(etabId).then((n) => {
+                vsCarnetNonSignees = n;
+              }),
+            );
+          }
+          await Promise.all(tasks);
+        }
+      } catch {
+        vsAbsencesATraiter = 0;
+        vsAppelsManquants = 0;
+        vsSanctionsAujourdhui = 0;
+        vsCarnetNonSignees = 0;
+      }
+    }
+
     const signals = getDashboardSignals({
       roles,
       userId,
@@ -380,6 +476,13 @@ export async function GET() {
       planningNow,
       establishments,
       unseenSharedFolders,
+      vsAbsencesATraiter,
+      vsAbsencesJustifFamille,
+      vsAppelsManquants,
+      vsSanctionsAujourdhui,
+      vsCarnetNonSignees,
+      facturesEnRetard,
+      anneeScolaireLabel,
     });
 
     return NextResponse.json(signals);

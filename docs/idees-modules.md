@@ -1,10 +1,10 @@
 # Idées de modules Scola
 
-Backlog produit — outils **supplémentaires** qui ne font pas ce qu’ÉcoleDirecte / Pronote font déjà.
+Backlog produit — modules ENT unifié et outils différenciants.
 
-> **ÉcoleDirecte informe et gère la scolarité. Scola mobilise, organise et active — une démarche à la fois.**
+> **Scola = ENT souverain d’établissement : registre unique, staff web complet, familles en app / portail cloisonné. Les workflows (OCR, sorties, RH…) restent le différenciant face aux ENT classiques.**
 
-Dernière mise à jour : 8 août 2026
+Dernière mise à jour : 25 août 2026
 
 ---
 
@@ -12,23 +12,25 @@ Dernière mise à jour : 8 août 2026
 
 | Niveau | Quoi | Exemples |
 |--------|------|----------|
-| **Killers** | Gros modules — valeur quotidienne ou stratégique, argument de vente principal | OCR documents, sorties, réservation salles |
+| **Killers** | Gros modules — valeur quotidienne ou stratégique, argument de vente principal | OCR documents, sorties, réservation salles, **Notes & VS**, facturation familles |
 | **Boîte à outils saisonnière** | Petites briques activables à la demande — sympas, utiles, pas le cœur du pitch | QR code… (PO / Rentrée / Santa pilotés depuis **Établissement → Événements**) |
 
 Les killers font vendre Scola. La boîte à outils crée de la **fidélité** et du **bouche-à-oreille** (« ils ont même un truc pour les portes ouvertes »).
 
 ---
 
-## Charte (rappel)
+## Charte (rappel) — pivot ENT unifié
 
 | On fait | On ne fait pas |
 |--------|----------------|
-| Workflows ciblés (proposer → modérer → clôturer) | Messagerie parents ↔ profs |
-| Parents / élèves **ponctuels** (token, code, rôle limité) | Portail parent ou élève généraliste |
-| Orchestration + purge | Coffre-fort / second registre élève |
-| Outils privés sous contrôle de l’établissement | Notes, bulletins, devoirs, EDT officiel |
+| **Registre unique** élèves / foyers / scolarités (BDD + Pont EN Siècle) | Second registre parallèle « coffre » hors sync |
+| **Notes, bulletins, compétences LSU**, groupes pédagogiques transversaux | Messagerie parents ↔ profs type Pronote (hors carnet ciblé) |
+| **Vie scolaire** : EDT, appels, absences, sanctions, carnet, internat | Solveur EDT opaque (générateur assisté = phase ultérieure) |
+| **Facturation familles** (catalogue, SEPA, PDF) + signaux direction | Sage Paie / paie RH complète (spec paie basique séparée) |
+| Portail / APIs **famille** cloisonnées (`/famille`, `/api/famille`) | Exposer l’intranet staff aux parents sur le web |
+| Workflows ciblés (OCR, sorties, demandes, RH self-service) | Refaire tout ÉcoleDirecte « feature parity » sans valeur |
 
-**Cible actuelle :** établissements privés — parents souvent bien placés professionnellement (gérants, cadres, réseaux d’entreprises).
+**Cible :** établissements privés — 1 logiciel établissement (web staff) ; 1 app store (parents, élèves, staff lite).
 
 ---
 
@@ -44,7 +46,7 @@ Les killers font vendre Scola. La boîte à outils crée de la **fidélité** et
 
 ---
 
-## Killers — déjà en production
+## Killers — déjà en production / en cours ENT
 
 | Module | Pourquoi c’est un killer |
 |--------|-------------------------|
@@ -53,8 +55,13 @@ Les killers font vendre Scola. La boîte à outils crée de la **fidélité** et
 | **Réservation de salles & transversaux** | Fini les tableurs ; usage quotidien profs. |
 | **Demandes & corbeilles** | Tout l’établissement dépose et suit — routing par service. |
 | **RH & personnel** | Dossiers salariés centralisés (à garder léger côté RGPD). |
-| **Internat** | Vertical métier complet + tokens parents. |
+| **Internat** | Vertical métier + lien absences cours → appel. |
 | **Covoiturage** | Outil famille unique, zéro concurrence ENT. |
+| **Notes & bulletins** (pilier Admin) | Saisie, moyennes, LSU, PDF — intégré au dossier, pas un exe à part. |
+| **Vie scolaire** | Appels, absences, sanctions, carnet, EDT classe/groupe. |
+| **Pont EN / Siècle** | Import 7 XML + export IMPORT_ELEVES + Omogen. |
+| **Facturation familles** | Catalogue, factures, SEPA, PDF, signaux impayés. |
+| **Groupes pédagogiques** | Config manuelle unique → Notes + EDT + appels + dossier. |
 
 ---
 
@@ -67,6 +74,9 @@ Les killers font vendre Scola. La boîte à outils crée de la **fidélité** et
 | **Bot bien-être / signalement** — harcèlement, mal-être ; canal d’écoute et orientation | Élèves | `reflexion` | Différenciant fort en privé. Spec RGPD avant dev. Pas une messagerie profs. |
 | **Rentrée digitale** (bundle) — simulateurs tarifs/fournitures + inscriptions + docs + checklists | Familles, admin | `reflexion` | Déjà des pages publiques ; à packager en killer saisonnier récurrent (chaque août-sept). |
 | **IA de routage universel** — tout dépôt (mail, formulaire, doc) classé et envoyé au bon service | Admin | `plus-tard` | Extension naturelle de l’OCR + demandes. Vision « plus personne ne se demande à qui envoyer quoi ». |
+| **Composition de classes** — mixte F/G, contraintes souples, IA + page publique | Direction, familles | `reflexion` | Remplace Excel Charlemagne / Pronote « répartition ». |
+| **Générateur EDT assisté** — propositions, pas solveur opaque | VS / direction | `plus-tard` | Après saisie manuelle + import stables. |
+| **Paie RH basique** | Comptabilité | `reflexion` | Bloquant lancement commercial ; conventions limitées. |
 
 ---
 
@@ -191,6 +201,11 @@ Socle livré : sélection nominative, flux bus, com’ parents optionnelle.
 | RH & personnel | Killer |
 | Internat | Killer |
 | Covoiturage | Killer |
+| Notes & bulletins / compétences LSU | Killer (ENT Admin) |
+| Vie scolaire (EDT, appels, absences, sanctions, carnet) | Killer (ENT VS) |
+| Pont EN Siècle / nomenclature | Killer (ENT Admin) |
+| Facturation familles | Killer (ENT Compta) |
+| Groupes pédagogiques transversaux | Killer léger (Notes + VS) |
 | Photocopies, HSE, assistance | Utilitaire |
 | Salons, annuaire établissement | Utilitaire |
 | **Événements** (hub PO / Rentrée / Santa) | Établissement |
@@ -211,7 +226,7 @@ Socle livré : sélection nominative, flux bus, com’ parents optionnelle.
 - **Secret Santa** : pas de données élève si version staff ; version classe = minimiser.
 - **Bot harcèlement** : anonymat, référent, rétention courte — pas dossier disciplinaire ED.
 - **PFMP** : modération, pas d’annuaire familles ouvert, purge fin d’année.
-- **`eleves.json`** : à réduire — pas de second registre.
+- **`eleves.json`** : bridge legacy — source de vérité = table `eleve` + Pont EN quand ENT_CORE_DB actif.
 - **Travels** : liste via `eleves.json` (classes → élèves) ; rappel droit à l’image (défaut OK, géré en établissement) ; liste bus **obligatoire** (rappel J−3/4 → confirm → envoi transporteur) ; com’ parents **optionnelle** (mail J + multi-envois message/photos).
 
 ---
@@ -220,6 +235,7 @@ Socle livré : sélection nominative, flux bus, com’ parents optionnelle.
 
 | Date | Ajout |
 |------|-------|
+| 2026-08-25 | **Pivot ENT unifié** : charte réécrite — Notes/VS/facturation/Pont EN au cœur produit ; plus « on ne fait pas notes ». |
 | 2026-08-08 | **Établissement** : Annuaire (ex-organigramme) + hub Événements (PO/Rentrée/Santa) + Identité ; **Planning RH** profs A/B + OGEC. |
 | 2026-07-30 | **Travels** : liste élèves + com’ parents **livrés** (`produit`) — onglets Élèves / Communication, confirm → CSV transporteur, rappels `bus_liste_j3` / `com_parents_j0`. |
 | 2026-07-30 | **Travels** : sélection classes/élèves (`eleves.json`) ; rappel droit à l’image ; flux bus ; com’ parents optionnelle — backlog puis livraison. |
@@ -231,8 +247,8 @@ Socle livré : sélection nominative, flux bus, com’ parents optionnelle.
 
 ## Prochaines étapes suggérées
 
-1. **Moteur événements** — premier template : **portes ouvertes** (créneaux, formulaire, mail, `.ics`, export tableur/PDF).
-2. **Boîte à outils** — tuile dashboard qui regroupe QR code + modules saisonniers activables.
-3. **Secret Santa** — premier petit module saisonnier (rapide à livrer, effet « sympa »).
-4. **Bourse PFMP** — prochain killer métier.
-5. Regrouper **QR code** visuellement dans la boîte à outils (sans casser les routes).
+1. **Validation E2E** — migrations + smoke BDD (WiFi) + import Siècle réel + parcours VS/Notes/famille.
+2. **Composition de classes** — spec mixte F/G + contraintes souples.
+3. **Moteur événements** — premier template : **portes ouvertes**.
+4. **Paie RH basique** — après brief comptable (bloquant lancement).
+5. **Bourse PFMP** — prochain killer métier hors Charlemagne.

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth, requireAdmin } from "@/app/lib/intranet-auth";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getJson } from "@/app/lib/s3-storage";
 import {
   MEF_SECTEURS_KEY,
@@ -8,16 +9,24 @@ import {
   saveMefSecteursConfig,
   type MefSecteursConfig,
 } from "@/app/lib/mef-secteurs";
+import { countMefNomenclature } from "@/app/lib/mef-secteurs-nomenclature";
 
 export async function GET() {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
-  const hit = await getJson<MefSecteursConfig>( MEF_SECTEURS_KEY);
+  const hit = await getJson<MefSecteursConfig>(MEF_SECTEURS_KEY);
   const raw = hit?.data ?? { lycee: [], college: [], ecole: [] };
   const parsed = parseMefSecteursConfig(raw);
   const config = parsed.ok ? parsed.config : { lycee: [], college: [], ecole: [] };
   const counts = countMefCodes(config);
-  return NextResponse.json({ config, counts, configured: counts.total > 0 });
+  const etabId = await resolveCurrentEtablissementId();
+  const nomenclatureMef = etabId ? await countMefNomenclature(etabId).catch(() => 0) : 0;
+  return NextResponse.json({
+    config,
+    counts,
+    configured: counts.total > 0 || nomenclatureMef > 0,
+    nomenclatureMef,
+  });
 }
 
 export async function PUT(req: Request) {

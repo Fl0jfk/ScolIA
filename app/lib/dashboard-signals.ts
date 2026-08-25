@@ -107,6 +107,8 @@ export type DashboardSignals = {
   todayNews: DashboardTodayNewsItem[];
   hasCurrentWeek: boolean;
   notifications: DashboardNotification[];
+  /** Année scolaire courante de l’établissement (si connue). */
+  anneeScolaireLabel?: string | null;
 };
 
 type DashboardSignalsInput = {
@@ -167,6 +169,20 @@ type DashboardSignalsInput = {
   establishments?: Establishment[];
   /** Dossiers cloud partagés invitant l'utilisateur, non encore ouverts. */
   unseenSharedFolders?: Array<{ id: string; name: string }>;
+  /** Absences élèves à traiter (CPE). */
+  vsAbsencesATraiter?: number;
+  /** Motifs famille en attente de validation CPE. */
+  vsAbsencesJustifFamille?: number;
+  /** Créneaux du jour sans appel clôturé. */
+  vsAppelsManquants?: number;
+  /** Sanctions actives du jour (direction / CPE). */
+  vsSanctionsAujourdhui?: number;
+  /** Entrées carnet visibles famille non encore signées. */
+  vsCarnetNonSignees?: number;
+  /** Factures émises en retard de paiement. */
+  facturesEnRetard?: number;
+  /** Libellé année scolaire courante (ex. 2025-2026). */
+  anneeScolaireLabel?: string | null;
 };
 
 function weekDayFromDateKey(dateKey: string): WeekDayKey | null {
@@ -335,6 +351,13 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     weekSheet = null,
     establishments = [],
     unseenSharedFolders = [],
+    vsAbsencesATraiter = 0,
+    vsAbsencesJustifFamille = 0,
+    vsAppelsManquants = 0,
+    vsSanctionsAujourdhui = 0,
+    vsCarnetNonSignees = 0,
+    facturesEnRetard = 0,
+    anneeScolaireLabel = null,
   } = input;
 
   const shortcuts: DashboardShortcut[] = [];
@@ -673,6 +696,9 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         moduleId: "mon-planning",
         href: "/mon-planning",
         label: "Mon planning",
+        rich: true,
+        detail: "Semaine type · absences · dossier RH",
+        tone: "info",
       });
     }
 
@@ -695,8 +721,21 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "rh-mon-espace",
         pillarId: "compta_rh",
         moduleId: "rh",
-        href: "/rh?tab=dashboard",
-        label: "Mon espace",
+        href: "/rh/moi",
+        label: "Mon dossier RH",
+        rich: true,
+        detail: "Documents personnels · absences",
+        tone: "info",
+      });
+      shortcuts.push({
+        id: "rh-demande-absence",
+        pillarId: "compta_rh",
+        moduleId: "rh",
+        href: "/rh?tab=absences&view=se-declarer#nouvelle-absence",
+        label: "Demander une absence",
+        rich: true,
+        detail: "Autorisation d’absence (self-service)",
+        tone: "action",
       });
 
       if (!input.moodPulseSubmittedToday) {
@@ -1134,6 +1173,30 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       tone: "info",
     });
   }
+  if (has("facturation-familles")) {
+    shortcuts.push({
+      id: "facturation-familles",
+      pillarId: "administratif",
+      moduleId: "facturation-familles",
+      href: moduleHref("facturation-familles"),
+      label: "Facturation familles",
+      rich: true,
+      detail:
+        facturesEnRetard > 0
+          ? `${facturesEnRetard} facture(s) en retard`
+          : "Tarifs, factures, SEPA, export CSV",
+      badge: facturesEnRetard > 0 ? String(facturesEnRetard) : undefined,
+      tone: facturesEnRetard > 0 ? "warn" : "info",
+    });
+    pushNotif({
+      id: "facturation-en-retard",
+      moduleId: "facturation-familles",
+      label: "Factures en retard",
+      count: facturesEnRetard,
+      href: moduleHref("facturation-familles"),
+      detail: "Échéance dépassée — relance ou encaissement",
+    });
+  }
   if (has("vs-appels")) {
     shortcuts.push({
       id: "vs-appels",
@@ -1142,8 +1205,20 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       href: moduleHref("vs-appels"),
       label: "Appel de classe",
       rich: true,
-      detail: "Présents · absents · retards",
-      tone: "info",
+      detail:
+        vsAppelsManquants > 0
+          ? `${vsAppelsManquants} créneau(x) sans appel clôturé`
+          : "Présents · absents · retards",
+      badge: vsAppelsManquants > 0 ? String(vsAppelsManquants) : undefined,
+      tone: vsAppelsManquants > 0 ? "warn" : "info",
+    });
+    pushNotif({
+      id: "vs-appels-manquants",
+      moduleId: "vs-appels",
+      label: "Appels manquants",
+      count: vsAppelsManquants,
+      href: moduleHref("vs-appels"),
+      detail: "Créneaux commencés sans appel clôturé",
     });
   }
   if (has("vs-absences")) {
@@ -1151,11 +1226,89 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       id: "vs-absences",
       pillarId: "vie_scolaire",
       moduleId: "vs-absences",
-      href: moduleHref("vs-absences"),
+      href:
+        vsAbsencesJustifFamille > 0
+          ? `${moduleHref("vs-absences")}?filtre=justif_famille`
+          : moduleHref("vs-absences"),
       label: "Absences élèves",
       rich: true,
-      detail: "Justifs & relances CPE",
-      tone: "info",
+      detail:
+        vsAbsencesJustifFamille > 0
+          ? `${vsAbsencesJustifFamille} justificatif(s) famille à valider`
+          : vsAbsencesATraiter > 0
+            ? `${vsAbsencesATraiter} à justifier / relancer`
+            : "Justifs & relances CPE",
+      badge:
+        vsAbsencesJustifFamille > 0
+          ? String(vsAbsencesJustifFamille)
+          : vsAbsencesATraiter > 0
+            ? String(vsAbsencesATraiter)
+            : undefined,
+      tone: vsAbsencesATraiter > 0 || vsAbsencesJustifFamille > 0 ? "warn" : "info",
+    });
+    pushNotif({
+      id: "vs-absences-a-traiter",
+      moduleId: "vs-absences",
+      label: "Absences à traiter",
+      count: vsAbsencesATraiter,
+      href: moduleHref("vs-absences"),
+      detail: "Justificatifs et relances familles",
+    });
+    pushNotif({
+      id: "vs-absences-justif-famille",
+      moduleId: "vs-absences",
+      label: "Justificatifs famille",
+      count: vsAbsencesJustifFamille,
+      href: `${moduleHref("vs-absences")}?filtre=justif_famille`,
+      detail: "Motifs parents à valider côté CPE",
+    });
+  }
+  if (has("vs-sanctions")) {
+    shortcuts.push({
+      id: "vs-sanctions",
+      pillarId: "vie_scolaire",
+      moduleId: "vs-sanctions",
+      href: moduleHref("vs-sanctions"),
+      label: "Sanctions",
+      rich: true,
+      detail:
+        vsSanctionsAujourdhui > 0
+          ? `${vsSanctionsAujourdhui} sanction(s) du jour`
+          : "Avertissement, colle, blâme",
+      badge: vsSanctionsAujourdhui > 0 ? String(vsSanctionsAujourdhui) : undefined,
+      tone: vsSanctionsAujourdhui > 0 ? "warn" : "info",
+    });
+    pushNotif({
+      id: "vs-sanctions-aujourdhui",
+      moduleId: "vs-sanctions",
+      label: "Sanctions du jour",
+      count: vsSanctionsAujourdhui,
+      href: moduleHref("vs-sanctions"),
+      detail: "Incidents et sanctions enregistrés aujourd'hui",
+    });
+  }
+  if (has("vs-carnet")) {
+    shortcuts.push({
+      id: "vs-carnet",
+      pillarId: "vie_scolaire",
+      moduleId: "vs-carnet",
+      href: moduleHref("vs-carnet"),
+      label: "Carnet",
+      rich: true,
+      detail:
+        vsCarnetNonSignees > 0
+          ? `${vsCarnetNonSignees} entrée(s) non signée(s)`
+          : "Correspondance → famille",
+      badge: vsCarnetNonSignees > 0 ? String(vsCarnetNonSignees) : undefined,
+      tone: vsCarnetNonSignees > 0 ? "warn" : "info",
+    });
+    pushNotif({
+      id: "vs-carnet-non-signees",
+      moduleId: "vs-carnet",
+      label: "Carnet non signé",
+      count: vsCarnetNonSignees,
+      href: moduleHref("vs-carnet"),
+      detail: "Entrées en attente d'accusé famille",
     });
   }
   if (has("sante")) {
@@ -1202,6 +1355,20 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     });
   }
 
+  // —— Paramètres / année (toujours utile en admin) ——
+  if (has("admin-settings") && anneeScolaireLabel) {
+    shortcuts.push({
+      id: "annee-scolaire",
+      pillarId: "administratif",
+      moduleId: "admin-settings",
+      href: "/parametres?tab=annees",
+      label: `Année ${anneeScolaireLabel}`,
+      rich: true,
+      detail: "Année scolaire courante — ouvrir / basculer",
+      tone: "info",
+    });
+  }
+
   const news = buildTodayNewsFromWeekSheet(weekSheet);
 
   const remapped = shortcuts.map((s) => ({
@@ -1214,6 +1381,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     todayNews: news.items,
     hasCurrentWeek: news.hasCurrentWeek,
     notifications,
+    anneeScolaireLabel,
   };
 }
 

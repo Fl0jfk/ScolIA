@@ -6,8 +6,8 @@ import {
   countElevesInDb,
   isEntCoreDbEnabled,
   listElevesFromDb,
-  replaceElevesInDb,
   resolveCurrentEtablissementId,
+  upsertElevesInDb,
 } from "@/app/lib/ent-core-db";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 
@@ -51,7 +51,7 @@ export async function saveElevesRegistry(eleves: EleveConfig[]): Promise<EleveCo
   if (isEntCoreDbEnabled()) {
     try {
       const etabId = await resolveCurrentEtablissementId();
-      if (etabId) await replaceElevesInDb(etabId, validated.eleves);
+      if (etabId) await upsertElevesInDb(etabId, validated.eleves);
     } catch (error) {
       console.error("[eleves-registry] écriture DB", error);
     }

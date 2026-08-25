@@ -10,6 +10,11 @@ import {
   type EleveDossierClassCatalog,
 } from "@/app/lib/eleve-dossier-catalog";
 import { buildEleveFolderName } from "@/app/lib/eleves-config";
+import {
+  MEAL_DAY_ORDER,
+  parseEleveGrilleRepas,
+  type EleveGrilleRepas,
+} from "@/app/lib/eleve-grille-repas";
 
 export type EleveRegimeRestauration = "externe" | "demi_pension" | "interne";
 
@@ -21,10 +26,15 @@ export type EleveMealWeek = {
     label: string;
     midi: boolean;
     soir: boolean;
+    etude: boolean;
+    garderie: boolean;
+    sortSeul: boolean;
   }>;
   repasParSemaine: number | null;
   /** true si le motif de jours est déduit (pas encore saisi jour par jour). */
   inferred: boolean;
+  /** Grille explicite persistée (null = déduite). */
+  grille: EleveGrilleRepas | null;
 };
 
 export type EleveSyntheseSnapshot = {
@@ -41,22 +51,24 @@ export type EleveSyntheseSnapshot = {
   notesTrimestre: {
     available: boolean;
     label: string;
+    /** Valeur affichée en grand (ex. moyenne générale ou « — »). */
+    value: string;
     detail: string;
   };
   absences: {
+    available: boolean;
+    label: string;
+    value: string;
+    detail: string;
+  };
+  finances: {
     available: boolean;
     label: string;
     detail: string;
   };
 };
 
-const WEEK_DAYS = [
-  { key: "lun" as const, label: "Lun" },
-  { key: "mar" as const, label: "Mar" },
-  { key: "mer" as const, label: "Mer" },
-  { key: "jeu" as const, label: "Jeu" },
-  { key: "ven" as const, label: "Ven" },
-];
+const WEEK_DAYS = MEAL_DAY_ORDER;
 
 export function eleveStatusLabel(status: string | null | undefined): string {
   switch (String(status || "").trim().toLowerCase()) {
@@ -119,19 +131,39 @@ export function matchInternatStudent(
 
 /**
  * Calendrier repas Lun–Ven.
- * Sans saisie jour-par-jour : on déduit depuis demi-pension / repasParSemaine / internat.
- * Midi = premiers N jours ouvrés ; soir (interne) = Lun–Jeu.
+ * Priorité : grille explicite → sinon déduction demi-pension / repasParSemaine / internat.
  */
 export function buildEleveMealWeek(opts: {
   demiPension: boolean;
   repasParSemaine: number | null | undefined;
   interne: boolean;
+  grilleRepas?: unknown;
 }): EleveMealWeek {
   const regime: EleveRegimeRestauration = opts.interne
     ? "interne"
     : opts.demiPension
       ? "demi_pension"
       : "externe";
+
+  const grille = parseEleveGrilleRepas(opts.grilleRepas);
+  if (grille) {
+    const days = WEEK_DAYS.map((d) => ({
+      key: d.key,
+      label: d.label,
+      midi: grille[d.key].midi,
+      soir: grille[d.key].soir,
+      etude: grille[d.key].etude,
+      garderie: grille[d.key].garderie,
+      sortSeul: grille[d.key].sortSeul,
+    }));
+    return {
+      regime,
+      days,
+      repasParSemaine: days.filter((d) => d.midi).length,
+      inferred: false,
+      grille,
+    };
+  }
 
   const rawCount =
     typeof opts.repasParSemaine === "number" && Number.isFinite(opts.repasParSemaine)
@@ -148,6 +180,9 @@ export function buildEleveMealWeek(opts: {
     label: d.label,
     midi: i < midiCount,
     soir: opts.interne && i < 4,
+    etude: false,
+    garderie: false,
+    sortSeul: false,
   }));
 
   return {
@@ -155,6 +190,7 @@ export function buildEleveMealWeek(opts: {
     days,
     repasParSemaine: rawCount,
     inferred: regime !== "externe",
+    grille: null,
   };
 }
 
@@ -183,8 +219,12 @@ export async function buildEleveSyntheseSnapshot(params: {
     demiPension: boolean;
     repasParSemaine: number | null;
     siteId: string | null;
+    grilleRepas?: unknown;
   } | null;
   catalog: EleveDossierClassCatalog;
+  notesMoyennes?: Array<{ matiereLibelle: string; moyenne: string | null; nbNotes: number }>;
+  absences?: EleveSyntheseSnapshot["absences"];
+  finances?: EleveSyntheseSnapshot["finances"];
 }): Promise<EleveSyntheseSnapshot> {
   let internatStudent: InternatStudent | null = null;
   let roomLabel: string | null = null;
@@ -206,6 +246,7 @@ export async function buildEleveSyntheseSnapshot(params: {
     demiPension: demiPension || interne,
     repasParSemaine,
     interne,
+    grilleRepas: params.scolarite?.grilleRepas,
   });
 
   const siteId =
@@ -231,6 +272,28 @@ export async function buildEleveSyntheseSnapshot(params: {
     photoUrl = null;
   }
 
+  const notesLines = (params.notesMoyennes || []).filter((m) => m.moyenne != null);
+  let notesValue = "—";
+  if (notesLines.length > 0) {
+    let sum = 0;
+    let n = 0;
+    for (const m of notesLines) {
+      const v = Number(m.moyenne);
+      if (Number.isFinite(v)) {
+        sum += v;
+        n += 1;
+      }
+    }
+    notesValue = n > 0 ? (sum / n).toFixed(1) : String(notesLines.length);
+  }
+  const notesDetail =
+    notesLines.length > 0
+      ? notesLines
+          .slice(0, 4)
+          .map((m) => `${m.matiereLibelle} : ${m.moyenne}`)
+          .join(" · ")
+      : "Moyennes et alertes pédagogiques dès le module Notes.";
+
   return {
     statusLabel: eleveStatusLabel(params.eleve.status),
     classeLabel,
@@ -243,14 +306,21 @@ export async function buildEleveSyntheseSnapshot(params: {
       roomLabel,
     },
     notesTrimestre: {
-      available: false,
-      label: "Notes — trimestre en cours",
-      detail: "Moyennes et alertes pédagogiques dès le module Notes (P4).",
+      available: notesLines.length > 0,
+      label: notesLines.length ? "Moyenne indicative" : "Notes — trimestre en cours",
+      value: notesValue,
+      detail: notesDetail,
     },
-    absences: {
+    absences: params.absences ?? {
       available: false,
       label: "Absences & retards",
-      detail: "Résumé vie scolaire à brancher — aucun signal pour l’instant.",
+      value: "—",
+      detail: "Résumé vie scolaire non chargé pour ce profil.",
+    },
+    finances: params.finances ?? {
+      available: false,
+      label: "Facturation famille",
+      detail: "Panneau finances non accessible pour ce profil.",
     },
   };
 }

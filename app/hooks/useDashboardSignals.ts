@@ -13,6 +13,7 @@ const EMPTY_SIGNALS: DashboardSignals = {
   todayNews: [],
   hasCurrentWeek: false,
   notifications: [],
+  anneeScolaireLabel: null,
 };
 
 const DEFAULT_POLL_MS = 35_000;
@@ -26,6 +27,8 @@ function normalizeSignals(json: unknown): DashboardSignals {
     notifications: Array.isArray(o.notifications)
       ? (o.notifications as DashboardSignals["notifications"])
       : [],
+    anneeScolaireLabel:
+      typeof o.anneeScolaireLabel === "string" ? o.anneeScolaireLabel : null,
   };
 }
 
@@ -117,6 +120,7 @@ export function useDashboardSignals(options: Options = {}) {
     todayNews: signals.todayNews,
     notifications: signals.notifications,
     hasCurrentWeek: signals.hasCurrentWeek,
+    anneeScolaireLabel: signals.anneeScolaireLabel ?? null,
     loading,
     refresh,
   };

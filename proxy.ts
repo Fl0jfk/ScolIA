@@ -26,7 +26,12 @@ import {
   tenantCanonicalOrigin,
 } from "@/app/lib/tenant-auth-urls";
 import { canAccessIntranetPath } from "@/app/lib/intranet-modules";
+import {
+  isAppOnlyAllowedPath,
+  resolveChannelMode,
+} from "@/app/lib/channel-access";
 import { hasMasterRole } from "@/app/lib/intranet-role-utils";
+import { listActiveMembershipsForUser } from "@/app/lib/user-membership";
 import {
   contentSecurityPolicyHeaderValue,
   crossOriginOpenerPolicyHeaderValue,
@@ -318,6 +323,40 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
         NextResponse.redirect(new URL("/connexion", platformAppOriginFromEnv())),
         tenant,
       ),
+      request,
+      host,
+    );
+  }
+
+  // Après matérialisation éventuelle du membership staff (legacy).
+  const memberships = await listActiveMembershipsForUser(betterAuthState.authUserId);
+  const hasStaffMembership = memberships.some((m) => m.context === "staff");
+  const hasParentOrEleveSignal = memberships.some(
+    (m) => m.context === "parent" || m.context === "eleve",
+  );
+  const channelMode = resolveChannelMode({
+    roles,
+    platformAdmin: betterAuthState.platformAdmin,
+    orgAdmin: betterAuthState.orgAdmin,
+    hasStaffMembership,
+    hasParentOrEleveSignal,
+  });
+
+  if (channelMode === "app_only" && !isAppOnlyAllowedPath(pathname)) {
+    if (pathname.startsWith("/api/")) {
+      return withTenantHeaders(
+        NextResponse.json(
+          {
+            error: "Accès réservé à l’application mobile (canal famille / élève).",
+            code: "APP_ONLY_CHANNEL",
+          },
+          { status: 403 },
+        ),
+        tenant,
+      );
+    }
+    return withOptionalDevTenantCookie(
+      withTenantHeaders(NextResponse.redirect(new URL("/app-mobile", request.url)), tenant),
       request,
       host,
     );

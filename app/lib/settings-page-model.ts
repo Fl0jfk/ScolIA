@@ -8,8 +8,11 @@ export type Tab =
   | "travels"
   | "integrations"
   | "referentiel"
+  | "annees"
+  | "siecle"
   | "dashboard-links"
-  | "utilisateurs";
+  | "utilisateurs"
+  | "identite";
 
 export type SettingsEstablishmentForm = {
   id: string;

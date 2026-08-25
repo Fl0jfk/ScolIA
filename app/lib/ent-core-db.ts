@@ -5,6 +5,7 @@ import { getDb, isDatabaseConfigured } from "@/db/index";
 import {
   anneeScolaire,
   eleve,
+  eleveScolarite,
   etablissementSite,
   personnel,
   personnelAttr,
@@ -106,6 +107,7 @@ export function eleveRowToConfig(row: EleveRow): EleveConfig {
     ...(row.secteur ? { secteur: row.secteur } : {}),
     ...(row.regime ? { regime: row.regime } : {}),
     ...(row.sexe === "M" || row.sexe === "F" ? { sexe: row.sexe } : {}),
+    ...(row.photoKey ? { photoKey: row.photoKey } : {}),
   };
 }
 
@@ -134,6 +136,7 @@ function eleveConfigToValues(etablissementId: string, e: EleveConfig) {
     secteur: emptyToNull(e.secteur),
     regime: emptyToNull(e.regime),
     sexe: e.sexe === "M" || e.sexe === "F" ? e.sexe : null,
+    photoKey: emptyToNull(e.photoKey),
     pilotageKey: slugPilotageKey(e.ine, folderName),
     updatedAt: new Date(),
   };
@@ -152,6 +155,82 @@ export async function listElevesFromDb(etablissementId: string): Promise<EleveCo
   const db = getDb();
   const rows = await db.select().from(eleve).where(eq(eleve.etablissementId, etablissementId));
   return rows.map(eleveRowToConfig);
+}
+
+/** Upsert élèves par sourceKey — préserve les UUID (foyers, documents, export Siècle). */
+export async function upsertElevesInDb(
+  etablissementId: string,
+  eleves: EleveConfig[],
+): Promise<{ inserts: number; updates: number }> {
+  const db = getDb();
+  let inserts = 0;
+  let updates = 0;
+  const chunk = 100;
+
+  for (let i = 0; i < eleves.length; i += chunk) {
+    const slice = eleves.slice(i, i + chunk);
+    for (const e of slice) {
+      const values = eleveConfigToValues(etablissementId, e);
+      const [existing] = await db
+        .select({ id: eleve.id })
+        .from(eleve)
+        .where(
+          and(eq(eleve.etablissementId, etablissementId), eq(eleve.sourceKey, values.sourceKey)),
+        )
+        .limit(1);
+
+      if (existing) {
+        await db.update(eleve).set(values).where(eq(eleve.id, existing.id));
+        updates += 1;
+        await ensureEleveScolariteCourante(etablissementId, existing.id, values.classe);
+      } else {
+        const [created] = await db.insert(eleve).values(values).returning({ id: eleve.id });
+        inserts += 1;
+        await ensureEleveScolariteCourante(etablissementId, created.id, values.classe);
+      }
+    }
+  }
+
+  return { inserts, updates };
+}
+
+async function ensureEleveScolariteCourante(
+  etablissementId: string,
+  eleveId: string,
+  classe: string | null,
+): Promise<void> {
+  if (!classe?.trim()) return;
+  const db = getDb();
+  const anneeId = await ensureCurrentAnneeScolaire(etablissementId);
+  const [existing] = await db
+    .select({ id: eleveScolarite.id, classe: eleveScolarite.classe })
+    .from(eleveScolarite)
+    .where(
+      and(
+        eq(eleveScolarite.etablissementId, etablissementId),
+        eq(eleveScolarite.eleveId, eleveId),
+        eq(eleveScolarite.anneeScolaireId, anneeId),
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    if (existing.classe !== classe.trim()) {
+      await db
+        .update(eleveScolarite)
+        .set({ classe: classe.trim(), statut: "en_cours", updatedAt: new Date() })
+        .where(eq(eleveScolarite.id, existing.id));
+    }
+    return;
+  }
+
+  await db.insert(eleveScolarite).values({
+    etablissementId,
+    eleveId,
+    anneeScolaireId: anneeId,
+    classe: classe.trim(),
+    statut: "en_cours",
+  });
 }
 
 export async function replaceElevesInDb(

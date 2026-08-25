@@ -76,6 +76,9 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   /** Portail famille / app mobile parents — hors modules intranet staff. */
   "/api/famille",
   "/famille",
+  "/api/eleve",
+  "/api/mobile",
+  "/app-mobile",
 ];
 
 /** Profil élève : accès minimal (dashboard + bulle bien-être). */
@@ -711,6 +714,11 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "legacy-hub-redirects",
     pathPrefixes: ["/eleves", "/etablissement", "/rh"],
     allowedRoles: [...ROLES_EXCEPT_PARENT],
+  },
+  {
+    id: "rh-paie-spec",
+    pathPrefixes: ["/rh/paie", "/api/rh/paie-spec"],
+    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin"],
   },
 ];
 

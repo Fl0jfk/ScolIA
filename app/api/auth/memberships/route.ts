@@ -73,25 +73,45 @@ export async function GET() {
       ? await listActiveMembershipsForUser(userId)
       : await listStaffMembershipsForUser(userId);
 
+    const parentMemberships = await listActiveMembershipsForUser(userId);
+    const parentOnly = parentMemberships.filter((m) => m.context === "parent");
+    const mergedByEtab = new Map(memberships.map((m) => [m.etablissementId, m]));
+    for (const p of parentOnly) {
+      if (!mergedByEtab.has(p.etablissementId)) mergedByEtab.set(p.etablissementId, p);
+    }
+    const allMemberships = [...mergedByEtab.values()];
+
     const h = await headers();
     const portalHost = normalizeHostname(h.get("x-forwarded-host") || h.get("host") || "");
     const catalog = await loadPublicTenantCatalog(portalHost);
     const bySlug = new Map(catalog.map((t) => [t.slug, t]));
 
-    const destinations: MembershipDestination[] = memberships
+    const destinations: MembershipDestination[] = allMemberships
       .filter((m) => !isPlatformTenantSlug(m.slug))
       .map((m) => {
         const cat = bySlug.get(m.slug);
         let dashboardUrl: string;
         if (isLocalDevHostname(portalHost)) {
-          dashboardUrl = `/dashboard?${LOCAL_DEV_TENANT_QUERY}=${encodeURIComponent(m.slug)}`;
+          dashboardUrl =
+            m.context === "parent"
+              ? `/famille?${LOCAL_DEV_TENANT_QUERY}=${encodeURIComponent(m.slug)}`
+              : `/dashboard?${LOCAL_DEV_TENANT_QUERY}=${encodeURIComponent(m.slug)}`;
         } else if (cat?.primaryHostname) {
-          dashboardUrl = `https://${cat.primaryHostname}/dashboard`;
+          dashboardUrl =
+            m.context === "parent"
+              ? `https://${cat.primaryHostname}/famille`
+              : `https://${cat.primaryHostname}/dashboard`;
         } else if (cat?.appUrl) {
           const origin = cat.appUrl.startsWith("http") ? cat.appUrl : `https://${cat.appUrl}`;
-          dashboardUrl = `${origin.replace(/\/$/, "")}/dashboard`;
+          dashboardUrl =
+            m.context === "parent"
+              ? `${origin.replace(/\/$/, "")}/famille`
+              : `${origin.replace(/\/$/, "")}/dashboard`;
         } else {
-          dashboardUrl = `/dashboard?${LOCAL_DEV_TENANT_QUERY}=${encodeURIComponent(m.slug)}`;
+          dashboardUrl =
+            m.context === "parent"
+              ? `/famille?${LOCAL_DEV_TENANT_QUERY}=${encodeURIComponent(m.slug)}`
+              : `/dashboard?${LOCAL_DEV_TENANT_QUERY}=${encodeURIComponent(m.slug)}`;
         }
         return {
           slug: m.slug,

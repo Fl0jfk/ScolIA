@@ -12,6 +12,16 @@ const MARKS: { id: InternatRollMark; label: string; cls: string }[] = [
   { id: "excuse", label: "Excusé", cls: "bg-amber-100 text-amber-800 border-amber-200" },
 ];
 
+type CourseAbsenceHint = {
+  absenceId: string;
+  eleveId: string;
+  type: "absence" | "retard";
+  justifie: boolean;
+  statut: string;
+  motif: string | null;
+  label: string;
+};
+
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
@@ -20,6 +30,7 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
   const [rollCall, setRollCall] = useState<InternatRollCall | null>(null);
   const [students, setStudents] = useState<InternatStudent[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+  const [courseAbsenceHints, setCourseAbsenceHints] = useState<Record<string, CourseAbsenceHint>>({});
   const [canValidate, setCanValidate] = useState(false);
   const [boysComplete, setBoysComplete] = useState(false);
   const [girlsComplete, setGirlsComplete] = useState(false);
@@ -38,6 +49,11 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
     setStudents(data.students || []);
     setPhotoUrls(
       data.photoUrls && typeof data.photoUrls === "object" ? (data.photoUrls as Record<string, string>) : {},
+    );
+    setCourseAbsenceHints(
+      data.courseAbsenceHints && typeof data.courseAbsenceHints === "object"
+        ? (data.courseAbsenceHints as Record<string, CourseAbsenceHint>)
+        : {},
     );
     setCanValidate(!!data.canValidate);
     setBoysComplete(!!data.boysComplete);
@@ -238,12 +254,17 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
             const mark = sectionData?.marks[s.id];
             const isSaving = savingStudentId === s.id;
             const photo = photoUrls[s.id];
+            const courseHint = courseAbsenceHints[s.id];
             const initials = `${s.eleveRef.prenom?.[0] ?? ""}${s.eleveRef.nom?.[0] ?? ""}`.toUpperCase();
             return (
               <li
                 key={s.id}
                 className={`bg-white border rounded-xl p-3 flex flex-wrap items-center justify-between gap-2 transition-opacity ${
-                  isSaving ? "border-indigo-200 opacity-80" : "border-slate-200"
+                  isSaving
+                    ? "border-indigo-200 opacity-80"
+                    : courseHint && !courseHint.justifie
+                      ? "border-amber-300 bg-amber-50/40"
+                      : "border-slate-200"
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
@@ -263,6 +284,17 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                       {s.classe} · {s.etablissement}
                       {!mark && !locked && <span className="text-slate-400"> · non marqué</span>}
                     </p>
+                    {courseHint ? (
+                      <p
+                        className={`mt-1 text-[11px] font-semibold ${
+                          courseHint.justifie ? "text-slate-600" : "text-amber-800"
+                        }`}
+                        title={courseHint.motif ?? undefined}
+                      >
+                        {courseHint.label}
+                        {courseHint.motif ? ` — ${courseHint.motif}` : ""}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex gap-1">

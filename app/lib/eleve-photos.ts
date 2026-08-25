@@ -81,6 +81,35 @@ export async function resolvePhotoUrlsForInternatStudents(
   return out;
 }
 
+/** URLs signées pour un lot d'élèves (id → URL) — appels de classe VS. */
+export async function resolvePhotoUrlsForEleves(
+  eleves: Array<{
+    id: string;
+    nom: string;
+    prenom: string;
+    ine?: string | null;
+    photoKey?: string | null;
+  }>,
+): Promise<Record<string, string>> {
+  const index = await loadElevePhotoIndex();
+  const out: Record<string, string> = {};
+
+  await Promise.all(
+    eleves.map(async (e) => {
+      const key = lookupS3Key(index, e);
+      if (!key) return;
+      try {
+        const url = await getSignedReadUrl(key, 60 * 60);
+        if (url) out[e.id] = url;
+      } catch {
+        /* ignore */
+      }
+    }),
+  );
+
+  return out;
+}
+
 async function elevesForPhotoMatch(): Promise<{ eleves: EleveConfig[]; fromRegistry: boolean }> {
   const registry = await loadElevesRegistry();
   if (registry.length) return { eleves: registry, fromRegistry: true };
@@ -103,7 +132,7 @@ export type PhotoBulkResult = {
   updated: number;
 };
 
-/** Enregistre des photos + index (survit même si la table eleve n'a pas photoKey). */
+/** Enregistre des photos + index ; photoKey persisté sur le référentiel élèves (table eleve). */
 export async function applyElevePhotosBulk(
   files: { filename: string; bytes: Uint8Array; contentType: string }[],
 ): Promise<PhotoBulkResult> {

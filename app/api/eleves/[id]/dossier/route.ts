@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   anneeScolaire,
@@ -36,6 +36,18 @@ import { loadAppConfig } from "@/app/lib/app-config";
 import { resolveEleveLiveCourse } from "@/app/lib/rh/planning-class-live";
 import { buildEleveDossierClassCatalog } from "@/app/lib/eleve-dossier-catalog";
 import { buildEleveSyntheseSnapshot } from "@/app/lib/eleve-dossier-synthese";
+import {
+  countMidiFromGrille,
+  parseEleveGrilleRepas,
+} from "@/app/lib/eleve-grille-repas";
+import { listMoyennesForEleve } from "@/app/lib/notes-saisie-db";
+import { COMPETENCE_NIVEAUX, listCompetencesForEleve } from "@/app/lib/notes-competences-db";
+import { listAbsencesForEleve } from "@/app/lib/vs-absences-db";
+import { listSanctionsForEleve } from "@/app/lib/vs-sanctions-db";
+import { listCarnetForEleve } from "@/app/lib/vs-carnet-db";
+import { countFacturesEnRetardForEleve } from "@/app/lib/facturation-db";
+import { listGroupesForEleve } from "@/app/lib/groupes-pedagogiques-db";
+import { parisDateKey } from "@/app/lib/paris-time";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -260,7 +272,176 @@ export async function GET(_req: Request, ctx: Ctx) {
   const currentScolarite = scolarites[0] ?? null;
   const siteIdFromScolarite = currentScolarite?.siteId ?? null;
 
-  let synthese = await buildEleveSyntheseSnapshot({
+  let notesMoyennes: Array<{
+    matiereLibelle: string;
+    moyenne: string | null;
+    nbNotes: number;
+    periodeId: string;
+    periodeLibelle: string;
+    periodeStatut: string;
+  }> = [];
+  if (sections.includes("notes")) {
+    try {
+      const rows = await listMoyennesForEleve(etabId, id);
+      notesMoyennes = rows.map((r) => ({
+        matiereLibelle: r.matiereLibelle,
+        moyenne: r.moyenne,
+        nbNotes: r.nbNotes,
+        periodeId: r.periodeId,
+        periodeLibelle: r.periodeLibelle,
+        periodeStatut: r.periodeStatut,
+      }));
+    } catch {
+      notesMoyennes = [];
+    }
+  }
+
+  let competences: Array<{
+    domaineLibelle: string;
+    itemLibelle: string;
+    niveau: string | null;
+    niveauLabel: string;
+    periodeId: string;
+  }> = [];
+  if (sections.includes("notes")) {
+    try {
+      const rows = await listCompetencesForEleve(etabId, id);
+      competences = rows.map((r) => ({
+        domaineLibelle: r.domaineLibelle,
+        itemLibelle: r.itemLibelle,
+        niveau: r.niveau,
+        niveauLabel: COMPETENCE_NIVEAUX.find((n) => n.code === r.niveau)?.label || "—",
+        periodeId: r.periodeId,
+      }));
+    } catch {
+      competences = [];
+    }
+  }
+
+  let absencesEleve: Array<{
+    id: string;
+    dateDebut: string;
+    type: string;
+    statut: string;
+    justifie: boolean;
+    motif: string | null;
+  }> = [];
+  let sanctionsEleve: Array<{
+    id: string;
+    typeLibelle: string;
+    dateSanction: string;
+    motif: string | null;
+    createdByNom: string | null;
+  }> = [];
+  let carnetEleve: Array<{
+    id: string;
+    dateEntree: string;
+    categorie: string;
+    titre: string;
+    corps: string;
+    signeAt: string | null;
+    signeParNom: string | null;
+    createdByNom: string | null;
+  }> = [];
+  let groupesEleve: Array<{ id: string; code: string; libelle: string; type: string }> = [];
+
+  if (sections.includes("scolarite")) {
+    try {
+      groupesEleve = await listGroupesForEleve(etabId, id);
+    } catch {
+      groupesEleve = [];
+    }
+  }
+
+  if (sections.includes("vie_scolaire")) {
+    try {
+      const rows = await listAbsencesForEleve(etabId, id, { limit: 40 });
+      absencesEleve = rows.map((r) => ({
+        id: r.id,
+        dateDebut: r.dateDebut,
+        type: r.type,
+        statut: r.statut,
+        justifie: r.justifie,
+        motif: r.motif,
+      }));
+    } catch {
+      absencesEleve = [];
+    }
+    try {
+      const rows = await listSanctionsForEleve(etabId, id, { limit: 30 });
+      sanctionsEleve = rows.map((r) => ({
+        id: r.id,
+        typeLibelle: r.typeLibelle,
+        dateSanction: r.dateSanction,
+        motif: r.motif,
+        createdByNom: r.createdByNom,
+      }));
+    } catch {
+      sanctionsEleve = [];
+    }
+    try {
+      const rows = await listCarnetForEleve(etabId, id, { limit: 30 });
+      carnetEleve = rows.map((r) => ({
+        id: r.id,
+        dateEntree: r.dateEntree,
+        categorie: r.categorie,
+        titre: r.titre,
+        corps: r.corps,
+        signeAt: r.signeAt ? r.signeAt.toISOString() : null,
+        signeParNom: r.signeParNom,
+        createdByNom: r.createdByNom,
+      }));
+    } catch {
+      carnetEleve = [];
+    }
+  }
+
+  let absencesSynthese: {
+    available: boolean;
+    label: string;
+    value: string;
+    detail: string;
+  } | undefined;
+  if (sections.includes("vie_scolaire")) {
+    const aTraiter = absencesEleve.filter((a) => a.statut === "a_traiter").length;
+    const totalAbs = absencesEleve.filter((a) => a.type === "absence").length;
+    const totalRetards = absencesEleve.filter((a) => a.type === "retard").length;
+    absencesSynthese = {
+      available: true,
+      label:
+        totalAbs + totalRetards === 0
+          ? "Aucune absence récente"
+          : `${totalAbs} absence(s) · ${totalRetards} retard(s)`,
+      value: String(totalAbs + totalRetards),
+      detail:
+        aTraiter > 0
+          ? `${aTraiter} à traiter · ${sanctionsEleve.length} sanction(s) active(s)`
+          : `${sanctionsEleve.length} sanction(s) active(s)`,
+    };
+  }
+
+  let financesSynthese: {
+    available: boolean;
+    label: string;
+    detail: string;
+  } | undefined;
+  if (sections.includes("facturation")) {
+    try {
+      const enRetard = await countFacturesEnRetardForEleve(etabId, id, parisDateKey(new Date()));
+      financesSynthese = {
+        available: true,
+        label: enRetard > 0 ? `${enRetard} facture(s) en retard` : "Facturation à jour",
+        detail:
+          enRetard > 0
+            ? "Échéance dépassée — voir l’onglet Finances"
+            : "Aucune facture émise en retard pour ce foyer.",
+      };
+    } catch {
+      financesSynthese = undefined;
+    }
+  }
+
+  const synthese = await buildEleveSyntheseSnapshot({
     eleve: {
       nom: row.nom,
       prenom: row.prenom,
@@ -275,16 +456,26 @@ export async function GET(_req: Request, ctx: Ctx) {
           demiPension: currentScolarite.demiPension,
           repasParSemaine: currentScolarite.repasParSemaine,
           siteId: currentScolarite.siteId,
+          grilleRepas: currentScolarite.grilleRepas,
         }
       : null,
     catalog,
+    notesMoyennes,
+    absences: absencesSynthese,
+    finances: financesSynthese,
   });
 
   return NextResponse.json({
     eleve: profRestrictedView ? sanitizeEleveRowForProfViewer(row) : row,
     sections,
     scolarites,
+    groupes: sections.includes("scolarite") ? groupesEleve : [],
     foyers: sections.includes("famille") ? foyers : [],
+    notes: sections.includes("notes") ? notesMoyennes : [],
+    competences: sections.includes("notes") ? competences : [],
+    absences: sections.includes("vie_scolaire") ? absencesEleve : [],
+    sanctions: sections.includes("vie_scolaire") ? sanctionsEleve : [],
+    carnet: sections.includes("vie_scolaire") ? carnetEleve : [],
     documents,
     meta: {
       sites,
@@ -328,6 +519,8 @@ type DossierBody = {
   etablissementPrecedent?: string | null;
   closePrevious?: boolean;
   updateEleveClasse?: boolean;
+  scolariteId?: string;
+  grilleRepas?: unknown;
   documentId?: string;
   durationDays?: number;
   note?: string | null;
@@ -549,6 +742,75 @@ export async function POST(req: Request, ctx: Ctx) {
       metadata: { scolariteId: sc.id, siteId, classe },
     });
     return NextResponse.json({ success: true, scolarite: sc });
+  }
+
+  if (action === "update_grille_repas") {
+    if (!sections.has("scolarite") || !canEditStructure(roles, { orgAdmin, platformAdmin })) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+    }
+    const grille = parseEleveGrilleRepas(body.grilleRepas, { allowEmpty: true });
+    if (!grille) {
+      return NextResponse.json({ error: "Grille repas invalide." }, { status: 400 });
+    }
+
+    await db.execute(
+      sql.raw(`ALTER TABLE "eleve_scolarite" ADD COLUMN IF NOT EXISTS "grille_repas" jsonb`),
+    );
+
+    let scolariteId = String(body.scolariteId || "").trim();
+    if (!scolariteId) {
+      const [current] = await db
+        .select({ id: eleveScolarite.id })
+        .from(eleveScolarite)
+        .where(
+          and(
+            eq(eleveScolarite.etablissementId, etabId),
+            eq(eleveScolarite.eleveId, id),
+            eq(eleveScolarite.statut, "en_cours"),
+          ),
+        )
+        .limit(1);
+      scolariteId = current?.id || "";
+    }
+    if (!scolariteId) {
+      return NextResponse.json(
+        { error: "Aucune scolarité en cours — créez-en une avant la grille repas." },
+        { status: 400 },
+      );
+    }
+
+    const midiCount = countMidiFromGrille(grille);
+    const [updated] = await db
+      .update(eleveScolarite)
+      .set({
+        grilleRepas: grille,
+        repasParSemaine: midiCount,
+        demiPension: midiCount > 0,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(eleveScolarite.etablissementId, etabId),
+          eq(eleveScolarite.eleveId, id),
+          eq(eleveScolarite.id, scolariteId),
+        ),
+      )
+      .returning();
+
+    if (!updated) {
+      return NextResponse.json({ error: "Scolarité introuvable." }, { status: 404 });
+    }
+
+    await recordEleveAccessAudit({
+      etablissementId: etabId,
+      actorUserId: authUserId,
+      resourceType: "fiche_eleve",
+      resourceId: id,
+      eleveId: id,
+      action: "update_grille_repas",
+      metadata: { scolariteId, repasParSemaine: midiCount },
+    });
+    return NextResponse.json({ success: true, scolarite: updated });
   }
 
   if (action === "register_document") {

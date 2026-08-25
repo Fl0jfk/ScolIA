@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ClassAllocationAlert,
   ClassAllocationCard,
@@ -28,6 +28,18 @@ export default function ClassAllocationResultsPage() {
   const [run, setRun] = useState<Run | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/toolbox/class-allocation/latest", { cache: "no-store" });
+        const j = await res.json();
+        if (res.ok && j.run) setRun(j.run as Run);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
 
   async function generate() {
     setBusy(true);
@@ -65,11 +77,39 @@ export default function ClassAllocationResultsPage() {
     }
   }
 
+  async function publish() {
+    if (!run) return;
+    const ok = window.confirm(
+      "Publier cette proposition dans le registre élèves ?\nLes classes des élèves concernés seront mises à jour (dossiers, notes, appels, facturation).",
+    );
+    if (!ok) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/toolbox/class-allocation/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: run.id }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Erreur publication");
+      const missing =
+        Array.isArray(j.missingInes) && j.missingInes.length > 0
+          ? ` ${j.missingInes.length} INE introuvable(s) dans le registre.`
+          : "";
+      setMsg((j.message as string) + missing);
+    } catch (e: unknown) {
+      setMsg(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <ClassAllocationShell
       badge="Direction"
       title="Résultats de répartition"
-      subtitle="Comparez les propositions, vérifiez l'équilibre filles/garçons et relancez un niveau si besoin."
+      subtitle="Comparez les propositions, vérifiez l'équilibre filles/garçons, puis publiez dans le registre élèves."
       backHref="/toolbox/repartition-classes"
     >
       <div className="mb-6 flex flex-wrap gap-2">
@@ -80,6 +120,14 @@ export default function ClassAllocationResultsPage() {
           className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
         >
           {busy ? "Calcul…" : "Générer une proposition"}
+        </button>
+        <button
+          type="button"
+          disabled={busy || !run}
+          onClick={() => void publish()}
+          className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+        >
+          Publier dans le registre
         </button>
         {CLASS_LEVELS.map((l) => (
           <button

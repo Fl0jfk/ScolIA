@@ -43,7 +43,8 @@ export async function ensureUserMembership(opts: {
       target: [userMembership.userId, userMembership.etablissementId],
       set: {
         active: true,
-        context,
+        // Ne jamais écraser un rattachement staff par parent/élève.
+        context: sql`case when ${userMembership.context} = 'staff' then 'staff' else excluded.context end`,
         updatedAt: new Date(),
       },
     });

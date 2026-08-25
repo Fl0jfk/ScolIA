@@ -10,11 +10,30 @@ function normalizeSiecleDate(raw: string): string {
   return "";
 }
 
+function tagFromBlock(block: string, name: string): string {
+  const m = block.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, "i"));
+  return (m?.[1] || "").replace(/<!\[CDATA\[|\]\]>/g, "").trim();
+}
+
+/** Map Siècle ELEVE_ID → INE (ID_NATIONAL) pour jointure Responsables.xml. */
+export function buildSiecleEleveIdToIneMap(xmlText: string): Record<string, string> {
+  const map: Record<string, string> = {};
+  const blocks = xmlText.split(/<ELEVE\b/i).slice(1);
+  for (const block of blocks) {
+    const chunk = block.includes("</ELEVE>") ? block.slice(0, block.indexOf("</ELEVE>")) : block;
+    const siecleId = tagFromBlock(chunk, "ELEVE_ID");
+    const ine = tagFromBlock(chunk, "ID_NATIONAL").toUpperCase();
+    if (siecleId && ine) map[siecleId] = ine;
+  }
+  return map;
+}
+
 /** Parse ElevesSansAdresses.xml (BEE_ELEVES) → EleveConfig[] (regex, sans DOM). */
 export function parseSiecleElevesXmlServer(xmlText: string): {
   eleves: EleveConfig[];
   internesCount: number;
   total: number;
+  siecleEleveIdMap: Record<string, string>;
 } {
   // Next.js server : utiliser regex robuste sans DOM (évite dépendance linkedom)
   const eleves: EleveConfig[] = [];
@@ -23,10 +42,7 @@ export function parseSiecleElevesXmlServer(xmlText: string): {
 
   for (const block of blocks) {
     const chunk = block.includes("</ELEVE>") ? block.slice(0, block.indexOf("</ELEVE>")) : block;
-    const tag = (name: string) => {
-      const m = chunk.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, "i"));
-      return (m?.[1] || "").replace(/<!\[CDATA\[|\]\]>/g, "").trim();
-    };
+    const tag = tagFromBlock.bind(null, chunk);
     const nom = tag("NOM_DE_FAMILLE");
     const prenom = tag("PRENOM");
     if (!nom || !prenom) continue;
@@ -59,5 +75,10 @@ export function parseSiecleElevesXmlServer(xmlText: string): {
     });
   }
 
-  return { eleves, internesCount, total: eleves.length };
+  return {
+    eleves,
+    internesCount,
+    total: eleves.length,
+    siecleEleveIdMap: buildSiecleEleveIdToIneMap(xmlText),
+  };
 }

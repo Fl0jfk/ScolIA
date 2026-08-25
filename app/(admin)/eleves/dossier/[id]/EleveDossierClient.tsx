@@ -5,6 +5,14 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import EleveFinancesPanel from "@/app/components/eleves/EleveFinancesPanel";
+import {
+  grilleFromMealDays,
+  toggleGrilleCell,
+  type EleveGrilleRepas,
+  type EleveGrilleRepasDay,
+  type MealDayKey,
+} from "@/app/lib/eleve-grille-repas";
 
 function IconUpload({ className }: { className?: string }) {
   return (
@@ -54,6 +62,7 @@ type DossierPayload = {
     etablissementPrecedent: string | null;
     anneeScolaireId: string | null;
   }>;
+  groupes?: Array<{ id: string; code: string; libelle: string; type: string }>;
   foyers: Array<{
     id: string;
     label: string;
@@ -127,21 +136,72 @@ type DossierPayload = {
     restauration: {
       regime: "externe" | "demi_pension" | "interne";
       days: Array<{
-        key: string;
+        key: MealDayKey;
         label: string;
         midi: boolean;
         soir: boolean;
+        etude: boolean;
+        garderie: boolean;
+        sortSeul: boolean;
       }>;
       repasParSemaine: number | null;
       inferred: boolean;
     };
     internat: { actif: boolean; roomLabel: string | null };
-    notesTrimestre: { available: boolean; label: string; detail: string };
-    absences: { available: boolean; label: string; detail: string };
+    notesTrimestre: { available: boolean; label: string; value: string; detail: string };
+    absences: { available: boolean; label: string; value: string; detail: string };
+    finances: { available: boolean; label: string; detail: string };
   };
+  notes?: Array<{
+    matiereLibelle: string;
+    moyenne: string | null;
+    nbNotes: number;
+    periodeId?: string;
+    periodeLibelle?: string;
+    periodeStatut?: string;
+  }>;
+  competences?: Array<{
+    domaineLibelle: string;
+    itemLibelle: string;
+    niveau: string | null;
+    niveauLabel: string;
+    periodeId: string;
+  }>;
+  absences?: Array<{
+    id: string;
+    dateDebut: string;
+    type: string;
+    statut: string;
+    justifie: boolean;
+    motif: string | null;
+  }>;
+  sanctions?: Array<{
+    id: string;
+    typeLibelle: string;
+    dateSanction: string;
+    motif: string | null;
+    createdByNom: string | null;
+  }>;
+  carnet?: Array<{
+    id: string;
+    dateEntree: string;
+    categorie: string;
+    titre: string;
+    corps: string;
+    signeAt: string | null;
+    signeParNom: string | null;
+    createdByNom: string | null;
+  }>;
 };
 
-type TabId = "synthese" | "famille" | "documents" | "scolarite";
+type TabId =
+  | "synthese"
+  | "famille"
+  | "documents"
+  | "scolarite"
+  | "finances"
+  | "notes"
+  | "vie_scolaire";
 
 const TIROIR_LABELS: Record<string, string> = {
   scolaire: "Scolaire",
@@ -226,6 +286,9 @@ export default function EleveDossierClient() {
       { id: "synthese", label: "Synthèse", show: true },
       { id: "scolarite", label: "Scolarité", show: s.has("scolarite") },
       { id: "famille", label: "Famille", show: s.has("famille") },
+      { id: "finances", label: "Finances", show: s.has("facturation") },
+      { id: "notes", label: "Notes", show: s.has("notes") },
+      { id: "vie_scolaire", label: "Vie scolaire", show: s.has("vie_scolaire") },
       { id: "documents", label: "Documents", show: s.has("documents") },
     ];
     return list.filter((t) => t.show);
@@ -652,17 +715,18 @@ export default function EleveDossierClient() {
               </div>
               {synth?.restauration.inferred ? (
                 <p className="text-[11px] text-slate-400">
-                  Jours déduits (repas / semaine
+                  Jours déduits — cliquez pour figer la grille
                   {synth.restauration.repasParSemaine != null
-                    ? ` : ${synth.restauration.repasParSemaine}`
+                    ? ` (${synth.restauration.repasParSemaine} midi/sem.)`
                     : ""}
-                  )
                 </p>
-              ) : null}
+              ) : (
+                <p className="text-[11px] text-emerald-700 font-semibold">Grille saisie</p>
+              )}
             </div>
             {synth?.restauration ? (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[280px] text-center text-sm">
+                <table className="w-full min-w-[320px] text-center text-sm">
                   <thead>
                     <tr>
                       <th className="pb-2 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400">
@@ -679,65 +743,171 @@ export default function EleveDossierClient() {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
-                      <td className="py-1.5 text-left text-xs font-semibold text-slate-600">
-                        Midi
-                      </td>
-                      {synth.restauration.days.map((d) => (
-                        <td key={`${d.key}-midi`} className="py-1.5">
-                          <span
-                            className={`inline-block h-3.5 w-3.5 rounded-full ${
-                              d.midi ? "bg-amber-500" : "bg-slate-200"
-                            }`}
-                            title={d.midi ? "Repas midi" : "Pas de repas midi"}
-                          />
+                    {(
+                      [
+                        { field: "midi" as const, label: "Midi", on: "bg-amber-500", titleOn: "Repas midi" },
+                        { field: "soir" as const, label: "Soir", on: "bg-indigo-500", titleOn: "Repas soir" },
+                        { field: "etude" as const, label: "Étude", on: "bg-teal-500", titleOn: "Étude" },
+                        {
+                          field: "garderie" as const,
+                          label: "Garderie",
+                          on: "bg-rose-400",
+                          titleOn: "Garderie",
+                        },
+                        {
+                          field: "sortSeul" as const,
+                          label: "Sort seul",
+                          on: "bg-slate-700",
+                          titleOn: "Sort seul",
+                        },
+                      ] as const
+                    ).map((row) => (
+                      <tr key={row.field}>
+                        <td className="py-1.5 text-left text-xs font-semibold text-slate-600">
+                          {row.label}
                         </td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="py-1.5 text-left text-xs font-semibold text-slate-600">
-                        Soir
-                      </td>
-                      {synth.restauration.days.map((d) => (
-                        <td key={`${d.key}-soir`} className="py-1.5">
-                          <span
-                            className={`inline-block h-3.5 w-3.5 rounded-full ${
-                              d.soir ? "bg-indigo-500" : "bg-slate-200"
-                            }`}
-                            title={d.soir ? "Repas soir" : "Pas de repas soir"}
-                          />
-                        </td>
-                      ))}
-                    </tr>
+                        {synth.restauration.days.map((d) => {
+                          const active = Boolean(d[row.field]);
+                          const title = active ? row.titleOn : `Pas de ${row.label.toLowerCase()}`;
+                          if (!canEdit) {
+                            return (
+                              <td key={`${d.key}-${row.field}`} className="py-1.5">
+                                <span
+                                  className={`inline-block h-3.5 w-3.5 rounded-full ${
+                                    active ? row.on : "bg-slate-200"
+                                  }`}
+                                  title={title}
+                                />
+                              </td>
+                            );
+                          }
+                          return (
+                            <td key={`${d.key}-${row.field}`} className="py-1.5">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                title={`${title} — cliquer pour basculer`}
+                                onClick={() => {
+                                  const base: EleveGrilleRepas = grilleFromMealDays(
+                                    synth.restauration.days,
+                                  );
+                                  const next = toggleGrilleCell(
+                                    base,
+                                    d.key,
+                                    row.field as keyof EleveGrilleRepasDay,
+                                  );
+                                  void postAction({
+                                    action: "update_grille_repas",
+                                    grilleRepas: next,
+                                    scolariteId:
+                                      data.scolarites.find((s) => s.statut === "en_cours")?.id ||
+                                      data.scolarites[0]?.id,
+                                  });
+                                }}
+                                className={`inline-flex h-7 w-7 items-center justify-center rounded-full transition disabled:opacity-50 ${
+                                  active
+                                    ? `${row.on} ring-2 ring-offset-1 ring-slate-300`
+                                    : "bg-slate-200 hover:bg-slate-300"
+                                }`}
+                              >
+                                <span className="sr-only">{title}</span>
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
+                {canEdit ? (
+                  <p className="mt-3 text-[11px] text-slate-500">
+                    Enregistrement immédiat. La grille alimente Passage (cantine) et la facturation
+                    repas.
+                  </p>
+                ) : null}
               </div>
             ) : (
               <p className="text-sm text-slate-500">Informations restauration indisponibles.</p>
             )}
           </section>
 
-          {/* Notes + absences */}
-          <div className="grid gap-4 md:grid-cols-2">
-            <section className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/80 p-5">
+          {/* Notes + absences + finances */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <section
+              className={`rounded-3xl border p-5 ${
+                synth?.notesTrimestre.available
+                  ? "border-indigo-100 bg-indigo-50/50"
+                  : "border-dashed border-slate-200 bg-slate-50/80"
+              }`}
+            >
               <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">
                 {synth?.notesTrimestre.label || "Notes — trimestre en cours"}
               </h2>
-              <p className="mt-3 text-2xl font-black text-slate-300">—</p>
+              <p
+                className={`mt-3 text-2xl font-black ${
+                  synth?.notesTrimestre.available ? "text-indigo-900" : "text-slate-300"
+                }`}
+              >
+                {synth?.notesTrimestre.value || "—"}
+              </p>
               <p className="mt-1 text-sm text-slate-500">
                 {synth?.notesTrimestre.detail ||
                   "Moyennes et alertes pédagogiques dès le module Notes."}
               </p>
             </section>
-            <section className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/80 p-5">
+            <section
+              className={`rounded-3xl border p-5 ${
+                synth?.absences.available && (synth.absences.value !== "0" && synth.absences.value !== "—")
+                  ? "border-amber-200 bg-amber-50/80"
+                  : synth?.absences.available
+                    ? "border-emerald-100 bg-emerald-50/50"
+                    : "border-dashed border-slate-200 bg-slate-50/80"
+              }`}
+            >
               <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                {synth?.absences.label || "Absences & retards"}
+                Absences & retards
               </h2>
-              <p className="mt-3 text-2xl font-black text-slate-300">—</p>
+              <p
+                className={`mt-3 text-2xl font-black ${
+                  synth?.absences.available && synth.absences.value !== "0"
+                    ? "text-amber-900"
+                    : synth?.absences.available
+                      ? "text-emerald-800"
+                      : "text-slate-300"
+                }`}
+              >
+                {synth?.absences.value || "—"}
+              </p>
               <p className="mt-1 text-sm text-slate-500">
-                {synth?.absences.detail || "Résumé vie scolaire à brancher."}
+                {synth?.absences.label || "Résumé vie scolaire"}
+                {synth?.absences.detail ? ` · ${synth.absences.detail}` : ""}
               </p>
             </section>
+            {data.sections.includes("facturation") ? (
+              <section
+                className={`rounded-3xl border p-5 ${
+                  synth?.finances.available && synth.finances.label.includes("retard")
+                    ? "border-amber-200 bg-amber-50/80"
+                    : "border-dashed border-slate-200 bg-slate-50/80"
+                }`}
+              >
+                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                  Facturation
+                </h2>
+                <p
+                  className={`mt-3 text-lg font-black ${
+                    synth?.finances.available && synth.finances.label.includes("retard")
+                      ? "text-amber-900"
+                      : "text-slate-700"
+                  }`}
+                >
+                  {synth?.finances.label || "Facturation famille"}
+                </p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {synth?.finances.detail || "Aucune facture en retard."}
+                </p>
+              </section>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -868,6 +1038,39 @@ export default function EleveDossierClient() {
               </button>
             </div>
           ) : null}
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-bold text-slate-800">Groupes pédagogiques</h2>
+              <Link
+                href="/groupes-pedagogiques"
+                className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Gérer les groupes
+              </Link>
+            </div>
+            {(data.groupes || []).length === 0 ? (
+              <p className="text-sm text-slate-500">
+                Aucun groupe (LV2, options, demi-groupes). Affectation manuelle depuis le module
+                Groupes.
+              </p>
+            ) : (
+              <ul className="flex flex-wrap gap-2">
+                {(data.groupes || []).map((g) => (
+                  <li
+                    key={g.id}
+                    className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs"
+                  >
+                    <span className="font-mono font-bold text-indigo-900">{g.code}</span>
+                    <span className="text-indigo-800 ml-2">{g.libelle}</span>
+                    {g.type !== "autre" ? (
+                      <span className="text-indigo-600/70 ml-1">({g.type})</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </section>
       ) : null}
 
@@ -1132,6 +1335,257 @@ export default function EleveDossierClient() {
               </button>
             </div>
           ) : null}
+        </section>
+      ) : null}
+
+      {tab === "finances" ? (
+        <EleveFinancesPanel eleveId={id} canEdit={Boolean(data.meta.canEditStructure)} />
+      ) : null}
+
+      {tab === "notes" ? (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">Moyennes par matière</h2>
+              <p className="text-xs text-slate-500">
+                Données issues du module Notes — périodes et devoirs en cours.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {Array.from(
+                new Map(
+                  (data.notes || [])
+                    .filter((n) => n.periodeId)
+                    .map((n) => [n.periodeId, n.periodeLibelle || "Bulletin"]),
+                ).entries(),
+              ).map(([periodeId, label]) => (
+                <a
+                  key={periodeId}
+                  href={`/api/notes/bulletins/pdf?eleveId=${id}&periodeId=${periodeId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
+                >
+                  PDF {label}
+                </a>
+              ))}
+              <Link
+                href="/notes/saisie"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Ouvrir la saisie
+              </Link>
+              <Link
+                href="/notes/competences"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Compétences LSU
+              </Link>
+            </div>
+          </div>
+          {(data.notes || []).length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/60 p-8 text-center">
+              <p className="text-sm font-semibold text-slate-700">Aucune moyenne enregistrée</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Les moyennes apparaîtront dès qu&apos;un devoir sera saisi pour cet élève.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Période</th>
+                    <th className="px-4 py-3">Matière</th>
+                    <th className="px-4 py-3 text-right">Moyenne</th>
+                    <th className="px-4 py-3 text-right">Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(data.notes || []).map((n, idx) => (
+                    <tr key={`${n.matiereLibelle}-${n.periodeLibelle || idx}`}>
+                      <td className="px-4 py-3 text-slate-600">{n.periodeLibelle || "—"}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{n.matiereLibelle}</td>
+                      <td className="px-4 py-3 text-right font-bold tabular-nums text-slate-900">
+                        {n.moyenne ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-500">{n.nbNotes}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {(data.competences || []).length > 0 ? (
+            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
+              <h3 className="px-4 pt-4 text-sm font-bold text-slate-900">Compétences (LSU)</h3>
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Domaine</th>
+                    <th className="px-4 py-3">Item</th>
+                    <th className="px-4 py-3 text-right">Maîtrise</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(data.competences || []).map((c, idx) => (
+                    <tr key={`${c.itemLibelle}-${idx}`}>
+                      <td className="px-4 py-3 text-slate-600">{c.domaineLibelle}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{c.itemLibelle}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-900">
+                        {c.niveau ? `${c.niveau} — ${c.niveauLabel}` : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {tab === "vie_scolaire" ? (
+        <section className="space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">Absences & retards</h2>
+              <p className="text-xs text-slate-500">Issus des appels de classe — suivi CPE.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/vie-scolaire/absences"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Suivi absences
+              </Link>
+              <Link
+                href="/vie-scolaire/sanctions"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Sanctions
+              </Link>
+              <Link
+                href="/vie-scolaire/carnet"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Carnet
+              </Link>
+            </div>
+          </div>
+
+          {(data.absences || []).length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center">
+              <p className="text-sm font-semibold text-slate-700">Aucune absence enregistrée</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Type</th>
+                    <th className="px-4 py-3">Statut</th>
+                    <th className="px-4 py-3">Motif</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(data.absences || []).map((a) => (
+                    <tr key={a.id}>
+                      <td className="px-4 py-3 text-slate-700">
+                        {a.dateDebut ? new Date(a.dateDebut).toLocaleDateString("fr-FR") : "—"}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{a.type}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                            a.statut === "a_traiter"
+                              ? "bg-amber-50 text-amber-900"
+                              : a.justifie
+                                ? "bg-emerald-50 text-emerald-800"
+                                : "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {a.statut}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{a.motif || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 mb-3">Sanctions actives</h2>
+            {(data.sanctions || []).length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center">
+                <p className="text-sm font-semibold text-slate-700">Aucune sanction active</p>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {(data.sanctions || []).map((s) => (
+                  <li
+                    key={s.id}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+                  >
+                    <p className="font-bold text-slate-900">
+                      {s.typeLibelle}
+                      <span className="ml-2 font-normal text-slate-500">
+                        {s.dateSanction
+                          ? new Date(s.dateSanction).toLocaleDateString("fr-FR")
+                          : ""}
+                      </span>
+                    </p>
+                    {s.motif ? <p className="text-xs text-slate-600 mt-1">{s.motif}</p> : null}
+                    {s.createdByNom ? (
+                      <p className="text-xs text-slate-400 mt-1">par {s.createdByNom}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div>
+            <h2 className="text-sm font-bold text-slate-900 mb-3">Carnet de correspondance</h2>
+            {(data.carnet || []).length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center">
+                <p className="text-sm font-semibold text-slate-700">Aucune entrée carnet</p>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {(data.carnet || []).map((c) => (
+                  <li
+                    key={c.id}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <p className="font-bold text-slate-900">
+                        {c.titre}
+                        <span className="ml-2 font-normal text-slate-500">
+                          {c.dateEntree ? new Date(c.dateEntree).toLocaleDateString("fr-FR") : ""}
+                        </span>
+                      </p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                          c.signeAt
+                            ? "bg-emerald-50 text-emerald-800"
+                            : "bg-amber-50 text-amber-900"
+                        }`}
+                      >
+                        {c.signeAt ? "Signé" : "En attente"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1 whitespace-pre-wrap">{c.corps}</p>
+                    {c.createdByNom ? (
+                      <p className="text-xs text-slate-400 mt-1">par {c.createdByNom}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </section>
       ) : null}
 
