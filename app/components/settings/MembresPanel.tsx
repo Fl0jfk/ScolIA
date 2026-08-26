@@ -242,7 +242,7 @@ export default function MembresPanel() {
         `• envoyer un e-mail (lien 1 h) pour tout recommencer (nouveau MDP + nouvelle MFA)\n\n` +
         `À utiliser seulement si la personne a perdu l’accès ou doit repartir de zéro.`
       : `Envoyer un lien d’invitation à ${name} (${u.email}) ?\n\n` +
-        `La personne reçoit un e-mail pour créer son mot de passe (lien valable 1 h), puis active la MFA.\n` +
+        `La personne reçoit un e-mail pour créer son mot de passe (lien valable 12 h), puis active la MFA.\n` +
         `Un éventuel ancien mot de passe ne fonctionnera plus.`;
 
     if (!confirm(confirmMsg)) return;

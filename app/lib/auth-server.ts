@@ -8,6 +8,7 @@ import { twoFactor } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { authSchema, user as userTable } from "@/db/schema";
+import { loadAppConfig } from "@/app/lib/app-config";
 import { betterAuthBaseUrl, isBetterAuthConfigured } from "@/app/lib/auth-config";
 import { ensureEtablissementFromSlug } from "@/app/lib/etablissement-db";
 import { ensureUserMembership } from "@/app/lib/user-membership";
@@ -15,14 +16,27 @@ import {
   PASSWORD_MIN_LENGTH,
   validatePasswordPolicy,
 } from "@/app/lib/password-policy";
+import { s3Key } from "@/app/lib/s3-path";
+import { getObjectBytes } from "@/app/lib/s3-storage";
+import { getTenant } from "@/app/lib/tenant-context";
 import { createPlatformTransporter } from "@/app/lib/tenant-mail";
 import { TENANT_SLUG_HEADER } from "@/app/lib/tenant-types";
+import { parseTravelsS3KeyFromUrl } from "@/app/lib/travels-s3";
+
+type MailAttachment = {
+  filename: string;
+  content: Buffer;
+  contentType: string;
+  cid?: string;
+};
 
 async function sendPlatformMail(opts: {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  fromName?: string;
+  attachments?: MailAttachment[];
 }): Promise<boolean> {
   const transporter = createPlatformTransporter();
   if (!transporter) {
@@ -30,16 +44,27 @@ async function sendPlatformMail(opts: {
     return false;
   }
   try {
-    const from =
+    const fromAddr =
       process.env.MAILER_EMAIL?.trim() ||
       process.env.SMTP_USER?.trim() ||
       "mailer@scolia.fr";
+    const fromLabel = (opts.fromName || "ScolIA").replace(/["\r\n]/g, "").trim() || "ScolIA";
     await transporter.sendMail({
-      from: `"ScolIA" <${from}>`,
+      from: `"${fromLabel}" <${fromAddr}>`,
       to: opts.to,
       subject: opts.subject,
       text: opts.text,
       ...(opts.html ? { html: opts.html } : {}),
+      ...(opts.attachments?.length
+        ? {
+            attachments: opts.attachments.map((a) => ({
+              filename: a.filename,
+              content: a.content,
+              contentType: a.contentType,
+              ...(a.cid ? { cid: a.cid, contentDisposition: "inline" as const } : {}),
+            })),
+          }
+        : {}),
     });
     return true;
   } catch (error) {
@@ -48,74 +73,206 @@ async function sendPlatformMail(opts: {
   }
 }
 
-/** Corps du mail d’activation / reset MDP (texte + HTML). */
-export function buildPasswordActivationEmail(opts: {
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function resolveInvitationEstablishment(): Promise<{
+  name: string;
+  shortName: string;
+  logo: MailAttachment | null;
+}> {
+  const [bundle, tenant] = await Promise.all([loadAppConfig(), getTenant()]);
+  const name =
+    bundle.identity.name?.trim() ||
+    tenant.label?.trim() ||
+    tenant.slug?.trim() ||
+    "Votre établissement";
+  const shortName = bundle.identity.shortName?.trim() || name;
+
+  const rawLogo = bundle.identity.headerLogoUrl?.trim() || tenant.logoUrl?.trim() || "";
+  let logo: MailAttachment | null = null;
+  if (rawLogo) {
+    try {
+      let key: string | null = null;
+      if (!rawLogo.startsWith("http://") && !rawLogo.startsWith("https://")) {
+        key = s3Key(rawLogo.split("?")[0].split("#")[0]) || null;
+      } else {
+        key = await parseTravelsS3KeyFromUrl(rawLogo);
+      }
+      if (key) {
+        const bytes = await getObjectBytes(key);
+        if (bytes?.length) {
+          const lower = key.toLowerCase();
+          const contentType = lower.endsWith(".png")
+            ? "image/png"
+            : lower.endsWith(".webp")
+              ? "image/webp"
+              : lower.endsWith(".gif")
+                ? "image/gif"
+                : "image/jpeg";
+          const ext =
+            contentType === "image/png"
+              ? "png"
+              : contentType === "image/webp"
+                ? "webp"
+                : contentType === "image/gif"
+                  ? "gif"
+                  : "jpg";
+          logo = {
+            filename: `logo-${tenant.slug || "etablissement"}.${ext}`,
+            content: bytes,
+            contentType,
+            cid: "etablissement-logo",
+          };
+        }
+      }
+    } catch (e) {
+      console.warn("[auth] logo invitation indisponible", e);
+    }
+  }
+
+  return { name, shortName, logo };
+}
+
+/** Corps du mail d’activation / reset MDP (texte + HTML), branding tenant inclus. */
+export async function buildPasswordActivationEmail(opts: {
   firstName?: string | null;
   url: string;
-}): { subject: string; text: string; html: string } {
+}): Promise<{
+  subject: string;
+  text: string;
+  html: string;
+  fromName: string;
+  attachments: MailAttachment[];
+}> {
+  const branding = await resolveInvitationEstablishment();
   const prenom = opts.firstName?.trim() || "";
   const hello = prenom ? `Bonjour ${prenom},` : "Bonjour,";
-  const subject = "ScolIA — Lien d’invitation : activez votre compte";
+  const etab = branding.name;
+  const short = branding.shortName;
+  const subject = `[${short}] Invitation ScolIA — activez votre compte`;
+  const fromName = `${short} · ScolIA`;
+
   const text = `${hello}
 
-Voici votre lien d’invitation pour accéder à l’intranet ScolIA de votre établissement.
+Cet e-mail vous est envoyé par ${etab}.
+Il s’agit de l’invitation pour activer votre espace personnel sur la plateforme ScolIA (intranet / ENT de votre établissement).
 
-1) Ouvrez le lien ci-dessous (valable une heure) pour créer votre mot de passe personnel :
+━━━━━━━━━━━━━━━━━━━━
+ÉTAPE 1 — Créer votre mot de passe (lien valable 12 heures)
+━━━━━━━━━━━━━━━━━━━━
+Ouvrez ce lien uniquement :
 ${opts.url}
-
-2) Connectez-vous avec votre e-mail et ce nouveau mot de passe.
-
-3) Activez ensuite la double authentification (MFA) avec une application d’authentification — c’est obligatoire pour protéger les données de l’établissement.
-
-Applications possibles (gratuites) :
-- Microsoft Authenticator (Windows / Android / iPhone)
-- Google Authenticator (Android / iPhone)
-- Mots de passe d’Apple (iPhone / Mac) — section « Codes » / authentification à deux facteurs
-
-Comment ça marche en bref :
-- Après connexion, l’écran affiche un QR code.
-- Ouvrez votre appli d’authentification → ajoutez un compte → scannez le QR code.
-- Saisissez le code à 6 chiffres généré par l’appli pour valider.
-- Ensuite, à chaque connexion : e-mail + mot de passe + code de l’appli.
 
 Important : si un ancien mot de passe existait, il ne fonctionne plus. Utilisez uniquement ce lien.
 
-Si le lien a expiré, demandez un nouveau lien d’invitation à l’administrateur de l’établissement, ou utilisez « Mot de passe oublié » sur la page de connexion.
+━━━━━━━━━━━━━━━━━━━━
+ÉTAPE 2 — Double authentification (MFA) — obligatoire
+━━━━━━━━━━━━━━━━━━━━
+La MFA, c’est un code à 6 chiffres généré par une application sur votre téléphone (ou tablette).
+Sans cette étape, vous ne pourrez pas utiliser pleinement la plateforme (cloud, dossiers partagés, etc.).
+
+À faire après avoir créé votre mot de passe :
+
+A) Installez UNE application gratuite d’authentification, par exemple :
+   • Microsoft Authenticator (Windows, Android, iPhone)
+   • Google Authenticator (Android, iPhone)
+   • « Mots de passe » d’Apple (iPhone / Mac) — codes à deux facteurs
+
+B) Connectez-vous sur ScolIA avec votre e-mail + le nouveau mot de passe.
+
+C) L’écran affiche un QR code :
+   1. Ouvrez l’application d’authentification
+   2. Ajoutez un compte → « Scanner un QR code »
+   3. Scannez le QR code affiché à l’écran
+   4. Saisissez le code à 6 chiffres proposé par l’appli pour valider
+
+D) À chaque connexion suivante : e-mail + mot de passe + code de l’appli.
+
+━━━━━━━━━━━━━━━━━━━━
+Lien expiré ?
+Demandez un nouveau lien d’invitation à l’administrateur de ${etab}, ou utilisez « Mot de passe oublié » sur la page de connexion.
 
 Si vous n’êtes pas concerné par ce message, ignorez-le.
 
-— L’équipe ScolIA
+— ${etab} via ScolIA
 `;
+
+  const logoBlock = branding.logo
+    ? `<div style="text-align:center;margin:0 0 20px;">
+  <img src="cid:etablissement-logo" alt="${escapeHtml(etab)}" width="120" style="max-width:140px;height:auto;border:0;" />
+</div>`
+    : "";
 
   const html = `<!DOCTYPE html>
 <html lang="fr">
-<body style="font-family:Segoe UI,Helvetica,Arial,sans-serif;line-height:1.5;color:#0f172a;max-width:560px;margin:0 auto;padding:24px;">
-  <p>${hello}</p>
-  <p>Voici votre <strong>lien d’invitation</strong> pour accéder à l’intranet <strong>ScolIA</strong> de votre établissement.</p>
-  <p style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px;"><strong>Important :</strong> si un ancien mot de passe existait, il ne fonctionne plus. Utilisez uniquement le bouton ci-dessous.</p>
-  <p style="text-align:center;margin:28px 0;">
-    <a href="${opts.url}" style="display:inline-block;background:#2F6B4A;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600;">Créer mon mot de passe</a>
-  </p>
-  <p style="font-size:13px;color:#64748b;">Lien valable <strong>1 heure</strong>. Si le bouton ne fonctionne pas, copiez cette adresse :<br/><a href="${opts.url}">${opts.url}</a></p>
-  <h2 style="font-size:16px;margin-top:28px;">Ensuite : double authentification (MFA)</h2>
-  <p>Après connexion, vous activerez une application d’authentification (obligatoire pour la sécurité de l’établissement) :</p>
-  <ul>
-    <li><strong>Microsoft Authenticator</strong> (Windows / Android / iPhone)</li>
-    <li><strong>Google Authenticator</strong> (Android / iPhone)</li>
-    <li><strong>Mots de passe d’Apple</strong> (iPhone / Mac) — codes à deux facteurs</li>
-  </ul>
-  <ol>
-    <li>L’écran affiche un QR code.</li>
-    <li>Dans l’appli : ajouter un compte → scanner le QR code.</li>
-    <li>Saisir le code à 6 chiffres pour valider.</li>
-    <li>À chaque connexion suivante : e-mail + mot de passe + code de l’appli.</li>
-  </ol>
-  <p style="font-size:13px;color:#64748b;">Lien expiré ? Demandez un nouveau lien d’invitation à l’administrateur, ou utilisez « Mot de passe oublié » sur la page de connexion.</p>
-  <p style="margin-top:32px;font-size:13px;color:#64748b;">— L’équipe ScolIA</p>
+<body style="font-family:Segoe UI,Helvetica,Arial,sans-serif;line-height:1.55;color:#0f172a;max-width:600px;margin:0 auto;padding:24px;background:#f8fafc;">
+  <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:16px;padding:28px 24px;">
+    ${logoBlock}
+    <p style="margin:0 0 8px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:0.04em;">Invitation officielle</p>
+    <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3;color:#0f172a;">Activez votre compte ScolIA</h1>
+    <p style="margin:0 0 16px;font-size:15px;">${escapeHtml(hello)}</p>
+    <p style="margin:0 0 16px;font-size:15px;">
+      Cet e-mail vous est envoyé par <strong>${escapeHtml(etab)}</strong>.
+      Il s’agit de l’invitation pour activer votre espace personnel sur la plateforme
+      <strong>ScolIA</strong> (intranet / ENT de votre établissement).
+    </p>
+
+    <div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;padding:14px 16px;margin:20px 0;">
+      <p style="margin:0;font-size:14px;"><strong>Étape 1 — Créer votre mot de passe</strong></p>
+      <p style="margin:8px 0 0;font-size:14px;">Le lien ci-dessous est valable <strong>12 heures</strong>. Si un ancien mot de passe existait, il ne fonctionne plus.</p>
+    </div>
+
+    <p style="text-align:center;margin:24px 0;">
+      <a href="${opts.url}" style="display:inline-block;background:#2F6B4A;color:#fff;text-decoration:none;padding:14px 26px;border-radius:12px;font-weight:700;font-size:15px;">Créer mon mot de passe</a>
+    </p>
+    <p style="font-size:12px;color:#64748b;word-break:break-all;">Si le bouton ne fonctionne pas, copiez cette adresse :<br/><a href="${opts.url}">${opts.url}</a></p>
+
+    <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:12px;padding:16px;margin:28px 0 12px;">
+      <p style="margin:0 0 8px;font-size:15px;"><strong>Étape 2 — Double authentification (MFA) — obligatoire</strong></p>
+      <p style="margin:0 0 12px;font-size:14px;">
+        La MFA, c’est un <strong>code à 6 chiffres</strong> généré par une application sur votre téléphone.
+        Sans cette étape, vous ne pourrez pas utiliser pleinement la plateforme
+        (cloud, dossiers partagés, outils métiers, etc.).
+      </p>
+      <p style="margin:0 0 6px;font-size:14px;"><strong>A. Installez une appli gratuite</strong> (une seule suffit) :</p>
+      <ul style="margin:0 0 12px;padding-left:18px;font-size:14px;">
+        <li><strong>Microsoft Authenticator</strong> — Windows / Android / iPhone</li>
+        <li><strong>Google Authenticator</strong> — Android / iPhone</li>
+        <li><strong>Mots de passe d’Apple</strong> — iPhone / Mac (codes à deux facteurs)</li>
+      </ul>
+      <p style="margin:0 0 6px;font-size:14px;"><strong>B. Connectez-vous</strong> avec votre e-mail et le nouveau mot de passe.</p>
+      <p style="margin:0 0 6px;font-size:14px;"><strong>C. Quand le QR code s’affiche :</strong></p>
+      <ol style="margin:0 0 12px;padding-left:18px;font-size:14px;">
+        <li>Ouvrez l’application d’authentification</li>
+        <li>Ajoutez un compte → « Scanner un QR code »</li>
+        <li>Scannez le QR code à l’écran</li>
+        <li>Saisissez le code à 6 chiffres pour valider</li>
+      </ol>
+      <p style="margin:0;font-size:14px;"><strong>D. Ensuite</strong> : à chaque connexion = e-mail + mot de passe + code de l’appli.</p>
+    </div>
+
+    <p style="font-size:13px;color:#64748b;margin:20px 0 0;">
+      Lien expiré ? Demandez un nouveau lien à l’administrateur de ${escapeHtml(etab)},
+      ou utilisez « Mot de passe oublié » sur la page de connexion.
+    </p>
+    <p style="margin-top:28px;font-size:13px;color:#64748b;">— ${escapeHtml(etab)} via ScolIA</p>
+  </div>
 </body>
 </html>`;
 
-  return { subject, text, html };
+  return {
+    subject,
+    text,
+    html,
+    fromName,
+    attachments: branding.logo ? [branding.logo] : [],
+  };
 }
 
 function createAuth() {
@@ -162,7 +319,7 @@ function createAuth() {
       enabled: true,
       requireEmailVerification,
       minPasswordLength: PASSWORD_MIN_LENGTH,
-      resetPasswordTokenExpiresIn: 60 * 60,
+      resetPasswordTokenExpiresIn: 12 * 60 * 60,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url }) => {
         const u = user as {
@@ -170,7 +327,7 @@ function createAuth() {
           name?: string | null;
           firstName?: string | null;
         };
-        const mail = buildPasswordActivationEmail({
+        const mail = await buildPasswordActivationEmail({
           firstName:
             typeof u.firstName === "string" && u.firstName.trim()
               ? u.firstName
@@ -184,6 +341,8 @@ function createAuth() {
           subject: mail.subject,
           text: mail.text,
           html: mail.html,
+          fromName: mail.fromName,
+          attachments: mail.attachments,
         });
         if (!ok) {
           throw new Error("Échec d'envoi de l'e-mail d'invitation (SMTP).");
