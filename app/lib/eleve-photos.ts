@@ -22,13 +22,42 @@ export {
 } from "@/app/lib/eleve-photos-match";
 
 const PHOTO_INDEX_KEY = "eleves/photo-index.json";
+const PHOTO_INDEX_CACHE_MS = 45_000;
+const SIGNED_URL_CACHE_MS = 50 * 60 * 1000; // signatures ~1h — on garde 50 min
 
 export type ElevePhotoIndex = Record<string, string>;
 
+let photoIndexCache: { at: number; data: ElevePhotoIndex } | null = null;
+const signedUrlCache = new Map<string, { url: string; exp: number }>();
+
 export async function loadElevePhotoIndex(): Promise<ElevePhotoIndex> {
+  if (photoIndexCache && Date.now() - photoIndexCache.at < PHOTO_INDEX_CACHE_MS) {
+    return photoIndexCache.data;
+  }
   const hit = await getJson<ElevePhotoIndex>(PHOTO_INDEX_KEY);
-  if (!hit?.data || typeof hit.data !== "object") return {};
-  return hit.data;
+  const data =
+    hit?.data && typeof hit.data === "object" ? hit.data : ({} as ElevePhotoIndex);
+  photoIndexCache = { at: Date.now(), data };
+  return data;
+}
+
+export function invalidateElevePhotoIndexCache(): void {
+  photoIndexCache = null;
+}
+
+async function signedUrlCached(key: string, expiresIn = 60 * 60): Promise<string | null> {
+  const now = Date.now();
+  const hit = signedUrlCache.get(key);
+  if (hit && hit.exp > now) return hit.url;
+  try {
+    const url = await getSignedReadUrl(key, expiresIn);
+    if (url) {
+      signedUrlCache.set(key, { url, exp: now + SIGNED_URL_CACHE_MS });
+    }
+    return url;
+  } catch {
+    return null;
+  }
 }
 
 function lookupS3Key(
@@ -46,11 +75,7 @@ export async function getElevePhotoUrl(eleve: EleveConfig): Promise<string | nul
   const index = await loadElevePhotoIndex();
   const key = lookupS3Key(index, eleve);
   if (!key) return null;
-  try {
-    return await getSignedReadUrl(key, 60 * 60);
-  } catch {
-    return null;
-  }
+  return signedUrlCached(key, 60 * 60);
 }
 
 /** URLs signées pour l’appel / fiches internat (id élève → URL). */
@@ -68,12 +93,8 @@ export async function resolvePhotoUrlsForInternatStudents(
         ine: s.eleveRef.ine,
       });
       if (!key) return;
-      try {
-        const url = await getSignedReadUrl(key, 60 * 60);
-        if (url) out[s.id] = url;
-      } catch {
-        /* ignore missing object */
-      }
+      const url = await signedUrlCached(key, 60 * 60);
+      if (url) out[s.id] = url;
     }),
   );
 
@@ -97,12 +118,8 @@ export async function resolvePhotoUrlsForEleves(
     eleves.map(async (e) => {
       const key = lookupS3Key(index, e);
       if (!key) return;
-      try {
-        const url = await getSignedReadUrl(key, 60 * 60);
-        if (url) out[e.id] = url;
-      } catch {
-        /* ignore */
-      }
+      const url = await signedUrlCached(key, 60 * 60);
+      if (url) out[e.id] = url;
     }),
   );
 
@@ -183,6 +200,7 @@ export async function applyElevePhotosBulk(
   }
 
   await putJson(PHOTO_INDEX_KEY, index);
+  invalidateElevePhotoIndexCache();
   if (fromRegistry && updated > 0) {
     try {
       await saveElevesRegistry(nextEleves);

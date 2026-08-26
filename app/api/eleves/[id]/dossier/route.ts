@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { after } from "next/server";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   anneeScolaire,
@@ -158,119 +159,100 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   await ensureEleveScolariteGrilleRepasColumn();
 
-  // Rattrapage : l’import remplit le registre plat ; la scolarité année courante
-  // doit suivre (classe / site / demi-pension) sans forcer un nouvel import.
-  await syncEleveScolariteFromEleveRow(etabId, {
-    id: row.id,
-    classe: row.classe,
-    regime: row.regime,
-  });
-
-  // Rattrapage famille : e-mails / tél. importés → foyer si aucun lien.
-  if (sections.includes("famille")) {
+  // Rattrapage hors chemin critique : ne bloque plus l’affichage du dossier.
+  after(async () => {
     try {
-      await ensureEleveFoyerFromParentContacts(etabId, id, {
-        nom: row.nom,
-        prenom: row.prenom,
-        parentEmail: row.parentEmail,
-        parent1Email: row.parent1Email,
-        parent2Email: row.parent2Email,
-        parentPhone: row.parentPhone,
-        parent1Phone: row.parent1Phone,
-        parent2Phone: row.parent2Phone,
+      await syncEleveScolariteFromEleveRow(etabId, {
+        id: row.id,
+        classe: row.classe,
+        regime: row.regime,
       });
     } catch (e) {
-      console.warn("[eleves/dossier] ensure foyer parents", e);
+      console.warn("[eleves/dossier] sync scolarité", e);
     }
-  }
+    if (sections.includes("famille")) {
+      try {
+        await ensureEleveFoyerFromParentContacts(etabId, id, {
+          nom: row.nom,
+          prenom: row.prenom,
+          parentEmail: row.parentEmail,
+          parent1Email: row.parent1Email,
+          parent2Email: row.parent2Email,
+          parentPhone: row.parentPhone,
+          parent1Phone: row.parent1Phone,
+          parent2Phone: row.parent2Phone,
+        });
+      } catch (e) {
+        console.warn("[eleves/dossier] ensure foyer parents", e);
+      }
+    }
+  });
 
-  const scolarites = await db
-    .select()
-    .from(eleveScolarite)
-    .where(and(eq(eleveScolarite.etablissementId, etabId), eq(eleveScolarite.eleveId, id)))
-    .orderBy(desc(eleveScolarite.createdAt));
+  const needDocs = sections.includes("documents");
+  const needNotes = sections.includes("notes");
+  const needVs = sections.includes("vie_scolaire");
+  const needScol = sections.includes("scolarite");
+  const needFactu = sections.includes("facturation");
+  const needFamille = sections.includes("famille");
+  const canDecide = canDecideAccess(roles, { orgAdmin, platformAdmin });
 
-  const links = await db
-    .select()
-    .from(eleveFoyerLink)
-    .where(and(eq(eleveFoyerLink.etablissementId, etabId), eq(eleveFoyerLink.eleveId, id)));
-
-  const foyers = [];
-  for (const link of links) {
-    const [f] = await db
+  const [
+    scolarites,
+    links,
+    documentsRaw,
+    sites,
+    annees,
+    pendingAccess,
+    enCoursMaintenant,
+    notesRaw,
+    competencesRaw,
+    groupesEleve,
+    absencesRaw,
+    sanctionsRaw,
+    carnetRaw,
+    financesSynthese,
+  ] = await Promise.all([
+    db
       .select()
-      .from(foyer)
-      .where(and(eq(foyer.etablissementId, etabId), eq(foyer.id, link.foyerId)))
-      .limit(1);
-    if (!f) continue;
-    const responsables = await db
-      .select()
-      .from(foyerResponsable)
-      .where(
-        and(eq(foyerResponsable.etablissementId, etabId), eq(foyerResponsable.foyerId, f.id)),
-      )
-      .orderBy(asc(foyerResponsable.rang));
-    foyers.push({
-      id: f.id,
-      label: f.label,
-      adresse: f.adresse,
-      codePostal: f.codePostal,
-      ville: f.ville,
-      payeurEstFoyer: f.payeurEstFoyer,
-      relation: link.relation,
-      responsables: responsables.map((r) => ({
-        id: r.id,
-        nom: r.nom,
-        prenom: r.prenom,
-        email: r.email,
-        telephone: r.telephone,
-        autoriteParentale: r.autoriteParentale,
-        contactUrgence: r.contactUrgence,
-        payeur: r.payeur,
-        rang: r.rang,
-      })),
-    });
-  }
-
-  const documentsRaw = sections.includes("documents")
-    ? await listEleveDocumentsForViewer({
-        etablissementId: etabId,
-        eleveId: id,
-        userId: authUserId,
-        roles,
-        orgAdmin,
-        platformAdmin,
+      .from(eleveScolarite)
+      .where(and(eq(eleveScolarite.etablissementId, etabId), eq(eleveScolarite.eleveId, id)))
+      .orderBy(desc(eleveScolarite.createdAt)),
+    needFamille
+      ? db
+          .select()
+          .from(eleveFoyerLink)
+          .where(and(eq(eleveFoyerLink.etablissementId, etabId), eq(eleveFoyerLink.eleveId, id)))
+      : Promise.resolve([] as (typeof eleveFoyerLink.$inferSelect)[]),
+    needDocs
+      ? listEleveDocumentsForViewer({
+          etablissementId: etabId,
+          eleveId: id,
+          userId: authUserId,
+          roles,
+          orgAdmin,
+          platformAdmin,
+        }).catch(() => [])
+      : Promise.resolve([]),
+    db
+      .select({
+        siteId: etablissementSite.siteId,
+        label: etablissementSite.label,
+        kind: etablissementSite.kind,
       })
-    : [];
-  const documents = documentsRaw.map((d) => ({
-    ...d,
-    createdAt:
-      d.createdAt instanceof Date ? d.createdAt.toISOString() : String(d.createdAt ?? ""),
-  }));
-
-  const sites = await db
-    .select({
-      siteId: etablissementSite.siteId,
-      label: etablissementSite.label,
-      kind: etablissementSite.kind,
-    })
-    .from(etablissementSite)
-    .where(eq(etablissementSite.etablissementId, etabId))
-    .orderBy(asc(etablissementSite.label));
-
-  const annees = await db
-    .select({
-      id: anneeScolaire.id,
-      label: anneeScolaire.label,
-      isCurrent: anneeScolaire.isCurrent,
-    })
-    .from(anneeScolaire)
-    .where(eq(anneeScolaire.etablissementId, etabId))
-    .orderBy(desc(anneeScolaire.label));
-
-  const pendingAccess =
-    sections.includes("documents") && canDecideAccess(roles, { orgAdmin, platformAdmin })
-      ? await db
+      .from(etablissementSite)
+      .where(eq(etablissementSite.etablissementId, etabId))
+      .orderBy(asc(etablissementSite.label)),
+    db
+      .select({
+        id: anneeScolaire.id,
+        label: anneeScolaire.label,
+        isCurrent: anneeScolaire.isCurrent,
+      })
+      .from(anneeScolaire)
+      .where(eq(anneeScolaire.etablissementId, etabId))
+      .orderBy(desc(anneeScolaire.label)),
+    needDocs && canDecide
+      ? db
           .select({
             id: documentAccessRequest.id,
             documentId: documentAccessRequest.documentId,
@@ -291,40 +273,145 @@ export async function GET(_req: Request, ctx: Ctx) {
           )
           .orderBy(desc(documentAccessRequest.createdAt))
           .limit(50)
-      : [];
+      : Promise.resolve([]),
+    (async () => {
+      try {
+        const cfg = await loadAppConfig();
+        return resolveEleveLiveCourse({
+          classe: row.classe,
+          zone: cfg.identity.schoolHolidayZone ?? null,
+        });
+      } catch {
+        try {
+          return resolveEleveLiveCourse({ classe: row.classe });
+        } catch {
+          return {
+            activity: null,
+            reason: "pas_edt" as const,
+            label: "Emploi du temps indisponible",
+          };
+        }
+      }
+    })(),
+    needNotes
+      ? listMoyennesForEleve(etabId, id).catch(() => [])
+      : Promise.resolve([]),
+    needNotes
+      ? listCompetencesForEleve(etabId, id).catch(() => [])
+      : Promise.resolve([]),
+    needScol
+      ? listGroupesForEleve(etabId, id).catch(() => [])
+      : Promise.resolve([]),
+    needVs
+      ? listAbsencesForEleve(etabId, id, { limit: 40 }).catch(() => [])
+      : Promise.resolve([]),
+    needVs
+      ? listSanctionsForEleve(etabId, id, { limit: 30 }).catch(() => [])
+      : Promise.resolve([]),
+    needVs
+      ? listCarnetForEleve(etabId, id, { limit: 30 }).catch(() => [])
+      : Promise.resolve([]),
+    needFactu
+      ? countFacturesEnRetardForEleve(etabId, id, parisDateKey(new Date()))
+          .then((enRetard) => ({
+            available: true as const,
+            label: enRetard > 0 ? `${enRetard} facture(s) en retard` : "Facturation à jour",
+            detail:
+              enRetard > 0
+                ? "Échéance dépassée — voir l’onglet Finances"
+                : "Aucune facture émise en retard pour ce foyer.",
+          }))
+          .catch(() => undefined)
+      : Promise.resolve(undefined),
+  ]);
 
-  try {
-    await recordEleveAccessAudit({
+  // Foyers : 2 requêtes max au lieu de N+1
+  const foyers: Array<{
+    id: string;
+    label: string;
+    adresse: string | null;
+    codePostal: string | null;
+    ville: string | null;
+    payeurEstFoyer: boolean;
+    relation: string;
+    responsables: Array<{
+      id: string;
+      nom: string;
+      prenom: string;
+      email: string | null;
+      telephone: string | null;
+      autoriteParentale: boolean;
+      contactUrgence: boolean;
+      payeur: boolean;
+      rang: number;
+    }>;
+  }> = [];
+  if (links.length) {
+    const foyerIds = [...new Set(links.map((l) => l.foyerId))];
+    const [foyerRows, respRows] = await Promise.all([
+      db
+        .select()
+        .from(foyer)
+        .where(and(eq(foyer.etablissementId, etabId), inArray(foyer.id, foyerIds))),
+      db
+        .select()
+        .from(foyerResponsable)
+        .where(
+          and(eq(foyerResponsable.etablissementId, etabId), inArray(foyerResponsable.foyerId, foyerIds)),
+        )
+        .orderBy(asc(foyerResponsable.rang)),
+    ]);
+    const foyerById = new Map(foyerRows.map((f) => [f.id, f]));
+    const respByFoyer = new Map<string, typeof respRows>();
+    for (const r of respRows) {
+      const list = respByFoyer.get(r.foyerId) || [];
+      list.push(r);
+      respByFoyer.set(r.foyerId, list);
+    }
+    for (const link of links) {
+      const f = foyerById.get(link.foyerId);
+      if (!f) continue;
+      const responsables = respByFoyer.get(f.id) || [];
+      foyers.push({
+        id: f.id,
+        label: f.label,
+        adresse: f.adresse,
+        codePostal: f.codePostal,
+        ville: f.ville,
+        payeurEstFoyer: f.payeurEstFoyer,
+        relation: link.relation,
+        responsables: responsables.map((r) => ({
+          id: r.id,
+          nom: r.nom,
+          prenom: r.prenom,
+          email: r.email,
+          telephone: r.telephone,
+          autoriteParentale: r.autoriteParentale,
+          contactUrgence: r.contactUrgence,
+          payeur: r.payeur,
+          rang: r.rang,
+        })),
+      });
+    }
+  }
+
+  const documents = documentsRaw.map((d) => ({
+    ...d,
+    createdAt:
+      d.createdAt instanceof Date ? d.createdAt.toISOString() : String(d.createdAt ?? ""),
+  }));
+
+  // Audit non bloquant
+  after(() => {
+    void recordEleveAccessAudit({
       etablissementId: etabId,
       actorUserId: authUserId,
       resourceType: "fiche_eleve",
       resourceId: id,
       eleveId: id,
       action: "view",
-    });
-  } catch (auditErr) {
-    console.error("[eleves/dossier] audit view", auditErr);
-  }
-
-  let enCoursMaintenant = await (async () => {
-    try {
-      const cfg = await loadAppConfig();
-      return resolveEleveLiveCourse({
-        classe: row.classe,
-        zone: cfg.identity.schoolHolidayZone ?? null,
-      });
-    } catch {
-      try {
-        return resolveEleveLiveCourse({ classe: row.classe });
-      } catch {
-        return {
-          activity: null,
-          reason: "pas_edt" as const,
-          label: "Emploi du temps indisponible",
-        };
-      }
-    }
-  })();
+    }).catch((auditErr) => console.error("[eleves/dossier] audit view", auditErr));
+  });
 
   let catalog;
   try {
@@ -341,129 +428,48 @@ export async function GET(_req: Request, ctx: Ctx) {
   const currentScolarite = scolarites[0] ?? null;
   const siteIdFromScolarite = currentScolarite?.siteId ?? null;
 
-  let notesMoyennes: Array<{
-    matiereLibelle: string;
-    moyenne: string | null;
-    nbNotes: number;
-    periodeId: string;
-    periodeLibelle: string;
-    periodeStatut: string;
-  }> = [];
-  if (sections.includes("notes")) {
-    try {
-      const rows = await listMoyennesForEleve(etabId, id);
-      notesMoyennes = rows.map((r) => ({
-        matiereLibelle: r.matiereLibelle,
-        moyenne: r.moyenne,
-        nbNotes: r.nbNotes,
-        periodeId: r.periodeId,
-        periodeLibelle: r.periodeLibelle,
-        periodeStatut: r.periodeStatut,
-      }));
-    } catch {
-      notesMoyennes = [];
-    }
-  }
+  const notesMoyennes = notesRaw.map((r) => ({
+    matiereLibelle: r.matiereLibelle,
+    moyenne: r.moyenne,
+    nbNotes: r.nbNotes,
+    periodeId: r.periodeId,
+    periodeLibelle: r.periodeLibelle,
+    periodeStatut: r.periodeStatut,
+  }));
 
-  let competences: Array<{
-    domaineLibelle: string;
-    itemLibelle: string;
-    niveau: string | null;
-    niveauLabel: string;
-    periodeId: string;
-  }> = [];
-  if (sections.includes("notes")) {
-    try {
-      const rows = await listCompetencesForEleve(etabId, id);
-      competences = rows.map((r) => ({
-        domaineLibelle: r.domaineLibelle,
-        itemLibelle: r.itemLibelle,
-        niveau: r.niveau,
-        niveauLabel: COMPETENCE_NIVEAUX.find((n) => n.code === r.niveau)?.label || "—",
-        periodeId: r.periodeId,
-      }));
-    } catch {
-      competences = [];
-    }
-  }
+  const competences = competencesRaw.map((r) => ({
+    domaineLibelle: r.domaineLibelle,
+    itemLibelle: r.itemLibelle,
+    niveau: r.niveau,
+    niveauLabel: COMPETENCE_NIVEAUX.find((n) => n.code === r.niveau)?.label || "—",
+    periodeId: r.periodeId,
+  }));
 
-  let absencesEleve: Array<{
-    id: string;
-    dateDebut: string;
-    type: string;
-    statut: string;
-    justifie: boolean;
-    motif: string | null;
-  }> = [];
-  let sanctionsEleve: Array<{
-    id: string;
-    typeLibelle: string;
-    dateSanction: string;
-    motif: string | null;
-    createdByNom: string | null;
-  }> = [];
-  let carnetEleve: Array<{
-    id: string;
-    dateEntree: string;
-    categorie: string;
-    titre: string;
-    corps: string;
-    signeAt: string | null;
-    signeParNom: string | null;
-    createdByNom: string | null;
-  }> = [];
-  let groupesEleve: Array<{ id: string; code: string; libelle: string; type: string }> = [];
-
-  if (sections.includes("scolarite")) {
-    try {
-      groupesEleve = await listGroupesForEleve(etabId, id);
-    } catch {
-      groupesEleve = [];
-    }
-  }
-
-  if (sections.includes("vie_scolaire")) {
-    try {
-      const rows = await listAbsencesForEleve(etabId, id, { limit: 40 });
-      absencesEleve = rows.map((r) => ({
-        id: r.id,
-        dateDebut: r.dateDebut,
-        type: r.type,
-        statut: r.statut,
-        justifie: r.justifie,
-        motif: r.motif,
-      }));
-    } catch {
-      absencesEleve = [];
-    }
-    try {
-      const rows = await listSanctionsForEleve(etabId, id, { limit: 30 });
-      sanctionsEleve = rows.map((r) => ({
-        id: r.id,
-        typeLibelle: r.typeLibelle,
-        dateSanction: r.dateSanction,
-        motif: r.motif,
-        createdByNom: r.createdByNom,
-      }));
-    } catch {
-      sanctionsEleve = [];
-    }
-    try {
-      const rows = await listCarnetForEleve(etabId, id, { limit: 30 });
-      carnetEleve = rows.map((r) => ({
-        id: r.id,
-        dateEntree: r.dateEntree,
-        categorie: r.categorie,
-        titre: r.titre,
-        corps: r.corps,
-        signeAt: r.signeAt ? r.signeAt.toISOString() : null,
-        signeParNom: r.signeParNom,
-        createdByNom: r.createdByNom,
-      }));
-    } catch {
-      carnetEleve = [];
-    }
-  }
+  const absencesEleve = absencesRaw.map((r) => ({
+    id: r.id,
+    dateDebut: r.dateDebut,
+    type: r.type,
+    statut: r.statut,
+    justifie: r.justifie,
+    motif: r.motif,
+  }));
+  const sanctionsEleve = sanctionsRaw.map((r) => ({
+    id: r.id,
+    typeLibelle: r.typeLibelle,
+    dateSanction: r.dateSanction,
+    motif: r.motif,
+    createdByNom: r.createdByNom,
+  }));
+  const carnetEleve = carnetRaw.map((r) => ({
+    id: r.id,
+    dateEntree: r.dateEntree,
+    categorie: r.categorie,
+    titre: r.titre,
+    corps: r.corps,
+    signeAt: r.signeAt ? r.signeAt.toISOString() : null,
+    signeParNom: r.signeParNom,
+    createdByNom: r.createdByNom,
+  }));
 
   let absencesSynthese: {
     available: boolean;
@@ -471,7 +477,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     value: string;
     detail: string;
   } | undefined;
-  if (sections.includes("vie_scolaire")) {
+  if (needVs) {
     const aTraiter = absencesEleve.filter((a) => a.statut === "a_traiter").length;
     const totalAbs = absencesEleve.filter((a) => a.type === "absence").length;
     const totalRetards = absencesEleve.filter((a) => a.type === "retard").length;
@@ -487,27 +493,6 @@ export async function GET(_req: Request, ctx: Ctx) {
           ? `${aTraiter} à traiter · ${sanctionsEleve.length} sanction(s) active(s)`
           : `${sanctionsEleve.length} sanction(s) active(s)`,
     };
-  }
-
-  let financesSynthese: {
-    available: boolean;
-    label: string;
-    detail: string;
-  } | undefined;
-  if (sections.includes("facturation")) {
-    try {
-      const enRetard = await countFacturesEnRetardForEleve(etabId, id, parisDateKey(new Date()));
-      financesSynthese = {
-        available: true,
-        label: enRetard > 0 ? `${enRetard} facture(s) en retard` : "Facturation à jour",
-        detail:
-          enRetard > 0
-            ? "Échéance dépassée — voir l’onglet Finances"
-            : "Aucune facture émise en retard pour ce foyer.",
-      };
-    } catch {
-      financesSynthese = undefined;
-    }
   }
 
   const synthese = await buildEleveSyntheseSnapshot({
@@ -538,19 +523,19 @@ export async function GET(_req: Request, ctx: Ctx) {
     eleve: profRestrictedView ? sanitizeEleveRowForProfViewer(row) : row,
     sections,
     scolarites,
-    groupes: sections.includes("scolarite") ? groupesEleve : [],
-    foyers: sections.includes("famille") ? foyers : [],
-    notes: sections.includes("notes") ? notesMoyennes : [],
-    competences: sections.includes("notes") ? competences : [],
-    absences: sections.includes("vie_scolaire") ? absencesEleve : [],
-    sanctions: sections.includes("vie_scolaire") ? sanctionsEleve : [],
-    carnet: sections.includes("vie_scolaire") ? carnetEleve : [],
+    groupes: needScol ? groupesEleve : [],
+    foyers: needFamille ? foyers : [],
+    notes: needNotes ? notesMoyennes : [],
+    competences: needNotes ? competences : [],
+    absences: needVs ? absencesEleve : [],
+    sanctions: needVs ? sanctionsEleve : [],
+    carnet: needVs ? carnetEleve : [],
     documents,
     meta: {
       sites,
       annees,
       canEditStructure: canEditStructure(roles, { orgAdmin, platformAdmin }),
-      canDecideAccess: canDecideAccess(roles, { orgAdmin, platformAdmin }),
+      canDecideAccess: canDecide,
       profRestrictedView,
       tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),

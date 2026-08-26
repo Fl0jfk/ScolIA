@@ -863,7 +863,14 @@ export async function replacePersonnelInDb(
   return records.length;
 }
 
+const anneeCouranteCache = new Map<string, { id: string; at: number }>();
+const ANNEE_CACHE_MS = 5 * 60_000;
+
 export async function ensureCurrentAnneeScolaire(etablissementId: string): Promise<string> {
+  const cached = anneeCouranteCache.get(etablissementId);
+  if (cached && Date.now() - cached.at < ANNEE_CACHE_MS) {
+    return cached.id;
+  }
   const db = getDb();
   const label = currentSchoolYearLabel();
   const [existing] = await db
@@ -882,6 +889,7 @@ export async function ensureCurrentAnneeScolaire(etablissementId: string): Promi
         .set({ isCurrent: true, updatedAt: new Date() })
         .where(eq(anneeScolaire.id, existing.id));
     }
+    anneeCouranteCache.set(etablissementId, { id: existing.id, at: Date.now() });
     return existing.id;
   }
   await db
@@ -896,5 +904,6 @@ export async function ensureCurrentAnneeScolaire(etablissementId: string): Promi
       isCurrent: true,
     })
     .returning({ id: anneeScolaire.id });
+  anneeCouranteCache.set(etablissementId, { id: created.id, at: Date.now() });
   return created.id;
 }

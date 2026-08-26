@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -273,6 +273,9 @@ export default function EleveDossierClient() {
   const [tab, setTab] = useState<TabId>("synthese");
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [staleCache, setStaleCache] = useState(false);
+  const dataRef = useRef<DossierPayload | null>(null);
+  dataRef.current = data;
 
   const [foyerForm, setFoyerForm] = useState({
     label: "",
@@ -307,22 +310,48 @@ export default function EleveDossierClient() {
     note: string;
   } | null>(null);
 
-  const load = useCallback(async () => {
-    setError(null);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const cacheKey = `scola:eleve-dossier:${id}`;
+    if (!opts?.silent) {
+      setError(null);
+      try {
+        const raw = sessionStorage.getItem(cacheKey);
+        if (raw) {
+          const cached = JSON.parse(raw) as DossierPayload;
+          if (cached?.eleve?.id === id) {
+            setData(cached);
+            setStaleCache(true);
+          }
+        }
+      } catch {
+        /* ignore cache corrompu */
+      }
+    }
     try {
-      const res = await fetch(`/api/eleves/${id}/dossier`);
+      const res = await fetch(`/api/eleves/${id}/dossier`, { cache: "no-store" });
       const j = (await res.json().catch(() => ({}))) as {
         error?: string;
         detail?: string;
       } & Partial<DossierPayload>;
       if (!res.ok) {
         const detail = typeof j.detail === "string" && j.detail.trim() ? ` (${j.detail})` : "";
-        setError((j.error || `Erreur ${res.status}`) + detail);
-        setData(null);
+        if (!dataRef.current) {
+          setError((j.error || `Erreur ${res.status}`) + detail);
+          setData(null);
+        } else {
+          setError((j.error || `Erreur ${res.status}`) + detail);
+        }
         return;
       }
       const payload = j as DossierPayload;
       setData(payload);
+      setStaleCache(false);
+      setError(null);
+      try {
+        sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+      } catch {
+        /* quota / private mode */
+      }
       const firstTiroir = payload.meta?.tiroirs?.[0];
       if (firstTiroir) {
         setUploadMeta((m) =>
@@ -336,8 +365,10 @@ export default function EleveDossierClient() {
         return cats.length === 1 ? cats[0]! : "tous";
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur réseau");
-      setData(null);
+      if (!dataRef.current) {
+        setError(e instanceof Error ? e.message : "Erreur réseau");
+        setData(null);
+      }
     }
   }, [id]);
 
@@ -653,6 +684,11 @@ export default function EleveDossierClient() {
         title={`${e.prenom} ${e.nom}`}
         description={
           <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+            {staleCache ? (
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                Mise à jour…
+              </span>
+            ) : null}
             {e.classe ? (
               <Link
                 href={listHref}

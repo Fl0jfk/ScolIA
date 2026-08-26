@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
 import {
@@ -75,11 +75,12 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  try {
-    await backfillElevesScolariteCouranteOnce(tenant.ctx.etablissementId);
-  } catch (e) {
-    console.warn("[eleves/dossiers/list] backfill scolarité", e);
-  }
+  // Backfill hors chemin critique (1er hit process pouvait bloquer toute la liste).
+  after(() => {
+    void backfillElevesScolariteCouranteOnce(tenant.ctx.etablissementId).catch((e) =>
+      console.warn("[eleves/dossiers/list] backfill scolarité", e),
+    );
+  });
 
   const elevesRaw = await listElevesDossierFromDb(tenant.ctx.etablissementId, {
     classe: profScoped && classe ? classe : fullHub ? classe : undefined,

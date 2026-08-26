@@ -209,9 +209,21 @@ export function isExcludedFromDossierList(row: {
   return false;
 }
 
+const CATALOG_CACHE_MS = 60_000;
+const catalogCache = new Map<string, { at: number; catalog: EleveDossierClassCatalog }>();
+
 export async function buildEleveDossierClassCatalog(
   sites: DossierSiteRef[],
 ): Promise<EleveDossierClassCatalog> {
+  const cacheKey = sites
+    .map((s) => `${s.siteId}:${s.label}:${s.kind ?? ""}`)
+    .sort()
+    .join("|");
+  const cached = catalogCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < CATALOG_CACHE_MS) {
+    return cached.catalog;
+  }
+
   const config = await loadAppConfig();
   const profRoom = sanitizeDomainPlanningClassesByPole(config.profRoom?.classesByPole || {});
   const domainPlanning = sanitizeDomainPlanningClassesByPole(
@@ -265,12 +277,14 @@ export async function buildEleveDossierClassCatalog(
     a.label.localeCompare(b.label, "fr", { sensitivity: "base", numeric: true }),
   );
 
-  return {
+  const catalog: EleveDossierClassCatalog = {
     sites,
     siteLabelById,
     classToSiteId,
     classOptions,
   };
+  catalogCache.set(cacheKey, { at: Date.now(), catalog });
+  return catalog;
 }
 
 export function dossierClassOptionsForSite(

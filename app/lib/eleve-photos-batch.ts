@@ -303,6 +303,12 @@ export async function runElevePhotoJob(jobId: string): Promise<ElevePhotoJob | n
   }
 
   await putJson("eleves/photo-index.json", index);
+  try {
+    const { invalidateElevePhotoIndexCache } = await import("@/app/lib/eleve-photos");
+    invalidateElevePhotoIndexCache();
+  } catch {
+    /* optional */
+  }
   if (touchedRegistry) {
     try {
       await saveElevesRegistry(nextEleves);
