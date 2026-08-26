@@ -6,6 +6,7 @@ import { account, session, twoFactor, user } from "@/db/schema";
 import { betterAuthBaseUrl } from "@/app/lib/auth-config";
 import { getBetterAuth } from "@/app/lib/auth-server";
 import { getPlatformSmtpConfig } from "@/app/lib/tenant-mail";
+import { ensureUserInvitationSentAtColumn, INVITATION_RECENT_MS } from "@/app/lib/user-invitation-sent";
 
 export type PasswordActivationTarget = {
   id: string;
@@ -57,6 +58,32 @@ export async function listPasswordActivationTargets(opts?: {
     .orderBy(user.email);
 }
 
+export async function listPendingInvitationTargets(opts: {
+  etablissementId: string;
+}): Promise<PasswordActivationTarget[]> {
+  await ensureUserInvitationSentAtColumn();
+  const cutoff = new Date(Date.now() - INVITATION_RECENT_MS);
+  const rows = await getDb()
+    .select({
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      etablissementId: user.etablissementId,
+      twoFactorEnabled: user.twoFactorEnabled,
+      invitationSentAt: user.invitationSentAt,
+    })
+    .from(user)
+    .where(
+      and(eq(user.etablissementId, opts.etablissementId), eq(user.twoFactorEnabled, false)),
+    )
+    .orderBy(user.email);
+
+  return rows
+    .filter((r) => !r.invitationSentAt || r.invitationSentAt < cutoff)
+    .map(({ invitationSentAt: _ignored, ...target }) => target);
+}
+
 /** Statut d’un compte pour l’envoi d’un lien d’invitation. */
 export async function resolveInvitationTarget(opts: {
   email: string;
@@ -104,6 +131,7 @@ export async function sendPasswordActivationToUser(
   const redirectTo = `${betterAuthBaseUrl()}/auth/reset-password`;
 
   try {
+    await ensureUserInvitationSentAtColumn();
     await db.delete(session).where(eq(session.userId, target.id));
     await db
       .delete(account)
@@ -113,12 +141,14 @@ export async function sendPasswordActivationToUser(
       await db.delete(twoFactor).where(eq(twoFactor.userId, target.id));
     }
 
+    const now = new Date();
     await db
       .update(user)
       .set({
         mustChangePassword: true,
         ...(resetMfa ? { twoFactorEnabled: false } : {}),
-        updatedAt: new Date(),
+        invitationSentAt: now,
+        updatedAt: now,
       })
       .where(eq(user.id, target.id));
 

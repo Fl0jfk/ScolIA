@@ -6,12 +6,18 @@ import { requireAdmin } from "@/app/lib/intranet-auth";
 import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
 import { getTenant } from "@/app/lib/tenant-context";
 import {
+  listPendingInvitationTargets,
   resolveInvitationTarget,
   sendPasswordActivationToUser,
 } from "@/app/lib/password-activation";
 
+/** Envoi groupé possible (centaines de mails). */
+export const maxDuration = 300;
+
 const bodySchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().optional(),
+  /** Envoie à tous les comptes sans MFA n’ayant pas reçu d’invitation dans les 12 dernières heures. */
+  bulkPending: z.boolean().optional(),
 });
 
 /**
@@ -33,11 +39,56 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Indiquez une adresse e-mail valide." }, { status: 400 });
   }
 
-  const email = body.email.trim().toLowerCase();
-
   try {
     const tenant = await getTenant();
     const etablissementId = await ensureEtablissementFromTenant(tenant);
+
+    if (body.bulkPending) {
+      const targets = await listPendingInvitationTargets({ etablissementId });
+      if (targets.length === 0) {
+        return NextResponse.json({
+          ok: true,
+          bulk: true,
+          sent: 0,
+          failed: 0,
+          message:
+            "Aucun destinataire : tout le monde a déjà reçu une invitation récente (moins de 12 h) ou a déjà activé la MFA.",
+        });
+      }
+
+      let sent = 0;
+      let failed = 0;
+      const errors: string[] = [];
+      for (const target of targets) {
+        const result = await sendPasswordActivationToUser(target, { resetMfa: false });
+        if (result.ok) sent += 1;
+        else {
+          failed += 1;
+          errors.push(`${target.email}: ${result.detail || result.skipped || "échec"}`);
+        }
+        await new Promise((r) => setTimeout(r, 350));
+      }
+
+      return NextResponse.json({
+        ok: failed === 0,
+        bulk: true,
+        sent,
+        failed,
+        total: targets.length,
+        errors: errors.slice(0, 10),
+        message:
+          failed === 0
+            ? `${sent} invitation(s) envoyée(s). Lien valable 12 heures.`
+            : `${sent} envoyée(s), ${failed} échec(s).`,
+        baseUrl: betterAuthBaseUrl(),
+      });
+    }
+
+    const email = body.email?.trim().toLowerCase();
+    if (!email) {
+      return NextResponse.json({ error: "Indiquez une adresse e-mail valide." }, { status: 400 });
+    }
+
     const resolved = await resolveInvitationTarget({ email, etablissementId });
 
     if (resolved.status === "not_found") {

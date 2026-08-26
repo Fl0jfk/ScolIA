@@ -20,7 +20,7 @@ import { notificationCountForShortcut } from "@/app/lib/dashboard-signals";
 import { MODULE_EMOJI } from "@/app/lib/pillar-module-routes";
 import GlassLayer from "@/app/components/GlassLayer";
 import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
-import { PILLAR_ORB } from "@/app/lib/dashboard-pillar-visual";
+import { PILLAR_EDGE, PILLAR_ORB, PILLAR_WASH } from "@/app/lib/dashboard-pillar-visual";
 
 type Props = {
   categories: DashboardCategory[];
@@ -306,7 +306,19 @@ function PillarCard({
     >
       <GlassLayer className="bg-white/45 backdrop-blur-2xl" />
       <div
-        className={`pointer-events-none absolute -right-8 -top-10 z-0 h-36 w-36 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${PILLAR_ORB[pillar.id]}`}
+        className={`pointer-events-none absolute inset-y-0 left-0 z-0 w-1.5 ${PILLAR_EDGE[pillar.id]}`}
+        aria-hidden
+      />
+      <div
+        className={`pointer-events-none absolute inset-y-0 left-0 z-0 w-[85%] bg-gradient-to-r ${PILLAR_WASH[pillar.id]} to-transparent`}
+        aria-hidden
+      />
+      <div
+        className={`pointer-events-none absolute -left-6 top-1/2 z-0 h-48 w-48 -translate-y-1/2 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${PILLAR_ORB[pillar.id]}`}
+        aria-hidden
+      />
+      <div
+        className={`pointer-events-none absolute -right-10 -top-12 z-0 h-40 w-40 rounded-full blur-3xl opacity-70 transition duration-700 group-hover:scale-110 ${PILLAR_ORB[pillar.id]}`}
         aria-hidden
       />
 

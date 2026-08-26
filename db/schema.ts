@@ -48,6 +48,8 @@ export const user = pgTable(
     orgAdmin: boolean("org_admin").notNull().default(false),
     /** true = MDP provisoire / migration — forcer le changement avant l’intranet. */
     mustChangePassword: boolean("must_change_password").notNull().default(true),
+    /** Dernier envoi d’un lien d’invitation / reset (tracking admin). */
+    invitationSentAt: timestamp("invitation_sent_at", { withTimezone: true }),
     /** Plugin Better-Auth twoFactor. */
     twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

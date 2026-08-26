@@ -5,9 +5,11 @@ import { getDb, isDatabaseConfigured } from "@/db/index";
 import { user, userRole } from "@/db/schema";
 import type { DirectoryMemberRow } from "@/app/lib/directory-members";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
+import { ensureUserInvitationSentAtColumn } from "@/app/lib/user-invitation-sent";
 
 export async function listMembersFromDb(etablissementId: string): Promise<DirectoryMemberRow[]> {
   if (!isDatabaseConfigured()) return [];
+  await ensureUserInvitationSentAtColumn();
   const db = getDb();
   const users = await db.select().from(user).where(eq(user.etablissementId, etablissementId));
   const rows: DirectoryMemberRow[] = [];
@@ -23,6 +25,7 @@ export async function listMembersFromDb(etablissementId: string): Promise<Direct
       roles,
       pending: !u.emailVerified || u.mustChangePassword || !u.twoFactorEnabled,
       mfaEnabled: u.twoFactorEnabled,
+      invitationSentAt: u.invitationSentAt ? u.invitationSentAt.toISOString() : null,
       createdAt: u.createdAt.toISOString(),
       updatedAt: u.updatedAt.toISOString(),
     });

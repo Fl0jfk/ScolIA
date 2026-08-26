@@ -13,7 +13,7 @@ import {
   foyerResponsable,
 } from "@/db/schema";
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { resolveCurrentEtablissementId, syncEleveScolariteFromEleveRow } from "@/app/lib/ent-core-db";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import {
   canRegisterEleveDocument,
@@ -157,6 +157,14 @@ export async function GET(_req: Request, ctx: Ctx) {
   }
 
   await ensureEleveScolariteGrilleRepasColumn();
+
+  // Rattrapage : l’import remplit le registre plat ; la scolarité année courante
+  // doit suivre (classe / site / demi-pension) sans forcer un nouvel import.
+  await syncEleveScolariteFromEleveRow(etabId, {
+    id: row.id,
+    classe: row.classe,
+    regime: row.regime,
+  });
 
   const scolarites = await db
     .select()

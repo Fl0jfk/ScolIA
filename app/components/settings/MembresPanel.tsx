@@ -9,6 +9,7 @@ import {
   settingsSelectClass,
 } from "@/app/components/settings/SettingsChrome";
 import { dash } from "@/app/lib/dashboard-brand";
+import { invitationRecentlySent } from "@/app/lib/invitation-window";
 
 type RoleOption = { slug: string; label: string };
 
@@ -21,6 +22,7 @@ type RegistryUserRow = {
   roles: string[];
   pending?: boolean;
   mfaEnabled?: boolean;
+  invitationSentAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -97,6 +99,7 @@ export default function MembresPanel() {
   const [editRoles, setEditRoles] = useState<string[]>([]);
   const [savingEdit, setSavingEdit] = useState(false);
   const [invitingEmail, setInvitingEmail] = useState<string | null>(null);
+  const [bulkSending, setBulkSending] = useState(false);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("name");
@@ -230,20 +233,32 @@ export default function MembresPanel() {
     }
   };
 
+  const pendingInviteTargets = useMemo(
+    () =>
+      users.filter(
+        (u) => !u.mfaEnabled && !invitationRecentlySent(u.invitationSentAt),
+      ),
+    [users],
+  );
+
   const sendInvitationLink = async (u: RegistryUserRow) => {
     const name = labelFor(u);
     const mfa = u.mfaEnabled === true;
+    const recent = invitationRecentlySent(u.invitationSentAt);
     const confirmMsg = mfa
       ? `Réinitialiser l’accès de ${name} (${u.email}) ?\n\n` +
         `ATTENTION : ce compte a déjà la MFA.\n` +
         `Le lien d’invitation va :\n` +
         `• invalider l’ancien mot de passe\n` +
         `• supprimer la double authentification actuelle\n` +
-        `• envoyer un e-mail (lien 1 h) pour tout recommencer (nouveau MDP + nouvelle MFA)\n\n` +
+        `• envoyer un e-mail (lien 12 h) pour tout recommencer (nouveau MDP + nouvelle MFA)\n\n` +
         `À utiliser seulement si la personne a perdu l’accès ou doit repartir de zéro.`
-      : `Envoyer un lien d’invitation à ${name} (${u.email}) ?\n\n` +
-        `La personne reçoit un e-mail pour créer son mot de passe (lien valable 12 h), puis active la MFA.\n` +
-        `Un éventuel ancien mot de passe ne fonctionnera plus.`;
+      : recent
+        ? `Réenvoyer le lien d’invitation à ${name} (${u.email}) ?\n\n` +
+          `Un lien a déjà été envoyé il y a moins de 12 heures. Un nouveau lien invalidera l’ancien.`
+        : `Envoyer un lien d’invitation à ${name} (${u.email}) ?\n\n` +
+          `La personne reçoit un e-mail pour créer son mot de passe (lien valable 12 h), puis active la MFA.\n` +
+          `Un éventuel ancien mot de passe ne fonctionnera plus.`;
 
     if (!confirm(confirmMsg)) return;
 
@@ -267,6 +282,46 @@ export default function MembresPanel() {
     }
   };
 
+  const sendBulkPendingInvites = async () => {
+    const n = pendingInviteTargets.length;
+    if (n === 0) {
+      setError("Personne à inviter : MFA déjà active ou invitation déjà envoyée récemment (< 12 h).");
+      return;
+    }
+    if (
+      !confirm(
+        `Envoyer une invitation à ${n} personne(s) qui n’ont pas encore reçu de lien récent ?\n\n` +
+          `Les comptes déjà activés (MFA) et ceux déjà invités il y a moins de 12 h sont exclus.`,
+      )
+    ) {
+      return;
+    }
+    setBulkSending(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch("/api/admin/auth/send-activation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bulkPending: true }),
+      });
+      const j = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        sent?: number;
+        failed?: number;
+      };
+      if (!res.ok) throw new Error(j.error || "Envoi groupé impossible");
+      setSuccess(j.message || `${j.sent ?? 0} invitation(s) envoyée(s).`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBulkSending(false);
+    }
+  };
+
   if (loading) return <SettingsLoading label="Chargement des utilisateurs…" />;
 
   return (
@@ -278,11 +333,21 @@ export default function MembresPanel() {
       <SettingsSection>
         <h3 className={`text-sm font-semibold ${dash.ink}`}>Lien d’invitation</h3>
         <p className={`mt-1 text-sm ${dash.textMid}`}>
-          Envoie un e-mail pour créer le mot de passe (lien 1&nbsp;h), puis activer la MFA. Sur un
+          Envoie un e-mail pour créer le mot de passe (lien 12&nbsp;h), puis activer la MFA. Après envoi,
+          le bouton devient <strong>Réenvoyer le lien</strong> (ligne grisée) pendant 12&nbsp;h. Sur un
           compte <strong>déjà activé (MFA)</strong>, le bouton devient une{" "}
-          <strong>réinitialisation complète</strong> : ancien MDP + MFA effacés, la personne repart
-          de zéro — à réserver aux cas où l’accès est perdu.
+          <strong>réinitialisation complète</strong> — à réserver aux cas où l’accès est perdu.
         </p>
+        <button
+          type="button"
+          disabled={bulkSending || pendingInviteTargets.length === 0}
+          onClick={() => void sendBulkPendingInvites()}
+          className="mt-3 rounded-2xl bg-[var(--dash-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+        >
+          {bulkSending
+            ? "Envoi groupé…"
+            : `Inviter tous ceux sans lien récent (${pendingInviteTargets.length})`}
+        </button>
       </SettingsSection>
 
       {error ? <SettingsNotice tone="error">{error}</SettingsNotice> : null}
@@ -396,17 +461,42 @@ export default function MembresPanel() {
           {filteredUsers.map((u) => {
             const key = u.externalUserId || u.email;
             const name = labelFor(u);
+            const recentInvite = invitationRecentlySent(u.invitationSentAt);
+            const rowMuted = recentInvite && !u.mfaEnabled;
             return (
-              <li key={key} className="rounded-2xl border border-white/55 bg-white/55 p-4 backdrop-blur-xl hover:bg-white/75">
+              <li
+                key={key}
+                className={`rounded-2xl border p-4 backdrop-blur-xl ${
+                  rowMuted
+                    ? "border-slate-200/80 bg-slate-100/70 opacity-80"
+                    : "border-white/55 bg-white/55 hover:bg-white/75"
+                }`}
+              >
                 <div className="flex flex-wrap justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-bold text-slate-900 truncate">{name}</p>
+                    <p className={`font-bold truncate ${rowMuted ? "text-slate-600" : "text-slate-900"}`}>
+                      {name}
+                    </p>
                     <p className="text-sm text-slate-500 truncate">{u.email}</p>
                     {editingKey !== key && (
                       <p className={`mt-1 text-xs font-medium ${dash.textPrimary}`}>{roleLabels(u.roles)}</p>
                     )}
-                    {u.pending && !u.mfaEnabled && (
+                    {u.pending && !u.mfaEnabled && !recentInvite && (
                       <span className="text-xs text-amber-600 font-bold">Invitation / activation en attente</span>
+                    )}
+                    {recentInvite && !u.mfaEnabled && (
+                      <span className="text-xs text-slate-500 font-bold">
+                        Lien envoyé
+                        {u.invitationSentAt
+                          ? ` le ${new Date(u.invitationSentAt).toLocaleString("fr-FR", {
+                              day: "2-digit",
+                              month: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}`
+                          : ""}{" "}
+                        — encore valable
+                      </span>
                     )}
                     {u.mfaEnabled && (
                       <span className="text-xs text-emerald-700 font-bold">Compte activé (MFA)</span>
@@ -418,19 +508,25 @@ export default function MembresPanel() {
                         <button
                           type="button"
                           onClick={() => void sendInvitationLink(u)}
-                          disabled={invitingEmail === u.email}
-                          className={`text-sm font-semibold ${dash.textPrimary} disabled:opacity-50`}
+                          disabled={invitingEmail === u.email || bulkSending}
+                          className={`text-sm font-semibold disabled:opacity-50 ${
+                            rowMuted ? "text-slate-500" : dash.textPrimary
+                          }`}
                           title={
                             u.mfaEnabled
                               ? "Réinitialise MDP + MFA et renvoie un lien d’invitation"
-                              : "Envoie un lien d’invitation (création du mot de passe)"
+                              : recentInvite
+                                ? "Réenvoyer un nouveau lien (invalide l’ancien)"
+                                : "Envoie un lien d’invitation (création du mot de passe)"
                           }
                         >
                           {invitingEmail === u.email
                             ? "Envoi…"
                             : u.mfaEnabled
                               ? "Réinit. accès"
-                              : "Lien d’invitation"}
+                              : recentInvite
+                                ? "Réenvoyer le lien"
+                                : "Lien d’invitation"}
                         </button>
                         <button type="button" onClick={() => startEdit(u)} className={`text-sm font-semibold ${dash.textPrimary}`}>
                           Modifier

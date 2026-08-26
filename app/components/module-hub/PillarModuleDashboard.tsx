@@ -19,7 +19,7 @@ import { notificationCountForModule } from "@/app/lib/dashboard-signals";
 import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
 import { MODULE_EMOJI, moduleHref } from "@/app/lib/pillar-module-routes";
 import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
-import { PILLAR_ORB } from "@/app/lib/dashboard-pillar-visual";
+import { PILLAR_EDGE, PILLAR_ORB, PILLAR_WASH } from "@/app/lib/dashboard-pillar-visual";
 
 type Props = {
   pillarId: DashboardPillarId;
@@ -234,13 +234,13 @@ function ModuleCard({
   category,
   previews,
   index,
-  orbClass,
+  pillarId,
   notifCount = 0,
 }: {
   category: DashboardCategory;
   previews: PreviewLine[];
   index: number;
-  orbClass: string;
+  pillarId: DashboardPillarId;
   notifCount?: number;
 }) {
   const href = category.link || moduleHref(category.moduleId);
@@ -256,7 +256,19 @@ function ModuleCard({
     >
       <GlassLayer className="bg-white/45 backdrop-blur-2xl" />
       <div
-        className={`pointer-events-none absolute -right-10 -top-12 z-0 h-44 w-44 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${orbClass}`}
+        className={`pointer-events-none absolute inset-y-0 left-0 z-0 w-1.5 ${PILLAR_EDGE[pillarId]}`}
+        aria-hidden
+      />
+      <div
+        className={`pointer-events-none absolute inset-y-0 left-0 z-0 w-[85%] bg-gradient-to-r ${PILLAR_WASH[pillarId]} to-transparent`}
+        aria-hidden
+      />
+      <div
+        className={`pointer-events-none absolute -left-6 top-1/2 z-0 h-48 w-48 -translate-y-1/2 rounded-full blur-3xl transition duration-700 group-hover:scale-110 ${PILLAR_ORB[pillarId]}`}
+        aria-hidden
+      />
+      <div
+        className={`pointer-events-none absolute -right-10 -top-12 z-0 h-40 w-40 rounded-full blur-3xl opacity-70 transition duration-700 group-hover:scale-110 ${PILLAR_ORB[pillarId]}`}
         aria-hidden
       />
 
@@ -360,7 +372,6 @@ export default function PillarModuleDashboard({
     return [...modules].sort((a, b) => score(a.moduleId) - score(b.moduleId));
   }, [modules, pillarShortcuts]);
 
-  const orb = PILLAR_ORB[pillarId];
   const count = orderedModules.length;
   const gridClass =
     count <= 2
@@ -400,7 +411,7 @@ export default function PillarModuleDashboard({
                   key={cat.moduleId}
                   category={cat}
                   index={i}
-                  orbClass={orb}
+                  pillarId={pillarId}
                   notifCount={notificationCountForModule(cat.moduleId, notifications)}
                   previews={
                     loadingSignals

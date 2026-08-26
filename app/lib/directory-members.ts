@@ -18,6 +18,8 @@ export type DirectoryMemberRow = {
   pending: boolean;
   /** Compte déjà passé par MFA (activation terminée). */
   mfaEnabled?: boolean;
+  /** ISO — dernier envoi d’un lien d’invitation. */
+  invitationSentAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };

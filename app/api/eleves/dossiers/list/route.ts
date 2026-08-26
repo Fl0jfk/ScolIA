@@ -16,6 +16,7 @@ import {
   resolveSiteLabel,
 } from "@/app/lib/eleve-dossier-catalog";
 import { requireTenantId } from "@/app/lib/tenant-scope";
+import { backfillElevesScolariteCouranteOnce } from "@/app/lib/ent-core-db";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { etablissementSite } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -71,6 +72,12 @@ export async function GET(req: NextRequest) {
       { error: "Liste dossiers indisponible sans base ENT.", code: "ENT_DB_REQUIRED" },
       { status: 503 },
     );
+  }
+
+  try {
+    await backfillElevesScolariteCouranteOnce(tenant.ctx.etablissementId);
+  } catch (e) {
+    console.warn("[eleves/dossiers/list] backfill scolarité", e);
   }
 
   const elevesRaw = await listElevesDossierFromDb(tenant.ctx.etablissementId, {

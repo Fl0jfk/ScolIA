@@ -24,6 +24,12 @@ import type { ClassAllocationTeacherAssignment } from "@/app/lib/class-allocatio
 import { classKey } from "@/app/lib/stage-referents-config";
 import type { PersonnelRecord } from "@/app/lib/personnel-types";
 import { normalizePersonnelRecord } from "@/app/lib/personnel-types";
+import { classifyRegime } from "@/app/lib/eleve-regime";
+import {
+  buildEleveDossierClassCatalog,
+  resolveSiteIdForClass,
+  type EleveDossierClassCatalog,
+} from "@/app/lib/eleve-dossier-catalog";
 
 /** Forme roster (évite import circulaire avec school-roster.ts). */
 export type EntSchoolRosterConfig = {
@@ -167,6 +173,16 @@ export async function upsertElevesInDb(
   let updates = 0;
   const chunk = 100;
 
+  const sites = await db
+    .select({
+      siteId: etablissementSite.siteId,
+      label: etablissementSite.label,
+      kind: etablissementSite.kind,
+    })
+    .from(etablissementSite)
+    .where(eq(etablissementSite.etablissementId, etablissementId));
+  const catalog = await buildEleveDossierClassCatalog(sites);
+
   for (let i = 0; i < eleves.length; i += chunk) {
     const slice = eleves.slice(i, i + chunk);
     for (const e of slice) {
@@ -182,11 +198,21 @@ export async function upsertElevesInDb(
       if (existing) {
         await db.update(eleve).set(values).where(eq(eleve.id, existing.id));
         updates += 1;
-        await ensureEleveScolariteCourante(etablissementId, existing.id, values.classe);
+        await ensureEleveScolariteCourante(
+          etablissementId,
+          existing.id,
+          { classe: values.classe, regime: values.regime },
+          catalog,
+        );
       } else {
         const [created] = await db.insert(eleve).values(values).returning({ id: eleve.id });
         inserts += 1;
-        await ensureEleveScolariteCourante(etablissementId, created.id, values.classe);
+        await ensureEleveScolariteCourante(
+          etablissementId,
+          created.id,
+          { classe: values.classe, regime: values.regime },
+          catalog,
+        );
       }
     }
   }
@@ -194,16 +220,48 @@ export async function upsertElevesInDb(
   return { inserts, updates };
 }
 
-async function ensureEleveScolariteCourante(
+/**
+ * Aligne la scolarité de l’année courante sur le registre plat (classe / régime / site).
+ * Appelé à l’import et en rattrapage à l’ouverture du dossier.
+ */
+export async function ensureEleveScolariteCourante(
   etablissementId: string,
   eleveId: string,
-  classe: string | null,
+  input: { classe: string | null; regime?: string | null },
+  catalog?: EleveDossierClassCatalog,
 ): Promise<void> {
-  if (!classe?.trim()) return;
+  const classe = input.classe?.trim() || null;
+  if (!classe) return;
+
   const db = getDb();
   const anneeId = await ensureCurrentAnneeScolaire(etablissementId);
+
+  let resolvedCatalog = catalog;
+  if (!resolvedCatalog) {
+    const sites = await db
+      .select({
+        siteId: etablissementSite.siteId,
+        label: etablissementSite.label,
+        kind: etablissementSite.kind,
+      })
+      .from(etablissementSite)
+      .where(eq(etablissementSite.etablissementId, etablissementId));
+    resolvedCatalog = await buildEleveDossierClassCatalog(sites);
+  }
+
+  const siteId = resolveSiteIdForClass(classe, resolvedCatalog);
+  const regimeKind = classifyRegime(input.regime);
+  const demiPension = regimeKind === "demi_pension";
+  const hasRegimeInfo = Boolean(String(input.regime ?? "").trim());
+
   const [existing] = await db
-    .select({ id: eleveScolarite.id, classe: eleveScolarite.classe })
+    .select({
+      id: eleveScolarite.id,
+      classe: eleveScolarite.classe,
+      siteId: eleveScolarite.siteId,
+      demiPension: eleveScolarite.demiPension,
+      statut: eleveScolarite.statut,
+    })
     .from(eleveScolarite)
     .where(
       and(
@@ -215,10 +273,22 @@ async function ensureEleveScolariteCourante(
     .limit(1);
 
   if (existing) {
-    if (existing.classe !== classe.trim()) {
+    const changed =
+      existing.classe !== classe ||
+      (siteId != null && existing.siteId !== siteId) ||
+      (hasRegimeInfo && existing.demiPension !== demiPension) ||
+      existing.statut !== "en_cours";
+
+    if (changed) {
       await db
         .update(eleveScolarite)
-        .set({ classe: classe.trim(), statut: "en_cours", updatedAt: new Date() })
+        .set({
+          classe,
+          ...(siteId ? { siteId } : {}),
+          ...(hasRegimeInfo ? { demiPension } : {}),
+          statut: "en_cours",
+          updatedAt: new Date(),
+        })
         .where(eq(eleveScolarite.id, existing.id));
     }
     return;
@@ -228,9 +298,60 @@ async function ensureEleveScolariteCourante(
     etablissementId,
     eleveId,
     anneeScolaireId: anneeId,
-    classe: classe.trim(),
+    classe,
+    ...(siteId ? { siteId } : {}),
+    demiPension,
     statut: "en_cours",
   });
+}
+
+/** Rattrapage : crée / met à jour la scolarité courante depuis la fiche élève plate. */
+export async function syncEleveScolariteFromEleveRow(
+  etablissementId: string,
+  row: Pick<EleveRow, "id" | "classe" | "regime">,
+  catalog?: EleveDossierClassCatalog,
+): Promise<void> {
+  await ensureEleveScolariteCourante(
+    etablissementId,
+    row.id,
+    { classe: row.classe, regime: row.regime },
+    catalog,
+  );
+}
+
+const scolariteBackfillDone = new Set<string>();
+
+/**
+ * Une fois par process / établissement : aligne toutes les scolarités année courante
+ * sur le registre plat (après un import déjà fait sans sync complète).
+ */
+export async function backfillElevesScolariteCouranteOnce(
+  etablissementId: string,
+): Promise<number> {
+  if (scolariteBackfillDone.has(etablissementId)) return 0;
+  const db = getDb();
+  const sites = await db
+    .select({
+      siteId: etablissementSite.siteId,
+      label: etablissementSite.label,
+      kind: etablissementSite.kind,
+    })
+    .from(etablissementSite)
+    .where(eq(etablissementSite.etablissementId, etablissementId));
+  const catalog = await buildEleveDossierClassCatalog(sites);
+  const rows = await db
+    .select({ id: eleve.id, classe: eleve.classe, regime: eleve.regime })
+    .from(eleve)
+    .where(eq(eleve.etablissementId, etablissementId));
+
+  let touched = 0;
+  for (const row of rows) {
+    if (!row.classe?.trim()) continue;
+    await syncEleveScolariteFromEleveRow(etablissementId, row, catalog);
+    touched += 1;
+  }
+  scolariteBackfillDone.add(etablissementId);
+  return touched;
 }
 
 export async function replaceElevesInDb(
