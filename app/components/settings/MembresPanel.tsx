@@ -97,6 +97,7 @@ export default function MembresPanel() {
   const [inviteRoles, setInviteRoles] = useState<string[]>([]);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editRoles, setEditRoles] = useState<string[]>([]);
+  const [editEmail, setEditEmail] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [invitingEmail, setInvitingEmail] = useState<string | null>(null);
   const [bulkSending, setBulkSending] = useState(false);
@@ -188,28 +189,44 @@ export default function MembresPanel() {
   const startEdit = (u: RegistryUserRow) => {
     setEditingKey(u.externalUserId || u.email);
     setEditRoles([...u.roles]);
+    setEditEmail(u.email);
   };
 
   const saveEdit = async (u: RegistryUserRow) => {
+    const nextEmail = editEmail.trim().toLowerCase();
+    if (!nextEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+      setError("Adresse e-mail invalide.");
+      return;
+    }
     if (editRoles.length === 0) {
       setError("Sélectionnez au moins un rôle.");
       return;
     }
     setSavingEdit(true);
     setError(null);
+    setSuccess(null);
     try {
       const res = await fetch("/api/members", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           externalUserId: u.externalUserId || undefined,
-          email: u.email,
+          email: nextEmail,
           intranetRoles: editRoles,
         }),
       });
-      const j = await res.json();
+      const j = (await res.json()) as {
+        error?: string;
+        emailChanged?: boolean;
+        user?: { email?: string };
+      };
       if (!res.ok) throw new Error(j.error || "Échec");
       setEditingKey(null);
+      if (j.emailChanged) {
+        setSuccess(
+          `E-mail de connexion mis à jour (${j.user?.email ?? nextEmail}). Les sessions actives de ce compte ont été fermées.`,
+        );
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -477,7 +494,9 @@ export default function MembresPanel() {
                     <p className={`font-bold truncate ${rowMuted ? "text-slate-600" : "text-slate-900"}`}>
                       {name}
                     </p>
-                    <p className="text-sm text-slate-500 truncate">{u.email}</p>
+                    {editingKey !== key && (
+                      <p className="text-sm text-slate-500 truncate">{u.email}</p>
+                    )}
                     {editingKey !== key && (
                       <p className={`mt-1 text-xs font-medium ${dash.textPrimary}`}>{roleLabels(u.roles)}</p>
                     )}
@@ -540,6 +559,17 @@ export default function MembresPanel() {
                 </div>
                 {editingKey === key && (
                   <div className="mt-4 pt-4 border-t space-y-3">
+                    <label className="block space-y-1">
+                      <span className="text-xs font-bold text-slate-500">E-mail de connexion</span>
+                      <input
+                        type="email"
+                        className={settingsInputClass}
+                        value={editEmail}
+                        onChange={(e) => setEditEmail(e.target.value)}
+                        autoComplete="off"
+                        required
+                      />
+                    </label>
                     <RoleCheckboxes options={roleOptions} selected={editRoles} onChange={setEditRoles} />
                     <div className="flex gap-2">
                       <button
@@ -552,7 +582,10 @@ export default function MembresPanel() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setEditingKey(null)}
+                        onClick={() => {
+                          setEditingKey(null);
+                          setEditEmail("");
+                        }}
                         className="px-4 py-2 rounded-xl bg-slate-100 text-sm font-bold"
                       >
                         Annuler

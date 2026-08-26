@@ -15,6 +15,7 @@ import { isExcludedFromDossierList } from "@/app/lib/eleve-dossier-catalog";
 
 export {
   canViewFullElevesDossierHub,
+  canManageElevePreinscriptions,
   isProfesseurScopedDossierViewer,
   ADMINISTRATIF_PROF_MODULE_IDS,
 } from "@/app/lib/eleve-dossier-scope";

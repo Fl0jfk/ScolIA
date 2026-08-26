@@ -69,6 +69,7 @@ export default function ElevesDossiersListClient() {
   const [accessReqs, setAccessReqs] = useState<AccessReq[]>([]);
   const [canDecideAccess, setCanDecideAccess] = useState(false);
   const [canViewFullHub, setCanViewFullHub] = useState(false);
+  const [canManagePreinscriptions, setCanManagePreinscriptions] = useState(false);
   const [profScoped, setProfScoped] = useState(false);
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [siteLabelById, setSiteLabelById] = useState<Record<string, string>>({});
@@ -106,6 +107,11 @@ export default function ElevesDossiersListClient() {
       setTab(nextTab);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (tab === "preinscriptions" && !canManagePreinscriptions) setTab("dossiers");
+    if (tab === "acces" && !canViewFullHub) setTab("dossiers");
+  }, [tab, canManagePreinscriptions, canViewFullHub]);
 
   const listQueryString = useMemo(() => {
     const p = new URLSearchParams();
@@ -145,6 +151,7 @@ export default function ElevesDossiersListClient() {
     const j = (await res.json()) as {
       eleves: EleveRow[];
       canViewFullHub: boolean;
+      canManagePreinscriptions?: boolean;
       profScoped: boolean;
       assignedClasses: string[];
       sites: SiteOption[];
@@ -154,6 +161,7 @@ export default function ElevesDossiersListClient() {
     };
     setEleves(j.eleves || []);
     setCanViewFullHub(Boolean(j.canViewFullHub));
+    setCanManagePreinscriptions(Boolean(j.canManagePreinscriptions));
     setProfScoped(Boolean(j.profScoped));
     setSites(j.sites || []);
     setSiteLabelById(j.siteLabelById || {});
@@ -175,27 +183,38 @@ export default function ElevesDossiersListClient() {
   }, [loadDossiers]);
 
   useEffect(() => {
-    if (!canViewFullHub) return;
+    if (!canViewFullHub && !canManagePreinscriptions) return;
     void (async () => {
       try {
-        const [pr, ar] = await Promise.all([
-          fetch("/api/eleves/preinscriptions?status=pending"),
-          fetch("/api/eleves/document-access-requests?status=pending"),
-        ]);
-        if (pr.ok) {
-          const j = (await pr.json()) as { preinscriptions: Preinsc[] };
-          setPreinsc(j.preinscriptions || []);
+        const fetches: Promise<Response>[] = [];
+        if (canManagePreinscriptions) {
+          fetches.push(fetch("/api/eleves/preinscriptions?status=pending"));
         }
-        if (ar.ok) {
-          const j = (await ar.json()) as { requests: AccessReq[]; canDecide: boolean };
-          setAccessReqs(j.requests || []);
-          setCanDecideAccess(Boolean(j.canDecide));
+        if (canViewFullHub) {
+          fetches.push(fetch("/api/eleves/document-access-requests?status=pending"));
+        }
+        const results = await Promise.all(fetches);
+        let idx = 0;
+        if (canManagePreinscriptions) {
+          const pr = results[idx++]!;
+          if (pr.ok) {
+            const j = (await pr.json()) as { preinscriptions: Preinsc[] };
+            setPreinsc(j.preinscriptions || []);
+          }
+        }
+        if (canViewFullHub) {
+          const ar = results[idx++]!;
+          if (ar.ok) {
+            const j = (await ar.json()) as { requests: AccessReq[]; canDecide: boolean };
+            setAccessReqs(j.requests || []);
+            setCanDecideAccess(Boolean(j.canDecide));
+          }
         }
       } catch {
         /* onglets admin secondaires */
       }
     })();
-  }, [canViewFullHub]);
+  }, [canViewFullHub, canManagePreinscriptions]);
 
   const hasActiveSearch = Boolean(
     q.trim() || classeFilter || siteFilter || statusFilter,
@@ -290,10 +309,12 @@ export default function ElevesDossiersListClient() {
         description={
           profScoped
             ? "Recherchez un élève de vos classes — fiche pédagogique uniquement."
-            : "Recherchez un élève, ou gérez les préinscriptions."
+            : canManagePreinscriptions
+              ? "Recherchez un élève, ou gérez les préinscriptions."
+              : "Recherchez un élève dans le référentiel."
         }
         actions={
-          canViewFullHub ? (
+          canManagePreinscriptions ? (
             <Link href="/preinscription" className="text-sm font-bold text-indigo-600 hover:underline">
               Formulaire public
             </Link>
@@ -311,27 +332,27 @@ export default function ElevesDossiersListClient() {
         >
           {hasActiveSearch ? `Dossiers (${filtered.length})` : "Dossiers"}
         </button>
+        {canManagePreinscriptions ? (
+          <button
+            type="button"
+            onClick={() => setTab("preinscriptions")}
+            className={`rounded-xl px-4 py-2 text-sm font-bold border ${
+              tab === "preinscriptions" ? "bg-slate-900 text-white" : "bg-white border-slate-200"
+            }`}
+          >
+            Préinscriptions ({preFiltered.length})
+          </button>
+        ) : null}
         {canViewFullHub ? (
-          <>
-            <button
-              type="button"
-              onClick={() => setTab("preinscriptions")}
-              className={`rounded-xl px-4 py-2 text-sm font-bold border ${
-                tab === "preinscriptions" ? "bg-slate-900 text-white" : "bg-white border-slate-200"
-              }`}
-            >
-              Préinscriptions ({preFiltered.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("acces")}
-              className={`rounded-xl px-4 py-2 text-sm font-bold border ${
-                tab === "acces" ? "bg-slate-900 text-white" : "bg-white border-slate-200"
-              }`}
-            >
-              Accès documents ({accessReqs.length})
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => setTab("acces")}
+            className={`rounded-xl px-4 py-2 text-sm font-bold border ${
+              tab === "acces" ? "bg-slate-900 text-white" : "bg-white border-slate-200"
+            }`}
+          >
+            Accès documents ({accessReqs.length})
+          </button>
         ) : null}
       </div>
 
@@ -507,7 +528,7 @@ export default function ElevesDossiersListClient() {
         </div>
       ) : null}
 
-      {tab === "preinscriptions" && canViewFullHub ? (
+      {tab === "preinscriptions" && canManagePreinscriptions ? (
         <>
           <div className="mb-4 flex flex-wrap gap-2">
             <button

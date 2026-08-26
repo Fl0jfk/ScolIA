@@ -7,7 +7,7 @@
 import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
 import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 
-/** Accès hub dossiers complet (préinscriptions, accès docs, tous les élèves). */
+/** Accès hub dossiers complet (accès docs, tous les élèves, filtres établissement). */
 export function canViewFullElevesDossierHub(opts: {
   roles: string[];
   orgAdmin?: boolean;
@@ -21,6 +21,20 @@ export function canViewFullElevesDossierHub(opts: {
     hasRole(opts.roles, "cpe") ||
     opts.roles.includes("admin")
   );
+}
+
+/**
+ * Préinscriptions : uniquement administratif + direction (pas CPE / surveillant / prof…).
+ */
+export function canManageElevePreinscriptions(opts: {
+  roles: string[];
+  orgAdmin?: boolean;
+  platformAdmin?: boolean;
+}): boolean {
+  if (opts.platformAdmin || opts.orgAdmin || hasGlobalAdminRole(opts.roles)) return true;
+  if (opts.roles.includes("admin")) return true;
+  if (INTRANET_DIRECTION_SLUGS.some((slug) => opts.roles.includes(slug))) return true;
+  return hasRole(opts.roles, "administratif");
 }
 
 /**

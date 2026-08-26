@@ -5,10 +5,8 @@ import { eleve, preinscription } from "@/db/schema";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getAppSession } from "@/app/lib/intranet-session";
+import { canManageElevePreinscriptions } from "@/app/lib/eleve-dossier-scope";
 import { recordEleveAccessAudit } from "@/app/lib/eleve-dossier-access";
-import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
-import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
-import { canViewFullElevesDossierHub } from "@/app/lib/eleve-dossier-scope";
 
 /** Liste des préinscriptions du tenant (filtrable par site). */
 export async function GET(req: Request) {
@@ -19,13 +17,16 @@ export async function GET(req: Request) {
   if (!session?.user) {
     return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   }
-  const fullHub = canViewFullElevesDossierHub({
+  const allowed = canManageElevePreinscriptions({
     roles: session.user.roles,
     orgAdmin: session.user.orgAdmin,
     platformAdmin: session.user.platformAdmin,
   });
-  if (!fullHub) {
-    return NextResponse.json({ error: "Accès réservé au staff administratif." }, { status: 403 });
+  if (!allowed) {
+    return NextResponse.json(
+      { error: "Préinscriptions réservées à l’administratif et à la direction." },
+      { status: 403 },
+    );
   }
 
   const etabId = await resolveCurrentEtablissementId();
@@ -129,13 +130,11 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   }
   const roles = session.user.roles;
-  const canDecide =
-    session.user.orgAdmin ||
-    session.user.platformAdmin ||
-    roles.includes("admin") ||
-    hasGlobalAdminRole(roles) ||
-    hasRole(roles, "administratif") ||
-    INTRANET_DIRECTION_SLUGS.some((s) => roles.includes(s));
+  const canDecide = canManageElevePreinscriptions({
+    roles,
+    orgAdmin: session.user.orgAdmin,
+    platformAdmin: session.user.platformAdmin,
+  });
   if (!canDecide) {
     return NextResponse.json({ error: "Droits insuffisants." }, { status: 403 });
   }

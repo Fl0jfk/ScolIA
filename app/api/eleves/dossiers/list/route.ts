@@ -2,6 +2,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
 import {
+  canManageElevePreinscriptions,
   canViewFullElevesDossierHub,
   isProfesseurScopedDossierViewer,
   listAssignedClassesForTeacher,
@@ -41,6 +42,11 @@ export async function GET(req: NextRequest) {
     orgAdmin: user.orgAdmin,
     platformAdmin: user.platformAdmin,
   });
+  const canManagePreinscriptions = canManageElevePreinscriptions({
+    roles: user.roles,
+    orgAdmin: user.orgAdmin,
+    platformAdmin: user.platformAdmin,
+  });
   const profScoped = isProfesseurScopedDossierViewer({
     roles: user.roles,
     orgAdmin: user.orgAdmin,
@@ -55,6 +61,7 @@ export async function GET(req: NextRequest) {
         eleves: [],
         assignedClasses: [],
         canViewFullHub: false,
+        canManagePreinscriptions: false,
         profScoped: true,
         sites: [],
         message:
@@ -168,6 +175,7 @@ export async function GET(req: NextRequest) {
     ),
     assignedClasses: assignedClasses ?? [],
     canViewFullHub: fullHub,
+    canManagePreinscriptions,
     profScoped,
     sites: sites.map((s) => ({ siteId: s.siteId, label: s.label })),
     siteLabelById,

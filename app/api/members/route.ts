@@ -10,9 +10,9 @@ import { getTenant } from "@/app/lib/tenant-context";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { findDbUserByExternalId, listMembersFromDb } from "@/app/lib/members-db";
 import { membersApiSourceLabel } from "@/app/lib/members-sync";
-import { eq } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
-import { user } from "@/db/schema";
+import { session, user } from "@/db/schema";
 
 export async function GET(req: Request) {
   const gate = await requireAdmin();
@@ -169,6 +169,7 @@ export async function PATCH(req: Request) {
     const body = await req.json();
     const externalUserId = String(body.externalUserId ?? body.userId ?? "").trim();
     const roles = normalizeIntranetRoles(body.intranetRoles ?? body.roles);
+    const newEmailRaw = body.email != null ? String(body.email).trim().toLowerCase() : "";
     if (!externalUserId) {
       return NextResponse.json({ error: "userId requis." }, { status: 400 });
     }
@@ -177,6 +178,9 @@ export async function PATCH(req: Request) {
     }
     if (roles.length === 0) {
       return NextResponse.json({ error: "Sélectionnez au moins un rôle." }, { status: 400 });
+    }
+    if (newEmailRaw && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmailRaw)) {
+      return NextResponse.json({ error: "Adresse e-mail invalide." }, { status: 400 });
     }
     if (!isDatabaseConfigured()) {
       return NextResponse.json({ error: "Base de données requise." }, { status: 503 });
@@ -194,19 +198,63 @@ export async function PATCH(req: Request) {
     if (hasMasterRole(existingRoles)) {
       return NextResponse.json({ error: "Ce compte est protégé." }, { status: 403 });
     }
+
+    const emailChanged =
+      Boolean(newEmailRaw) && newEmailRaw !== dbUser.email.trim().toLowerCase();
+    let email = dbUser.email;
+    let emailVerified = dbUser.emailVerified;
+    let updatedAt = dbUser.updatedAt;
+
+    if (emailChanged) {
+      const db = getDb();
+      const [taken] = await db
+        .select({ id: user.id, etablissementId: user.etablissementId })
+        .from(user)
+        .where(and(sql`lower(${user.email}) = ${newEmailRaw}`, ne(user.id, dbUser.id)))
+        .limit(1);
+      if (taken) {
+        return NextResponse.json(
+          {
+            error:
+              taken.etablissementId === etablissementId
+                ? "Cet e-mail est déjà utilisé dans cet établissement."
+                : "Cet e-mail est déjà utilisé sur un autre établissement.",
+          },
+          { status: 409 },
+        );
+      }
+
+      const now = new Date();
+      await db
+        .update(user)
+        .set({
+          email: newEmailRaw,
+          emailVerified: true,
+          updatedAt: now,
+        })
+        .where(eq(user.id, dbUser.id));
+
+      await db.delete(session).where(eq(session.userId, dbUser.id));
+
+      email = newEmailRaw;
+      emailVerified = true;
+      updatedAt = now;
+    }
+
     await setUserRolesInDb(dbUser.id, etablissementId, roles);
     await syncUserAdminFlagsInDb(dbUser.id, roles);
     return NextResponse.json({
       success: true,
+      emailChanged,
       user: {
         externalUserId: dbUser.externalUserId ?? dbUser.id,
-        email: dbUser.email,
+        email,
         firstName: dbUser.firstName ?? undefined,
         lastName: dbUser.lastName ?? undefined,
         roles,
-        pending: !dbUser.emailVerified,
+        pending: !emailVerified,
         createdAt: dbUser.createdAt.toISOString(),
-        updatedAt: dbUser.updatedAt.toISOString(),
+        updatedAt: updatedAt.toISOString(),
         displayName: dbUser.name,
       },
     });
