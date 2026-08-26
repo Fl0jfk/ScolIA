@@ -77,6 +77,8 @@ export type EleveConfig = {
   parent2Phone?: string;
   /** Date de naissance (AAAA-MM-JJ) — confirmation d’identité OCR (CNI, livret). */
   dateNaissance?: string;
+  /** Lieu de naissance (ville / commune). */
+  lieuNaissance?: string;
   /** Code ou libellé MEF / formation (export Pronote) — rattachement Lycée / Collège / École. */
   mef?: string;
   /** Alias de mef si l'export nomme la colonne « formation ». */
@@ -123,6 +125,7 @@ export function validateElevesJson(
     const parent1Phone = String(o.parent1Phone ?? "").trim();
     const parent2Phone = String(o.parent2Phone ?? "").trim();
     const dateNaissance = normalizeEleveDateNaissance(o.dateNaissance ?? o.date_naissance ?? "");
+    const lieuNaissance = String(o.lieuNaissance ?? o.lieu_naissance ?? o.villeNaissance ?? "").trim();
     const regime = String(o.regime ?? o.codeRegime ?? o.code_regime ?? "").trim();
     const sexeRaw = String(o.sexe ?? "").trim().toUpperCase();
     const sexe: "M" | "F" | undefined =
@@ -155,6 +158,7 @@ export function validateElevesJson(
       ...(parent1Phone ? { parent1Phone } : {}),
       ...(parent2Phone ? { parent2Phone } : {}),
       ...(dateNaissance ? { dateNaissance } : {}),
+      ...(lieuNaissance ? { lieuNaissance } : {}),
       ...(mef ? { mef } : {}),
       ...(secteur ? { secteur } : {}),
       ...(regime ? { regime } : {}),

@@ -17,6 +17,7 @@ type EleveRow = {
   siteLabel?: string | null;
   folderName: string;
   ine: string | null;
+  photoUrl?: string | null;
 };
 
 type SiteOption = { siteId: string; label: string };
@@ -339,7 +340,7 @@ export default function ElevesDossiersListClient() {
 
       {tab === "dossiers" ? (
         <div className="space-y-4">
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white via-white to-slate-50 p-5 shadow-sm sm:p-6">
             <label htmlFor="dossier-search" className="mb-2 block text-sm font-bold text-slate-800">
               Rechercher un élève
             </label>
@@ -349,9 +350,9 @@ export default function ElevesDossiersListClient() {
               onChange={(e) => setQ(e.target.value)}
               placeholder="Nom, prénom, classe, INE…"
               autoComplete="off"
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-base text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-200"
+              className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-4 text-base text-slate-900 shadow-inner outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               {canViewFullHub ? (
                 <>
                   <select
@@ -406,6 +407,11 @@ export default function ElevesDossiersListClient() {
                   Effacer
                 </button>
               ) : null}
+              {hasActiveSearch && metaReady ? (
+                <span className="ml-auto text-xs font-semibold text-slate-500">
+                  {filtered.length} résultat{filtered.length > 1 ? "s" : ""}
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -419,27 +425,73 @@ export default function ElevesDossiersListClient() {
               </p>
             </div>
           ) : (
-            <ul className="divide-y divide-slate-100 overflow-hidden rounded-3xl border border-slate-200 bg-white">
-              {filtered.slice(0, 200).map((e) => (
-                <li key={e.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div>
-                    <p className="font-semibold text-slate-900">
-                      {e.prenom} {e.nom}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {e.classeLabel || e.classe || "—"}
-                      {canViewFullHub && e.status ? ` · ${statusLabel(e.status)}` : ""}
-                      {canViewFullHub && e.siteLabel ? ` · ${e.siteLabel}` : ""}
-                    </p>
-                  </div>
-                  <Link
-                    href={dossierHref(e.id)}
-                    className="text-sm font-bold text-indigo-600 hover:underline"
-                  >
-                    Ouvrir
-                  </Link>
-                </li>
-              ))}
+            <ul className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+              {filtered.slice(0, 200).map((e) => {
+                const initials = `${e.prenom.charAt(0)}${e.nom.charAt(0)}`.toUpperCase() || "?";
+                return (
+                  <li key={e.id} className="border-b border-slate-100 last:border-b-0">
+                    <Link
+                      href={dossierHref(e.id)}
+                      className="group flex items-center gap-3 px-3 py-3 transition hover:bg-slate-50/90 sm:gap-4 sm:px-4 sm:py-3.5"
+                    >
+                      {e.photoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={e.photoUrl}
+                          alt=""
+                          className="h-12 w-12 shrink-0 rounded-2xl object-cover ring-1 ring-slate-200 sm:h-14 sm:w-14"
+                        />
+                      ) : (
+                        <div
+                          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-600 to-slate-800 text-sm font-black tracking-wide text-white shadow-inner sm:h-14 sm:w-14 sm:text-base"
+                          aria-hidden
+                        >
+                          {initials}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                          <p className="truncate text-base font-semibold text-slate-900">
+                            {e.prenom} {e.nom}
+                          </p>
+                          {canViewFullHub && e.status ? (
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                              {statusLabel(e.status)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-slate-600">
+                          <span className="font-medium text-slate-800">
+                            {e.classeLabel || e.classe || "Classe non renseignée"}
+                          </span>
+                          {canViewFullHub && e.siteLabel ? (
+                            <>
+                              <span className="text-slate-300" aria-hidden>
+                                ·
+                              </span>
+                              <span>{e.siteLabel}</span>
+                            </>
+                          ) : null}
+                          {canViewFullHub && e.ine ? (
+                            <>
+                              <span className="text-slate-300" aria-hidden>
+                                ·
+                              </span>
+                              <span className="font-mono text-xs text-slate-500">INE {e.ine}</span>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                      <span
+                        className="shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-600"
+                        aria-hidden
+                      >
+                        →
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
               {filtered.length === 0 ? (
                 <li className="px-4 py-8 text-center text-sm text-slate-500">
                   Aucun élève ne correspond à cette recherche.

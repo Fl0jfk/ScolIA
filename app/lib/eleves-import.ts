@@ -23,6 +23,7 @@ type FieldKey =
   | "parent2Phone"
   | "folderName"
   | "dateNaissance"
+  | "lieuNaissance"
   | "regime"
   | "sexe";
 
@@ -171,6 +172,18 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "date of birth",
     "dob",
   ],
+  lieuNaissance: [
+    "lieu naissance",
+    "lieu de naissance",
+    "lieunaissance",
+    "ville naissance",
+    "ville de naissance",
+    "commune naissance",
+    "commune de naissance",
+    "birth place",
+    "birthplace",
+    "place of birth",
+  ],
   regime: [
     "libelle regime",
     "libellé régime",
@@ -240,6 +253,7 @@ function matchColumn(header: string, _source: ElevesImportSource): FieldKey | nu
     "email",
     "folderName",
     "dateNaissance",
+    "lieuNaissance",
     "regime",
     "sexe",
   ];
@@ -346,6 +360,7 @@ function mergeEleveFields(existing: EleveConfig, incoming: EleveConfig): EleveCo
   if (incoming.parent1Phone?.trim()) merged.parent1Phone = incoming.parent1Phone.trim();
   if (incoming.parent2Phone?.trim()) merged.parent2Phone = incoming.parent2Phone.trim();
   if (incoming.dateNaissance?.trim()) merged.dateNaissance = incoming.dateNaissance.trim();
+  if (incoming.lieuNaissance?.trim()) merged.lieuNaissance = incoming.lieuNaissance.trim();
   if (incoming.regime?.trim()) merged.regime = incoming.regime.trim();
   if (incoming.sexe) merged.sexe = incoming.sexe;
   if (incoming.photoKey?.trim()) merged.photoKey = incoming.photoKey.trim();
@@ -440,6 +455,8 @@ function parseRowsToEleves(
     if (p2Tel) entry.parent2Phone = p2Tel;
     const dateNaissance = normalizeEleveDateNaissance(cellStr(row, colMap.dateNaissance));
     if (dateNaissance) entry.dateNaissance = dateNaissance;
+    const lieuNaissance = cellStr(row, colMap.lieuNaissance);
+    if (lieuNaissance) entry.lieuNaissance = lieuNaissance;
     const regimeRaw = cellStr(row, colMap.regime);
     if (regimeRaw) {
       const n = normalizeHeader(regimeRaw);

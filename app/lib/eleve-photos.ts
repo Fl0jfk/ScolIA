@@ -131,7 +131,11 @@ export type PhotoBulkResult = {
   updated: number;
 };
 
-/** Enregistre des photos + index ; photoKey persisté sur le référentiel élèves (table eleve). */
+/**
+ * Enregistre des photos + index ; photoKey persisté sur le référentiel élèves (table eleve).
+ * Écrase la photo S3 existante pour le même élève (même clé).
+ * Préférer le flux batch (`eleve-photos-batch`) pour les gros volumes.
+ */
 export async function applyElevePhotosBulk(
   files: { filename: string; bytes: Uint8Array; contentType: string }[],
 ): Promise<PhotoBulkResult> {

@@ -13,7 +13,7 @@ import {
   foyerResponsable,
 } from "@/db/schema";
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { resolveCurrentEtablissementId, syncEleveScolariteFromEleveRow } from "@/app/lib/ent-core-db";
+import { resolveCurrentEtablissementId, syncEleveScolariteFromEleveRow, ensureEleveFoyerFromParentContacts } from "@/app/lib/ent-core-db";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import {
   canRegisterEleveDocument,
@@ -165,6 +165,24 @@ export async function GET(_req: Request, ctx: Ctx) {
     classe: row.classe,
     regime: row.regime,
   });
+
+  // Rattrapage famille : e-mails / tél. importés → foyer si aucun lien.
+  if (sections.includes("famille")) {
+    try {
+      await ensureEleveFoyerFromParentContacts(etabId, id, {
+        nom: row.nom,
+        prenom: row.prenom,
+        parentEmail: row.parentEmail,
+        parent1Email: row.parent1Email,
+        parent2Email: row.parent2Email,
+        parentPhone: row.parentPhone,
+        parent1Phone: row.parent1Phone,
+        parent2Phone: row.parent2Phone,
+      });
+    } catch (e) {
+      console.warn("[eleves/dossier] ensure foyer parents", e);
+    }
+  }
 
   const scolarites = await db
     .select()

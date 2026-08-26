@@ -17,6 +17,7 @@ import {
 } from "@/app/lib/eleve-dossier-catalog";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 import { backfillElevesScolariteCouranteOnce } from "@/app/lib/ent-core-db";
+import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { etablissementSite } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -103,6 +104,21 @@ export async function GET(req: NextRequest) {
   if (fullHub && siteId) {
     eleves = eleves.filter((e) => e.siteId === siteId);
   }
+
+  const photoUrls = await resolvePhotoUrlsForEleves(
+    eleves.map((e) => ({
+      id: e.id,
+      nom: e.nom,
+      prenom: e.prenom,
+      ine: e.ine,
+      photoKey: e.photoKey,
+    })),
+  );
+  eleves = eleves.map((e) => ({
+    ...e,
+    photoUrl: photoUrls[e.id] ?? null,
+    photoKey: undefined,
+  }));
 
   const extraClasses = [
     ...new Set(eleves.map((e) => e.classe).filter((c): c is string => Boolean(c?.trim()))),

@@ -53,9 +53,37 @@ function normalizeClassKey(className: string): string {
 function inferSiteKindFromClassName(className: string): EstablishmentKind | null {
   const key = normalizeClassKey(className);
   if (!key) return null;
-  if (/^(CP|CE1|CE2|CM1|CM2|M[1-3]|GS|MS|PS)/.test(key)) return "ecole";
-  if (/^[3456][A-Z]?$/.test(key)) return "college";
-  if (/^2[A-Z]?$/.test(key) || /^1[A-Z]?$/.test(key) || /^T[A-Z]?$/.test(key)) return "lycee";
+  const compact = key.replace(/[\s._\-/]+/g, "");
+  const folded = key.toLowerCase().replace(/[\s._\-/]+/g, " ").trim();
+
+  // École / maternelle / élémentaire (CP A, CE1-B, TPS, « École PS », etc.)
+  if (
+    /^(TPS|PS|MS|GS|CP|CE1|CE2|CM1|CM2|M[1-3])\b/.test(key) ||
+    /^(TPS|PS|MS|GS|CP|CE1|CE2|CM1|CM2)/.test(compact) ||
+    /\b(MATERNELLE|ELEMENTAIRE|PRIMAIRE|ECOLE)\b/.test(key)
+  ) {
+    return "ecole";
+  }
+  if (/\b(tps|ps|ms|gs|cp|ce1|ce2|cm1|cm2)\b/.test(folded)) return "ecole";
+
+  // Collège : 6A…3F, 6ème A, 3e2…
+  if (
+    /^[3456][A-Z0-9]{0,2}$/.test(compact) ||
+    /^[3456](E|EME|ÈME)/.test(compact) ||
+    /\b[3456]\s*(E|EME|ÈME)?\b/.test(key)
+  ) {
+    return "college";
+  }
+
+  // Lycée : 2A, 1B, TA, 2nde, 1re, Tle…
+  if (
+    /^(2NDE|2DE|1RE|1ERE|TLE|TERMINALE|SECONDE|PREMIERE)/.test(compact) ||
+    /^[12T][A-Z0-9]{0,2}$/.test(compact) ||
+    /^T[A-Z]$/.test(compact)
+  ) {
+    return "lycee";
+  }
+
   return null;
 }
 
@@ -68,7 +96,7 @@ function siteIdForKind(
       inferEstablishmentKind({ kind: s.kind ?? undefined, id: s.siteId, label: s.label }) ===
       kind,
   );
-  if (matches.length === 1) return matches[0]!.siteId;
+  if (matches.length >= 1) return matches[0]!.siteId;
   const byId = sites.find((s) => s.siteId === kind);
   return byId?.siteId ?? null;
 }
@@ -83,7 +111,12 @@ function fold(s: string): string {
 
 function inferKindFromPole(pole: string): EstablishmentKind | null {
   const blob = fold(pole);
-  if (blob.includes("ecole") || blob.includes("primaire") || blob.includes("elementaire")) {
+  if (
+    blob.includes("ecole") ||
+    blob.includes("primaire") ||
+    blob.includes("elementaire") ||
+    blob.includes("maternelle")
+  ) {
     return "ecole";
   }
   if (blob.includes("college")) return "college";
@@ -284,6 +317,9 @@ export function enrichEleveDossierListItem(
     siteId: string | null;
     folderName: string;
     ine: string | null;
+    photoKey?: string | null;
+    photoUrl?: string | null;
+    secteur?: string | null;
   },
   catalog: EleveDossierClassCatalog,
 ): {
@@ -297,10 +333,15 @@ export function enrichEleveDossierListItem(
   siteLabel: string | null;
   folderName: string;
   ine: string | null;
+  photoKey?: string | null;
+  photoUrl?: string | null;
 } {
   const classSiteId = resolveSiteIdForClass(row.classe, catalog);
-  const classSiteLabel = resolveSiteLabel(classSiteId, catalog);
-  const resolvedSiteId = row.siteId ?? classSiteId;
+  const secteurKind = inferKindFromPole(String(row.secteur || ""));
+  const secteurSiteId = secteurKind ? siteIdForKind(secteurKind, catalog.sites) : null;
+  // Classe > secteur import > scolarité (souvent mal rattachée avant correction).
+  const resolvedSiteId = classSiteId ?? secteurSiteId ?? row.siteId;
+  const classSiteLabel = resolveSiteLabel(classSiteId ?? resolvedSiteId, catalog);
   const siteLabel = resolveSiteLabel(resolvedSiteId, catalog);
 
   return {

@@ -5,8 +5,11 @@ import { getDb, isDatabaseConfigured } from "@/db/index";
 import {
   anneeScolaire,
   eleve,
+  eleveFoyerLink,
   eleveScolarite,
   etablissementSite,
+  foyer,
+  foyerResponsable,
   personnel,
   personnelAttr,
   schoolClassAssignment,
@@ -109,6 +112,7 @@ export function eleveRowToConfig(row: EleveRow): EleveConfig {
     ...(row.parent1Phone ? { parent1Phone: row.parent1Phone } : {}),
     ...(row.parent2Phone ? { parent2Phone: row.parent2Phone } : {}),
     ...(row.dateNaissance ? { dateNaissance: String(row.dateNaissance) } : {}),
+    ...(row.lieuNaissance ? { lieuNaissance: row.lieuNaissance } : {}),
     ...(row.mef ? { mef: row.mef } : {}),
     ...(row.secteur ? { secteur: row.secteur } : {}),
     ...(row.regime ? { regime: row.regime } : {}),
@@ -138,6 +142,7 @@ function eleveConfigToValues(etablissementId: string, e: EleveConfig) {
     parent1Phone: emptyToNull(e.parent1Phone),
     parent2Phone: emptyToNull(e.parent2Phone),
     dateNaissance: dateOrNull(e.dateNaissance),
+    lieuNaissance: emptyToNull(e.lieuNaissance),
     mef: emptyToNull(e.mef ?? e.formation),
     secteur: emptyToNull(e.secteur),
     regime: emptyToNull(e.regime),
@@ -196,14 +201,55 @@ export async function upsertElevesInDb(
         .limit(1);
 
       if (existing) {
-        await db.update(eleve).set(values).where(eq(eleve.id, existing.id));
+        const [cur] = await db
+          .select({
+            dateNaissance: eleve.dateNaissance,
+            lieuNaissance: eleve.lieuNaissance,
+            parentEmail: eleve.parentEmail,
+            parent1Email: eleve.parent1Email,
+            parent2Email: eleve.parent2Email,
+            parentPhone: eleve.parentPhone,
+            parent1Phone: eleve.parent1Phone,
+            parent2Phone: eleve.parent2Phone,
+          })
+          .from(eleve)
+          .where(eq(eleve.id, existing.id))
+          .limit(1);
+
+        const patch = { ...values };
+        // Ne pas écraser une date / un lieu déjà connus si le fichier d’import
+        // n’a pas la colonne (ou une cellule vide).
+        if (!patch.dateNaissance && cur?.dateNaissance) {
+          patch.dateNaissance = cur.dateNaissance;
+        }
+        if (!patch.lieuNaissance && cur?.lieuNaissance) {
+          patch.lieuNaissance = cur.lieuNaissance;
+        }
+        if (!patch.parentEmail && cur?.parentEmail) patch.parentEmail = cur.parentEmail;
+        if (!patch.parent1Email && cur?.parent1Email) patch.parent1Email = cur.parent1Email;
+        if (!patch.parent2Email && cur?.parent2Email) patch.parent2Email = cur.parent2Email;
+        if (!patch.parentPhone && cur?.parentPhone) patch.parentPhone = cur.parentPhone;
+        if (!patch.parent1Phone && cur?.parent1Phone) patch.parent1Phone = cur.parent1Phone;
+        if (!patch.parent2Phone && cur?.parent2Phone) patch.parent2Phone = cur.parent2Phone;
+
+        await db.update(eleve).set(patch).where(eq(eleve.id, existing.id));
         updates += 1;
         await ensureEleveScolariteCourante(
           etablissementId,
           existing.id,
-          { classe: values.classe, regime: values.regime },
+          { classe: patch.classe, regime: patch.regime },
           catalog,
         );
+        await ensureEleveFoyerFromParentContacts(etablissementId, existing.id, {
+          nom: patch.nom,
+          prenom: patch.prenom,
+          parentEmail: patch.parentEmail,
+          parent1Email: patch.parent1Email,
+          parent2Email: patch.parent2Email,
+          parentPhone: patch.parentPhone,
+          parent1Phone: patch.parent1Phone,
+          parent2Phone: patch.parent2Phone,
+        });
       } else {
         const [created] = await db.insert(eleve).values(values).returning({ id: eleve.id });
         inserts += 1;
@@ -213,6 +259,16 @@ export async function upsertElevesInDb(
           { classe: values.classe, regime: values.regime },
           catalog,
         );
+        await ensureEleveFoyerFromParentContacts(etablissementId, created.id, {
+          nom: values.nom,
+          prenom: values.prenom,
+          parentEmail: values.parentEmail,
+          parent1Email: values.parent1Email,
+          parent2Email: values.parent2Email,
+          parentPhone: values.parentPhone,
+          parent1Phone: values.parent1Phone,
+          parent2Phone: values.parent2Phone,
+        });
       }
     }
   }
@@ -317,6 +373,107 @@ export async function syncEleveScolariteFromEleveRow(
     { classe: row.classe, regime: row.regime },
     catalog,
   );
+}
+
+type ParentContactSeed = {
+  nom: string;
+  prenom: string;
+  parentEmail?: string | null;
+  parent1Email?: string | null;
+  parent2Email?: string | null;
+  parentPhone?: string | null;
+  parent1Phone?: string | null;
+  parent2Phone?: string | null;
+};
+
+/**
+ * Si l’élève n’a encore aucun foyer, crée un foyer + responsables à partir des
+ * e-mails / téléphones parents importés (registre plat Excel / Pronote).
+ */
+export async function ensureEleveFoyerFromParentContacts(
+  etablissementId: string,
+  eleveId: string,
+  contacts: ParentContactSeed,
+): Promise<boolean> {
+  const db = getDb();
+  const [existingLink] = await db
+    .select({ foyerId: eleveFoyerLink.foyerId })
+    .from(eleveFoyerLink)
+    .where(
+      and(eq(eleveFoyerLink.etablissementId, etablissementId), eq(eleveFoyerLink.eleveId, eleveId)),
+    )
+    .limit(1);
+  if (existingLink) return false;
+
+  type SeedResp = { email: string | null; telephone: string | null; label: string };
+  const seeds: SeedResp[] = [];
+  const seenEmails = new Set<string>();
+
+  const pushEmail = (emailRaw: string | null | undefined, phoneRaw: string | null | undefined, label: string) => {
+    const email = String(emailRaw || "").trim() || null;
+    const telephone = String(phoneRaw || "").trim() || null;
+    if (!email && !telephone) return;
+    if (email) {
+      const key = email.toLowerCase();
+      if (seenEmails.has(key)) return;
+      seenEmails.add(key);
+    }
+    seeds.push({ email, telephone, label });
+  };
+
+  pushEmail(
+    contacts.parent1Email || contacts.parentEmail,
+    contacts.parent1Phone || contacts.parentPhone,
+    "Responsable 1",
+  );
+  pushEmail(contacts.parent2Email, contacts.parent2Phone, "Responsable 2");
+
+  if (seeds.length === 0) {
+    const phoneOnly = String(contacts.parentPhone || contacts.parent1Phone || "").trim();
+    if (phoneOnly) {
+      seeds.push({ email: null, telephone: phoneOnly, label: "Responsable 1" });
+    }
+  }
+
+  if (seeds.length === 0) return false;
+
+  const familyName = contacts.nom.trim() || "Famille";
+  const [createdFoyer] = await db
+    .insert(foyer)
+    .values({
+      etablissementId,
+      label: `Foyer ${familyName}`,
+      payeurEstFoyer: true,
+    })
+    .returning({ id: foyer.id });
+
+  if (!createdFoyer?.id) return false;
+
+  for (let i = 0; i < seeds.length; i++) {
+    const seed = seeds[i]!;
+    const localPart = seed.email?.split("@")[0]?.trim() || seed.label;
+    await db.insert(foyerResponsable).values({
+      etablissementId,
+      foyerId: createdFoyer.id,
+      nom: familyName,
+      prenom: localPart,
+      email: seed.email,
+      telephone: seed.telephone,
+      autoriteParentale: true,
+      contactUrgence: i === 0,
+      payeur: i === 0,
+      rang: i + 1,
+    });
+  }
+
+  await db.insert(eleveFoyerLink).values({
+    etablissementId,
+    eleveId,
+    foyerId: createdFoyer.id,
+    relation: "principal",
+  });
+
+  return true;
 }
 
 const scolariteBackfillDone = new Set<string>();

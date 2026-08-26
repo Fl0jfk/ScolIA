@@ -39,6 +39,21 @@ function dossiersListHrefFromRetour(retour: string | null, fallbackClasse?: stri
   return "/eleves/dossiers";
 }
 
+function dossiersListHrefForClasse(classe: string | null | undefined): string {
+  const cls = String(classe || "").trim();
+  if (!cls) return "/eleves/dossiers";
+  return `/eleves/dossiers?classe=${encodeURIComponent(cls)}`;
+}
+
+function formatDateNaissanceFr(value: string | null | undefined): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "—";
+  const iso = raw.slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return raw;
+}
+
 function IconUpload({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -76,6 +91,12 @@ type DossierPayload = {
     lieuNaissance: string | null;
     status: string;
     secteur: string | null;
+    parentEmail?: string | null;
+    parent1Email?: string | null;
+    parent2Email?: string | null;
+    parentPhone?: string | null;
+    parent1Phone?: string | null;
+    parent2Phone?: string | null;
   };
   sections: string[];
   scolarites: Array<{
@@ -554,6 +575,7 @@ export default function EleveDossierClient() {
   }
 
   const e = data.eleve;
+  const classeListHref = dossiersListHrefForClasse(e.classe);
   const canEdit = data.meta.canEditStructure;
   const synth = data.synthese;
   const liveNow = data.enCoursMaintenant;
@@ -619,6 +641,13 @@ export default function EleveDossierClient() {
 
   return (
     <ModulePageShell maxWidthClass="max-w-5xl">
+      <Link
+        href={listHref}
+        className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-600 transition hover:text-indigo-700"
+      >
+        <span aria-hidden>←</span>
+        Retour à la liste des dossiers
+      </Link>
       <ModulePageHeader
         eyebrow="Dossier élève"
         title={`${e.prenom} ${e.nom}`}
@@ -642,11 +671,6 @@ export default function EleveDossierClient() {
               {regimeText}
             </span>
           </span>
-        }
-        actions={
-          <Link href={listHref} className="text-sm font-bold text-indigo-600 hover:underline">
-            Liste des dossiers
-          </Link>
         }
       />
 
@@ -702,7 +726,7 @@ export default function EleveDossierClient() {
                 </h2>
                 {e.classe ? (
                   <Link
-                    href={listHref}
+                    href={classeListHref}
                     className="mt-2 inline-flex items-center gap-2 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-xl font-black text-indigo-900 transition hover:border-indigo-400 hover:bg-indigo-100"
                     title="Voir tous les élèves de cette classe"
                   >
@@ -722,7 +746,9 @@ export default function EleveDossierClient() {
                 <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
                   <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
                     <dt className="text-slate-500">Né(e) le</dt>
-                    <dd className="font-semibold text-slate-900">{e.dateNaissance || "—"}</dd>
+                    <dd className="font-semibold text-slate-900">
+                      {formatDateNaissanceFr(e.dateNaissance)}
+                    </dd>
                   </div>
                   {!data.meta.profRestrictedView ? (
                     <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
@@ -920,8 +946,8 @@ export default function EleveDossierClient() {
             )}
           </section>
 
-          {/* Notes + absences + finances */}
-          <div className="grid gap-4 md:grid-cols-3">
+          {/* Notes + absences (facturation uniquement dans l’onglet Finances) */}
+          <div className="grid gap-4 md:grid-cols-2">
             <section
               className={`rounded-3xl border p-5 ${
                 synth?.notesTrimestre.available
@@ -972,31 +998,6 @@ export default function EleveDossierClient() {
                 {synth?.absences.detail ? ` · ${synth.absences.detail}` : ""}
               </p>
             </section>
-            {data.sections.includes("facturation") ? (
-              <section
-                className={`rounded-3xl border p-5 ${
-                  synth?.finances.available && synth.finances.label.includes("retard")
-                    ? "border-amber-200 bg-amber-50/80"
-                    : "border-dashed border-slate-200 bg-slate-50/80"
-                }`}
-              >
-                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">
-                  Facturation
-                </h2>
-                <p
-                  className={`mt-3 text-lg font-black ${
-                    synth?.finances.available && synth.finances.label.includes("retard")
-                      ? "text-amber-900"
-                      : "text-slate-700"
-                  }`}
-                >
-                  {synth?.finances.label || "Facturation famille"}
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  {synth?.finances.detail || "Aucune facture en retard."}
-                </p>
-              </section>
-            ) : null}
           </div>
         </div>
       ) : null}
@@ -1165,9 +1166,43 @@ export default function EleveDossierClient() {
 
       {tab === "famille" ? (
         <section className="space-y-4">
+          {!data.meta.profRestrictedView &&
+          (e.parent1Email ||
+            e.parent2Email ||
+            e.parentEmail ||
+            e.parent1Phone ||
+            e.parent2Phone ||
+            e.parentPhone) ? (
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="font-bold text-slate-900 mb-2">Contacts importés</h3>
+              <ul className="space-y-2 text-sm text-slate-700">
+                {(e.parent1Email || e.parentEmail || e.parent1Phone || e.parentPhone) && (
+                  <li className="rounded-xl bg-slate-50 px-3 py-2">
+                    <span className="font-semibold">Responsable 1</span>
+                    <div className="text-xs text-slate-600 mt-1">
+                      {e.parent1Email || e.parentEmail || "—"} ·{" "}
+                      {e.parent1Phone || e.parentPhone || "—"}
+                    </div>
+                  </li>
+                )}
+                {(e.parent2Email || e.parent2Phone) && (
+                  <li className="rounded-xl bg-slate-50 px-3 py-2">
+                    <span className="font-semibold">Responsable 2</span>
+                    <div className="text-xs text-slate-600 mt-1">
+                      {e.parent2Email || "—"} · {e.parent2Phone || "—"}
+                    </div>
+                  </li>
+                )}
+              </ul>
+            </div>
+          ) : null}
           {data.foyers.length === 0 ? (
             <p className="text-sm text-slate-500 rounded-3xl border border-slate-200 bg-white p-6">
               Aucun foyer lié.
+              {!data.meta.profRestrictedView &&
+              (e.parent1Email || e.parentEmail || e.parentPhone)
+                ? " Les contacts importés ci-dessus seront transformés en foyer à la prochaine ouverture / réimport."
+                : ""}
             </p>
           ) : (
             data.foyers.map((f) => (

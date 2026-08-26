@@ -30,7 +30,10 @@ export type EleveDossierListItem = {
   siteLabel?: string | null;
   folderName: string;
   ine: string | null;
+  photoKey?: string | null;
+  photoUrl?: string | null;
   sourceKey?: string;
+  secteur?: string | null;
 };
 
 export async function listAssignedClassesForTeacher(
@@ -145,6 +148,8 @@ export async function listElevesDossierFromDb(
       siteId: siteByEleve.get(r.id) ?? null,
       folderName: r.folderName,
       ine: r.ine,
+      photoKey: r.photoKey,
       sourceKey: r.sourceKey,
+      secteur: r.secteur,
     }));
 }
