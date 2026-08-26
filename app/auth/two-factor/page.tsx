@@ -1,34 +1,67 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { authClient } from "@/app/lib/auth-client";
+
+type TrustPolicy = {
+  allowTrust: boolean;
+  maxAgeSeconds: number;
+  label: string;
+  hint: string;
+};
 
 function TwoFactorForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect_url") || "/dashboard";
+  const emailHint = searchParams.get("email")?.trim() || "";
   const [code, setCode] = useState("");
   const [useBackup, setUseBackup] = useState(false);
   const [trustDevice, setTrustDevice] = useState(true);
+  const [policy, setPolicy] = useState<TrustPolicy | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const qs = emailHint ? `?email=${encodeURIComponent(emailHint)}` : "";
+        const res = await fetch(`/api/auth/mfa-trust-policy${qs}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const j = (await res.json()) as TrustPolicy;
+        if (cancelled) return;
+        setPolicy(j);
+        setTrustDevice(j.allowTrust);
+      } catch {
+        /* garde le défaut 30 j côté UI ; le serveur applique la vraie politique */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [emailHint]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
+      const trust = Boolean(policy?.allowTrust && trustDevice);
       if (useBackup) {
         const { error: verifyError } = await authClient.twoFactor.verifyBackupCode({
           code: code.trim(),
-          trustDevice,
+          trustDevice: trust,
         });
         if (verifyError) throw new Error(verifyError.message || "Code de secours invalide.");
       } else {
         const { error: verifyError } = await authClient.twoFactor.verifyTotp({
           code: code.trim(),
-          trustDevice,
+          trustDevice: trust,
         });
         if (verifyError) throw new Error(verifyError.message || "Code invalide.");
       }
@@ -40,6 +73,12 @@ function TwoFactorForm() {
       setBusy(false);
     }
   }
+
+  const allowTrust = policy?.allowTrust !== false;
+  const trustLabel = policy?.label || "Se souvenir de cet appareil 30 jours";
+  const trustHint =
+    policy?.hint ||
+    "Sur cet appareil, la MFA ne sera pas redemandée pendant 30 jours.";
 
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center px-4 py-10">
@@ -74,15 +113,24 @@ function TwoFactorForm() {
             className="w-full rounded-xl border border-emerald-100 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
           />
         </label>
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            checked={trustDevice}
-            onChange={(e) => setTrustDevice(e.target.checked)}
-            className="rounded border-slate-300"
-          />
-          Se souvenir de cet appareil 30 jours
-        </label>
+        {allowTrust ? (
+          <label className="flex items-start gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={trustDevice}
+              onChange={(e) => setTrustDevice(e.target.checked)}
+              className="mt-0.5 rounded border-slate-300"
+            />
+            <span>
+              <span className="font-medium text-slate-800">{trustLabel}</span>
+              <span className="mt-0.5 block text-xs text-slate-500">{trustHint}</span>
+            </span>
+          </label>
+        ) : (
+          <p className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            {trustHint}
+          </p>
+        )}
         <button
           type="submit"
           disabled={busy}

@@ -5,7 +5,7 @@ import Image from "next/image";
 import MarketingShell from "@/app/components/landing/MarketingShell";
 import ConnexionPlatformSessionBanner from "@/app/components/ConnexionPlatformSessionBanner";
 import { SCOLA_GRADIENT_TEXT } from "@/app/lib/marketing-theme";
-import { authClient } from "@/app/lib/auth-client";
+import { authClient, rememberMfaEmailHint } from "@/app/lib/auth-client";
 import { isBrowserLocalDev } from "@/app/lib/local-dev";
 import { platformAdminSignInUrl } from "@/app/lib/platform-portal-url";
 import {
@@ -121,6 +121,7 @@ export default function ConnexionPage() {
     setError(null);
     setChoices(null);
     try {
+      rememberMfaEmailHint(email);
       const { data, error: signInError } = await authClient.signIn.email({
         email: email.trim(),
         password,
@@ -137,8 +138,12 @@ export default function ConnexionPage() {
         return;
       }
       if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) {
+        rememberMfaEmailHint(email);
+        const emailQs = email.trim()
+          ? `&email=${encodeURIComponent(email.trim().toLowerCase())}`
+          : "";
         window.location.assign(
-          `/auth/two-factor?redirect_url=${encodeURIComponent("/connexion")}`,
+          `/auth/two-factor?redirect_url=${encodeURIComponent("/connexion")}${emailQs}`,
         );
         return;
       }

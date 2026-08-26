@@ -10,6 +10,7 @@ import {
 } from "@/app/components/settings/SettingsChrome";
 import { dash } from "@/app/lib/dashboard-brand";
 import { invitationRecentlySent } from "@/app/lib/invitation-window";
+import { useHasTenantAdminRole } from "@/app/hooks/useHasTenantAdminRole";
 
 type RoleOption = { slug: string; label: string };
 
@@ -85,6 +86,7 @@ function sortNameKey(u: RegistryUserRow): string {
 
 /** Gestion utilisateurs du directory — onglet Paramètres généraux. */
 export default function MembresPanel() {
+  const canManageRoles = useHasTenantAdminRole();
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -357,7 +359,7 @@ export default function MembresPanel() {
         </p>
         <button
           type="button"
-          disabled={bulkSending || pendingInviteTargets.length === 0}
+          disabled={!canManageRoles || bulkSending || pendingInviteTargets.length === 0}
           onClick={() => void sendBulkPendingInvites()}
           className="mt-3 rounded-2xl bg-[var(--dash-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
         >
@@ -415,18 +417,27 @@ export default function MembresPanel() {
         </p>
       </SettingsSection>
 
+      {!canManageRoles ? (
+        <SettingsNotice tone="info">
+          Consultation seule : seuls les comptes avec le rôle <strong>admin</strong> peuvent
+          ajouter des utilisateurs ou modifier les rôles.
+        </SettingsNotice>
+      ) : null}
+
       <div className="flex justify-between items-center">
         <h2 className={`text-lg font-semibold ${dash.ink}`}>Liste</h2>
-        <button
-          type="button"
-          onClick={() => setShowAddForm((v) => !v)}
-          className={`text-sm font-semibold ${dash.textPrimary} hover:underline`}
-        >
-          {showAddForm ? "Masquer le formulaire" : "+ Ajouter"}
-        </button>
+        {canManageRoles ? (
+          <button
+            type="button"
+            onClick={() => setShowAddForm((v) => !v)}
+            className={`text-sm font-semibold ${dash.textPrimary} hover:underline`}
+          >
+            {showAddForm ? "Masquer le formulaire" : "+ Ajouter"}
+          </button>
+        ) : null}
       </div>
 
-      {showAddForm && (
+      {canManageRoles && showAddForm && (
         <form onSubmit={sendInvite} className="relative overflow-hidden rounded-[1.5rem] border border-white/55 bg-white/55 p-6 space-y-4 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-2xl">
           <h3 className="font-bold text-slate-800">Nouvel utilisateur</h3>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -522,7 +533,7 @@ export default function MembresPanel() {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-3 shrink-0">
-                    {editingKey !== key && (
+                    {canManageRoles && editingKey !== key && (
                       <>
                         <button
                           type="button"
@@ -557,7 +568,7 @@ export default function MembresPanel() {
                     )}
                   </div>
                 </div>
-                {editingKey === key && (
+                {canManageRoles && editingKey === key && (
                   <div className="mt-4 pt-4 border-t space-y-3">
                     <label className="block space-y-1">
                       <span className="text-xs font-bold text-slate-500">E-mail de connexion</span>

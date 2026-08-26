@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isDatabaseConfigured } from "@/db/index";
 import { isBetterAuthConfigured, betterAuthBaseUrl } from "@/app/lib/auth-config";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireTenantAdminRole } from "@/app/lib/intranet-auth";
 import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
 import { getTenant } from "@/app/lib/tenant-context";
 import {
@@ -25,7 +25,7 @@ const bodySchema = z.object({
  * de l’établissement. Réservé admin établissement.
  */
 export async function POST(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireTenantAdminRole();
   if (!gate.ok) return gate.response;
 
   if (!isDatabaseConfigured() || !isBetterAuthConfigured()) {

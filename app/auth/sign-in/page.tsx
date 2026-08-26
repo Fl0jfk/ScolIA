@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { authClient } from "@/app/lib/auth-client";
+import { authClient, rememberMfaEmailHint } from "@/app/lib/auth-client";
 
 export default function BetterAuthSignInPage() {
   const router = useRouter();
@@ -48,6 +48,7 @@ export default function BetterAuthSignInPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    rememberMfaEmailHint(email);
     const { data, error: signInError } = await authClient.signIn.email({
       email: email.trim(),
       password,
@@ -66,7 +67,12 @@ export default function BetterAuthSignInPage() {
       return;
     }
     if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) {
-      router.push(`/auth/two-factor?redirect_url=${encodeURIComponent(redirectTo)}`);
+      const emailQs = email.trim()
+        ? `&email=${encodeURIComponent(email.trim().toLowerCase())}`
+        : "";
+      router.push(
+        `/auth/two-factor?redirect_url=${encodeURIComponent(redirectTo)}${emailQs}`,
+      );
       return;
     }
     router.push(redirectTo);

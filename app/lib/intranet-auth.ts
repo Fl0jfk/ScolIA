@@ -8,6 +8,7 @@ import {
   isOrgAdminFromAppUser,
   isPlatformMasterFromAppUser,
 } from "@/app/lib/auth-roles-db";
+import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
 import {
   isOrgAdminFromPublicMetadata,
   isPlatformMasterFromPublicMetadata,
@@ -92,6 +93,56 @@ export async function requireAdmin(): Promise<
     ok: false,
     response: NextResponse.json(
       { error: "Réservé aux utilisateurs avec le rôle admin.", code: "ADMIN_REQUIRED" },
+      { status: 403 },
+    ),
+  };
+}
+
+/**
+ * Admin établissement strict (rôle `admin` / master plateforme).
+ * La direction peut accéder aux paramètres, mais pas muter les rôles des autres.
+ */
+export async function requireTenantAdminRole(): Promise<
+  { ok: true; ctx: AuthContext } | { ok: false; response: NextResponse }
+> {
+  const gate = await requireAuth();
+  if (!gate.ok) return gate;
+
+  const appUser = await requireAppUser();
+  if (appUser.ok) {
+    const u = appUser.user;
+    if (
+      u.platformAdmin ||
+      hasMasterRole(u.roles) ||
+      hasGlobalAdminRole(u.roles)
+    ) {
+      return gate;
+    }
+  } else {
+    const user = await safeCurrentUser();
+    const roles =
+      user?.publicMetadata && typeof user.publicMetadata === "object"
+        ? Array.isArray((user.publicMetadata as { role?: unknown }).role)
+          ? ((user.publicMetadata as { role: string[] }).role)
+          : []
+        : [];
+    if (
+      isPlatformMasterFromPublicMetadata(user?.publicMetadata) ||
+      hasGlobalAdminRole(roles) ||
+      hasMasterRole(roles)
+    ) {
+      return gate;
+    }
+  }
+
+  return {
+    ok: false,
+    response: NextResponse.json(
+      {
+        error:
+          "Seul le compte administrateur (rôle admin) peut créer, modifier ou supprimer des utilisateurs et leurs rôles.",
+        code: "ADMIN_ROLE_REQUIRED",
+      },
       { status: 403 },
     ),
   };

@@ -22,6 +22,12 @@ import { getTenant } from "@/app/lib/tenant-context";
 import { createPlatformTransporter } from "@/app/lib/tenant-mail";
 import { TENANT_SLUG_HEADER } from "@/app/lib/tenant-types";
 import { parseTravelsS3KeyFromUrl } from "@/app/lib/travels-s3";
+import {
+  mfaTrustAfterSignIn,
+  mfaTrustAfterVerify,
+  mfaTrustBeforeSignIn,
+} from "@/app/lib/mfa-trust-hooks";
+import { MFA_TRUST_STAFF_SECONDS } from "@/app/lib/two-factor-policy";
 
 type MailAttachment = {
   filename: string;
@@ -435,6 +441,8 @@ function createAuth() {
     plugins: [
       twoFactor({
         issuer: "ScolIA",
+        /** Plafond staff (30 j). Direction / admin sont recalés dans les hooks MFA. */
+        trustDeviceMaxAge: MFA_TRUST_STAFF_SECONDS,
         totpOptions: {
           digits: 6,
           period: 30,
@@ -444,6 +452,8 @@ function createAuth() {
     ],
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        await mfaTrustBeforeSignIn(ctx as never);
+
         if (
           ctx.path !== "/sign-up/email" &&
           ctx.path !== "/change-password" &&
@@ -461,6 +471,10 @@ function createAuth() {
         if (!check.ok) {
           throw new APIError("BAD_REQUEST", { message: check.error });
         }
+      }),
+      after: createAuthMiddleware(async (ctx) => {
+        await mfaTrustAfterVerify(ctx as never);
+        await mfaTrustAfterSignIn(ctx as never);
       }),
     },
     databaseHooks: {

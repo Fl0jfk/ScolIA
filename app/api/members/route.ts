@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isDatabaseConfigured } from "@/db/index";
 import { INTRANET_ROLE_OPTIONS, hasMasterRole, normalizeIntranetRoles } from "@/app/lib/intranet-roles";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireAdmin, requireTenantAdminRole } from "@/app/lib/intranet-auth";
 import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 import { setUserRolesInDb, syncUserAdminFlagsInDb } from "@/app/lib/auth-roles-db";
@@ -54,7 +54,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireTenantAdminRole();
   if (!gate.ok) return gate.response;
   try {
     const body = await req.json();
@@ -163,7 +163,7 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireTenantAdminRole();
   if (!gate.ok) return gate.response;
   try {
     const body = await req.json();
@@ -265,7 +265,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireTenantAdminRole();
   if (!gate.ok) return gate.response;
   const externalUserId = new URL(req.url).searchParams.get("externalUserId")?.trim();
   const email = new URL(req.url).searchParams.get("email")?.trim().toLowerCase();
