@@ -19,15 +19,7 @@ import { notificationCountForModule } from "@/app/lib/dashboard-signals";
 import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
 import { MODULE_EMOJI, moduleHref } from "@/app/lib/pillar-module-routes";
 import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
-
-const PILLAR_ORB: Record<DashboardPillarId, string> = {
-  administratif: "bg-sky-400/30",
-  etablissement: "bg-cyan-400/30",
-  services: "bg-teal-400/30",
-  vie_scolaire: "bg-emerald-400/30",
-  compta_rh: "bg-amber-400/30",
-  sante: "bg-rose-400/30",
-};
+import { PILLAR_ORB } from "@/app/lib/dashboard-pillar-visual";
 
 type Props = {
   pillarId: DashboardPillarId;

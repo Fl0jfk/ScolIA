@@ -20,6 +20,7 @@ import { notificationCountForShortcut } from "@/app/lib/dashboard-signals";
 import { MODULE_EMOJI } from "@/app/lib/pillar-module-routes";
 import GlassLayer from "@/app/components/GlassLayer";
 import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
+import { PILLAR_ORB } from "@/app/lib/dashboard-pillar-visual";
 
 type Props = {
   categories: DashboardCategory[];
@@ -29,15 +30,6 @@ type Props = {
   roles?: string[];
   orgAdmin?: boolean;
   accessibleModuleIds?: Set<string>;
-};
-
-const PILLAR_ORB: Record<DashboardPillarId, string> = {
-  administratif: "bg-sky-400/30",
-  etablissement: "bg-cyan-400/30",
-  services: "bg-teal-400/30",
-  vie_scolaire: "bg-emerald-400/30",
-  compta_rh: "bg-amber-400/30",
-  sante: "bg-rose-400/30",
 };
 
 const PILLAR_EMOJI: Record<DashboardPillarId, string> = {
