@@ -15,6 +15,10 @@ import {
   customDefaultModulesForRole,
   hasCustomRoleDefaults,
 } from "./module-access-defaults";
+import {
+  ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS,
+  isProfesseurScopedDossierViewer,
+} from "./eleve-dossier-scope";
 
 const DIRECTIONS = [...INTRANET_DIRECTION_SLUGS];
 const ROLES_EXCEPT_PARENT = intranetRolesExceptParent();
@@ -843,6 +847,15 @@ export function rolesAllowModule(
   if (module.orgAdminOnly) return false;
   // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
   if (module.id === "pilotage-eleves") return false;
+
+  // Dossiers élèves : masqué pour les profs jusqu’à réactivation (rentrée).
+  if (
+    module.id === "eleve-dossier" &&
+    isProfesseurScopedDossierViewer({ roles, orgAdmin: isOrgAdmin }) &&
+    !ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS
+  ) {
+    return false;
+  }
 
   // Hubs piliers : accessible dès qu’un module du pilier l’est (matrice / defaults).
   if (module.id.startsWith("pillar-")) {

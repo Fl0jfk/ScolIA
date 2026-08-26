@@ -7,6 +7,13 @@
 import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
 import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 
+/**
+ * Accès professeurs au module Dossiers élèves.
+ * `false` jusqu’à la rentrée : évite d’afficher les classes / listes élèves aux profs.
+ * Remettre à `true` pour réactiver.
+ */
+export const ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS = false;
+
 /** Accès hub dossiers complet (accès docs, tous les élèves, filtres établissement). */
 export function canViewFullElevesDossierHub(opts: {
   roles: string[];
@@ -51,5 +58,17 @@ export function isProfesseurScopedDossierViewer(opts: {
   return !canViewFullElevesDossierHub(opts);
 }
 
+/** Le viewer prof a-t-il le droit d’ouvrir Dossiers élèves (flag rentrée) ? */
+export function professeurMayAccessEleveDossier(opts: {
+  roles: string[];
+  orgAdmin?: boolean;
+  platformAdmin?: boolean;
+}): boolean {
+  if (!isProfesseurScopedDossierViewer(opts)) return true;
+  return ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS;
+}
+
 /** Modules du pilier Administratif visibles pour un prof (vue réduite). */
-export const ADMINISTRATIF_PROF_MODULE_IDS = ["eleve-dossier", "certificates"] as const;
+export const ADMINISTRATIF_PROF_MODULE_IDS = ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS
+  ? (["eleve-dossier", "certificates"] as const)
+  : (["certificates"] as const);
