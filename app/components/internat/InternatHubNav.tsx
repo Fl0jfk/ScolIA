@@ -17,20 +17,13 @@ export type InternatTab =
   | "alertes"
   | "installation";
 
-const TABS: { id: InternatTab; label: string }[] = [
+/** Onglets visibles en présentation — le reste reste accessible via ?tab= */
+const VISIBLE_TABS: { id: InternatTab; label: string }[] = [
   { id: "dashboard", label: "Tableau de bord" },
-  { id: "installation", label: "Installation / RDV" },
-  { id: "chambres", label: "Chambres" },
   { id: "internes", label: "Internes" },
-  { id: "sorties", label: "Sorties" },
   { id: "appel", label: "Appel" },
-  { id: "historique", label: "Historique" },
-  { id: "etudes", label: "Études" },
-  { id: "surveillants", label: "Surveillants" },
-  { id: "suivi", label: "Suivi éducatif" },
-  { id: "communication", label: "Communication" },
-  { id: "activites", label: "Événements" },
-  { id: "alertes", label: "Alertes" },
+  { id: "chambres", label: "Chambres" },
+  { id: "sorties", label: "Sorties" },
 ];
 
 export default function InternatHubNav({
@@ -40,5 +33,10 @@ export default function InternatHubNav({
   active: InternatTab;
   onChange: (tab: InternatTab) => void;
 }) {
-  return <ModuleTabNav tabs={TABS} active={active} onChange={onChange} className="mb-8" />;
+  const tabs =
+    VISIBLE_TABS.some((t) => t.id === active) || active === "installation"
+      ? VISIBLE_TABS
+      : [...VISIBLE_TABS, { id: active, label: active }];
+
+  return <ModuleTabNav tabs={tabs} active={active} onChange={onChange} className="mb-6" />;
 }

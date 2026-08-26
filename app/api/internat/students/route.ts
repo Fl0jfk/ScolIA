@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireInternatManage, requireInternatAccess } from "@/app/api/internat/_auth";
 import type { EleveConfig } from "@/app/lib/eleves-config";
+import { resolvePhotoUrlsForInternatStudents } from "@/app/lib/eleve-photos";
 import {
   getInternatRooms,
   getInternatStudents,
@@ -19,7 +20,8 @@ export async function GET() {
   const access = await requireInternatAccess();
   if (!access.ok) return access.response;
   const [students, rooms] = await Promise.all([getInternatStudents(), getInternatRooms()]);
-  return NextResponse.json({ students, rooms });
+  const photoUrls = await resolvePhotoUrlsForInternatStudents(students);
+  return NextResponse.json({ students, rooms, photoUrls });
 }
 
 export async function POST(req: Request) {

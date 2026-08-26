@@ -53,16 +53,15 @@ export async function getElevePhotoUrl(eleve: EleveConfig): Promise<string | nul
   }
 }
 
-/** URLs signées pour l’appel internat (id élève → URL). */
+/** URLs signées pour l’appel / fiches internat (id élève → URL). */
 export async function resolvePhotoUrlsForInternatStudents(
   students: InternatStudent[],
 ): Promise<Record<string, string>> {
   const index = await loadElevePhotoIndex();
   const out: Record<string, string> = {};
-  const active = students.filter((s) => s.actif);
 
   await Promise.all(
-    active.map(async (s) => {
+    students.map(async (s) => {
       const key = lookupS3Key(index, {
         nom: s.eleveRef.nom,
         prenom: s.eleveRef.prenom,

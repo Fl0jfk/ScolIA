@@ -103,6 +103,7 @@ export default function GestionInternatClient() {
   const [rooms, setRooms] = useState<InternatRoom[]>([]);
   const [buildings, setBuildings] = useState<InternatBuilding[]>([]);
   const [students, setStudents] = useState<InternatStudent[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [incidents, setIncidents] = useState<InternatIncident[]>([]);
   const [stats, setStats] = useState<InternatDashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,7 +127,14 @@ export default function GestionInternatClient() {
       setRooms(roomsData.rooms || []);
       setBuildings(roomsData.buildings || []);
     }
-    if (studentsRes.ok) setStudents(studentsData.students || []);
+    if (studentsRes.ok) {
+      setStudents(studentsData.students || []);
+      setPhotoUrls(
+        studentsData.photoUrls && typeof studentsData.photoUrls === "object"
+          ? (studentsData.photoUrls as Record<string, string>)
+          : {},
+      );
+    }
     if (statsRes.ok) setStats(statsData.stats || null);
     if (incidentsRes.ok) setIncidents(incidentsData.incidents || []);
   }, []);
@@ -154,7 +162,7 @@ export default function GestionInternatClient() {
       <ModulePageHeader
         eyebrow="Élèves"
         title="Gestion internat"
-        description="Chambres, internes, appel du soir, activités et alertes — équipe éducation / direction."
+        description="Tableau de bord, fiches internes, appel et chambres — simple et adapté au terrain."
       />
 
       <InternatHubNav active={activeTab} onChange={setTab} />
@@ -180,6 +188,7 @@ export default function GestionInternatClient() {
                 students={students}
                 rooms={rooms}
                 buildings={buildings}
+                photoUrls={photoUrls}
                 canManage={canManage}
                 onRefresh={refresh}
               />
@@ -206,6 +215,18 @@ export default function GestionInternatClient() {
             <InternatInstallationPanel canManage={canManage} />
           )}
         </>
+      )}
+
+      {canManage && activeTab !== "installation" && (
+        <div className="mt-10 pt-6 border-t border-slate-200">
+          <button
+            type="button"
+            onClick={() => setTab("installation")}
+            className="text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            Paramètres — Installation / RDV
+          </button>
+        </div>
       )}
     </ModulePageShell>
   );

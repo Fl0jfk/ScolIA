@@ -1,13 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { InternatBuilding, InternatRoom, InternatStudent } from "@/app/lib/internat-types";
 import { roomLocationLabel, studentDisplayName } from "@/app/lib/internat-types";
 import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
+import InternatStudentFiche from "@/app/components/internat/InternatStudentFiche";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { internatEligibleEstablishments } from "@/app/lib/establishment-catalog";
+import {
+  INTERNAT_NIVEAUX,
+  niveauFromClasse,
+  niveauSortKey,
+} from "@/app/lib/internat-level";
 
 type RosterPreviewRow = {
   nom: string;
@@ -39,12 +45,14 @@ export default function InternatStudentsPanel({
   students,
   rooms,
   buildings = [],
+  photoUrls = {},
   canManage,
   onRefresh,
 }: {
   students: InternatStudent[];
   rooms: InternatRoom[];
   buildings?: InternatBuilding[];
+  photoUrls?: Record<string, string>;
   canManage: boolean;
   onRefresh: () => Promise<void>;
 }) {
@@ -52,6 +60,7 @@ export default function InternatStudentsPanel({
   const { data: appCtx } = useAppContext();
   const internatSites = internatEligibleEstablishments(appCtx?.establishments || []);
   const defaultInternatEtab = internatSites[0]?.label || "";
+  const [showTools, setShowTools] = useState(false);
   const [showRoster, setShowRoster] = useState(false);
   const [rosterEntries, setRosterEntries] = useState<RosterPreviewRow[]>([]);
   const [rosterMeta, setRosterMeta] = useState<RosterMeta | null>(null);
@@ -60,26 +69,11 @@ export default function InternatStudentsPanel({
   const excelXmlInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editingParentsId, setEditingParentsId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [detailDraft, setDetailDraft] = useState({
-    allergies: "",
-    pai: "",
-    treatments: "",
-    medicalNotes: "",
-    underWatch: false,
-    underWatchNote: "",
-    authLabel: "",
-    authValidUntil: "",
-  });
-  const [parentDraft, setParentDraft] = useState({
-    p1nom: "",
-    p1email: "",
-    p1tel: "",
-    p2nom: "",
-    p2email: "",
-    p2tel: "",
-  });
+  const [filterSexe, setFilterSexe] = useState<"all" | "M" | "F">("all");
+  const [filterEtab, setFilterEtab] = useState<string>("all");
+  const [filterNiveau, setFilterNiveau] = useState<string>("all");
+  const [query, setQuery] = useState("");
 
   const [manual, setManual] = useState({
     nom: "",
@@ -98,7 +92,6 @@ export default function InternatStudentsPanel({
       if (data.count > 0) {
         setRosterEntries(data.entries || []);
         setRosterMeta(data.meta || null);
-        setShowRoster(true);
       } else {
         setRosterEntries([]);
         setRosterMeta(null);
@@ -109,8 +102,8 @@ export default function InternatStudentsPanel({
   }, []);
 
   useEffect(() => {
-    if (canManage) void loadRoster();
-  }, [canManage, loadRoster]);
+    if (canManage && showTools) void loadRoster();
+  }, [canManage, showTools, loadRoster]);
 
   const uploadRosterFile = async (file: File) => {
     setBusy(true);
@@ -218,7 +211,14 @@ export default function InternatStudentsPanel({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Création impossible");
-      setManual({ nom: "", prenom: "", classe: "", sexe: "M", etablissement: defaultInternatEtab, roomId: "" });
+      setManual({
+        nom: "",
+        prenom: "",
+        classe: "",
+        sexe: "M",
+        etablissement: defaultInternatEtab,
+        roomId: "",
+      });
       await onRefresh();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Erreur");
@@ -227,84 +227,11 @@ export default function InternatStudentsPanel({
     }
   };
 
-  const openDetail = (s: InternatStudent) => {
-    setDetailId(s.id);
-    setDetailDraft({
-      allergies: s.medical?.allergies || "",
-      pai: s.medical?.pai || "",
-      treatments: s.medical?.treatments || "",
-      medicalNotes: s.medical?.notes || "",
-      underWatch: !!s.underWatch,
-      underWatchNote: s.underWatchNote || "",
-      authLabel: "",
-      authValidUntil: "",
-    });
-  };
-
   useEffect(() => {
     const studentId = searchParams.get("student");
     if (!studentId) return;
-    const student = students.find((s) => s.id === studentId);
-    if (student) openDetail(student);
+    if (students.some((s) => s.id === studentId)) setDetailId(studentId);
   }, [searchParams, students]);
-
-  const saveDetail = async () => {
-    if (!detailId) return;
-    const student = students.find((s) => s.id === detailId);
-    const newAuth =
-      detailDraft.authLabel.trim() && student
-        ? [
-            ...(student.specialAuthorizations || []),
-            {
-              id: `auth_${Date.now()}`,
-              label: detailDraft.authLabel.trim(),
-              validUntil: detailDraft.authValidUntil || undefined,
-            },
-          ]
-        : student?.specialAuthorizations;
-    await updateStudent(detailId, {
-      medical: {
-        allergies: detailDraft.allergies,
-        pai: detailDraft.pai,
-        treatments: detailDraft.treatments,
-        notes: detailDraft.medicalNotes,
-      },
-      specialAuthorizations: newAuth,
-      underWatch: detailDraft.underWatch,
-      underWatchNote: detailDraft.underWatchNote,
-      note: "Fiche enrichie",
-    });
-    setDetailId(null);
-  };
-
-  const openParentEdit = (s: InternatStudent) => {
-    setEditingParentsId(s.id);
-    setParentDraft({
-      p1nom: s.parent1?.nom || "",
-      p1email: s.parent1?.email || "",
-      p1tel: s.parent1?.telephone || "",
-      p2nom: s.parent2?.nom || "",
-      p2email: s.parent2?.email || "",
-      p2tel: s.parent2?.telephone || "",
-    });
-  };
-
-  const saveParents = async (id: string) => {
-    await updateStudent(id, {
-      parent1: {
-        nom: parentDraft.p1nom,
-        email: parentDraft.p1email,
-        telephone: parentDraft.p1tel,
-      },
-      parent2: {
-        nom: parentDraft.p2nom,
-        email: parentDraft.p2email,
-        telephone: parentDraft.p2tel,
-      },
-      note: "Contacts parents",
-    });
-    setEditingParentsId(null);
-  };
 
   const updateStudent = async (id: string, patch: Record<string, unknown>) => {
     setBusy(true);
@@ -324,426 +251,416 @@ export default function InternatStudentsPanel({
     }
   };
 
+  const etablissements = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of students) {
+      if (s.actif && s.etablissement) set.add(s.etablissement);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+  }, [students]);
+
+  const activeFiltered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return students
+      .filter((s) => s.actif)
+      .filter((s) => (filterSexe === "all" ? true : s.sexe === filterSexe))
+      .filter((s) => (filterEtab === "all" ? true : s.etablissement === filterEtab))
+      .filter((s) => {
+        if (filterNiveau === "all") return true;
+        return niveauFromClasse(s.classe) === filterNiveau;
+      })
+      .filter((s) => {
+        if (!q) return true;
+        const name = studentDisplayName(s).toLowerCase();
+        return name.includes(q) || s.classe.toLowerCase().includes(q);
+      })
+      .sort((a, b) => {
+        const na = niveauSortKey(niveauFromClasse(a.classe));
+        const nb = niveauSortKey(niveauFromClasse(b.classe));
+        if (na !== nb) return na - nb;
+        return studentDisplayName(a).localeCompare(studentDisplayName(b), "fr");
+      });
+  }, [students, filterSexe, filterEtab, filterNiveau, query]);
+
+  const detailStudent = detailId ? students.find((s) => s.id === detailId) : undefined;
+
   return (
     <div className="space-y-6">
-      {canManage && (
-        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-5 space-y-4 text-sm text-indigo-950">
-          <div>
-            <p className="font-bold mb-1">Internes pour l&apos;appel — import rapide</p>
-            <p>
-              Importez les internes depuis un <strong>Excel</strong> (colonnes Nom, Prénom, éventuellement INE,
-              Classe, Régime) ou le XML Siècle <code className="text-xs bg-white px-1 rounded">ElevesSansAdresses.xml</code>
-              . À chaque mise à jour : nouveaux internes ajoutés ; ceux qui ne sont plus internes passent en{" "}
-              <strong>sortie</strong> (grisés, réactivables) — jamais effacés.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3 items-center">
-            <input
-              ref={excelXmlInputRef}
-              type="file"
-              accept=".xlsx,.xls,.csv,.xml,application/xml,text/xml"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void uploadExcelOrSiecle(f);
-              }}
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json,application/json"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void uploadRosterFile(f);
-              }}
-            />
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => excelXmlInputRef.current?.click()}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-sm"
-            >
-              Excel ou XML Siècle
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void syncFromEleves()}
-              className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-bold text-sm"
-            >
-              Sync depuis référentiel élèves
-            </button>
-            <Link
-              href="/parametres?tab=photos"
-              className="bg-slate-800 text-white px-4 py-2 rounded-xl font-bold text-sm inline-flex items-center"
-            >
-              Photos élèves (Paramètres)
-            </Link>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => fileInputRef.current?.click()}
-              className="border border-indigo-300 bg-white text-indigo-800 px-4 py-2 rounded-xl font-bold text-sm"
-            >
-              JSON (avancé)
-            </button>
-            {rosterEntries.length > 0 && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={applyRoster}
-                className="bg-teal-600 text-white px-4 py-2 rounded-xl font-bold text-sm"
-              >
-                Ré-appliquer les {rosterEntries.length} internes
-              </button>
-            )}
-            {rosterEntries.length > 0 && (
-              <button
-                type="button"
-                className="text-indigo-700 font-bold text-sm"
-                onClick={() => setShowRoster((v) => !v)}
-              >
-                {showRoster ? "Masquer l'aperçu" : "Voir l'aperçu"}
-              </button>
-            )}
-          </div>
-          {error && (
-            <p className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700" role="alert">
-              {error}
-            </p>
-          )}
-          {rosterMeta?.updatedAt && (
-            <p className="text-xs text-indigo-800/80">
-              Liste enregistrée le {new Date(rosterMeta.updatedAt).toLocaleString("fr-FR")}
-              {rosterMeta.updatedBy ? ` par ${rosterMeta.updatedBy}` : ""}
-              {rosterMeta.lastAppliedAt
-                ? ` — dernier import : ${new Date(rosterMeta.lastAppliedAt).toLocaleString("fr-FR")}`
-                : ""}
-            </p>
-          )}
-          {rosterMessage && <p className="text-xs font-semibold text-emerald-800">{rosterMessage}</p>}
-          <details className="text-xs">
-            <summary className="cursor-pointer font-bold">Formats acceptés</summary>
-            <ul className="mt-2 list-disc pl-5 space-y-1">
-              <li>
-                Excel : Nom, Prénom (+ INE, Classe, Régime ou colonne Interne = Oui). Sans colonne régime, tout le
-                fichier est traité comme liste d&apos;internes.
-              </li>
-              <li>XML Siècle : ElevesSansAdresses.xml — filtre CODE_REGIME 2/3 (interne).</li>
-              <li>
-                Photos de tous les élèves :{" "}
-                <Link href="/parametres?tab=photos" className="font-bold text-indigo-700 underline">
-                  Paramètres → Photos élèves
-                </Link>{" "}
-                (fichiers <code className="bg-white px-1 rounded">NOM Prenom.jpg</code>).
-              </li>
-            </ul>
-          </details>
+      <div className="flex flex-col sm:flex-row sm:items-end gap-3 justify-between">
+        <div>
+          <h2 className="text-lg font-black text-slate-900">Internes</h2>
+          <p className="text-sm text-slate-500">
+            {activeFiltered.length} fiche{activeFiltered.length !== 1 ? "s" : ""} — cliquez pour ouvrir
+          </p>
         </div>
-      )}
-
-      {showRoster && rosterEntries.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 max-h-[24rem] overflow-y-auto">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="font-black">Aperçu liste internat ({rosterEntries.length})</h3>
-            <button type="button" className="text-sm font-bold text-slate-500" onClick={() => setShowRoster(false)}>
-              Fermer
-            </button>
-          </div>
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs text-slate-500">
-              <tr>
-                <th className="pb-2">Élève</th>
-                <th className="pb-2">Classe</th>
-                <th className="pb-2">MEF</th>
-                <th className="pb-2">Établ.</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rosterEntries.map((e) => (
-                <tr key={`${e.nom}-${e.prenom}`} className="border-t border-slate-100">
-                  <td className="py-2 font-medium">
-                    {e.prenom} {e.nom}
-                  </td>
-                  <td className="py-2">{e.preview?.classe || e.classe || "—"}</td>
-                  <td className="py-2 text-xs text-slate-500">
-                    {e.mef || "—"}
-                    {e.preview?.mefResolved === false && e.mef && (
-                      <span className="text-amber-700 block">MEF non reconnu</span>
-                    )}
-                  </td>
-                  <td className="py-2">{e.preview?.etablissement || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {canManage && (
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-3">
-          <h3 className="font-black text-slate-900">Ajout manuel</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <input className="border rounded-xl px-3 py-2 text-sm" placeholder="Nom" value={manual.nom} onChange={(e) => setManual({ ...manual, nom: e.target.value })} />
-            <input className="border rounded-xl px-3 py-2 text-sm" placeholder="Prénom" value={manual.prenom} onChange={(e) => setManual({ ...manual, prenom: e.target.value })} />
-            <input className="border rounded-xl px-3 py-2 text-sm" placeholder="Classe" value={manual.classe} onChange={(e) => setManual({ ...manual, classe: e.target.value })} />
-            <select className="border rounded-xl px-3 py-2 text-sm" value={manual.sexe} onChange={(e) => setManual({ ...manual, sexe: e.target.value as "M" | "F" })}>
-              <option value="M">Garçon</option>
-              <option value="F">Fille</option>
-            </select>
-            <EstablishmentSelect
-              className="border rounded-xl px-3 py-2 text-sm"
-              value={manual.etablissement}
-              onChange={(label) => setManual({ ...manual, etablissement: label })}
-              kinds={["college", "lycee", "custom"]}
-            />
-            <select className="border rounded-xl px-3 py-2 text-sm" value={manual.roomId} onChange={(e) => setManual({ ...manual, roomId: e.target.value })}>
-              <option value="">Chambre —</option>
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>{formatRoomOption(buildings, r)}</option>
-              ))}
-            </select>
-          </div>
-          <button type="button" disabled={busy} onClick={createManual} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-bold text-sm">
-            Créer l&apos;interne
-          </button>
-        </div>
-      )}
-
-      {error && <p className="text-sm text-red-600">{error}</p>}
-
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left">
-            <tr>
-              <th className="p-3 font-bold">Interne</th>
-              <th className="p-3 font-bold">Classe</th>
-              <th className="p-3 font-bold">Établ.</th>
-              <th className="p-3 font-bold">Sexe</th>
-              <th className="p-3 font-bold">Chambre</th>
-              <th className="p-3 font-bold">Parents</th>
-              <th className="p-3 font-bold">Fiche</th>
-              {canManage && <th className="p-3 font-bold">Actions</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {students.filter((s) => s.actif).map((s) => (
-              <tr key={s.id} className="border-t border-slate-100">
-                <td className="p-3 font-semibold">{studentDisplayName(s)}</td>
-                <td className="p-3">{s.classe}</td>
-                <td className="p-3">{s.etablissement}</td>
-                <td className="p-3">{s.sexe === "M" ? "G" : "F"}</td>
-                <td className="p-3">
-                  {canManage ? (
-                    <select
-                      className="border rounded-lg px-2 py-1 text-xs"
-                      value={s.roomId || ""}
-                      onChange={(e) => updateStudent(s.id, { roomId: e.target.value || null })}
-                    >
-                      <option value="">—</option>
-                      {rooms.map((r) => (
-                        <option key={r.id} value={r.id}>{formatRoomOption(buildings, r)}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    (() => {
-                      const room = rooms.find((r) => r.id === s.roomId);
-                      return room ? formatRoomOption(buildings, room) : "—";
-                    })()
-                  )}
-                </td>
-                <td className="p-3 text-xs">
-                  {s.parent1?.email || s.parent2?.email ? (
-                    <span className="text-slate-600">
-                      {[s.parent1?.email, s.parent2?.email].filter(Boolean).join(" · ")}
-                    </span>
-                  ) : (
-                    <span className="text-amber-700 font-semibold">À compléter</span>
-                  )}
-                  {canManage && (
-                    <button
-                      type="button"
-                      className="block mt-1 text-indigo-600 font-bold"
-                      onClick={() => openParentEdit(s)}
-                    >
-                      Modifier
-                    </button>
-                  )}
-                </td>
-                <td className="p-3 text-xs">
-                  {s.underWatch && (
-                    <span className="text-amber-800 font-bold block">Sous surveillance</span>
-                  )}
-                  {(s.medical?.allergies || s.medical?.pai) && (
-                    <span className="text-slate-500">Médical renseigné</span>
-                  )}
-                  <button type="button" className="block mt-1 text-indigo-600 font-bold" onClick={() => openDetail(s)}>
-                    Voir / modifier
-                  </button>
-                </td>
-                {canManage && (
-                  <td className="p-3">
-                    <button
-                      type="button"
-                      className="text-xs text-red-600 font-bold"
-                      onClick={() =>
-                        updateStudent(s.id, {
-                          actif: false,
-                          sortieMotif: "Désactivation manuelle",
-                          note: "Désactivation manuelle",
-                        })
-                      }
-                    >
-                      Sortie
-                    </button>
-                  </td>
-                )}
-              </tr>
+        <div className="flex flex-wrap gap-2">
+          <input
+            className="border border-slate-200 rounded-xl px-3 py-2 text-sm min-w-[10rem] flex-1 sm:flex-none"
+            placeholder="Rechercher…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <select
+            className="border border-slate-200 rounded-xl px-3 py-2 text-sm"
+            value={filterSexe}
+            onChange={(e) => setFilterSexe(e.target.value as "all" | "M" | "F")}
+          >
+            <option value="all">Tous</option>
+            <option value="F">Filles</option>
+            <option value="M">Garçons</option>
+          </select>
+          <select
+            className="border border-slate-200 rounded-xl px-3 py-2 text-sm"
+            value={filterEtab}
+            onChange={(e) => setFilterEtab(e.target.value)}
+          >
+            <option value="all">Établissement</option>
+            {etablissements.map((e) => (
+              <option key={e} value={e}>
+                {e}
+              </option>
             ))}
-          </tbody>
-        </table>
+          </select>
+          <select
+            className="border border-slate-200 rounded-xl px-3 py-2 text-sm"
+            value={filterNiveau}
+            onChange={(e) => setFilterNiveau(e.target.value)}
+          >
+            <option value="all">Niveau</option>
+            {INTERNAT_NIVEAUX.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
+      {activeFiltered.length === 0 ? (
+        <p className="text-sm text-slate-500 rounded-2xl border border-dashed border-slate-200 p-8 text-center">
+          Aucun interne à afficher.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+          {activeFiltered.map((s) => {
+            const photo = photoUrls[s.id];
+            const initials =
+              `${s.eleveRef.prenom?.[0] ?? ""}${s.eleveRef.nom?.[0] ?? ""}`.toUpperCase() || "?";
+            const room = rooms.find((r) => r.id === s.roomId);
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setDetailId(s.id)}
+                className="group text-left bg-white border border-slate-200 rounded-2xl overflow-hidden hover:border-slate-400 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+              >
+                <div className="aspect-[4/5] bg-slate-100 relative overflow-hidden">
+                  {photo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={photo}
+                      alt=""
+                      className="h-full w-full object-cover group-hover:scale-[1.02] transition-transform"
+                    />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center text-2xl font-black text-slate-400">
+                      {initials}
+                    </span>
+                  )}
+                  {s.underWatch && (
+                    <span className="absolute top-2 left-2 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500 text-white">
+                      Suivi
+                    </span>
+                  )}
+                  <span
+                    className={`absolute top-2 right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                      s.sexe === "F" ? "bg-rose-500/90 text-white" : "bg-sky-600/90 text-white"
+                    }`}
+                  >
+                    {s.sexe === "F" ? "F" : "G"}
+                  </span>
+                </div>
+                <div className="p-2.5 sm:p-3">
+                  <p className="font-bold text-slate-900 text-sm leading-tight truncate">
+                    {s.eleveRef.prenom}
+                  </p>
+                  <p className="font-semibold text-slate-700 text-xs truncate uppercase tracking-wide">
+                    {s.eleveRef.nom}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1 truncate">
+                    {s.classe} · {s.etablissement}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                    {room ? room.label : "Sans chambre"}
+                  </p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {students.some((s) => !s.actif) && (
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden opacity-80">
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden opacity-90">
           <div className="px-4 py-3 border-b border-slate-200">
             <h3 className="font-bold text-slate-700 text-sm">
               Sorties en cours d&apos;année ({students.filter((s) => !s.actif).length})
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Fiches conservées — exclus de l&apos;appel. Réactivables en un clic si erreur.
+              Fiches conservées — exclus de l&apos;appel. Réactivables en un clic.
             </p>
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-slate-100/80 text-left text-slate-500">
-              <tr>
-                <th className="p-3 font-bold">Élève</th>
-                <th className="p-3 font-bold">Classe</th>
-                <th className="p-3 font-bold">Motif</th>
-                <th className="p-3 font-bold">Depuis</th>
-                {canManage && <th className="p-3 font-bold">Actions</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {students
-                .filter((s) => !s.actif)
-                .sort((a, b) => String(b.sortieAt || b.updatedAt).localeCompare(String(a.sortieAt || a.updatedAt)))
-                .map((s) => (
-                  <tr key={s.id} className="border-t border-slate-200/80 text-slate-400">
-                    <td className="p-3 font-semibold line-through decoration-slate-300">
-                      {studentDisplayName(s)}
-                    </td>
-                    <td className="p-3">{s.classe}</td>
-                    <td className="p-3 text-xs">{s.sortieMotif || "Sortie"}</td>
-                    <td className="p-3 text-xs">
-                      {s.sortieAt
-                        ? new Date(s.sortieAt).toLocaleDateString("fr-FR")
-                        : "—"}
-                    </td>
-                    {canManage && (
-                      <td className="p-3">
-                        <button
-                          type="button"
-                          className="text-xs text-emerald-700 font-bold no-underline"
-                          onClick={() =>
-                            updateStudent(s.id, {
-                              actif: true,
-                              note: "Réactivation manuelle",
-                            })
-                          }
-                        >
-                          Réactiver
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-            </tbody>
-          </table>
+          <ul className="divide-y divide-slate-200/80">
+            {students
+              .filter((s) => !s.actif)
+              .sort((a, b) =>
+                String(b.sortieAt || b.updatedAt).localeCompare(String(a.sortieAt || a.updatedAt)),
+              )
+              .map((s) => (
+                <li
+                  key={s.id}
+                  className="px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500"
+                >
+                  <button
+                    type="button"
+                    className="font-semibold line-through decoration-slate-300 text-left hover:text-slate-700"
+                    onClick={() => setDetailId(s.id)}
+                  >
+                    {studentDisplayName(s)}
+                  </button>
+                  <span className="text-xs">{s.sortieMotif || "Sortie"}</span>
+                  {canManage && (
+                    <button
+                      type="button"
+                      className="text-xs text-emerald-700 font-bold"
+                      onClick={() =>
+                        void updateStudent(s.id, { actif: true, note: "Réactivation manuelle" })
+                      }
+                    >
+                      Réactiver
+                    </button>
+                  )}
+                </li>
+              ))}
+          </ul>
         </div>
       )}
 
-      {detailId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5 space-y-4 my-8">
-            <h3 className="font-black text-slate-900">Fiche interne</h3>
-            <div className="space-y-3 text-sm">
-              <p className="text-xs font-bold uppercase text-slate-500">Médical</p>
-              <input className="w-full border rounded-xl px-3 py-2" placeholder="Allergies" value={detailDraft.allergies} onChange={(e) => setDetailDraft({ ...detailDraft, allergies: e.target.value })} />
-              <input className="w-full border rounded-xl px-3 py-2" placeholder="PAI" value={detailDraft.pai} onChange={(e) => setDetailDraft({ ...detailDraft, pai: e.target.value })} />
-              <input className="w-full border rounded-xl px-3 py-2" placeholder="Traitements" value={detailDraft.treatments} onChange={(e) => setDetailDraft({ ...detailDraft, treatments: e.target.value })} />
-              <textarea className="w-full border rounded-xl px-3 py-2 min-h-[60px]" placeholder="Notes médicales" value={detailDraft.medicalNotes} onChange={(e) => setDetailDraft({ ...detailDraft, medicalNotes: e.target.value })} />
-              <label className="flex items-center gap-2 font-semibold">
-                <input type="checkbox" checked={detailDraft.underWatch} onChange={(e) => setDetailDraft({ ...detailDraft, underWatch: e.target.checked })} />
-                Élève sous surveillance
-              </label>
-              {detailDraft.underWatch && (
-                <input className="w-full border rounded-xl px-3 py-2" placeholder="Motif surveillance" value={detailDraft.underWatchNote} onChange={(e) => setDetailDraft({ ...detailDraft, underWatchNote: e.target.value })} />
+      {canManage && (
+        <div className="border-t border-slate-200 pt-6">
+          <button
+            type="button"
+            onClick={() => setShowTools((v) => !v)}
+            className="text-xs font-semibold text-slate-400 hover:text-slate-600"
+          >
+            {showTools ? "Masquer les outils" : "Outils — import, sync, ajout manuel"}
+          </button>
+
+          {showTools && (
+            <div className="mt-4 space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5 space-y-4 text-sm">
+                <p className="font-bold text-slate-800">Import & synchronisation</p>
+                <p className="text-slate-600 text-xs leading-relaxed">
+                  Synchronisez les internes depuis le référentiel élèves (régime interne) ou importez un
+                  Excel / XML Siècle. Les photos se gèrent dans Paramètres.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    ref={excelXmlInputRef}
+                    type="file"
+                    accept=".xlsx,.xls,.csv,.xml,application/xml,text/xml"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void uploadExcelOrSiecle(f);
+                    }}
+                  />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json,application/json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void uploadRosterFile(f);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => excelXmlInputRef.current?.click()}
+                    className="bg-slate-800 text-white px-3 py-2 rounded-xl font-bold text-xs"
+                  >
+                    Excel / XML
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void syncFromEleves()}
+                    className="bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-xs"
+                  >
+                    Sync référentiel
+                  </button>
+                  <Link
+                    href="/parametres?tab=photos"
+                    className="bg-white border border-slate-200 text-slate-700 px-3 py-2 rounded-xl font-bold text-xs inline-flex items-center"
+                  >
+                    Photos
+                  </Link>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border border-slate-300 bg-white text-slate-600 px-3 py-2 rounded-xl font-bold text-xs"
+                  >
+                    JSON
+                  </button>
+                  {rosterEntries.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void applyRoster()}
+                        className="bg-teal-700 text-white px-3 py-2 rounded-xl font-bold text-xs"
+                      >
+                        Ré-appliquer ({rosterEntries.length})
+                      </button>
+                      <button
+                        type="button"
+                        className="text-slate-600 font-bold text-xs"
+                        onClick={() => setShowRoster((v) => !v)}
+                      >
+                        {showRoster ? "Masquer aperçu" : "Aperçu"}
+                      </button>
+                    </>
+                  )}
+                </div>
+                {error && (
+                  <p className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700" role="alert">
+                    {error}
+                  </p>
+                )}
+                {rosterMeta?.updatedAt && (
+                  <p className="text-xs text-slate-500">
+                    Liste enregistrée le {new Date(rosterMeta.updatedAt).toLocaleString("fr-FR")}
+                  </p>
+                )}
+                {rosterMessage && <p className="text-xs font-semibold text-emerald-800">{rosterMessage}</p>}
+              </div>
+
+              {showRoster && rosterEntries.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 max-h-[20rem] overflow-y-auto">
+                  <h3 className="font-bold text-sm mb-2">Aperçu ({rosterEntries.length})</h3>
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs text-slate-500">
+                      <tr>
+                        <th className="pb-2">Élève</th>
+                        <th className="pb-2">Classe</th>
+                        <th className="pb-2">Établ.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rosterEntries.map((e) => (
+                        <tr key={`${e.nom}-${e.prenom}`} className="border-t border-slate-100">
+                          <td className="py-2 font-medium">
+                            {e.prenom} {e.nom}
+                          </td>
+                          <td className="py-2">{e.preview?.classe || e.classe || "—"}</td>
+                          <td className="py-2">{e.preview?.etablissement || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
-              {canManage && (
-                <>
-                  <p className="text-xs font-bold uppercase text-slate-500 pt-2">Autorisation spéciale</p>
-                  <input className="w-full border rounded-xl px-3 py-2" placeholder="Libellé (ex. sortie régulière vendredi)" value={detailDraft.authLabel} onChange={(e) => setDetailDraft({ ...detailDraft, authLabel: e.target.value })} />
-                  <input type="date" className="w-full border rounded-xl px-3 py-2" value={detailDraft.authValidUntil} onChange={(e) => setDetailDraft({ ...detailDraft, authValidUntil: e.target.value })} />
-                  {students.find((s) => s.id === detailId)?.specialAuthorizations?.length ? (
-                    <ul className="text-xs text-slate-500 space-y-1">
-                      {students
-                        .find((s) => s.id === detailId)!
-                        .specialAuthorizations!.map((a) => (
-                          <li key={a.id}>
-                            {a.label}
-                            {a.validUntil ? ` (jusqu'au ${a.validUntil})` : ""}
-                          </li>
-                        ))}
-                    </ul>
-                  ) : null}
-                </>
-              )}
-            </div>
-            <div className="flex gap-2 justify-end">
-              <button type="button" className="px-4 py-2 rounded-xl text-sm font-bold text-slate-600" onClick={() => setDetailId(null)}>
-                Fermer
-              </button>
-              {canManage && (
-                <button type="button" disabled={busy} className="px-4 py-2 rounded-xl text-sm font-bold bg-indigo-600 text-white" onClick={saveDetail}>
-                  Enregistrer
+
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
+                <h3 className="font-bold text-slate-900 text-sm">Ajout manuel</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  <input
+                    className="border rounded-xl px-3 py-2 text-sm"
+                    placeholder="Nom"
+                    value={manual.nom}
+                    onChange={(e) => setManual({ ...manual, nom: e.target.value })}
+                  />
+                  <input
+                    className="border rounded-xl px-3 py-2 text-sm"
+                    placeholder="Prénom"
+                    value={manual.prenom}
+                    onChange={(e) => setManual({ ...manual, prenom: e.target.value })}
+                  />
+                  <input
+                    className="border rounded-xl px-3 py-2 text-sm"
+                    placeholder="Classe"
+                    value={manual.classe}
+                    onChange={(e) => setManual({ ...manual, classe: e.target.value })}
+                  />
+                  <select
+                    className="border rounded-xl px-3 py-2 text-sm"
+                    value={manual.sexe}
+                    onChange={(e) => setManual({ ...manual, sexe: e.target.value as "M" | "F" })}
+                  >
+                    <option value="M">Garçon</option>
+                    <option value="F">Fille</option>
+                  </select>
+                  <EstablishmentSelect
+                    className="border rounded-xl px-3 py-2 text-sm"
+                    value={manual.etablissement}
+                    onChange={(label) => setManual({ ...manual, etablissement: label })}
+                    kinds={["college", "lycee", "custom"]}
+                  />
+                  <select
+                    className="border rounded-xl px-3 py-2 text-sm"
+                    value={manual.roomId}
+                    onChange={(e) => setManual({ ...manual, roomId: e.target.value })}
+                  >
+                    <option value="">Chambre —</option>
+                    {rooms.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {formatRoomOption(buildings, r)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void createManual()}
+                  className="bg-slate-900 text-white px-4 py-2 rounded-xl font-bold text-sm"
+                >
+                  Créer l&apos;interne
                 </button>
-              )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {editingParentsId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5 space-y-4">
-            <h3 className="font-black text-slate-900">Contacts parents</h3>
-            <div className="space-y-3">
-              <p className="text-xs font-bold uppercase text-slate-500">Parent 1</p>
-              <input className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Nom" value={parentDraft.p1nom} onChange={(e) => setParentDraft({ ...parentDraft, p1nom: e.target.value })} />
-              <input className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="E-mail *" type="email" value={parentDraft.p1email} onChange={(e) => setParentDraft({ ...parentDraft, p1email: e.target.value })} />
-              <input className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Téléphone" value={parentDraft.p1tel} onChange={(e) => setParentDraft({ ...parentDraft, p1tel: e.target.value })} />
-              <p className="text-xs font-bold uppercase text-slate-500 pt-2">Parent 2 (optionnel)</p>
-              <input className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Nom" value={parentDraft.p2nom} onChange={(e) => setParentDraft({ ...parentDraft, p2nom: e.target.value })} />
-              <input className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="E-mail" type="email" value={parentDraft.p2email} onChange={(e) => setParentDraft({ ...parentDraft, p2email: e.target.value })} />
-              <input className="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Téléphone" value={parentDraft.p2tel} onChange={(e) => setParentDraft({ ...parentDraft, p2tel: e.target.value })} />
-            </div>
-            <div className="flex gap-2 justify-end">
-              <button type="button" className="px-4 py-2 rounded-xl text-sm font-bold text-slate-600" onClick={() => setEditingParentsId(null)}>
-                Annuler
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                className="px-4 py-2 rounded-xl text-sm font-bold bg-indigo-600 text-white"
-                onClick={() => saveParents(editingParentsId)}
-              >
-                Enregistrer
-              </button>
-            </div>
-          </div>
-        </div>
+      {detailStudent && (
+        <InternatStudentFiche
+          student={detailStudent}
+          rooms={rooms}
+          buildings={buildings}
+          photoUrl={photoUrls[detailStudent.id]}
+          canManage={canManage}
+          busy={busy}
+          onClose={() => setDetailId(null)}
+          onSave={async (patch) => {
+            await updateStudent(detailStudent.id, patch);
+          }}
+          onUpdateRoom={async (roomId) => {
+            await updateStudent(detailStudent.id, { roomId });
+          }}
+          onSortie={async () => {
+            if (!confirm("Marquer cet interne en sortie d'année ?")) return;
+            await updateStudent(detailStudent.id, {
+              actif: false,
+              sortieMotif: "Désactivation manuelle",
+              note: "Désactivation manuelle",
+            });
+            setDetailId(null);
+          }}
+        />
       )}
     </div>
   );
