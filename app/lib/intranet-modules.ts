@@ -73,6 +73,9 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   /** Compte : MDP / e-mail / events — sinon « Accès refusé à ce module » au premier login. */
   "/api/account",
   "/api/me/module-access",
+  /** Chrome dashboard (météo, actualité) — hors matrice « Droits modules ». */
+  "/api/weather",
+  "/api/dashboard",
   "/onboarding",
   "/configuration-en-cours",
   "/abonnement-suspendu",
@@ -807,6 +810,23 @@ function findMatchingModules(pathname: string): IntranetModule[] {
   return INTRANET_MODULES.filter((m) => moduleMatchesPath(m, normalized));
 }
 
+/**
+ * Modules hors matrice Paramètres → Droits modules.
+ * Ils ne doivent PAS être bloqués par une fiche byUser / byRole
+ * (sinon météo / hubs legacy passent en 403 dès qu’on personnalise les cases).
+ */
+const MODULES_IGNORE_ACCESS_OVERRIDES = new Set([
+  "dashboard-week-sheet",
+  "legacy-hub-redirects",
+  "scolia-ai",
+  "pillar-administratif",
+  "pillar-etablissement",
+  "pillar-services",
+  "pillar-vie-scolaire",
+  "pillar-compta-rh",
+  "rh-paie-spec",
+]);
+
 export function rolesAllowModule(
   roles: string[],
   module: IntranetModule,
@@ -836,6 +856,11 @@ export function rolesAllowModule(
   }
 
   if (!module.allowedRoles.length) return false;
+
+  // Infra / hors UI : uniquement le rôle métier natif (pas la fiche individuelle).
+  if (MODULES_IGNORE_ACCESS_OVERRIDES.has(module.id)) {
+    return module.allowedRoles.some((r) => hasRole(roles, r));
+  }
 
   const byRole = access?.byRole;
   const byUser = access?.byUser;
