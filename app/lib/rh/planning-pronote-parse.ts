@@ -195,6 +195,10 @@ export function parsePronoteTeacherGrid(items: PdfTextItem[]): PronoteTeacherPar
   const weekB: PronoteTeacherParseResult["weekB"] = [];
 
   for (const slot of rawSlots) {
+    // Marqueur uniquement sur le début de créneau Pronote :
+    // - (A) → semaine A seulement
+    // - (B) → semaine B seulement
+    // - aucun marqueur → les deux semaines
     const normalized = {
       day: slot.day,
       start: slot.start,
@@ -206,12 +210,12 @@ export function parsePronoteTeacherGrid(items: PdfTextItem[]): PronoteTeacherPar
       room: slot.room,
     };
     if (slot.week === "A") {
-      weekA.push(normalized);
+      weekA.push({ ...normalized, classes: [...normalized.classes] });
     } else if (slot.week === "B") {
-      weekB.push(normalized);
+      weekB.push({ ...normalized, classes: [...normalized.classes] });
     } else {
-      weekA.push(normalized);
-      weekB.push(normalized);
+      weekA.push({ ...normalized, classes: [...normalized.classes] });
+      weekB.push({ ...normalized, classes: [...normalized.classes] });
     }
   }
 
@@ -314,7 +318,8 @@ function parseLinearDay(day: PlanningWeekday, col: TimedItem[]): RawSlot[] {
       continue;
     }
     const start = startItem.start;
-    const week = startItem.week;
+    /** Marqueur A/B Pronote : uniquement l’heure de début compte. */
+    const weekMark = startItem.week;
     const body: TimedItem[] = [];
     i += 1;
     while (i < sorted.length && sorted[i]!.kind !== "time") {
@@ -322,15 +327,12 @@ function parseLinearDay(day: PlanningWeekday, col: TimedItem[]): RawSlot[] {
       i += 1;
     }
     let end = "";
-    let endWeek = week;
     if (i < sorted.length && sorted[i]!.kind === "time" && sorted[i]!.start) {
       end = sorted[i]!.start!;
-      endWeek = sorted[i]!.week ?? week;
       i += 1;
       // Pronote duplique souvent l'heure de fin comme début du créneau suivant.
-      // On laisse le prochain time identique pour l'itération suivante.
       if (i < sorted.length && sorted[i]!.kind === "time" && sorted[i]!.start === end) {
-        /* no-op */
+        /* no-op — le prochain tour reprend ce time comme start */
       }
     }
     if (!end || end === start || body.length === 0) {
@@ -361,7 +363,7 @@ function parseLinearDay(day: PlanningWeekday, col: TimedItem[]): RawSlot[] {
       day,
       start,
       end,
-      week: week || endWeek || null,
+      week: weekMark,
       subject: subject || "Cours",
       room,
       classes,

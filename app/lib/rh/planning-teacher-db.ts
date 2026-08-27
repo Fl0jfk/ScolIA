@@ -165,9 +165,19 @@ export async function writeTeacherPlanningToDb(
     planningId = inserted!.id;
   }
 
+  const usedSlotIds = new Set<string>();
+  const allocSlotId = (preferred: string) => {
+    let id = preferred || `slot_${Math.random().toString(36).slice(2, 10)}`;
+    while (usedSlotIds.has(id)) {
+      id = `${preferred}_${Math.random().toString(36).slice(2, 7)}`;
+    }
+    usedSlotIds.add(id);
+    return id;
+  };
+
   const slotRows = [
     ...normalized.weekA.map((s) => ({
-      id: s.id,
+      id: allocSlotId(s.id),
       etablissementId,
       planningId: planningId!,
       weekType: "A",
@@ -179,7 +189,7 @@ export async function writeTeacherPlanningToDb(
       room: s.room ?? null,
     })),
     ...normalized.weekB.map((s) => ({
-      id: s.id,
+      id: allocSlotId(s.id),
       etablissementId,
       planningId: planningId!,
       weekType: "B",

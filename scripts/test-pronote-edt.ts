@@ -36,10 +36,21 @@ async function main() {
   console.log("slotCount", parsed.slotCount);
   console.log("weekA", parsed.weekA.length, "weekB", parsed.weekB.length);
   console.log("warnings", parsed.warnings);
+  if (parsed.weekB.length < parsed.weekA.length - 5) {
+    console.error("FAIL: weekB trop petit vs weekA — les créneaux sans marqueur doivent être dans les deux semaines");
+    process.exit(3);
+  }
   const planning = normalizeTeacherPlanning(
     { kind: "teacher", personnelId: "test", weekA: parsed.weekA, weekB: parsed.weekB },
     "test",
   );
+  const idsA = new Set(planning.weekA.map((s) => s.id));
+  const shared = planning.weekB.filter((s) => idsA.has(s.id));
+  if (shared.length) {
+    console.error("FAIL: ids partagés entre weekA et weekB", shared.length);
+    process.exit(4);
+  }
+  console.log("normalize ok — ids A/B disjoints, weekA", planning.weekA.length, "weekB", planning.weekB.length);
   const byDay = (slots: typeof planning.weekA) => {
     const m = new Map<number, string[]>();
     for (const s of slots) {

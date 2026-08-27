@@ -78,17 +78,20 @@ async function chatJson(system: string, user: string): Promise<Record<string, un
   return cleanMistralJson(content);
 }
 
-const TEACHER_SYSTEM = `Tu extrais un emploi du temps professeur depuis un texte OCR (PDF français établissement scolaire).
+const TEACHER_SYSTEM = `Tu extrais un emploi du temps professeur depuis un texte OCR (PDF français établissement scolaire, souvent Pronote).
 Réponds UNIQUEMENT en JSON valide.
 Règles :
-- Distingue clairement semaine A et semaine B si le document les mentionne (A/B, S1/S2, semaine paire/impaire, etc.).
-- Ces grilles sont des SEMAINES TYPES valables toute l'année scolaire (pas un calendrier daté).
-- Si une seule grille est présente sans A/B, mets tous les créneaux dans weekA et laisse weekB vide.
 - day = 1 (lundi) … 5 (vendredi). Pas de week-end.
 - Heures au format HH:MM (24h).
-- classes = tableau de codes classe (ex. ["6A","5B"]).
+- classes = tableau de codes classe / groupe (ex. ["6A","5B"] ou codes Pronote).
 - N'invente pas de créneaux absents du texte.
-- personHint = nom du professeur si visible, sinon "".`;
+- personHint = nom du professeur si visible, sinon "".
+- Semaines A/B (CRITIQUE, règles Pronote) :
+  * Un créneau marqué (A) ou « sem. A » → UNIQUEMENT dans weekA.
+  * Un créneau marqué (B) ou « sem. B » → UNIQUEMENT dans weekB.
+  * Un créneau SANS marqueur A ni B → recopier dans weekA ET dans weekB (cours toutes semaines).
+  * Ne laisse JAMAIS weekB avec seulement les créneaux marqués B si d'autres cours non marqués existent : ceux-ci doivent aussi être dans weekB.
+  * Ces grilles sont des SEMAINES TYPES valables toute l'année scolaire (pas un calendrier daté).`;
 
 const STAFF_SYSTEM = `Tu extrais un planning de personnel OGEC (admin, compta, maintenance, surveillant / vie scolaire) depuis un texte OCR.
 Réponds UNIQUEMENT en JSON valide.
@@ -135,6 +138,8 @@ async function tryExtractTeacherPronoteSpatial(input: {
 
     const warnings = [
       ...parsed.warnings,
+      `Semaine A : ${planning.weekA.length} créneau(x) · Semaine B : ${planning.weekB.length} créneau(x).`,
+      "Sans marqueur (A)/(B) = présent dans les deux semaines ; (A) = A seulement ; (B) = B seulement.",
       "Semaines A/B = semaines types pour toute l’année scolaire.",
     ];
 
