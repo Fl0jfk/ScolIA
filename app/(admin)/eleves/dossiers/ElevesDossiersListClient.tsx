@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 
 type EleveRow = {
   id: string;
@@ -225,7 +226,7 @@ export default function ElevesDossiersListClient() {
     const needle = q.trim().toLowerCase();
     return eleves.filter((e) => {
       if (siteFilter && e.siteId !== siteFilter) return false;
-      if (classeFilter && e.classe !== classeFilter) return false;
+      if (classeFilter && !schoolClassesMatch(e.classe, classeFilter)) return false;
       if (statusFilter && e.status !== statusFilter) return false;
       if (!needle) return true;
       return `${e.nom} ${e.prenom} ${e.classe || ""} ${e.classeLabel || ""} ${e.ine || ""} ${e.siteLabel || ""}`

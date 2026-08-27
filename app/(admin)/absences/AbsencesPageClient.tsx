@@ -52,12 +52,12 @@ const AbsencesDeclareOther = dynamic(
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
 
-const AbsencesDeclareOnBehalf = dynamic(
-  () => import("@/app/components/absences/AbsencesDeclareOnBehalf"),
-  { ssr: false, loading: () => <ModuleTabFallback /> },
-);
+import DirectoryPersonSelect, {
+  directoryMemberLabel,
+} from "@/app/components/settings/DirectoryPersonSelect";
+import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 
-const norm = (s: string) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[_\s-]+/g, "");
+type DirectoryMemberWithRoles = DirectoryMemberOption & { roles?: string[] };
 
 export default function AbsencesPageClient({
   embeddedInRh = false,
@@ -86,14 +86,25 @@ export default function AbsencesPageClient({
   const [managerHoursTreatment, setManagerHoursTreatment] = useState<Record<string, string>>({});
   const [uploadingJustificationId, setUploadingJustificationId] = useState<string | null>(null);
   const roles = rolesFromUserLike(user);
-  const canChooseScope = canChooseDeclarationScope(roles);
   const [declareScope, setDeclareScope] = useState<AbsenceScope>("ogec");
-  const effectiveScope = canChooseScope ? declareScope : resolveSelfDeclarationScope(roles);
+  const [forOther, setForOther] = useState(false);
+  const [colleague, setColleague] = useState<DirectoryMemberWithRoles | null>(null);
+  const [directoryMembers, setDirectoryMembers] = useState<DirectoryMemberWithRoles[]>([]);
+  const [loadingDirectory, setLoadingDirectory] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const showCalendar = canViewCalendar(roles);
   const canTreat = isAnyDirectionRole(roles);
   const canOnBehalf = canDeclareAbsenceOnBehalf(roles);
+
+  const subjectRoles = useMemo(() => {
+    if (forOther && colleague) {
+      return Array.isArray(colleague.roles) ? colleague.roles.map(String) : [];
+    }
+    return roles;
+  }, [forOther, colleague, roles]);
+  const canChooseScope = canChooseDeclarationScope(subjectRoles);
+  const effectiveScope = canChooseScope ? declareScope : resolveSelfDeclarationScope(subjectRoles);
 
   const asRecord = (item: AbsenceItem) => item as unknown as AbsenceRecord;
 
@@ -111,7 +122,9 @@ export default function AbsencesPageClient({
   const defaultTab = showCalendar ? "calendrier" : "se-declarer";
   const rawTab = embeddedInRh ? searchParams.get("view") : searchParams.get("tab");
   const activeTab =
-    rawTab === "declarer" || rawTab === "mes-demandes" ? "se-declarer" : rawTab || defaultTab;
+    rawTab === "declarer" || rawTab === "mes-demandes" || rawTab === "autre-personne"
+      ? "se-declarer"
+      : rawTab || defaultTab;
   const absencesHref = (view: string) =>
     embeddedInRh ? `/rh?tab=absences&view=${view}` : `/absences?tab=${view}`;
   const setTab = (tab: string) => router.push(absencesHref(tab));
@@ -122,8 +135,8 @@ export default function AbsencesPageClient({
     if (activeTab === "calendrier" && !showCalendar) {
       router.replace(absencesHref("se-declarer"));
     }
-    if (activeTab === "autre-personne" && !canOnBehalf) {
-      router.replace(absencesHref(showCalendar ? "calendrier" : "se-declarer"));
+    if (rawTab === "autre-personne") {
+      router.replace(absencesHref("se-declarer") + (canOnBehalf ? "&forOther=1" : ""));
     }
     if (rawTab === "declarer" || rawTab === "mes-demandes") {
       router.replace(absencesHref("se-declarer"));
@@ -131,6 +144,44 @@ export default function AbsencesPageClient({
     // absencesHref is stable for a given embeddedInRh
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, rawTab, showCalendar, canOnBehalf, isLoaded, router, embeddedInRh]);
+
+  useEffect(() => {
+    if (!canOnBehalf) return;
+    const flag = searchParams.get("forOther");
+    if (flag === "1" || flag === "true") setForOther(true);
+  }, [canOnBehalf, searchParams]);
+
+  useEffect(() => {
+    if (!canOnBehalf || !forOther) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingDirectory(true);
+        const res = await fetch("/api/absences/directory-users", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || "Annuaire indisponible.");
+        if (!cancelled) setDirectoryMembers(Array.isArray(data.users) ? data.users : []);
+      } catch (e: unknown) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Erreur annuaire.");
+      } finally {
+        if (!cancelled) setLoadingDirectory(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canOnBehalf, forOther]);
+
+  useEffect(() => {
+    if (!forOther || !colleague) return;
+    const colleagueRoles = Array.isArray(colleague.roles) ? colleague.roles.map(String) : [];
+    setDeclareScope(resolveSelfDeclarationScope(colleagueRoles));
+  }, [forOther, colleague]);
+
+  useEffect(() => {
+    if (forOther) return;
+    setDeclareScope(resolveSelfDeclarationScope(roles));
+  }, [forOther, roles]);
   const fetchItems = async () => {
     try {
       setLoading(true);
@@ -155,6 +206,10 @@ export default function AbsencesPageClient({
   }, [isLoaded, activeTab]);
   const submitAbsence = async () => {
     setError(null);
+    if (forOther && !colleague?.externalUserId) {
+      setError("Choisissez la personne concernée.");
+      return;
+    }
     if (!reason.trim()) {
       setError("Merci de remplir le motif.");
       return;
@@ -207,6 +262,9 @@ export default function AbsencesPageClient({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(forOther && colleague?.externalUserId
+            ? { onBehalfOf: { userId: colleague.externalUserId } }
+            : {}),
           data: {
             scope: effectiveScope,
             etablissement: effectiveScope === "professeur" ? etablissement : null,
@@ -232,7 +290,9 @@ export default function AbsencesPageClient({
       setReason("");
       setDetails("");
       setJustificationFile(null);
+      if (forOther) setColleague(null);
       await fetchItems();
+      setCalendarRefresh((n) => n + 1);
     } catch (e: any) { setError(e?.message || "Erreur de création.");
     } finally { setSaving(false);
     }
@@ -427,11 +487,6 @@ export default function AbsencesPageClient({
   const pendingSelfCount = selfItems.filter(isPendingAbsence).length;
   const tabs = [
     { id: "calendrier", label: "Calendrier", show: showCalendar },
-    {
-      id: "autre-personne",
-      label: "Pour un collègue",
-      show: canOnBehalf,
-    },
     { id: "se-declarer", label: "Demande d'autorisation", show: true },
     { id: "a-traiter", label: "À traiter", show: canTreat },
   ].filter((t) => t.show);
@@ -461,32 +516,19 @@ export default function AbsencesPageClient({
       {tabNav}
 
       {activeTab === "calendrier" && showCalendar ? (
-        <div data-tour="absences-calendar">
+        <div className="space-y-8" data-tour="absences-calendar">
           <AbsencesCalendar refreshKey={calendarRefresh} />
-        </div>
-      ) : null}
-
-      {activeTab === "autre-personne" && canOnBehalf ? (
-        <div className="space-y-8">
-          <AbsencesDeclareOnBehalf
-            onSuccess={() => {
-              setCalendarRefresh((n) => n + 1);
-              void fetchItems();
-            }}
-          />
-          {showCalendar ? (
-            <details className="group rounded-3xl border border-slate-200 bg-white open:shadow-sm">
-              <summary className="cursor-pointer list-none px-6 py-4 font-bold text-slate-800 marker:content-none [&::-webkit-details-marker]:hidden">
-                Saisie calendrier / PDF (sans validation direction)
-                <span className="ml-2 text-xs font-semibold text-slate-500">
-                  — convocations, import OCR
-                </span>
-              </summary>
-              <div className="border-t border-slate-100 px-6 pb-6 pt-2">
-                <AbsencesDeclareOther onSuccess={() => setCalendarRefresh((n) => n + 1)} />
-              </div>
-            </details>
-          ) : null}
+          <details className="group rounded-3xl border border-slate-200 bg-white open:shadow-sm">
+            <summary className="cursor-pointer list-none px-6 py-4 font-bold text-slate-800 marker:content-none [&::-webkit-details-marker]:hidden">
+              Saisie calendrier / PDF (sans validation direction)
+              <span className="ml-2 text-xs font-semibold text-slate-500">
+                — convocations, import OCR
+              </span>
+            </summary>
+            <div className="border-t border-slate-100 px-6 pb-6 pt-2">
+              <AbsencesDeclareOther onSuccess={() => setCalendarRefresh((n) => n + 1)} />
+            </div>
+          </details>
         </div>
       ) : null}
 
@@ -495,7 +537,61 @@ export default function AbsencesPageClient({
         <div id="nouvelle-absence" data-tour="absences-declare" className="xl:col-span-1 bg-white border border-slate-200 rounded-3xl p-6 h-fit scroll-mt-24">
           <h2 className="text-xl font-black text-slate-900 mb-4">Nouvelle demande d&apos;autorisation d&apos;absence</h2>
           <div className="space-y-4">
-            {canChooseScope ? (
+            {canOnBehalf ? (
+              <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  checked={forOther}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setForOther(checked);
+                    setError(null);
+                    if (!checked) setColleague(null);
+                  }}
+                />
+                <span className="text-sm text-slate-700">
+                  <span className="font-bold text-slate-900">Pour une autre personne</span>
+                  <span className="block text-xs text-slate-500 mt-0.5">
+                    Sinon, la demande est pour vous. Le type (professeur / OGEC) suit automatiquement la personne choisie.
+                  </span>
+                </span>
+              </label>
+            ) : null}
+
+            {canOnBehalf && forOther ? (
+              <div>
+                <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">
+                  Personne concernée
+                </label>
+                <DirectoryPersonSelect
+                  members={directoryMembers}
+                  selectedId={colleague?.externalUserId}
+                  selectedEmail={colleague?.email}
+                  onChange={(m) => {
+                    if (!m) {
+                      setColleague(null);
+                      return;
+                    }
+                    const full =
+                      directoryMembers.find((x) => x.externalUserId === m.externalUserId) || m;
+                    setColleague(full);
+                  }}
+                  loading={loadingDirectory}
+                />
+                {colleague ? (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Demande pour <span className="font-semibold">{directoryMemberLabel(colleague)}</span>
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {forOther && !colleague ? (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+                Choisissez d&apos;abord la personne : le type personnel se calcule automatiquement.
+              </div>
+            ) : canChooseScope ? (
               <div>
                 <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">
                   Type d&apos;absence
@@ -509,7 +605,9 @@ export default function AbsencesPageClient({
                   <option value="professeur">Professeur</option>
                 </select>
                 <p className="text-xs text-amber-700 mt-1 font-medium">
-                  Votre compte cumule enseignement et personnel OGEC — choisissez la bonne catégorie.
+                  {forOther
+                    ? "Cette personne cumule enseignement et personnel OGEC — choisissez la bonne catégorie."
+                    : "Votre compte cumule enseignement et personnel OGEC — choisissez la bonne catégorie."}
                 </p>
               </div>
             ) : (
@@ -518,9 +616,12 @@ export default function AbsencesPageClient({
                 <span className="font-semibold text-slate-800">
                   {effectiveScope === "professeur" ? "Professeur" : "Personnel OGEC"}
                 </span>
+                {forOther ? (
+                  <span className="block text-xs text-slate-500 mt-1">Déterminé automatiquement selon les rôles de la personne.</span>
+                ) : null}
               </div>
             )}
-            {effectiveScope === "professeur" && (
+            {!(forOther && !colleague) && effectiveScope === "professeur" && (
               <div>
                 <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">Établissement</label>
                 <EstablishmentSelect
@@ -622,10 +723,14 @@ export default function AbsencesPageClient({
             <button
               type="button"
               onClick={submitAbsence}
-              disabled={saving}
+              disabled={saving || (forOther && !colleague)}
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl disabled:opacity-60"
             >
-              {saving ? "Envoi..." : "Envoyer la demande d'autorisation"}
+              {saving
+                ? "Envoi..."
+                : forOther
+                  ? "Envoyer la demande pour cette personne"
+                  : "Envoyer la demande d'autorisation"}
             </button>
           </div>
         </div>

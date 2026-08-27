@@ -22,7 +22,12 @@ function normalizeClassName(className: string): string {
 }
 
 export function classKey(className: string): string {
-  return normalizeClassName(className).toLowerCase();
+  return normalizeClassName(className)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[°º]/g, "")
+    .replace(/[\s._\-/]+/g, "")
+    .toLowerCase();
 }
 
 export async function listStageReferentClassNames(extra?: string[]): Promise<string[]> {

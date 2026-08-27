@@ -546,12 +546,12 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
       {
         target: "absences-tabs",
         title: "Les onglets",
-        body: "« Demande d'autorisation » pour votre propre absence. « Calendrier » pour la vue collective (si vous y avez accès). « À traiter » pour les responsables qui valident ou refusent. « Pour un collègue » pour le secrétariat.",
+        body: "« Demande d'autorisation » pour vous ou (si vous êtes administratif / direction / compta) pour un collègue via la case dédiée. « Calendrier » pour la vue collective. « À traiter » pour valider ou refuser.",
       },
       {
         target: "absences-declare",
         title: "Demande d'autorisation d'absence",
-        body: "Indiquez le type (prof / OGEC), l'établissement, les dates, le motif et éventuellement un justificatif PDF. Une fois validée, l'absence est transmise au secrétariat ou à la comptabilité selon le cas.",
+        body: "Indiquez les dates, le motif et éventuellement un justificatif. Le type (prof / OGEC) suit automatiquement vos rôles — ou ceux du collègue si vous cochez « Pour une autre personne ». Une fois validée, l'absence est transmise au secrétariat ou à la comptabilité selon le cas.",
       },
       {
         target: "absences-treat",

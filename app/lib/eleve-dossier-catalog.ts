@@ -6,6 +6,7 @@ import type { EstablishmentKind } from "@/app/lib/app-config-schemas";
 import {
   DEFAULT_CLASSES_BY_POLE,
   DEFAULT_ECOLE_CLASSES,
+  foldSchoolClass,
   resolveClassesByPoleCatalog,
 } from "@/app/lib/school-classes-catalog";
 
@@ -167,8 +168,10 @@ export function resolveSiteIdForClass(
   if (direct) return direct;
 
   const norm = normalizeClassKey(cls);
+  const folded = foldSchoolClass(cls);
   for (const [key, siteId] of catalog.classToSiteId.entries()) {
     if (normalizeClassKey(key) === norm) return siteId;
+    if (folded && foldSchoolClass(key) === folded) return siteId;
   }
 
   const kind = inferSiteKindFromClassName(cls);
@@ -285,24 +288,58 @@ export function dossierClassOptionsForSite(
     ? catalog.classOptions.filter((o) => o.siteId === site)
     : catalog.classOptions;
 
-  const seen = new Set(fromCatalog.map((o) => o.value));
-  const merged = [...fromCatalog];
+  /** Une entrée par forme compactée ; les libellés réellement présents en base priment. */
+  const byFold = new Map<string, DossierClassOption>();
+
+  for (const opt of fromCatalog) {
+    const fold = foldSchoolClass(opt.value);
+    if (!fold) continue;
+    if (!byFold.has(fold)) byFold.set(fold, opt);
+  }
 
   for (const rawCls of extraClasses) {
     const cls = rawCls.trim();
-    if (!cls || seen.has(cls)) continue;
+    if (!cls) continue;
     const clsSiteId = resolveSiteIdForClass(cls, catalog);
     if (site && clsSiteId !== site) continue;
+    const fold = foldSchoolClass(cls);
+    if (!fold) continue;
     const siteLabel = resolveSiteLabel(clsSiteId, catalog);
-    merged.push({
+    const observed: DossierClassOption = {
       value: cls,
       label: classOptionLabel(cls, siteLabel),
       siteId: clsSiteId,
       siteLabel,
+    };
+    const existing = byFold.get(fold);
+    if (!existing) {
+      byFold.set(fold, observed);
+      continue;
+    }
+    // Préférer le libellé tel qu’importé (PS A) plutôt que le synthétique catalogue (PSA).
+    byFold.set(fold, {
+      ...existing,
+      value: cls,
+      label: classOptionLabel(cls, existing.siteLabel ?? siteLabel),
+      siteId: existing.siteId ?? clsSiteId,
+      siteLabel: existing.siteLabel ?? siteLabel,
     });
-    seen.add(cls);
   }
 
+  // Si des classes réelles sont connues, retirer les libellés école injectés sans aucun élève.
+  const observedFolds = new Set(
+    extraClasses.map((c) => foldSchoolClass(c)).filter(Boolean),
+  );
+  if (observedFolds.size > 0) {
+    const syntheticEcole = new Set(DEFAULT_ECOLE_CLASSES.map((c) => foldSchoolClass(c)));
+    for (const fold of [...byFold.keys()]) {
+      if (syntheticEcole.has(fold) && !observedFolds.has(fold)) {
+        byFold.delete(fold);
+      }
+    }
+  }
+
+  const merged = [...byFold.values()];
   merged.sort((a, b) =>
     a.label.localeCompare(b.label, "fr", { sensitivity: "base", numeric: true }),
   );

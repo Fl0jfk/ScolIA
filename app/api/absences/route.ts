@@ -214,7 +214,7 @@ export async function POST(req: Request) {
       }
       if (onBehalfUserId === userId) {
         return NextResponse.json(
-          { error: "Pour vous-même, utilisez l’onglet « Demande d'autorisation »." },
+          { error: "Pour vous-même, décochez « Pour une autre personne »." },
           { status: 400 },
         );
       }

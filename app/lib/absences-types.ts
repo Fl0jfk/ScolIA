@@ -5,6 +5,7 @@ import {
   directionRolesMatchEstablishmentRef,
   isAnyDirectionRole,
 } from "@/app/lib/establishment-catalog";
+import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
 import { parseParisDateTime, parisDateKey } from "@/app/lib/paris-time";
 
 export type AbsenceScope = "professeur" | "ogec";
@@ -164,10 +165,17 @@ export function canAdminIngest(roles: string[]) {
   return canViewCalendar(roles);
 }
 
-/** Administratif, comptabilité et direction uniquement — pas CPE, profs, éducation, etc. */
+/** Administratif, comptabilité, direction et admin établissement — pas CPE, profs, éducation, etc. */
 export function canDeclareAbsenceOnBehalf(roles: string[]) {
   const flags = getRoleFlags(roles);
-  return flags.isAdministratif || flags.isCompta || flags.isDirection;
+  return (
+    flags.isAdministratif ||
+    flags.isCompta ||
+    flags.isDirection ||
+    hasGlobalAdminRole(roles) ||
+    hasMasterRole(roles) ||
+    roles.includes("admin")
+  );
 }
 
 /** Scope effectif (certains enregistrements legacy n'ont pas data.scope). */

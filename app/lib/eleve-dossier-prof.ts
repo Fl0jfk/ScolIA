@@ -12,6 +12,7 @@ import {
   isProfesseurScopedDossierViewer,
 } from "@/app/lib/eleve-dossier-scope";
 import { isExcludedFromDossierList } from "@/app/lib/eleve-dossier-catalog";
+import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 
 export {
   canViewFullElevesDossierHub,
@@ -112,7 +113,6 @@ export async function listElevesDossierFromDb(
   const status = filters.status?.trim();
   const classe = filters.classe?.trim();
   if (status) conditions.push(eq(eleve.status, status));
-  if (classe) conditions.push(eq(eleve.classe, classe));
 
   const rows = await db
     .select()
@@ -123,6 +123,9 @@ export async function listElevesDossierFromDb(
   let filtered = rows.filter(
     (r) => !isExcludedFromDossierList({ nom: r.nom, prenom: r.prenom, sourceKey: r.sourceKey }),
   );
+  if (classe) {
+    filtered = filtered.filter((r) => schoolClassesMatch(r.classe, classe));
+  }
   if (filters.assignedClasses?.length) {
     filtered = filtered.filter((r) =>
       teacherCanAccessEleveClasse(r.classe, filters.assignedClasses!),

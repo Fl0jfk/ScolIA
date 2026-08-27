@@ -21,6 +21,7 @@ import type {
   TravelsTrip,
 } from "@/app/lib/travels-types";
 import { TripAlert, TripButton, TripInput, TripSection } from "@/app/components/travels/TripDetailUI";
+import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 
 type Props = {
   trip: TravelsTrip;
@@ -119,7 +120,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   const elevesInBrowseClass = useMemo(() => {
     if (!browseClass) return [];
     return eleves
-      .filter((e) => e.classe === browseClass)
+      .filter((e) => schoolClassesMatch(e.classe, browseClass))
       .sort((a, b) =>
         `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
       );
@@ -178,7 +179,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   const countSelectedInClass = (classe: string) => {
     let n = 0;
     for (const e of eleves) {
-      if (e.classe === classe && selectedKeys.has(eleveParticipantKey(e))) n += 1;
+      if (schoolClassesMatch(e.classe, classe) && selectedKeys.has(eleveParticipantKey(e))) n += 1;
     }
     return n;
   };
@@ -209,7 +210,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
       const next = new Set(prev);
       const droits: Record<string, boolean> = {};
       for (const e of eleves) {
-        if (e.classe !== classe) continue;
+        if (!schoolClassesMatch(e.classe, classe)) continue;
         const key = eleveParticipantKey(e);
         next.add(key);
         droits[key] = true;
@@ -222,7 +223,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   const removeWholeClassFromList = (classe: string) => {
     const next = new Set(selectedKeys);
     for (const e of eleves) {
-      if (e.classe === classe) next.delete(eleveParticipantKey(e));
+      if (schoolClassesMatch(e.classe, classe)) next.delete(eleveParticipantKey(e));
     }
     setSelectedKeys(next);
   };

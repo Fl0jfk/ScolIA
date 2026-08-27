@@ -92,7 +92,8 @@ export const DEFAULT_CLASSES_BY_POLE: Record<string, string[]> = {
 const BARE_ELEMENTAIRE = new Set(["CP", "CE1", "CE2", "CM1", "CM2"]);
 const BARE_MATERNELLE = new Set(["TPS", "PS", "MS", "GS"]);
 
-function foldClass(raw: string): string {
+/** Compacte un libellé de classe pour comparaison (PS A ≡ PSA, CE1-B ≡ CE1B). */
+export function foldSchoolClass(raw: string): string {
   return raw
     .trim()
     .normalize("NFD")
@@ -100,6 +101,20 @@ function foldClass(raw: string): string {
     .replace(/[°º]/g, "")
     .replace(/[\s._\-/]+/g, "")
     .toUpperCase();
+}
+
+export function schoolClassesMatch(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const fa = foldSchoolClass(String(a || ""));
+  const fb = foldSchoolClass(String(b || ""));
+  if (!fa || !fb) return false;
+  return fa === fb;
+}
+
+function foldClass(raw: string): string {
+  return foldSchoolClass(raw);
 }
 
 function isEcolePoleName(pole: string): boolean {
