@@ -149,15 +149,26 @@ export async function deleteCollectionRecord(
   recordId: string,
 ): Promise<void> {
   const db = getDb();
-  await db
-    .delete(entCollectionRecord)
-    .where(
-      and(
-        eq(entCollectionRecord.etablissementId, etablissementId),
-        eq(entCollectionRecord.collection, collection),
-        eq(entCollectionRecord.recordId, recordId),
-      ),
-    );
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(entCollectionAttr)
+      .where(
+        and(
+          eq(entCollectionAttr.etablissementId, etablissementId),
+          eq(entCollectionAttr.collection, collection),
+          eq(entCollectionAttr.recordId, recordId),
+        ),
+      );
+    await tx
+      .delete(entCollectionRecord)
+      .where(
+        and(
+          eq(entCollectionRecord.etablissementId, etablissementId),
+          eq(entCollectionRecord.collection, collection),
+          eq(entCollectionRecord.recordId, recordId),
+        ),
+      );
+  });
 }
 
 export async function replaceCollectionRecords(

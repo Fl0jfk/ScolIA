@@ -51,21 +51,36 @@ export async function POST(req: NextRequest) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
 
-  const body = await req.json();
-  const name = String(body.name ?? "").trim();
-  const memberIds = Array.isArray(body.memberIds) ? body.memberIds.map(String) : [];
+  try {
+    const body = await req.json();
+    const name = String(body.name ?? "").trim();
+    const memberIds = Array.isArray(body.memberIds) ? body.memberIds.map(String) : [];
 
-  if (!name) {
-    return NextResponse.json({ error: "Nom du dossier requis." }, { status: 400 });
+    if (!name) {
+      return NextResponse.json({ error: "Nom du dossier requis." }, { status: 400 });
+    }
+
+    const meta = await createSharedFolder(gate.ctx.userId, name, memberIds);
+    scheduleSharedFolderInviteMails({
+      shareId: meta.id,
+      shareName: meta.name,
+      inviteeUserIds: meta.memberIds,
+    });
+    return NextResponse.json({ success: true, share: meta });
+  } catch (e) {
+    console.error("[documents/shares] POST", e);
+    return NextResponse.json(
+      {
+        error:
+          e instanceof Error && /Postgres|ENT_CORE_DB|DATABASE_URL/i.test(e.message)
+            ? "Impossible de créer le dossier partagé (stockage indisponible)."
+            : e instanceof Error
+              ? e.message
+              : "Création impossible.",
+      },
+      { status: 500 },
+    );
   }
-
-  const meta = await createSharedFolder(gate.ctx.userId, name, memberIds);
-  scheduleSharedFolderInviteMails({
-    shareId: meta.id,
-    shareName: meta.name,
-    inviteeUserIds: meta.memberIds,
-  });
-  return NextResponse.json({ success: true, share: meta });
 }
 
 export async function PATCH(req: NextRequest) {

@@ -449,23 +449,35 @@ export default function DocumentsPage() {
 
   const handleCreateShare = async () => {
     const name = newShareName.trim();
-    if (!name) return;
-    setError(null);
-    const res = await fetch("/api/documents/shares", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, memberIds: newShareMembers }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error || "Création impossible.");
+    if (!name) {
+      setError("Indiquez un nom pour le dossier partagé.");
       return;
     }
-    setShowNewShare(false);
-    setNewShareName("");
-    setNewShareMembers([]);
-    await refreshShares();
-    if (data.share) openShare({ ...data.share, isOwner: true });
+    setError(null);
+    setActionLoading("create-share");
+    try {
+      const res = await fetch("/api/documents/shares", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, memberIds: newShareMembers }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(
+          typeof data.error === "string" ? data.error : "Création du dossier partagé impossible.",
+        );
+        return;
+      }
+      setShowNewShare(false);
+      setNewShareName("");
+      setNewShareMembers([]);
+      await refreshShares();
+      if (data.share) openShare({ ...data.share, isOwner: true });
+    } catch {
+      setError("Erreur de connexion lors de la création du dossier partagé.");
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const handleUpdateShareMembers = async () => {
@@ -914,8 +926,13 @@ export default function DocumentsPage() {
             <button type="button" onClick={() => setShowNewShare(false)} className="px-4 py-2 text-sm rounded-xl border">
               Annuler
             </button>
-            <button type="button" onClick={handleCreateShare} className="px-4 py-2 text-sm rounded-xl bg-blue-600 text-white font-semibold">
-              Créer et ouvrir
+            <button
+              type="button"
+              onClick={handleCreateShare}
+              disabled={actionLoading === "create-share"}
+              className="px-4 py-2 text-sm rounded-xl bg-blue-600 text-white font-semibold disabled:opacity-60"
+            >
+              {actionLoading === "create-share" ? "Création…" : "Créer et ouvrir"}
             </button>
           </div>
         </DocumentModal>

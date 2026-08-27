@@ -13,6 +13,7 @@ import {
   getBucketName,
   putJson,
   putObject,
+  deleteJson,
 } from "@/app/lib/s3-storage";
 import { listDirectoryMembers, type DirectoryMemberRow } from "@/app/lib/directory-members";
 
@@ -127,36 +128,46 @@ function resolveStoragePrefix(
 
 async function getShareMeta(shareId: string): Promise<ShareMeta | null> {
   const hit = await getJson<ShareMeta>(shareMetaRel(shareId));
-  return hit?.data ?? null;
+  if (!hit?.data) return null;
+  return normalizeShareMeta(hit.data);
+}
+
+function normalizeShareMeta(raw: ShareMeta | Record<string, unknown>): ShareMeta | null {
+  const id = String((raw as ShareMeta).id ?? "").trim();
+  if (!id) return null;
+  const memberIdsRaw = (raw as ShareMeta).memberIds;
+  const memberIds = Array.isArray(memberIdsRaw)
+    ? memberIdsRaw.map(String).filter(Boolean)
+    : [];
+  const seenRaw = (raw as ShareMeta).memberSeenAt;
+  const memberSeenAt =
+    seenRaw && typeof seenRaw === "object" && !Array.isArray(seenRaw)
+      ? Object.fromEntries(
+          Object.entries(seenRaw as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
+        )
+      : undefined;
+  return {
+    id,
+    name: String((raw as ShareMeta).name ?? "").trim() || "Dossier partagé",
+    ownerId: String((raw as ShareMeta).ownerId ?? "").trim(),
+    memberIds,
+    ...(memberSeenAt ? { memberSeenAt } : {}),
+    createdAt: String((raw as ShareMeta).createdAt ?? ""),
+    updatedAt: String((raw as ShareMeta).updatedAt ?? ""),
+  };
 }
 
 export async function listAccessibleShares(userId: string): Promise<ShareMeta[]> {
-  const client = await getS3Client();
-  const bucket = await getBucketName();
-  const prefix = s3Key("documents/shares/");
+  const { listJsonRecordsInDir } = await import("@/app/lib/ent-json-postgres");
+  const rows = await listJsonRecordsInDir<ShareMeta>("documents/shares");
   const out: ShareMeta[] = [];
-  let token: string | undefined;
-
-  do {
-    const res = await client.send(
-      new ListObjectsV2Command({
-        Bucket: bucket,
-        Prefix: prefix,
-        ContinuationToken: token,
-      }),
-    );
-    for (const obj of res.Contents ?? []) {
-      if (!obj.Key?.endsWith(".json")) continue;
-      const rel = obj.Key.replace(/^documents\/shares\//, "").replace(/\.json$/, "");
-      const meta = await getShareMeta(rel);
-      if (!meta) continue;
-      if (meta.ownerId === userId || meta.memberIds.includes(userId)) {
-        out.push(meta);
-      }
+  for (const row of rows) {
+    const meta = normalizeShareMeta(row);
+    if (!meta) continue;
+    if (meta.ownerId === userId || meta.memberIds.includes(userId)) {
+      out.push(meta);
     }
-    token = res.IsTruncated ? res.NextContinuationToken : undefined;
-  } while (token);
-
+  }
   return out.sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }));
 }
 
@@ -239,90 +250,55 @@ export function formatBytes(bytes: number): string {
 
 async function getFileShareMeta(fileShareId: string): Promise<FileShareMeta | null> {
   const hit = await getJson<FileShareMeta>(fileShareMetaRel(fileShareId));
-  return hit?.data ?? null;
+  if (!hit?.data) return null;
+  return normalizeFileShareMeta(hit.data);
+}
+
+function normalizeFileShareMeta(raw: FileShareMeta | Record<string, unknown>): FileShareMeta | null {
+  const id = String((raw as FileShareMeta).id ?? "").trim();
+  if (!id) return null;
+  const memberIdsRaw = (raw as FileShareMeta).memberIds;
+  const memberIds = Array.isArray(memberIdsRaw)
+    ? memberIdsRaw.map(String).filter(Boolean)
+    : [];
+  return {
+    id,
+    ownerId: String((raw as FileShareMeta).ownerId ?? "").trim(),
+    sourceRelPath: String((raw as FileShareMeta).sourceRelPath ?? ""),
+    fileName: String((raw as FileShareMeta).fileName ?? ""),
+    ext: (raw as FileShareMeta).ext,
+    memberIds,
+    createdAt: String((raw as FileShareMeta).createdAt ?? ""),
+    updatedAt: String((raw as FileShareMeta).updatedAt ?? ""),
+  };
+}
+
+async function listAllFileShareMetas(): Promise<FileShareMeta[]> {
+  const { listJsonRecordsInDir } = await import("@/app/lib/ent-json-postgres");
+  const rows = await listJsonRecordsInDir<FileShareMeta>("documents/file-shares");
+  const out: FileShareMeta[] = [];
+  for (const row of rows) {
+    const meta = normalizeFileShareMeta(row);
+    if (meta) out.push(meta);
+  }
+  return out;
 }
 
 export async function listOutgoingFileShares(userId: string): Promise<FileShareMeta[]> {
-  const client = await getS3Client();
-  const bucket = await getBucketName();
-  const prefix = s3Key("documents/file-shares/");
-  const out: FileShareMeta[] = [];
-  let token: string | undefined;
-
-  do {
-    const res = await client.send(
-      new ListObjectsV2Command({
-        Bucket: bucket,
-        Prefix: prefix,
-        ContinuationToken: token,
-      }),
-    );
-    for (const obj of res.Contents ?? []) {
-      if (!obj.Key?.endsWith(".json")) continue;
-      const id = obj.Key
-        .replace(/^documents\/file-shares\//, "")
-        .replace(/\.json$/, "");
-      const meta = await getFileShareMeta(id);
-      if (!meta) continue;
-      if (meta.ownerId === userId) out.push(meta);
-    }
-    token = res.IsTruncated ? res.NextContinuationToken : undefined;
-  } while (token);
-
+  const out = (await listAllFileShareMetas()).filter((meta) => meta.ownerId === userId);
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function listIncomingFileShares(userId: string): Promise<FileShareMeta[]> {
-  const client = await getS3Client();
-  const bucket = await getBucketName();
-  const prefix = s3Key("documents/file-shares/");
-  const out: FileShareMeta[] = [];
-  let token: string | undefined;
-
-  do {
-    const res = await client.send(
-      new ListObjectsV2Command({
-        Bucket: bucket,
-        Prefix: prefix,
-        ContinuationToken: token,
-      }),
-    );
-    for (const obj of res.Contents ?? []) {
-      if (!obj.Key?.endsWith(".json")) continue;
-      const id = obj.Key
-        .replace(/^documents\/file-shares\//, "")
-        .replace(/\.json$/, "");
-      const meta = await getFileShareMeta(id);
-      if (!meta) continue;
-      if (meta.memberIds.includes(userId)) out.push(meta);
-    }
-    token = res.IsTruncated ? res.NextContinuationToken : undefined;
-  } while (token);
-
+  const out = (await listAllFileShareMetas()).filter((meta) => meta.memberIds.includes(userId));
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 async function findFileShareBySource(ownerId: string, sourceRelPath: string): Promise<FileShareMeta | null> {
-  const client = await getS3Client();
-  const bucket = await getBucketName();
-  const prefix = s3Key("documents/file-shares/");
-  let token: string | undefined;
   const src = normalizeRelPath(sourceRelPath);
-
-  do {
-    const res = await client.send(
-      new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }),
-    );
-    for (const obj of res.Contents ?? []) {
-      if (!obj.Key?.endsWith(".json")) continue;
-      const id = obj.Key
-        .replace(/^documents\/file-shares\//, "")
-        .replace(/\.json$/, "");
-      const meta = await getFileShareMeta(id);
-      if (meta?.ownerId === ownerId && normalizeRelPath(meta.sourceRelPath) === src) return meta;
-    }
-    token = res.IsTruncated ? res.NextContinuationToken : undefined;
-  } while (token);
+  for (const meta of await listAllFileShareMetas()) {
+    if (meta.ownerId === ownerId && normalizeRelPath(meta.sourceRelPath) === src) return meta;
+  }
   return null;
 }
 
@@ -699,8 +675,12 @@ export async function createSharedFolder(
     createdAt: now,
     updatedAt: now,
   };
-  await putJson( shareMetaRel(id), meta);
-  await putObject(`${sharedRoot(id)}.folder`, "", "text/plain");
+  await putJson(shareMetaRel(id), meta);
+  try {
+    await putObject(`${sharedRoot(id)}.folder`, "", "text/plain");
+  } catch (e) {
+    console.error("[documents] shared folder marker", e);
+  }
   return meta;
 }
 
@@ -1030,7 +1010,7 @@ export async function deleteFolderAsOwner(
       for (const fullKey of keys) {
         await deleteStorageObject(storageKeyToRelative(fullKey));
       }
-      await deleteStorageObject(shareMetaRel(shareId));
+      await deleteJson(shareMetaRel(shareId));
       return { ok: true, shareDeleted: true };
     }
   } else if (!folderRel) {

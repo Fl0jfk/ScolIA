@@ -165,3 +165,25 @@ export async function putJsonToPostgres(relativePath: string, data: unknown): Pr
   }
   return key;
 }
+
+/** Liste les enregistrements d’un « dossier » JSON (ex. documents/shares → collection documents__shares). */
+export async function listJsonRecordsInDir<T extends Record<string, unknown>>(
+  relativeDir: string,
+): Promise<T[]> {
+  const etabId = await collectionDbReady();
+  if (!etabId) return [];
+  const dir = relativeDir.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!dir) return [];
+  const { collection, singleton } = jsonPathToCollection(`${dir}/__probe__.json`);
+  if (singleton) return [];
+  const { listCollectionRecords } = await import("@/app/lib/ent-collection-db");
+  return listCollectionRecords<T>(etabId, collection);
+}
+
+export async function deleteJsonFromPostgres(relativePath: string): Promise<void> {
+  const etabId = await collectionDbReady();
+  if (!etabId) return;
+  const { collection, recordId, singleton } = jsonPathToCollection(relativePath);
+  const { deleteCollectionRecord } = await import("@/app/lib/ent-collection-db");
+  await deleteCollectionRecord(etabId, collection, singleton ? "_" : recordId);
+}

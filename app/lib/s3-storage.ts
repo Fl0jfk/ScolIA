@@ -43,6 +43,12 @@ export async function putJson(relativePath: string, data: unknown): Promise<stri
   return putJsonToPostgres(relativePath, data);
 }
 
+/** Suppression document métier JSON (Postgres). */
+export async function deleteJson(relativePath: string): Promise<void> {
+  const { deleteJsonFromPostgres } = await import("@/app/lib/ent-json-postgres");
+  await deleteJsonFromPostgres(relativePath);
+}
+
 export async function putObject(
   relativePath: string,
   body: Buffer | Uint8Array | string,
