@@ -1,0 +1,12 @@
+{
+  "name": "docslapro (ScolIA)",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "next-dev",
+      "command": "export PATH=\"$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH\"; npm run dev"
+    }
+  ],
+  "ports": [3000]
+}
