@@ -1,6 +1,7 @@
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getActiveEstablishments, shouldShowGroupeScolaire } from "@/app/lib/app-config-establishments";
 import { withDefaultProfRoomSubjects } from "@/app/lib/prof-room-defaults";
+import { resolveClassesByPoleCatalog } from "@/app/lib/school-classes-catalog";
 import { getJson } from "@/app/lib/s3-storage";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
 import type { BrainPendingChoices, BrainToolResult } from "@/app/lib/brain-ai/types";
@@ -41,7 +42,7 @@ export function matchCatalogValue(raw: string, catalog: string[]): string | null
 export async function loadRoomCatalog() {
   const cfg = withDefaultProfRoomSubjects((await loadAppConfig()).profRoom);
   const subjects = Object.keys(cfg.subjectColors || {}).sort((a, b) => a.localeCompare(b, "fr"));
-  const classesByPole = cfg.classesByPole || {};
+  const classesByPole = resolveClassesByPoleCatalog(cfg.classesByPole || {});
   const poles = Object.keys(classesByPole).sort((a, b) => a.localeCompare(b, "fr"));
   const allClasses = poles.flatMap((p) => (classesByPole[p] || []).map((c) => String(c)));
   const roomsHit = await getJson<
@@ -70,18 +71,11 @@ export async function loadTripChoiceCatalog() {
     establishments.push(GROUPE_SCOLAIRE_LABEL);
   }
   const prof = withDefaultProfRoomSubjects(config.profRoom);
-  const domainClasses = config.domainPlanning?.classesByPole || {};
-  const roomClasses = prof.classesByPole || {};
-  const merged: Record<string, string[]> = { ...domainClasses };
-  for (const [pole, list] of Object.entries(roomClasses)) {
-    const cur = merged[pole] || [];
-    const next = [...cur];
-    for (const c of list || []) {
-      if (!next.includes(c)) next.push(c);
-    }
-    merged[pole] = next;
-  }
-  const poles = Object.keys(merged).sort((a, b) => a.localeCompare(b, "fr"));
-  const allClasses = poles.flatMap((p) => (merged[p] || []).map(String));
-  return { establishments, classesByPole: merged, poles, allClasses };
+  const classesByPole = resolveClassesByPoleCatalog(
+    config.domainPlanning?.classesByPole || {},
+    prof.classesByPole || {},
+  );
+  const poles = Object.keys(classesByPole).sort((a, b) => a.localeCompare(b, "fr"));
+  const allClasses = poles.flatMap((p) => (classesByPole[p] || []).map(String));
+  return { establishments, classesByPole, poles, allClasses };
 }

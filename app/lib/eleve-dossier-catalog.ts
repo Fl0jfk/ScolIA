@@ -1,9 +1,13 @@
 import "server-only";
 
 import { loadAppConfig } from "@/app/lib/app-config";
-import { sanitizeDomainPlanningClassesByPole } from "@/app/lib/domain-planning-defaults";
 import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 import type { EstablishmentKind } from "@/app/lib/app-config-schemas";
+import {
+  DEFAULT_CLASSES_BY_POLE,
+  DEFAULT_ECOLE_CLASSES,
+  resolveClassesByPoleCatalog,
+} from "@/app/lib/school-classes-catalog";
 
 export type DossierSiteRef = {
   siteId: string;
@@ -23,22 +27,6 @@ export type EleveDossierClassCatalog = {
   siteLabelById: Map<string, string>;
   classToSiteId: Map<string, string>;
   classOptions: DossierClassOption[];
-};
-
-/** Référentiel par défaut (aligné réservation de salles) quand la config tenant est vide. */
-const DEFAULT_CLASSES_BY_POLE: Record<string, string[]> = {
-  ÉCOLE: ["CP", "CE1", "CE2", "CM1", "CM2"],
-  COLLÈGE: [
-    "6A", "6B", "6C", "6D", "6E", "6F",
-    "5A", "5B", "5C", "5D", "5E", "5F",
-    "4A", "4B", "4C", "4D", "4E", "4F",
-    "3A", "3B", "3C", "3D", "3E", "3F",
-  ],
-  LYCÉE: [
-    "2A", "2B", "2C", "2D", "2E",
-    "1A", "1B", "1C", "1D", "1E", "1F",
-    "TA", "TB", "TC", "TD", "TE", "TF",
-  ],
 };
 
 function normalizeClassKey(className: string): string {
@@ -151,17 +139,7 @@ function mergeClassesByPole(
   profRoom: Record<string, string[]>,
   domainPlanning: Record<string, string[]>,
 ): Record<string, string[]> {
-  const merged: Record<string, string[]> = { ...domainPlanning };
-  for (const [pole, list] of Object.entries(profRoom)) {
-    const cur = merged[pole] || [];
-    const next = [...cur];
-    for (const cls of list || []) {
-      const trimmed = String(cls).trim();
-      if (trimmed && !next.includes(trimmed)) next.push(trimmed);
-    }
-    merged[pole] = next;
-  }
-  return merged;
+  return resolveClassesByPoleCatalog(profRoom, domainPlanning);
 }
 
 export function classOptionLabel(className: string, siteLabel: string | null): string {
@@ -225,13 +203,23 @@ export async function buildEleveDossierClassCatalog(
   }
 
   const config = await loadAppConfig();
-  const profRoom = sanitizeDomainPlanningClassesByPole(config.profRoom?.classesByPole || {});
-  const domainPlanning = sanitizeDomainPlanningClassesByPole(
+  let merged = mergeClassesByPole(
+    config.profRoom?.classesByPole || {},
     config.domainPlanning?.classesByPole || {},
   );
-  let merged = mergeClassesByPole(profRoom, domainPlanning);
   if (Object.keys(merged).length === 0) {
-    merged = DEFAULT_CLASSES_BY_POLE;
+    merged = { ...DEFAULT_CLASSES_BY_POLE };
+  }
+
+  // Site école présent mais aucun pôle école dans la config → injecter le catalogue école.
+  const hasEcoleSite = sites.some(
+    (s) =>
+      inferEstablishmentKind({ kind: s.kind ?? undefined, id: s.siteId, label: s.label }) ===
+      "ecole",
+  );
+  const hasEcolePole = Object.keys(merged).some((pole) => inferKindFromPole(pole) === "ecole");
+  if (hasEcoleSite && !hasEcolePole) {
+    merged = { ÉCOLE: [...DEFAULT_ECOLE_CLASSES], ...merged };
   }
 
   const siteLabelById = new Map<string, string>();

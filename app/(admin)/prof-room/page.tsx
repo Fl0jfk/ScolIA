@@ -20,6 +20,7 @@ import {
   reservationWhoLabel,
 } from "@/app/lib/prof-room-reservation-label";
 import { dash } from "@/app/lib/dashboard-brand";
+import { DEFAULT_CLASSES_BY_POLE, resolveClassesByPoleCatalog } from "@/app/lib/school-classes-catalog";
 import {
   normalizeRoomReservationsList,
   reservationMatchesHourPrefix,
@@ -28,12 +29,7 @@ import ProfRoomBeneficiarySelect, {
   type ProfRoomBeneficiary,
 } from "@/app/components/prof-room/ProfRoomBeneficiarySelect";
 
-const FALLBACK_CLASSES: Record<string, string[]> = {
-  "ÉCOLE": ["CP", "CE1", "CE2", "CM1", "CM2"],
-  "COLLÈGE": ["6A","6B","6C","6D","6E","6F","5A","5B","5C","5D","5E","5F","4A","4B","4C","4D","4E","4F","3A","3B","3C","3D","3E","3F"],
-  "LYCÉE": ["2A","2B","2C","2D","2E","1A","1B","1C","1D","1E","1F","TA","TB","TC","TD","TE","TF"],
-  "MAINTENANCE": ["MAINTENANCE"],
-};
+const FALLBACK_CLASSES: Record<string, string[]> = { ...DEFAULT_CLASSES_BY_POLE };
 
 const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i);
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
@@ -82,7 +78,13 @@ function ProfRoomPageContent() {
   const { user, isLoaded } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const isOrgAdmin = useIsOrgAdmin();
-  const CLASSES_DATA = appCtx?.profRoom?.classesByPole || FALLBACK_CLASSES;
+  const CLASSES_DATA = useMemo(() => {
+    const raw = appCtx?.profRoom?.classesByPole;
+    if (raw && Object.keys(raw).length > 0) {
+      return resolveClassesByPoleCatalog(raw);
+    }
+    return FALLBACK_CLASSES;
+  }, [appCtx?.profRoom?.classesByPole]);
   const SUBJECT_COLORS = { ...DEFAULT_PROF_ROOM_SUBJECT_COLORS, ...(appCtx?.profRoom?.subjectColors || {}) };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [rooms, setRooms] = useState<any[]>([]);
