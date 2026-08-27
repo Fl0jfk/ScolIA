@@ -27,6 +27,10 @@ import {
   mfaTrustAfterVerify,
   mfaTrustBeforeSignIn,
 } from "@/app/lib/mfa-trust-hooks";
+import {
+  INVITATION_TOKEN_EXPIRES_IN_SEC,
+  INVITATION_VALIDITY_HOURS,
+} from "@/app/lib/invitation-window";
 import { MFA_TRUST_STAFF_SECONDS } from "@/app/lib/two-factor-policy";
 
 type MailAttachment = {
@@ -170,7 +174,7 @@ Cet e-mail vous est envoyé par ${etab}.
 Il s’agit de l’invitation pour activer votre espace personnel sur la plateforme ScolIA (intranet / ENT de votre établissement).
 
 ━━━━━━━━━━━━━━━━━━━━
-ÉTAPE 1 — Créer votre mot de passe (lien valable 12 heures)
+ÉTAPE 1 — Créer votre mot de passe (lien valable ${INVITATION_VALIDITY_HOURS} heures)
 ━━━━━━━━━━━━━━━━━━━━
 Ouvrez ce lien uniquement :
 ${opts.url}
@@ -231,7 +235,7 @@ Si vous n’êtes pas concerné par ce message, ignorez-le.
 
     <div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;padding:14px 16px;margin:20px 0;">
       <p style="margin:0;font-size:14px;"><strong>Étape 1 — Créer votre mot de passe</strong></p>
-      <p style="margin:8px 0 0;font-size:14px;">Le lien ci-dessous est valable <strong>12 heures</strong>. Si un ancien mot de passe existait, il ne fonctionne plus.</p>
+      <p style="margin:8px 0 0;font-size:14px;">Le lien ci-dessous est valable <strong>${INVITATION_VALIDITY_HOURS} heures</strong>. Si un ancien mot de passe existait, il ne fonctionne plus.</p>
     </div>
 
     <p style="text-align:center;margin:24px 0;">
@@ -325,7 +329,7 @@ function createAuth() {
       enabled: true,
       requireEmailVerification,
       minPasswordLength: PASSWORD_MIN_LENGTH,
-      resetPasswordTokenExpiresIn: 12 * 60 * 60,
+      resetPasswordTokenExpiresIn: INVITATION_TOKEN_EXPIRES_IN_SEC,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url }) => {
         const u = user as {

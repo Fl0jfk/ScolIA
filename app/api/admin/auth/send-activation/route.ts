@@ -16,7 +16,7 @@ export const maxDuration = 300;
 
 const bodySchema = z.object({
   email: z.string().email().optional(),
-  /** Envoie à tous les comptes sans MFA n’ayant pas reçu d’invitation dans les 12 dernières heures. */
+  /** Envoie à tous les comptes sans MFA n’ayant pas reçu d’invitation dans la fenêtre de validité. */
   bulkPending: z.boolean().optional(),
 });
 
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
           sent: 0,
           failed: 0,
           message:
-            "Aucun destinataire : tout le monde a déjà reçu une invitation récente (moins de 12 h) ou a déjà activé la MFA.",
+            "Aucun destinataire : tout le monde a déjà reçu une invitation récente (moins de 24 h) ou a déjà activé la MFA.",
         });
       }
 
@@ -78,7 +78,7 @@ export async function POST(req: Request) {
         errors: errors.slice(0, 10),
         message:
           failed === 0
-            ? `${sent} invitation(s) envoyée(s). Lien valable 12 heures.`
+            ? `${sent} invitation(s) envoyée(s). Lien valable 24 heures.`
             : `${sent} envoyée(s), ${failed} échec(s).`,
         baseUrl: betterAuthBaseUrl(),
       });
@@ -120,8 +120,8 @@ export async function POST(req: Request) {
       email: result.email,
       resetMfa: result.resetMfa === true,
       message: hadMfa
-        ? `Lien d’invitation envoyé à ${result.email}. L’ancien mot de passe et la MFA ont été réinitialisés — la personne repart de zéro (nouveau MDP puis nouvelle MFA). Lien valable 12 heures.`
-        : `Lien d’invitation envoyé à ${result.email}. Valable 12 heures — la personne crée son mot de passe puis active la MFA.`,
+        ? `Lien d’invitation envoyé à ${result.email}. L’ancien mot de passe et la MFA ont été réinitialisés — la personne repart de zéro (nouveau MDP puis nouvelle MFA). Lien valable 24 heures.`
+        : `Lien d’invitation envoyé à ${result.email}. Valable 24 heures — la personne crée son mot de passe puis active la MFA.`,
       baseUrl: betterAuthBaseUrl(),
       redirectTo: `${betterAuthBaseUrl()}/auth/reset-password`,
     });

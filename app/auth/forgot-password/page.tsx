@@ -36,7 +36,7 @@ export default function ForgotPasswordPage() {
           <h1 className="text-xl font-semibold text-emerald-950">E-mail envoyé</h1>
           <p className="text-sm text-emerald-800/80">
             Si un compte existe pour <strong>{email.trim()}</strong>, vous recevrez un lien pour
-            créer un nouveau mot de passe (valable 12 heures). Pensez à vérifier les spams.
+            créer un nouveau mot de passe (valable 24 heures). Pensez à vérifier les spams.
           </p>
           <Link
             href="/auth/sign-in"
