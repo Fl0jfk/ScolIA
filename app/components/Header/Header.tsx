@@ -73,7 +73,7 @@ function UserPopover({
           }}
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
         >
-          <span className="text-base">⚙️</span> E-mail & mot de passe
+          <span className="text-base">🔐</span> Sécurité
         </button>
         <div className="my-1 h-px bg-slate-100" />
         <button
@@ -381,7 +381,7 @@ export default function Header() {
                   }}
                   className="w-full rounded-2xl bg-slate-100 py-3.5 text-center text-sm font-bold text-slate-700 transition hover:bg-slate-200"
                 >
-                  E-mail & mot de passe
+                  Sécurité
                 </button>
                 <button
                   type="button"

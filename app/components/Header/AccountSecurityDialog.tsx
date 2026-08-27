@@ -3,10 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import PasswordRequirementsChecklist from "@/app/components/auth/PasswordRequirementsChecklist";
+import SessionsManager from "@/app/components/account/SessionsManager";
 import { useAppUser } from "@/app/hooks/useAppUser";
 import { validatePasswordPolicy } from "@/app/lib/password-policy";
 
-type Mode = "menu" | "password" | "email";
+type Mode = "menu" | "password" | "email" | "sessions";
 
 type Props = {
   open: boolean;
@@ -126,7 +127,9 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
       role="presentation"
     >
       <div
-        className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className={`w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl ${
+          mode === "sessions" ? "max-w-lg" : "max-w-md"
+        }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -134,9 +137,10 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <h2 id="account-security-title" className="text-base font-bold text-slate-900">
-            {mode === "menu" && "Mon compte"}
+            {mode === "menu" && "Sécurité"}
             {mode === "password" && "Changer le mot de passe"}
             {mode === "email" && "Changer l’e-mail de connexion"}
+            {mode === "sessions" && "Appareils & sessions"}
           </h2>
           {success && mode === "password" ? null : (
             <button
@@ -187,7 +191,33 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
               >
                 Configurer la double authentification (2FA)
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setMode("sessions");
+                }}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/50"
+              >
+                Appareils & sessions connectées
+              </button>
             </>
+          )}
+
+          {mode === "sessions" && (
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setMode("menu");
+                }}
+                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+              >
+                ← Retour
+              </button>
+              <SessionsManager embedded />
+            </div>
           )}
 
           {mode === "password" && (

@@ -11,6 +11,7 @@ import {
 import { dash } from "@/app/lib/dashboard-brand";
 import { invitationRecentlySent } from "@/app/lib/invitation-window";
 import { useHasTenantAdminRole } from "@/app/hooks/useHasTenantAdminRole";
+import SessionsManager from "@/app/components/account/SessionsManager";
 
 type RoleOption = { slug: string; label: string };
 
@@ -100,6 +101,7 @@ export default function MembresPanel() {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editRoles, setEditRoles] = useState<string[]>([]);
   const [editEmail, setEditEmail] = useState("");
+  const [sessionsFor, setSessionsFor] = useState<RegistryUserRow | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [invitingEmail, setInvitingEmail] = useState<string | null>(null);
   const [bulkSending, setBulkSending] = useState(false);
@@ -561,6 +563,14 @@ export default function MembresPanel() {
                         <button type="button" onClick={() => startEdit(u)} className={`text-sm font-semibold ${dash.textPrimary}`}>
                           Modifier
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setSessionsFor(u)}
+                          className={`text-sm font-semibold ${dash.textPrimary}`}
+                          title="Voir et révoquer les sessions / appareils connectés"
+                        >
+                          Sessions
+                        </button>
                         <button type="button" onClick={() => removeUser(u)} className="text-sm font-bold text-red-600">
                           Supprimer
                         </button>
@@ -609,6 +619,14 @@ export default function MembresPanel() {
           })}
         </ul>
       )}
+
+      {sessionsFor ? (
+        <SessionsManager
+          externalUserId={sessionsFor.externalUserId || sessionsFor.email}
+          title={`Sessions — ${sessionsFor.displayName || sessionsFor.email}`}
+          onClose={() => setSessionsFor(null)}
+        />
+      ) : null}
     </div>
   );
 }

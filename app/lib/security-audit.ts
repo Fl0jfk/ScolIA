@@ -10,7 +10,10 @@ export type SecurityAuditAction =
   | "email_change_immediate"
   | "two_factor_enabled"
   | "two_factor_disabled"
-  | "account_claimed";
+  | "account_claimed"
+  | "session_revoked"
+  | "sessions_revoked_others"
+  | "sessions_revoked_all_admin";
 
 export async function writeSecurityAudit(opts: {
   userId: string | null;
