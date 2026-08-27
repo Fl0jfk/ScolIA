@@ -125,10 +125,10 @@ export async function sendS3WithConflictRetry<T>(op: () => Promise<T>, attempts 
 }
 
 export async function getSignedReadUrl(relativeOrFullKey: string, expiresIn = 3600): Promise<string | null> {
-  const client = await getS3Client();
-  const bucket = await getBucketName();
-  const key = s3Key(relativeOrFullKey);
   try {
+    const client = await getS3Client();
+    const bucket = await getBucketName();
+    const key = s3Key(relativeOrFullKey);
     await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
     return await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn });
   } catch {

@@ -23,48 +23,53 @@ export async function buildInternatCourseAbsenceHints(
   dateIso: string,
   students: InternatStudent[],
 ): Promise<Record<string, InternatCourseAbsenceHint>> {
-  const etabId = await resolveCurrentEtablissementId();
-  if (!etabId || !students.length) return {};
-
-  let absences: Awaited<ReturnType<typeof listAbsencesForDate>> = [];
   try {
-    absences = await listAbsencesForDate(etabId, dateIso);
-  } catch {
+    const etabId = await resolveCurrentEtablissementId();
+    if (!etabId || !students.length) return {};
+
+    let absences: Awaited<ReturnType<typeof listAbsencesForDate>> = [];
+    try {
+      absences = await listAbsencesForDate(etabId, dateIso);
+    } catch {
+      return {};
+    }
+    if (!absences.length) return {};
+
+    const out: Record<string, InternatCourseAbsenceHint> = {};
+    for (const a of absences) {
+      const match = matchInternatStudent(students, {
+        nom: a.eleveNom || "",
+        prenom: a.elevePrenom || "",
+        ine: a.eleveIne,
+        folderName: a.eleveFolderName,
+      });
+      if (!match || !match.actif) continue;
+
+      const type = a.type === "retard" ? "retard" : "absence";
+      // Priorité : absence > retard si plusieurs lignes
+      const prev = out[match.id];
+      if (prev && prev.type === "absence" && type === "retard") continue;
+
+      out[match.id] = {
+        absenceId: a.id,
+        eleveId: a.eleveId,
+        type,
+        justifie: a.justifie,
+        statut: a.statut,
+        motif: a.motif,
+        label:
+          type === "retard"
+            ? a.justifie
+              ? "Retard cours (justifié)"
+              : "Retard cours"
+            : a.justifie
+              ? "Absent cours (justifié)"
+              : "Absent cours",
+      };
+    }
+    return out;
+  } catch (e) {
+    console.warn("[internat] buildInternatCourseAbsenceHints", e);
     return {};
   }
-  if (!absences.length) return {};
-
-  const out: Record<string, InternatCourseAbsenceHint> = {};
-  for (const a of absences) {
-    const match = matchInternatStudent(students, {
-      nom: a.eleveNom,
-      prenom: a.elevePrenom,
-      ine: a.eleveIne,
-      folderName: a.eleveFolderName,
-    });
-    if (!match || !match.actif) continue;
-
-    const type = a.type === "retard" ? "retard" : "absence";
-    // Priorité : absence > retard si plusieurs lignes
-    const prev = out[match.id];
-    if (prev && prev.type === "absence" && type === "retard") continue;
-
-    out[match.id] = {
-      absenceId: a.id,
-      eleveId: a.eleveId,
-      type,
-      justifie: a.justifie,
-      statut: a.statut,
-      motif: a.motif,
-      label:
-        type === "retard"
-          ? a.justifie
-            ? "Retard cours (justifié)"
-            : "Retard cours"
-          : a.justifie
-            ? "Absent cours (justifié)"
-            : "Absent cours",
-    };
-  }
-  return out;
 }

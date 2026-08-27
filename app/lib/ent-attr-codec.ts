@@ -11,7 +11,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** Sérialise une valeur primitive ou un nœud terminal. */
-function encodeLeaf(value: unknown): string {
+export function encodeLeaf(value: unknown): string {
   if (value === null) return "null:null";
   if (value === undefined) return "undef:";
   if (typeof value === "string") return `s:${value}`;
@@ -81,7 +81,30 @@ export function flattenToAttrs(
   }
 
   walk(input, "", 0);
-  return out.filter((a) => a.path !== "");
+  return dedupeAttrsByPath(out.filter((a) => a.path !== ""));
+}
+
+/**
+ * Stockage collection : un gros tableau racine (`__root` / listes JSON historiques)
+ * est gardé en une seule feuille pour éviter des milliers de lignes EAV
+ * (échecs d’insert, courses delete/insert, perf).
+ */
+export function flattenCollectionRecord(record: Record<string, unknown>): AttrPair[] {
+  const keys = Object.keys(record).filter((k) => k !== "id");
+  if (keys.length === 1 && keys[0] === "__root" && Array.isArray(record.__root)) {
+    return [{ path: "__root", value: encodeLeaf(record.__root) }];
+  }
+  return flattenToAttrs(record);
+}
+
+/** Dernière valeur gagne — évite les violations de PK sur insert batch. */
+export function dedupeAttrsByPath(attrs: AttrPair[]): AttrPair[] {
+  const map = new Map<string, string>();
+  for (const a of attrs) {
+    if (!a.path) continue;
+    map.set(a.path, a.value);
+  }
+  return [...map.entries()].map(([path, value]) => ({ path, value }));
 }
 
 /** Reconstruit un objet depuis des attrs. */

@@ -3,7 +3,7 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { entCollectionAttr, entCollectionRecord } from "@/db/schema";
-import { flattenToAttrs, inflateFromAttrs } from "@/app/lib/ent-attr-codec";
+import { flattenCollectionRecord, inflateFromAttrs } from "@/app/lib/ent-attr-codec";
 import {
   isEntCoreDbEnabled,
   resolveCurrentEtablissementId,
@@ -95,49 +95,52 @@ export async function upsertCollectionRecord(
 ): Promise<void> {
   const db = getDb();
   const now = new Date();
-  await db
-    .insert(entCollectionRecord)
-    .values({
-      etablissementId,
-      collection,
-      recordId,
-      status: statusFromRecord(record),
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [
-        entCollectionRecord.etablissementId,
-        entCollectionRecord.collection,
-        entCollectionRecord.recordId,
-      ],
-      set: {
-        status: statusFromRecord(record),
-        updatedAt: now,
-      },
-    });
-  await db
-    .delete(entCollectionAttr)
-    .where(
-      and(
-        eq(entCollectionAttr.etablissementId, etablissementId),
-        eq(entCollectionAttr.collection, collection),
-        eq(entCollectionAttr.recordId, recordId),
-      ),
-    );
-  const attrs = flattenToAttrs(record);
-  if (attrs.length === 0) return;
-  const chunk = 100;
-  for (let i = 0; i < attrs.length; i += chunk) {
-    await db.insert(entCollectionAttr).values(
-      attrs.slice(i, i + chunk).map((a) => ({
+  const attrs = flattenCollectionRecord(record);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(entCollectionRecord)
+      .values({
         etablissementId,
         collection,
         recordId,
-        path: a.path,
-        value: a.value,
-      })),
-    );
-  }
+        status: statusFromRecord(record),
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          entCollectionRecord.etablissementId,
+          entCollectionRecord.collection,
+          entCollectionRecord.recordId,
+        ],
+        set: {
+          status: statusFromRecord(record),
+          updatedAt: now,
+        },
+      });
+    await tx
+      .delete(entCollectionAttr)
+      .where(
+        and(
+          eq(entCollectionAttr.etablissementId, etablissementId),
+          eq(entCollectionAttr.collection, collection),
+          eq(entCollectionAttr.recordId, recordId),
+        ),
+      );
+    if (attrs.length === 0) return;
+    const chunk = 100;
+    for (let i = 0; i < attrs.length; i += chunk) {
+      await tx.insert(entCollectionAttr).values(
+        attrs.slice(i, i + chunk).map((a) => ({
+          etablissementId,
+          collection,
+          recordId,
+          path: a.path,
+          value: a.value,
+        })),
+      );
+    }
+  });
 }
 
 export async function deleteCollectionRecord(

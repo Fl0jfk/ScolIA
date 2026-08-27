@@ -107,8 +107,27 @@ export async function getInternatRollCall(
   period: InternatRollCallPeriod = "soir",
 ): Promise<InternatRollCall> {
   const hit = await getJson<InternatRollCall>(rollCallKey(date, period));
-  if (hit?.data) return { period, ...hit.data };
-  return emptyRollCall(date, period);
+  const base = emptyRollCall(date, period);
+  if (!hit?.data || typeof hit.data !== "object") return base;
+  const raw = hit.data;
+  return {
+    ...base,
+    ...raw,
+    date: String(raw.date || date),
+    period: raw.period === "matin" ? "matin" : period,
+    boys: {
+      completed: !!raw.boys?.completed,
+      completedBy: raw.boys?.completedBy,
+      completedAt: raw.boys?.completedAt,
+      marks: raw.boys?.marks && typeof raw.boys.marks === "object" ? raw.boys.marks : {},
+    },
+    girls: {
+      completed: !!raw.girls?.completed,
+      completedBy: raw.girls?.completedBy,
+      completedAt: raw.girls?.completedAt,
+      marks: raw.girls?.marks && typeof raw.girls.marks === "object" ? raw.girls.marks : {},
+    },
+  };
 }
 
 export async function saveInternatRollCall(rollCall: InternatRollCall) {

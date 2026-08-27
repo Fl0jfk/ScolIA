@@ -231,8 +231,23 @@ export async function POST(req: NextRequest) {
       },
       { status: 201 },
     );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "string"
+          ? err
+          : "Enregistrement impossible.";
+    const cause =
+      err instanceof Error && err.cause instanceof Error
+        ? err.cause.message
+        : err instanceof Error && err.cause
+          ? String(err.cause)
+          : null;
+    console.error("[reservation-rooms/create]", err);
+    return NextResponse.json(
+      { error: cause ? `${message} (${cause})` : message },
+      { status: 500 },
+    );
   }
 }

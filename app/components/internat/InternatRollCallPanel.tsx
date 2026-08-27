@@ -83,18 +83,31 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
       `/api/internat/roll-call?date=${encodeURIComponent(date)}&period=${period}`,
       { cache: "no-store" },
     );
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "Chargement impossible");
-    setRollCall(data.rollCall);
+    const raw = await res.text();
+    let data: {
+      error?: string;
+      rollCall?: InternatRollCall;
+      students?: InternatStudent[];
+      photoUrls?: Record<string, string>;
+      courseAbsenceHints?: Record<string, CourseAbsenceHint>;
+      canValidate?: boolean;
+      boysComplete?: boolean;
+      girlsComplete?: boolean;
+    } = {};
+    try {
+      data = raw ? (JSON.parse(raw) as typeof data) : {};
+    } catch {
+      throw new Error(res.ok ? "Réponse invalide" : `Erreur serveur (${res.status})`);
+    }
+    if (!res.ok) throw new Error(data?.error || `Chargement impossible (${res.status})`);
+    setRollCall(data.rollCall ?? null);
     setStudents(data.students || []);
     setPhotoUrls(
-      data.photoUrls && typeof data.photoUrls === "object"
-        ? (data.photoUrls as Record<string, string>)
-        : {},
+      data.photoUrls && typeof data.photoUrls === "object" ? data.photoUrls : {},
     );
     setCourseAbsenceHints(
       data.courseAbsenceHints && typeof data.courseAbsenceHints === "object"
-        ? (data.courseAbsenceHints as Record<string, CourseAbsenceHint>)
+        ? data.courseAbsenceHints
         : {},
     );
     setCanValidate(!!data.canValidate);

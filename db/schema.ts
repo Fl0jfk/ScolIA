@@ -14,6 +14,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { etablissement } from "./etablissement-table";
+import { reservationRoomsSchema } from "./schema-reservation-rooms";
 import { charlemagneP1Schema } from "./schema-charlemagne-p1";
 import { charlemagneP2Schema } from "./schema-charlemagne-p2";
 import { charlemagneP3Schema } from "./schema-charlemagne-p3";
@@ -22,6 +23,7 @@ import { charlemagneP5Schema } from "./schema-charlemagne-p5";
 
 export { etablissement };
 export * from "./schema-ent-relational";
+export * from "./schema-reservation-rooms";
 export * from "./schema-charlemagne-p1";
 export * from "./schema-charlemagne-p2";
 export * from "./schema-charlemagne-p3";
@@ -798,6 +800,7 @@ export const appSchema = {
   personnel,
   entEntity,
   tenantDocument,
+  ...reservationRoomsSchema,
   ...charlemagneP1Schema,
   ...charlemagneP2Schema,
   ...charlemagneP3Schema,

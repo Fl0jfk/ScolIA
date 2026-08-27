@@ -58,24 +58,39 @@ export async function GET(req: Request) {
   const access = await requireInternatAccess();
   if (!access.ok) return access.response;
 
-  const { searchParams } = new URL(req.url);
-  const date = String(searchParams.get("date") || todayDateParis());
-  const period = parsePeriod(searchParams.get("period"));
-  const [rollCall, students] = await Promise.all([getInternatRollCall(date, period), getInternatStudents()]);
-  const [photoUrls, courseAbsenceHints] = await Promise.all([
-    resolvePhotoUrlsForInternatStudents(students),
-    buildInternatCourseAbsenceHints(date, students),
-  ]);
+  try {
+    const { searchParams } = new URL(req.url);
+    const date = String(searchParams.get("date") || todayDateParis());
+    const period = parsePeriod(searchParams.get("period"));
+    const [rollCall, students] = await Promise.all([
+      getInternatRollCall(date, period),
+      getInternatStudents(),
+    ]);
 
-  return NextResponse.json({
-    rollCall,
-    students,
-    photoUrls,
-    courseAbsenceHints,
-    canValidate: rollCallCanValidate(rollCall, students),
-    boysComplete: sectionIsComplete(rollCall.boys, students, "M"),
-    girlsComplete: sectionIsComplete(rollCall.girls, students, "F"),
-  });
+    const [photoUrls, courseAbsenceHints] = await Promise.all([
+      resolvePhotoUrlsForInternatStudents(students).catch((e) => {
+        console.warn("[internat/roll-call] photoUrls", e);
+        return {} as Record<string, string>;
+      }),
+      buildInternatCourseAbsenceHints(date, students),
+    ]);
+
+    return NextResponse.json({
+      rollCall,
+      students,
+      photoUrls,
+      courseAbsenceHints,
+      canValidate: rollCallCanValidate(rollCall, students),
+      boysComplete: sectionIsComplete(rollCall.boys, students, "M"),
+      girlsComplete: sectionIsComplete(rollCall.girls, students, "F"),
+    });
+  } catch (e) {
+    console.error("[internat/roll-call] GET", e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Chargement de l'appel impossible." },
+      { status: 500 },
+    );
+  }
 }
 
 export async function PATCH(req: Request) {

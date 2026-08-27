@@ -34,11 +34,16 @@ export async function loadElevePhotoIndex(): Promise<ElevePhotoIndex> {
   if (photoIndexCache && Date.now() - photoIndexCache.at < PHOTO_INDEX_CACHE_MS) {
     return photoIndexCache.data;
   }
-  const hit = await getJson<ElevePhotoIndex>(PHOTO_INDEX_KEY);
-  const data =
-    hit?.data && typeof hit.data === "object" ? hit.data : ({} as ElevePhotoIndex);
-  photoIndexCache = { at: Date.now(), data };
-  return data;
+  try {
+    const hit = await getJson<ElevePhotoIndex>(PHOTO_INDEX_KEY);
+    const data =
+      hit?.data && typeof hit.data === "object" ? hit.data : ({} as ElevePhotoIndex);
+    photoIndexCache = { at: Date.now(), data };
+    return data;
+  } catch (e) {
+    console.warn("[eleve-photos] loadElevePhotoIndex", e);
+    return {};
+  }
 }
 
 export function invalidateElevePhotoIndexCache(): void {

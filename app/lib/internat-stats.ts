@@ -91,14 +91,15 @@ function sectionNeeded(students: InternatStudent[], sexe: "M" | "F") {
 }
 
 export function sectionIsComplete(
-  section: InternatRollCall["boys"],
+  section: InternatRollCall["boys"] | null | undefined,
   students: InternatStudent[],
   sexe: "M" | "F",
 ) {
   if (!sectionNeeded(students, sexe)) return true;
-  if (!section.completed) return false;
+  if (!section || !section.completed) return false;
   const active = students.filter((s) => s.actif && s.sexe === sexe);
-  return active.every((s) => section.marks[s.id]);
+  const marks = section.marks && typeof section.marks === "object" ? section.marks : {};
+  return active.every((s) => marks[s.id]);
 }
 
 export function rollCallCanValidate(rollCall: InternatRollCall, students: InternatStudent[]) {

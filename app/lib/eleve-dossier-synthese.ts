@@ -113,7 +113,7 @@ export function matchInternatStudent(
   const folder = eleve.folderName?.trim();
   if (folder) {
     const byFolder = students.find(
-      (s) => s.actif && s.eleveRef.folderName.trim() === folder,
+      (s) => s.actif && String(s.eleveRef.folderName || "").trim() === folder,
     );
     if (byFolder) return byFolder;
   }

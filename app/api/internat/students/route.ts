@@ -19,9 +19,20 @@ import {
 export async function GET() {
   const access = await requireInternatAccess();
   if (!access.ok) return access.response;
-  const [students, rooms] = await Promise.all([getInternatStudents(), getInternatRooms()]);
-  const photoUrls = await resolvePhotoUrlsForInternatStudents(students);
-  return NextResponse.json({ students, rooms, photoUrls });
+  try {
+    const [students, rooms] = await Promise.all([getInternatStudents(), getInternatRooms()]);
+    const photoUrls = await resolvePhotoUrlsForInternatStudents(students).catch((e) => {
+      console.warn("[internat/students] photoUrls", e);
+      return {} as Record<string, string>;
+    });
+    return NextResponse.json({ students, rooms, photoUrls });
+  } catch (e) {
+    console.error("[internat/students] GET", e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Chargement des internes impossible." },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(req: Request) {
