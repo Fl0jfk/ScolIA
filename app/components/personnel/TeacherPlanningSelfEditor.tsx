@@ -197,12 +197,12 @@ export default function TeacherPlanningSelfEditor({
         renderCard={(slot) => {
           const full = teacherSlots.find((s) => s.id === slot.id)!;
           return (
-            <div className="rounded-lg bg-white border border-indigo-100 px-2 py-1.5 text-[11px] leading-snug group relative">
-              <p className="font-bold text-indigo-900">
+            <div className="h-full rounded-lg bg-white border border-indigo-100 px-1.5 py-1 text-[10px] leading-tight group relative overflow-hidden shadow-sm">
+              <p className="font-bold text-indigo-900 tabular-nums">
                 {full.start}–{full.end}
               </p>
-              <p className="text-slate-800 font-semibold">{full.subject || "—"}</p>
-              <p className="text-slate-500">
+              <p className="text-slate-800 font-semibold truncate">{full.subject || "—"}</p>
+              <p className="text-slate-500 truncate">
                 {(full.classes || []).join(", ") || "Classe ?"}
                 {full.room ? ` · ${full.room}` : ""}
               </p>
@@ -210,7 +210,7 @@ export default function TeacherPlanningSelfEditor({
                 <button
                   type="button"
                   onClick={() => duplicateSlot(full)}
-                  className="mt-1 text-[10px] font-bold text-indigo-600 hover:underline"
+                  className="mt-0.5 text-[10px] font-bold text-indigo-600 hover:underline"
                 >
                   Dupliquer
                 </button>

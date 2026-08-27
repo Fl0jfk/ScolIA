@@ -250,17 +250,17 @@ export default function ClassPlanningPanel({ initialClasse = "", compact = false
                 const full = slotById.get(slot.id)!;
                 return (
                   <div
-                    className={`rounded-lg border px-2 py-1.5 text-[11px] leading-snug ${
+                    className={`h-full rounded-lg border px-1.5 py-1 text-[10px] leading-tight overflow-hidden shadow-sm ${
                       full.kind === "remplacement"
                         ? "bg-violet-50 border-violet-200"
                         : "bg-white border-indigo-100"
                     }`}
                   >
-                    <p className="font-bold text-indigo-900">
+                    <p className="font-bold text-indigo-900 tabular-nums">
                       {full.start}–{full.end}
                     </p>
-                    <p className="text-slate-800 font-semibold">{full.subject}</p>
-                    <p className="text-slate-500">
+                    <p className="text-slate-800 font-semibold truncate">{full.subject}</p>
+                    <p className="text-slate-500 truncate">
                       {full.teacherName}
                       {full.room ? ` · ${full.room}` : ""}
                     </p>

@@ -29,7 +29,11 @@ const DAY_LABELS: Array<{ day: PlanningWeekday; re: RegExp }> = [
   { day: 5, re: /^vendredi$/i },
 ];
 
-const TIME_RE = /^(\d{1,2})[:hH.](\d{2})(?:\s*\(([ABab])\))?$/;
+/** Heure Pronote : `8:30`, `08h30`, `08.30`, éventuellement suivi de `(A)` / `(B)` / `[B]`. */
+const TIME_RE =
+  /^(\d{1,2})\s*[:hH.]\s*(\d{2})(?:\s*[(\[]\s*([ABab])\s*[)\]])?$/;
+const WEEK_MARK_ONLY_RE = /^\(\s*([ABab])\s*\)$/;
+const WEEK_MARK_INLINE_RE = /[(\[]\s*([ABab])\s*[)\]]\s*$/;
 const CLASS_CODE_RE = /^(CL_|LY_|EG_|ECOLE_|G_|GRP_)/i;
 const ROOM_RE = /^(salle|s\s|std|sta|sp\d|cdi|eps|gym)/i;
 
@@ -37,15 +41,27 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
+function normalizeWeekMark(raw: string | undefined | null): "A" | "B" | null {
+  const w = (raw || "").trim().toUpperCase();
+  return w === "A" || w === "B" ? w : null;
+}
+
 function parseTimeToken(raw: string): { hhmm: string; week: "A" | "B" | null } | null {
-  const m = TIME_RE.exec(raw.trim());
+  // Normalise espaces fins / insécables fréquents dans les PDF Pronote
+  const text = raw.replace(/[\u00A0\u202F\u2009\u2007]/g, " ").trim();
+  const m = TIME_RE.exec(text);
   if (!m) return null;
   const h = Number(m[1]);
   const min = Number(m[2]);
   if (!Number.isFinite(h) || !Number.isFinite(min) || h > 23 || min > 59) return null;
-  const weekRaw = m[3]?.toUpperCase();
-  const week = weekRaw === "A" || weekRaw === "B" ? weekRaw : null;
-  return { hhmm: `${pad2(h)}:${pad2(min)}`, week };
+  return { hhmm: `${pad2(h)}:${pad2(min)}`, week: normalizeWeekMark(m[3]) };
+}
+
+function parseWeekMarkToken(raw: string): "A" | "B" | null {
+  const text = raw.replace(/[\u00A0\u202F\u2009\u2007]/g, " ").trim();
+  const only = WEEK_MARK_ONLY_RE.exec(text);
+  if (only) return normalizeWeekMark(only[1]);
+  return null;
 }
 
 function looksLikeRoom(text: string): boolean {
@@ -180,6 +196,11 @@ export function parsePronoteTeacherGrid(items: PdfTextItem[]): PronoteTeacherPar
     }
   }
 
+  for (const day of days.map((d) => d.day)) {
+    const list = byDay.get(day);
+    if (list) byDay.set(day, attachNearbyWeekMarkers(list));
+  }
+
   const rawSlots: RawSlot[] = [];
 
   for (const day of days.map((d) => d.day)) {
@@ -191,10 +212,12 @@ export function parsePronoteTeacherGrid(items: PdfTextItem[]): PronoteTeacherPar
     return null;
   }
 
+  const resolvedSlots = resolveExclusiveWeekSlots(rawSlots);
+
   const weekA: PronoteTeacherParseResult["weekA"] = [];
   const weekB: PronoteTeacherParseResult["weekB"] = [];
 
-  for (const slot of rawSlots) {
+  for (const slot of resolvedSlots) {
     // Marqueur uniquement sur le début de créneau Pronote :
     // - (A) → semaine A seulement
     // - (B) → semaine B seulement
@@ -219,9 +242,9 @@ export function parsePronoteTeacherGrid(items: PdfTextItem[]): PronoteTeacherPar
     }
   }
 
-  const onlyA = rawSlots.filter((s) => s.week === "A").length;
-  const onlyB = rawSlots.filter((s) => s.week === "B").length;
-  const both = rawSlots.filter((s) => s.week == null).length;
+  const onlyA = resolvedSlots.filter((s) => s.week === "A").length;
+  const onlyB = resolvedSlots.filter((s) => s.week === "B").length;
+  const both = resolvedSlots.filter((s) => s.week == null).length;
   if (onlyA || onlyB) {
     warnings.push(
       `Créneaux A/B Pronote détectés (${onlyA} en A, ${onlyB} en B, ${both} communs aux deux semaines).`,
@@ -236,7 +259,7 @@ export function parsePronoteTeacherGrid(items: PdfTextItem[]): PronoteTeacherPar
     weekA,
     weekB,
     warnings,
-    slotCount: rawSlots.length,
+    slotCount: resolvedSlots.length,
   };
 }
 
@@ -307,6 +330,80 @@ function clusterItemsByX(items: TimedItem[], maxGap: number): TimedItem[][] {
   return clusters;
 }
 
+/**
+ * Si Pronote a extrait `(B)` comme fragment séparé à côté de `11:30`,
+ * rattache le marqueur à l’heure la plus proche (même ligne visuelle).
+ */
+function attachNearbyWeekMarkers(col: TimedItem[]): TimedItem[] {
+  const markers = col.filter((c) => c.kind === "text" && parseWeekMarkToken(c.text));
+  if (markers.length === 0) return col;
+
+  const consumed = new Set<TimedItem>();
+  const times = col.filter((c) => c.kind === "time");
+
+  for (const marker of markers) {
+    const mark = parseWeekMarkToken(marker.text);
+    if (!mark) continue;
+    let best: TimedItem | null = null;
+    let bestScore = Infinity;
+    for (const t of times) {
+      if (t.week) continue;
+      const dy = Math.abs(t.y - marker.y);
+      const dx = Math.abs(t.x - marker.x);
+      // Même ligne horaire, marqueur juste à droite (ou très proche)
+      if (dy > 8 || dx > 70) continue;
+      const score = dy * 4 + dx;
+      if (score < bestScore) {
+        bestScore = score;
+        best = t;
+      }
+    }
+    if (best) {
+      best.week = mark;
+      consumed.add(marker);
+    }
+  }
+
+  if (consumed.size === 0) return col;
+  return col.filter((c) => !consumed.has(c));
+}
+
+/**
+ * Si un créneau marqué (A)/(B) coexiste avec un clone sans marqueur
+ * au même jour/horaire, on conserve uniquement la version marquée.
+ */
+function resolveExclusiveWeekSlots(slots: RawSlot[]): RawSlot[] {
+  const byWindow = new Map<string, RawSlot[]>();
+  for (const s of slots) {
+    const key = `${s.day}|${s.start}|${s.end}`;
+    const list = byWindow.get(key) || [];
+    list.push(s);
+    byWindow.set(key, list);
+  }
+
+  const out: RawSlot[] = [];
+  for (const group of byWindow.values()) {
+    const marked = group.filter((s) => s.week === "A" || s.week === "B");
+    if (marked.length === 0) {
+      out.push(...group);
+      continue;
+    }
+    // Garde les exclusifs A/B ; jette les doublons « toutes semaines » au même créneau.
+    out.push(...marked);
+    for (const s of group) {
+      if (s.week != null) continue;
+      const duplicateMarked = marked.some(
+        (m) =>
+          m.subject === s.subject &&
+          m.classes.join("|") === s.classes.join("|") &&
+          (m.room || "") === (s.room || ""),
+      );
+      if (!duplicateMarked) out.push(s);
+    }
+  }
+  return out;
+}
+
 function parseLinearDay(day: PlanningWeekday, col: TimedItem[]): RawSlot[] {
   const sorted = col.slice().sort((a, b) => b.y - a.y || a.x - b.x);
   const slots: RawSlot[] = [];
@@ -318,8 +415,8 @@ function parseLinearDay(day: PlanningWeekday, col: TimedItem[]): RawSlot[] {
       continue;
     }
     const start = startItem.start;
-    /** Marqueur A/B Pronote : uniquement l’heure de début compte. */
-    const weekMark = startItem.week;
+    /** Marqueur A/B Pronote : l’heure de début prime ; le corps peut confirmer. */
+    let weekMark = startItem.week ?? null;
     const body: TimedItem[] = [];
     i += 1;
     while (i < sorted.length && sorted[i]!.kind !== "time") {
@@ -344,14 +441,29 @@ function parseLinearDay(day: PlanningWeekday, col: TimedItem[]): RawSlot[] {
     let room: string | undefined;
     const classes: string[] = [];
     for (const b of body) {
-      const t = b.text.trim();
+      const t = b.text.replace(/[\u00A0\u202F\u2009\u2007]/g, " ").trim();
       if (!t) continue;
+      const bodyWeek = parseWeekMarkToken(t);
+      if (bodyWeek) {
+        // Un `(B)` isolé dans la cellule confirme la semaine exclusive.
+        if (!weekMark) weekMark = bodyWeek;
+        continue;
+      }
       if (CLASS_CODE_RE.test(t)) {
         classes.push(t);
         continue;
       }
       if (looksLikeRoom(t)) {
         room = normalizeRoom(t);
+        continue;
+      }
+      const inlineWeek = WEEK_MARK_INLINE_RE.exec(t);
+      if (inlineWeek && !weekMark) {
+        weekMark = normalizeWeekMark(inlineWeek[1]);
+        const cleaned = t.replace(WEEK_MARK_INLINE_RE, "").trim();
+        if (!cleaned) continue;
+        if (!subject) subject = cleaned;
+        else subject = `${subject} ${cleaned}`.trim();
         continue;
       }
       if (!subject) subject = t;

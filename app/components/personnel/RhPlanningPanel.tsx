@@ -588,12 +588,12 @@ export default function RhPlanningPanel() {
                   renderCard={(slot) => {
                     const full = teacherSlots.find((s) => s.id === slot.id) as TeacherPlanningSlot;
                     return (
-                      <div className="rounded-lg bg-white border border-indigo-100 px-2 py-1.5 text-[11px] leading-snug">
-                        <p className="font-bold text-indigo-900">
+                      <div className="h-full rounded-lg bg-white border border-indigo-100 px-1.5 py-1 text-[10px] leading-tight overflow-hidden shadow-sm">
+                        <p className="font-bold text-indigo-900 tabular-nums">
                           {full.start}–{full.end}
                         </p>
-                        <p className="text-slate-800 font-semibold">{full.subject || "—"}</p>
-                        <p className="text-slate-500">
+                        <p className="text-slate-800 font-semibold truncate">{full.subject || "—"}</p>
+                        <p className="text-slate-500 truncate">
                           {(full.classes || []).join(", ") || "Classe ?"}
                           {full.room ? ` · ${full.room}` : ""}
                         </p>
@@ -704,11 +704,11 @@ export default function RhPlanningPanel() {
                       renderCard={(slot) => {
                         const full = staff.fixedSlots.find((s) => s.id === slot.id)!;
                         return (
-                          <div className="rounded-lg bg-white border border-amber-100 px-2 py-1.5 text-[11px]">
-                            <p className="font-bold text-amber-900">
+                          <div className="h-full rounded-lg bg-white border border-amber-100 px-1.5 py-1 text-[10px] leading-tight overflow-hidden shadow-sm">
+                            <p className="font-bold text-amber-900 tabular-nums">
                               {full.start}–{full.end}
                             </p>
-                            <p className="text-slate-800 font-semibold">{full.label || "—"}</p>
+                            <p className="text-slate-800 font-semibold truncate">{full.label || "—"}</p>
                           </div>
                         );
                       }}
@@ -745,12 +745,12 @@ export default function RhPlanningPanel() {
                       renderCard={(slot) => {
                         const full = (activeRotation?.slots || []).find((s) => s.id === slot.id)!;
                         return (
-                          <div className="rounded-lg bg-white border border-emerald-100 px-2 py-1.5 text-[11px]">
-                            <p className="font-bold text-emerald-900">
+                          <div className="h-full rounded-lg bg-white border border-emerald-100 px-1.5 py-1 text-[10px] leading-tight overflow-hidden shadow-sm">
+                            <p className="font-bold text-emerald-900 tabular-nums">
                               {full.start}–{full.end}
                             </p>
-                            <p className="text-slate-800 font-semibold">{full.mission || "—"}</p>
-                            <p className="text-slate-500">
+                            <p className="text-slate-800 font-semibold truncate">{full.mission || "—"}</p>
+                            <p className="text-slate-500 truncate">
                               {full.location || "Lieu non précisé"}
                             </p>
                           </div>

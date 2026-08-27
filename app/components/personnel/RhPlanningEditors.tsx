@@ -56,33 +56,116 @@ export function WeekGrid({
   slots: { id: string; day: PlanningWeekday; start: string; end: string }[];
   renderCard: (slot: (typeof slots)[number]) => ReactNode;
 }) {
+  const DAY_START_MIN = 7 * 60;
+  const DAY_END_MIN = 19 * 60;
+  const PX_PER_MIN = 1.15;
+  const totalHeight = (DAY_END_MIN - DAY_START_MIN) * PX_PER_MIN;
+
+  const hours = useMemo(() => {
+    const list: number[] = [];
+    for (let m = DAY_START_MIN; m <= DAY_END_MIN; m += 60) list.push(m);
+    return list;
+  }, []);
+
   const byDay = useMemo(() => {
     const map = new Map<PlanningWeekday, typeof slots>();
     for (const d of PLANNING_WEEKDAYS) map.set(d, []);
-    for (const s of [...slots].sort((a, b) => a.start.localeCompare(b.start))) {
+    for (const s of slots) {
       map.get(s.day)?.push(s);
+    }
+    for (const d of PLANNING_WEEKDAYS) {
+      map.get(d)?.sort((a, b) => a.start.localeCompare(b.start));
     }
     return map;
   }, [slots]);
 
+  const toMin = (hhmm: string) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  const blockStyle = (start: string, end: string) => {
+    const s = Math.max(DAY_START_MIN, toMin(start));
+    const e = Math.min(DAY_END_MIN, toMin(end));
+    const top = (s - DAY_START_MIN) * PX_PER_MIN;
+    const height = Math.max(28, (e - s) * PX_PER_MIN);
+    return { top, height };
+  };
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-      {PLANNING_WEEKDAYS.map((day) => (
-        <div key={day} className="rounded-xl border border-slate-200 bg-slate-50/80 min-h-[120px]">
-          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500 px-2 py-1.5 border-b border-slate-200">
-            {PLANNING_WEEKDAY_LABELS[day]}
-          </p>
-          <div className="p-1.5 space-y-1.5">
-            {(byDay.get(day) || []).length === 0 ? (
-              <p className="text-[11px] text-slate-400 italic px-1 py-2">—</p>
-            ) : (
-              (byDay.get(day) || []).map((slot) => (
-                <div key={slot.id}>{renderCard(slot)}</div>
-              ))
-            )}
+    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+      <div
+        className="grid min-w-[820px]"
+        style={{ gridTemplateColumns: "48px repeat(5, minmax(0, 1fr))" }}
+      >
+        <div className="border-b border-slate-100 px-1 py-2" />
+        {PLANNING_WEEKDAYS.map((day) => (
+          <div
+            key={`h-${day}`}
+            className="border-b border-l border-slate-100 px-1.5 py-2 text-center"
+          >
+            <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+              {PLANNING_WEEKDAY_LABELS[day]}
+            </p>
           </div>
+        ))}
+
+        <div className="relative border-r border-slate-100" style={{ height: totalHeight }}>
+          {hours.map((m) => (
+            <div
+              key={m}
+              className="absolute left-0 right-0 pr-1 text-right text-[10px] font-bold text-slate-400"
+              style={{ top: (m - DAY_START_MIN) * PX_PER_MIN - 6 }}
+            >
+              {String(Math.floor(m / 60)).padStart(2, "0")}:00
+            </div>
+          ))}
         </div>
-      ))}
+
+        {PLANNING_WEEKDAYS.map((day) => (
+          <div
+            key={day}
+            className="relative border-l border-slate-100 bg-slate-50/50"
+            style={{ height: totalHeight }}
+          >
+            {hours.map((m) => (
+              <div
+                key={m}
+                className={`absolute left-0 right-0 border-t ${
+                  m === 12 * 60 ? "border-amber-200/90" : "border-slate-100/90"
+                }`}
+                style={{ top: (m - DAY_START_MIN) * PX_PER_MIN }}
+              />
+            ))}
+            {/* Bande pause déjeuner indicative */}
+            <div
+              className="pointer-events-none absolute left-0 right-0 bg-amber-50/40"
+              style={{
+                top: (12 * 60 - DAY_START_MIN) * PX_PER_MIN,
+                height: 45 * PX_PER_MIN,
+              }}
+              title="Pause méridienne (indicatif)"
+            />
+            {(byDay.get(day) || []).map((slot) => {
+              const { top, height } = blockStyle(slot.start, slot.end);
+              return (
+                <div
+                  key={slot.id}
+                  className="absolute left-1 right-1 z-[1] overflow-hidden"
+                  style={{ top, height }}
+                >
+                  <div className="h-full min-h-0 overflow-hidden [&_>_*]:h-full [&_>_*]:min-h-0 [&_>_*]:overflow-hidden">
+                    {renderCard(slot)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      <p className="border-t border-slate-100 px-3 py-1.5 text-[10px] text-slate-400">
+        Grille horaire réelle (7h–19h) — les trous et la pause midi restent visibles.
+      </p>
     </div>
   );
 }

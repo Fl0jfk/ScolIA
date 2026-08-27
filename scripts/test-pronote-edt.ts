@@ -71,6 +71,23 @@ async function main() {
     (s) => !aKeys.has(`${s.day}|${s.start}|${s.end}|${s.subject}|${s.classes.join(",")}`),
   );
   console.log("B-only slots", bOnly);
+  // Les créneaux explicitement (B) ne doivent jamais apparaître en semaine A
+  // (sur le PDF Valérie : vendredi 11:30 et 14:25).
+  const fridayBInA = planning.weekA.filter(
+    (s) => s.day === 5 && (s.start === "11:30" || s.start === "14:25"),
+  );
+  if (fridayBInA.length) {
+    console.error("FAIL: créneaux vendredi (B) présents en semaine A", fridayBInA);
+    process.exit(5);
+  }
+  const thuMorningAOnlyInB = planning.weekB.filter(
+    (s) => s.day === 4 && s.start === "08:30" && s.end === "09:25",
+  );
+  if (thuMorningAOnlyInB.length) {
+    console.error("FAIL: créneau jeudi 08:30 (A) présent en semaine B", thuMorningAOnlyInB);
+    process.exit(6);
+  }
+  console.log("A/B exclusivity ok");
 }
 
 main().catch((e) => {
