@@ -9,6 +9,10 @@ import { useTravelsPermissions } from "@/app/hooks/useTravelsPermissions";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { matchEstablishment } from "@/app/lib/establishment-catalog";
 import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
+import {
+  formFieldsToAccompagnateurs,
+  type TravelsAccompagnateur,
+} from "@/app/lib/travels-accompagnateurs";
 import { emptyCuisineDetails } from "@/app/lib/travels-cuisine-form";
 import {
   busLogisticsActive,
@@ -129,6 +133,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const [draftNbEleves, setDraftNbEleves] = useState("");
   const [draftNbAccompagnateurs, setDraftNbAccompagnateurs] = useState("");
   const [draftNomsAccompagnateurs, setDraftNomsAccompagnateurs] = useState("");
+  const [draftAccompagnateurs, setDraftAccompagnateurs] = useState<TravelsAccompagnateur[]>([]);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const comptaTabAutoOpened = useRef<string | null>(null);
   const tripStatusRef = useRef(trip?.status);
@@ -778,8 +783,13 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
 
   const openEffectifModal = () => {
     setDraftNbEleves(String(trip.data?.nbEleves ?? ""));
-    setDraftNbAccompagnateurs(String(trip.data?.nbAccompagnateurs ?? ""));
-    setDraftNomsAccompagnateurs(String(trip.data?.nomsAccompagnateurs ?? ""));
+    const escorts = formFieldsToAccompagnateurs({
+      nomsAccompagnateurs: trip.data?.nomsAccompagnateurs,
+      accompagnateurs: trip.data?.accompagnateurs,
+    });
+    setDraftAccompagnateurs(escorts);
+    setDraftNomsAccompagnateurs(escorts.map((a) => a.name).join(", "));
+    setDraftNbAccompagnateurs(String(escorts.length || trip.data?.nbAccompagnateurs || 0));
     setShowEffectifModal(true);
   };
 
@@ -911,10 +921,10 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
 
   const saveEffectifChange = async () => {
     const nbEleves = Number(draftNbEleves);
-    const nbAcc = Number(draftNbAccompagnateurs);
-    const nomsAccompagnateurs = draftNomsAccompagnateurs.trim();
-    if (!Number.isFinite(nbEleves) || nbEleves < 0 || !Number.isFinite(nbAcc) || nbAcc < 0) {
-      return alert("Indiquez des effectifs valides (nombres positifs).");
+    const nbAcc = draftAccompagnateurs.length;
+    const nomsAccompagnateurs = draftNomsAccompagnateurs.trim() || draftAccompagnateurs.map((a) => a.name).join(", ");
+    if (!Number.isFinite(nbEleves) || nbEleves < 0) {
+      return alert("Indiquez un nombre d’élèves valide.");
     }
     const prevEleves = Number(trip.data?.nbEleves) || 0;
     const prevAcc = Number(trip.data?.nbAccompagnateurs) || 0;
@@ -926,7 +936,13 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
 
     const updatedTrip: TravelsTrip = {
       ...trip,
-      data: { ...trip.data, nbEleves, nbAccompagnateurs: nbAcc, nomsAccompagnateurs },
+      data: {
+        ...trip.data,
+        nbEleves,
+        nbAccompagnateurs: nbAcc,
+        nomsAccompagnateurs,
+        accompagnateurs: draftAccompagnateurs,
+      },
       history: [
         ...(trip.history || []),
         {
@@ -1694,6 +1710,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         setDraftNbAccompagnateurs={setDraftNbAccompagnateurs}
         draftNomsAccompagnateurs={draftNomsAccompagnateurs}
         setDraftNomsAccompagnateurs={setDraftNomsAccompagnateurs}
+        draftAccompagnateurs={draftAccompagnateurs}
+        setDraftAccompagnateurs={setDraftAccompagnateurs}
         saveEffectifChange={saveEffectifChange}
         effectifFollowUp={effectifFollowUp}
         setEffectifFollowUp={setEffectifFollowUp}

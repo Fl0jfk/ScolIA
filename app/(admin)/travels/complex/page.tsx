@@ -14,8 +14,12 @@ import TravelsOwnerAssignSection, {
   type TravelsOwnerFields,
 } from "@/app/components/travels/TravelsOwnerAssignSection";
 import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSelect";
+import TripAccompagnateursSelect, {
+  accompagnateursToFormFields,
+} from "@/app/components/travels/TripAccompagnateursSelect";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import type { TravelsAccompagnateur } from "@/app/lib/travels-accompagnateurs";
 
 function ComplexTripFormContent() {
   const { user, isLoaded } = useSessionUser();
@@ -50,6 +54,7 @@ function ComplexTripFormContent() {
     classes: "",
     nbAccompagnateurs: 1,
     nomsAccompagnateurs: "",
+    accompagnateurs: [] as TravelsAccompagnateur[],
     needsBus: false,
     transportRequest: {
       pickupPoint: "",
@@ -160,6 +165,14 @@ function ComplexTripFormContent() {
       alert("Sélectionnez l'enseignant responsable du dossier.");
       return;
     }
+    if (!formData.classes.trim()) {
+      alert("Sélectionnez au moins une classe (catalogue ou Autres).");
+      return;
+    }
+    if (formData.accompagnateurs.length === 0) {
+      alert("Sélectionnez au moins un accompagnateur (annuaire ou Autre).");
+      return;
+    }
     if (formData.needsBus) {
       setShowBusRecapModal(true);
     } else {
@@ -228,14 +241,25 @@ function ComplexTripFormContent() {
                 options={classOptions}
                 onChange={(classes) => setFormData({ ...formData, classes })}
               />
+              {classOptions.length === 0 ? (
+                <p className="mt-1 text-[11px] text-amber-700">
+                  Aucune classe en catalogue — saisissez librement, ou renseignez les classes dans
+                  Paramètres (salles / enseignements).
+                </p>
+              ) : null}
             </div>
-            <div>
-              <label className="block text-sm font-semibold mb-2">Nb accompagnateurs</label>
-              <input type="number" required value={formData.nbAccompagnateurs} className="w-full p-3 bg-slate-50 border rounded-xl" onChange={e => setFormData({...formData, nbAccompagnateurs: Number(e.target.value)})} />
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-semibold mb-2">Noms des accompagnateurs</label>
-              <input required value={formData.nomsAccompagnateurs} className="w-full p-3 bg-slate-50 border rounded-xl" placeholder="Liste des accompagnateurs..." onChange={e => setFormData({...formData, nomsAccompagnateurs: e.target.value})} />
+            <div className="md:col-span-3">
+              <label className="block text-sm font-semibold mb-2">Accompagnateurs</label>
+              <TripAccompagnateursSelect
+                required
+                value={formData.accompagnateurs}
+                onChange={(accompagnateurs) =>
+                  setFormData({
+                    ...formData,
+                    ...accompagnateursToFormFields(accompagnateurs),
+                  })
+                }
+              />
             </div>
             <div>
               <label className="block text-sm font-semibold mb-2 text-indigo-600">Coût global estimé (€)</label>

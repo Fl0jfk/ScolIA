@@ -1,7 +1,11 @@
 "use client";
 
 import { CUISINE_DAYS_UI as CUISINE_DAYS, CUISINE_ROWS_UI as CUISINE_ROWS, emptyCuisineDetails } from "@/app/lib/travels-cuisine-form";
+import type { TravelsAccompagnateur } from "@/app/lib/travels-accompagnateurs";
 import type { TravelsTrip } from "@/app/lib/travels-types";
+import TripAccompagnateursSelect, {
+  accompagnateursToFormFields,
+} from "@/app/components/travels/TripAccompagnateursSelect";
 import { TripButton, TripInput, TripTextarea } from "@/app/components/travels/TripDetailUI";
 
 type TripDetailsModalsProps = {
@@ -14,6 +18,8 @@ type TripDetailsModalsProps = {
   setDraftNbAccompagnateurs: (v: string) => void;
   draftNomsAccompagnateurs: string;
   setDraftNomsAccompagnateurs: (v: string) => void;
+  draftAccompagnateurs: TravelsAccompagnateur[];
+  setDraftAccompagnateurs: (v: TravelsAccompagnateur[]) => void;
   saveEffectifChange: () => void;
   effectifFollowUp: {
     sendTransport: boolean;
@@ -63,8 +69,9 @@ type TripDetailsModalsProps = {
 export function TripDetailsModals(p: TripDetailsModalsProps) {
   const {
     trip, showEffectifModal, setShowEffectifModal, draftNbEleves, setDraftNbEleves,
-    draftNbAccompagnateurs, setDraftNbAccompagnateurs, draftNomsAccompagnateurs,
-    setDraftNomsAccompagnateurs, saveEffectifChange, effectifFollowUp, setEffectifFollowUp,
+    draftNbAccompagnateurs, setDraftNbAccompagnateurs, setDraftNomsAccompagnateurs,
+    draftAccompagnateurs, setDraftAccompagnateurs,
+    saveEffectifChange, effectifFollowUp, setEffectifFollowUp,
     runEffectifFollowUp, showBudgetModal, setShowBudgetModal, draftCoutTotal, setDraftCoutTotal,
     saveBudgetChange, cuisineFollowUp, setCuisineFollowUp, runCuisineFollowUp, showDateModal,
     setShowDateModal, draftStartDate, setDraftStartDate, draftEndDate, setDraftEndDate,
@@ -77,37 +84,32 @@ export function TripDetailsModals(p: TripDetailsModalsProps) {
     <>
       {showEffectifModal && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[75] p-4">
-          <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-md w-full shadow-2xl">
+          <div className="bg-white rounded-2xl p-6 sm:p-8 max-w-xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold text-slate-900 mb-1">Modifier effectifs &amp; accompagnateurs</h2>
             <p className="text-sm text-slate-500 mb-6">
               Créateur ou direction — mise à jour sans rouvrir tout le dossier.
             </p>
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Élèves</label>
-                <TripInput
-                  type="number"
-                  min={0}
-                  value={draftNbEleves}
-                  onChange={(e) => setDraftNbEleves(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Nb accompagnateurs</label>
-                <TripInput
-                  type="number"
-                  min={0}
-                  value={draftNbAccompagnateurs}
-                  onChange={(e) => setDraftNbAccompagnateurs(e.target.value)}
-                />
-              </div>
+            <div className="mb-4">
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Élèves</label>
+              <TripInput
+                type="number"
+                min={0}
+                value={draftNbEleves}
+                onChange={(e) => setDraftNbEleves(e.target.value)}
+              />
             </div>
             <div className="mb-6">
-              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">Noms des accompagnateurs</label>
-              <TripTextarea
-                value={draftNomsAccompagnateurs}
-                onChange={(e) => setDraftNomsAccompagnateurs(e.target.value)}
-                placeholder="Ex. Mme Dupont, M. Martin…"
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                Accompagnateurs ({draftNbAccompagnateurs || "0"})
+              </label>
+              <TripAccompagnateursSelect
+                value={draftAccompagnateurs}
+                onChange={(items) => {
+                  const fields = accompagnateursToFormFields(items);
+                  setDraftAccompagnateurs(fields.accompagnateurs);
+                  setDraftNomsAccompagnateurs(fields.nomsAccompagnateurs);
+                  setDraftNbAccompagnateurs(String(fields.nbAccompagnateurs));
+                }}
               />
             </div>
             <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg p-3 mb-6">

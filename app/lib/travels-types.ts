@@ -121,6 +121,13 @@ export type TravelsTripData = {
   nbEleves?: number | string;
   nbAccompagnateurs?: number | string;
   nomsAccompagnateurs?: string;
+  /** Liste structurée (annuaire + saisie libre) — synchronisée avec nomsAccompagnateurs. */
+  accompagnateurs?: Array<{
+    userId?: string;
+    name: string;
+    email?: string;
+    source: "directory" | "autre";
+  }>;
   coutTotal?: number;
   finalTotalCost?: number;
   costPerStudent?: number;

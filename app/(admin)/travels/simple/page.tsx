@@ -14,9 +14,14 @@ import TravelsOwnerAssignSection, {
   type TravelsOwnerFields,
 } from "@/app/components/travels/TravelsOwnerAssignSection";
 import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSelect";
+import TripAccompagnateursSelect, {
+  accompagnateursToFormFields,
+  formFieldsToAccompagnateurs,
+} from "@/app/components/travels/TripAccompagnateursSelect";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
+import type { TravelsAccompagnateur } from "@/app/lib/travels-accompagnateurs";
 import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
 
 const CUISINE_DAYS = [
@@ -76,6 +81,7 @@ function SimpleTripFormContent() {
     classes: "",
     nbAccompagnateurs: 1,
     nomsAccompagnateurs: "",
+    accompagnateurs: [] as TravelsAccompagnateur[],
     coutTotal: 0,
     piqueNiqueDetails: {
       active: false,
@@ -107,10 +113,21 @@ function SimpleTripFormContent() {
                 : Array.isArray(rawNoms)
                   ? rawNoms.filter(Boolean).join(", ")
                   : "";
+            const accompagnateurs = formFieldsToAccompagnateurs({
+              nomsAccompagnateurs: nomsStr,
+              accompagnateurs: trip.data.accompagnateurs,
+            });
+            const escortFields = accompagnateursToFormFields(accompagnateurs);
             setFormData({
               ...trip.data,
-              nomsAccompagnateurs: nomsStr,
-              nbAccompagnateurs: Number(trip.data.nbAccompagnateurs) >= 0 ? Number(trip.data.nbAccompagnateurs) : 1,
+              nomsAccompagnateurs: escortFields.nomsAccompagnateurs || nomsStr,
+              nbAccompagnateurs:
+                escortFields.nbAccompagnateurs > 0
+                  ? escortFields.nbAccompagnateurs
+                  : Number(trip.data.nbAccompagnateurs) >= 0
+                    ? Number(trip.data.nbAccompagnateurs)
+                    : 1,
+              accompagnateurs: escortFields.accompagnateurs,
               attachments: trip.data.attachments || [],
               piqueNiqueDetails: trip.data.piqueNiqueDetails || formData.piqueNiqueDetails,
             });
@@ -165,6 +182,14 @@ function SimpleTripFormContent() {
     e.preventDefault();
     if (ownerAssignPending) {
       alert("Sélectionnez l'enseignant responsable du dossier.");
+      return;
+    }
+    if (!formData.classes.trim()) {
+      alert("Sélectionnez au moins une classe (catalogue ou Autres).");
+      return;
+    }
+    if (formData.accompagnateurs.length === 0) {
+      alert("Sélectionnez au moins un accompagnateur (annuaire ou Autre).");
       return;
     }
     const ownerFields =
@@ -455,29 +480,27 @@ function SimpleTripFormContent() {
             options={classOptions}
             onChange={(classes) => setFormData({ ...formData, classes })}
           />
+          {classOptions.length === 0 ? (
+            <p className="mt-1 text-[11px] text-amber-700">
+              Aucune classe en catalogue — saisissez librement, ou renseignez les classes dans
+              Paramètres (salles / enseignements).
+            </p>
+          ) : null}
         </div>
         <div>
           <label className="block text-sm font-semibold mb-2">Nombre d&apos;élèves total</label>
           <input type="number" value={formData.nbEleves} className="w-full p-3 bg-slate-50 border rounded-xl outline-indigo-500" onChange={e => setFormData({...formData, nbEleves: e.target.value})} />
         </div>
-        <div>
-          <label className="block text-sm font-semibold mb-2">Nombre d&apos;accompagnateurs</label>
-          <input
-            type="number"
-            min={0}
-            value={formData.nbAccompagnateurs}
-            className="w-full p-3 bg-slate-50 border rounded-xl outline-indigo-500"
-            onChange={(e) => setFormData({ ...formData, nbAccompagnateurs: Number(e.target.value) })}
-          />
-        </div>
         <div className="md:col-span-2">
-          <label className="block text-sm font-semibold mb-2">Noms des accompagnateurs</label>
-          <textarea
-            rows={2}
-            value={formData.nomsAccompagnateurs}
-            className="w-full p-3 bg-slate-50 border rounded-xl outline-indigo-500"
-            placeholder="Ex. M. Dupont, Mme Martin, …"
-            onChange={(e) => setFormData({ ...formData, nomsAccompagnateurs: e.target.value })}
+          <label className="block text-sm font-semibold mb-2">Accompagnateurs</label>
+          <TripAccompagnateursSelect
+            value={formData.accompagnateurs}
+            onChange={(accompagnateurs) =>
+              setFormData({
+                ...formData,
+                ...accompagnateursToFormFields(accompagnateurs),
+              })
+            }
           />
         </div>
         <div className="md:col-span-2 mt-4">

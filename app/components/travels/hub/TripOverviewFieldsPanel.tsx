@@ -2,7 +2,12 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import TripClassesMultiSelect from "@/app/components/travels/TripClassesMultiSelect";
+import TripAccompagnateursSelect, {
+  accompagnateursToFormFields,
+  formFieldsToAccompagnateurs,
+} from "@/app/components/travels/TripAccompagnateursSelect";
 import { emptyCuisineDetails, getTotalMeals } from "@/app/lib/travels-cuisine-form";
+import type { TravelsAccompagnateur } from "@/app/lib/travels-accompagnateurs";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import {
   TripField,
@@ -19,6 +24,7 @@ type TripOverviewFieldsPanelProps = {
   editedData: Record<string, unknown> & {
     classes?: string;
     nomsAccompagnateurs?: string;
+    accompagnateurs?: TravelsAccompagnateur[];
     nbEleves?: string | number;
     nbAccompagnateurs?: string | number;
     startDate?: string;
@@ -78,9 +84,20 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
               <TripFieldValue value={trip.data.classes} />
             )}
           </TripField>
-          <TripField label="Accompagnateurs">
+          <TripField label="Accompagnateurs" span={2}>
             {isEditing ? (
-              <TripInput value={editedData.nomsAccompagnateurs} onChange={(e) => setEditedData({ ...editedData, nomsAccompagnateurs: e.target.value })} />
+              <TripAccompagnateursSelect
+                value={formFieldsToAccompagnateurs({
+                  nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
+                  accompagnateurs: editedData.accompagnateurs,
+                })}
+                onChange={(accompagnateurs) =>
+                  setEditedData({
+                    ...editedData,
+                    ...accompagnateursToFormFields(accompagnateurs),
+                  })
+                }
+              />
             ) : (
               <>
                 <TripFieldValue value={trip.data.nomsAccompagnateurs || "—"} />
@@ -107,7 +124,14 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
                 </div>
                 <div className="flex-1">
                   <span className="text-[9px] text-slate-400">Accomp.</span>
-                  <TripInput type="number" value={editedData.nbAccompagnateurs} onChange={(e) => setEditedData({ ...editedData, nbAccompagnateurs: Number(e.target.value) })} />
+                  <TripInput
+                    type="number"
+                    value={editedData.nbAccompagnateurs}
+                    readOnly
+                    title="Calculé automatiquement depuis la sélection des accompagnateurs"
+                    className="bg-slate-100"
+                    onChange={() => undefined}
+                  />
                 </div>
               </div>
             ) : (

@@ -47,15 +47,21 @@ export default function TripClassesMultiSelect({
 
   if (options.length === 0) {
     return (
-      <input
-        id={id}
-        required={required}
-        disabled={disabled}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full p-3 bg-slate-50 border rounded-xl outline-indigo-500"
-        placeholder="Ex: 3A, 4B"
-      />
+      <div className="space-y-1">
+        <input
+          id={id}
+          required={required}
+          disabled={disabled}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full p-3 bg-slate-50 border rounded-xl outline-indigo-500"
+          placeholder="Ex: 3A, 4B"
+        />
+        <p className="text-[11px] text-amber-700">
+          Catalogue vide : renseignez les classes dans Paramètres (salles / enseignements) pour
+          les proposer ici en sélection.
+        </p>
+      </div>
     );
   }
 
