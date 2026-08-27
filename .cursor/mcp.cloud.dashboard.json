@@ -1,0 +1,47 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "type": "stdio",
+      "command": "bash",
+      "args": ["/workspace/.cursor/run-postgres-mcp.sh"],
+      "env": {
+        "MCP_DATABASE_URL": "REMPLACER_PAR_URL_POSTGRES_SCALEWAY_OU_LAISSER_SECRET_ENV"
+      }
+    },
+    "fetch": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"]
+    },
+    "browser": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@0.0.79"]
+    },
+    "mistral": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "mistral-mcp@0.8.2"],
+      "env": {
+        "MISTRAL_API_KEY": "REMPLACER_PAR_TA_CLE_MISTRAL"
+      }
+    },
+    "scaleway": {
+      "type": "stdio",
+      "command": "scw",
+      "args": [
+        "mcp",
+        "server",
+        "serve",
+        "namespaces=container,registry,object,rdb,tem,cockpit,iam"
+      ],
+      "env": {
+        "SCW_ACCESS_KEY": "REMPLACER",
+        "SCW_SECRET_KEY": "REMPLACER",
+        "SCW_DEFAULT_ORGANIZATION_ID": "REMPLACER_UUID",
+        "SCW_DEFAULT_PROJECT_ID": "REMPLACER_UUID",
+        "SCW_DEFAULT_REGION": "fr-par"
+      }
+    }
+  }
+}
