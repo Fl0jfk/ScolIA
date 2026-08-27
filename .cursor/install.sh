@@ -103,7 +103,9 @@ npx --yes playwright install --with-deps chromium >/dev/null 2>&1 || \
 echo "[install] Scaleway CLI (optionnel, MCP scaleway)…"
 if ! command -v scw >/dev/null 2>&1; then
   mkdir -p "${HOME}/bin"
-  SCW_VERSION="$(curl -fsSL https://api.github.com/repos/scaleway/scaleway-cli/releases/latest | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).tag_name||'')}catch{console.log('')}}")"
+  SCW_VERSION="$(curl -fsSL https://api.github.com/repos/scaleway/scaleway-cli/releases/latest 2>/dev/null \
+    | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{try{console.log(JSON.parse(d).tag_name||'')}catch{console.log('')}})")" \
+    || SCW_VERSION=""
   if [ -n "$SCW_VERSION" ]; then
     SCW_VER_NUM="${SCW_VERSION#v}"
     curl -fsSL -o /tmp/scw \
