@@ -20,7 +20,7 @@ import {
   reservationWhoLabel,
 } from "@/app/lib/prof-room-reservation-label";
 import { dash } from "@/app/lib/dashboard-brand";
-import { DEFAULT_CLASSES_BY_POLE, resolveClassesByPoleCatalog } from "@/app/lib/school-classes-catalog";
+import { DEFAULT_CLASSES_BY_POLE, resolveProfRoomClassesByPole } from "@/app/lib/school-classes-catalog";
 import {
   normalizeRoomReservationsList,
   reservationMatchesHourPrefix,
@@ -29,7 +29,10 @@ import ProfRoomBeneficiarySelect, {
   type ProfRoomBeneficiary,
 } from "@/app/components/prof-room/ProfRoomBeneficiarySelect";
 
-const FALLBACK_CLASSES: Record<string, string[]> = { ...DEFAULT_CLASSES_BY_POLE };
+const FALLBACK_CLASSES: Record<string, string[]> = {
+  ...DEFAULT_CLASSES_BY_POLE,
+  MAINTENANCE: ["MAINTENANCE"],
+};
 
 const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i);
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
@@ -81,7 +84,7 @@ function ProfRoomPageContent() {
   const CLASSES_DATA = useMemo(() => {
     const raw = appCtx?.profRoom?.classesByPole;
     if (raw && Object.keys(raw).length > 0) {
-      return resolveClassesByPoleCatalog(raw);
+      return resolveProfRoomClassesByPole(raw);
     }
     return FALLBACK_CLASSES;
   }, [appCtx?.profRoom?.classesByPole]);

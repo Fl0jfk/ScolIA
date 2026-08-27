@@ -1,7 +1,7 @@
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getActiveEstablishments, shouldShowGroupeScolaire } from "@/app/lib/app-config-establishments";
 import { withDefaultProfRoomSubjects } from "@/app/lib/prof-room-defaults";
-import { resolveClassesByPoleCatalog } from "@/app/lib/school-classes-catalog";
+import { resolveClassesByPoleCatalog, resolveProfRoomClassesByPole } from "@/app/lib/school-classes-catalog";
 import { getJson } from "@/app/lib/s3-storage";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
 import type { BrainPendingChoices, BrainToolResult } from "@/app/lib/brain-ai/types";
@@ -42,7 +42,7 @@ export function matchCatalogValue(raw: string, catalog: string[]): string | null
 export async function loadRoomCatalog() {
   const cfg = withDefaultProfRoomSubjects((await loadAppConfig()).profRoom);
   const subjects = Object.keys(cfg.subjectColors || {}).sort((a, b) => a.localeCompare(b, "fr"));
-  const classesByPole = resolveClassesByPoleCatalog(cfg.classesByPole || {});
+  const classesByPole = resolveProfRoomClassesByPole(cfg.classesByPole || {});
   const poles = Object.keys(classesByPole).sort((a, b) => a.localeCompare(b, "fr"));
   const allClasses = poles.flatMap((p) => (classesByPole[p] || []).map((c) => String(c)));
   const roomsHit = await getJson<

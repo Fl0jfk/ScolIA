@@ -196,3 +196,38 @@ export function resolveClassesByPoleCatalog(
   }
   return enriched;
 }
+
+/**
+ * Catalogue réservation de salles : enrichissement école + conservation du pôle MAINTENANCE.
+ * (Les séjours / dossiers excluent toujours MAINTENANCE via resolveClassesByPoleCatalog.)
+ */
+export function resolveProfRoomClassesByPole(
+  ...sources: Array<Record<string, string[]> | null | undefined>
+): Record<string, string[]> {
+  const rawMerged: Record<string, string[]> = {};
+  for (const src of sources) {
+    if (!src) continue;
+    for (const [pole, list] of Object.entries(src)) {
+      const cur = rawMerged[pole] || [];
+      const next = [...cur];
+      for (const c of list || []) {
+        const t = String(c || "").trim();
+        if (t && !next.includes(t)) next.push(t);
+      }
+      rawMerged[pole] = next;
+    }
+  }
+
+  const maintenanceKey = Object.keys(rawMerged).find((k) => k.toUpperCase() === "MAINTENANCE");
+  const maintenanceClasses = maintenanceKey
+    ? (rawMerged[maintenanceKey] || []).map((c) => String(c).trim()).filter(Boolean)
+    : [];
+
+  const enriched = resolveClassesByPoleCatalog(rawMerged);
+  if (maintenanceClasses.length > 0) {
+    enriched.MAINTENANCE = maintenanceClasses;
+  } else {
+    enriched.MAINTENANCE = ["MAINTENANCE"];
+  }
+  return enriched;
+}
