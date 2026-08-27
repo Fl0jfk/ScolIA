@@ -887,13 +887,16 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     const nowLocal = parisNowLocalIso();
     const roomNameById = new Map(rooms.map((r) => [r.id, r.name]));
     const todayRes = reservations
-      .filter(
-        (r) =>
+      .filter((r) => {
+        const startsAt = typeof r.startsAt === "string" ? r.startsAt : "";
+        return (
+          Boolean(startsAt) &&
           r.status !== "CANCELLED" &&
-          r.startsAt.startsWith(todayKey) &&
-          isOwnRoomReservation(r, userId, emailNorm),
-      )
-      .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+          startsAt.startsWith(todayKey) &&
+          isOwnRoomReservation(r, userId, emailNorm)
+        );
+      })
+      .sort((a, b) => String(a.startsAt || "").localeCompare(String(b.startsAt || "")));
     const liveNow = todayRes.filter((r) => isReservationLiveNow(r, nowLocal));
 
     if (liveNow.length > 0) {

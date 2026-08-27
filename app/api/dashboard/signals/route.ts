@@ -49,14 +49,76 @@ import { hasRole } from "@/app/lib/intranet-role-utils";
 import type { RhPlanningDoc } from "@/app/lib/rh/planning-types";
 import { listUnseenSharedFolderInvites } from "@/app/lib/documents-cloud";
 
-async function safeJson<T>(path: string): Promise<T | null> {
+async function safeJson<T>(path: string, timeoutMs = 8_000): Promise<T | null> {
   try {
-    const hit = await getJson<T>(path);
-    return (hit?.data as T) ?? null;
+    const hit = await Promise.race([
+      getJson<T>(path),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+    if (!hit || typeof hit !== "object" || !("data" in hit)) return null;
+    return (hit.data as T) ?? null;
   } catch {
     return null;
   }
 }
+
+type RoomReservationSignal = {
+  id: string;
+  roomId: string;
+  startsAt: string;
+  endsAt?: string;
+  subject?: string;
+  className?: string;
+  status?: string;
+  userId?: string;
+  email?: string;
+  bookedForOther?: boolean;
+  firstName?: string;
+  lastName?: string;
+  bookedByFirstName?: string;
+  bookedByLastName?: string;
+};
+
+function normalizeRoomReservations(raw: unknown): RoomReservationSignal[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RoomReservationSignal[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as Record<string, unknown>;
+    const startsAt = typeof r.startsAt === "string" ? r.startsAt : "";
+    const roomId = typeof r.roomId === "string" ? r.roomId : "";
+    const id = typeof r.id === "string" ? r.id : "";
+    if (!id || !roomId || !startsAt) continue;
+    out.push({
+      id,
+      roomId,
+      startsAt,
+      endsAt: typeof r.endsAt === "string" ? r.endsAt : undefined,
+      subject: typeof r.subject === "string" ? r.subject : undefined,
+      className: typeof r.className === "string" ? r.className : undefined,
+      status: typeof r.status === "string" ? r.status : undefined,
+      userId: typeof r.userId === "string" ? r.userId : undefined,
+      email: typeof r.email === "string" ? r.email : undefined,
+      bookedForOther: r.bookedForOther === true,
+      firstName: typeof r.firstName === "string" ? r.firstName : undefined,
+      lastName: typeof r.lastName === "string" ? r.lastName : undefined,
+      bookedByFirstName:
+        typeof r.bookedByFirstName === "string" ? r.bookedByFirstName : undefined,
+      bookedByLastName: typeof r.bookedByLastName === "string" ? r.bookedByLastName : undefined,
+    });
+  }
+  return out;
+}
+
+const EMPTY_SIGNALS = {
+  shortcuts: [] as unknown[],
+  todayNews: [] as unknown[],
+  hasCurrentWeek: false,
+  notifications: [] as unknown[],
+  anneeScolaireLabel: null as string | null,
+};
 
 export async function GET() {
   const gate = await requireAuth();
@@ -112,24 +174,7 @@ export async function GET() {
       : Promise.resolve(null);
 
     const reservationsPromise = accessibleModuleIds.has("prof-room")
-      ? safeJson<
-          Array<{
-            id: string;
-            roomId: string;
-            startsAt: string;
-            endsAt?: string;
-            subject?: string;
-            className?: string;
-            status?: string;
-            userId?: string;
-            email?: string;
-            bookedForOther?: boolean;
-            firstName?: string;
-            lastName?: string;
-            bookedByFirstName?: string;
-            bookedByLastName?: string;
-          }>
-        >("reservation-rooms/reservations.json")
+      ? safeJson<unknown>("reservation-rooms/reservations.json", 5_000)
       : Promise.resolve(null);
 
     const profRoomConfigPromise = accessibleModuleIds.has("prof-room")
@@ -173,23 +218,57 @@ export async function GET() {
 
     let rooms: { id: string; name: string }[] = [];
     if (Array.isArray(roomsRaw)) {
-      rooms = roomsRaw;
+      rooms = roomsRaw
+        .filter((r): r is { id: string; name: string } =>
+          Boolean(r && typeof r === "object" && typeof (r as { id?: unknown }).id === "string"),
+        )
+        .map((r) => ({
+          id: r.id,
+          name: typeof (r as { name?: unknown }).name === "string" ? (r as { name: string }).name : r.id,
+        }));
     } else if (roomsRaw && typeof roomsRaw === "object" && Array.isArray(roomsRaw.rooms)) {
-      rooms = roomsRaw.rooms;
+      rooms = roomsRaw.rooms
+        .filter((r): r is { id: string; name: string } =>
+          Boolean(r && typeof r === "object" && typeof (r as { id?: unknown }).id === "string"),
+        )
+        .map((r) => ({
+          id: (r as { id: string }).id,
+          name:
+            typeof (r as { name?: unknown }).name === "string"
+              ? (r as { name: string }).name
+              : (r as { id: string }).id,
+        }));
     }
 
-    const reservations = Array.isArray(reservationsRaw) ? reservationsRaw : [];
-    const roomSubjectColors = withDefaultProfRoomSubjects(
-      profRoomRaw ? parseProfRoomModule(profRoomRaw) : defaultProfRoomModule(),
-    ).subjectColors;
-    const appConfig = await loadAppConfig();
-    const establishments = appConfig.establishments;
+    const reservations = normalizeRoomReservations(reservationsRaw);
+    let roomSubjectColors: Record<string, string> = {};
+    try {
+      roomSubjectColors = withDefaultProfRoomSubjects(
+        profRoomRaw ? parseProfRoomModule(profRoomRaw) : defaultProfRoomModule(),
+      ).subjectColors;
+    } catch (err) {
+      console.error("[dashboard/signals] prof-room config", err);
+      roomSubjectColors = withDefaultProfRoomSubjects(defaultProfRoomModule()).subjectColors;
+    }
+    let establishments: Awaited<ReturnType<typeof loadAppConfig>>["establishments"] = [];
+    try {
+      const appConfig = await loadAppConfig();
+      establishments = appConfig.establishments;
+    } catch (err) {
+      console.error("[dashboard/signals] loadAppConfig", err);
+    }
     const absenceDirCtx = { establishments, userId };
-    const absences = absencesRaw.filter(
-      (a) =>
-        isAbsenceVisibleOnCalendar(a, userId, roles) ||
-        isAbsencePendingForManager(a, userId, roles, absenceDirCtx),
-    );
+    let absences: AbsenceRecord[] = [];
+    try {
+      absences = absencesRaw.filter(
+        (a) =>
+          isAbsenceVisibleOnCalendar(a, userId, roles) ||
+          isAbsencePendingForManager(a, userId, roles, absenceDirCtx),
+      );
+    } catch (err) {
+      console.error("[dashboard/signals] absences filter", err);
+      absences = [];
+    }
     const hse = Array.isArray(hseRaw)
       ? hseRaw.filter((h) => canViewHseDemand(h, userId, roles))
       : [];
@@ -461,38 +540,43 @@ export async function GET() {
       }
     }
 
-    const signals = getDashboardSignals({
-      roles,
-      userId,
-      email,
-      accessibleModuleIds,
-      trips: Array.isArray(tripsRaw) ? tripsRaw : [],
-      absences,
-      reservations,
-      rooms,
-      roomSubjectColors,
-      requestsBoard,
-      photocopies,
-      hse,
-      stagesPendingSignatures,
-      internatRollCallStatus,
-      weekSheet,
-      moodPulseSubmittedToday,
-      planningNow,
-      establishments,
-      unseenSharedFolders,
-      vsAbsencesATraiter,
-      vsAbsencesJustifFamille,
-      vsAppelsManquants,
-      vsSanctionsAujourdhui,
-      vsCarnetNonSignees,
-      facturesEnRetard,
-      anneeScolaireLabel,
-    });
-
-    return NextResponse.json(signals);
+    try {
+      const signals = getDashboardSignals({
+        roles,
+        userId,
+        email,
+        accessibleModuleIds,
+        trips: Array.isArray(tripsRaw) ? tripsRaw : [],
+        absences,
+        reservations,
+        rooms,
+        roomSubjectColors,
+        requestsBoard,
+        photocopies,
+        hse,
+        stagesPendingSignatures,
+        internatRollCallStatus,
+        weekSheet,
+        moodPulseSubmittedToday,
+        planningNow,
+        establishments,
+        unseenSharedFolders,
+        vsAbsencesATraiter,
+        vsAbsencesJustifFamille,
+        vsAppelsManquants,
+        vsSanctionsAujourdhui,
+        vsCarnetNonSignees,
+        facturesEnRetard,
+        anneeScolaireLabel,
+      });
+      return NextResponse.json(signals);
+    } catch (err) {
+      console.error("[dashboard/signals] getDashboardSignals", err);
+      return NextResponse.json({ ...EMPTY_SIGNALS, anneeScolaireLabel });
+    }
   } catch (e) {
     console.error("[dashboard/signals]", e);
-    return NextResponse.json({ error: "Impossible de charger les signaux." }, { status: 500 });
+    // Réponse dégradée 200 : un 500 videait aussi l’UI (pas de tuiles / signaux).
+    return NextResponse.json(EMPTY_SIGNALS);
   }
 }

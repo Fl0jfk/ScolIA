@@ -65,18 +65,18 @@ export const DataProvider = ({ children }: PropsWithChildren<object>) => {
       try {
         const res = await fetch("/api/me/module-access", { cache: "no-store" });
         const j = (await res.json()) as { moduleIds?: string[] };
-        if (!cancelled && res.ok && Array.isArray(j.moduleIds)) {
+        if (cancelled) return;
+        if (res.ok && Array.isArray(j.moduleIds)) {
           setData((prev) => ({
             ...prev,
             accessibleModuleIds: new Set(j.moduleIds),
           }));
-        } else if (!cancelled) {
-          setData((prev) => ({ ...prev, accessibleModuleIds: new Set() }));
+          return;
         }
-      } catch {
-        if (!cancelled) {
-          setData((prev) => ({ ...prev, accessibleModuleIds: new Set() }));
-        }
+        // Ne pas écraser avec un Set vide : le dashboard retombe sur les rôles session.
+        console.warn("[data] module-access indisponible", res.status);
+      } catch (err) {
+        console.warn("[data] module-access", err);
       }
     })();
     return () => {
