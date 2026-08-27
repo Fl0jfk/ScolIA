@@ -20,6 +20,10 @@ import {
   reservationWhoLabel,
 } from "@/app/lib/prof-room-reservation-label";
 import { dash } from "@/app/lib/dashboard-brand";
+import {
+  normalizeRoomReservationsList,
+  reservationMatchesHourPrefix,
+} from "@/app/lib/prof-room-reservations-normalize";
 
 const FALLBACK_CLASSES: Record<string, string[]> = {
   "ÉCOLE": ["CP", "CE1", "CE2", "CM1", "CM2"],
@@ -119,7 +123,17 @@ function ProfRoomPageContent() {
   maxDateLimit.setDate(maxDateLimit.getDate() + (appCtx?.profRoom?.bookingHorizonDays ?? 56));
   const maxDateStr = isAdmin ? "" : localYmd(maxDateLimit);
   const myUpcomingReservations = useMemo(() => {
-    return reservations.filter(r => r.userId === user?.id && r.status !== "CANCELLED" && r.startsAt >= new Date().toISOString()).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).slice(0, 5);
+    const nowIso = new Date().toISOString();
+    return reservations
+      .filter(
+        (r) =>
+          r.userId === user?.id &&
+          r.status !== "CANCELLED" &&
+          typeof r.startsAt === "string" &&
+          r.startsAt >= nowIso,
+      )
+      .sort((a, b) => String(a.startsAt || "").localeCompare(String(b.startsAt || "")))
+      .slice(0, 5);
   }, [reservations, user?.id]);
   const startOfWeek = useMemo(() => {
     const d = new Date(currentDate);
@@ -173,10 +187,15 @@ function ProfRoomPageContent() {
           setRooms(data.rooms || []);
           if (data.rooms?.length > 0) setSelectedRoom(data.rooms[0].id);
         }
-        if (resRes.ok) setReservations((await resRes.json()).reservations || []);
-      } catch (error) { console.error(error); }
+        if (resRes.ok) {
+          const body = await resRes.json();
+          setReservations(normalizeRoomReservationsList(body.reservations));
+        }
+      } catch (error) {
+        console.error(error);
+      }
     }
-    load();
+    void load();
     const closeMenu = () => setContextMenu(null);
     window.addEventListener("click", closeMenu);
     return () => window.removeEventListener("click", closeMenu);
@@ -345,7 +364,10 @@ function ProfRoomPageContent() {
         setEditingRes(null);
         try {
           const resRes = await fetch("/api/reservation-rooms/reservations");
-          if (resRes.ok) setReservations((await resRes.json()).reservations || []);
+          if (resRes.ok) {
+            const body = await resRes.json();
+            setReservations(normalizeRoomReservationsList(body.reservations));
+          }
         } catch (reloadErr) {
           console.warn("[prof-room] refresh liste échoué", reloadErr);
         }
@@ -437,7 +459,10 @@ function ProfRoomPageContent() {
         );
         try {
           const resRes = await fetch("/api/reservation-rooms/reservations");
-          if (resRes.ok) setReservations((await resRes.json()).reservations || []);
+          if (resRes.ok) {
+            const body = await resRes.json();
+            setReservations(normalizeRoomReservationsList(body.reservations));
+          }
         } catch (reloadErr) {
           console.warn("[prof-room] refresh liste échoué", reloadErr);
         }
@@ -630,11 +655,8 @@ function ProfRoomPageContent() {
                       const date = day.date;
                       const dateStr = localYmd(date);
                       const hourPrefix = `${dateStr}T${h.toString().padStart(2, "0")}`;
-                      const res = reservations.find(
-                        (r) =>
-                          r.roomId === selectedRoom &&
-                          r.startsAt.startsWith(hourPrefix) &&
-                          r.status !== "CANCELLED",
+                      const res = reservations.find((r) =>
+                        reservationMatchesHourPrefix(r, selectedRoom, hourPrefix),
                       );
                       const isOwn = res?.userId === user.id;
                       const canModify = isAdmin || isOwn;
@@ -889,9 +911,7 @@ function ProfRoomPageContent() {
                       const hourPrefix = `${selectedDate}T${h.toString().padStart(2, "0")}`;
                       const isTaken = reservations.some(
                         (r) =>
-                          r.roomId === selectedRoom &&
-                          r.startsAt.startsWith(hourPrefix) &&
-                          r.status !== "CANCELLED" &&
+                          reservationMatchesHourPrefix(r, selectedRoom, hourPrefix) &&
                           r.id !== editingRes?.id,
                       );
                       return (
