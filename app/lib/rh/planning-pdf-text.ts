@@ -44,10 +44,9 @@ export async function extractPdfTextItems(
   const data = pdfBytes instanceof Buffer ? new Uint8Array(pdfBytes) : pdfBytes;
   const loadingTask = getDocument({
     data,
-    standardFontDataUrl: pdfjsStandardFontsUrl(),
-    disableFontFace: true,
-    isEvalSupported: false,
+    useWorkerFetch: false,
     useSystemFonts: true,
+    standardFontDataUrl: pdfjsStandardFontsUrl(),
   });
   const pdf = await loadingTask.promise;
   const out: PdfTextItem[] = [];
