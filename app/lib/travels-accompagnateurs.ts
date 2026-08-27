@@ -83,6 +83,26 @@ export function parseAccompagnateursFromTrip(opts: {
     .map((name) => ({ name, source: "autre" as const }));
 }
 
+/** Branche le sélecteur sur les champs legacy du formulaire voyage. */
+export function accompagnateursToFormFields(items: TravelsAccompagnateur[]): {
+  accompagnateurs: TravelsAccompagnateur[];
+  nomsAccompagnateurs: string;
+  nbAccompagnateurs: number;
+} {
+  return {
+    accompagnateurs: items,
+    nomsAccompagnateurs: serializeAccompagnateursNames(items),
+    nbAccompagnateurs: items.length,
+  };
+}
+
+export function formFieldsToAccompagnateurs(opts: {
+  nomsAccompagnateurs?: string | string[] | null;
+  accompagnateurs?: TravelsAccompagnateur[] | null;
+}): TravelsAccompagnateur[] {
+  return parseAccompagnateursFromTrip(opts);
+}
+
 /** Rematch legacy free-text names against directory when possible. */
 export function hydrateAccompagnateursFromDirectory(
   items: TravelsAccompagnateur[],

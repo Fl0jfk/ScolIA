@@ -2,16 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  accompagnateursToFormFields,
   escortDisplayName,
   escortMatchesRoleFilter,
+  formFieldsToAccompagnateurs,
   hydrateAccompagnateursFromDirectory,
-  parseAccompagnateursFromTrip,
-  serializeAccompagnateursNames,
   TRAVELS_ESCORT_ROLE_FILTERS,
   type TravelsAccompagnateur,
   type TravelsEscortDirectoryUser,
   type TravelsEscortRoleFilter,
 } from "@/app/lib/travels-accompagnateurs";
+
+export { accompagnateursToFormFields, formFieldsToAccompagnateurs };
 
 type TripAccompagnateursSelectProps = {
   value: TravelsAccompagnateur[];
@@ -309,24 +311,4 @@ export default function TripAccompagnateursSelect({
       ) : null}
     </div>
   );
-}
-
-/** Helper pour brancher le sélecteur sur les champs legacy du formulaire. */
-export function accompagnateursToFormFields(items: TravelsAccompagnateur[]): {
-  accompagnateurs: TravelsAccompagnateur[];
-  nomsAccompagnateurs: string;
-  nbAccompagnateurs: number;
-} {
-  return {
-    accompagnateurs: items,
-    nomsAccompagnateurs: serializeAccompagnateursNames(items),
-    nbAccompagnateurs: items.length,
-  };
-}
-
-export function formFieldsToAccompagnateurs(opts: {
-  nomsAccompagnateurs?: string | string[] | null;
-  accompagnateurs?: TravelsAccompagnateur[] | null;
-}): TravelsAccompagnateur[] {
-  return parseAccompagnateursFromTrip(opts);
 }
