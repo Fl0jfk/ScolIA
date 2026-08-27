@@ -2,6 +2,8 @@
 # Démarre le cluster PostgreSQL local (idempotent) à chaque boot de l'environnement.
 set -euo pipefail
 
+export PATH="${HOME}/.local/bin:${HOME}/bin:/usr/local/bin:${PATH}"
+
 if ! command -v pg_lsclusters >/dev/null 2>&1; then
   echo "[start] PostgreSQL non installé — lancez d'abord .cursor/install.sh." >&2
   exit 0

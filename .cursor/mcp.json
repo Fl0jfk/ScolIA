@@ -7,7 +7,7 @@
     },
     "fetch": {
       "type": "stdio",
-      "command": "/opt/homebrew/bin/uvx",
+      "command": "uvx",
       "args": ["mcp-server-fetch"]
     },
     "mistral": {
@@ -18,7 +18,7 @@
     },
     "scaleway": {
       "type": "stdio",
-      "command": "/opt/homebrew/bin/scw",
+      "command": "scw",
       "args": [
         "mcp",
         "server",

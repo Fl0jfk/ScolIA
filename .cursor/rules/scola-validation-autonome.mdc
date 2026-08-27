@@ -7,16 +7,16 @@ alwaysApply: true
 
 Après **toute** feature, module ou correctif majeur, ne pas rendre la main avant :
 
-## 1. BDD (MCP PostgreSQL)
+## 1. BDD (MCP PostgreSQL ou `psql`)
 
 Si mutation (create / update / delete) :
-- Vérifier via MCP Postgres : bonne table, format correct, `etablissement_id` renseigné.
-- Si Postgres MCP indisponible : le dire clairement, ne pas inventer le résultat.
+- Vérifier via MCP Postgres (ou `psql` si MCP absent) : bonne table, format correct, `etablissement_id` renseigné.
+- Si aucun accès BDD : le dire clairement, ne pas inventer le résultat.
 
-## 2. UI (MCP Browser / Playwright)
+## 2. UI (MCP Browser / Playwright / computer-use)
 
-- Ouvrir l’URL locale du serveur de dev.
-- Parcourir le flux utilisateur (submit, clics, refresh).
+- Ouvrir l’URL locale du serveur de dev (`http://localhost:3000`, tenant `?dev_tenant=default`).
+- Parcourir le flux utilisateur (submit, clics, refresh). Compte seed : voir `AGENTS.md`.
 - Console navigateur : **aucune** erreur JS, hydratation, ni 400/500 réseau.
 
 ## 3. Boucle d’auto-correction
