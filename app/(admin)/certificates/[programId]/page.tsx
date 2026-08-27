@@ -12,6 +12,7 @@ import {
 } from "@/app/lib/certificates-person-label";
 import type { CertificateProgram, StudentAward } from "@/app/lib/certificates-types";
 import { hasRole } from "@/app/lib/intranet-role-utils";
+import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 
 type Peer = {
   externalUserId: string;
@@ -19,7 +20,14 @@ type Peer = {
   firstName?: string;
   lastName?: string;
 };
-type StudentOption = { key: string; label: string; classe: string };
+type StudentOption = {
+  key: string;
+  label: string;
+  classe: string;
+  siteId?: string | null;
+};
+type SiteOption = { siteId: string; label: string };
+type ClassOption = { value: string; label: string; siteId: string | null };
 
 export default function CertificateProgramPage() {
   const { programId } = useParams<{ programId: string }>();
@@ -36,10 +44,15 @@ export default function CertificateProgramPage() {
   const [classeFilter, setClasseFilter] = useState("");
   const [showAddStudent, setShowAddStudent] = useState(false);
   const [students, setStudents] = useState<StudentOption[]>([]);
+  const [pickerSites, setPickerSites] = useState<SiteOption[]>([]);
+  const [pickerClassOptions, setPickerClassOptions] = useState<ClassOption[]>([]);
+  const [addSiteFilter, setAddSiteFilter] = useState("");
+  const [addClasseFilter, setAddClasseFilter] = useState("");
   const [studentQ, setStudentQ] = useState("");
   const [selectedStudentKey, setSelectedStudentKey] = useState("");
   const [selectedSignatories, setSelectedSignatories] = useState<string[]>([]);
   const [addBusy, setAddBusy] = useState(false);
+  const [studentsLoading, setStudentsLoading] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
   const [collaboratorQ, setCollaboratorQ] = useState("");
@@ -100,12 +113,17 @@ export default function CertificateProgramPage() {
   const filteredAwards = useMemo(() => {
     const qq = q.trim().toLowerCase();
     return awards.filter((a) => {
-      if (classeFilter && a.student.classe !== classeFilter) return false;
+      if (classeFilter && !schoolClassesMatch(a.student.classe, classeFilter)) return false;
       if (!qq) return true;
       const name = `${a.student.prenom} ${a.student.nom}`.toLowerCase();
       return name.includes(qq) || a.student.classe.toLowerCase().includes(qq);
     });
   }, [awards, q, classeFilter]);
+
+  const pickerClassesForSite = useMemo(() => {
+    if (!addSiteFilter) return pickerClassOptions;
+    return pickerClassOptions.filter((c) => !c.siteId || c.siteId === addSiteFilter);
+  }, [pickerClassOptions, addSiteFilter]);
 
   const availableCollaborators = useMemo(() => {
     if (!program) return [] as Peer[];
@@ -159,33 +177,75 @@ export default function CertificateProgramPage() {
     setSelectedCollaboratorId("");
   }
 
+  async function fetchStudentPicker(opts?: {
+    q?: string;
+    siteId?: string;
+    classe?: string;
+  }) {
+    setStudentsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      const qVal = (opts?.q ?? studentQ).trim();
+      const siteVal = (opts?.siteId ?? addSiteFilter).trim();
+      const classeVal = (opts?.classe ?? addClasseFilter).trim();
+      if (qVal) params.set("q", qVal);
+      if (siteVal) params.set("siteId", siteVal);
+      if (classeVal) params.set("classe", classeVal);
+      const res = await fetch(`/api/certificates/students?${params}`, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(typeof data.error === "string" ? data.error : "Impossible de charger les élèves.");
+        return;
+      }
+      setStudents(
+        (data.students || []).map(
+          (s: {
+            key: string;
+            label: string;
+            classe: string;
+            siteId?: string | null;
+          }) => ({
+            key: s.key,
+            label: s.label,
+            classe: s.classe,
+            siteId: s.siteId ?? null,
+          }),
+        ),
+      );
+      if (Array.isArray(data.sites)) {
+        setPickerSites(
+          data.sites.map((s: { siteId: string; label: string }) => ({
+            siteId: s.siteId,
+            label: s.label,
+          })),
+        );
+      }
+      if (Array.isArray(data.classOptions)) {
+        setPickerClassOptions(
+          data.classOptions.map((c: { value: string; label: string; siteId: string | null }) => ({
+            value: c.value,
+            label: c.label,
+            siteId: c.siteId,
+          })),
+        );
+      }
+    } finally {
+      setStudentsLoading(false);
+    }
+  }
+
   async function openAddStudent() {
     setShowAddStudent(true);
     setSelectedStudentKey("");
     setSelectedSignatories([]);
-    const res = await fetch("/api/certificates/students", { cache: "no-store" });
-    const data = await res.json();
-    setStudents(
-      (data.students || []).map((s: { key: string; label: string; classe: string }) => ({
-        key: s.key,
-        label: s.label,
-        classe: s.classe,
-      })),
-    );
+    setStudentQ("");
+    setAddSiteFilter("");
+    setAddClasseFilter("");
+    await fetchStudentPicker({ q: "", siteId: "", classe: "" });
   }
 
   async function searchStudents() {
-    const params = new URLSearchParams();
-    if (studentQ.trim()) params.set("q", studentQ.trim());
-    const res = await fetch(`/api/certificates/students?${params}`, { cache: "no-store" });
-    const data = await res.json();
-    setStudents(
-      (data.students || []).map((s: { key: string; label: string; classe: string }) => ({
-        key: s.key,
-        label: s.label,
-        classe: s.classe,
-      })),
-    );
+    await fetchStudentPicker();
   }
 
   async function addStudent() {
@@ -541,33 +601,108 @@ export default function CertificateProgramPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 space-y-4 max-h-[90vh] overflow-y-auto">
             <p className="text-lg font-black">Ajouter un élève</p>
-            <div className="flex gap-2">
-              <input
-                value={studentQ}
-                onChange={(e) => setStudentQ(e.target.value)}
-                placeholder="Rechercher…"
-                className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              />
-              <button
-                type="button"
-                onClick={() => void searchStudents()}
-                className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold"
+
+            {pickerSites.length > 0 ? (
+              <div>
+                <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1.5">
+                  Établissement
+                </label>
+                <select
+                  value={addSiteFilter}
+                  onChange={(e) => {
+                    const siteId = e.target.value;
+                    setAddSiteFilter(siteId);
+                    setAddClasseFilter("");
+                    setSelectedStudentKey("");
+                    void fetchStudentPicker({ siteId, classe: "" });
+                  }}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                >
+                  <option value="">Tous les établissements</option>
+                  {pickerSites.map((s) => (
+                    <option key={s.siteId} value={s.siteId}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            <div>
+              <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1.5">
+                Classe
+              </label>
+              <select
+                value={addClasseFilter}
+                onChange={(e) => {
+                  const classe = e.target.value;
+                  setAddClasseFilter(classe);
+                  setSelectedStudentKey("");
+                  void fetchStudentPicker({ classe });
+                }}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
               >
-                Chercher
-              </button>
+                <option value="">Toutes les classes</option>
+                {pickerClassesForSite.map((c) => (
+                  <option key={`${c.siteId || ""}:${c.value}`} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
             </div>
-            <select
-              value={selectedStudentKey}
-              onChange={(e) => setSelectedStudentKey(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="">— Choisir un élève —</option>
-              {students.map((s) => (
-                <option key={s.key} value={s.key}>
-                  {s.label}
+
+            <div>
+              <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1.5">
+                Recherche
+              </label>
+              <div className="flex gap-2">
+                <input
+                  value={studentQ}
+                  onChange={(e) => setStudentQ(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void searchStudents();
+                    }
+                  }}
+                  placeholder="Nom, prénom, INE…"
+                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => void searchStudents()}
+                  disabled={studentsLoading}
+                  className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold disabled:opacity-50"
+                >
+                  {studentsLoading ? "…" : "Chercher"}
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1.5">
+                Élève
+              </label>
+              <select
+                value={selectedStudentKey}
+                onChange={(e) => setSelectedStudentKey(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                disabled={studentsLoading}
+              >
+                <option value="">
+                  {studentsLoading
+                    ? "Chargement…"
+                    : students.length === 0
+                      ? "— Aucun élève trouvé —"
+                      : `— Choisir un élève (${students.length}) —`}
                 </option>
-              ))}
-            </select>
+                {students.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <p className="text-sm font-bold text-slate-700 mb-2">Profs signataires pour cette fiche</p>
               <div className="space-y-2 max-h-40 overflow-y-auto">

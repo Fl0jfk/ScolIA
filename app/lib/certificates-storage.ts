@@ -1,4 +1,4 @@
-import { deleteObject, getJson, listPrefix, putJson } from "@/app/lib/s3-storage";
+import { deleteObject, deleteJson, getJson, listPrefix, putJson } from "@/app/lib/s3-storage";
 import {
   CERTIFICATE_S3,
   type CertificateProgram,
@@ -156,13 +156,29 @@ export async function saveAward(award: StudentAward): Promise<void> {
 }
 
 export async function listAwardsForProgram(programId: string): Promise<StudentAward[]> {
-  const index = await loadAwardsIndex();
-  const ids = index.filter((e) => e.programId === programId).map((e) => e.id);
-  const awards: StudentAward[] = [];
-  for (const id of ids) {
-    const a = await loadAward(id);
-    if (a) awards.push(a);
+  const awardsById = new Map<string, StudentAward>();
+
+  try {
+    const { listJsonRecordsInDir } = await import("@/app/lib/ent-json-postgres");
+    const rows = await listJsonRecordsInDir<Record<string, unknown>>("certificates/awards");
+    for (const row of rows) {
+      const a = parseAward(row);
+      if (a?.programId === programId) awardsById.set(a.id, a);
+    }
+  } catch (e) {
+    console.error("[certificates] listAwardsForProgram collection", e);
   }
+
+  if (awardsById.size === 0) {
+    const index = await loadAwardsIndex();
+    const ids = index.filter((e) => e.programId === programId).map((e) => e.id);
+    for (const id of ids) {
+      const a = await loadAward(id);
+      if (a) awardsById.set(a.id, a);
+    }
+  }
+
+  const awards = [...awardsById.values()];
   awards.sort((a, b) => a.student.nom.localeCompare(b.student.nom, "fr"));
   return awards;
 }
@@ -179,25 +195,38 @@ export async function saveVerifySnapshot(snapshot: CertificateVerifySnapshot): P
 /** Supprime le parcours, toutes les fiches élèves, PDFs et snapshots de vérification associés. */
 export async function deleteProgramAndAwards(programId: string): Promise<{ awardsDeleted: number }> {
   const awards = await listAwardsForProgram(programId);
-  const keysToDelete = new Set<string>();
+  const jsonKeys = new Set<string>();
+  const binaryKeys = new Set<string>();
 
-  keysToDelete.add(CERTIFICATE_S3.program(programId));
+  jsonKeys.add(CERTIFICATE_S3.program(programId));
 
   for (const award of awards) {
-    keysToDelete.add(CERTIFICATE_S3.award(award.id));
-    keysToDelete.add(CERTIFICATE_S3.pdf(award.id));
-    if (award.pdfS3Key) keysToDelete.add(award.pdfS3Key);
-    if (award.verificationToken) keysToDelete.add(CERTIFICATE_S3.verify(award.verificationToken));
+    jsonKeys.add(CERTIFICATE_S3.award(award.id));
+    binaryKeys.add(CERTIFICATE_S3.pdf(award.id));
+    if (award.pdfS3Key) binaryKeys.add(award.pdfS3Key);
+    if (award.verificationToken) jsonKeys.add(CERTIFICATE_S3.verify(award.verificationToken));
 
-    const pdfVersions = await listPrefix(`certificates/pdfs/${award.id}`);
-    for (const key of pdfVersions) keysToDelete.add(key);
+    try {
+      const pdfVersions = await listPrefix(`certificates/pdfs/${award.id}`);
+      for (const key of pdfVersions) binaryKeys.add(key);
+    } catch {
+      /* list S3 optionnelle */
+    }
   }
 
-  for (const key of keysToDelete) {
+  for (const key of jsonKeys) {
+    try {
+      await deleteJson(key);
+    } catch {
+      // Déjà absent
+    }
+  }
+
+  for (const key of binaryKeys) {
     try {
       await deleteObject(key);
     } catch {
-      // Fichier déjà absent : on continue.
+      // Fichier déjà absent
     }
   }
 
