@@ -137,7 +137,9 @@ export async function sendPasswordActivationToUser(
       .delete(account)
       .where(and(eq(account.userId, target.id), eq(account.providerId, "credential")));
 
-    if (resetMfa) {
+    // Toujours purger un setup MFA incomplet (QR généré puis abandonné).
+    // resetMfa = true : purge aussi une MFA déjà finalisée.
+    if (resetMfa || !target.twoFactorEnabled) {
       await db.delete(twoFactor).where(eq(twoFactor.userId, target.id));
     }
 

@@ -5,6 +5,7 @@ import {
   writeSecurityAudit,
   type SecurityAuditAction,
 } from "@/app/lib/security-audit";
+import { forcePromoteTwoFactorEnabled } from "@/app/lib/two-factor-setup";
 
 const ALLOWED: SecurityAuditAction[] = ["two_factor_enabled", "two_factor_disabled"];
 
@@ -38,11 +39,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Action non autorisée." }, { status: 400 });
   }
 
+  let promoted = false;
+  if (action === "two_factor_enabled") {
+    promoted = await forcePromoteTwoFactorEnabled(session.user.id);
+  }
+
   await writeSecurityAudit({
     userId: session.user.id,
     action: action as SecurityAuditAction,
     req,
+    metadata: action === "two_factor_enabled" ? { promoted } : undefined,
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, promoted });
 }

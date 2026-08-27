@@ -125,7 +125,8 @@ export const twoFactor = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    verified: boolean("verified").default(true),
+    /** false tant que le TOTP n’a pas été confirmé (setup QR). DEFAULT false obligatoire. */
+    verified: boolean("verified").default(false),
     failedVerificationCount: integer("failed_verification_count").default(0),
     lockedUntil: timestamp("locked_until", { withTimezone: true }),
   },

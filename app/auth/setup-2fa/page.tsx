@@ -8,6 +8,17 @@ import { authClient } from "@/app/lib/auth-client";
 
 type Step = "password" | "verify" | "done";
 
+async function prepareTwoFactorSetup(): Promise<void> {
+  try {
+    await fetch("/api/account/two-factor/prepare", {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch {
+    /* best-effort : enable() pourra encore échouer proprement */
+  }
+}
+
 function Setup2faForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -20,6 +31,10 @@ function Setup2faForm() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void prepareTwoFactorSetup();
+  }, []);
 
   useEffect(() => {
     if (!totpUri) {
@@ -35,11 +50,35 @@ function Setup2faForm() {
     };
   }, [totpUri]);
 
+  function resetToPasswordStep() {
+    setStep("password");
+    setTotpUri(null);
+    setQrDataUrl(null);
+    setBackupCodes([]);
+    setCode("");
+    setError(null);
+  }
+
+  async function restartSetup() {
+    setBusy(true);
+    setError(null);
+    try {
+      await prepareTwoFactorSetup();
+      resetToPasswordStep();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible de recommencer.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function enable(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
+      // Purge un éventuel secret orphelin (abandon précédent) avant de régénérer.
+      await prepareTwoFactorSetup();
       const { data, error: enableError } = await authClient.twoFactor.enable({
         password,
       });
@@ -70,12 +109,16 @@ function Setup2faForm() {
         code: code.trim(),
       });
       if (verifyError) throw new Error(verifyError.message || "Code invalide.");
-      void fetch("/api/account/security-event", {
+      // Filet : force twoFactorEnabled si Better-Auth a accepté le code sans promouvoir le flag.
+      const completeRes = await fetch("/api/account/security-event", {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "two_factor_enabled" }),
       });
+      if (!completeRes.ok) {
+        throw new Error("Code accepté mais activation MFA incomplète. Réessayez ou recommencez.");
+      }
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -163,6 +206,18 @@ function Setup2faForm() {
             >
               {busy ? "Vérification…" : "Activer la 2FA"}
             </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void restartSetup()}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-60"
+            >
+              Recommencer (nouveau QR)
+            </button>
+            <p className="text-xs text-slate-500">
+              Si vous aviez déjà scanné un ancien QR, utilisez « Recommencer » puis scannez uniquement
+              le nouveau code.
+            </p>
           </form>
         ) : null}
 

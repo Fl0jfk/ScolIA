@@ -364,6 +364,9 @@ function createAuth() {
               updatedAt: new Date(),
             })
             .where(eq(userTable.id, user.id));
+          // Abandon mid-QR : secret orphelin bloquerait le prochain setup MFA.
+          const { clearIncompleteTwoFactorSetup } = await import("@/app/lib/two-factor-setup");
+          await clearIncompleteTwoFactorSetup(user.id);
         } catch (e) {
           console.error("[auth] onPasswordReset update user", e);
         }
