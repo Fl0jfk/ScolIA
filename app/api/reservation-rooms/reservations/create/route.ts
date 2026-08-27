@@ -44,6 +44,8 @@ export async function POST(req: NextRequest) {
       firstName: firstNameBody,
       lastName: lastNameBody,
       email,
+      beneficiaryUserId: beneficiaryUserIdBody,
+      beneficiaryEmail: beneficiaryEmailBody,
     } = body;
 
     if (!roomId || !date || !Array.isArray(selectedHours) || selectedHours.length === 0) {
@@ -65,8 +67,11 @@ export async function POST(req: NextRequest) {
     const canBookForOther = await isListedProfRoomAdmin();
     const bookedByFirstName = String(sessionUser?.firstName || "").trim();
     const bookedByLastName = String(sessionUser?.lastName || "").trim().toUpperCase();
+    const bookedByEmail = String(sessionUser?.primaryEmailAddress?.emailAddress || email || "").trim();
     const requestedFirst = String(firstNameBody || "").trim();
     const requestedLast = String(lastNameBody || "").trim().toUpperCase();
+    const beneficiaryUserId = String(beneficiaryUserIdBody || "").trim();
+    const beneficiaryEmail = String(beneficiaryEmailBody || "").trim();
     const bookedForOther =
       canBookForOther &&
       Boolean(requestedFirst && requestedLast) &&
@@ -74,6 +79,17 @@ export async function POST(req: NextRequest) {
         `${bookedByFirstName} ${bookedByLastName}`.trim().toLowerCase());
     const firstName = bookedForOther ? requestedFirst : bookedByFirstName;
     const lastName = bookedForOther ? requestedLast : bookedByLastName;
+    if (bookedForOther && !beneficiaryUserId) {
+      return NextResponse.json(
+        {
+          error:
+            "Choisissez une personne de l’annuaire pour rattacher la réservation à son compte.",
+        },
+        { status: 400 },
+      );
+    }
+    const ownerEmail = bookedForOther ? beneficiaryEmail || "" : bookedByEmail;
+    const bookedByUserId = bookedForOther ? userId : undefined;
     const isAdmin = await isProfRoomModuleAdmin();
     const limitDate = new Date();
     limitDate.setHours(23, 59, 59, 999);
@@ -113,13 +129,14 @@ export async function POST(req: NextRequest) {
             id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             groupId,
             roomId,
-            userId,
+            userId: bookedForOther ? beneficiaryUserId : userId,
             firstName,
             lastName,
             bookedByFirstName,
             bookedByLastName,
+            bookedByUserId,
             bookedForOther,
-            email,
+            email: bookedForOther ? ownerEmail || undefined : ownerEmail || bookedByEmail || undefined,
             subject,
             className,
             comment,
@@ -163,9 +180,9 @@ export async function POST(req: NextRequest) {
 
     let mailSent = false;
     let mailSkipReason: string | null = null;
-    const to = String(email || "").trim();
+    const to = String(ownerEmail || bookedByEmail || "").trim();
     if (!to) {
-      mailSkipReason = "aucun e-mail destinataire (compte sans adresse ?)";
+      mailSkipReason = "aucun e-mail destinataire (bénéficiaire / compte sans adresse ?)";
     } else {
       try {
         const smtp = await getTenantSmtpConfig();

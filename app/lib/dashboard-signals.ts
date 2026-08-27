@@ -130,6 +130,7 @@ type DashboardSignalsInput = {
     userId?: string;
     email?: string;
     bookedForOther?: boolean;
+    bookedByUserId?: string;
     firstName?: string;
     lastName?: string;
     bookedByFirstName?: string;
@@ -286,12 +287,13 @@ function isReservationLiveNow(
   return start <= nowLocal && nowLocal < end;
 }
 
-/** Signal dashboard : uniquement mes créneaux (pas ceux d’un collègue, ni une résa faite pour un autre). */
+/** Signal dashboard : mes créneaux (y compris ceux réservés pour moi par un admin). */
 function isOwnRoomReservation(
   r: {
     userId?: string;
     email?: string;
     bookedForOther?: boolean;
+    bookedByUserId?: string;
     firstName?: string;
     lastName?: string;
     bookedByFirstName?: string;
@@ -300,7 +302,26 @@ function isOwnRoomReservation(
   userId: string,
   emailNorm: string,
 ): boolean {
-  if (isReservationBookedForOther(r)) return false;
+  const forOther = isReservationBookedForOther(r);
+
+  if (forOther) {
+    // Le booker ne voit pas le signal « ma salle » (c’est pour quelqu’un d’autre).
+    if (r.bookedByUserId && r.bookedByUserId === userId && r.userId !== userId) {
+      return false;
+    }
+    // Nouveau modèle : userId = bénéficiaire.
+    if (r.userId && r.userId === userId) return true;
+    // Email du bénéficiaire (évite le legacy où l’e-mail était celui du booker).
+    if (
+      r.bookedByUserId &&
+      emailNorm &&
+      normalizeRequestEmail(r.email || "") === emailNorm
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   if (r.userId && r.userId === userId) return true;
   if (emailNorm && normalizeRequestEmail(r.email || "") === emailNorm) return true;
   return false;
@@ -897,7 +918,9 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         );
       })
       .sort((a, b) => String(a.startsAt || "").localeCompare(String(b.startsAt || "")));
-    const liveNow = todayRes.filter((r) => isReservationLiveNow(r, nowLocal));
+    // Masquer les créneaux déjà terminés (ex. 8h30 une fois 10h30 passée).
+    const activeToday = todayRes.filter((r) => nowLocal < reservationEndsAt(r));
+    const liveNow = activeToday.filter((r) => isReservationLiveNow(r, nowLocal));
 
     if (liveNow.length > 0) {
       shortcuts.push({
@@ -933,8 +956,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           };
         }),
       });
-    } else if (todayRes.length === 1) {
-      const r = todayRes[0]!;
+    } else if (activeToday.length === 1) {
+      const r = activeToday[0]!;
       const name = r.roomName || roomNameById.get(r.roomId) || "Salle";
       shortcuts.push({
         id: "rooms-today-one",
@@ -947,8 +970,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         detail: `${name}${r.subject ? ` · ${r.subject}` : ""}`,
         tone: "info",
       });
-    } else if (todayRes.length > 1) {
-      const next = todayRes[0]!;
+    } else if (activeToday.length > 1) {
+      const next = activeToday[0]!;
       const name = next.roomName || roomNameById.get(next.roomId) || "Salle";
       shortcuts.push({
         id: "rooms-today-many",
@@ -957,7 +980,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         href: roomsHome,
         label: "Réservation de salle",
         rich: true,
-        badge: `${todayRes.length} créneaux`,
+        badge: `${activeToday.length} créneaux`,
         detail: `Prochain : ${name} · ${slotTimeLabel(next.startsAt)}`,
         tone: "info",
       });

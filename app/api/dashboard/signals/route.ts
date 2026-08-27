@@ -75,6 +75,7 @@ type RoomReservationSignal = {
   userId?: string;
   email?: string;
   bookedForOther?: boolean;
+  bookedByUserId?: string;
   firstName?: string;
   lastName?: string;
   bookedByFirstName?: string;
@@ -102,6 +103,7 @@ function normalizeRoomReservations(raw: unknown): RoomReservationSignal[] {
       userId: typeof r.userId === "string" ? r.userId : undefined,
       email: typeof r.email === "string" ? r.email : undefined,
       bookedForOther: r.bookedForOther === true,
+      bookedByUserId: typeof r.bookedByUserId === "string" ? r.bookedByUserId : undefined,
       firstName: typeof r.firstName === "string" ? r.firstName : undefined,
       lastName: typeof r.lastName === "string" ? r.lastName : undefined,
       bookedByFirstName:

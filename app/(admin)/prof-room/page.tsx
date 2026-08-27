@@ -24,6 +24,9 @@ import {
   normalizeRoomReservationsList,
   reservationMatchesHourPrefix,
 } from "@/app/lib/prof-room-reservations-normalize";
+import ProfRoomBeneficiarySelect, {
+  type ProfRoomBeneficiary,
+} from "@/app/components/prof-room/ProfRoomBeneficiarySelect";
 
 const FALLBACK_CLASSES: Record<string, string[]> = {
   "ÉCOLE": ["CP", "CE1", "CE2", "CM1", "CM2"],
@@ -100,8 +103,7 @@ function ProfRoomPageContent() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, res?: any, dateStr?: string, hour?: number } | null>(null);
   const [updateAllSeries, setUpdateAllSeries] = useState(false);
-  const [targetFirstName, setTargetFirstName] = useState("");
-  const [targetLastName, setTargetLastName] = useState("");
+  const [beneficiary, setBeneficiary] = useState<ProfRoomBeneficiary | null>(null);
   const [bookForOther, setBookForOther] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<"reservation" | "settings">("reservation");
@@ -217,14 +219,9 @@ function ProfRoomPageContent() {
     });
   }, [searchParams, todayStr]);
 
-  const sessionFirstName = user?.firstName || "";
-  const sessionLastName = (user?.lastName || "").toUpperCase();
   useEffect(() => {
-    if (!sessionFirstName && !sessionLastName) return;
-    if (isEditing || bookForOther) return;
-    setTargetFirstName(sessionFirstName);
-    setTargetLastName(sessionLastName);
-  }, [sessionFirstName, sessionLastName, isEditing, bookForOther]);
+    if (!bookForOther) setBeneficiary(null);
+  }, [bookForOther]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleCellClick = (dateStr: string, hour: number, resExist?: any) => {
@@ -241,9 +238,18 @@ function ProfRoomPageContent() {
         const foundLevel = Object.keys(CLASSES_DATA).find(l => CLASSES_DATA[l].includes(resExist.className));
         if (foundLevel) setLevel(foundLevel);
         setComment(resExist.comment || "");
-        setTargetFirstName(resExist.firstName);
-        setTargetLastName(resExist.lastName);
         setBookForOther(canBookForOthers && isReservationBookedForOther(resExist));
+        if (canBookForOthers && isReservationBookedForOther(resExist)) {
+          setBeneficiary({
+            userId: typeof resExist.userId === "string" ? resExist.userId : undefined,
+            firstName: String(resExist.firstName || "").trim(),
+            lastName: String(resExist.lastName || "").trim().toUpperCase(),
+            email: typeof resExist.email === "string" ? resExist.email : undefined,
+            source: resExist.userId ? "directory" : "manual",
+          });
+        } else {
+          setBeneficiary(null);
+        }
         document.getElementById("form-section")?.scrollIntoView({ behavior: "smooth" });
       }
     } else {
@@ -251,8 +257,7 @@ function ProfRoomPageContent() {
       setEditingRes(null);
       setSelectedDate(dateStr);
       setSelectedHours([hour]);
-      setTargetFirstName(user?.firstName || "");
-      setTargetLastName(lastName);
+      setBeneficiary(null);
       setBookForOther(false);
       document.getElementById("form-section")?.scrollIntoView({ behavior: "smooth" });
     }
@@ -276,8 +281,7 @@ function ProfRoomPageContent() {
     setSubject(clipboard.subject);
     setClassName(clipboard.className);
     setComment(clipboard.comment || "");
-    setTargetFirstName(user?.firstName || "");
-    setTargetLastName(lastName);
+    setBeneficiary(null);
     setBookForOther(false);
     setContextMenu(null);
     document.getElementById("form-section")?.scrollIntoView({ behavior: "smooth" });
@@ -287,9 +291,17 @@ function ProfRoomPageContent() {
       alert("Veuillez remplir tous les champs obligatoires.");
       return;
     }
-    if (canBookForOthers && bookForOther && (!targetFirstName.trim() || !targetLastName.trim())) {
-      alert("Indiquez le prénom et le nom de la personne pour qui vous réservez.");
-      return;
+    if (canBookForOthers && bookForOther) {
+      if (!beneficiary?.firstName?.trim() || !beneficiary?.lastName?.trim()) {
+        alert("Choisissez la personne pour qui vous réservez dans l’annuaire du personnel.");
+        return;
+      }
+      if (!beneficiary.userId) {
+        alert(
+          "Sélectionnez une personne de l’annuaire (pas une saisie libre) pour qu’elle voie la réservation sur son tableau de bord.",
+        );
+        return;
+      }
     }
     const endpoint = isEditing
       ? "/api/reservation-rooms/reservations/update"
@@ -307,9 +319,14 @@ function ProfRoomPageContent() {
       recurrence,
       untilDate,
       updateAllSeries,
-      firstName: canBookForOthers && bookForOther ? targetFirstName : user?.firstName,
-      lastName: canBookForOthers && bookForOther ? targetLastName.toUpperCase() : lastName,
+      firstName: canBookForOthers && bookForOther ? beneficiary!.firstName : user?.firstName,
+      lastName:
+        canBookForOthers && bookForOther ? beneficiary!.lastName.toUpperCase() : lastName,
       email: userEmail,
+      beneficiaryUserId:
+        canBookForOthers && bookForOther ? beneficiary!.userId : undefined,
+      beneficiaryEmail:
+        canBookForOthers && bookForOther ? beneficiary!.email || undefined : undefined,
     };
 
     console.info("[prof-room] save →", {
@@ -825,27 +842,18 @@ function ProfRoomPageContent() {
                 ) : null}
               </div>
               {canBookForOthers && bookForOther ? (
-                <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <label className="block min-w-0">
-                    <FieldLabel>Prénom</FieldLabel>
-                    <input
-                      type="text"
-                      placeholder="Prénom"
-                      value={targetFirstName}
-                      onChange={(e) => setTargetFirstName(e.target.value)}
-                      className={fieldClass}
-                    />
-                  </label>
-                  <label className="block min-w-0">
-                    <FieldLabel>Nom</FieldLabel>
-                    <input
-                      type="text"
-                      placeholder="NOM"
-                      value={targetLastName}
-                      onChange={(e) => setTargetLastName(e.target.value.toUpperCase())}
-                      className={fieldClass}
-                    />
-                  </label>
+                <div className="mb-5">
+                  <FieldLabel>Personne concernée</FieldLabel>
+                  <p className={`mb-2 text-xs ${dash.textMid}`}>
+                    Choisissez un collègue dans l’annuaire : la réservation lui sera rattachée et
+                    apparaîtra sur son tableau de bord.
+                  </p>
+                  <ProfRoomBeneficiarySelect
+                    value={beneficiary}
+                    onChange={setBeneficiary}
+                    matchFirstName={editingRes?.firstName}
+                    matchLastName={editingRes?.lastName}
+                  />
                 </div>
               ) : null}
 
