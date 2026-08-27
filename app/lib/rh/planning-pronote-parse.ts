@@ -363,7 +363,7 @@ function parseLinearDay(day: PlanningWeekday, col: TimedItem[]): RawSlot[] {
       day,
       start,
       end,
-      week: weekMark,
+      week: weekMark ?? null,
       subject: subject || "Cours",
       room,
       classes,
