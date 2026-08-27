@@ -2,6 +2,11 @@ import "server-only";
 
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import { runTextractForPdfBytes } from "@/app/lib/ocr-textract";
+import { extractPdfTextItems } from "@/app/lib/rh/planning-pdf-text";
+import {
+  looksLikePronoteTeacherPdf,
+  parsePronoteTeacherGrid,
+} from "@/app/lib/rh/planning-pronote-parse";
 import {
   normalizeStaffPlanning,
   normalizeTeacherPlanning,
@@ -103,6 +108,53 @@ Règles :
 - N'invente pas de jours absents du texte.
 - personHint = nom de la personne si visible, sinon "".`;
 
+async function tryExtractTeacherPronoteSpatial(input: {
+  pdfBytes: Buffer | Uint8Array;
+  personnelId: string;
+  sourceFileName?: string;
+}): Promise<PlanningImportResult | null> {
+  try {
+    const items = await extractPdfTextItems(input.pdfBytes);
+    if (!looksLikePronoteTeacherPdf(items)) return null;
+    const parsed = parsePronoteTeacherGrid(items);
+    if (!parsed || parsed.slotCount < 3) return null;
+
+    const planning = normalizeTeacherPlanning(
+      {
+        kind: "teacher",
+        personnelId: input.personnelId,
+        weekA: parsed.weekA,
+        weekB: parsed.weekB,
+        source: "pdf_import",
+        sourceFileName: input.sourceFileName,
+      },
+      input.personnelId,
+    );
+
+    if (planning.weekA.length === 0 && planning.weekB.length === 0) return null;
+
+    const warnings = [
+      ...parsed.warnings,
+      "Semaines A/B = semaines types pour toute l’année scolaire.",
+    ];
+
+    return {
+      kind: "teacher",
+      planning: {
+        ...planning,
+        source: "pdf_import",
+        sourceFileName: input.sourceFileName,
+      },
+      warnings,
+      ocrChars: items.length,
+      personHint: parsed.personHint || undefined,
+    };
+  } catch (e) {
+    console.warn("[planning-import] parse Pronote spatial échoué, repli OCR/IA", e);
+    return null;
+  }
+}
+
 export async function extractPlanningFromPdfBytes(input: {
   pdfBytes: Buffer | Uint8Array;
   personnelId: string;
@@ -111,6 +163,11 @@ export async function extractPlanningFromPdfBytes(input: {
   preferredStaffMode?: "fixed" | "rotation";
   sourceFileName?: string;
 }): Promise<PlanningImportResult> {
+  if (input.kind === "teacher") {
+    const spatial = await tryExtractTeacherPronoteSpatial(input);
+    if (spatial) return spatial;
+  }
+
   const ocr = await runTextractForPdfBytes(input.pdfBytes);
   const text = ocr.text?.trim() || "";
   if (text.length < 40) {
@@ -145,6 +202,7 @@ export async function extractPlanningFromPdfBytes(input: {
       warnings.push("Aucune semaine B détectée : tous les créneaux sont en semaine A (modifiable avant validation).");
     }
     warnings.push("Semaines A/B = semaines types pour toute l’année scolaire.");
+    warnings.push("Import via OCR + IA (grille Pronote non détectée en mode spatial).");
 
     return {
       kind: "teacher",
