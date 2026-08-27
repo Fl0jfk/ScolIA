@@ -238,14 +238,22 @@ function ProfRoomPageContent() {
         const foundLevel = Object.keys(CLASSES_DATA).find(l => CLASSES_DATA[l].includes(resExist.className));
         if (foundLevel) setLevel(foundLevel);
         setComment(resExist.comment || "");
-        setBookForOther(canBookForOthers && isReservationBookedForOther(resExist));
-        if (canBookForOthers && isReservationBookedForOther(resExist)) {
+        const forOther = canBookForOthers && isReservationBookedForOther(resExist);
+        setBookForOther(forOther);
+        if (forOther) {
+          const maybeOwnerId =
+            typeof resExist.userId === "string" ? resExist.userId : undefined;
+          const bookedById =
+            typeof resExist.bookedByUserId === "string" ? resExist.bookedByUserId : undefined;
+          // Nouveau modèle : userId bénéficiaire ≠ bookedByUserId. Legacy : userId = booker → on force le rematch annuaire.
+          const keepUserId =
+            maybeOwnerId && bookedById && maybeOwnerId !== bookedById ? maybeOwnerId : undefined;
           setBeneficiary({
-            userId: typeof resExist.userId === "string" ? resExist.userId : undefined,
+            userId: keepUserId,
             firstName: String(resExist.firstName || "").trim(),
             lastName: String(resExist.lastName || "").trim().toUpperCase(),
             email: typeof resExist.email === "string" ? resExist.email : undefined,
-            source: resExist.userId ? "directory" : "manual",
+            source: keepUserId ? "directory" : "manual",
           });
         } else {
           setBeneficiary(null);
@@ -319,6 +327,7 @@ function ProfRoomPageContent() {
       recurrence,
       untilDate,
       updateAllSeries,
+      bookForOther: Boolean(canBookForOthers && bookForOther),
       firstName: canBookForOthers && bookForOther ? beneficiary!.firstName : user?.firstName,
       lastName:
         canBookForOthers && bookForOther ? beneficiary!.lastName.toUpperCase() : lastName,
@@ -837,7 +846,7 @@ function ProfRoomPageContent() {
                       onChange={(e) => setBookForOther(e.target.checked)}
                       className="rounded border-slate-300"
                     />
-                    Pour une autre personne
+                    {isEditing ? "Rattacher à une autre personne" : "Pour une autre personne"}
                   </label>
                 ) : null}
               </div>
@@ -845,14 +854,20 @@ function ProfRoomPageContent() {
                 <div className="mb-5">
                   <FieldLabel>Personne concernée</FieldLabel>
                   <p className={`mb-2 text-xs ${dash.textMid}`}>
-                    Choisissez un collègue dans l’annuaire : la réservation lui sera rattachée et
-                    apparaîtra sur son tableau de bord.
+                    {isEditing
+                      ? "Corrigez le rattachement : choisissez le collègue dans l’annuaire pour qu’il voie le créneau sur son tableau de bord."
+                      : "Choisissez un collègue dans l’annuaire : la réservation lui sera rattachée et apparaîtra sur son tableau de bord."}
                   </p>
                   <ProfRoomBeneficiarySelect
+                    key={
+                      editingRes?.id
+                        ? `edit-${editingRes.id}-${bookForOther ? "other" : "self"}`
+                        : `new-${bookForOther ? "other" : "self"}`
+                    }
                     value={beneficiary}
                     onChange={setBeneficiary}
-                    matchFirstName={editingRes?.firstName}
-                    matchLastName={editingRes?.lastName}
+                    matchFirstName={editingRes?.firstName || beneficiary?.firstName}
+                    matchLastName={editingRes?.lastName || beneficiary?.lastName}
                   />
                 </div>
               ) : null}
