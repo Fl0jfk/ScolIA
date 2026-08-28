@@ -3,9 +3,9 @@
   "version": "1.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "NODE_OPTIONS='--disable-warning=DEP0040' next dev --turbopack",
     "build": "next build",
-    "start": "next start",
+    "start": "NODE_OPTIONS='--disable-warning=DEP0040' next start",
     "lint": "next lint",
     "test:ocr-match": "npx tsx --test app/lib/ocr-eleve-match.test.ts",
     "audit:knip": "knip",
