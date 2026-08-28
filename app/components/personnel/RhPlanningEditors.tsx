@@ -11,6 +11,7 @@ import {
   type TeacherPlanningCatalog,
   type TeacherPlanningSlot,
 } from "@/app/lib/rh/planning-types";
+import { planningDayHeaderClass } from "@/app/lib/rh/planning-slot-colors";
 
 export function newId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -93,24 +94,21 @@ export function WeekGrid({
   };
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-slate-50/30 to-indigo-50/20 shadow-sm">
       <div
         className="grid min-w-[820px]"
         style={{ gridTemplateColumns: "48px repeat(5, minmax(0, 1fr))" }}
       >
-        <div className="border-b border-slate-100 px-1 py-2" />
+        <div className="border-b border-slate-100 bg-slate-50/80 px-1 py-2" />
         {PLANNING_WEEKDAYS.map((day) => (
-          <div
-            key={`h-${day}`}
-            className="border-b border-l border-slate-100 px-1.5 py-2 text-center"
-          >
-            <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">
+          <div key={`h-${day}`} className={`border-b ${planningDayHeaderClass(day)}`}>
+            <p className="text-[10px] font-black uppercase tracking-wide text-slate-600">
               {PLANNING_WEEKDAY_LABELS[day]}
             </p>
           </div>
         ))}
 
-        <div className="relative border-r border-slate-100" style={{ height: totalHeight }}>
+        <div className="relative border-r border-slate-100 bg-slate-50/40" style={{ height: totalHeight }}>
           {hours.map((m) => (
             <div
               key={m}
@@ -125,7 +123,7 @@ export function WeekGrid({
         {PLANNING_WEEKDAYS.map((day) => (
           <div
             key={day}
-            className="relative border-l border-slate-100 bg-slate-50/50"
+            className="relative border-l border-slate-100/90 bg-white/60"
             style={{ height: totalHeight }}
           >
             {hours.map((m) => (

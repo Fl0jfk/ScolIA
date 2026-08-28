@@ -14,6 +14,14 @@ import {
   type TeacherPlanningSlot,
   type TeacherWeeklyHoursSummary,
 } from "@/app/lib/rh/planning-types";
+import { downloadTeacherPlanningPdf } from "@/app/lib/rh/planning-export-pdf";
+import {
+  planningSlotCardClass,
+  planningSlotMetaTextClass,
+  planningSlotTimeClass,
+  planningSlotTitleTextClass,
+  planningWeekTabClass,
+} from "@/app/lib/rh/planning-slot-colors";
 
 type Props = {
   initialPlanning: TeacherPlanningDoc;
@@ -34,6 +42,7 @@ export default function TeacherPlanningSelfEditor({
   const [weekView, setWeekView] = useState<"A" | "B">("A");
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -105,6 +114,23 @@ export default function TeacherPlanningSelfEditor({
     setEditMode(true);
   };
 
+  const exportPdf = async () => {
+    setExportingPdf(true);
+    setError(null);
+    try {
+      await downloadTeacherPlanningPdf({
+        displayName: "Mon planning",
+        week: weekView,
+        slots: teacherSlots,
+      });
+      setMsg("PDF téléchargé.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Export PDF impossible");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-950">
@@ -133,15 +159,22 @@ export default function TeacherPlanningSelfEditor({
             key={id}
             type="button"
             onClick={() => setWeekView(id)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
-              weekView === id
-                ? "bg-slate-900 text-white"
-                : "bg-white border border-slate-200 text-slate-600"
-            }`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold ${planningWeekTabClass(weekView === id, id)}`}
           >
             {label}
           </button>
         ))}
+
+        {teacherSlots.length > 0 ? (
+          <button
+            type="button"
+            disabled={exportingPdf}
+            onClick={() => void exportPdf()}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            {exportingPdf ? "Export…" : "Exporter PDF"}
+          </button>
+        ) : null}
 
         <div className="ml-auto flex flex-wrap gap-2">
           {editMode ? (
@@ -196,13 +229,14 @@ export default function TeacherPlanningSelfEditor({
         slots={teacherSlots}
         renderCard={(slot) => {
           const full = teacherSlots.find((s) => s.id === slot.id)!;
+          const colorKey = full.subject || "cours";
           return (
-            <div className="h-full rounded-lg bg-white border border-indigo-100 px-1.5 py-1 text-[10px] leading-tight group relative overflow-hidden shadow-sm">
-              <p className="font-bold text-indigo-900 tabular-nums">
+            <div className={`${planningSlotCardClass(colorKey)} group relative`}>
+              <p className={planningSlotTimeClass(colorKey)}>
                 {full.start}–{full.end}
               </p>
-              <p className="text-slate-800 font-semibold truncate">{full.subject || "—"}</p>
-              <p className="text-slate-500 truncate">
+              <p className={planningSlotTitleTextClass(colorKey)}>{full.subject || "—"}</p>
+              <p className={planningSlotMetaTextClass(colorKey)}>
                 {(full.classes || []).join(", ") || "Classe ?"}
                 {full.room ? ` · ${full.room}` : ""}
               </p>

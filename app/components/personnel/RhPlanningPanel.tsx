@@ -23,6 +23,18 @@ import {
   WeekGrid,
   newId,
 } from "@/app/components/personnel/RhPlanningEditors";
+import {
+  downloadStaffFixedPlanningPdf,
+  downloadStaffMissionPlanningPdf,
+  downloadTeacherPlanningPdf,
+} from "@/app/lib/rh/planning-export-pdf";
+import {
+  planningSlotCardClass,
+  planningSlotMetaTextClass,
+  planningSlotTimeClass,
+  planningSlotTitleTextClass,
+  planningWeekTabClass,
+} from "@/app/lib/rh/planning-slot-colors";
 
 type Audience = "teachers" | "staff";
 
@@ -80,6 +92,7 @@ export default function RhPlanningPanel() {
   const [msg, setMsg] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [previewMode, setPreviewMode] = useState(false);
   const [mergeStrategy, setMergeStrategy] = useState<"replace" | "append_rotation">("replace");
@@ -307,6 +320,39 @@ export default function RhPlanningPanel() {
     return (teacher.replacements || []).filter((r) => r.date === focusDate);
   }, [teacher, focusDate]);
 
+  const exportPdf = async () => {
+    setExportingPdf(true);
+    setError(null);
+    try {
+      const name = displayName || "Planning";
+      if (kind === "teacher" && teacher) {
+        const slots = weekView === "A" ? teacher.weekA : teacher.weekB;
+        await downloadTeacherPlanningPdf({ displayName: name, week: weekView, slots });
+      } else if (kind === "staff" && staff) {
+        if (staff.mode === "fixed") {
+          await downloadStaffFixedPlanningPdf({ displayName: name, slots: staff.fixedSlots });
+        } else if (activeRotation) {
+          await downloadStaffMissionPlanningPdf({
+            displayName: name,
+            rotationLabel: activeRotation.label,
+            slots: activeRotation.slots,
+          });
+        }
+      }
+      setMsg("PDF téléchargé.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Export PDF impossible");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const hasExportableSlots =
+    (kind === "teacher" && teacher && teacherSlots.length > 0) ||
+    (kind === "staff" &&
+      staff &&
+      (staff.mode === "fixed" ? staff.fixedSlots.length > 0 : (activeRotation?.slots.length ?? 0) > 0));
+
   return (
     <div className="space-y-5">
       <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm space-y-4">
@@ -505,32 +551,62 @@ export default function RhPlanningPanel() {
                       key={id}
                       type="button"
                       onClick={() => setWeekView(id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
-                        weekView === id
-                          ? "bg-slate-900 text-white"
-                          : "bg-white border border-slate-200 text-slate-600"
-                      }`}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold ${planningWeekTabClass(weekView === id, id)}`}
                     >
                       {label}
                     </button>
                   ))}
+                  {hasExportableSlots ? (
+                    <button
+                      type="button"
+                      disabled={exportingPdf}
+                      onClick={() => void exportPdf()}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {exportingPdf ? "Export…" : "Exporter PDF"}
+                    </button>
+                  ) : null}
                 </>
               ) : staff?.mode === "rotation" && staff.rotations.length > 0 ? (
-                <select
-                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold"
-                  value={activeRotation?.id || ""}
-                  onChange={(e) => setRotationId(e.target.value)}
-                >
-                  {staff.rotations.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <select
+                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold"
+                    value={activeRotation?.id || ""}
+                    onChange={(e) => setRotationId(e.target.value)}
+                  >
+                    {staff.rotations.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                  {hasExportableSlots ? (
+                    <button
+                      type="button"
+                      disabled={exportingPdf}
+                      onClick={() => void exportPdf()}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {exportingPdf ? "Export…" : "Exporter PDF"}
+                    </button>
+                  ) : null}
+                </>
               ) : (
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                  Semaine type annuelle
-                </span>
+                <>
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                    Semaine type annuelle
+                  </span>
+                  {hasExportableSlots ? (
+                    <button
+                      type="button"
+                      disabled={exportingPdf}
+                      onClick={() => void exportPdf()}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {exportingPdf ? "Export…" : "Exporter PDF"}
+                    </button>
+                  ) : null}
+                </>
               )}
 
               {canEdit ? (
@@ -587,13 +663,14 @@ export default function RhPlanningPanel() {
                   slots={teacherSlots}
                   renderCard={(slot) => {
                     const full = teacherSlots.find((s) => s.id === slot.id) as TeacherPlanningSlot;
+                    const colorKey = full.subject || "cours";
                     return (
-                      <div className="h-full rounded-lg bg-white border border-indigo-100 px-1.5 py-1 text-[10px] leading-tight overflow-hidden shadow-sm">
-                        <p className="font-bold text-indigo-900 tabular-nums">
+                      <div className={planningSlotCardClass(colorKey)}>
+                        <p className={planningSlotTimeClass(colorKey)}>
                           {full.start}–{full.end}
                         </p>
-                        <p className="text-slate-800 font-semibold truncate">{full.subject || "—"}</p>
-                        <p className="text-slate-500 truncate">
+                        <p className={planningSlotTitleTextClass(colorKey)}>{full.subject || "—"}</p>
+                        <p className={planningSlotMetaTextClass(colorKey)}>
                           {(full.classes || []).join(", ") || "Classe ?"}
                           {full.room ? ` · ${full.room}` : ""}
                         </p>
@@ -703,12 +780,13 @@ export default function RhPlanningPanel() {
                       slots={staff.fixedSlots}
                       renderCard={(slot) => {
                         const full = staff.fixedSlots.find((s) => s.id === slot.id)!;
+                        const colorKey = full.label || "poste";
                         return (
-                          <div className="h-full rounded-lg bg-white border border-amber-100 px-1.5 py-1 text-[10px] leading-tight overflow-hidden shadow-sm">
-                            <p className="font-bold text-amber-900 tabular-nums">
+                          <div className={planningSlotCardClass(colorKey)}>
+                            <p className={planningSlotTimeClass(colorKey)}>
                               {full.start}–{full.end}
                             </p>
-                            <p className="text-slate-800 font-semibold truncate">{full.label || "—"}</p>
+                            <p className={planningSlotTitleTextClass(colorKey)}>{full.label || "—"}</p>
                           </div>
                         );
                       }}
@@ -744,13 +822,14 @@ export default function RhPlanningPanel() {
                       slots={activeRotation?.slots || []}
                       renderCard={(slot) => {
                         const full = (activeRotation?.slots || []).find((s) => s.id === slot.id)!;
+                        const colorKey = full.mission || "mission";
                         return (
-                          <div className="h-full rounded-lg bg-white border border-emerald-100 px-1.5 py-1 text-[10px] leading-tight overflow-hidden shadow-sm">
-                            <p className="font-bold text-emerald-900 tabular-nums">
+                          <div className={planningSlotCardClass(colorKey)}>
+                            <p className={planningSlotTimeClass(colorKey)}>
                               {full.start}–{full.end}
                             </p>
-                            <p className="text-slate-800 font-semibold truncate">{full.mission || "—"}</p>
-                            <p className="text-slate-500 truncate">
+                            <p className={planningSlotTitleTextClass(colorKey)}>{full.mission || "—"}</p>
+                            <p className={planningSlotMetaTextClass(colorKey)}>
                               {full.location || "Lieu non précisé"}
                             </p>
                           </div>
