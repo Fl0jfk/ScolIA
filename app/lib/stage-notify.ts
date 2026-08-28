@@ -192,11 +192,15 @@ export async function notifyStageAdminRejected(convention: StageConvention, note
   const m = await mailer();
   if (!m) return { sent: false, reason: "smtp" as const };
 
-  const to =
-    convention.student.email?.trim() ||
-    convention.parentSignerEmail?.trim() ||
-    convention.student.parentEmail?.trim();
-  if (!to) return { sent: false, reason: "no_recipients" as const };
+  const recipients = uniqueContactEmails(
+    convention.student.email,
+    convention.parentSignerEmail,
+    convention.parent2SignerEmail,
+    convention.student.parent1Email,
+    convention.student.parent2Email,
+    convention.student.parentEmail,
+  );
+  if (!recipients.length) return { sent: false, reason: "no_recipients" as const };
 
   const bundle = await loadAppConfig();
   const school = bundle.identity.shortName || bundle.identity.name;
@@ -215,13 +219,24 @@ export async function notifyStageAdminRejected(convention: StageConvention, note
     .filter(Boolean)
     .join("\n");
 
-  await m.transporter.sendMail({
-    from: `"Stages ${school}" <${m.smtp.user}>`,
-    to,
-    subject: `[Stages] Préconvention à corriger — ${studentLabel(convention)}`,
-    text,
-  });
-  return { sent: true, recipients: [to] };
+  for (const to of recipients) {
+    await m.transporter.sendMail({
+      from: `"Stages ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `[Stages] Préconvention à corriger — ${studentLabel(convention)}`,
+      text,
+    });
+  }
+  return { sent: true, recipients };
+}
+
+function uniqueContactEmails(...lists: Array<string | undefined | null>): string[] {
+  const set = new Set<string>();
+  for (const e of lists) {
+    const v = String(e || "").trim().toLowerCase();
+    if (v && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) set.add(v);
+  }
+  return [...set];
 }
 
 async function notifyStageSignatureRequest(

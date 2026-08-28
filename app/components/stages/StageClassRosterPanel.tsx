@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { StageClassRoster, StageRosterStudentStatus } from "@/app/lib/stage-class-roster";
+import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 
 const STATUS_LABELS: Record<StageRosterStudentStatus, string> = {
   sans_stage: "Sans stage",
@@ -150,6 +151,7 @@ export default function StageClassRosterPanel({
               <th className="px-4 py-3">Élève</th>
               <th className="px-4 py-3">Statut</th>
               <th className="px-4 py-3">Entreprise / période</th>
+              <th className="px-4 py-3">Signatures</th>
               <th className="px-4 py-3">Dossier</th>
               {canFileOneDrive ? <th className="px-4 py-3">OneDrive</th> : null}
             </tr>
@@ -182,6 +184,7 @@ export default function StageClassRosterPanel({
                             onClick={() => onOpenConvention(c.id)}
                             className="text-left text-[#2F6B4A] underline hover:no-underline"
                           >
+                            {c.stageLabel ? `${c.stageLabel} — ` : ""}
                             {c.companyName}
                           </button>
                           <span className="text-xs text-stone-400">
@@ -189,6 +192,19 @@ export default function StageClassRosterPanel({
                             · {c.periodStart} → {c.periodEnd}
                           </span>
                           <span className="ml-1 text-xs text-stone-500">({c.statusLabel})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </td>
+                <td className="px-4 py-3 min-w-[140px]">
+                  {student.conventions.length === 0 ? (
+                    <span className="text-stone-400">—</span>
+                  ) : (
+                    <ul className="space-y-2">
+                      {student.conventions.map((c) => (
+                        <li key={c.id}>
+                          <StageSignatureProgress summary={c.signatureSummary} compact />
                         </li>
                       ))}
                     </ul>

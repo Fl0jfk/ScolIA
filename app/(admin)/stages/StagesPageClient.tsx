@@ -10,6 +10,9 @@ import type { StageConvention, StageOffer } from "@/app/lib/stage-types";
 import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
 import StagePendingSignaturesPanel from "@/app/components/stages/StagePendingSignaturesPanel";
 import StageMySignatureBlock from "@/app/components/stages/StageMySignatureBlock";
+import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
+import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
+import { buildSignatureSummary } from "@/app/lib/stage-signature-summary";
 import StagesBoardPanel from "@/app/components/stages/StagesBoardPanel";
 import type {
   StageTab,
@@ -126,6 +129,8 @@ function StagesContent() {
     bySecteur: Partial<Record<string, number>>;
   } | null>(null);
   const [filingConventionId, setFilingConventionId] = useState<string | null>(null);
+  const [adminReviewNote, setAdminReviewNote] = useState("");
+  const [adminEditing, setAdminEditing] = useState(false);
 
   const loadOneDrivePreview = useCallback(async () => {
     try {
@@ -300,11 +305,17 @@ function StagesContent() {
       const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "admin_review", approved }),
+        body: JSON.stringify({
+          action: "admin_review",
+          approved,
+          note: adminReviewNote.trim() || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur");
       setDetail(data);
+      setAdminEditing(false);
+      setAdminReviewNote("");
       setMsg(
         approved
           ? detail.convention.status === "convention_deposited"
@@ -312,8 +323,30 @@ function StagesContent() {
             : "Convention validée — e-mails de signature envoyés aux signataires (si SMTP configuré)."
           : detail.convention.status === "convention_deposited"
             ? "Dépôt refusé."
-            : "Renvoyé à l'élève — e-mail de correction envoyé si possible.",
+            : "Renvoyé pour correction — e-mails envoyés aux responsables légaux si possible.",
       );
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function adminSavePreconvention() {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save", convention: detail.convention }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setDetail({ ...detail, convention: data.convention });
+      setMsg("Préconvention enregistrée (modification administrative).");
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -650,10 +683,14 @@ function StagesContent() {
         <section className="mt-10 rounded-2xl border border-[#2F6B4A]/20 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-bold text-[#1F3D2B]">Détail convention</h2>
           <p className="text-sm text-stone-600 mt-1">
+            {detail.convention.stageLabel ? `${detail.convention.stageLabel} · ` : ""}
             {detail.convention.student.firstName} {detail.convention.student.lastName} →{" "}
             {detail.convention.company.name} ·{" "}
             {STAGE_CONVENTION_STATUS_LABELS[detail.convention.status]}
           </p>
+          <div className="mt-4 max-w-md">
+            <StageSignatureProgress summary={buildSignatureSummary(detail.convention)} />
+          </div>
           {detail.studentLink && (
             <p className="mt-3 text-sm break-all">
               <span className="font-semibold">Lien élève :</span>{" "}
@@ -861,21 +898,52 @@ function StagesContent() {
             </div>
           )}
           {permissions?.canReviewPreconvention && detail.convention.status === "admin_review" && (
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => void adminReview(true)}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
-              >
-                Valider → lancer signatures
-              </button>
-              <button
-                type="button"
-                onClick={() => void adminReview(false)}
-                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
-              >
-                Renvoyer pour correction
-              </button>
+            <div className="mt-6 space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAdminEditing((v) => !v)}
+                  className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-800"
+                >
+                  {adminEditing ? "Masquer l'éditeur" : "Modifier la préconvention"}
+                </button>
+              </div>
+              {adminEditing && (
+                <StagePreconventionForm
+                  convention={detail.convention}
+                  onChange={(next) => setDetail({ ...detail, convention: next })}
+                  onSave={() => void adminSavePreconvention()}
+                  onSubmit={() => void adminSavePreconvention()}
+                  busy={busy}
+                  identityLocked={Boolean(detail.convention.ocrMeta?.matchedEleveIne)}
+                  showAdminHint
+                />
+              )}
+              <label className="block text-sm max-w-xl">
+                Motif (si renvoi pour correction)
+                <textarea
+                  className="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm min-h-[72px]"
+                  placeholder="Ex. Les dates de stage ne correspondent pas à la période officielle…"
+                  value={adminReviewNote}
+                  onChange={(e) => setAdminReviewNote(e.target.value)}
+                />
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void adminReview(true)}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Valider → lancer signatures
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void adminReview(false)}
+                  className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Renvoyer pour correction
+                </button>
+              </div>
             </div>
           )}
           {detail.signLinks?.length > 0 && (

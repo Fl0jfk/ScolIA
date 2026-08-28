@@ -1,5 +1,6 @@
 import { loadAppConfig } from "@/app/lib/app-config";
 import { sanitizeDomainPlanningClassesByPole } from "@/app/lib/domain-planning-defaults";
+import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { STAGE_S3, currentStageSchoolYear, type StageConvention } from "@/app/lib/stage-types";
 
@@ -31,6 +32,16 @@ export function classKey(className: string): string {
 }
 
 export async function listStageReferentClassNames(extra?: string[]): Promise<string[]> {
+  const fromPeriods = await listStageEnabledClassNames();
+  if (fromPeriods.length > 0) {
+    const set = new Set<string>(fromPeriods);
+    for (const c of extra ?? []) {
+      const n = normalizeClassName(c);
+      if (n) set.add(n);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  }
+
   const bundle = await loadAppConfig();
   const poles = sanitizeDomainPlanningClassesByPole(bundle.domainPlanning.classesByPole || {});
   const fromPlanning = Object.values(poles).flat();

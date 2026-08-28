@@ -1,6 +1,7 @@
 "use client";
 
 import StageReferentsEditor from "@/app/components/stages/StageReferentsEditor";
+import StagePeriodsEditor from "@/app/components/stages/StagePeriodsEditor";
 import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
 import type { StagesHubBoard, StagesHubPermissions } from "@/app/components/stages/stages-hub-types";
 
@@ -92,10 +93,25 @@ export default function StagesBoardPanel({
 
       {permissions?.canManageReferents && (
         <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-bold text-[#1F3D2B]">Classes et périodes de stage</h2>
+          <p className="mt-2 text-sm text-stone-600 max-w-2xl">
+            Sélectionnez les classes concernées par les stages, leurs périodes officielles et les
+            rappels affichés sur le formulaire public. Seules les classes activées peuvent déposer
+            une préconvention et apparaissent dans la liste des référents.
+          </p>
+          <div className="mt-4">
+            <StagePeriodsEditor initialYear={purgeYear} onSaved={(m) => onSavedMsg(m)} />
+          </div>
+        </section>
+      )}
+
+      {permissions?.canManageReferents && (
+        <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-bold text-[#1F3D2B]">Professeurs principaux / référents par classe</h2>
           <p className="mt-2 text-sm text-stone-600 max-w-2xl">
-            Assignez le professeur principal (ou référent stage) de chaque classe. Il verra l&apos;onglet
-            <strong> Suivi classe</strong> avec tous les élèves et l&apos;état de leurs conventions.
+            Assignez le professeur principal (ou référent stage) de chaque classe activée. Il verra l&apos;onglet
+            <strong> Suivi classe</strong> avec tous les élèves et l&apos;état de leurs conventions, et recevra
+            les demandes de signature par e-mail.
           </p>
           <div className="mt-4">
             <StageReferentsEditor initialYear={purgeYear} onSaved={(m) => onSavedMsg(m)} />

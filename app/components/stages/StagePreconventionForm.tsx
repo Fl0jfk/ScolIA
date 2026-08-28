@@ -1,6 +1,7 @@
 "use client";
 
 import type { StageConvention, StageDaySlot, StageScheduleMode } from "@/app/lib/stage-types";
+import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-config";
 import { STAGE_OFFER_KIND_LABELS } from "@/app/lib/stage-types";
 import { buildPerDaySlotsFromTemplate, formatDaySlotLabel } from "@/app/lib/stage-schedule";
 
@@ -13,6 +14,9 @@ export default function StagePreconventionForm({
   onSubmit,
   busy,
   identityLocked = false,
+  reminders = [],
+  officialPeriods = [],
+  showAdminHint = false,
 }: {
   convention: StageConvention;
   onChange: (next: StageConvention) => void;
@@ -21,6 +25,9 @@ export default function StagePreconventionForm({
   busy: boolean;
   /** Identité vérifiée via INE + date de naissance — champs élève non modifiables. */
   identityLocked?: boolean;
+  reminders?: StagePeriodReminder[];
+  officialPeriods?: StageClassPeriod[];
+  showAdminHint?: boolean;
 }) {
   const schedule = convention.schedule;
 
@@ -34,8 +41,69 @@ export default function StagePreconventionForm({
     updateSchedule({ days });
   }
 
+  function updateParent1Email(value: string) {
+    onChange({
+      ...convention,
+      parentSignerEmail: value,
+      student: {
+        ...convention.student,
+        parent1Email: value,
+        parentEmail: value,
+      },
+    });
+  }
+
+  function updateParent2Email(value: string) {
+    onChange({
+      ...convention,
+      parent2SignerEmail: value,
+      student: { ...convention.student, parent2Email: value },
+    });
+  }
+
+  const parent1Value =
+    convention.parentSignerEmail ||
+    convention.student.parent1Email ||
+    convention.student.parentEmail ||
+    "";
+  const parent2Value =
+    convention.parent2SignerEmail || convention.student.parent2Email || "";
+
   return (
     <div className="space-y-8 text-sm">
+      {(reminders.length > 0 || officialPeriods.length > 0) && (
+        <section className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 space-y-3">
+          <h2 className="text-sm font-bold text-amber-900">Rappels — dates de stage</h2>
+          {officialPeriods.map((p) => (
+            <div key={p.id} className="text-xs text-amber-900">
+              <p className="font-semibold">{p.label}</p>
+              <p>
+                Du {new Date(p.periodStart).toLocaleDateString("fr-FR")} au{" "}
+                {new Date(p.periodEnd).toLocaleDateString("fr-FR")}
+              </p>
+            </div>
+          ))}
+          {reminders.map((r) => (
+            <div key={r.id} className="text-xs text-amber-900 border-t border-amber-200/60 pt-2 first:border-0 first:pt-0">
+              <p className="font-semibold">{r.label}</p>
+              <p className="mt-0.5 whitespace-pre-wrap">{r.message}</p>
+              {r.periodStart && r.periodEnd && (
+                <p className="mt-1 text-amber-800">
+                  Période indicative : {new Date(r.periodStart).toLocaleDateString("fr-FR")} →{" "}
+                  {new Date(r.periodEnd).toLocaleDateString("fr-FR")}
+                </p>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
+
+      {showAdminHint && (
+        <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+          Modification administrative — vous pouvez corriger les champs avant validation ou renvoyer
+          le dossier aux responsables légaux pour correction.
+        </p>
+      )}
       <section className="space-y-3">
         <h2 className="text-base font-bold text-[#1F3D2B]">1. Identité élève</h2>
         {identityLocked && (
@@ -101,16 +169,20 @@ export default function StagePreconventionForm({
         <input
           className="w-full rounded-lg border px-3 py-2"
           type="email"
-          placeholder="E-mail responsable légal *"
-          value={convention.parentSignerEmail || convention.student.parentEmail || ""}
-          onChange={(e) =>
-            onChange({
-              ...convention,
-              parentSignerEmail: e.target.value,
-              student: { ...convention.student, parentEmail: e.target.value },
-            })
-          }
+          placeholder="E-mail responsable légal 1 *"
+          value={parent1Value}
+          onChange={(e) => updateParent1Email(e.target.value)}
         />
+        <input
+          className="w-full rounded-lg border px-3 py-2"
+          type="email"
+          placeholder="E-mail responsable légal 2 *"
+          value={parent2Value}
+          onChange={(e) => updateParent2Email(e.target.value)}
+        />
+        <p className="text-xs text-stone-500">
+          Les deux responsables légaux recevront les e-mails de correction et de signature.
+        </p>
         <select
           className="w-full rounded-lg border px-3 py-2"
           value={convention.internshipKind}
@@ -149,7 +221,7 @@ export default function StagePreconventionForm({
         />
         <input
           className="w-full rounded-lg border px-3 py-2"
-          placeholder="SIRET (14 chiffres)"
+          placeholder="SIRET (14 chiffres) *"
           value={convention.company.siret || ""}
           onChange={(e) =>
             onChange({ ...convention, company: { ...convention.company, siret: e.target.value } })

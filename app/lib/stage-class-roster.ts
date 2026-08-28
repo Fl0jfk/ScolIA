@@ -2,6 +2,7 @@ import type { EleveConfig } from "@/app/lib/eleves-config";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { classKey } from "@/app/lib/stage-referents-config";
 import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
+import { buildSignatureSummary, type StageSignatureSummary } from "@/app/lib/stage-signature-summary";
 import {
   currentStageSchoolYear,
   STAGE_CONVENTION_STATUS_LABELS,
@@ -15,12 +16,14 @@ type StageRosterConvention = {
   id: string;
   status: StageConventionStatus;
   statusLabel: string;
+  stageLabel?: string;
   companyName: string;
   periodStart: string;
   periodEnd: string;
   internshipKind: string;
   oneDriveFiled: boolean;
   canFileOneDrive: boolean;
+  signatureSummary: StageSignatureSummary;
 };
 
 export type StageRosterStudent = {
@@ -115,12 +118,14 @@ function toRosterConvention(c: StageConvention): StageRosterConvention {
     id: c.id,
     status: c.status,
     statusLabel: STAGE_CONVENTION_STATUS_LABELS[c.status] || c.status,
+    stageLabel: c.stageLabel,
     companyName: c.company.name,
     periodStart: c.schedule.periodStart,
     periodEnd: c.schedule.periodEnd,
     internshipKind: c.internshipKind,
     oneDriveFiled: Boolean(c.oneDriveFiling?.filedAt),
     canFileOneDrive: c.status === "signed" && !c.oneDriveFiling?.filedAt,
+    signatureSummary: buildSignatureSummary(c),
   };
 }
 
