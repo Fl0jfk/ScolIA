@@ -1,5 +1,7 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
+import { listStageSiecleClassCodes } from "@/app/lib/stage-siecle-classes";
 import { classKey } from "@/app/lib/stage-referents-config";
 import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
 import { buildSignatureSummary, type StageSignatureSummary } from "@/app/lib/stage-signature-summary";
@@ -132,6 +134,21 @@ function toRosterConvention(c: StageConvention): StageRosterConvention {
 function studentKey(nom: string, prenom: string, ine?: string): string {
   if (ine?.trim()) return `ine:${ine.trim().toUpperCase()}`;
   return `name:${normalizeName(nom)}|${normalizeName(prenom)}`;
+}
+
+/** Classes disponibles dans le suivi classe (config activée, SIECLE, élèves). */
+export async function listStageRosterClassNames(): Promise<string[]> {
+  const set = new Set<string>();
+  for (const c of await listStageEnabledClassNames()) set.add(c);
+  for (const c of await listStageSiecleClassCodes()) set.add(c);
+
+  const eleves = await loadEleves();
+  for (const eleve of eleves) {
+    const cls = resolveEleveClassName(eleve);
+    if (cls) set.add(cls);
+  }
+
+  return [...set].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
 
 export async function buildStageClassRoster(

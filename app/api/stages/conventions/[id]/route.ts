@@ -11,7 +11,7 @@ import {
   submitPreconvention,
 } from "@/app/lib/stage-workflow";
 import { getStageConvention, saveStageConvention } from "@/app/lib/stage-storage";
-import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
+import { ensureConventionReferent, listClassesForReferentUser } from "@/app/lib/stage-referents-config";
 import { notifyAllStageSignatureRequests, notifyStageDepositAdminRejected } from "@/app/lib/stage-notify";
 import {
   findEleveByIne,
@@ -39,8 +39,17 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     if (!convention) return NextResponse.json({ error: "Convention introuvable." }, { status: 404 });
 
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
+    const referentClassNames = canViewReferentConventions(roles)
+      ? await listClassesForReferentUser(gate.ctx.userId)
+      : [];
     if (
-      !conventionVisibleToUser(convention, roles, userEmail, gate.ctx.userId) &&
+      !conventionVisibleToUser(
+        convention,
+        roles,
+        userEmail,
+        gate.ctx.userId,
+        referentClassNames,
+      ) &&
       !roles.includes("parent")
     ) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });

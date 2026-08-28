@@ -13,7 +13,7 @@ import {
 import { ensureStageYearAutoPurge } from "@/app/lib/stage-auto-purge";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import { conventionMatchesStageSecteurs, resolveStageViewerSecteurs } from "@/app/lib/stage-sector-scope";
-import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
+import { ensureConventionReferent, listClassesForReferentUser } from "@/app/lib/stage-referents-config";
 import { defaultStageSchedule } from "@/app/lib/stage-schedule";
 import {
   ensureStudentAccessToken,
@@ -75,10 +75,15 @@ export async function GET(req: Request) {
     const all = await Promise.all(index.map((e) => getStageConvention(e.id)));
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
+    const referentClassNames = canViewReferentConventions(roles)
+      ? await listClassesForReferentUser(gate.ctx.userId)
+      : [];
     const conventions = all
       .filter((c): c is NonNullable<typeof c> => Boolean(c))
       .filter((c) => c.status !== "archived")
-      .filter((c) => conventionVisibleToUser(c, roles, userEmail, gate.ctx.userId))
+      .filter((c) =>
+        conventionVisibleToUser(c, roles, userEmail, gate.ctx.userId, referentClassNames),
+      )
       .filter((c) => conventionMatchesStageSecteurs(c, viewerSecteurs));
     return NextResponse.json({ conventions });
   } catch (error) {

@@ -21,7 +21,7 @@ const STATUS_STYLES: Record<StageRosterStudentStatus, string> = {
 type RosterResponse = {
   schoolYear: string;
   availableClasses: string[];
-  referent: { name: string; email: string } | null;
+  referents: Array<{ name: string; email: string }>;
   roster: StageClassRoster | null;
   message?: string;
 };
@@ -121,6 +121,11 @@ export default function StageClassRosterPanel({
           <p className="text-lg font-bold text-[#1F3D2B]">Classe {roster.className}</p>
         )}
         <p className="text-xs text-stone-500">Année {roster.schoolYear}</p>
+        {data.referents.length > 0 && (
+          <p className="text-xs text-stone-500">
+            Référents : {data.referents.map((r) => r.name).join(", ")}
+          </p>
+        )}
       </div>
 
       {roster.note && (

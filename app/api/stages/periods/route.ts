@@ -4,8 +4,6 @@ import { NextResponse } from "next/server";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { canReviewPreconvention } from "@/app/lib/stage-access";
-import { loadAppConfig } from "@/app/lib/app-config";
-import { sanitizeDomainPlanningClassesByPole } from "@/app/lib/domain-planning-defaults";
 import {
   getStagePeriodsConfig,
   saveStagePeriodsConfig,
@@ -13,6 +11,7 @@ import {
   type StagePeriodReminder,
   type StageClassPeriod,
 } from "@/app/lib/stage-periods-config";
+import { listStageSiecleClassOptions } from "@/app/lib/stage-siecle-classes";
 import { currentStageSchoolYear, stageUid } from "@/app/lib/stage-types";
 
 function displayName(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
@@ -63,17 +62,6 @@ function parseClassConfig(raw: unknown): StageClassStageConfig | null {
   return { className, enabled, periods, reminders };
 }
 
-async function listAllPlanningClasses(): Promise<string[]> {
-  const bundle = await loadAppConfig();
-  const poles = sanitizeDomainPlanningClassesByPole(bundle.domainPlanning.classesByPole || {});
-  const set = new Set<string>();
-  for (const c of Object.values(poles).flat()) {
-    const n = String(c ?? "").trim();
-    if (n) set.add(n);
-  }
-  return [...set].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
-}
-
 export async function GET(req: Request) {
   try {
     const gate = await requireAuth();
@@ -88,7 +76,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const schoolYear = searchParams.get("schoolYear")?.trim() || currentStageSchoolYear();
     const config = await getStagePeriodsConfig(schoolYear);
-    const planningClasses = await listAllPlanningClasses();
+    const siecleClasses = await listStageSiecleClassOptions();
 
     const prevYearParts = schoolYear.split("-").map(Number);
     const prevYear =
@@ -100,7 +88,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       schoolYear,
       config,
-      suggestedClasses: planningClasses,
+      siecleClasses,
       previousConfig,
       currentSchoolYear: currentStageSchoolYear(),
     });

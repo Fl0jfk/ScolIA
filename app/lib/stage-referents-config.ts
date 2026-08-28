@@ -1,6 +1,5 @@
-import { loadAppConfig } from "@/app/lib/app-config";
-import { sanitizeDomainPlanningClassesByPole } from "@/app/lib/domain-planning-defaults";
 import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
+import { listStageSiecleClassCodes } from "@/app/lib/stage-siecle-classes";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { STAGE_S3, currentStageSchoolYear, type StageConvention } from "@/app/lib/stage-types";
 
@@ -33,23 +32,17 @@ export function classKey(className: string): string {
 
 export async function listStageReferentClassNames(extra?: string[]): Promise<string[]> {
   const fromPeriods = await listStageEnabledClassNames();
-  if (fromPeriods.length > 0) {
-    const set = new Set<string>(fromPeriods);
-    for (const c of extra ?? []) {
-      const n = normalizeClassName(c);
-      if (n) set.add(n);
-    }
-    return [...set].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
-  }
-
-  const bundle = await loadAppConfig();
-  const poles = sanitizeDomainPlanningClassesByPole(bundle.domainPlanning.classesByPole || {});
-  const fromPlanning = Object.values(poles).flat();
-  const set = new Set<string>();
-  for (const c of fromPlanning) {
+  const set = new Set<string>(fromPeriods);
+  for (const c of extra ?? []) {
     const n = normalizeClassName(c);
     if (n) set.add(n);
   }
+  if (set.size > 0) {
+    return [...set].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  }
+
+  const fromSiecle = await listStageSiecleClassCodes();
+  for (const c of fromSiecle) set.add(c);
   for (const c of extra ?? []) {
     const n = normalizeClassName(c);
     if (n) set.add(n);
@@ -101,9 +94,17 @@ export function findReferentAssignment(
   config: StageReferentsConfig | null | undefined,
   className: string,
 ): StageClassReferentAssignment | null {
-  if (!config || !className.trim()) return null;
+  const all = findReferentAssignments(config, className);
+  return all[0] ?? null;
+}
+
+export function findReferentAssignments(
+  config: StageReferentsConfig | null | undefined,
+  className: string,
+): StageClassReferentAssignment[] {
+  if (!config || !className.trim()) return [];
   const key = classKey(className);
-  return config.assignments.find((a) => classKey(a.className) === key) ?? null;
+  return config.assignments.filter((a) => classKey(a.className) === key);
 }
 
 async function resolveReferentForClass(

@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useOneDriveConnection } from "@/app/hooks/useOneDriveConnection";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
-import type { StageConvention, StageOffer } from "@/app/lib/stage-types";
+import type { StageConvention } from "@/app/lib/stage-types";
 import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
 import StagePendingSignaturesPanel from "@/app/components/stages/StagePendingSignaturesPanel";
 import StageMySignatureBlock from "@/app/components/stages/StageMySignatureBlock";
@@ -17,7 +17,6 @@ import StagesBoardPanel from "@/app/components/stages/StagesBoardPanel";
 import type {
   StageTab,
   StagesHubBoard,
-  StagesOfferForm,
 } from "@/app/components/stages/stages-hub-types";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
@@ -27,10 +26,6 @@ import { MODULE_TOUR_STEP_EVENT } from "@/app/lib/module-tour-actions";
 import { resolveStagesTourTab } from "@/app/lib/module-tours";
 
 const StagesClassePanel = dynamic(() => import("@/app/components/stages/StagesClassePanel"), {
-  ssr: false,
-  loading: () => <ModuleTabFallback />,
-});
-const StagesOffersPanel = dynamic(() => import("@/app/components/stages/StagesOffersPanel"), {
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
@@ -49,23 +44,6 @@ function currentSchoolYearLabel() {
   const m = now.getMonth();
   if (m >= 8) return `${y}-${y + 1}`;
   return `${y - 1}-${y}`;
-}
-
-function emptyOfferForm(): StagesOfferForm {
-  return {
-    kind: "pfmp",
-    companyName: "",
-    companyAddress: "",
-    description: "",
-    positionsCount: 1,
-    targetLevels: ["3e"],
-    periodStart: "",
-    periodEnd: "",
-    contactName: "",
-    contactEmail: "",
-    contactPhone: "",
-    sector: "",
-  };
 }
 
 function StagesContent() {
@@ -92,8 +70,6 @@ function StagesContent() {
   }, [sessionUser]);
   const od = useOneDriveConnection();
   const [board, setBoard] = useState<StagesHubBoard | null>(null);
-  const [offers, setOffers] = useState<StageOffer[]>([]);
-  const [approvedOffers, setApprovedOffers] = useState<StageOffer[]>([]);
   const [conventions, setConventions] = useState<StageConvention[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get("convention"));
   const [detail, setDetail] = useState<{
@@ -116,7 +92,6 @@ function StagesContent() {
   const [tab, setTab] = useState<StageTab>(
     (searchParams.get("tab") as StageTab) || "board",
   );
-  const [offerForm, setOfferForm] = useState(emptyOfferForm);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -129,18 +104,14 @@ function StagesContent() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [bRes, oRes, cRes] = await Promise.all([
+      const [bRes, cRes] = await Promise.all([
         fetch("/api/stages", { cache: "no-store" }),
-        fetch("/api/stages/offers", { cache: "no-store" }),
         fetch("/api/stages/conventions", { cache: "no-store" }),
       ]);
       const b = await bRes.json();
-      const o = await oRes.json();
       const c = await cRes.json();
       if (!bRes.ok) throw new Error(b?.error || "Erreur");
       setBoard(b);
-      setOffers(o.myOffers || o.offers || []);
-      setApprovedOffers(o.approvedOffers || []);
       setConventions(c.conventions || []);
       if ((b.myPendingSignatures?.length ?? 0) > 0) {
         try {
@@ -170,6 +141,12 @@ function StagesContent() {
   }, [load]);
 
   useEffect(() => {
+    if (searchParams.get("tab") === "offers") {
+      setTab("board");
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (board?.permissions.referentOnly && tab === "board") {
       setTab("classe");
     }
@@ -191,62 +168,6 @@ function StagesContent() {
   }, [searchParams, loadDetail]);
 
   const permissions = board?.permissions;
-
-  async function submitOffer(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setMsg(null);
-    try {
-      const res = await fetch("/api/stages/offers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(offerForm),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Erreur");
-      setOfferForm(emptyOfferForm());
-      setMsg("Offre déposée — en attente de validation par la direction.");
-      await load();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function moderateOffer(id: string, status: "approved" | "rejected") {
-    setBusy(true);
-    setMsg(null);
-    try {
-      const res = await fetch(`/api/stages/offers/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Erreur");
-      if (status === "approved" && data.candidatureLink) {
-        const full =
-          typeof window !== "undefined"
-            ? `${window.location.origin}${data.candidatureLink}`
-            : data.candidatureLink;
-        setMsg(`Offre validée — lien candidature élève : ${full}`);
-        try {
-          await navigator.clipboard.writeText(full);
-        } catch {
-          /* ignore */
-        }
-      } else if (status === "rejected") {
-        setMsg("Offre refusée.");
-      }
-      await load();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
-
 
   async function adminReview(approved: boolean) {
     if (!detail) return;
@@ -466,12 +387,6 @@ function StagesContent() {
             dataAttrs: { "data-stages-tab": "classe" },
           },
           {
-            id: "offers",
-            label: "Offres",
-            hidden: Boolean(permissions?.referentOnly),
-            dataAttrs: { "data-stages-tab": "offers" },
-          },
-          {
             id: "conventions",
             label: "Conventions",
             dataAttrs: { "data-stages-tab": "conventions" },
@@ -512,20 +427,6 @@ function StagesContent() {
 
       {tab === "settings" && permissions?.canManageStageSettings && (
         <StagesSettingsPanel schoolYear={schoolYear} onSavedMsg={setMsg} />
-      )}
-
-      {tab === "offers" && (
-        <StagesOffersPanel
-          permissions={permissions}
-          offers={offers}
-          approvedOffers={approvedOffers}
-          offerForm={offerForm}
-          setOfferForm={setOfferForm}
-          busy={busy}
-          onSubmit={(e) => void submitOffer(e)}
-          onModerate={(id, status) => void moderateOffer(id, status)}
-          onGoToConventions={() => setTab("conventions")}
-        />
       )}
 
       {tab === "conventions" && (

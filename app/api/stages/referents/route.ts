@@ -4,9 +4,9 @@ import { NextResponse } from "next/server";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { canReviewPreconvention } from "@/app/lib/stage-access";
+import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
 import {
   getStageReferentsConfig,
-  listStageReferentClassNames,
   saveStageReferentsConfig,
   type StageClassReferentAssignment,
   type StageReferentsConfig,
@@ -49,7 +49,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const schoolYear = searchParams.get("schoolYear")?.trim() || currentStageSchoolYear();
     const config = await getStageReferentsConfig(schoolYear);
-    const classes = await listStageReferentClassNames(config?.assignments.map((a) => a.className));
+    const classes = await listStageEnabledClassNames(schoolYear);
 
     const prevYearParts = schoolYear.split("-").map(Number);
     const prevYear =

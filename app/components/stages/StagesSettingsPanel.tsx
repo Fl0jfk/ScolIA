@@ -36,8 +36,9 @@ export default function StagesSettingsPanel({
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-[#1F3D2B]">Classes concernées par les stages</h2>
         <p className="mt-2 text-sm text-stone-600 max-w-2xl">
-          Ajoutez uniquement les classes qui feront des stages cette année (ex. toutes les 4ᵉ, 3ᵉ,
-          2nde, 1ʳᵉ). Les autres classes n&apos;apparaissent ni ici ni sur le formulaire public.
+          Sélectionnez les classes collège et lycée importées depuis SIECLE, puis configurez leurs
+          périodes. Seules les classes activées apparaissent dans la section référents ci-dessous.
+          Les classes non configurées restent autorisées sur le formulaire public de préconvention.
         </p>
         <div className="mt-4">
           <StagePeriodsEditor initialYear={year} onSaved={(m) => onSavedMsg(m)} />
@@ -47,9 +48,9 @@ export default function StagesSettingsPanel({
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-[#1F3D2B]">Professeurs principaux / référents par classe</h2>
         <p className="mt-2 text-sm text-stone-600 max-w-2xl">
-          Assignez le professeur principal (ou référent stage) de chaque classe activée. Il verra
-          l&apos;onglet <strong>Suivi classe</strong> avec tous les élèves et l&apos;état de leurs
-          conventions, et recevra les demandes de signature par e-mail.
+          Assignez un ou plusieurs professeurs référents pour chaque classe activée ci-dessus. Ils
+          verront l&apos;onglet <strong>Suivi classe</strong> avec tous les élèves et l&apos;état de
+          leurs conventions, et recevront les demandes de signature par e-mail.
         </p>
         <div className="mt-4">
           <StageReferentsEditor initialYear={year} onSaved={(m) => onSavedMsg(m)} />

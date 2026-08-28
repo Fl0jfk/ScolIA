@@ -1,6 +1,6 @@
 import type { PendingStageSignature } from "@/app/lib/stage-pending-signatures";
 
-export type StageTab = "board" | "classe" | "offers" | "conventions" | "settings";
+export type StageTab = "board" | "classe" | "conventions" | "settings";
 
 export type StagesHubPermissions = {
   canModerateOffers: boolean;

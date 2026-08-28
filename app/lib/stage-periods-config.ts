@@ -144,11 +144,7 @@ export async function isClassEligibleForStage(
   }
   const entry = findClassConfig(config, className);
   if (!entry) {
-    return {
-      ok: false,
-      reason:
-        "Votre classe n'est pas concernée par les stages cette année. Contactez le secrétariat si vous pensez qu'il s'agit d'une erreur.",
-    };
+    return { ok: true };
   }
   if (!entry.enabled) {
     return {

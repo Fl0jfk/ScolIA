@@ -34,7 +34,6 @@ export default function StagesBoardPanel({
                   : []),
               ]
             : [
-                ["Offres en attente", board.counts.pendingOffers],
                 ["Dépôts à valider", board.counts.adminQueue],
                 ["Signatures en cours", board.counts.signaturesPending],
                 ["Conventions actives", board.counts.conventions],

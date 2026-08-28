@@ -38,7 +38,7 @@ export default function StageReferentsEditor({
 }) {
   const [schoolYear, setSchoolYear] = useState(initialYear || currentSchoolYearLabel());
   const [classes, setClasses] = useState<string[]>([]);
-  const [assignments, setAssignments] = useState<Record<string, string>>({});
+  const [assignments, setAssignments] = useState<Record<string, string[]>>({});
   const [users, setUsers] = useState<DirectoryUser[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [updatedBy, setUpdatedBy] = useState<string | null>(null);
@@ -48,7 +48,7 @@ export default function StageReferentsEditor({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [customClass, setCustomClass] = useState("");
+  const [pickerByClass, setPickerByClass] = useState<Record<string, string>>({});
 
   const userById = useMemo(() => {
     const map = new Map<string, DirectoryUser>();
@@ -75,9 +75,15 @@ export default function StageReferentsEditor({
       setUpdatedAt(refData.config?.updatedAt || null);
       setUpdatedBy(refData.config?.updatedBy || null);
 
-      const map: Record<string, string> = {};
+      const map: Record<string, string[]> = {};
+      for (const className of refData.classes || []) {
+        map[className] = [];
+      }
       for (const a of (refData.config?.assignments || []) as Assignment[]) {
-        map[a.className] = a.externalUserId;
+        if (!map[a.className]) map[a.className] = [];
+        if (!map[a.className]!.includes(a.externalUserId)) {
+          map[a.className]!.push(a.externalUserId);
+        }
       }
       setAssignments(map);
     } catch (e: unknown) {
@@ -91,33 +97,37 @@ export default function StageReferentsEditor({
     void load(schoolYear);
   }, [schoolYear, load]);
 
-  function setClassReferent(className: string, externalUserId: string) {
+  function addReferent(className: string, externalUserId: string) {
+    if (!externalUserId) return;
     setAssignments((prev) => {
-      const next = { ...prev };
-      if (!externalUserId) delete next[className];
-      else next[className] = externalUserId;
-      return next;
+      const current = prev[className] ?? [];
+      if (current.includes(externalUserId)) return prev;
+      return { ...prev, [className]: [...current, externalUserId] };
     });
+    setPickerByClass((prev) => ({ ...prev, [className]: "" }));
+  }
+
+  function removeReferent(className: string, externalUserId: string) {
+    setAssignments((prev) => ({
+      ...prev,
+      [className]: (prev[className] ?? []).filter((id) => id !== externalUserId),
+    }));
   }
 
   function copyFromPreviousYear() {
     if (!previousConfig?.assignments.length) return;
-    const map: Record<string, string> = {};
+    const map: Record<string, string[]> = {};
+    for (const className of classes) map[className] = [];
     for (const a of previousConfig.assignments) {
-      if (userById.has(a.externalUserId)) map[a.className] = a.externalUserId;
+      if (!classes.includes(a.className)) continue;
+      if (!userById.has(a.externalUserId)) continue;
+      if (!map[a.className]) map[a.className] = [];
+      if (!map[a.className]!.includes(a.externalUserId)) {
+        map[a.className]!.push(a.externalUserId);
+      }
     }
     setAssignments(map);
     onSaved?.(`Affectations copiées depuis ${previousConfig.schoolYear}.`);
-  }
-
-  function addCustomClass() {
-    const name = customClass.trim();
-    if (!name || classes.includes(name)) {
-      setCustomClass("");
-      return;
-    }
-    setClasses((prev) => [...prev, name].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" })));
-    setCustomClass("");
   }
 
   async function save() {
@@ -126,16 +136,16 @@ export default function StageReferentsEditor({
     try {
       const payload: Assignment[] = [];
       for (const className of classes) {
-        const externalUserId = assignments[className];
-        if (!externalUserId) continue;
-        const u = userById.get(externalUserId);
-        if (!u) continue;
-        payload.push({
-          className,
-          externalUserId,
-          name: userLabel(u),
-          email: u.email,
-        });
+        for (const externalUserId of assignments[className] ?? []) {
+          const u = userById.get(externalUserId);
+          if (!u) continue;
+          payload.push({
+            className,
+            externalUserId,
+            name: userLabel(u),
+            email: u.email,
+          });
+        }
       }
       const res = await fetch("/api/stages/referents", {
         method: "PUT",
@@ -146,7 +156,9 @@ export default function StageReferentsEditor({
       if (!res.ok) throw new Error(data?.error || "Erreur");
       setUpdatedAt(data.config?.updatedAt || null);
       setUpdatedBy(data.config?.updatedBy || null);
-      onSaved?.(`Professeurs référents enregistrés pour ${schoolYear} (${payload.length} classe(s)).`);
+      onSaved?.(
+        `Professeurs référents enregistrés pour ${schoolYear} (${payload.length} affectation(s)).`,
+      );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -154,7 +166,7 @@ export default function StageReferentsEditor({
     }
   }
 
-  const assignedCount = Object.keys(assignments).filter((k) => assignments[k]).length;
+  const assignedCount = Object.values(assignments).reduce((n, ids) => n + ids.length, 0);
 
   if (loading) {
     return <p className="text-sm text-stone-500">Chargement des référents…</p>;
@@ -188,71 +200,95 @@ export default function StageReferentsEditor({
       </div>
 
       <p className="text-sm text-stone-600">
-        Assignez un utilisateur (professeur) à chaque classe. Lors d&apos;une candidature ou préconvention,
-        le référent est rempli automatiquement selon la classe de l&apos;élève.
+        Assignez un ou plusieurs professeurs référents à chaque classe activée ci-dessus. Chaque
+        référent voit l&apos;onglet <strong>Suivi classe</strong> pour ses classes et les conventions
+        des élèves concernés.
       </p>
 
       {updatedAt && (
         <p className="text-xs text-stone-500">
           Dernière mise à jour : {new Date(updatedAt).toLocaleString("fr-FR")}
-          {updatedBy ? ` par ${updatedBy}` : ""} — {assignedCount} classe(s) assignée(s)
+          {updatedBy ? ` par ${updatedBy}` : ""} — {assignedCount} affectation(s)
         </p>
       )}
 
-      {users.length === 0 ? (
+      {classes.length === 0 ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Aucune classe activée dans la section « Classes concernées ». Activez d&apos;abord les
+          classes avant d&apos;assigner des référents.
+        </p>
+      ) : users.length === 0 ? (
         <p className="text-sm text-amber-800 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
           Aucun utilisateur avec le rôle professeur trouvé.
         </p>
       ) : (
         <div className="max-h-[420px] overflow-y-auto rounded-xl border border-stone-200 divide-y divide-stone-100">
-          {classes.map((className) => (
-            <div
-              key={className}
-              className="flex flex-wrap items-center gap-3 px-4 py-3 bg-white even:bg-stone-50/50"
-            >
-              <span className="w-16 shrink-0 font-bold text-[#1F3D2B]">{className}</span>
-              <select
-                className="min-w-[220px] flex-1 rounded-lg border border-stone-300 px-3 py-2 text-sm"
-                value={assignments[className] || ""}
-                onChange={(e) => setClassReferent(className, e.target.value)}
-              >
-                <option value="">— Non assigné —</option>
-                {users.map((u) => (
-                  <option key={u.externalUserId} value={u.externalUserId}>
-                    {userLabel(u)} ({u.email})
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))}
+          {classes.map((className) => {
+            const assigned = assignments[className] ?? [];
+            const availableUsers = users.filter((u) => !assigned.includes(u.externalUserId));
+            return (
+              <div key={className} className="px-4 py-3 bg-white even:bg-stone-50/50 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="w-16 shrink-0 font-bold text-[#1F3D2B]">{className}</span>
+                  {assigned.length === 0 && (
+                    <span className="text-xs text-stone-500">Aucun référent assigné</span>
+                  )}
+                </div>
+                {assigned.length > 0 && (
+                  <ul className="flex flex-wrap gap-2">
+                    {assigned.map((id) => {
+                      const u = userById.get(id);
+                      if (!u) return null;
+                      return (
+                        <li
+                          key={id}
+                          className="inline-flex items-center gap-1 rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs"
+                        >
+                          <span>
+                            {userLabel(u)} ({u.email})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeReferent(className, id)}
+                            className="text-rose-700 font-bold leading-none"
+                            aria-label={`Retirer ${userLabel(u)}`}
+                          >
+                            ×
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {availableUsers.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      className="min-w-[220px] flex-1 rounded-lg border border-stone-300 px-3 py-2 text-sm"
+                      value={pickerByClass[className] || ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) addReferent(className, val);
+                        else setPickerByClass((prev) => ({ ...prev, [className]: "" }));
+                      }}
+                    >
+                      <option value="">+ Ajouter un référent</option>
+                      {availableUsers.map((u) => (
+                        <option key={u.externalUserId} value={u.externalUserId}>
+                          {userLabel(u)} ({u.email})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          className="rounded-lg border border-stone-300 px-3 py-2 text-sm"
-          placeholder="Classe hors liste (ex. 3G)"
-          value={customClass}
-          onChange={(e) => setCustomClass(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              addCustomClass();
-            }
-          }}
-        />
-        <button
-          type="button"
-          onClick={addCustomClass}
-          className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700"
-        >
-          Ajouter une classe
-        </button>
-      </div>
-
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || classes.length === 0}
         onClick={() => void save()}
         className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
       >

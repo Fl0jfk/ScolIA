@@ -15,19 +15,17 @@ import {
 import { ensureStageYearAutoPurge } from "@/app/lib/stage-auto-purge";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import { listPendingSignaturesForUser } from "@/app/lib/stage-pending-signatures";
+import { listClassesForReferentUser } from "@/app/lib/stage-referents-config";
 import {
   conventionMatchesStageSecteurs,
-  offerMatchesStageSecteurs,
   resolveStageViewerSecteurs,
   stageViewerSecteurSummary,
 } from "@/app/lib/stage-sector-scope";
 import {
   getConventionsIndex,
-  getOffersIndex,
   getStageConvention,
-  getStageOffer,
 } from "@/app/lib/stage-storage";
-import { STAGE_CONVENTION_STATUS_LABELS, STAGE_OFFER_KIND_LABELS } from "@/app/lib/stage-types";
+import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
 
 export async function GET() {
   try {
@@ -45,27 +43,25 @@ export async function GET() {
 
     const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
 
-    const [offersIndex, conventionsIndex] = await Promise.all([getOffersIndex(), getConventionsIndex()]);
-    const allOffers = (
-      await Promise.all(offersIndex.map((e) => getStageOffer(e.id)))
-    ).filter((o): o is NonNullable<typeof o> => Boolean(o));
+    const [conventionsIndex] = await Promise.all([getConventionsIndex()]);
     const allConventions = (
       await Promise.all(conventionsIndex.map((e) => getStageConvention(e.id)))
     ).filter((c): c is NonNullable<typeof c> => Boolean(c));
 
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
+    const referentClassNames = canViewReferentConventions(roles)
+      ? await listClassesForReferentUser(gate.ctx.userId)
+      : [];
     let conventions = allConventions.filter((c) =>
-      conventionVisibleToUser(c, roles, userEmail, gate.ctx.userId),
+      conventionVisibleToUser(c, roles, userEmail, gate.ctx.userId, referentClassNames),
     );
-    let offers = allOffers;
 
     if (viewerSecteurs.length > 0) {
       conventions = conventions.filter((c) => conventionMatchesStageSecteurs(c, viewerSecteurs));
-      offers = offers.filter((o) => offerMatchesStageSecteurs(o, viewerSecteurs));
     }
 
     const activeConventions = conventions.filter((c) => c.status !== "archived");
-    const pendingOffers = offers.filter((o) => o.status === "pending");
+    const pendingOffers = 0;
     const adminQueue = activeConventions.filter(
       (c) =>
         c.status === "admin_review" ||
@@ -97,15 +93,14 @@ export async function GET() {
         canViewClassRoster: canViewReferentConventions(roles) || canViewAllConventions(roles),
       },
       counts: {
-        offers: offers.length,
-        pendingOffers: pendingOffers.length,
+        pendingOffers,
         conventions: activeConventions.length,
         adminQueue: adminQueue.length,
         signaturesPending: signaturesPending.length,
         myPendingSignatures: myPendingSignatures.length,
       },
       myPendingSignatures,
-      pendingOffers: pendingOffers.slice(0, 20),
+      pendingOffers: [],
       adminQueue: adminQueue.slice(0, 20),
       signaturesPending: signaturesPending.slice(0, 20),
       conventions: activeConventions.slice(0, 100).map((c) => ({
@@ -118,7 +113,6 @@ export async function GET() {
         periodEnd: c.schedule.periodEnd,
       })),
       labels: {
-        offerKinds: STAGE_OFFER_KIND_LABELS,
         conventionStatuses: STAGE_CONVENTION_STATUS_LABELS,
       },
     });

@@ -4,17 +4,16 @@ import { NextResponse } from "next/server";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { canViewAllConventions, canViewReferentConventions } from "@/app/lib/stage-access";
-import { buildStageClassRoster } from "@/app/lib/stage-class-roster";
+import { buildStageClassRoster, listStageRosterClassNames } from "@/app/lib/stage-class-roster";
 import {
   classNameMatchesStageSecteurs,
   resolveStageViewerSecteurs,
 } from "@/app/lib/stage-sector-scope";
 import {
   classKey,
-  findReferentAssignment,
+  findReferentAssignments,
   getStageReferentsConfig,
   listClassesForReferentUser,
-  listStageReferentClassNames,
 } from "@/app/lib/stage-referents-config";
 import { currentStageSchoolYear } from "@/app/lib/stage-types";
 
@@ -43,8 +42,8 @@ export async function GET(req: Request) {
 
     let availableClasses: string[];
     if (isAdmin) {
-      const fromConfig = await listStageReferentClassNames();
-      availableClasses = [...new Set([...fromConfig, ...referentClasses])].sort((a, b) =>
+      const fromRoster = await listStageRosterClassNames();
+      availableClasses = [...new Set([...fromRoster, ...referentClasses])].sort((a, b) =>
         a.localeCompare(b, "fr", { sensitivity: "base" }),
       );
     } else {
@@ -63,7 +62,7 @@ export async function GET(req: Request) {
         availableClasses: [],
         roster: null,
         message:
-          "Aucune classe ne vous est assignée. L'administratif doit vous désigner comme professeur référent / principal dans Stages → Professeurs référents par classe.",
+          "Aucune classe ne vous est assignée. L'administratif doit vous désigner comme professeur référent / principal dans Stages → Réglages.",
       });
     }
 
@@ -81,16 +80,14 @@ export async function GET(req: Request) {
     }
 
     const config = await getStageReferentsConfig(schoolYear);
-    const assignment = findReferentAssignment(config, className);
+    const assignments = findReferentAssignments(config, className);
 
     const roster = await buildStageClassRoster(className, schoolYear);
 
     return NextResponse.json({
       schoolYear,
       availableClasses,
-      referent: assignment
-        ? { name: assignment.name, email: assignment.email }
-        : null,
+      referents: assignments.map((a) => ({ name: a.name, email: a.email })),
       roster,
     });
   } catch (error) {

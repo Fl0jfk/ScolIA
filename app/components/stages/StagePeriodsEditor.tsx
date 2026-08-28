@@ -7,6 +7,12 @@ import type {
   StagePeriodReminder,
 } from "@/app/lib/stage-periods-config";
 
+type SiecleClassOption = {
+  code: string;
+  label: string;
+  pole: "COLLÈGE" | "LYCÉE";
+};
+
 function currentSchoolYearLabel() {
   const now = new Date();
   const y = now.getFullYear();
@@ -31,7 +37,7 @@ export default function StagePeriodsEditor({
   onSaved?: (message: string) => void;
 }) {
   const [schoolYear, setSchoolYear] = useState(initialYear || currentSchoolYearLabel());
-  const [suggestedClasses, setSuggestedClasses] = useState<string[]>([]);
+  const [siecleClasses, setSiecleClasses] = useState<SiecleClassOption[]>([]);
   const [classes, setClasses] = useState<StageClassStageConfig[]>([]);
   const [expandedClass, setExpandedClass] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
@@ -42,7 +48,7 @@ export default function StagePeriodsEditor({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [customClass, setCustomClass] = useState("");
+  const [selectedClass, setSelectedClass] = useState("");
 
   const load = useCallback(async (year: string) => {
     setLoading(true);
@@ -54,7 +60,7 @@ export default function StagePeriodsEditor({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur chargement périodes");
 
-      setSuggestedClasses(data.suggestedClasses || []);
+      setSiecleClasses(data.siecleClasses || []);
       setPreviousConfig(data.previousConfig || null);
       setUpdatedAt(data.config?.updatedAt || null);
       setUpdatedBy(data.config?.updatedBy || null);
@@ -172,10 +178,10 @@ export default function StagePeriodsEditor({
     onSaved?.(`Configuration copiée depuis ${previousConfig.schoolYear}.`);
   }
 
-  function addClass(name: string) {
-    const trimmed = name.trim();
+  function addClass(code: string) {
+    const trimmed = code.trim();
     if (!trimmed || classes.some((c) => c.className.toLowerCase() === trimmed.toLowerCase())) {
-      setCustomClass("");
+      setSelectedClass("");
       return;
     }
     setClasses((prev) =>
@@ -183,7 +189,7 @@ export default function StagePeriodsEditor({
         a.className.localeCompare(b.className, "fr", { sensitivity: "base" }),
       ),
     );
-    setCustomClass("");
+    setSelectedClass("");
     setExpandedClass(trimmed);
   }
 
@@ -219,7 +225,7 @@ export default function StagePeriodsEditor({
 
   const enabledCount = classes.filter((c) => c.enabled).length;
   const existingNames = new Set(classes.map((c) => c.className.toLowerCase()));
-  const pickSuggestions = suggestedClasses.filter((c) => !existingNames.has(c.toLowerCase()));
+  const pickOptions = siecleClasses.filter((c) => !existingNames.has(c.code.toLowerCase()));
 
   if (loading) {
     return <p className="text-sm text-stone-500">Chargement des périodes…</p>;
@@ -253,8 +259,9 @@ export default function StagePeriodsEditor({
       </div>
 
       <p className="text-sm text-stone-600 max-w-3xl">
-        Ajoutez les classes concernées par les stages, puis configurez leurs périodes et rappels. Seules
-        les classes listées ici apparaissent sur le formulaire public et dans les référents.
+        Sélectionnez les classes collège et lycée importées depuis SIECLE, puis configurez leurs
+        périodes et rappels. Les classes désactivées restent visibles ici mais n&apos;apparaissent
+        pas dans les référents ni sur le formulaire public.
       </p>
 
       {updatedAt && (
@@ -264,14 +271,22 @@ export default function StagePeriodsEditor({
         </p>
       )}
 
+      {siecleClasses.length === 0 && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Aucune classe SIECLE (collège / lycée) trouvée. Importez la nomenclature SIECLE avant de
+          configurer les stages.
+        </p>
+      )}
+
       {classes.length === 0 ? (
         <p className="rounded-xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-600">
-          Aucune classe configurée. Ajoutez les classes qui feront des stages cette année (ex. 4ᵉ, 3ᵉ,
-          2nde, 1ʳᵉ).
+          Aucune classe configurée. Ajoutez une classe depuis la liste SIECLE ci-dessous.
         </p>
       ) : (
         <div className="space-y-2 max-h-[520px] overflow-y-auto rounded-xl border border-stone-200">
-          {classes.map((c) => (
+          {classes.map((c) => {
+            const siecle = siecleClasses.find((s) => s.code === c.className);
+            return (
             <div key={c.className} className="border-b border-stone-100 last:border-0 bg-white">
               <div className="flex flex-wrap items-center gap-3 px-4 py-3">
                 <label className="flex items-center gap-2 shrink-0">
@@ -281,6 +296,11 @@ export default function StagePeriodsEditor({
                     onChange={(e) => updateClass(c.className, { enabled: e.target.checked })}
                   />
                   <span className="font-bold text-[#1F3D2B] min-w-[3rem]">{c.className}</span>
+                  {siecle && (
+                    <span className="text-xs text-stone-500">
+                      {siecle.label} · {siecle.pole}
+                    </span>
+                  )}
                 </label>
                 <button
                   type="button"
@@ -433,45 +453,33 @@ export default function StagePeriodsEditor({
                 </div>
               )}
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          className="rounded-lg border border-stone-300 px-3 py-2 text-sm"
-          placeholder="Nom de classe (ex. 4e, 3e, 2nde, 1re)"
-          value={customClass}
-          onChange={(e) => setCustomClass(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              addClass(customClass);
-            }
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => addClass(customClass)}
-          className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700"
-        >
-          Ajouter une classe
-        </button>
-      </div>
-
-      {pickSuggestions.length > 0 && (
+      {pickOptions.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-stone-500">Suggestions :</span>
-          {pickSuggestions.slice(0, 12).map((name) => (
-            <button
-              key={name}
-              type="button"
-              onClick={() => addClass(name)}
-              className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs font-medium text-stone-700 hover:bg-stone-100"
-            >
-              + {name}
-            </button>
-          ))}
+          <select
+            className="min-w-[220px] rounded-lg border border-stone-300 px-3 py-2 text-sm"
+            value={selectedClass}
+            onChange={(e) => setSelectedClass(e.target.value)}
+          >
+            <option value="">— Choisir une classe SIECLE —</option>
+            {pickOptions.map((opt) => (
+              <option key={opt.code} value={opt.code}>
+                {opt.code} — {opt.label} ({opt.pole})
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={!selectedClass}
+            onClick={() => addClass(selectedClass)}
+            className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 disabled:opacity-50"
+          >
+            Ajouter la classe
+          </button>
         </div>
       )}
 
