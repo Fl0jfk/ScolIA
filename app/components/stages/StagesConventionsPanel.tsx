@@ -39,15 +39,12 @@ export default function StagesConventionsPanel({
     <div className="grid gap-8 lg:grid-cols-2">
       <div
         className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-6 shadow-sm space-y-3 text-sm"
-        data-tour="stages-deposer-link"
+        data-tour="stages-preconvention-link"
       >
-        <h2 className="text-lg font-bold text-[#1F3D2B]">Préconventions élèves</h2>
+        <h2 className="text-lg font-bold text-[#1F3D2B]">Formulaire public élèves</h2>
         <p className="text-stone-600">
-          Les élèves remplissent leur préconvention sur{" "}
-          <a href="/stages/preconvention" target="_blank" rel="noopener noreferrer" className="text-[#2F6B4A] underline font-semibold">
-            /stages/preconvention
-          </a>
-          . Après validation administrative, les signataires reçoivent un code sécurisé par e-mail.
+          Lien à communiquer aux familles : identification INE puis formulaire en ligne (entreprise,
+          horaires, dates) — pas de dépôt PDF.
         </p>
         <a
           href="/stages/preconvention"
