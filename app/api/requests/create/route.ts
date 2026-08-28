@@ -253,6 +253,8 @@ export async function POST(req: Request) {
         ...(routing.directionHint ? { directionHint: routing.directionHint } : {}),
         ...(routing.routingMeta?.assignmentId ? { assignmentId: routing.routingMeta.assignmentId } : {}),
         ...(routing.routingMeta?.taskId ? { taskId: routing.routingMeta.taskId } : {}),
+        ...(routing.routingMeta?.unitId ? { unitId: routing.routingMeta.unitId } : {}),
+        ...(routing.routingMeta?.servicePile ? { servicePile: routing.routingMeta.servicePile } : {}),
       },
       ...(attachments?.length ? { attachments } : {}),
       comments: [],

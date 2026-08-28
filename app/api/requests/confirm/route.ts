@@ -54,6 +54,8 @@ export async function GET(req: NextRequest) {
         ...(routing.directionHint ? { directionHint: routing.directionHint } : {}),
         ...(routing.routingMeta?.assignmentId ? { assignmentId: routing.routingMeta.assignmentId } : {}),
         ...(routing.routingMeta?.taskId ? { taskId: routing.routingMeta.taskId } : {}),
+        ...(routing.routingMeta?.unitId ? { unitId: routing.routingMeta.unitId } : {}),
+        ...(routing.routingMeta?.servicePile ? { servicePile: routing.routingMeta.servicePile } : {}),
       },
       ...(meta.parentContext ? { parentContext: meta.parentContext } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),

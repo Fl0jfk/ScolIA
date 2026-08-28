@@ -7,7 +7,15 @@ import {
 } from "@/app/lib/app-config-schemas";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { defaultRequestsRouting, RH_REQUEST_ROUTE_ID, isManualOnlyDirectionRoute } from "@/app/lib/requests-routing-defaults";
-import { syncStaffDirectoryFromRequestsConfig } from "@/app/lib/requests-org-config";
+import { syncStaffDirectoryFromRequestsConfig, getRequestsOrgConfig } from "@/app/lib/requests-org-config";
+import {
+  buildUnitCatalog,
+  corbeilleUnitFallback,
+  keywordFallbackByUnit,
+  orgUnitRoutingEnabled,
+  resolveRoutingFromUnitPick,
+  type UnitRoutingPick,
+} from "@/app/lib/requests-org-routing";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import type { ResolvedRequestRouting } from "@/app/lib/requests";
 import {
@@ -517,13 +525,145 @@ function corbeilleFallback(
   };
 }
 
-export async function resolveRoutingFromCatalog(
+type AiUnitRoutingPick = UnitRoutingPick;
+
+function buildUnitCatalogPayload(org: Awaited<ReturnType<typeof getRequestsOrgConfig>>, config: RequestsRoutingConfig) {
+  const catalog = buildUnitCatalog(org, config);
+  const corbeilleUnit = catalog.find((e) => e.taskIds.includes("corbeille")) ?? null;
+  return {
+    catalog: catalog.map((e) => ({
+      unitId: e.unitId,
+      unitLabel: e.unitLabel,
+      parentUnitLabel: e.parentUnitLabel,
+      tasks: e.tasks,
+      aggregatedKeywords: e.aggregatedKeywords,
+    })),
+    corbeilleUnitId: corbeilleUnit?.unitId ?? null,
+  };
+}
+
+async function callMistralUnitRouting(
   subject: string,
   description: string,
-): Promise<ResolvedRequestRouting> {
-  const config = await getRequestsRoutingConfig();
-  const eleveCtx = await buildRequestEleveContext(subject, description);
+  org: Awaited<ReturnType<typeof getRequestsOrgConfig>>,
+  config: RequestsRoutingConfig,
+  eleveCtx?: RequestEleveContext | null,
+): Promise<AiUnitRoutingPick | null> {
+  const apiKey = await getMistralApiKey();
+  if (!apiKey) return null;
 
+  const { catalog, corbeilleUnitId } = buildUnitCatalogPayload(org, config);
+  if (catalog.length === 0) return null;
+
+  const system = `Tu es le routeur de demandes internes d'un groupe scolaire.
+Catalogue JSON : chaque entrée = un SERVICE (unitId) avec une ou plusieurs FILES (tasks) et leurs mots-clés.
+Tu ne choisis JAMAIS une personne — uniquement unitId + taskId.
+
+Contexte élèves (eleves.json) fourni à part :
+- suggestedSecteur : cycle à privilégier (ecole|college|lycee) si cohérent avec le texte
+
+Règles STRICTES :
+1. Si suggestedSecteur est connu, privilégie les unités dont le label/id évoque ce cycle (CPE lycée vs CPE collège…).
+2. Si le SERVICE et la FILE sont clairs → unitId + taskId correspondants, confidence >= 0.55.
+3. Si le SERVICE est identifiable mais la personne ne l'est PAS → même unitId/taskId, confidence 0.35–0.54 (pile du service, PAS corbeille).
+4. Corbeille (taskId=corbeille, unitId=${corbeilleUnitId || "corbeille"}) UNIQUEMENT si :
+   - ambiguïté entre PLUSIEURS services différents, OU
+   - aucune correspondance crédible.
+5. Ne redirige JAMAIS vers la corbeille uniquement parce que la personne est incertaine.
+
+Réponds UNIQUEMENT en JSON valide : {"unitId":"...","taskId":"...","confidence":0.0-1.0,"reason":"...","directionHint":null ou "direction_..."}`;
+
+  const appConfig = await loadAppConfig();
+  const establishmentLabels = Object.fromEntries(
+    appConfig.establishments.map((e) => [e.id, e.label]),
+  );
+
+  const user = JSON.stringify({
+    subject,
+    description,
+    catalog,
+    corbeilleUnitId,
+    eleveContext: eleveCtx
+      ? {
+          hits: eleveCtx.hits,
+          suggestedSecteur: eleveCtx.suggestedSecteur,
+          textSecteurHints: eleveCtx.textSecteurHints,
+          summary: eleveCtx.summary,
+        }
+      : null,
+    rule: "service_and_task_not_person_low_confidence_to_service_pile_else_corbeille",
+    establishments: establishmentLabels,
+  });
+
+  const res = await fetch(MISTRAL_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "mistral-small-latest",
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+  });
+
+  if (!res.ok) return null;
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) return null;
+
+  try {
+    const parsed = JSON.parse(content) as AiUnitRoutingPick;
+    if (!parsed.unitId || !parsed.taskId) return null;
+    const validUnit = catalog.some((c) => c.unitId === parsed.unitId);
+    if (!validUnit && parsed.taskId !== "corbeille") return null;
+    return {
+      unitId: parsed.unitId,
+      taskId: parsed.taskId,
+      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
+      reason: parsed.reason || "Routage IA (service)",
+      directionHint: parsed.directionHint || undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function resolveRoutingFromOrgCatalog(
+  subject: string,
+  description: string,
+  config: RequestsRoutingConfig,
+  eleveCtx: RequestEleveContext,
+): Promise<ResolvedRequestRouting> {
+  const org = await getRequestsOrgConfig();
+
+  const aiPick = await callMistralUnitRouting(subject, description, org, config, eleveCtx);
+  if (aiPick) return resolveRoutingFromUnitPick(config, org, aiPick, "ai");
+
+  const kwPick = keywordFallbackByUnit(org, config, subject, description, eleveCtx);
+  if (kwPick) return resolveRoutingFromUnitPick(config, org, kwPick, "fallback");
+
+  return corbeilleUnitFallback(
+    config,
+    org,
+    `Aucune correspondance service — corbeille. ${eleveCtx.summary}`.trim(),
+    "fallback",
+  );
+}
+
+async function resolveRoutingFromLegacyCatalog(
+  subject: string,
+  description: string,
+  config: RequestsRoutingConfig,
+  eleveCtx: RequestEleveContext,
+): Promise<ResolvedRequestRouting> {
   const aiPick = await callMistralRouting(subject, description, config, eleveCtx);
   if (aiPick) return pickToResolved(config, aiPick, "ai");
 
@@ -535,6 +675,21 @@ export async function resolveRoutingFromCatalog(
     `Catalogue vide ou sans correspondance — corbeille. ${eleveCtx.summary}`.trim(),
     "fallback",
   );
+}
+
+export async function resolveRoutingFromCatalog(
+  subject: string,
+  description: string,
+): Promise<ResolvedRequestRouting> {
+  const config = await getRequestsRoutingConfig();
+  const eleveCtx = await buildRequestEleveContext(subject, description);
+  const org = await getRequestsOrgConfig();
+
+  if (orgUnitRoutingEnabled(org)) {
+    return resolveRoutingFromOrgCatalog(subject, description, config, eleveCtx);
+  }
+
+  return resolveRoutingFromLegacyCatalog(subject, description, config, eleveCtx);
 }
 
 export async function getAllBranchStaffEmailsFromRouting(): Promise<string[]> {

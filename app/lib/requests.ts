@@ -154,6 +154,8 @@ export type RequestRecord = {
     suggestedRouteId?: string;
     assignmentId?: string;
     taskId?: string;
+    unitId?: string;
+    servicePile?: boolean;
     directionHint?: {
       suggestedQueueId: string;
       label: string;
@@ -670,7 +672,12 @@ export type ResolvedRequestRouting = {
   reason: string;
   suggestedRouteId?: string;
   directionHint?: RequestRecord["routing"]["directionHint"];
-  routingMeta?: { assignmentId: string; taskId: string };
+  routingMeta?: {
+    assignmentId: string;
+    taskId: string;
+    unitId?: string;
+    servicePile?: boolean;
+  };
 };
 
 export async function resolveRequestRouting(subject: string, description: string): Promise<ResolvedRequestRouting> {

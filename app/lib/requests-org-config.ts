@@ -115,6 +115,16 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
         canDelegateToChildUnits: true,
         active: true,
       },
+      {
+        id: "corbeille_etablissement",
+        label: "Corbeille établissement",
+        parentUnitId: null,
+        managerEmails: [],
+        memberEmails: [],
+        taskIds: ["corbeille"],
+        canDelegateToChildUnits: false,
+        active: true,
+      },
     ],
   };
 }

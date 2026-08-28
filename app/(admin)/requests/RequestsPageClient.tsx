@@ -66,6 +66,8 @@ type RequestRecord = {
     confidence?: number;
     reason?: string;
     suggestedRouteId?: string;
+    unitId?: string;
+    servicePile?: boolean;
     directionHint?: { suggestedQueueId: string; label: string; confidence?: number; reason?: string };
   };
   parentContext?: {
@@ -853,7 +855,8 @@ export default function RequestsPage() {
               {colCards.map((r) => {
                 const pool = r.assignedTo.poolEmails && r.assignedTo.poolEmails.length > 0 ? r.assignedTo.poolEmails : [r.assignedTo.email];
                 const isCorbeilleCard = r.assignedTo.routeId === "corbeille" || r.assignedTo.unit === "corbeille" || r.assignedTo.unit === "tri.inconnu";
-                const sharedPool = isCorbeilleCard || (r.assignedTo.poolEmails?.length ?? 0) > 1;
+                const isServicePile = Boolean(r.routing?.servicePile) && !isCorbeilleCard;
+                const sharedPool = isCorbeilleCard || isServicePile || (r.assignedTo.poolEmails?.length ?? 0) > 1;
                 const inPool = Boolean(userEmail && pool.some((p) => normEmail(p) === normEmail(userEmail)));
                 const claimed = r.assignedTo.claimedBy;
                 const claimedByOther = claimed?.email && userEmail && normEmail(claimed.email) !== normEmail(userEmail);
@@ -1049,6 +1052,10 @@ export default function RequestsPage() {
                     {isCorbeilleCard ? (
                       <p className="text-[9px] text-rose-900 bg-rose-50/90 rounded px-1.5 py-1">
                         Corbeille établissement — visible par tout le personnel.
+                      </p>
+                    ) : isServicePile ? (
+                      <p className="text-[9px] text-violet-900 bg-violet-50/90 rounded px-1.5 py-1">
+                        Pile service — les managers peuvent prendre en charge ou confier à un membre.
                       </p>
                     ) : sharedPool ? (
                       <p className="text-[9px] text-indigo-800 bg-indigo-50/80 rounded px-1.5 py-1">
