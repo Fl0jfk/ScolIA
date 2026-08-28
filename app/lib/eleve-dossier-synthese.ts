@@ -15,6 +15,7 @@ import {
   parseEleveGrilleRepas,
   type EleveGrilleRepas,
 } from "@/app/lib/eleve-grille-repas";
+import { eleveStatusLabel } from "@/app/lib/eleve-dossier-labels";
 
 export type EleveRegimeRestauration = "externe" | "demi_pension" | "interne";
 
@@ -73,36 +74,6 @@ export type EleveSyntheseSnapshot = {
 };
 
 const WEEK_DAYS = MEAL_DAY_ORDER;
-
-export function eleveStatusLabel(status: string | null | undefined): string {
-  switch (String(status || "").trim().toLowerCase()) {
-    case "inscrit":
-      return "Scolarisé";
-    case "preinscrit":
-      return "Préinscription";
-    case "ancien":
-      return "Ancien";
-    case "archive":
-      return "Archivé";
-    default:
-      return status?.trim() || "—";
-  }
-}
-
-export function scolariteStatutLabel(statut: string | null | undefined): string {
-  switch (String(statut || "").trim().toLowerCase()) {
-    case "en_cours":
-      return "Année en cours";
-    case "prevue":
-      return "Prévue";
-    case "terminee":
-      return "Terminée";
-    case "annulee":
-      return "Annulée";
-    default:
-      return statut?.trim() || "—";
-  }
-}
 
 function splitGroupesForSynthese(
   groupes: Array<{ code: string; libelle: string; type: string }>,

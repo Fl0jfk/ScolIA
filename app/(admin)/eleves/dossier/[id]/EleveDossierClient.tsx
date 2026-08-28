@@ -14,7 +14,7 @@ import {
 } from "@/app/lib/eleve-doc-categories";
 import EleveFinancesPanel from "@/app/components/eleves/EleveFinancesPanel";
 import EleveDossierSidebar from "@/app/components/eleves/EleveDossierSidebar";
-import { scolariteStatutLabel } from "@/app/lib/eleve-dossier-synthese";
+import { scolariteStatutLabel } from "@/app/lib/eleve-dossier-labels";
 import {
   formatFoyerFacturationLabel,
   formatFoyerPayeurDetail,
