@@ -45,7 +45,7 @@ Postgres local Cloud Agent (si `install.sh`) :
 
 ## MCP
 
-Config IDE / projet : `.cursor/mcp.json`. Wrapper Postgres : `.cursor/run-postgres-mcp.sh`.
+Config IDE / projet : `.cursor/mcp.json` (chemins portables Linux/macOS). Wrapper Postgres : `.cursor/run-postgres-mcp.sh`.
 
 Config **dashboard Cloud Agents** (à coller) : `.cursor/mcp.cloud.dashboard.json`.
 
@@ -53,7 +53,7 @@ Config **dashboard Cloud Agents** (à coller) : `.cursor/mcp.cloud.dashboard.jso
 |---------|------|-----------|
 | **postgres** | Lire schéma / données | `MCP_DATABASE_URL` ou `DATABASE_URL` |
 | **browser** | Playwright UI locale | Chromium (`npx playwright install chromium`) |
-| **fetch** | Doc officielle | `uvx` |
+| **fetch** | Doc officielle | `uvx` (installé par `install.sh`) |
 | **mistral** | OCR / vision | `MISTRAL_API_KEY` |
 | **scaleway** | Infra | `scw` + `SCW_*` |
 
@@ -64,9 +64,10 @@ Config **dashboard Cloud Agents** (à coller) : `.cursor/mcp.cloud.dashboard.jso
 1. [cursor.com/agents](https://cursor.com/agents) → **MCP** (équipe : Dashboard → Integrations & MCP)
 2. Ajouter chaque serveur **stdio** en copiant depuis `.cursor/mcp.cloud.dashboard.json`
 3. Coller les **vraies** valeurs dans `env` du MCP (`${env:…}` est peu fiable en cloud)
-4. Activer les serveurs → lancer un **nouvel** agent
+4. Si `mcpServerAllowlist` est défini dans l’environnement, y autoriser les commandes `npx` / `uvx` / `bash` / `scw`
+5. Activer les serveurs → lancer un **nouvel** agent
 
-Sans ça, l’agent ne voit que les MCP Cursor internes. Repli : `psql` / `curl` / computer-use.
+Sur une VM cloud, les binaires sont déjà préparés par `install.sh` (`uvx`, `scw`, Playwright). Sans enregistrement dashboard, l’agent ne voit que les MCP Cursor internes — repli : `psql` / `curl` / computer-use.
 
 Si un MCP n’est pas disponible : le signaler, ne pas inventer l’état.
 
