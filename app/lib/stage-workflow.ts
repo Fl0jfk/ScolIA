@@ -1,7 +1,9 @@
 import { randomBytes } from "crypto";
-import { normalizeStageSchedule, validateStageSchedule } from "@/app/lib/stage-schedule";
-import { resolveStagesAdminEmails, resolveStagesDirectionEmail } from "@/app/lib/stage-config";
+import { normalizeStageSchedule, validateStageSchedule, defaultStageSchedule } from "@/app/lib/stage-schedule";
+import { resolveStagesDirectionEmail } from "@/app/lib/stage-config";
+import { generateAndStoreConventionPdf } from "@/app/lib/stage-pdf-store";
 import { stampSignatureOnConventionPdf, roleStampsPdf } from "@/app/lib/stage-pdf-sign";
+import { generateStageSecureCode, normalizeSignEmail } from "@/app/lib/stage-secure-code";
 import {
   notifyAllStageSignatureRequests,
   notifyStageAdminRejected,
@@ -10,15 +12,19 @@ import {
 } from "@/app/lib/stage-notify";
 import {
   getSignTokenRef,
+  getSignCodeLookup,
   getStageConvention,
   getStudentTokenRef,
+  saveSignCodeLookup,
   saveSignTokenRef,
   saveStageConvention,
   saveStudentTokenRef,
 } from "@/app/lib/stage-storage";
 import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
+import { inferStudentLevelFromClass } from "@/app/lib/stage-student-identity";
 import {
   STAGE_SIGNER_ROLE_LABELS,
+  currentStageSchoolYear,
   stageUid,
   type StageConvention,
   type StageSignature,
@@ -45,12 +51,9 @@ function pushHistory(
 }
 
 async function buildDefaultSignatures(convention: StageConvention): Promise<StageSignature[]> {
-  const adminEmails = await resolveStagesAdminEmails();
   const directionEmail = await resolveStagesDirectionEmail(convention.student.level);
 
   const sigs: Array<{ role: StageSignerRole; email?: string }> = [
-    { role: "administratif", email: adminEmails[0] },
-    { role: "eleve", email: convention.student.email },
     { role: "parent", email: convention.parentSignerEmail || convention.student.parentEmail },
     { role: "tuteur_entreprise", email: convention.company.tutorEmail },
     { role: "rh_entreprise", email: convention.company.rhEmail },
@@ -60,12 +63,13 @@ async function buildDefaultSignatures(convention: StageConvention): Promise<Stag
 
   return sigs
     .filter((s) => s.role !== "rh_entreprise" || s.email)
+    .filter((s) => s.email?.trim())
     .map((s) => ({
       id: stageUid("sig"),
       role: s.role,
       label: STAGE_SIGNER_ROLE_LABELS[s.role],
       status: "en_attente" as const,
-      signEmail: s.email,
+      signEmail: s.email!.trim(),
     }));
 }
 
@@ -135,6 +139,7 @@ async function attachSignTokens(convention: StageConvention): Promise<StageConve
       continue;
     }
     const token = generateStageToken();
+    const secureCode = generateStageSecureCode();
     const ref: StageSignTokenRef = {
       conventionId: convention.id,
       signatureId: sig.id,
@@ -142,9 +147,33 @@ async function attachSignTokens(convention: StageConvention): Promise<StageConve
       createdAt: new Date().toISOString(),
     };
     await saveSignTokenRef(token, ref);
-    signatures.push({ ...sig, signToken: token, signSentAt: new Date().toISOString() });
+    if (sig.signEmail?.trim()) {
+      await saveSignCodeLookup(sig.signEmail, secureCode, {
+        token,
+        conventionId: convention.id,
+        signatureId: sig.id,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    signatures.push({
+      ...sig,
+      signToken: token,
+      signSecureCode: secureCode,
+      signSentAt: new Date().toISOString(),
+    });
   }
   return { ...convention, signatures };
+}
+
+export async function resolveSignTokenBySecureCode(
+  email: string,
+  code: string,
+): Promise<string | null> {
+  const normalizedEmail = normalizeSignEmail(email);
+  const normalizedCode = code.replace(/\D/g, "").trim();
+  if (!normalizedEmail || normalizedCode.length !== 6) return null;
+  const lookup = await getSignCodeLookup(normalizedEmail, normalizedCode);
+  return lookup?.token ?? null;
 }
 
 function validateConventionForSubmit(convention: StageConvention): string | null {
@@ -157,6 +186,9 @@ function validateConventionForSubmit(convention: StageConvention): string | null
   }
   if (!convention.company.tutorName.trim() || !convention.company.tutorEmail.trim()) {
     return "Tuteur en entreprise obligatoire.";
+  }
+  if (!convention.parentSignerEmail?.trim() && !convention.student.parentEmail?.trim()) {
+    return "E-mail du responsable légal obligatoire.";
   }
   if (!convention.teacherReferent.name.trim() || !convention.teacherReferent.email.trim()) {
     return "Professeur référent obligatoire.";
@@ -224,7 +256,11 @@ export async function reviewPreconvention(
     },
     signatures: await buildDefaultSignatures(convention),
   };
+  if (!next.signatures.length) {
+    throw new Error("Aucun signataire configuré (vérifiez les e-mails parent, tuteur, prof référent, direction).");
+  }
   next = pushHistory(next, params.byName, "ADMIN_VALIDE");
+  next = await generateAndStoreConventionPdf(next);
   next = { ...next, status: "signatures_pending" };
   next = await attachSignTokens(next);
   next = pushHistory(next, "Système", "SIGNATURES_LANCEES");
@@ -341,11 +377,70 @@ export async function applyConventionSignature(params: {
     updatedAt: now,
   };
   next = pushHistory(next, params.signerName || sig.label, "SIGNATURE", sig.role);
+  if (allSigned) {
+    next = await generateAndStoreConventionPdf(next);
+  }
   await saveStageConvention(next);
   if (allSigned) {
     void notifyStageFullySigned(next).catch((e) => console.error("[stages] notify signed:", e));
   }
   return { ok: true, convention: next };
+}
+
+export async function createPublicPreconventionDraft(student: {
+  firstName: string;
+  lastName: string;
+  className: string;
+  level: string;
+  email?: string;
+  parentEmail?: string;
+  matchedEleveIne?: string;
+}): Promise<{ convention: StageConvention; studentLink: string }> {
+  const now = new Date().toISOString();
+  let convention: StageConvention = {
+    id: stageUid("conv"),
+    schoolYear: currentStageSchoolYear(),
+    status: "draft",
+    internshipKind: "pfmp",
+    student: {
+      firstName: student.firstName.trim(),
+      lastName: student.lastName.trim(),
+      className: student.className.trim(),
+      level: student.level.trim() || inferStudentLevelFromClass(student.className),
+      email: student.email?.trim() || undefined,
+      parentEmail: student.parentEmail?.trim() || undefined,
+    },
+    parentSignerEmail: student.parentEmail?.trim() || undefined,
+    company: {
+      name: "",
+      address: "",
+      activity: "",
+      tutorName: "",
+      tutorEmail: "",
+    },
+    schedule: defaultStageSchedule("uniform_week"),
+    teacherReferent: { name: "", email: "" },
+    signatures: [],
+    createdAt: now,
+    updatedAt: now,
+    createdBy: {
+      role: "eleve",
+      name: `${student.firstName} ${student.lastName}`.trim(),
+    },
+    history: [{ at: now, by: `${student.firstName} ${student.lastName}`.trim(), action: "CREATION_PUBLIQUE" }],
+    ocrMeta: student.matchedEleveIne
+      ? {
+          extractedAt: now,
+          matchedEleveIne: student.matchedEleveIne,
+          matchScore: 100,
+        }
+      : undefined,
+  };
+  convention = await ensureConventionReferent(convention);
+  convention = await ensureStudentAccessToken(convention);
+  await saveStageConvention(convention);
+  const studentLink = `/stages/eleve?token=${encodeURIComponent(convention.studentAccessToken!)}`;
+  return { convention, studentLink };
 }
 
 export async function resolveConventionByStudentToken(token: string) {

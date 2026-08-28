@@ -176,12 +176,12 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
     steps: [
       {
         title: "Vue d'ensemble",
-        body: "Gérez les offres de stage, les conventions déposées par les élèves (PDF), les signatures prof référent + direction, et l'envoi vers OneDrive.",
+        body: "Gérez les offres de stage, les préconventions en ligne, les signatures et l'envoi vers OneDrive.",
       },
       {
         target: "stages-board",
         title: "Tableau de bord",
-        body: "Résumé des dossiers en attente : dépôts à valider, conventions à signer, file OneDrive.",
+        body: "Résumé des dossiers en attente : préconventions à valider, signatures en cours, file OneDrive.",
       },
       {
         target: "stages-classe",
@@ -191,12 +191,12 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
       {
         target: "stages-conventions",
         title: "Conventions",
-        body: "Liste des dossiers par élève. Ouvrez une ligne pour voir le PDF, valider un dépôt ou lancer les signatures.",
+        body: "Liste des dossiers par élève. Ouvrez une ligne pour valider une préconvention ou lancer les signatures.",
       },
       {
-        target: "stages-deposer-link",
-        title: "Page publique élèves",
-        body: "Communiquez le lien /stages/deposer aux élèves : ils déposent leur convention signée (élève, parents, entreprise) en un clic.",
+        target: "stages-preconvention-link",
+        title: "Formulaire public élèves",
+        body: "Communiquez le lien /stages/preconvention : l'élève saisit son INE, puis remplit le formulaire (entreprise, horaires, dates).",
       },
     ],
   },
@@ -696,6 +696,24 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
 
 export function getModuleTour(moduleId: string): ModuleTourDefinition | undefined {
   return MODULE_TOURS.find((t) => t.moduleId === moduleId);
+}
+
+/** Onglet stages à activer pour une cible data-tour du tutoriel. */
+export function resolveStagesTourTab(
+  target?: string,
+): "board" | "classe" | "conventions" | null {
+  switch (target) {
+    case "stages-board":
+      return "board";
+    case "stages-classe":
+      return "classe";
+    case "stages-conventions":
+    case "stages-preconvention-link":
+    case "stages-deposer-link":
+      return "conventions";
+    default:
+      return null;
+  }
 }
 
 export function tourVisibleForRoles(tour: ModuleTourDefinition, roles: string[]): boolean {

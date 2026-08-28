@@ -36,27 +36,27 @@ export default function StagesConventionsPanel({
   }, [conventions]);
 
   return (
-    <div data-tour="stages-conventions" className="grid gap-8 lg:grid-cols-2">
+    <div className="grid gap-8 lg:grid-cols-2">
       <div
         className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-6 shadow-sm space-y-3 text-sm"
-        data-tour="stages-deposer-link"
+        data-tour="stages-preconvention-link"
       >
-        <h2 className="text-lg font-bold text-[#1F3D2B]">Dépôt élève (PDF)</h2>
+        <h2 className="text-lg font-bold text-[#1F3D2B]">Formulaire public élèves</h2>
         <p className="text-stone-600">
-          Les élèves envoient leur convention remplie et signée sur la page publique. Plus besoin de
-          remplir une préconvention en ligne.
+          Lien à communiquer aux familles : identification INE puis formulaire en ligne (entreprise,
+          horaires, dates) — pas de dépôt PDF.
         </p>
         <a
-          href="/stages/deposer"
+          href="/stages/preconvention"
           target="_blank"
           rel="noopener noreferrer"
           className="inline-block rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-semibold text-white"
         >
-          Ouvrir /stages/deposer →
+          Ouvrir la page élève →
         </a>
       </div>
 
-      <div className="space-y-6 lg:col-span-2">
+      <div data-tour="stages-conventions" className="space-y-6 lg:col-span-2">
         <h2 className="text-lg font-bold text-[#1F3D2B]">Dossiers élèves</h2>
         {dossiers.map(([key, list]) => {
           const first = list[0]!;

@@ -52,15 +52,13 @@ export default function StagesBoardPanel({
 
       {!permissions?.referentOnly && (
         <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
-          <h2 className="text-sm font-bold text-emerald-900">Lien public — dépôt convention PDF</h2>
+          <h2 className="text-sm font-bold text-emerald-900">Lien public — formulaire élève</h2>
           <p className="mt-2 text-sm text-emerald-800">
-            Communiquez cette adresse aux élèves (mail, ENT, affiche…) :
+            Les élèves s&apos;identifient (INE + date de naissance), puis remplissent le formulaire
+            en ligne : entreprise, horaires, dates, contacts — sans dépôt de PDF.
           </p>
           <p className="mt-2 rounded-lg bg-white border border-emerald-100 px-3 py-2 text-sm font-mono break-all text-[#1F3D2B]">
-            {typeof window !== "undefined" ? window.location.origin : ""}/stages/deposer
-          </p>
-          <p className="mt-2 text-xs text-emerald-700">
-            Le PDF est lu par OCR et IA (entreprise, SIRET, élève, classe). Aucun compte requis.
+            {typeof window !== "undefined" ? window.location.origin : ""}/stages/preconvention
           </p>
         </section>
       )}

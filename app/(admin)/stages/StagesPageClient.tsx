@@ -20,6 +20,8 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
+import { MODULE_TOUR_STEP_EVENT } from "@/app/lib/module-tour-actions";
+import { resolveStagesTourTab } from "@/app/lib/module-tours";
 
 const StagesClassePanel = dynamic(() => import("@/app/components/stages/StagesClassePanel"), {
   ssr: false,
@@ -185,6 +187,16 @@ function StagesContent() {
       setTab("classe");
     }
   }, [board, tab]);
+
+  useEffect(() => {
+    const onStep = (e: Event) => {
+      const target = (e as CustomEvent<{ target?: string }>).detail?.target;
+      const nextTab = resolveStagesTourTab(target);
+      if (nextTab) setTab(nextTab);
+    };
+    window.addEventListener(MODULE_TOUR_STEP_EVENT, onStep);
+    return () => window.removeEventListener(MODULE_TOUR_STEP_EVENT, onStep);
+  }, []);
 
   useEffect(() => {
     const id = searchParams.get("convention");
@@ -447,7 +459,7 @@ function StagesContent() {
     <ModulePageShell maxWidthClass="max-w-[1400px]" tourModuleId="stages">
       <ModulePageHeader
         title="Stages & conventions"
-        description="Les élèves déposent leur convention signée en PDF sur une page publique. L'IA extrait entreprise, SIRET et classe — vous validez dans la file d'attente."
+        description="Les élèves remplissent leur préconvention en ligne (entreprise, horaires, contacts). Après validation, chaque signataire reçoit un code sécurisé par e-mail."
       />
 
       {permissions?.canFileToOneDrive && od.oneDriveEnabled && (
@@ -550,10 +562,29 @@ function StagesContent() {
       <ModuleTabNav
         className="mb-6"
         tabs={[
-          { id: "board", label: "Tableau de bord", hidden: Boolean(permissions?.referentOnly) },
-          { id: "classe", label: "Suivi classe", hidden: !permissions?.canViewClassRoster },
-          { id: "offers", label: "Offres", hidden: Boolean(permissions?.referentOnly) },
-          { id: "conventions", label: "Conventions" },
+          {
+            id: "board",
+            label: "Tableau de bord",
+            hidden: Boolean(permissions?.referentOnly),
+            dataAttrs: { "data-stages-tab": "board" },
+          },
+          {
+            id: "classe",
+            label: "Suivi classe",
+            hidden: !permissions?.canViewClassRoster,
+            dataAttrs: { "data-stages-tab": "classe" },
+          },
+          {
+            id: "offers",
+            label: "Offres",
+            hidden: Boolean(permissions?.referentOnly),
+            dataAttrs: { "data-stages-tab": "offers" },
+          },
+          {
+            id: "conventions",
+            label: "Conventions",
+            dataAttrs: { "data-stages-tab": "conventions" },
+          },
         ]}
         active={tab}
         onChange={setTab}

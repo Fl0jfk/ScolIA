@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { applyConventionSignature } from "@/app/lib/stage-workflow";
+import { applyConventionSignature, resolveSignTokenBySecureCode } from "@/app/lib/stage-workflow";
 import { roleStampsPdf } from "@/app/lib/stage-pdf-sign";
 import { loadReferentSignatureBytes } from "@/app/lib/stage-signature-store";
 import { getSignTokenRef, getStageConvention } from "@/app/lib/stage-storage";
@@ -76,6 +76,18 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
+    const action = String(body.action ?? "sign");
+
+    if (action === "resolve_code") {
+      const email = String(body.email ?? "").trim();
+      const code = String(body.code ?? "").trim();
+      const token = await resolveSignTokenBySecureCode(email, code);
+      if (!token) {
+        return NextResponse.json({ error: "E-mail ou code incorrect." }, { status: 404 });
+      }
+      return NextResponse.json({ token });
+    }
+
     const token = String(body.token ?? "").trim();
     const signerName = String(body.signerName ?? "").trim();
     const signaturePngBase64 = String(body.signaturePngBase64 ?? "").trim() || undefined;

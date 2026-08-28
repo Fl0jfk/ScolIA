@@ -8,6 +8,8 @@ export const STAGE_S3 = {
   conventionUpload: (conventionId: string, safeFileName: string) =>
     `stages/uploads/${conventionId}/${safeFileName}`,
   signToken: (token: string) => `stages/sign-tokens/${token}.json`,
+  signCodeLookup: (email: string, code: string) =>
+    `stages/sign-code-lookup/${email.toLowerCase().replace(/[^a-z0-9@._-]/g, "_")}_${code}.json`,
   studentToken: (token: string) => `stages/student-tokens/${token}.json`,
   offerCandidatureToken: (token: string) => `stages/offer-candidature-tokens/${token}.json`,
   offerApplications: (offerId: string) => `stages/offer-applications/${offerId}.json`,
@@ -120,10 +122,19 @@ export type StageSignature = {
   label: string;
   status: StageSignatureStatus;
   signToken?: string;
+  /** Code à 6 chiffres envoyé par e-mail (alternative au lien). */
+  signSecureCode?: string;
   signEmail?: string;
   signSentAt?: string;
   signedAt?: string;
   signedBy?: string;
+};
+
+export type StageSignCodeLookupRef = {
+  token: string;
+  conventionId: string;
+  signatureId: string;
+  createdAt: string;
 };
 
 export type StageStudentInfo = {

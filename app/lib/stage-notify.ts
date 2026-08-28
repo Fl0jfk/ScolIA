@@ -264,15 +264,23 @@ async function notifyStageSignatureRequest(
     `Période : ${convention.schedule.periodStart} → ${convention.schedule.periodEnd}`,
     `Horaires : ${scheduleSummary(convention.schedule)}`,
     "",
-    "Pour signer (paraphe ajouté directement sur le PDF) :",
+    signature.signSecureCode
+      ? `Code de signature sécurisé : ${signature.signSecureCode}`
+      : null,
+    "Pour signer en ligne :",
     link,
+    signature.signSecureCode
+      ? `Vous pouvez aussi ouvrir ${await tenantAbsolutePath("/stages/signer")} et saisir votre e-mail + le code ci-dessus.`
+      : null,
     "",
     `Vous pouvez aussi ouvrir le module Stages : ${intranetStages}`,
     ...profHint,
     "",
     "Cordialement,",
     school,
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   await m.transporter.sendMail({
     from: `"Stages ${school}" <${m.smtp.user}>`,

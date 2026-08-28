@@ -51,10 +51,11 @@ export async function GET() {
     );
     const signaturesPending = conventions.filter((c) => c.status === "signatures_pending");
     const referentOnly = canViewReferentConventions(roles) && !canViewAllConventions(roles);
-    const myPendingSignatures = listPendingSignaturesForUser(
+    const myPendingSignatures = await listPendingSignaturesForUser(
       conventions,
       userEmail,
       gate.ctx.userId,
+      roles,
     );
 
     return NextResponse.json({

@@ -325,10 +325,8 @@ export async function GET() {
         const conventions = all
           .filter((c): c is NonNullable<typeof c> => Boolean(c))
           .filter((c) => conventionVisibleToUser(c, roles, userEmail, userId));
-        stagesPendingSignatures = listPendingSignaturesForUser(
-          conventions,
-          userEmail,
-          userId,
+        stagesPendingSignatures = (
+          await listPendingSignaturesForUser(conventions, userEmail, userId, roles)
         ).length;
       } catch {
         /* ignore */
