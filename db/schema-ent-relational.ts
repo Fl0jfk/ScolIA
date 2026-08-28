@@ -354,6 +354,31 @@ export const requestRoutingAttr = pgTable(
   ],
 );
 
+/** Config organisation services demandes (singleton par tenant). */
+export const requestOrg = pgTable(
+  "request_org",
+  {
+    etablissementId: uuid("etablissement_id")
+      .primaryKey()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+);
+
+export const requestOrgAttr = pgTable(
+  "request_org_attr",
+  {
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    value: text("value").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.etablissementId, t.path], name: "request_org_attr_pk" }),
+  ],
+);
+
 /** Domain planning. */
 export const domainPlanningDomain = pgTable(
   "domain_planning_domain",

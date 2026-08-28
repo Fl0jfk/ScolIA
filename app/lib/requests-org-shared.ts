@@ -14,6 +14,7 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
   return {
     version: 1,
     globalOversightUnitIds: ["direction_generale"],
+    metierOversightUnitIds: ["comptabilite", "maintenance"],
     units: [
       {
         id: "direction_generale",
@@ -213,6 +214,32 @@ export function isGlobalOversightManager(org: RequestsOrgConfig, email: string):
     if (isManagerOfUnit(org, gid, u)) return true;
   }
   return false;
+}
+
+export function isMetierOversightManager(org: RequestsOrgConfig, email: string): boolean {
+  const u = normalizeRequestEmail(email);
+  for (const mid of org.metierOversightUnitIds ?? []) {
+    if (isManagerOfUnit(org, mid, u)) return true;
+  }
+  return false;
+}
+
+/** Files (branchIds) visibles pour un manager « direction métier ». */
+export function metierOversightBranchIdsForEmail(org: RequestsOrgConfig, email: string): string[] {
+  const u = normalizeRequestEmail(email);
+  const branches = new Set<string>();
+  for (const mid of org.metierOversightUnitIds ?? []) {
+    if (!isManagerOfUnit(org, mid, u)) continue;
+    const unit = getActiveUnits(org).find((x) => x.id === mid);
+    if (!unit) continue;
+    for (const taskId of unit.taskIds) branches.add(taskId);
+  }
+  return [...branches];
+}
+
+export function branchMatchesMetierOversight(org: RequestsOrgConfig, email: string, branchId: string): boolean {
+  const b = branchId.trim();
+  return metierOversightBranchIdsForEmail(org, email).includes(b);
 }
 
 export function collectDelegateEmailsFromOrg(

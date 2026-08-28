@@ -42,10 +42,13 @@ export function isVisibleOnStaffBoard(
   userEmail: string,
   allStaffEmails: string[],
   viewerIsLeaderOfThisBranch: boolean,
+  options?: { globalOversight?: boolean; metierBranchIds?: string[] },
 ): boolean {
   if (!userEmail) return false;
   const u = normalizeRequestEmail(userEmail);
   const branch = normalizeRequestBranchId(assigned.routeId, assigned.unit);
+  if (options?.globalOversight) return true;
+  if (options?.metierBranchIds?.includes(branch)) return true;
   const claimed = assigned.claimedBy?.email;
   if (!claimed) {
     if (isCorbeilleBranchId(branch)) { return allStaffEmails.includes(u)}
@@ -68,7 +71,7 @@ function isUserInBranchPool( assigned: MinimalAssigned, userEmail: string, allSt
   return getEffectivePoolEmails(assigned, branch, allStaffEmails).includes(u);
 }
 
-export function computeStaffBoardColumn( assigned: MinimalAssigned, status: string, userEmail: string, allStaffEmails: string[], viewerIsLeaderOfThisBranch: boolean): StaffBoardColumn | null {
+export function computeStaffBoardColumn( assigned: MinimalAssigned, status: string, userEmail: string, allStaffEmails: string[], viewerIsLeaderOfThisBranch: boolean, options?: { globalOversight?: boolean; metierBranchIds?: string[] }): StaffBoardColumn | null {
   const st = status;
   if (st === "TERMINEE") return "TERMINEE";
   if (st === "EN_ATTENTE") return "EN_ATTENTE";
@@ -76,16 +79,20 @@ export function computeStaffBoardColumn( assigned: MinimalAssigned, status: stri
   const claimed = assigned.claimedBy?.email;
   const u = normalizeRequestEmail(userEmail);
   const inPool = isUserInBranchPool(assigned, userEmail, allStaffEmails);
+  const oversightLeader =
+    options?.globalOversight ||
+    (options?.metierBranchIds?.includes(branch) ?? false) ||
+    viewerIsLeaderOfThisBranch;
   if (!claimed) {
     if (isCorbeilleBranchId(branch)) return "CORBEILLE";
-    if (inPool) return "NOUVELLES";
+    if (inPool || options?.globalOversight || options?.metierBranchIds?.includes(branch)) return "NOUVELLES";
     return null;
   }
   if (normalizeRequestEmail(claimed) === u) {
     if (st === "NOUVELLE" || st === "EN_COURS") return "EN_COURS";
     return null;
   }
-  if (viewerIsLeaderOfThisBranch && !isCorbeilleBranchId(branch) && (st === "NOUVELLE" || st === "EN_COURS")) {
+  if (oversightLeader && !isCorbeilleBranchId(branch) && (st === "NOUVELLE" || st === "EN_COURS")) {
     return "EN_COURS";
   }
   return null;

@@ -220,6 +220,7 @@ export default function RequestOrgEditor({ org, routing, onChange, members, memb
     onChange({
       ...org,
       globalOversightUnitIds: org.globalOversightUnitIds.filter((id) => id !== removed),
+      metierOversightUnitIds: (org.metierOversightUnitIds ?? []).filter((id) => id !== removed),
       units: org.units
         .filter((_, i) => i !== idx)
         .map((u) => (u.parentUnitId === removed ? { ...u, parentUnitId: null } : u)),
@@ -237,6 +238,15 @@ export default function RequestOrgEditor({ org, routing, onChange, members, memb
       globalOversightUnitIds: has
         ? org.globalOversightUnitIds.filter((id) => id !== unitId)
         : [...org.globalOversightUnitIds, unitId],
+    });
+  };
+
+  const toggleMetierOversight = (unitId: string) => {
+    const current = org.metierOversightUnitIds ?? [];
+    const has = current.includes(unitId);
+    onChange({
+      ...org,
+      metierOversightUnitIds: has ? current.filter((id) => id !== unitId) : [...current, unitId],
     });
   };
 
@@ -266,8 +276,9 @@ export default function RequestOrgEditor({ org, routing, onChange, members, memb
       <section className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 space-y-3">
         <h2 className="text-lg font-bold text-slate-900">Organisation par service</h2>
         <p className="text-sm text-slate-600 leading-relaxed">
-          Chaque service reçoit les demandes en <strong>pile</strong> (managers d&apos;abord). Les managers
-          prennent en charge ou confient aux membres / sous-services (ex. CPE → surveillants).
+          Chaque service reçoit les demandes en <strong>pile</strong> (managers d&apos;abord).
+          <strong> Direction globale</strong> : voit tout le tableau et peut confier partout.
+          <strong> Direction métier</strong> (compta, maintenance…) : voit les demandes de son service.
         </p>
         <p className="text-xs text-indigo-800/80">
           À l&apos;enregistrement, la table équipe (staff-directory) est recalculée : managers = responsables,
@@ -307,7 +318,15 @@ export default function RequestOrgEditor({ org, routing, onChange, members, memb
                   checked={org.globalOversightUnitIds.includes(unit.id)}
                   onChange={() => toggleGlobalOversight(unit.id)}
                 />
-                Supervision globale (voit et confie à tous les services)
+                Supervision globale (direction générale — voit tout)
+              </label>
+              <label className="flex items-center gap-2 text-xs font-bold text-amber-900 ml-2">
+                <input
+                  type="checkbox"
+                  checked={(org.metierOversightUnitIds ?? []).includes(unit.id)}
+                  onChange={() => toggleMetierOversight(unit.id)}
+                />
+                Direction métier (voit les demandes de ce service)
               </label>
             </div>
           );

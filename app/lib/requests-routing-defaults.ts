@@ -155,6 +155,56 @@ const BUILTIN_DIRECTION: Record<"ecole" | "college" | "lycee", string> = {
   lycee: "direction_lycee",
 };
 
+function directorEmailForDirectionTask(
+  taskId: string,
+  establishments: Establishment[],
+): string {
+  for (const kind of ["ecole", "college", "lycee"] as const) {
+    if (taskId === BUILTIN_DIRECTION[kind]) {
+      const est = getActiveEstablishments(establishments).find((e) => inferEstablishmentKind(e) === kind);
+      const email = est?.directorEmail?.trim().toLowerCase();
+      if (email) return email;
+    }
+  }
+  const custom = /^direction_(.+)$/.exec(taskId);
+  if (custom?.[1] && !["ecole", "college", "lycee"].includes(custom[1])) {
+    const est = getActiveEstablishments(establishments).find((e) => e.id === custom[1]);
+    const email = est?.directorEmail?.trim().toLowerCase();
+    if (email) return email;
+  }
+  return "";
+}
+
+/** Alimente directionQueues depuis les files direction_* + e-mails directeurs. */
+export function syncDirectionQueuesFromTasks(
+  routing: RequestsRoutingConfig,
+  establishments: Establishment[] = [],
+): RequestsRoutingConfig {
+  const prevById = new Map(routing.directionQueues.map((q) => [q.id, q]));
+  const directionTasks = routing.tasks.filter((t) => isManualOnlyDirectionRoute(t.id));
+
+  const queues = directionTasks.map((task) => {
+    const prev = prevById.get(task.id);
+    let email = prev?.email?.trim().toLowerCase() || "";
+    if (!email) email = directorEmailForDirectionTask(task.id, establishments);
+    if (!email) {
+      const asg = routing.assignments.find((a) => a.active && a.taskId === task.id);
+      email = asg?.email?.trim().toLowerCase() || "";
+    }
+    return {
+      id: task.id,
+      label: task.label,
+      email,
+      active: task.active && Boolean(email),
+    };
+  });
+
+  return {
+    ...routing,
+    directionQueues: queues.filter((q) => q.active || prevById.has(q.id)),
+  };
+}
+
 /** Active / génère les files admin_* et direction_* selon les sites, sans supprimer les files custom. */
 export function syncRequestsRoutingWithEstablishments(
   routing: RequestsRoutingConfig,
@@ -210,5 +260,5 @@ export function syncRequestsRoutingWithEstablishments(
     }
   }
 
-  return { ...routing, tasks };
+  return syncDirectionQueuesFromTasks({ ...routing, tasks }, establishments);
 }

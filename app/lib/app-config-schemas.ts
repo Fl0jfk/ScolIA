@@ -298,6 +298,8 @@ export type RequestsOrgConfig = {
   version: 1;
   /** Unités dont les managers voient et peuvent confier à tout le monde. */
   globalOversightUnitIds: string[];
+  /** Unités « direction métier » : managers voient toutes les demandes des files rattachées (ex. compta, maintenance). */
+  metierOversightUnitIds: string[];
   units: RequestServiceUnit[];
 };
 
@@ -939,6 +941,9 @@ export function parseRequestsOrg(raw: unknown): RequestsOrgConfig {
   const globalOversightUnitIds = [
     ...new Set(strArr(o.globalOversightUnitIds).map((id) => id.trim()).filter(Boolean)),
   ];
+  const metierOversightUnitIds = [
+    ...new Set(strArr(o.metierOversightUnitIds).map((id) => id.trim()).filter(Boolean)),
+  ];
 
   const units: RequestServiceUnit[] = unitsRaw.map((row) => {
     const x = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
@@ -984,8 +989,13 @@ export function parseRequestsOrg(raw: unknown): RequestsOrgConfig {
       throw new Error(`Unité de supervision globale introuvable : ${gid}.`);
     }
   }
+  for (const mid of metierOversightUnitIds) {
+    if (!ids.has(mid)) {
+      throw new Error(`Unité de direction métier introuvable : ${mid}.`);
+    }
+  }
 
-  return { version: 1, globalOversightUnitIds, units };
+  return { version: 1, globalOversightUnitIds, metierOversightUnitIds, units };
 }
 
 export function parseClassAllocationSettings(raw: unknown): NonNullable<AppConfigBundle["classAllocation"]> {

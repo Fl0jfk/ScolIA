@@ -17,6 +17,9 @@ export {
   getDescendantUnitIds,
   isGlobalOversightManager,
   isManagerOfUnit,
+  isMetierOversightManager,
+  metierOversightBranchIdsForEmail,
+  branchMatchesMetierOversight,
   mergeStaffDirectoryFromRoutingAndOrg,
   newRequestServiceUnit,
 } from "@/app/lib/requests-org-shared";

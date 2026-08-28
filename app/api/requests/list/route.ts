@@ -6,6 +6,8 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { computeStaffBoardColumn, isCorbeilleBranchId, isVisibleOnStaffBoard, normalizeRequestBranchId, normalizeRequestEmail} from "@/app/lib/requests-board";
 import { getDelegateTargetEmailsForRequest, getRequestsIndex, isLeaderForRequestBranch, purgeExpiredRequests,} from "@/app/lib/requests";
 import { getAllBranchStaffEmailsFromRouting } from "@/app/lib/requests-routing-config";
+import { getRequestsOrgConfig } from "@/app/lib/requests-org-config";
+import { buildViewerOversightContext, actsAsLeaderWithOversight } from "@/app/lib/requests-oversight";
 import { canAccessRequestsStaffBoard } from "@/app/lib/requests-staff-access";
 
 async function hasStaffBoardAccess(roles: string[], email: string) {
@@ -41,24 +43,44 @@ export async function GET(req: NextRequest) {
       if (!(await hasStaffBoardAccess(roles, userEmail))) return new NextResponse("Accès refusé", { status: 403 });
       if (!userEmail) return NextResponse.json({ error: "Email requis pour le tableau des demandes" }, { status: 400 });
       const allStaff = await getAllBranchStaffEmailsFromRouting();
+      const org = await getRequestsOrgConfig();
+      const oversight = buildViewerOversightContext(org, userEmail);
+      const boardOpts = {
+        globalOversight: oversight.globalOversight,
+        metierBranchIds: oversight.metierBranchIds,
+      };
       const visible: typeof index = [];
       for (const r of index) {
         const isLeader = await isLeaderForRequestBranch(r.assignedTo.routeId, r.assignedTo.unit, userEmail);
-        if (isVisibleOnStaffBoard(r.assignedTo, userEmail, allStaff, isLeader)) {
+        const effectiveLeader = actsAsLeaderWithOversight(
+          oversight,
+          org,
+          userEmail,
+          r.assignedTo,
+          isLeader,
+        );
+        if (isVisibleOnStaffBoard(r.assignedTo, userEmail, allStaff, effectiveLeader, boardOpts)) {
           visible.push(r);
         }
       }
       const enriched = await Promise.all(
         visible.sort(sortDesc).map(async (r) => {
           const isLeaderHere = await isLeaderForRequestBranch(r.assignedTo.routeId, r.assignedTo.unit, userEmail);
+          const effectiveLeader = actsAsLeaderWithOversight(
+            oversight,
+            org,
+            userEmail,
+            r.assignedTo,
+            isLeaderHere,
+          );
           const branch = normalizeRequestBranchId(r.assignedTo.routeId, r.assignedTo.unit);
           const isCorbeilleCard = isCorbeilleBranchId(branch);
           const delegateTargets =
-            isLeaderHere && !isCorbeilleCard ? await getDelegateTargetEmailsForRequest(r, userEmail) : [];
+            effectiveLeader && !isCorbeilleCard ? await getDelegateTargetEmailsForRequest(r, userEmail) : [];
           return {
             ...r,
-            boardColumn: computeStaffBoardColumn(r.assignedTo, r.status, userEmail, allStaff, isLeaderHere),
-            boardCanReassign: isLeaderHere,
+            boardColumn: computeStaffBoardColumn(r.assignedTo, r.status, userEmail, allStaff, effectiveLeader, boardOpts),
+            boardCanReassign: effectiveLeader,
             boardCanDelegate: delegateTargets.length > 0,
             delegateTargets,
           };

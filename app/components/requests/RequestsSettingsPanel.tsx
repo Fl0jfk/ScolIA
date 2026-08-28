@@ -48,8 +48,8 @@ export default function RequestsSettingsPanel({
         </p>
         <ol className="text-xs text-slate-500 list-decimal list-inside space-y-0.5">
           <li>Organisez les services, managers et membres</li>
-          <li>Définissez les files et leurs mots-clés (IA + fallback local)</li>
-          <li>Affinez avec les tags équipe (cycles, compétences)</li>
+          <li>Direction globale / métier (compta, maintenance…) pour superviser le tableau</li>
+          <li>Définissez les files et mots-clés ; affinez avec les tags équipe</li>
         </ol>
       </section>
 

@@ -6,7 +6,7 @@ import {
   type RoutingTask,
 } from "@/app/lib/app-config-schemas";
 import { loadAppConfig } from "@/app/lib/app-config";
-import { defaultRequestsRouting, RH_REQUEST_ROUTE_ID, isManualOnlyDirectionRoute } from "@/app/lib/requests-routing-defaults";
+import { defaultRequestsRouting, RH_REQUEST_ROUTE_ID, isManualOnlyDirectionRoute, syncDirectionQueuesFromTasks, syncRequestsRoutingWithEstablishments } from "@/app/lib/requests-routing-defaults";
 import { syncStaffDirectoryFromRequestsConfig, getRequestsOrgConfig } from "@/app/lib/requests-org-config";
 import {
   buildUnitCatalog,
@@ -64,9 +64,23 @@ function ensureBuiltinRhRouting(config: RequestsRoutingConfig): RequestsRoutingC
 export async function getRequestsRoutingConfig(): Promise<RequestsRoutingConfig> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.config;
   const raw = await getJson<{ data?: unknown }>(ROUTING_KEY);
-  const config = ensureBuiltinRhRouting(
+  let config = ensureBuiltinRhRouting(
     raw?.data ? parseRequestsRouting(raw.data) : defaultRequestsRouting(),
   );
+  const needsDirectionSync =
+    config.directionQueues.length === 0 ||
+    config.directionQueues.every((q) => !q.email?.trim());
+  if (needsDirectionSync) {
+    try {
+      const appConfig = await loadAppConfig();
+      config = syncDirectionQueuesFromTasks(
+        syncRequestsRoutingWithEstablishments(config, appConfig.establishments),
+        appConfig.establishments,
+      );
+    } catch {
+      config = syncDirectionQueuesFromTasks(config);
+    }
+  }
   cache = { at: Date.now(), config };
   return config;
 }
@@ -103,10 +117,20 @@ export async function saveRequestsRoutingConfig(
   const merged =
     options?.preserveTags === false ? config : mergeRoutingTagsFromExisting(config, existing);
   const parsed = parseRequestsRouting(merged);
-  await putJson(ROUTING_KEY, { version: 1, updatedAt: new Date().toISOString(), data: parsed });
-  await syncStaffDirectoryFromRequestsConfig(parsed);
+  let enriched = parsed;
+  try {
+    const appConfig = await loadAppConfig();
+    enriched = syncDirectionQueuesFromTasks(
+      syncRequestsRoutingWithEstablishments(parsed, appConfig.establishments),
+      appConfig.establishments,
+    );
+  } catch {
+    enriched = syncDirectionQueuesFromTasks(parsed);
+  }
+  await putJson(ROUTING_KEY, { version: 1, updatedAt: new Date().toISOString(), data: enriched });
+  await syncStaffDirectoryFromRequestsConfig(enriched);
   invalidateRequestsRoutingCache();
-  return parsed;
+  return enriched;
 }
 
 function getActiveTasks(config: RequestsRoutingConfig): RoutingTask[] {
@@ -742,7 +766,12 @@ export function listActiveTasksForPicker(config: RequestsRoutingConfig) {
 }
 
 export function listDirectionQueuesForTransmit(config: RequestsRoutingConfig) {
-  return config.directionQueues
+  const fromQueues = config.directionQueues
     .filter((q) => q.active && isManualOnlyDirectionRoute(q.id))
-    .map((q) => ({ id: q.id, label: q.label, category: "Direction" }));
+    .map((q) => ({ id: q.id, label: q.label, category: "Direction" as const }));
+  if (fromQueues.length > 0) return fromQueues;
+
+  return config.tasks
+    .filter((t) => t.active && isManualOnlyDirectionRoute(t.id))
+    .map((t) => ({ id: t.id, label: t.label, category: "Direction" as const }));
 }

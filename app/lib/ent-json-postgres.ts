@@ -78,6 +78,24 @@ async function tryTypedGet<T>(
     if (!etabId) return undefined;
     return { data: (await listTravelsFromDb(etabId)) as T, key };
   }
+  if (relativePath === "settings/requests-routing.json") {
+    const { requestsConfigDbReady, getRequestsRoutingEnvelopeFromDb } = await import(
+      "@/app/lib/requests-config-db"
+    );
+    const etabId = await requestsConfigDbReady();
+    if (!etabId) return undefined;
+    const env = await getRequestsRoutingEnvelopeFromDb(etabId);
+    return env ? { data: env as T, key } : null;
+  }
+  if (relativePath === "settings/requests-org.json") {
+    const { requestsConfigDbReady, getRequestsOrgEnvelopeFromDb } = await import(
+      "@/app/lib/requests-config-db"
+    );
+    const etabId = await requestsConfigDbReady();
+    if (!etabId) return undefined;
+    const env = await getRequestsOrgEnvelopeFromDb(etabId);
+    return env ? { data: env as T, key } : null;
+  }
   return undefined;
 }
 
@@ -111,6 +129,24 @@ async function tryTypedPut(relativePath: string, data: unknown): Promise<string 
     const etabId = await travelsDbReady();
     if (!etabId) throw new Error("[ent] Postgres requis");
     await replaceTravelsInDb(etabId, data as import("@/app/lib/travels-types").TravelsTrip[]);
+    return key;
+  }
+  if (relativePath === "settings/requests-routing.json") {
+    const { requestsConfigDbReady, saveRequestsRoutingEnvelopeToDb } = await import(
+      "@/app/lib/requests-config-db"
+    );
+    const etabId = await requestsConfigDbReady();
+    if (!etabId) return null;
+    await saveRequestsRoutingEnvelopeToDb(etabId, data as { data: unknown });
+    return key;
+  }
+  if (relativePath === "settings/requests-org.json") {
+    const { requestsConfigDbReady, saveRequestsOrgEnvelopeToDb } = await import(
+      "@/app/lib/requests-config-db"
+    );
+    const etabId = await requestsConfigDbReady();
+    if (!etabId) return null;
+    await saveRequestsOrgEnvelopeToDb(etabId, data as { data: unknown });
     return key;
   }
   return null;
