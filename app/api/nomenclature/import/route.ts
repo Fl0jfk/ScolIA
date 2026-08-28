@@ -3,6 +3,7 @@ import { requireAdmin } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { importSiecleXmlBuffersBatch } from "@/app/lib/nomenclature-import/siecle-xml";
 import { buildNomenclatureImportAnomalies } from "@/app/lib/nomenclature-import/import-anomalies";
+import { buildSiecleImportStatus, SIECLE_IMPORT_SLOTS } from "@/app/lib/nomenclature-import/import-status";
 import { getDb } from "@/db/index";
 import { nomenclatureImportLog, refEtablissement, refNomenclature } from "@/db/schema";
 import { desc, eq, sql } from "drizzle-orm";
@@ -14,7 +15,7 @@ export async function GET() {
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
 
   const db = getDb();
-  const [counts, logs, refEtabCount, anomalies] = await Promise.all([
+  const [counts, logs, refEtabCount, anomalies, importStatus] = await Promise.all([
     db
       .select({
         type: refNomenclature.type,
@@ -42,9 +43,17 @@ export async function GET() {
       .from(refEtablissement)
       .then((rows) => rows[0]?.n ?? 0),
     buildNomenclatureImportAnomalies(etabId),
+    buildSiecleImportStatus(etabId),
   ]);
 
-  return NextResponse.json({ counts, logs, refEtablissementCount: refEtabCount, anomalies });
+  return NextResponse.json({
+    counts,
+    logs,
+    refEtablissementCount: refEtabCount,
+    anomalies,
+    importStatus,
+    slots: SIECLE_IMPORT_SLOTS,
+  });
 }
 
 export async function POST(req: Request) {

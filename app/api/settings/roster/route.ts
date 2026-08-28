@@ -9,6 +9,13 @@ import {
   type SchoolRosterConfig,
 } from "@/app/lib/school-roster";
 import { listStageReferentClassNames } from "@/app/lib/stage-referents-config";
+import {
+  loadOfficialSchoolClasses,
+  listUnmatchedEleveClasses,
+  mergeOfficialAndLocalClasses,
+  RECTORAT_LOCKED_POLES,
+} from "@/app/lib/nomenclature-classes";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 
 export async function GET() {
   const gate = await requireModule("admin-settings");
@@ -27,6 +34,9 @@ export async function GET() {
   for (const e of eleves) {
     regimeCounts[classifyRegime(e.regime)] += 1;
   }
+  const etabId = await resolveCurrentEtablissementId();
+  const official = etabId ? await loadOfficialSchoolClasses(etabId) : null;
+
   const classesFromEleves = [
     ...new Set(
       eleves
@@ -34,9 +44,26 @@ export async function GET() {
         .filter(Boolean),
     ),
   ].sort((a, b) => a.localeCompare(b, "fr"));
-  const classes = [
-    ...new Set([...classesFromStages, ...classesFromEleves, ...roster.classAssignments.map((a) => a.className)]),
-  ].sort((a, b) => a.localeCompare(b, "fr"));
+
+  const classes = official?.hasLockedSiecle
+    ? mergeOfficialAndLocalClasses(
+        official,
+        classesFromStages,
+        classesFromEleves,
+        roster.classAssignments.map((a) => a.className),
+      )
+    : [
+        ...new Set([
+          ...classesFromStages,
+          ...classesFromEleves,
+          ...roster.classAssignments.map((a) => a.className),
+        ]),
+      ].sort((a, b) => a.localeCompare(b, "fr"));
+
+  const unmatchedEleveClasses =
+    etabId && official?.hasLockedSiecle
+      ? await listUnmatchedEleveClasses(etabId, classesFromEleves)
+      : [];
 
   return NextResponse.json({
     roster,
@@ -46,6 +73,15 @@ export async function GET() {
     regimeCounts,
     users,
     classes,
+    classesSource: official?.hasLockedSiecle ? "siecle" : "fallback",
+    classesReadOnly: false,
+    siecleLockedCollègeLycée: official?.hasLockedSiecle ?? false,
+    lockedPoles: [...RECTORAT_LOCKED_POLES],
+    siecleDivisions: official?.lockedClasses.map((code) => {
+      const d = official.divisions.find((x) => x.code === code);
+      return { code, libelle: d?.libelleLong || d?.libelleCourt || code };
+    }),
+    unmatchedEleveClasses,
   });
 }
 

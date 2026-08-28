@@ -1,44 +1,34 @@
 import type { NomenclatureUpsertRow } from "@/app/lib/nomenclature-import/siecle-xml-types";
+import {
+  codeFromElement,
+  extractSiecleElements,
+  libelleFromBlock,
+  parseSiecleDate,
+  tagValue,
+} from "@/app/lib/nomenclature-import/siecle-xml-parse-utils";
 
-function extractBlocks(xml: string, tag: string): string[] {
-  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, "gi");
-  const out: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(xml))) {
-    out.push(m[1] ?? "");
-  }
-  return out;
-}
-
-function tagValue(block: string, tag: string): string {
-  const m = block.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, "i"));
-  return (m?.[1] ?? "").trim();
-}
-
-function pushRows(
+function pushSimpleRows(
   rows: NomenclatureUpsertRow[],
-  blocks: string[],
+  xml: string,
+  tag: string,
   type: string,
-  codeTags: string[],
-  libelleTags: string[],
-  metadataTags?: string[],
+  codeAttrs: string[],
 ): void {
-  for (const block of blocks) {
-    const code = codeTags.map((t) => tagValue(block, t)).find((v) => v);
+  for (const el of extractSiecleElements(xml, tag)) {
+    const code = codeFromElement(el, codeAttrs);
     if (!code) continue;
-    const libelle =
-      libelleTags.map((t) => tagValue(block, t)).find((v) => v) || code;
-    const metadataJson: Record<string, unknown> = {};
-    for (const t of metadataTags || []) {
-      const v = tagValue(block, t);
-      if (v) metadataJson[t.toLowerCase()] = v;
-    }
+    const libelle = libelleFromBlock(el.inner, code);
+    const validFrom = parseSiecleDate(tagValue(el.inner, "DATE_OUVERTURE"));
+    const validTo = parseSiecleDate(tagValue(el.inner, "DATE_FERMETURE"));
     rows.push({
       type,
       code,
-      libelleCourt: libelle,
+      libelleCourt: tagValue(el.inner, "LIBELLE_COURT") || libelle,
       libelleLong: libelle,
-      metadataJson: Object.keys(metadataJson).length ? metadataJson : undefined,
+      metadataJson:
+        validFrom || validTo
+          ? { ...(validFrom ? { dateOuverture: validFrom } : {}), ...(validTo ? { dateFermeture: validTo } : {}) }
+          : undefined,
     });
   }
 }
@@ -47,41 +37,25 @@ function pushRows(
 export function parseGeographiqueXml(xml: string): NomenclatureUpsertRow[] {
   const rows: NomenclatureUpsertRow[] = [];
 
-  pushRows(
-    rows,
-    extractBlocks(xml, "PAYS"),
-    "pays",
-    ["CODE_PAYS", "CODE"],
-    ["LIBELLE_LONG", "LIBELLE_COURT", "LIBELLE", "NOM"],
-  );
-  pushRows(
-    rows,
-    extractBlocks(xml, "PAYS_NATIONALITE"),
-    "pays",
-    ["CODE_PAYS", "CODE"],
-    ["LIBELLE_LONG", "LIBELLE_COURT", "LIBELLE", "NOM"],
-  );
+  pushSimpleRows(rows, xml, "PAYS", "pays", ["CODE_PAYS", "CODE"]);
+  pushSimpleRows(rows, xml, "PAYS_NATIONALITE", "pays", ["CODE_PAYS", "CODE"]);
 
-  pushRows(
-    rows,
-    extractBlocks(xml, "DEPARTEMENT"),
-    "departement",
-    ["CODE_DEPARTEMENT", "CODE_DEPT", "CODE"],
-    ["LIBELLE_LONG", "LIBELLE_COURT", "LIBELLE", "NOM"],
-  );
-
-  for (const block of extractBlocks(xml, "COMMUNE")) {
-    const code =
-      tagValue(block, "CODE_INSEE") ||
-      tagValue(block, "CODE_COMMUNE") ||
-      tagValue(block, "CODE");
+  for (const el of extractSiecleElements(xml, "DEPARTEMENT")) {
+    const code = codeFromElement(el, ["CODE_DEPARTEMENT_INSEE", "CODE_DEPARTEMENT", "CODE_DEPT", "CODE"]);
     if (!code) continue;
-    const libelle =
-      tagValue(block, "LIBELLE_LONG") ||
-      tagValue(block, "LIBELLE_COURT") ||
-      tagValue(block, "LIBELLE") ||
-      tagValue(block, "NOM") ||
-      code;
+    const libelle = libelleFromBlock(el.inner, code);
+    rows.push({
+      type: "departement",
+      code,
+      libelleCourt: tagValue(el.inner, "LIBELLE_COURT") || libelle,
+      libelleLong: libelle,
+    });
+  }
+
+  for (const el of extractSiecleElements(xml, "COMMUNE")) {
+    const code = codeFromElement(el, ["CODE_COMMUNE_INSEE", "CODE_INSEE", "CODE_COMMUNE", "CODE"]);
+    if (!code) continue;
+    const libelle = libelleFromBlock(el.inner, code, ["LIBELLE_LONG", "LIBELLE_COURT", "LIBELLE", "NOM"]);
     rows.push({
       type: "commune",
       code,
@@ -89,11 +63,12 @@ export function parseGeographiqueXml(xml: string): NomenclatureUpsertRow[] {
       libelleLong: libelle,
       metadataJson: {
         codeDepartement:
-          tagValue(block, "CODE_DEPARTEMENT") ||
-          tagValue(block, "CODE_DEPT") ||
+          tagValue(el.inner, "CODE_DEPARTEMENT_INSEE") ||
+          tagValue(el.inner, "CODE_DEPARTEMENT") ||
+          tagValue(el.inner, "CODE_DEPT") ||
           undefined,
-        dateOuverture: tagValue(block, "DATE_OUVERTURE") || undefined,
-        dateFermeture: tagValue(block, "DATE_FERMETURE") || undefined,
+        dateOuverture: parseSiecleDate(tagValue(el.inner, "DATE_OUVERTURE")),
+        dateFermeture: parseSiecleDate(tagValue(el.inner, "DATE_FERMETURE")),
       },
     });
   }

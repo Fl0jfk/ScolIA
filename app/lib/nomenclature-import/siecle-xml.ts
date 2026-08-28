@@ -15,7 +15,18 @@ import { parseGeographiqueXml } from "@/app/lib/nomenclature-import/siecle-geogr
 import { importSiecleEtablissementsXml } from "@/app/lib/nomenclature-import/siecle-etablissements-import";
 import { importSiecleCommunsXml } from "@/app/lib/nomenclature-import/siecle-communs-import";
 import { syncProgrammesToCompetences } from "@/app/lib/nomenclature-import/sync-programmes-competences";
+import { syncMatieresFromNomenclature } from "@/app/lib/nomenclature-import/sync-matieres-from-nomenclature";
+import { normalizeElevesToSiecleClasses } from "@/app/lib/nomenclature-import/normalize-eleves-classes";
+import { loadElevesRegistry, saveElevesRegistry } from "@/app/lib/eleves-registry";
 import { isEntCoreDbEnabled } from "@/app/lib/ent-core-db";
+import {
+  parseNomenclatureXml,
+  parseStructuresDivisions,
+  parseStructuresGroupes,
+} from "@/app/lib/nomenclature-import/siecle-nomenclature-parse";
+import { decodeSiecleBuffer } from "@/app/lib/nomenclature-import/siecle-xml-parse-utils";
+
+export { decodeSiecleBuffer } from "@/app/lib/nomenclature-import/siecle-xml-parse-utils";
 
 export type SiecleXmlKind =
   | "nomenclature"
@@ -41,149 +52,10 @@ export function detectSiecleXmlKind(xml: string): SiecleXmlKind {
   return "inconnu";
 }
 
-/** Décode buffer Siècle (souvent Latin-9). */
-export function decodeSiecleBuffer(buf: ArrayBuffer | Buffer | Uint8Array): string {
-  const bytes = buf instanceof Buffer ? buf : Buffer.from(buf as ArrayBuffer);
-  // Tentative UTF-8 puis latin1 (proche ISO-8859-15 pour le français)
-  const asUtf8 = bytes.toString("utf8");
-  if (!asUtf8.includes("\uFFFD") && /<\?xml|BEE_|ELEVE/i.test(asUtf8.slice(0, 500))) {
-    return asUtf8;
-  }
-  return bytes.toString("latin1");
-}
-
-function extractBlocks(xml: string, tag: string): string[] {
-  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, "gi");
-  const out: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(xml))) {
-    out.push(m[1] ?? "");
-  }
-  return out;
-}
-
-function tagValue(block: string, tag: string): string {
-  const m = block.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, "i"));
-  return (m?.[1] ?? "").trim();
-}
-
 import type { NomenclatureUpsertRow } from "@/app/lib/nomenclature-import/siecle-xml-types";
 
 export type { NomenclatureUpsertRow } from "@/app/lib/nomenclature-import/siecle-xml-types";
-
-export function parseNomenclatureXml(xml: string): NomenclatureUpsertRow[] {
-  const rows: NomenclatureUpsertRow[] = [];
-
-  const pushSection = (
-    sectionTag: string,
-    type: string,
-    codeTag: string,
-    libelleTags: string[],
-  ) => {
-    for (const block of extractBlocks(xml, sectionTag)) {
-      const code = tagValue(block, codeTag);
-      if (!code) continue;
-      const libelle =
-        libelleTags.map((t) => tagValue(block, t)).find((v) => v) || code;
-      rows.push({
-        type,
-        code,
-        libelleCourt: libelle,
-        libelleLong: libelle,
-      });
-    }
-  };
-
-  // Balises Siècle courantes (variantes tolérées)
-  pushSection("MEF", "mef", "CODE_MEF", ["LIBELLE_LONG", "LIBELLE_COURT", "LIBELLE"]);
-  pushSection("MATIERE", "matiere", "CODE_MATIERE", ["LIBELLE_LONG", "LIBELLE_COURT", "LIBELLE"]);
-  pushSection("REGIME", "regime", "CODE_REGIME", ["LIBELLE_LONG", "LIBELLE_COURT", "LIBELLE"]);
-  pushSection("OPTION_OBLIGATOIRE", "option", "CODE_MATIERE", [
-    "LIBELLE_LONG",
-    "LIBELLE_COURT",
-    "LIBELLE",
-  ]);
-  pushSection("STATUT_ELEVE", "statut_eleve", "CODE_STATUT", [
-    "LIBELLE_LONG",
-    "LIBELLE_COURT",
-    "LIBELLE",
-  ]);
-  pushSection("MOTIF_SORTIE", "motif_sortie", "CODE_MOTIF", [
-    "LIBELLE_LONG",
-    "LIBELLE_COURT",
-    "LIBELLE",
-  ]);
-  pushSection("LIEN_PARENTE", "lien_parente", "CODE_PARENTE", [
-    "LIBELLE_LONG",
-    "LIBELLE_COURT",
-    "LIBELLE",
-  ]);
-  pushSection("BOURSE", "bourse", "CODE_BOURSE", ["LIBELLE_LONG", "LIBELLE_COURT", "LIBELLE"]);
-  pushSection("PROFESSION", "csp", "CODE_PROFESSION", [
-    "LIBELLE_LONG",
-    "LIBELLE_COURT",
-    "LIBELLE",
-  ]);
-  pushSection("PROVENANCE", "provenance", "CODE_PROVENANCE", [
-    "LIBELLE_LONG",
-    "LIBELLE_COURT",
-    "LIBELLE",
-  ]);
-  pushSection("PROGRAMME", "programme", "CODE_PROGRAMME", [
-    "LIBELLE_LONG",
-    "LIBELLE_COURT",
-    "LIBELLE",
-  ]);
-  pushSection("CIVILITE", "civilite", "CODE_CIVILITE", [
-    "LIBELLE_LONG",
-    "LIBELLE_COURT",
-    "LIBELLE",
-  ]);
-
-  return rows;
-}
-
-export function parseStructuresDivisions(xml: string): NomenclatureUpsertRow[] {
-  const rows: NomenclatureUpsertRow[] = [];
-  for (const block of extractBlocks(xml, "DIVISION")) {
-    const code = tagValue(block, "CODE_STRUCTURE") || tagValue(block, "CODE_DIVISION");
-    if (!code) continue;
-    const libelle =
-      tagValue(block, "LIBELLE_LONG") ||
-      tagValue(block, "LIBELLE") ||
-      code;
-    rows.push({
-      type: "division",
-      code,
-      libelleCourt: libelle,
-      libelleLong: libelle,
-      metadataJson: {
-        codeContrat: tagValue(block, "CODE_CONTRAT") || undefined,
-        codeRne: tagValue(block, "CODE_RNE") || undefined,
-      },
-    });
-  }
-  return rows;
-}
-
-/** Groupes pédagogiques Siècle (Structures.xml → balise GROUPE). */
-export function parseStructuresGroupes(xml: string): { code: string; libelle: string }[] {
-  const rows: { code: string; libelle: string }[] = [];
-  for (const block of extractBlocks(xml, "GROUPE")) {
-    const code =
-      tagValue(block, "CODE_GROUPE") ||
-      tagValue(block, "CODE_STRUCTURE") ||
-      tagValue(block, "CODE_DIVISION");
-    if (!code) continue;
-    const libelle =
-      tagValue(block, "LIBELLE_LONG") ||
-      tagValue(block, "LIBELLE") ||
-      tagValue(block, "LIBELLE_COURT") ||
-      code;
-    rows.push({ code, libelle });
-  }
-  return rows;
-}
+export { parseNomenclatureXml, parseStructuresDivisions, parseStructuresGroupes } from "@/app/lib/nomenclature-import/siecle-nomenclature-parse";
 
 export async function upsertNomenclatureRows(
   etablissementId: string,
@@ -216,6 +88,8 @@ export async function upsertNomenclatureRows(
             libelleCourt: r.libelleCourt || null,
             libelleLong: r.libelleLong || null,
             metadataJson: r.metadataJson || null,
+            validFrom: r.validFrom || null,
+            validTo: r.validTo || null,
             source,
             updatedAt: new Date(),
           })
@@ -229,6 +103,8 @@ export async function upsertNomenclatureRows(
           libelleCourt: r.libelleCourt || null,
           libelleLong: r.libelleLong || null,
           metadataJson: r.metadataJson || null,
+          validFrom: r.validFrom || null,
+          validTo: r.validTo || null,
           source,
         });
         inserts += 1;
@@ -416,12 +292,37 @@ export async function importSiecleXmlBuffer(
   const { inserts, updates } = await upsertNomenclatureRows(etablissementId, rows);
   const db = getDb();
 
+  let elevesClassesNormalized: { normalized: number; unresolved: string[] } | null = null;
+  if (kind === "structures") {
+    try {
+      const registry = await loadElevesRegistry();
+      if (registry.length) {
+        const norm = await normalizeElevesToSiecleClasses(etablissementId, registry);
+        if (norm.normalized > 0 || norm.unresolved.length) {
+          await saveElevesRegistry(norm.eleves);
+        }
+        elevesClassesNormalized = {
+          normalized: norm.normalized,
+          unresolved: norm.unresolved,
+        };
+      }
+    } catch {
+      elevesClassesNormalized = null;
+    }
+  }
+
   let competencesSynced: { domaines: number; items: number } | null = null;
+  let matieresSynced: { inserts: number; updates: number } | null = null;
   if (kind === "nomenclature" && isEntCoreDbEnabled()) {
     try {
       competencesSynced = await syncProgrammesToCompetences(etablissementId);
     } catch {
       competencesSynced = null;
+    }
+    try {
+      matieresSynced = await syncMatieresFromNomenclature(etablissementId);
+    } catch {
+      matieresSynced = null;
     }
   }
 
@@ -435,6 +336,8 @@ export async function importSiecleXmlBuffer(
       kind,
       rows: rows.length,
       ...(competencesSynced ? { competencesSynced } : {}),
+      ...(matieresSynced ? { matieresSynced } : {}),
+      ...(elevesClassesNormalized ? { elevesClassesNormalized } : {}),
     },
   });
 
@@ -442,12 +345,20 @@ export async function importSiecleXmlBuffer(
     competencesSynced && competencesSynced.items > 0
       ? ` · ${competencesSynced.items} programme(s) → compétences LSU`
       : "";
+  const matNote =
+    matieresSynced && matieresSynced.inserts + matieresSynced.updates > 0
+      ? ` · ${matieresSynced.inserts + matieresSynced.updates} matière(s) → notes`
+      : "";
+  const classNote =
+    elevesClassesNormalized && elevesClassesNormalized.normalized > 0
+      ? ` · ${elevesClassesNormalized.normalized} classe(s) élève normalisée(s)`
+      : "";
 
   return {
     kind,
     inserts,
     updates,
     rows: rows.length,
-    message: `${filename} (${kind}) : ${rows.length} entrées — ${inserts} créées, ${updates} mises à jour.${compNote}`,
+    message: `${filename} (${kind}) : ${rows.length} entrées — ${inserts} créées, ${updates} mises à jour.${compNote}${matNote}${classNote}`,
   };
 }

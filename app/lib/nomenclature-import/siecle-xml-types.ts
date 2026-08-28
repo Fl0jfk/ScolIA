@@ -4,4 +4,6 @@ export type NomenclatureUpsertRow = {
   libelleCourt?: string;
   libelleLong?: string;
   metadataJson?: Record<string, unknown>;
+  validFrom?: string;
+  validTo?: string;
 };

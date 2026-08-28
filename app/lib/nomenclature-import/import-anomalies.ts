@@ -6,6 +6,7 @@ import { nomenclatureImportLog } from "@/db/schema";
 import { countElevesInDb, resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { getJson } from "@/app/lib/s3-storage";
+import { listUnmatchedEleveClasses } from "@/app/lib/nomenclature-classes";
 
 const SIECLE_ELEVE_MAP_KEY = "siecle/eleve-id-map.json";
 
@@ -151,18 +152,46 @@ export async function buildNomenclatureImportAnomalies(
       .map((l) => String(asRapport(l.rapportJson)?.kind || ""))
       .filter(Boolean),
   );
-  for (const required of ["communs", "nomenclature"] as const) {
+  for (const required of ["communs", "nomenclature", "structures"] as const) {
     if (!kinds.has(required)) {
       anomalies.push({
         id: `missing-${required}`,
-        severity: "info",
+        severity: required === "structures" ? "warn" : "info",
         label: `Import ${required} absent`,
         detail:
           required === "communs"
             ? "Communs.xml non importé — UAJ et année scolaire non synchronisés."
-            : "Nomenclature.xml non importé — MEF, matières et régimes manquants.",
+            : required === "nomenclature"
+              ? "Nomenclature.xml non importé — MEF, matières et régimes manquants."
+              : "Structures.xml non importé — divisions/classes Siècle absentes du référentiel.",
       });
     }
+  }
+
+  if (!kinds.has("geographique")) {
+    anomalies.push({
+      id: "missing-geographique",
+      severity: "info",
+      label: "Import géographique absent",
+      detail: "Geographique.xml non importé — pays, départements et communes manquants.",
+    });
+  }
+
+  try {
+    const eleves = await loadElevesRegistry();
+    const eleveClasses = eleves.map((e) => String(e.classe || "").trim()).filter(Boolean);
+    const unmatched = await listUnmatchedEleveClasses(etablissementId, eleveClasses);
+    if (unmatched.length > 0) {
+      anomalies.push({
+        id: "eleves-classes-hors-siecle",
+        severity: "warn",
+        label: "Classes collège/lycée hors Siècle",
+        detail: `Classes collège/lycée absentes de Structures.xml : ${unmatched.slice(0, 8).join(", ")}${unmatched.length > 8 ? "…" : ""}. Réimportez Structures.xml ou corrigez l'affectation élèves.`,
+        count: unmatched.length,
+      });
+    }
+  } catch {
+    // best-effort
   }
 
   return anomalies;
