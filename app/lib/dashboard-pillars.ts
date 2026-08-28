@@ -118,7 +118,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     id: "vie_scolaire",
     title: "Vie scolaire",
     href: "/vie-scolaire",
-    description: "Internat, appels & absences, sanctions, carnet",
+    description: "Internat, calendrier, groupes pédagogiques",
     allowedRoles: [
       ...DIRECTIONS,
       "cpe",
@@ -130,9 +130,6 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     ],
     moduleIds: [
       "internat",
-      "vs-appels",
-      "vs-sanctions",
-      "vs-carnet",
       "vs-calendrier",
       "groupes-pedagogiques",
     ],
