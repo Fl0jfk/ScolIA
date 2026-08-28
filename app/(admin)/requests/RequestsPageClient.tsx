@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useSessionUser } from "@/app/hooks/useAppUser";
+import { useSessionUser, useAppUser } from "@/app/hooks/useAppUser";
 import MesDemandesSuivi from "@/app/(admin)/requests/MesDemandesSuivi";
 import CompleteRequestModal, {
   type CompleteRequestTarget,
@@ -23,6 +23,10 @@ import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import type { RequestsOrgConfig, RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
+import {
+  canAccessRequestsStaffBoardSync,
+  requestsStaffAccessHintsFromClientUser,
+} from "@/app/lib/requests-staff-access-shared";
 
 type RequestsMainTab = "board" | "routing";
 
@@ -245,11 +249,20 @@ export default function RequestsPage() {
   const [isDragging, setIsDragging] = useState(false);
   const initialLoadDone = useRef(false);
   const draggedRequestIdRef = useRef<string | null>(null);
+  const { user: appUser } = useAppUser();
   const [hasStaffBoard, setHasStaffBoard] = useState(false);
   const [delegateEmailById, setDelegateEmailById] = useState<Record<string, string>>({});
   const mobileMoveMode = useMobileBoardUi();
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
   const userRoles = useMemo(() => rolesFromUserLike(user), [user]);
+  const clientStaffBoardAccess = useMemo(() => {
+    if (!appUser) return false;
+    return canAccessRequestsStaffBoardSync(
+      appUser.roles,
+      requestsStaffAccessHintsFromClientUser(appUser),
+    );
+  }, [appUser]);
+  const effectiveStaffBoard = hasStaffBoard || clientStaffBoardAccess;
   const serviceLabel = useMemo(() => getViewerServiceLabel(userRoles), [userRoles]);
   const visualColumns = useMemo(() => buildVisualColumns(serviceLabel), [serviceLabel]);
   const kanbanItems = useMemo(
@@ -266,22 +279,35 @@ export default function RequestsPage() {
   }, [user, userRoles]);
   const refreshBoard = useCallback(async () => {
     try {
+      const resAccess = await fetch("/api/requests/access", { cache: "no-store" });
+      let boardAllowed = clientStaffBoardAccess;
+      if (resAccess.ok) {
+        const accessJson = (await resAccess.json()) as { board?: boolean };
+        boardAllowed = Boolean(accessJson.board);
+      }
+      setHasStaffBoard(boardAllowed);
+
       const resSubmitted = await fetch("/api/requests/list?scope=submitted", { cache: "no-store" });
       const dataSubmitted = await resSubmitted.json();
       if (resSubmitted.ok) setSubmittedItems(Array.isArray(dataSubmitted) ? dataSubmitted : []);
+
+      if (!boardAllowed) {
+        setItems([]);
+        return;
+      }
+
       const resTeam = await fetch("/api/requests/list?scope=board", { cache: "no-store" });
       const dataTeam = await resTeam.json();
       if (resTeam.ok) {
-        setHasStaffBoard(true);
         setItems(Array.isArray(dataTeam) ? dataTeam : []);
       } else {
-        setHasStaffBoard(false);
         setItems([]);
       }
     } catch {
+      setHasStaffBoard(clientStaffBoardAccess);
       /* ignore */
     }
-  }, []);
+  }, [clientStaffBoardAccess]);
 
   const load = useCallback(async () => {
     const showFullPageLoader = !initialLoadDone.current;
@@ -312,7 +338,7 @@ export default function RequestsPage() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("nouvelle") !== "1") return;
 
-    if (hasStaffBoard) {
+    if (effectiveStaffBoard) {
       setCreateModalOpen(true);
     } else if (isSubmitOnlyUser) {
       requestAnimationFrame(() => {
@@ -324,10 +350,10 @@ export default function RequestsPage() {
     const qs = params.toString();
     const hash = window.location.hash;
     window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}${hash}`);
-  }, [isLoaded, loading, hasStaffBoard, isSubmitOnlyUser]);
+  }, [isLoaded, loading, effectiveStaffBoard, isSubmitOnlyUser]);
 
   useEffect(() => {
-    if (!isLoaded || !user || !hasStaffBoard || loading) return;
+    if (!isLoaded || !user || !effectiveStaffBoard || loading) return;
     const loadRoutes = async () => {
       try {
         const res = await fetch("/api/requests/routes", { cache: "no-store" });
@@ -338,7 +364,7 @@ export default function RequestsPage() {
       }
     };
     loadRoutes();
-  }, [isLoaded, user, hasStaffBoard, loading]);
+  }, [isLoaded, user, effectiveStaffBoard, loading]);
   const BOARD_MOVE_MIN_VISIBLE_MS = 280;
   const waitBoardMutationMinVisible = async (startedAt: number) => {
     const elapsed = Date.now() - startedAt;
@@ -708,7 +734,7 @@ export default function RequestsPage() {
       </ModulePageShell>
     );
   }
-  if (!isSubmitOnlyUser && !hasStaffBoard) {
+  if (!isSubmitOnlyUser && !effectiveStaffBoard) {
     return (
       <ModulePageShell maxWidthClass="max-w-3xl">
         <p className="text-sm text-slate-700">
@@ -719,7 +745,7 @@ export default function RequestsPage() {
       </ModulePageShell>
     );
   }
-  if (!hasStaffBoard && isSubmitOnlyUser) {
+  if (!effectiveStaffBoard && isSubmitOnlyUser) {
     return (
       <ModulePageShell maxWidthClass="max-w-3xl" className="pb-24">
         <ModulePageHeader

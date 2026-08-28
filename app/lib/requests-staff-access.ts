@@ -1,4 +1,6 @@
-import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
+import "server-only";
+
+import { getAppSession } from "@/app/lib/app-session";
 import { getRequestsOrgConfig } from "@/app/lib/requests-org-config";
 import { isGlobalOversightManager } from "@/app/lib/requests-org-shared";
 import { isListedAsRequestsStaff } from "@/app/lib/staff-directory";
@@ -7,28 +9,13 @@ import { normalizeRequestEmail } from "@/app/lib/requests-board";
 import type { CompatAuthUser } from "@/app/lib/app-session";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { isOrgAdminFromPublicMetadata } from "@/app/lib/intranet-auth-metadata";
+import {
+  canAccessRequestsStaffBoardSync,
+  requestsStaffAccessHintsFromClientUser,
+  type RequestsStaffAccessHints,
+} from "@/app/lib/requests-staff-access-shared";
 
-const STAFF_ROLES_FOR_REQUESTS = [
-  "admin",
-  "administratif",
-  "direction_ecole",
-  "direction_college",
-  "direction_lycee",
-  "maintenance",
-  "comptabilite",
-  "surveillant",
-  "cpe",
-  "infirmerie",
-] as const;
-
-function normalizeRole(value: string) {
-  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\s-]+/g, "_");
-}
-
-function hasStaffRoleForRequests(roles: string[]): boolean {
-  const normalized = roles.map(normalizeRole);
-  return STAFF_ROLES_FOR_REQUESTS.some((role) => normalized.includes(role));
-}
+export type { RequestsStaffAccessHints };
 
 function isOrgUnitStaffEmail(email: string, org: Awaited<ReturnType<typeof getRequestsOrgConfig>>): boolean {
   const u = normalizeRequestEmail(email);
@@ -40,17 +27,14 @@ function isOrgUnitStaffEmail(email: string, org: Awaited<ReturnType<typeof getRe
   return false;
 }
 
-export type RequestsStaffAccessOptions = {
-  orgAdmin?: boolean;
-};
+export type RequestsStaffAccessOptions = RequestsStaffAccessHints;
 
 export async function canAccessRequestsStaffBoard(
   roles: string[],
   userEmail: string,
   options?: RequestsStaffAccessOptions,
 ): Promise<boolean> {
-  if (options?.orgAdmin || hasGlobalAdminRole(roles) || hasMasterRole(roles)) return true;
-  if (hasStaffRoleForRequests(roles)) return true;
+  if (canAccessRequestsStaffBoardSync(roles, options)) return true;
   if (!userEmail) return false;
 
   try {
@@ -74,14 +58,58 @@ export async function canAccessRequestsStaffBoard(
 export function requestsStaffAccessOptionsFromUser(
   user: CompatAuthUser | null | undefined,
 ): RequestsStaffAccessOptions {
-  return { orgAdmin: isOrgAdminFromPublicMetadata(user?.publicMetadata) };
+  const meta = user?.publicMetadata;
+  const roles = rolesFromUserLike(user);
+  return {
+    orgAdmin: isOrgAdminFromPublicMetadata(meta),
+    platformAdmin: Boolean((meta as Record<string, unknown> | undefined)?.platform_admin),
+    ...requestsStaffAccessHintsFromClientUser({ roles, orgAdmin: isOrgAdminFromPublicMetadata(meta) }),
+  };
+}
+
+async function resolveStaffAccessContext(user: CompatAuthUser | null | undefined): Promise<{
+  roles: string[];
+  email: string;
+  options: RequestsStaffAccessOptions;
+}> {
+  const session = await getAppSession();
+  if (session?.user) {
+    const u = session.user;
+    return {
+      roles: u.roles,
+      email: u.email,
+      options: requestsStaffAccessHintsFromClientUser({
+        roles: u.roles,
+        orgAdmin: u.orgAdmin,
+        platformAdmin: u.platformAdmin,
+      }),
+    };
+  }
+  return {
+    roles: rolesFromUserLike(user),
+    email: user?.primaryEmailAddress?.emailAddress ?? "",
+    options: requestsStaffAccessOptionsFromUser(user),
+  };
 }
 
 export async function canAccessRequestsStaffBoardForUser(
   user: CompatAuthUser | null | undefined,
 ): Promise<boolean> {
-  if (!user) return false;
-  const roles = rolesFromUserLike(user);
-  const email = user.primaryEmailAddress?.emailAddress ?? "";
-  return canAccessRequestsStaffBoard(roles, email, requestsStaffAccessOptionsFromUser(user));
+  const ctx = await resolveStaffAccessContext(user);
+  return canAccessRequestsStaffBoard(ctx.roles, ctx.email, ctx.options);
+}
+
+export async function canAccessRequestsStaffBoardFromSession(): Promise<boolean> {
+  const session = await getAppSession();
+  if (!session?.user) return false;
+  const u = session.user;
+  return canAccessRequestsStaffBoard(
+    u.roles,
+    u.email,
+    requestsStaffAccessHintsFromClientUser({
+      roles: u.roles,
+      orgAdmin: u.orgAdmin,
+      platformAdmin: u.platformAdmin,
+    }),
+  );
 }
