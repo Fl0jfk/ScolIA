@@ -489,7 +489,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "internat",
     pathPrefixes: ["/gestion-internat", "/api/internat"],
-    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe", "infirmerie"],
+    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "internat", "cpe", "infirmerie"],
     dashboard: {
       id: 24,
       name: "Internat",

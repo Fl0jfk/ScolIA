@@ -568,59 +568,58 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   // —— Élèves : Internat ——
   if (has("internat")) {
     const internatHome = moduleHref("internat");
-    const showAppelSignal =
-      canSeeInternatRollCallSignal(roles) &&
-      (internatRollCallStatus === "non_demarre" || internatRollCallStatus === "en_cours");
+    shortcuts.push({
+      id: "internat",
+      pillarId: "vie_scolaire",
+      moduleId: "internat",
+      href: internatHome,
+      label: "Internat",
+    });
 
-    if (showAppelSignal) {
-      shortcuts.push({
-        id: "internat-appel",
-        pillarId: "vie_scolaire",
-        moduleId: "internat",
-        href: internatHome,
-        label: "Appel du soir",
-        rich: true,
-        badge: internatRollCallStatus === "en_cours" ? "En cours" : "À faire",
-        detail:
-          internatRollCallStatus === "en_cours"
-            ? "Appel du soir en cours"
-            : "Appel du soir non démarré",
-        tone: "action",
-      });
-      pushNotif({
-        id: "internat-appel",
-        moduleId: "internat",
-        label: "Appel du soir",
-        count: 1,
-        href: internatHome,
-        detail:
-          internatRollCallStatus === "en_cours"
-            ? "Appel du soir en cours"
-            : "Appel du soir non démarré",
-      });
-    } else {
-      shortcuts.push({
-        id: "internat",
-        pillarId: "vie_scolaire",
-        moduleId: "internat",
-        href: internatHome,
-        label: "Internat",
-      });
-      shortcuts.push({
-        id: "internat-ok",
-        pillarId: "vie_scolaire",
-        moduleId: "internat",
-        href: internatHome,
-        label: "Appel du soir",
-        rich: true,
-        badge: internatRollCallStatus === "validee" ? "Validé" : "OK",
-        detail:
-          internatRollCallStatus === "validee"
-            ? "Appel du soir déjà validé"
-            : "Rien d'urgent côté appel pour le moment",
-        tone: "neutral",
-        pillarOnly: true,
-      });
+    if (canSeeInternatRollCallSignal(roles)) {
+      const showAppelSignal =
+        internatRollCallStatus === "non_demarre" || internatRollCallStatus === "en_cours";
+
+      if (showAppelSignal) {
+        shortcuts.push({
+          id: "internat-appel",
+          pillarId: "vie_scolaire",
+          moduleId: "internat",
+          href: internatHome,
+          label: "Appel du soir",
+          rich: true,
+          badge: internatRollCallStatus === "en_cours" ? "En cours" : "À faire",
+          detail:
+            internatRollCallStatus === "en_cours"
+              ? "Appel du soir en cours"
+              : "Appel du soir non démarré",
+          tone: "action",
+        });
+        pushNotif({
+          id: "internat-appel",
+          moduleId: "internat",
+          label: "Appel du soir",
+          count: 1,
+          href: internatHome,
+          detail:
+            internatRollCallStatus === "en_cours"
+              ? "Appel du soir en cours"
+              : "Appel du soir non démarré",
+        });
+      } else if (internatRollCallStatus === "validee") {
+        shortcuts.push({
+          id: "internat-ok",
+          pillarId: "vie_scolaire",
+          moduleId: "internat",
+          href: internatHome,
+          label: "Appel du soir",
+          rich: true,
+          badge: "Validé",
+          detail: "Appel du soir déjà validé",
+          tone: "neutral",
+          pillarOnly: true,
+        });
+      }
     }
   }
 

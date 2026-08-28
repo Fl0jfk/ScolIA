@@ -201,6 +201,22 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "absences",
     "mon-planning",
   ],
+  internat: [
+    "eleve-dossier",
+    "organigramme",
+    "documents",
+    "channels",
+    "assistance",
+    "requests-staff",
+    "internat",
+    "vs-calendrier",
+    "vs-appels",
+    "vs-sanctions",
+    "vs-carnet",
+    "rh",
+    "absences",
+    "mon-planning",
+  ],
 };
 
 export const ROLE_DEFAULT_DOSSIER_SECTIONS: Record<string, readonly DefaultDossierSection[]> = {
@@ -223,6 +239,7 @@ export const ROLE_DEFAULT_DOSSIER_SECTIONS: Record<string, readonly DefaultDossi
   surveillant: ["identite", "scolarite", "famille"],
   /** Documents : catégorie administratif uniquement (pas financier / santé). */
   cpe: ["identite", "scolarite", "famille", "documents", "notes", "vie_scolaire"],
+  internat: ["identite", "scolarite", "famille", "vie_scolaire"],
 };
 
 export function hasCustomRoleDefaults(role: string): boolean {
