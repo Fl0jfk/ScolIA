@@ -6,6 +6,10 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { canViewAllConventions, canViewReferentConventions } from "@/app/lib/stage-access";
 import { buildStageClassRoster } from "@/app/lib/stage-class-roster";
 import {
+  classNameMatchesStageSecteurs,
+  resolveStageViewerSecteurs,
+} from "@/app/lib/stage-sector-scope";
+import {
   classKey,
   findReferentAssignment,
   getStageReferentsConfig,
@@ -31,6 +35,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const schoolYear = searchParams.get("schoolYear")?.trim() || currentStageSchoolYear();
     const requestedClass = searchParams.get("className")?.trim() || "";
+    const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
 
     const referentClasses = user
       ? await listClassesForReferentUser(gate.ctx.userId, schoolYear)
@@ -44,6 +49,12 @@ export async function GET(req: Request) {
       );
     } else {
       availableClasses = referentClasses;
+    }
+
+    if (viewerSecteurs.length > 0) {
+      availableClasses = availableClasses.filter((c) =>
+        classNameMatchesStageSecteurs(c, viewerSecteurs),
+      );
     }
 
     if (availableClasses.length === 0 && !isAdmin) {

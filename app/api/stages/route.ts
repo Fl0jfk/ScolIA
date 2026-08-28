@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import {
+  canManageStageSettings,
   canModerateOffers,
   canReviewPreconvention,
   canViewAllConventions,
@@ -11,8 +12,15 @@ import {
   canFileConventionToOneDrive,
   resolveStageViewerRole,
 } from "@/app/lib/stage-access";
+import { ensureStageYearAutoPurge } from "@/app/lib/stage-auto-purge";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import { listPendingSignaturesForUser } from "@/app/lib/stage-pending-signatures";
+import {
+  conventionMatchesStageSecteurs,
+  offerMatchesStageSecteurs,
+  resolveStageViewerSecteurs,
+  stageViewerSecteurSummary,
+} from "@/app/lib/stage-sector-scope";
 import {
   getConventionsIndex,
   getOffersIndex,
@@ -26,6 +34,8 @@ export async function GET() {
     const gate = await requireAuth();
     if (!gate.ok) return gate.response;
 
+    await ensureStageYearAutoPurge();
+
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
     const viewer = resolveStageViewerRole(roles);
@@ -33,23 +43,36 @@ export async function GET() {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 
-    const [offers, conventionsIndex] = await Promise.all([getOffersIndex(), getConventionsIndex()]);
-    const allConventions = await Promise.all(
-      conventionsIndex.map((e) => getStageConvention(e.id)),
-    );
-    const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
-    const conventions = allConventions
-      .filter((c): c is NonNullable<typeof c> => Boolean(c))
-      .filter((c) => conventionVisibleToUser(c, roles, userEmail, gate.ctx.userId));
+    const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
 
+    const [offersIndex, conventionsIndex] = await Promise.all([getOffersIndex(), getConventionsIndex()]);
+    const allOffers = (
+      await Promise.all(offersIndex.map((e) => getStageOffer(e.id)))
+    ).filter((o): o is NonNullable<typeof o> => Boolean(o));
+    const allConventions = (
+      await Promise.all(conventionsIndex.map((e) => getStageConvention(e.id)))
+    ).filter((c): c is NonNullable<typeof c> => Boolean(c));
+
+    const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
+    let conventions = allConventions.filter((c) =>
+      conventionVisibleToUser(c, roles, userEmail, gate.ctx.userId),
+    );
+    let offers = allOffers;
+
+    if (viewerSecteurs.length > 0) {
+      conventions = conventions.filter((c) => conventionMatchesStageSecteurs(c, viewerSecteurs));
+      offers = offers.filter((o) => offerMatchesStageSecteurs(o, viewerSecteurs));
+    }
+
+    const activeConventions = conventions.filter((c) => c.status !== "archived");
     const pendingOffers = offers.filter((o) => o.status === "pending");
-    const adminQueue = conventions.filter(
+    const adminQueue = activeConventions.filter(
       (c) =>
         c.status === "admin_review" ||
         c.status === "preconvention_submitted" ||
         c.status === "convention_deposited",
     );
-    const signaturesPending = conventions.filter((c) => c.status === "signatures_pending");
+    const signaturesPending = activeConventions.filter((c) => c.status === "signatures_pending");
     const referentOnly = canViewReferentConventions(roles) && !canViewAllConventions(roles);
     const myPendingSignatures = await listPendingSignaturesForUser(
       conventions,
@@ -60,6 +83,7 @@ export async function GET() {
 
     return NextResponse.json({
       viewer,
+      viewerSecteurLabel: stageViewerSecteurSummary(viewerSecteurs),
       permissions: {
         canModerateOffers: canModerateOffers(roles),
         canReviewPreconvention: canReviewPreconvention(roles),
@@ -67,7 +91,7 @@ export async function GET() {
         canViewReferentConventions: canViewReferentConventions(roles),
         canDepositOffer: roles.includes("parent"),
         canFileToOneDrive: canFileConventionToOneDrive(roles),
-        canPurge: canReviewPreconvention(roles),
+        canManageStageSettings: canManageStageSettings(roles),
         canManageReferents: canReviewPreconvention(roles),
         referentOnly,
         canViewClassRoster: canViewReferentConventions(roles) || canViewAllConventions(roles),
@@ -75,7 +99,7 @@ export async function GET() {
       counts: {
         offers: offers.length,
         pendingOffers: pendingOffers.length,
-        conventions: conventions.length,
+        conventions: activeConventions.length,
         adminQueue: adminQueue.length,
         signaturesPending: signaturesPending.length,
         myPendingSignatures: myPendingSignatures.length,
@@ -84,7 +108,7 @@ export async function GET() {
       pendingOffers: pendingOffers.slice(0, 20),
       adminQueue: adminQueue.slice(0, 20),
       signaturesPending: signaturesPending.slice(0, 20),
-      conventions: conventions.slice(0, 100).map((c) => ({
+      conventions: activeConventions.slice(0, 100).map((c) => ({
         id: c.id,
         studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),
         className: c.student.className,

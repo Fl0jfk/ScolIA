@@ -176,12 +176,12 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
     steps: [
       {
         title: "Vue d'ensemble",
-        body: "Gérez les offres de stage, les préconventions en ligne, les signatures et l'envoi vers OneDrive.",
+        body: "Gérez les offres de stage, les préconventions en ligne et les signatures. Les directions voient uniquement leur secteur (collège ou lycée).",
       },
       {
         target: "stages-board",
         title: "Tableau de bord",
-        body: "Résumé des dossiers en attente : préconventions à valider, signatures en cours, file OneDrive.",
+        body: "Résumé des dossiers en attente : préconventions à valider, signatures en cours, file administrative.",
       },
       {
         target: "stages-classe",
@@ -194,9 +194,9 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
         body: "Liste des dossiers par élève. Ouvrez une ligne pour valider une préconvention ou lancer les signatures.",
       },
       {
-        target: "stages-preconvention-link",
-        title: "Formulaire public élèves",
-        body: "Communiquez le lien /stages/preconvention : l'élève saisit son INE, puis remplit le formulaire (entreprise, horaires, dates).",
+        target: "stages-settings",
+        title: "Réglages",
+        body: "Configurez les classes concernées par les stages, les périodes officielles, les référents et le lien public /stages/preconvention.",
       },
     ],
   },
@@ -701,14 +701,16 @@ export function getModuleTour(moduleId: string): ModuleTourDefinition | undefine
 /** Onglet stages à activer pour une cible data-tour du tutoriel. */
 export function resolveStagesTourTab(
   target?: string,
-): "board" | "classe" | "conventions" | null {
+): "board" | "classe" | "conventions" | "settings" | null {
   switch (target) {
     case "stages-board":
       return "board";
     case "stages-classe":
       return "classe";
-    case "stages-conventions":
+    case "stages-settings":
     case "stages-preconvention-link":
+      return "settings";
+    case "stages-conventions":
     case "stages-deposer-link":
       return "conventions";
     default:

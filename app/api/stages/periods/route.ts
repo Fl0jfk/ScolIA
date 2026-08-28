@@ -90,13 +90,6 @@ export async function GET(req: Request) {
     const config = await getStagePeriodsConfig(schoolYear);
     const planningClasses = await listAllPlanningClasses();
 
-    const configuredNames = new Set(config?.classes.map((c) => c.className) ?? []);
-    const mergedClasses = [...planningClasses];
-    for (const name of configuredNames) {
-      if (!mergedClasses.includes(name)) mergedClasses.push(name);
-    }
-    mergedClasses.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
-
     const prevYearParts = schoolYear.split("-").map(Number);
     const prevYear =
       prevYearParts.length === 2 && prevYearParts.every((n) => !Number.isNaN(n))
@@ -107,7 +100,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       schoolYear,
       config,
-      planningClasses: mergedClasses,
+      suggestedClasses: planningClasses,
       previousConfig,
       currentSchoolYear: currentStageSchoolYear(),
     });

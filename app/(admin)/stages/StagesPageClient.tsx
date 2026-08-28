@@ -38,6 +38,10 @@ const StagesConventionsPanel = dynamic(
   () => import("@/app/components/stages/StagesConventionsPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
+const StagesSettingsPanel = dynamic(() => import("@/app/components/stages/StagesSettingsPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
 
 function currentSchoolYearLabel() {
   const now = new Date();
@@ -116,32 +120,11 @@ function StagesContent() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [purgeYear, setPurgeYear] = useState(currentSchoolYearLabel);
-  const [purgePreview, setPurgePreview] = useState<{
-    offersArchived: number;
-    conventionsArchived: number;
-  } | null>(null);
+  const [schoolYear] = useState(currentSchoolYearLabel);
   const [hasStoredSignature, setHasStoredSignature] = useState<boolean | undefined>(undefined);
-  const [oneDrivePreview, setOneDrivePreview] = useState<{
-    totalPending: number;
-    forMySecteur: number;
-    secteurLabel: string | null;
-    bySecteur: Partial<Record<string, number>>;
-  } | null>(null);
   const [filingConventionId, setFilingConventionId] = useState<string | null>(null);
   const [adminReviewNote, setAdminReviewNote] = useState("");
   const [adminEditing, setAdminEditing] = useState(false);
-
-  const loadOneDrivePreview = useCallback(async () => {
-    try {
-      const res = await fetch("/api/stages/conventions/file-onedrive-batch", { cache: "no-store" });
-      const data = await res.json();
-      if (!res.ok) return;
-      setOneDrivePreview(data);
-    } catch {
-      /* ignore */
-    }
-  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -159,7 +142,6 @@ function StagesContent() {
       setOffers(o.myOffers || o.offers || []);
       setApprovedOffers(o.approvedOffers || []);
       setConventions(c.conventions || []);
-      await loadOneDrivePreview();
       if ((b.myPendingSignatures?.length ?? 0) > 0) {
         try {
           const sigRes = await fetch("/api/stages/my-signature", { cache: "no-store" });
@@ -172,7 +154,7 @@ function StagesContent() {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     }
-  }, [loadOneDrivePreview]);
+  }, []);
 
   const loadDetail = useCallback(async (id: string) => {
     const res = await fetch(`/api/stages/conventions/${id}`, { cache: "no-store" });
@@ -265,38 +247,6 @@ function StagesContent() {
     }
   }
 
-  async function runPurge(dryRun: boolean) {
-    if (!dryRun) {
-      const ok = window.confirm(
-        `Archiver toutes les offres et conventions de ${purgeYear} ? Cette action est irréversible.`,
-      );
-      if (!ok) return;
-    }
-    setBusy(true);
-    setError(null);
-    setMsg(null);
-    try {
-      const res = await fetch("/api/stages/purge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schoolYear: purgeYear, dryRun }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Erreur");
-      const r = data.result as { offersArchived: number; conventionsArchived: number };
-      setPurgePreview(r);
-      setMsg(
-        dryRun
-          ? `Simulation ${purgeYear} : ${r.offersArchived} offre(s), ${r.conventionsArchived} convention(s) à archiver.`
-          : `Archivage terminé (${purgeYear}) : ${r.offersArchived} offre(s), ${r.conventionsArchived} convention(s).`,
-      );
-      if (!dryRun) await load();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function adminReview(approved: boolean) {
     if (!detail) return;
@@ -397,55 +347,6 @@ function StagesContent() {
     }
   }
 
-  async function batchFileToOneDrive() {
-    setBusy(true);
-    setError(null);
-    setMsg(null);
-    try {
-      const token = await od.ensureToken();
-      if (!token) {
-        setError(od.error || "Connectez-vous à OneDrive avant d'envoyer les conventions.");
-        return;
-      }
-      const res = await fetch("/api/stages/conventions/file-onedrive-batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken: token }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Erreur envoi OneDrive");
-
-      const parts = [
-        `${data.filed ?? 0} convention(s) déposée(s) dans les dossiers élèves.`,
-      ];
-      if (data.skippedOtherSecteur > 0) {
-        parts.push(
-          `${data.skippedOtherSecteur} ignorée(s) (autre secteur — reconnectez-vous avec le bon compte Microsoft).`,
-        );
-      }
-      if (data.failed?.length) {
-        parts.push(`${data.failed.length} échec(s) — voir le détail ci-dessous.`);
-      }
-      setMsg(parts.join(" "));
-
-      if (data.failed?.length) {
-        setError(
-          data.failed
-            .slice(0, 5)
-            .map((f: { studentName: string; error: string }) => `${f.studentName} : ${f.error}`)
-            .join(" · "),
-        );
-      }
-
-      await load();
-      if (detail) await loadDetail(detail.convention.id);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function fileConventionToOneDrive(conventionId: string) {
     setFilingConventionId(conventionId);
     setBusy(true);
@@ -471,7 +372,6 @@ function StagesContent() {
         `Convention déposée dans le dossier élève : ${data.oneDrive?.fullPath ?? data.oneDrive?.folderPath ?? "OneDrive"}.`,
       );
       await load();
-      await loadOneDrivePreview();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -523,77 +423,6 @@ function StagesContent() {
         title="Stages & conventions"
         description="Les élèves remplissent leur préconvention en ligne (entreprise, horaires, contacts). Après validation, chaque signataire reçoit un code sécurisé par e-mail."
       />
-
-      {permissions?.canFileToOneDrive && od.oneDriveEnabled && (
-        <section className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-[#1F3D2B]">Dépôt OneDrive — conventions signées</h2>
-          <p className="mt-1 text-sm text-stone-600 max-w-3xl">
-            S3 sert de transit jusqu&apos;au dépôt OneDrive. Connectez-vous à Microsoft puis envoyez
-            en une fois les conventions finalisées — le PDF est alors rangé chez l&apos;élève et
-            retiré de S3.
-          </p>
-
-          {oneDrivePreview && oneDrivePreview.totalPending > 0 && (
-            <p className="mt-3 text-sm text-stone-800">
-              <strong>{oneDrivePreview.totalPending}</strong> convention
-              {oneDrivePreview.totalPending > 1 ? "s" : ""} signée
-              {oneDrivePreview.totalPending > 1 ? "s" : ""} en attente de dépôt OneDrive
-              {oneDrivePreview.secteurLabel && oneDrivePreview.forMySecteur > 0 ? (
-                <>
-                  {" "}
-                  — <strong>{oneDrivePreview.forMySecteur}</strong> pour le{" "}
-                  {oneDrivePreview.secteurLabel}
-                </>
-              ) : null}
-              .
-            </p>
-          )}
-
-          {oneDrivePreview && oneDrivePreview.totalPending === 0 && (
-            <p className="mt-3 text-sm text-emerald-800">Aucune convention signée en attente de dépôt.</p>
-          )}
-
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {od.connected ? (
-              <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800">
-                OneDrive connecté{od.accountLabel ? ` (${od.accountLabel})` : ""}
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void od.login()}
-                disabled={!od.msalReady || od.checking}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                Se connecter à OneDrive
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => void batchFileToOneDrive()}
-              disabled={
-                busy ||
-                od.checking ||
-                !od.msalReady ||
-                !oneDrivePreview?.totalPending
-              }
-              className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {busy || od.checking
-                ? "Envoi en cours…"
-                : "Envoyer les conventions signées vers OneDrive"}
-            </button>
-          </div>
-
-          {oneDriveProfile && (
-            <p className="mt-2 text-xs text-stone-600">
-              Votre secteur : <strong>{oneDriveProfile.label}</strong> — les conventions des autres
-              secteurs seront ignorées (reconnectez-vous avec le compte adapté).
-            </p>
-          )}
-          {od.error && <p className="mt-2 text-xs text-rose-700">{od.error}</p>}
-        </section>
-      )}
 
       {error && (
         <p className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">{error}</p>
@@ -647,6 +476,12 @@ function StagesContent() {
             label: "Conventions",
             dataAttrs: { "data-stages-tab": "conventions" },
           },
+          {
+            id: "settings",
+            label: "Réglages",
+            hidden: !permissions?.canManageStageSettings,
+            dataAttrs: { "data-stages-tab": "settings" },
+          },
         ]}
         active={tab}
         onChange={setTab}
@@ -655,7 +490,7 @@ function StagesContent() {
 
       {tab === "classe" && permissions?.canViewClassRoster && (
         <StagesClassePanel
-          defaultSchoolYear={purgeYear}
+          defaultSchoolYear={schoolYear}
           onOpenConvention={(id) => {
             void loadDetail(id);
             setTab("conventions");
@@ -671,14 +506,12 @@ function StagesContent() {
         <StagesBoardPanel
           board={board}
           permissions={permissions}
-          purgeYear={purgeYear}
-          setPurgeYear={setPurgeYear}
-          purgePreview={purgePreview}
-          busy={busy}
           onLoadDetail={(id) => void loadDetail(id)}
-          onRunPurge={(dryRun) => void runPurge(dryRun)}
-          onSavedMsg={setMsg}
         />
+      )}
+
+      {tab === "settings" && permissions?.canManageStageSettings && (
+        <StagesSettingsPanel schoolYear={schoolYear} onSavedMsg={setMsg} />
       )}
 
       {tab === "offers" && (

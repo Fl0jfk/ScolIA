@@ -20,7 +20,7 @@ function uid(prefix: string) {
 }
 
 function emptyClassConfig(className: string): StageClassStageConfig {
-  return { className, enabled: false, periods: [], reminders: [] };
+  return { className, enabled: true, periods: [], reminders: [] };
 }
 
 export default function StagePeriodsEditor({
@@ -31,7 +31,7 @@ export default function StagePeriodsEditor({
   onSaved?: (message: string) => void;
 }) {
   const [schoolYear, setSchoolYear] = useState(initialYear || currentSchoolYearLabel());
-  const [planningClasses, setPlanningClasses] = useState<string[]>([]);
+  const [suggestedClasses, setSuggestedClasses] = useState<string[]>([]);
   const [classes, setClasses] = useState<StageClassStageConfig[]>([]);
   const [expandedClass, setExpandedClass] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
@@ -54,22 +54,20 @@ export default function StagePeriodsEditor({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur chargement périodes");
 
-      const planning: string[] = data.planningClasses || [];
-      setPlanningClasses(planning);
+      setSuggestedClasses(data.suggestedClasses || []);
       setPreviousConfig(data.previousConfig || null);
       setUpdatedAt(data.config?.updatedAt || null);
       setUpdatedBy(data.config?.updatedBy || null);
 
-      const byName = new Map<string, StageClassStageConfig>();
-      for (const name of planning) {
-        byName.set(name, emptyClassConfig(name));
-      }
-      for (const c of (data.config?.classes || []) as StageClassStageConfig[]) {
-        byName.set(c.className, c);
-      }
-      setClasses([...byName.values()].sort((a, b) =>
-        a.className.localeCompare(b.className, "fr", { sensitivity: "base" }),
-      ));
+      const configured = ((data.config?.classes || []) as StageClassStageConfig[]).map((c) => ({
+        ...c,
+        enabled: c.enabled !== false,
+      }));
+      setClasses(
+        configured.sort((a, b) =>
+          a.className.localeCompare(b.className, "fr", { sensitivity: "base" }),
+        ),
+      );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -166,28 +164,32 @@ export default function StagePeriodsEditor({
 
   function copyFromPreviousYear() {
     if (!previousConfig?.classes.length) return;
-    const byName = new Map(previousConfig.classes.map((c) => [c.className, c]));
-    setClasses((prev) =>
-      prev.map((c) => byName.get(c.className) ?? c),
+    setClasses(
+      previousConfig.classes
+        .map((c) => ({ ...c, enabled: c.enabled !== false }))
+        .sort((a, b) => a.className.localeCompare(b.className, "fr", { sensitivity: "base" })),
     );
     onSaved?.(`Configuration copiée depuis ${previousConfig.schoolYear}.`);
   }
 
-  function addCustomClass() {
-    const name = customClass.trim();
-    if (!name || planningClasses.includes(name)) {
+  function addClass(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed || classes.some((c) => c.className.toLowerCase() === trimmed.toLowerCase())) {
       setCustomClass("");
       return;
     }
-    setPlanningClasses((prev) =>
-      [...prev, name].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" })),
-    );
     setClasses((prev) =>
-      [...prev, emptyClassConfig(name)].sort((a, b) =>
+      [...prev, emptyClassConfig(trimmed)].sort((a, b) =>
         a.className.localeCompare(b.className, "fr", { sensitivity: "base" }),
       ),
     );
     setCustomClass("");
+    setExpandedClass(trimmed);
+  }
+
+  function removeClass(className: string) {
+    setClasses((prev) => prev.filter((c) => c.className !== className));
+    if (expandedClass === className) setExpandedClass(null);
   }
 
   async function save() {
@@ -216,6 +218,8 @@ export default function StagePeriodsEditor({
   }
 
   const enabledCount = classes.filter((c) => c.enabled).length;
+  const existingNames = new Set(classes.map((c) => c.className.toLowerCase()));
+  const pickSuggestions = suggestedClasses.filter((c) => !existingNames.has(c.toLowerCase()));
 
   if (loading) {
     return <p className="text-sm text-stone-500">Chargement des périodes…</p>;
@@ -249,9 +253,8 @@ export default function StagePeriodsEditor({
       </div>
 
       <p className="text-sm text-stone-600 max-w-3xl">
-        Activez uniquement les classes concernées par les stages. Configurez les périodes officielles et
-        les rappels affichés sur le formulaire public (ex. « Attention : dates des 2de… »). Seules les
-        classes activées apparaissent dans les référents et le formulaire élève.
+        Ajoutez les classes concernées par les stages, puis configurez leurs périodes et rappels. Seules
+        les classes listées ici apparaissent sur le formulaire public et dans les référents.
       </p>
 
       {updatedAt && (
@@ -261,186 +264,216 @@ export default function StagePeriodsEditor({
         </p>
       )}
 
-      <div className="space-y-2 max-h-[520px] overflow-y-auto rounded-xl border border-stone-200">
-        {classes.map((c) => (
-          <div key={c.className} className="border-b border-stone-100 last:border-0 bg-white">
-            <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-              <label className="flex items-center gap-2 shrink-0">
-                <input
-                  type="checkbox"
-                  checked={c.enabled}
-                  onChange={(e) => updateClass(c.className, { enabled: e.target.checked })}
-                />
-                <span className="font-bold text-[#1F3D2B] w-16">{c.className}</span>
-              </label>
-              <button
-                type="button"
-                className="text-xs font-semibold text-[#2F6B4A] underline"
-                onClick={() =>
-                  setExpandedClass(expandedClass === c.className ? null : c.className)
-                }
-              >
-                {expandedClass === c.className ? "Masquer" : "Périodes & rappels"}
-              </button>
-              {c.enabled && (
-                <span className="text-xs text-emerald-700">
-                  {c.periods.length} période(s) · {c.reminders.length} rappel(s)
-                </span>
+      {classes.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-600">
+          Aucune classe configurée. Ajoutez les classes qui feront des stages cette année (ex. 4ᵉ, 3ᵉ,
+          2nde, 1ʳᵉ).
+        </p>
+      ) : (
+        <div className="space-y-2 max-h-[520px] overflow-y-auto rounded-xl border border-stone-200">
+          {classes.map((c) => (
+            <div key={c.className} className="border-b border-stone-100 last:border-0 bg-white">
+              <div className="flex flex-wrap items-center gap-3 px-4 py-3">
+                <label className="flex items-center gap-2 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={c.enabled}
+                    onChange={(e) => updateClass(c.className, { enabled: e.target.checked })}
+                  />
+                  <span className="font-bold text-[#1F3D2B] min-w-[3rem]">{c.className}</span>
+                </label>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-[#2F6B4A] underline"
+                  onClick={() =>
+                    setExpandedClass(expandedClass === c.className ? null : c.className)
+                  }
+                >
+                  {expandedClass === c.className ? "Masquer" : "Périodes & rappels"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeClass(c.className)}
+                  className="text-xs text-rose-700 underline ml-auto"
+                >
+                  Retirer la classe
+                </button>
+                {c.enabled && (
+                  <span className="text-xs text-emerald-700">
+                    {c.periods.length} période(s) · {c.reminders.length} rappel(s)
+                  </span>
+                )}
+              </div>
+
+              {expandedClass === c.className && (
+                <div className="px-4 pb-4 space-y-4 bg-stone-50/60">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-stone-700">Périodes de stage</h4>
+                      <button
+                        type="button"
+                        onClick={() => addPeriod(c.className)}
+                        className="text-xs text-[#2F6B4A] font-semibold underline"
+                      >
+                        + Ajouter une période
+                      </button>
+                    </div>
+                    {c.periods.length === 0 ? (
+                      <p className="mt-2 text-xs text-stone-500">Aucune période définie.</p>
+                    ) : (
+                      <ul className="mt-2 space-y-2">
+                        {c.periods.map((p) => (
+                          <li key={p.id} className="rounded-lg border border-stone-200 bg-white p-3 space-y-2">
+                            <input
+                              className="w-full rounded border px-2 py-1 text-xs"
+                              placeholder="Libellé (ex. PFMP 1)"
+                              value={p.label}
+                              onChange={(e) =>
+                                updatePeriod(c.className, p.id, { label: e.target.value })
+                              }
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                type="date"
+                                className="rounded border px-2 py-1 text-xs"
+                                value={p.periodStart}
+                                onChange={(e) =>
+                                  updatePeriod(c.className, p.id, { periodStart: e.target.value })
+                                }
+                              />
+                              <input
+                                type="date"
+                                className="rounded border px-2 py-1 text-xs"
+                                value={p.periodEnd}
+                                onChange={(e) =>
+                                  updatePeriod(c.className, p.id, { periodEnd: e.target.value })
+                                }
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removePeriod(c.className, p.id)}
+                              className="text-xs text-rose-700 underline"
+                            >
+                              Supprimer
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-stone-700">Rappels affichés aux familles</h4>
+                      <button
+                        type="button"
+                        onClick={() => addReminder(c.className)}
+                        className="text-xs text-[#2F6B4A] font-semibold underline"
+                      >
+                        + Ajouter un rappel
+                      </button>
+                    </div>
+                    {c.reminders.length === 0 ? (
+                      <p className="mt-2 text-xs text-stone-500">Aucun rappel — ajoutez un message d&apos;attention sur les dates.</p>
+                    ) : (
+                      <ul className="mt-2 space-y-2">
+                        {c.reminders.map((r) => (
+                          <li key={r.id} className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 space-y-2">
+                            <input
+                              className="w-full rounded border px-2 py-1 text-xs"
+                              placeholder="Titre du rappel"
+                              value={r.label}
+                              onChange={(e) =>
+                                updateReminder(c.className, r.id, { label: e.target.value })
+                              }
+                            />
+                            <textarea
+                              className="w-full rounded border px-2 py-1 text-xs min-h-[60px]"
+                              placeholder="Message (ex. Votre stage doit se situer entre le…)"
+                              value={r.message}
+                              onChange={(e) =>
+                                updateReminder(c.className, r.id, { message: e.target.value })
+                              }
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                              <input
+                                type="date"
+                                className="rounded border px-2 py-1 text-xs"
+                                value={r.periodStart || ""}
+                                onChange={(e) =>
+                                  updateReminder(c.className, r.id, {
+                                    periodStart: e.target.value || undefined,
+                                  })
+                                }
+                              />
+                              <input
+                                type="date"
+                                className="rounded border px-2 py-1 text-xs"
+                                value={r.periodEnd || ""}
+                                onChange={(e) =>
+                                  updateReminder(c.className, r.id, {
+                                    periodEnd: e.target.value || undefined,
+                                  })
+                                }
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeReminder(c.className, r.id)}
+                              className="text-xs text-rose-700 underline"
+                            >
+                              Supprimer
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
-
-            {expandedClass === c.className && (
-              <div className="px-4 pb-4 space-y-4 bg-stone-50/60">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-stone-700">Périodes de stage</h4>
-                    <button
-                      type="button"
-                      onClick={() => addPeriod(c.className)}
-                      className="text-xs text-[#2F6B4A] font-semibold underline"
-                    >
-                      + Ajouter une période
-                    </button>
-                  </div>
-                  {c.periods.length === 0 ? (
-                    <p className="mt-2 text-xs text-stone-500">Aucune période définie.</p>
-                  ) : (
-                    <ul className="mt-2 space-y-2">
-                      {c.periods.map((p) => (
-                        <li key={p.id} className="rounded-lg border border-stone-200 bg-white p-3 space-y-2">
-                          <input
-                            className="w-full rounded border px-2 py-1 text-xs"
-                            placeholder="Libellé (ex. PFMP 1)"
-                            value={p.label}
-                            onChange={(e) =>
-                              updatePeriod(c.className, p.id, { label: e.target.value })
-                            }
-                          />
-                          <div className="grid grid-cols-2 gap-2">
-                            <input
-                              type="date"
-                              className="rounded border px-2 py-1 text-xs"
-                              value={p.periodStart}
-                              onChange={(e) =>
-                                updatePeriod(c.className, p.id, { periodStart: e.target.value })
-                              }
-                            />
-                            <input
-                              type="date"
-                              className="rounded border px-2 py-1 text-xs"
-                              value={p.periodEnd}
-                              onChange={(e) =>
-                                updatePeriod(c.className, p.id, { periodEnd: e.target.value })
-                              }
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removePeriod(c.className, p.id)}
-                            className="text-xs text-rose-700 underline"
-                          >
-                            Supprimer
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-stone-700">Rappels affichés aux familles</h4>
-                    <button
-                      type="button"
-                      onClick={() => addReminder(c.className)}
-                      className="text-xs text-[#2F6B4A] font-semibold underline"
-                    >
-                      + Ajouter un rappel
-                    </button>
-                  </div>
-                  {c.reminders.length === 0 ? (
-                    <p className="mt-2 text-xs text-stone-500">Aucun rappel — ajoutez un message d&apos;attention sur les dates.</p>
-                  ) : (
-                    <ul className="mt-2 space-y-2">
-                      {c.reminders.map((r) => (
-                        <li key={r.id} className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 space-y-2">
-                          <input
-                            className="w-full rounded border px-2 py-1 text-xs"
-                            placeholder="Titre du rappel"
-                            value={r.label}
-                            onChange={(e) =>
-                              updateReminder(c.className, r.id, { label: e.target.value })
-                            }
-                          />
-                          <textarea
-                            className="w-full rounded border px-2 py-1 text-xs min-h-[60px]"
-                            placeholder="Message (ex. Votre stage doit se situer entre le…)"
-                            value={r.message}
-                            onChange={(e) =>
-                              updateReminder(c.className, r.id, { message: e.target.value })
-                            }
-                          />
-                          <div className="grid grid-cols-2 gap-2">
-                            <input
-                              type="date"
-                              className="rounded border px-2 py-1 text-xs"
-                              value={r.periodStart || ""}
-                              onChange={(e) =>
-                                updateReminder(c.className, r.id, {
-                                  periodStart: e.target.value || undefined,
-                                })
-                              }
-                            />
-                            <input
-                              type="date"
-                              className="rounded border px-2 py-1 text-xs"
-                              value={r.periodEnd || ""}
-                              onChange={(e) =>
-                                updateReminder(c.className, r.id, {
-                                  periodEnd: e.target.value || undefined,
-                                })
-                              }
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeReminder(c.className, r.id)}
-                            className="text-xs text-rose-700 underline"
-                          >
-                            Supprimer
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <input
           className="rounded-lg border border-stone-300 px-3 py-2 text-sm"
-          placeholder="Classe hors liste"
+          placeholder="Nom de classe (ex. 4e, 3e, 2nde, 1re)"
           value={customClass}
           onChange={(e) => setCustomClass(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              addCustomClass();
+              addClass(customClass);
             }
           }}
         />
         <button
           type="button"
-          onClick={addCustomClass}
+          onClick={() => addClass(customClass)}
           className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700"
         >
           Ajouter une classe
         </button>
       </div>
+
+      {pickSuggestions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-stone-500">Suggestions :</span>
+          {pickSuggestions.slice(0, 12).map((name) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => addClass(name)}
+              className="rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-xs font-medium text-stone-700 hover:bg-stone-100"
+            >
+              + {name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <button
         type="button"

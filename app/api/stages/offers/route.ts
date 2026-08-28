@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { canCreateOffer, canModerateOffers } from "@/app/lib/stage-access";
+import { ensureStageYearAutoPurge } from "@/app/lib/stage-auto-purge";
+import { offerMatchesStageSecteurs, resolveStageViewerSecteurs } from "@/app/lib/stage-sector-scope";
 import { getOffersIndex, getStageOffer, saveStageOffer } from "@/app/lib/stage-storage";
 import {
   currentStageSchoolYear,
@@ -33,12 +35,20 @@ export async function GET() {
     const gate = await requireAuth();
     if (!gate.ok) return gate.response;
 
+    await ensureStageYearAutoPurge();
+
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
     const index = await getOffersIndex();
+    const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
 
     if (canModerateOffers(roles)) {
-      const offers = await Promise.all(index.map((e) => getStageOffer(e.id)));
+      const offers = (
+        await Promise.all(index.map((e) => getStageOffer(e.id)))
+      )
+        .filter((o): o is NonNullable<typeof o> => Boolean(o))
+        .filter((o) => o.status !== "archived")
+        .filter((o) => offerMatchesStageSecteurs(o, viewerSecteurs));
       return NextResponse.json({ offers: offers.filter(Boolean) });
     }
 
