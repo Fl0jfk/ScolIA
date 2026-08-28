@@ -1,0 +1,18 @@
+---
+description: Git — toujours travailler sur main (pas de branches feature par défaut)
+alwaysApply: true
+---
+
+# Git — branche main uniquement
+
+- **Toujours** travailler sur la branche **`main`**.
+- **Ne pas** créer de branche feature (`cursor/…`, `feat/…`, etc.) sauf demande **explicite** de l’utilisateur.
+- **Ne pas** ouvrir de PR draft par défaut : committer et **pousser directement sur `main`** (`git push origin main`).
+- Avant de commencer : `git checkout main && git pull origin main`.
+- Après chaque changement logique : `git add`, `git commit`, `git push origin main`.
+- Ne pas laisser du travail uniquement en local ou sur une branche parallèle.
+
+## Exceptions (uniquement si l’utilisateur le demande)
+
+- Branche dédiée pour une expérience isolée ou une PR de revue explicite.
+- Dans ce cas, indiquer clairement pourquoi et merger sur `main` dès validation.
