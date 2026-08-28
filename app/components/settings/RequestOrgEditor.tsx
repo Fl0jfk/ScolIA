@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import type { RequestsOrgConfig, RequestsRoutingConfig, RequestServiceUnit } from "@/app/lib/app-config-schemas";
-import { newRequestServiceUnit } from "@/app/lib/requests-org-config";
+import { newRequestServiceUnit } from "@/app/lib/requests-org-shared";
 
 type Props = {
   org: RequestsOrgConfig;

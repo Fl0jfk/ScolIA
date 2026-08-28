@@ -7,7 +7,7 @@ import type {
 import { normalizeRequestEmail } from "@/app/lib/requests-board";
 import type { RequestEleveContext } from "@/app/lib/requests-eleve-context";
 import type { ResolvedRequestRouting } from "@/app/lib/requests";
-import { getDescendantUnitIds, getActiveUnits } from "@/app/lib/requests-org-config";
+import { getDescendantUnitIds, getActiveUnits } from "@/app/lib/requests-org-shared";
 
 const ROUTING_CONFIDENCE_MIN = 0.55;
 
