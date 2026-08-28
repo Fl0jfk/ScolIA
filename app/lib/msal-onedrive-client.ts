@@ -52,7 +52,6 @@ export function buildOneDriveMsalConfig(ms: Pick<MicrosoftOneDrivePublicConfig, 
       clientId: ms.clientId,
       authority: `https://login.microsoftonline.com/${ms.tenantId}`,
       redirectUri: oneDriveMsalRedirectUri(),
-      navigateToLoginRequestUrl: false,
     },
     cache: {
       cacheLocation: "localStorage",

@@ -66,7 +66,7 @@ export function useOneDriveConnection(): OneDriveConnectionState {
 
         msalInstance = new msal.PublicClientApplication(buildOneDriveMsalConfig(ms));
         await getMsal().initialize();
-        await getMsal().handleRedirectPromise();
+        await getMsal().handleRedirectPromise({ navigateToLoginRequestUrl: false });
         if (cancelled) return;
         setMsalReady(true);
 

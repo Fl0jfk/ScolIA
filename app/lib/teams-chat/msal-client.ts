@@ -33,7 +33,7 @@ async function getTeamsChatMsal(): Promise<msal.PublicClientApplication> {
   const ms = await fetchMicrosoftAppIds();
   pca = new msal.PublicClientApplication(buildOneDriveMsalConfig(ms));
   await pca.initialize();
-  await pca.handleRedirectPromise();
+  await pca.handleRedirectPromise({ navigateToLoginRequestUrl: false });
   return pca;
 }
 

@@ -218,7 +218,9 @@ function OneDriveUpDocsOCRAIContent() {
         msalInstance = new msal.PublicClientApplication(buildOneDriveMsalConfig(ms));
         await getMsalInstance().initialize();
 
-        const redirectResult = await getMsalInstance().handleRedirectPromise();
+        const redirectResult = await getMsalInstance().handleRedirectPromise({
+          navigateToLoginRequestUrl: false,
+        });
         if (redirectResult?.account) {
           setMsalActiveAccount(redirectResult.account);
           try {

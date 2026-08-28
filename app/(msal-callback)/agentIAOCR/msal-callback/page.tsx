@@ -14,7 +14,7 @@ export default function OneDriveMsalCallbackPage() {
         if (!ms) throw new Error("OneDrive n'est pas configuré pour cet établissement.");
         const app = new PublicClientApplication(buildOneDriveMsalConfig(ms));
         await app.initialize();
-        await app.handleRedirectPromise();
+        await app.handleRedirectPromise({ navigateToLoginRequestUrl: false });
         if (cancelled) return;
         if (typeof window !== "undefined" && window.opener && !window.opener.closed) {
           window.close();
