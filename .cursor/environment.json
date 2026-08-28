@@ -1,5 +1,9 @@
 {
   "name": "docslapro (ScolIA)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".cursor"
+  },
   "install": "bash .cursor/install.sh",
   "start": "bash .cursor/start.sh",
   "terminals": [
