@@ -6,15 +6,19 @@ export function canAccessInternatModule(roles: string[]) {
   if (hasGlobalAdminRole(roles)) return true;
   return (
     hasRole(roles, "surveillant") ||
+    hasRole(roles, "internat") ||
     hasRole(roles, "cpe") ||
     hasRole(roles, "administratif") ||
     isAnyDirectionRole(roles)
   );
 }
 
-/** Signal dashboard « appel du soir » : réservé à la vie scolaire / éducation. */
+/**
+ * Signal dashboard / rappel opérationnel « appel du soir » :
+ * réservé à l’équipe internat régulière (pas tous les surveillants — dépannage ponctuel sans spam).
+ */
 export function canSeeInternatRollCallSignal(roles: string[]) {
-  return hasRole(roles, "surveillant") || hasRole(roles, "cpe");
+  return hasRole(roles, "internat") || hasRole(roles, "cpe");
 }
 
 export function canAccessInternatFromMetadata(meta: unknown) {

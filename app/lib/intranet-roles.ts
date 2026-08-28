@@ -14,6 +14,7 @@ export const INTRANET_ROLE_OPTIONS: { slug: string; label: string }[] = [
   { slug: "infirmerie", label: "Infirmerie" },
   { slug: "psychologue", label: "Psychologue" },
   { slug: "surveillant", label: "Surveillant" },
+  { slug: "internat", label: "Internat (appels du soir & signaux)" },
   { slug: "cpe", label: "CPE" },
   { slug: "parent", label: "Parent" },
   { slug: "eleve", label: "Élève (bot bien-être)" },
@@ -55,6 +56,7 @@ function canonicalIntranetRole(raw: string): string | null {
   ) {
     return "surveillant";
   }
+  if (n.includes("internat")) return "internat";
   return null;
 }
 
