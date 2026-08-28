@@ -20,7 +20,7 @@ import { resolveStageViewerRole } from "@/app/lib/stage-access";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { INTRANET_MODULES, rolesAllowModule } from "@/app/lib/intranet-modules";
 import { canAccessHseModule, canViewHseDemand } from "@/app/lib/demandes-hse-access";
-import { canAccessRequestsStaffBoard } from "@/app/lib/requests-staff-access";
+import { canAccessRequestsStaffBoardForUser } from "@/app/lib/requests-staff-access";
 import { getRequestsIndex, isLeaderForRequestBranch } from "@/app/lib/requests";
 import { getAllBranchStaffEmailsFromRouting } from "@/app/lib/requests-routing-config";
 import { isVisibleOnStaffBoard } from "@/app/lib/requests-board";
@@ -291,7 +291,7 @@ export async function GET() {
 
     if (
       accessibleModuleIds.has("requests-staff") &&
-      (await canAccessRequestsStaffBoard(roles, email))
+      (await canAccessRequestsStaffBoardForUser(user))
     ) {
       try {
         const index = await getRequestsIndex();

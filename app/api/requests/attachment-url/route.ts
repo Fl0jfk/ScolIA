@@ -8,7 +8,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { normalizeRequestEmail } from "@/app/lib/requests-board";
 import { findRequestAttachment, getRequestsIndex } from "@/app/lib/requests";
-import { canAccessRequestsStaffBoard } from "@/app/lib/requests-staff-access";
+import { canAccessRequestsStaffBoardForUser } from "@/app/lib/requests-staff-access";
 import { getBucketName } from "@/app/lib/s3-storage";
 import { isSafeS3RelativeKey } from "@/app/lib/s3-path";
 
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     if (!record) return NextResponse.json({ error: "Demande introuvable" }, { status: 404 });
     const att = findRequestAttachment(record, attachmentId);
     if (!att) return NextResponse.json({ error: "Pièce jointe introuvable" }, { status: 404 });
-    const staff = await canAccessRequestsStaffBoard(roles, userEmail);
+    const staff = await canAccessRequestsStaffBoardForUser(user);
     const isRequester = record.requester.userId === userId || (userEmail && normalizeRequestEmail(record.requester.email) === normalizeRequestEmail(userEmail));
     if (!staff && !isRequester) { return NextResponse.json({ error: "Accès refusé" }, { status: 403 })}
     const relOk =

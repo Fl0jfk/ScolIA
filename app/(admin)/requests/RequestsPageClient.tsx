@@ -712,8 +712,9 @@ export default function RequestsPage() {
     return (
       <ModulePageShell maxWidthClass="max-w-3xl">
         <p className="text-sm text-slate-700">
-          Accès refusé. Le suivi des demandes est réservé aux enseignants (leurs dépôts) et au personnel figurant dans la table
-          équipe des demandes ou disposant d’un rôle personnel adapté dans le directory.
+          Accès refusé. Le suivi des demandes est réservé à la direction, aux administrateurs de
+          l&apos;établissement, au personnel habilité (table équipe demandes) ou aux rôles métier
+          concernés (compta, maintenance, CPE…).
         </p>
       </ModulePageShell>
     );

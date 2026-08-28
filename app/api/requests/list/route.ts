@@ -8,10 +8,10 @@ import { getDelegateTargetEmailsForRequest, getRequestsIndex, isLeaderForRequest
 import { getAllBranchStaffEmailsFromRouting } from "@/app/lib/requests-routing-config";
 import { getRequestsOrgConfig } from "@/app/lib/requests-org-config";
 import { buildViewerOversightContext, actsAsLeaderWithOversight } from "@/app/lib/requests-oversight";
-import { canAccessRequestsStaffBoard } from "@/app/lib/requests-staff-access";
+import { canAccessRequestsStaffBoardForUser } from "@/app/lib/requests-staff-access";
 
-async function hasStaffBoardAccess(roles: string[], email: string) {
-  return canAccessRequestsStaffBoard(roles, email);
+async function hasStaffBoardAccess(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
+  return canAccessRequestsStaffBoardForUser(user);
 }
 
 export async function GET(req: NextRequest) {
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   const roles = rolesFromUserLike(user);
   const scopeParam = req.nextUrl.searchParams.get("scope");
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
-  const scope = scopeParam ?? ((await hasStaffBoardAccess(roles, userEmail)) ? "board" : "submitted");
+  const scope = scopeParam ?? ((await hasStaffBoardAccess(user)) ? "board" : "submitted");
   try {
     try {
       await purgeExpiredRequests();
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(mine.sort(sortDesc));
     }
     if (scope === "board" || scope === "all" || scope === "my_queue") {
-      if (!(await hasStaffBoardAccess(roles, userEmail))) return new NextResponse("Accès refusé", { status: 403 });
+      if (!(await hasStaffBoardAccess(user))) return new NextResponse("Accès refusé", { status: 403 });
       if (!userEmail) return NextResponse.json({ error: "Email requis pour le tableau des demandes" }, { status: 400 });
       const allStaff = await getAllBranchStaffEmailsFromRouting();
       const org = await getRequestsOrgConfig();

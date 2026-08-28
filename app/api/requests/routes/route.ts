@@ -2,7 +2,7 @@ import { resolveSession, safeCurrentUser } from "@/app/lib/intranet-session";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
-import { canAccessRequestsStaffBoard } from "@/app/lib/requests-staff-access";
+import { canAccessRequestsStaffBoardForUser } from "@/app/lib/requests-staff-access";
 import {
   getRequestsRoutingConfig,
   listActiveTasksForPicker,
@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const user = await safeCurrentUser();
   const roles = rolesFromUserLike(user);
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
-  if (!(await canAccessRequestsStaffBoard(roles, userEmail))) return new NextResponse("Accès refusé", { status: 403 });
+  if (!(await canAccessRequestsStaffBoardForUser(user))) return new NextResponse("Accès refusé", { status: 403 });
   const config = await getRequestsRoutingConfig();
   const mode = new URL(req.url).searchParams.get("mode");
   if (mode === "transmit") {

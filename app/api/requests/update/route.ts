@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { REQUEST_STATUSES, RequestAttachment, RequestComment, RequestRecord, RequestStatus, assertEligibleRequestAttachment, finalizeRequestPurgeMetadata, getDefaultRequestBranchForStaffEmail, getDelegateTargetEmailsForRequest, getRequestPoolEmails, getRequestsIndex, isLeaderForRequestBranch, isUserInRequestPool, notifyRequesterOnly, notifyRequestStatusMilestone, resolveRequestRouteById, saveRequestFile, saveRequestsIndex, uploadBuffersAsRequestAttachments, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD, isManualOnlyDirectionRoute} from "@/app/lib/requests";
 import { isCorbeilleBranchId, normalizeRequestBranchId, normalizeRequestEmail} from "@/app/lib/requests-board";
-import { canAccessRequestsStaffBoard } from "@/app/lib/requests-staff-access";
+import { canAccessRequestsStaffBoard, requestsStaffAccessOptionsFromUser } from "@/app/lib/requests-staff-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
 const LEGACY_ASSIGN_UNIT_TO_ROUTE: Record<string, string> = { comptabilite: "comptabilite", maintenance: "maintenance", "direction-college": "admin_college", "direction-lycee": "admin_lycee", "vie-scolaire": "vie_scolaire_infirmerie", informatique: "maintenance"};
@@ -17,6 +17,7 @@ export async function PATCH(req: Request) {
     const actorName = user?.fullName || user?.firstName || "Équipe";
     const actorEmail = user?.primaryEmailAddress?.emailAddress || "";
     const actorRoles = rolesFromUserLike(user);
+    const staffAccessOpts = requestsStaffAccessOptionsFromUser(user);
   try {
     const contentType = req.headers.get("content-type") || "";
     let body: Record<string, unknown>;
@@ -210,7 +211,7 @@ export async function PATCH(req: Request) {
     }
     if (action === "claim_self") {
       if (!actorEmail) return NextResponse.json({ error: "Email requis pour prendre en charge" }, { status: 400 });
-      if (!(await canAccessRequestsStaffBoard(actorRoles, actorEmail))) { return NextResponse.json({ error: "Réservé au personnel habilité aux demandes" }, { status: 403 })}
+      if (!(await canAccessRequestsStaffBoard(actorRoles, actorEmail, staffAccessOpts))) { return NextResponse.json({ error: "Réservé au personnel habilité aux demandes" }, { status: 403 })}
       const existingClaim = current.assignedTo.claimedBy?.email;
       if (!existingClaim && !(await isUserInRequestPool(current, actorEmail))) { return NextResponse.json({ error: "Vous ne pouvez pas prendre cette demande." }, { status: 403 })}
       const statusOpt = String(body?.status || "").trim() as RequestStatus;
@@ -261,7 +262,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, request: finalizedSelf });
     }
     if (action === "transmit_to_direction") {
-      if (!(await canAccessRequestsStaffBoard(actorRoles, actorEmail))) {
+      if (!(await canAccessRequestsStaffBoard(actorRoles, actorEmail, staffAccessOpts))) {
         return NextResponse.json({ error: "Réservé au personnel habilité." }, { status: 403 });
       }
       const directionId = assignRouteIdRaw || current.routing?.directionHint?.suggestedQueueId || "";
@@ -299,7 +300,7 @@ export async function PATCH(req: Request) {
     const priorStatusForNotify = current.status;
     let updated: RequestRecord = { ...current, updatedAt: now};
     if (status && REQUEST_STATUSES.includes(status)) {
-      if (!(await canAccessRequestsStaffBoard(actorRoles, actorEmail))) {  return NextResponse.json({ error: "Non autorisé" }, { status: 403 });}
+      if (!(await canAccessRequestsStaffBoard(actorRoles, actorEmail, staffAccessOpts))) {  return NextResponse.json({ error: "Non autorisé" }, { status: 403 });}
       const claimedBy = current.assignedTo.claimedBy?.email;
       const claimedMe = Boolean(claimedBy) && normalizeRequestEmail(claimedBy!) === normalizeRequestEmail(actorEmail);
       const inPool = await isUserInRequestPool(current, actorEmail);
@@ -362,7 +363,7 @@ export async function PATCH(req: Request) {
     let noteForEmail: string | undefined;
     let closureAttachments: RequestAttachment[] | undefined;
     if (comment.trim() || multipartFiles.length > 0) {
-      if (multipartFiles.length > 0 && !(await canAccessRequestsStaffBoard(actorRoles, actorEmail))) {
+      if (multipartFiles.length > 0 && !(await canAccessRequestsStaffBoard(actorRoles, actorEmail, staffAccessOpts))) {
         return NextResponse.json({ error: "Seul le personnel habilité peut joindre des fichiers aux réponses." }, { status: 403 });
       }
       let commentText = comment.trim();
