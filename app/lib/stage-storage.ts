@@ -74,6 +74,7 @@ export async function saveStageConvention(convention: StageConvention) {
     periodEnd: convention.schedule.periodEnd,
     schoolYear: convention.schoolYear,
     updatedAt: convention.updatedAt,
+    stageLabel: convention.stageLabel?.trim() || undefined,
     teacherReferentEmail: convention.teacherReferent.email?.toLowerCase() || undefined,
   };
   const pos = index.findIndex((x) => x.id === convention.id);

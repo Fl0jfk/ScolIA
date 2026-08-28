@@ -1,6 +1,6 @@
 import type { PendingStageSignature } from "@/app/lib/stage-pending-signatures";
 
-export type StageTab = "board" | "classe" | "offers" | "conventions";
+export type StageTab = "board" | "classe" | "offers" | "conventions" | "settings";
 
 export type StagesHubPermissions = {
   canModerateOffers: boolean;
@@ -9,7 +9,7 @@ export type StagesHubPermissions = {
   canViewReferentConventions: boolean;
   canDepositOffer: boolean;
   canFileToOneDrive: boolean;
-  canPurge: boolean;
+  canManageStageSettings: boolean;
   canManageReferents: boolean;
   referentOnly: boolean;
   canViewClassRoster: boolean;
@@ -17,6 +17,7 @@ export type StagesHubPermissions = {
 
 export type StagesHubBoard = {
   viewer: string;
+  viewerSecteurLabel?: string | null;
   permissions: StagesHubPermissions;
   counts: Record<string, number>;
   myPendingSignatures?: PendingStageSignature[];

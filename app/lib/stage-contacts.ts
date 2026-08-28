@@ -38,8 +38,11 @@ export async function resolveDepositFinalRecipients(
   const raw = convention.ocrMeta?.raw as Record<string, unknown> | undefined;
 
   const parents = uniqueContactEmails(
+    convention.student.parent1Email,
+    convention.student.parent2Email,
     convention.student.parentEmail,
     convention.parentSignerEmail,
+    convention.parent2SignerEmail,
     eleve?.parentEmail,
     eleve?.parent1Email,
     eleve?.parent2Email,

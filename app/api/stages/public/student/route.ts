@@ -6,7 +6,12 @@ import {
 } from "@/app/lib/stage-workflow";
 import { saveStageConvention } from "@/app/lib/stage-storage";
 import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
+import {
+  getStagePeriodsForClass,
+  getStageRemindersForClass,
+} from "@/app/lib/stage-periods-config";
 import { scheduleSummary } from "@/app/lib/stage-schedule";
+import { buildSignatureSummary } from "@/app/lib/stage-signature-summary";
 import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
 
 export async function GET(req: Request) {
@@ -23,18 +28,38 @@ export async function GET(req: Request) {
           id: convention.id,
           status: convention.status,
           statusLabel: STAGE_CONVENTION_STATUS_LABELS[convention.status],
+          stageLabel: convention.stageLabel,
           student: convention.student,
           company: convention.company,
           scheduleSummary: scheduleSummary(convention.schedule),
+          signatureSummary: buildSignatureSummary(convention),
           readOnly: true,
         },
       });
     }
 
-    return NextResponse.json({ convention, readOnly: false });
+    const stageContext = await stageContextForClass(
+      convention.student.className,
+      convention.schoolYear,
+    );
+
+    return NextResponse.json({
+      convention,
+      readOnly: false,
+      stageContext,
+      signatureSummary: buildSignatureSummary(convention),
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
+}
+
+async function stageContextForClass(className: string, schoolYear: string) {
+  const [reminders, periods] = await Promise.all([
+    getStageRemindersForClass(className, schoolYear),
+    getStagePeriodsForClass(className, schoolYear),
+  ]);
+  return { reminders, periods };
 }
 
 export async function PATCH(req: Request) {

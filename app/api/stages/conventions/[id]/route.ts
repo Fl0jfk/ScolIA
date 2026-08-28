@@ -11,6 +11,7 @@ import {
   submitPreconvention,
 } from "@/app/lib/stage-workflow";
 import { getStageConvention, saveStageConvention } from "@/app/lib/stage-storage";
+import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
 import { notifyAllStageSignatureRequests, notifyStageDepositAdminRejected } from "@/app/lib/stage-notify";
 import {
   findEleveByIne,
@@ -101,6 +102,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
     if (action === "save") {
       convention = normalizeConventionInput(body.convention ?? body, convention);
+      if (convention.status === "admin_review" && !canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      convention = await ensureConventionReferent(convention);
+      const now = new Date().toISOString();
+      if (canReviewPreconvention(roles) && convention.status === "admin_review") {
+        convention = {
+          ...convention,
+          updatedAt: now,
+          history: [
+            ...convention.history,
+            { at: now, by: displayName(user), action: "ADMIN_MODIFIE" },
+          ],
+        };
+      }
       await saveStageConvention(convention);
       return NextResponse.json({ success: true, convention });
     }
@@ -232,6 +248,28 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       }
       const mail = await notifyAllStageSignatureRequests(convention);
       return NextResponse.json({ success: true, mail });
+    }
+
+    if (action === "file_eleve_dossier") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const { fileSignedConventionToEleveDossier } = await import(
+        "@/app/lib/stage-eleve-dossier-filing"
+      );
+      const result = await fileSignedConventionToEleveDossier(convention, displayName(user));
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      return NextResponse.json({
+        success: true,
+        convention: result.convention,
+        eleveDossier: {
+          eleveId: result.eleveId,
+          documentId: result.documentId,
+          dossierUrl: `/eleves/dossier/${result.eleveId}`,
+        },
+      });
     }
 
     if (action === "cancel") {

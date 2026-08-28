@@ -14,6 +14,7 @@ export const STAGE_S3 = {
   offerCandidatureToken: (token: string) => `stages/offer-candidature-tokens/${token}.json`,
   offerApplications: (offerId: string) => `stages/offer-applications/${offerId}.json`,
   referentsConfig: (schoolYear: string) => `stages/referents/${schoolYear}.json`,
+  periodsConfig: (schoolYear: string) => `stages/periods/${schoolYear}.json`,
   referentSignature: (externalUserId: string) => `stages/signatures/referents/${externalUserId}.png`,
 } as const;
 
@@ -108,6 +109,7 @@ export type StageConventionStatus =
 export type StageSignerRole =
   | "eleve"
   | "parent"
+  | "parent_2"
   | "tuteur_entreprise"
   | "rh_entreprise"
   | "professeur_referent"
@@ -143,6 +145,11 @@ export type StageStudentInfo = {
   className: string;
   level: string;
   email?: string;
+  /** Responsable légal 1 (obligatoire à la soumission). */
+  parent1Email?: string;
+  /** Responsable légal 2 (obligatoire à la soumission). */
+  parent2Email?: string;
+  /** @deprecated Préférer parent1Email — conservé pour compatibilité. */
   parentEmail?: string;
 };
 
@@ -168,8 +175,15 @@ export type StageConvention = {
   offerId?: string;
   company: StageCompanyInfo;
   schedule: StageSchedule;
+  /** Période officielle configurée (ex. PFMP 1, semaine 1). */
+  stagePeriodId?: string;
+  /** Libellé affiché pour ce stage (ex. « PFMP 1 », « Semaine 2 »). */
+  stageLabel?: string;
   teacherReferent: { name: string; email: string; userId?: string };
+  /** E-mail signataire responsable légal 1. */
   parentSignerEmail?: string;
+  /** E-mail signataire responsable légal 2. */
+  parent2SignerEmail?: string;
   adminReview?: {
     at: string;
     by: string;
@@ -190,9 +204,19 @@ export type StageConvention = {
     fileName: string;
     matchedFolderName?: string;
   } | null;
-  /** Dépôt auto en attente (token secteur manquant ou matching échoué). */
+  /** Dépôt auto dans le dossier élève ENT (tiroir scolaire). */
+  eleveDossierFiling?: {
+    filedAt: string;
+    filedBy: string;
+    eleveId: string;
+    documentId: string;
+    s3Key: string;
+    title: string;
+  } | null;
   oneDriveFilingPending?: boolean;
   oneDriveFilingError?: string;
+  eleveDossierFilingPending?: boolean;
+  eleveDossierFilingError?: string;
   /** PDF déposé par l'élève (convention papier / déjà signée). */
   uploadedPdf?: {
     s3Key: string;
@@ -230,6 +254,7 @@ export type StageConventionIndexEntry = {
   periodEnd: string;
   schoolYear: string;
   updatedAt: string;
+  stageLabel?: string;
   teacherReferentEmail?: string;
 };
 
@@ -283,7 +308,8 @@ export const STAGE_CONVENTION_STATUS_LABELS: Record<StageConventionStatus, strin
 
 export const STAGE_SIGNER_ROLE_LABELS: Record<StageSignerRole, string> = {
   eleve: "Élève",
-  parent: "Responsable légal",
+  parent: "Responsable légal 1",
+  parent_2: "Responsable légal 2",
   tuteur_entreprise: "Tuteur en entreprise",
   rh_entreprise: "RH entreprise",
   professeur_referent: "Professeur référent",

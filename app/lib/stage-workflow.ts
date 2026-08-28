@@ -36,6 +36,32 @@ export function generateStageToken() {
   return randomBytes(32).toString("base64url");
 }
 
+function isValidEmail(email: string): boolean {
+  const v = email.trim().toLowerCase();
+  return Boolean(v && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v));
+}
+
+function normalizeSiret(raw?: string): string {
+  return String(raw ?? "").replace(/\D/g, "");
+}
+
+function resolveParent1Email(convention: StageConvention): string {
+  return (
+    convention.parentSignerEmail?.trim() ||
+    convention.student.parent1Email?.trim() ||
+    convention.student.parentEmail?.trim() ||
+    ""
+  );
+}
+
+function resolveParent2Email(convention: StageConvention): string {
+  return (
+    convention.parent2SignerEmail?.trim() ||
+    convention.student.parent2Email?.trim() ||
+    ""
+  );
+}
+
 function pushHistory(
   convention: StageConvention,
   by: string,
@@ -54,7 +80,8 @@ async function buildDefaultSignatures(convention: StageConvention): Promise<Stag
   const directionEmail = await resolveStagesDirectionEmail(convention.student.level);
 
   const sigs: Array<{ role: StageSignerRole; email?: string }> = [
-    { role: "parent", email: convention.parentSignerEmail || convention.student.parentEmail },
+    { role: "parent", email: resolveParent1Email(convention) },
+    { role: "parent_2", email: resolveParent2Email(convention) },
     { role: "tuteur_entreprise", email: convention.company.tutorEmail },
     { role: "rh_entreprise", email: convention.company.rhEmail },
     { role: "professeur_referent", email: convention.teacherReferent.email },
@@ -182,16 +209,31 @@ function validateConventionForSubmit(convention: StageConvention): string | null
     return "Identité élève incomplète.";
   }
   if (!convention.company.name.trim() || !convention.company.address.trim()) {
-    return "Entreprise d'accueil incomplète.";
+    return "Entreprise d'accueil incomplète (nom et adresse obligatoires).";
+  }
+  const siret = normalizeSiret(convention.company.siret);
+  if (siret.length !== 14) {
+    return "SIRET obligatoire (14 chiffres).";
   }
   if (!convention.company.tutorName.trim() || !convention.company.tutorEmail.trim()) {
-    return "Tuteur en entreprise obligatoire.";
+    return "Tuteur en entreprise obligatoire (nom et e-mail).";
   }
-  if (!convention.parentSignerEmail?.trim() && !convention.student.parentEmail?.trim()) {
-    return "E-mail du responsable légal obligatoire.";
+  if (!isValidEmail(convention.company.tutorEmail)) {
+    return "E-mail du tuteur en entreprise invalide.";
+  }
+  const parent1 = resolveParent1Email(convention);
+  const parent2 = resolveParent2Email(convention);
+  if (!parent1 || !isValidEmail(parent1)) {
+    return "E-mail du responsable légal 1 obligatoire.";
+  }
+  if (!parent2 || !isValidEmail(parent2)) {
+    return "E-mail du responsable légal 2 obligatoire.";
+  }
+  if (parent1.toLowerCase() === parent2.toLowerCase()) {
+    return "Les deux responsables légaux doivent avoir des adresses e-mail distinctes.";
   }
   if (!convention.teacherReferent.name.trim() || !convention.teacherReferent.email.trim()) {
-    return "Professeur référent obligatoire.";
+    return "Professeur référent obligatoire — configurez-le dans Stages & conventions.";
   }
   return validateStageSchedule(convention.schedule);
 }
@@ -382,6 +424,11 @@ export async function applyConventionSignature(params: {
   }
   await saveStageConvention(next);
   if (allSigned) {
+    void import("@/app/lib/stage-eleve-dossier-filing").then((m) =>
+      m.finalizeSignedConventionDestinations(next).catch((e) =>
+        console.error("[stages] finalize destinations:", e),
+      ),
+    );
     void notifyStageFullySigned(next).catch((e) => console.error("[stages] notify signed:", e));
   }
   return { ok: true, convention: next };
@@ -393,24 +440,48 @@ export async function createPublicPreconventionDraft(student: {
   className: string;
   level: string;
   email?: string;
+  parent1Email?: string;
+  parent2Email?: string;
   parentEmail?: string;
   matchedEleveIne?: string;
+  stagePeriodId?: string;
+  stageLabel?: string;
+  periodStart?: string;
+  periodEnd?: string;
 }): Promise<{ convention: StageConvention; studentLink: string }> {
   const now = new Date().toISOString();
+  const parent1 =
+    student.parent1Email?.trim() ||
+    student.parentEmail?.trim() ||
+    undefined;
+  const parent2 = student.parent2Email?.trim() || undefined;
+  let schedule = defaultStageSchedule("uniform_week");
+  if (student.periodStart && student.periodEnd) {
+    schedule = {
+      ...schedule,
+      periodStart: student.periodStart,
+      periodEnd: student.periodEnd,
+    };
+  }
   let convention: StageConvention = {
     id: stageUid("conv"),
     schoolYear: currentStageSchoolYear(),
     status: "draft",
     internshipKind: "pfmp",
+    stagePeriodId: student.stagePeriodId?.trim() || undefined,
+    stageLabel: student.stageLabel?.trim() || undefined,
     student: {
       firstName: student.firstName.trim(),
       lastName: student.lastName.trim(),
       className: student.className.trim(),
       level: student.level.trim() || inferStudentLevelFromClass(student.className),
       email: student.email?.trim() || undefined,
-      parentEmail: student.parentEmail?.trim() || undefined,
+      parent1Email: parent1,
+      parent2Email: parent2,
+      parentEmail: parent1,
     },
-    parentSignerEmail: student.parentEmail?.trim() || undefined,
+    parentSignerEmail: parent1,
+    parent2SignerEmail: parent2,
     company: {
       name: "",
       address: "",
@@ -418,7 +489,7 @@ export async function createPublicPreconventionDraft(student: {
       tutorName: "",
       tutorEmail: "",
     },
-    schedule: defaultStageSchedule("uniform_week"),
+    schedule,
     teacherReferent: { name: "", email: "" },
     signatures: [],
     createdAt: now,
@@ -471,7 +542,15 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
       className: str(studentRaw.className, base?.student.className),
       level: str(studentRaw.level, base?.student.level),
       email: str(studentRaw.email, base?.student.email) || undefined,
-      parentEmail: str(studentRaw.parentEmail, base?.student.parentEmail) || undefined,
+      parent1Email:
+        str(studentRaw.parent1Email, base?.student.parent1Email) ||
+        str(studentRaw.parentEmail, base?.student.parentEmail) ||
+        undefined,
+      parent2Email: str(studentRaw.parent2Email, base?.student.parent2Email) || undefined,
+      parentEmail:
+        str(studentRaw.parent1Email, base?.student.parent1Email) ||
+        str(studentRaw.parentEmail, base?.student.parentEmail) ||
+        undefined,
     },
     studentAccessToken: base?.studentAccessToken,
     offerId: str(o.offerId, base?.offerId) || undefined,
@@ -486,12 +565,21 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
       rhEmail: str(companyRaw.rhEmail, base?.company.rhEmail) || undefined,
     },
     schedule: normalizeStageSchedule(o.schedule ?? base?.schedule),
+    stagePeriodId: str(o.stagePeriodId, base?.stagePeriodId) || undefined,
+    stageLabel: str(o.stageLabel, base?.stageLabel) || undefined,
     teacherReferent: {
       name: str(teacherRaw.name, base?.teacherReferent.name),
       email: str(teacherRaw.email, base?.teacherReferent.email),
       userId: str(teacherRaw.userId, base?.teacherReferent.userId) || undefined,
     },
-    parentSignerEmail: str(o.parentSignerEmail, base?.parentSignerEmail) || undefined,
+    parentSignerEmail:
+      str(o.parentSignerEmail, base?.parentSignerEmail) ||
+      str(studentRaw.parent1Email, base?.student.parent1Email) ||
+      undefined,
+    parent2SignerEmail:
+      str(o.parent2SignerEmail, base?.parent2SignerEmail) ||
+      str(studentRaw.parent2Email, base?.student.parent2Email) ||
+      undefined,
     adminReview: base?.adminReview,
     signatures: base?.signatures ?? [],
     createdAt: base?.createdAt ?? new Date().toISOString(),
@@ -501,6 +589,9 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
     oneDriveFiling: base?.oneDriveFiling,
     oneDriveFilingPending: base?.oneDriveFilingPending,
     oneDriveFilingError: base?.oneDriveFilingError,
+    eleveDossierFiling: base?.eleveDossierFiling,
+    eleveDossierFilingPending: base?.eleveDossierFilingPending,
+    eleveDossierFilingError: base?.eleveDossierFilingError,
     uploadedPdf: base?.uploadedPdf,
     ocrMeta: base?.ocrMeta,
   };

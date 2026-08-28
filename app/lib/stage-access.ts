@@ -59,3 +59,8 @@ export function canCreateConventionAsStaff(roles: string[]) {
 export function canFileConventionToOneDrive(roles: string[]) {
   return roles.includes("administratif") || canModerateOffers(roles);
 }
+
+/** Réglages module (classes stages, lien public, référents) — secrétariat uniquement. */
+export function canManageStageSettings(roles: string[]) {
+  return roles.includes("administratif");
+}

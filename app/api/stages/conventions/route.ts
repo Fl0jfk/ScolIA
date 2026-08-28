@@ -10,7 +10,9 @@ import {
   canViewAllConventions,
   canViewReferentConventions,
 } from "@/app/lib/stage-access";
+import { ensureStageYearAutoPurge } from "@/app/lib/stage-auto-purge";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
+import { conventionMatchesStageSecteurs, resolveStageViewerSecteurs } from "@/app/lib/stage-sector-scope";
 import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
 import { defaultStageSchedule } from "@/app/lib/stage-schedule";
 import {
@@ -42,6 +44,8 @@ export async function GET(req: Request) {
     const gate = await requireAuth();
     if (!gate.ok) return gate.response;
 
+    await ensureStageYearAutoPurge();
+
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
     const { searchParams } = new URL(req.url);
@@ -70,9 +74,12 @@ export async function GET(req: Request) {
     const index = await getConventionsIndex();
     const all = await Promise.all(index.map((e) => getStageConvention(e.id)));
     const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
+    const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
     const conventions = all
       .filter((c): c is NonNullable<typeof c> => Boolean(c))
-      .filter((c) => conventionVisibleToUser(c, roles, userEmail, gate.ctx.userId));
+      .filter((c) => c.status !== "archived")
+      .filter((c) => conventionVisibleToUser(c, roles, userEmail, gate.ctx.userId))
+      .filter((c) => conventionMatchesStageSecteurs(c, viewerSecteurs));
     return NextResponse.json({ conventions });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
