@@ -159,7 +159,15 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   await ensureEleveScolariteGrilleRepasColumn();
 
-  // Rattrapage hors chemin critique : ne bloque plus l’affichage du dossier.
+  const needDocs = sections.includes("documents");
+  const needNotes = sections.includes("notes");
+  const needVs = sections.includes("vie_scolaire");
+  const needScol = sections.includes("scolarite");
+  const needFactu = sections.includes("facturation");
+  const needFamille = sections.includes("famille");
+  const canDecide = canDecideAccess(roles, { orgAdmin, platformAdmin });
+
+  // Rattrapage hors chemin critique : sync scolarité en arrière-plan.
   after(async () => {
     try {
       await syncEleveScolariteFromEleveRow(etabId, {
@@ -170,31 +178,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     } catch (e) {
       console.warn("[eleves/dossier] sync scolarité", e);
     }
-    if (sections.includes("famille")) {
-      try {
-        await ensureEleveFoyerFromParentContacts(etabId, id, {
-          nom: row.nom,
-          prenom: row.prenom,
-          parentEmail: row.parentEmail,
-          parent1Email: row.parent1Email,
-          parent2Email: row.parent2Email,
-          parentPhone: row.parentPhone,
-          parent1Phone: row.parent1Phone,
-          parent2Phone: row.parent2Phone,
-        });
-      } catch (e) {
-        console.warn("[eleves/dossier] ensure foyer parents", e);
-      }
-    }
   });
-
-  const needDocs = sections.includes("documents");
-  const needNotes = sections.includes("notes");
-  const needVs = sections.includes("vie_scolaire");
-  const needScol = sections.includes("scolarite");
-  const needFactu = sections.includes("facturation");
-  const needFamille = sections.includes("famille");
-  const canDecide = canDecideAccess(roles, { orgAdmin, platformAdmin });
 
   const [
     scolarites,
@@ -642,6 +626,29 @@ export async function POST(req: Request, ctx: Ctx) {
     }
   }
 
+  if (action === "ensure_foyer_from_contacts") {
+    if (!sections.has("famille") || !canEditStructure(roles, { orgAdmin, platformAdmin })) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+    }
+    const created = await ensureEleveFoyerFromParentContacts(etabId, id, {
+      nom: row.nom,
+      prenom: row.prenom,
+      parentEmail: row.parentEmail,
+      parent1Email: row.parent1Email,
+      parent2Email: row.parent2Email,
+      parentPhone: row.parentPhone,
+      parent1Phone: row.parent1Phone,
+      parent2Phone: row.parent2Phone,
+    });
+    if (!created) {
+      return NextResponse.json(
+        { error: "Aucun contact importé exploitable, ou foyer déjà existant." },
+        { status: 400 },
+      );
+    }
+    return NextResponse.json({ success: true, created: true });
+  }
+
   if (action === "create_foyer") {
     if (!sections.has("famille") || !canEditStructure(roles, { orgAdmin, platformAdmin })) {
       return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
@@ -673,7 +680,7 @@ export async function POST(req: Request, ctx: Ctx) {
       telephone: resp?.telephone?.trim() || null,
       autoriteParentale: Boolean(resp?.autoriteParentale),
       contactUrgence: Boolean(resp?.contactUrgence),
-      payeur: Boolean(resp?.payeur),
+      payeur: body.payeurEstFoyer !== false ? false : Boolean(resp?.payeur),
       rang: 1,
     });
 

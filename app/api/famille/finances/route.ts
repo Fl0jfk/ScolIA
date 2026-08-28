@@ -47,8 +47,10 @@ export async function GET(req: Request) {
               iban: block.facturation.iban,
               rum: block.facturation.rum,
               mandatDate: block.facturation.mandatDate,
+              categorieQuotient: block.facturation.categorieQuotient,
             }
           : null,
+        encoursParAnnee: block.encoursParAnnee,
         factures: block.factures
           .filter((f) => !HIDDEN_STATUTS.has(f.statut))
           .map((f) => ({

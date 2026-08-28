@@ -14,6 +14,11 @@ import {
 } from "@/app/lib/eleve-doc-categories";
 import EleveFinancesPanel from "@/app/components/eleves/EleveFinancesPanel";
 import {
+  formatFoyerFacturationLabel,
+  formatFoyerPayeurDetail,
+  responsableRoleTags,
+} from "@/app/lib/foyer-display";
+import {
   grilleFromMealDays,
   toggleGrilleCell,
   type EleveGrilleRepas,
@@ -451,6 +456,19 @@ export default function EleveDossierClient() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
       return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function ensureFoyerFromContacts() {
+    setBusy(true);
+    setError(null);
+    try {
+      await postAction({ action: "ensure_foyer_from_contacts" });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Impossible de créer le foyer");
     } finally {
       setBusy(false);
     }
@@ -1203,17 +1221,22 @@ export default function EleveDossierClient() {
       {tab === "famille" ? (
         <section className="space-y-4">
           {!data.meta.profRestrictedView &&
+          data.foyers.length === 0 &&
           (e.parent1Email ||
             e.parent2Email ||
             e.parentEmail ||
             e.parent1Phone ||
             e.parent2Phone ||
             e.parentPhone) ? (
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="font-bold text-slate-900 mb-2">Contacts importés</h3>
+            <div className="rounded-3xl border border-indigo-200 bg-indigo-50/50 p-6 shadow-sm space-y-3">
+              <h3 className="font-bold text-slate-900">Coordonnées parents sur la fiche</h3>
+              <p className="text-xs text-slate-600">
+                Saisies à l’inscription par l’établissement — le foyer se crée manuellement quand vous
+                validez la scolarité (pas à l’import Siècle / Rectorat).
+              </p>
               <ul className="space-y-2 text-sm text-slate-700">
                 {(e.parent1Email || e.parentEmail || e.parent1Phone || e.parentPhone) && (
-                  <li className="rounded-xl bg-slate-50 px-3 py-2">
+                  <li className="rounded-xl bg-white px-3 py-2">
                     <span className="font-semibold">Responsable 1</span>
                     <div className="text-xs text-slate-600 mt-1">
                       {e.parent1Email || e.parentEmail || "—"} ·{" "}
@@ -1222,7 +1245,7 @@ export default function EleveDossierClient() {
                   </li>
                 )}
                 {(e.parent2Email || e.parent2Phone) && (
-                  <li className="rounded-xl bg-slate-50 px-3 py-2">
+                  <li className="rounded-xl bg-white px-3 py-2">
                     <span className="font-semibold">Responsable 2</span>
                     <div className="text-xs text-slate-600 mt-1">
                       {e.parent2Email || "—"} · {e.parent2Phone || "—"}
@@ -1230,32 +1253,44 @@ export default function EleveDossierClient() {
                   </li>
                 )}
               </ul>
+              {canEdit ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void ensureFoyerFromContacts()}
+                  className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                >
+                  Créer le foyer à partir de ces coordonnées
+                </button>
+              ) : null}
             </div>
           ) : null}
           {data.foyers.length === 0 ? (
             <p className="text-sm text-slate-500 rounded-3xl border border-slate-200 bg-white p-6">
               Aucun foyer lié.
-              {!data.meta.profRestrictedView &&
-              (e.parent1Email || e.parentEmail || e.parentPhone)
-                ? " Les contacts importés ci-dessus seront transformés en foyer à la prochaine ouverture / réimport."
+              {canEdit
+                ? " Créez le foyer manuellement ci-dessous (inscription privée — source de vérité = l’établissement)."
                 : ""}
             </p>
           ) : (
             data.foyers.map((f) => (
               <div key={f.id} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <h3 className="font-bold text-slate-900 mb-1">
-                  {f.label}{" "}
+                <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">
+                  Foyer · facturation
+                </p>
+                <h3 className="font-bold text-slate-900 mb-1 mt-1">
+                  {formatFoyerFacturationLabel(f)}{" "}
                   <span className="text-xs font-medium text-slate-400">({f.relation})</span>
                 </h3>
+                <p className="text-xs text-indigo-900/80 mb-2">
+                  {formatFoyerPayeurDetail(f)}
+                </p>
                 {(f.adresse || f.ville) && (
                   <p className="text-xs text-slate-500 mb-2">
                     {[f.adresse, f.codePostal, f.ville].filter(Boolean).join(", ")}
                   </p>
                 )}
-                <p className="text-xs text-slate-500 mb-3">
-                  Payeur : {f.payeurEstFoyer ? "foyer" : "responsable désigné"} ·{" "}
-                  {f.responsables.length}/4 responsables
-                </p>
+                <p className="text-xs text-slate-500 mb-3">{f.responsables.length}/4 responsables</p>
                 <ul className="space-y-2">
                   {f.responsables.map((r) => (
                     <li key={r.id} className="rounded-xl bg-slate-50 px-3 py-2 text-sm">
@@ -1265,13 +1300,7 @@ export default function EleveDossierClient() {
                       <span className="text-slate-500">
                         {" "}
                         ·{" "}
-                        {[
-                          r.autoriteParentale ? "autorité" : null,
-                          r.payeur ? "payeur" : null,
-                          r.contactUrgence ? "urgence" : null,
-                        ]
-                          .filter(Boolean)
-                          .join(", ") || "contact"}
+                        {responsableRoleTags(r, f.payeurEstFoyer).join(", ") || "contact"}
                       </span>
                       <div className="text-slate-600 text-xs mt-1">
                         {r.email || "—"} · {r.telephone || "—"}

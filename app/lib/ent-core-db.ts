@@ -240,16 +240,6 @@ export async function upsertElevesInDb(
           { classe: patch.classe, regime: patch.regime },
           catalog,
         );
-        await ensureEleveFoyerFromParentContacts(etablissementId, existing.id, {
-          nom: patch.nom,
-          prenom: patch.prenom,
-          parentEmail: patch.parentEmail,
-          parent1Email: patch.parent1Email,
-          parent2Email: patch.parent2Email,
-          parentPhone: patch.parentPhone,
-          parent1Phone: patch.parent1Phone,
-          parent2Phone: patch.parent2Phone,
-        });
       } else {
         const [created] = await db.insert(eleve).values(values).returning({ id: eleve.id });
         inserts += 1;
@@ -259,16 +249,6 @@ export async function upsertElevesInDb(
           { classe: values.classe, regime: values.regime },
           catalog,
         );
-        await ensureEleveFoyerFromParentContacts(etablissementId, created.id, {
-          nom: values.nom,
-          prenom: values.prenom,
-          parentEmail: values.parentEmail,
-          parent1Email: values.parent1Email,
-          parent2Email: values.parent2Email,
-          parentPhone: values.parentPhone,
-          parent1Phone: values.parent1Phone,
-          parent2Phone: values.parent2Phone,
-        });
       }
     }
   }
@@ -387,8 +367,9 @@ type ParentContactSeed = {
 };
 
 /**
- * Si l’élève n’a encore aucun foyer, crée un foyer + responsables à partir des
- * e-mails / téléphones parents importés (registre plat Excel / Pronote).
+ * Crée un foyer + responsables à partir des coordonnées parents déjà sur la fiche élève.
+ * **Action manuelle uniquement** (privé : l’établissement inscrit d’abord, le Rectorat suit).
+ * Ne pas appeler à l’import Siècle / roster ni à l’ouverture du dossier.
  */
 export async function ensureEleveFoyerFromParentContacts(
   etablissementId: string,
@@ -461,7 +442,7 @@ export async function ensureEleveFoyerFromParentContacts(
       telephone: seed.telephone,
       autoriteParentale: true,
       contactUrgence: i === 0,
-      payeur: i === 0,
+      payeur: false,
       rang: i + 1,
     });
   }

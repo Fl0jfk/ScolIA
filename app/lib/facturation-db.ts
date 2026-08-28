@@ -110,7 +110,115 @@ export async function countFacturesEnRetard(
   return row?.n ?? 0;
 }
 
-/** Factures en retard pour les foyers rattachés à un élève. */
+/** Remise à zéro rentrée : catégorie / quotient uniquement — IBAN, RUM, SEPA conservés. */
+export async function resetQuotientCategoriesForEtab(etablissementId: string): Promise<number> {
+  const db = getDb();
+  const updated = await db
+    .update(foyerFacturation)
+    .set({
+      categorieQuotient: null,
+      quotientFamilial: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(foyerFacturation.etablissementId, etablissementId))
+    .returning({ id: foyerFacturation.id });
+  return updated.length;
+}
+
+/** Nombre de factures avec un reste à payer (toutes années confondues). */
+export async function countEncoursFacturationEtab(etablissementId: string): Promise<number> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: facture.id, statut: facture.statut, totalTtc: facture.totalTtc })
+    .from(facture)
+    .where(
+      and(
+        eq(facture.etablissementId, etablissementId),
+        inArray(facture.statut, ["emise", "partiellement_payee"]),
+      ),
+    );
+  let count = 0;
+  for (const row of rows) {
+    const paid = await sumEncaissementsFacture(etablissementId, row.id);
+    const reste = Math.max(0, Number(row.totalTtc) - paid);
+    if (reste > 0.009) count += 1;
+  }
+  return count;
+}
+
+export type FoyerEncoursAnnee = {
+  anneeScolaireId: string | null;
+  anneeLabel: string | null;
+  montantRestant: number;
+  factureCount: number;
+};
+
+/** Reste à payer par année scolaire pour un foyer (encours N-1 conservé à la rentrée). */
+export async function listEncoursFoyerParAnnee(
+  etablissementId: string,
+  foyerId: string,
+): Promise<FoyerEncoursAnnee[]> {
+  const db = getDb();
+  const { anneeScolaire } = await import("@/db/schema");
+  const factures = await db
+    .select({
+      id: facture.id,
+      statut: facture.statut,
+      totalTtc: facture.totalTtc,
+      anneeScolaireId: facture.anneeScolaireId,
+    })
+    .from(facture)
+    .where(
+      and(
+        eq(facture.etablissementId, etablissementId),
+        eq(facture.foyerId, foyerId),
+        inArray(facture.statut, ["emise", "partiellement_payee"]),
+      ),
+    );
+
+  const anneeIds = [
+    ...new Set(factures.map((f) => f.anneeScolaireId).filter(Boolean)),
+  ] as string[];
+  const anneeLabelById = new Map<string, string>();
+  if (anneeIds.length) {
+    const annees = await db
+      .select({ id: anneeScolaire.id, label: anneeScolaire.label })
+      .from(anneeScolaire)
+      .where(
+        and(
+          eq(anneeScolaire.etablissementId, etablissementId),
+          inArray(anneeScolaire.id, anneeIds),
+        ),
+      );
+    for (const a of annees) anneeLabelById.set(a.id, a.label);
+  }
+
+  const byKey = new Map<string, FoyerEncoursAnnee>();
+
+  for (const fac of factures) {
+    if (fac.statut !== "emise" && fac.statut !== "partiellement_payee") continue;
+    const paid = await sumEncaissementsFacture(etablissementId, fac.id);
+    const reste = Math.max(0, Number(fac.totalTtc) - paid);
+    if (reste <= 0.009) continue;
+    const key = fac.anneeScolaireId ?? "__sans_annee__";
+    const cur = byKey.get(key) ?? {
+      anneeScolaireId: fac.anneeScolaireId,
+      anneeLabel: fac.anneeScolaireId
+        ? anneeLabelById.get(fac.anneeScolaireId) ?? null
+        : "Hors année",
+      montantRestant: 0,
+      factureCount: 0,
+    };
+    cur.montantRestant += reste;
+    cur.factureCount += 1;
+    byKey.set(key, cur);
+  }
+
+  return [...byKey.values()].sort((a, b) =>
+    (b.anneeLabel ?? "").localeCompare(a.anneeLabel ?? "", "fr"),
+  );
+}
+
 export async function countFacturesEnRetardForEleve(
   etablissementId: string,
   eleveId: string,
@@ -647,6 +755,7 @@ export async function loadFinancesForEleve(etablissementId: string, eleveId: str
   const out = [];
   for (const f of foyers) {
     const ff = await getFoyerFacturation(etablissementId, f.id);
+    const encoursParAnnee = await listEncoursFoyerParAnnee(etablissementId, f.id);
     out.push({
       foyer: {
         id: f.id,
@@ -654,8 +763,10 @@ export async function loadFinancesForEleve(etablissementId: string, eleveId: str
         adresse: f.adresse,
         codePostal: f.codePostal,
         ville: f.ville,
+        payeurEstFoyer: f.payeurEstFoyer,
       },
       facturation: serializeFoyerFacturationPublic(ff),
+      encoursParAnnee,
       factures: byFoyer
         .filter((x) => x.foyerId === f.id)
         .map((x) => ({

@@ -7,6 +7,7 @@ import {
   setCurrentAnneeScolaire,
   upsertAnneeScolaire,
 } from "@/app/lib/annees-scolaires-db";
+import { executePassageAnneeScolaire } from "@/app/lib/rentree-scolaire";
 
 export async function GET() {
   const gate = await requireAdmin();
@@ -42,6 +43,12 @@ export async function POST(req: Request) {
         makeCurrent: body.makeCurrent !== false,
       });
       return NextResponse.json({ ok: true, annee: row });
+    }
+    if (action === "passageRentree") {
+      const result = await executePassageAnneeScolaire(etabId, {
+        label: body.label ? String(body.label) : undefined,
+      });
+      return NextResponse.json({ ok: true, ...result });
     }
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
   } catch (e) {

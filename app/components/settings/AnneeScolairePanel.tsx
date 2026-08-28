@@ -62,7 +62,9 @@ export default function AnneeScolairePanel() {
       setMessage(
         body.action === "setCurrent"
           ? `Année ${data.annee?.label} définie comme courante.`
-          : `Année ${data.annee?.label} enregistrée.`,
+          : body.action === "passageRentree"
+            ? String(data.message || `Passage en ${data.newAnnee?.label} effectué.`)
+            : `Année ${data.annee?.label} enregistrée.`,
       );
       await load();
     } catch (e: unknown) {
@@ -130,6 +132,31 @@ export default function AnneeScolairePanel() {
             Créer sans activer
           </button>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5 space-y-4">
+        <h2 className="font-black text-slate-900">Passage rentrée (sans changer de base)</h2>
+        <p className="text-sm text-slate-700">
+          Active l’année <strong>{label || "suivante"}</strong>. Dossiers, documents, IBAN et SEPA
+          conservés. Seules les catégories quotient sont remises à zéro. Encours N-1 intact.
+        </p>
+        <button
+          type="button"
+          disabled={busy || !label.trim()}
+          onClick={() => {
+            if (
+              !window.confirm(
+                `Passer en ${label.trim()} ?\n\nQuotient remis à zéro · IBAN/SEPA conservés · encours conservé`,
+              )
+            ) {
+              return;
+            }
+            void post({ action: "passageRentree", label: label.trim() });
+          }}
+          className="rounded-xl bg-emerald-700 text-white px-4 py-2 text-sm font-bold disabled:opacity-50"
+        >
+          Passer en {label.trim() || "…"}
+        </button>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">

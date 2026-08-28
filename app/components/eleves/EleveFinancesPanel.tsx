@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { formatEncoursMontant, formatFoyerPayeurDetail } from "@/app/lib/foyer-display";
 
 type FoyerFinance = {
   foyer: {
@@ -10,7 +11,13 @@ type FoyerFinance = {
     adresse: string | null;
     codePostal: string | null;
     ville: string | null;
+    payeurEstFoyer?: boolean;
   };
+  encoursParAnnee?: Array<{
+    anneeLabel: string | null;
+    montantRestant: number;
+    factureCount: number;
+  }>;
   facturation: {
     id: string;
     foyerId: string;
@@ -133,9 +140,19 @@ export default function EleveFinancesPanel({ eleveId, canEdit }: Props) {
         <section key={block.foyer.id} className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
           <div className="flex flex-wrap justify-between gap-2 items-start">
             <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">Foyer</p>
               <h3 className="font-black text-slate-900">{block.foyer.label}</h3>
-              <p className="text-xs text-slate-500">
-                {[block.foyer.adresse, block.foyer.codePostal, block.foyer.ville].filter(Boolean).join(" ")}
+              <p className="text-xs text-slate-600 mt-1">
+                {formatFoyerPayeurDetail({
+                  label: block.foyer.label,
+                  payeurEstFoyer: block.foyer.payeurEstFoyer !== false,
+                  responsables: [],
+                })}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                {[block.foyer.adresse, block.foyer.codePostal, block.foyer.ville]
+                  .filter(Boolean)
+                  .join(" ")}
               </p>
             </div>
             {canEdit && (
@@ -165,6 +182,21 @@ export default function EleveFinancesPanel({ eleveId, canEdit }: Props) {
               </div>
             )}
           </div>
+
+          {(block.encoursParAnnee ?? []).some((e) => e.montantRestant > 0) ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
+              <p className="font-bold text-amber-950">Encours comptable (conservé d’une année à l’autre)</p>
+              <ul className="mt-1 space-y-0.5 text-amber-900">
+                {block.encoursParAnnee!
+                  .filter((e) => e.montantRestant > 0)
+                  .map((e) => (
+                    <li key={e.anneeLabel ?? "na"}>
+                      {e.anneeLabel ?? "Hors année"} : {formatEncoursMontant(e.montantRestant)}
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          ) : null}
 
           {editFoyerId === block.foyer.id && canEdit && (
             <div className="grid gap-2 sm:grid-cols-2 text-sm border-t border-slate-100 pt-4">
