@@ -3,14 +3,12 @@
 import StageClassRosterPanel from "@/app/components/stages/StageClassRosterPanel";
 
 export default function StagesClassePanel({
-  defaultSchoolYear,
   onOpenConvention,
   canFileOneDrive,
   oneDriveConnected,
   onFileOneDrive,
   filingConventionId,
 }: {
-  defaultSchoolYear: string;
   onOpenConvention: (id: string) => void;
   canFileOneDrive: boolean;
   oneDriveConnected: boolean;
@@ -26,7 +24,6 @@ export default function StagesClassePanel({
       </p>
       <div className="mt-6">
         <StageClassRosterPanel
-          defaultSchoolYear={defaultSchoolYear}
           onOpenConvention={onOpenConvention}
           canFileOneDrive={canFileOneDrive}
           oneDriveConnected={oneDriveConnected}

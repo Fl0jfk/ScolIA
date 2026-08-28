@@ -7,19 +7,11 @@ import type {
   StagePeriodReminder,
 } from "@/app/lib/stage-periods-config";
 
-type SiecleClassOption = {
+type ClassOption = {
   code: string;
   label: string;
-  pole: "COLLÈGE" | "LYCÉE";
+  pole: "COLLÈGE" | "LYCÉE" | "ÉCOLE";
 };
-
-function currentSchoolYearLabel() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  if (m >= 8) return `${y}-${y + 1}`;
-  return `${y - 1}-${y}`;
-}
 
 function uid(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -30,14 +22,11 @@ function emptyClassConfig(className: string): StageClassStageConfig {
 }
 
 export default function StagePeriodsEditor({
-  initialYear,
   onSaved,
 }: {
-  initialYear?: string;
   onSaved?: (message: string) => void;
 }) {
-  const [schoolYear, setSchoolYear] = useState(initialYear || currentSchoolYearLabel());
-  const [siecleClasses, setSiecleClasses] = useState<SiecleClassOption[]>([]);
+  const [classOptions, setClassOptions] = useState<ClassOption[]>([]);
   const [classes, setClasses] = useState<StageClassStageConfig[]>([]);
   const [expandedClass, setExpandedClass] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
@@ -50,17 +39,17 @@ export default function StagePeriodsEditor({
   const [error, setError] = useState<string | null>(null);
   const [selectedClass, setSelectedClass] = useState("");
 
-  const load = useCallback(async (year: string) => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/stages/periods?schoolYear=${encodeURIComponent(year)}`, {
+      const res = await fetch("/api/stages/periods", {
         cache: "no-store",
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur chargement périodes");
 
-      setSiecleClasses(data.siecleClasses || []);
+      setClassOptions(data.siecleClasses || []);
       setPreviousConfig(data.previousConfig || null);
       setUpdatedAt(data.config?.updatedAt || null);
       setUpdatedBy(data.config?.updatedBy || null);
@@ -82,8 +71,8 @@ export default function StagePeriodsEditor({
   }, []);
 
   useEffect(() => {
-    void load(schoolYear);
-  }, [schoolYear, load]);
+    void load();
+  }, [load]);
 
   function updateClass(className: string, patch: Partial<StageClassStageConfig>) {
     setClasses((prev) =>
@@ -206,16 +195,14 @@ export default function StagePeriodsEditor({
       const res = await fetch("/api/stages/periods", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schoolYear, classes: payload }),
+        body: JSON.stringify({ classes: payload }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur");
       setUpdatedAt(data.config?.updatedAt || null);
       setUpdatedBy(data.config?.updatedBy || null);
       const enabledCount = payload.filter((c) => c.enabled).length;
-      onSaved?.(
-        `Périodes de stage enregistrées pour ${schoolYear} (${enabledCount} classe(s) activée(s)).`,
-      );
+      onSaved?.(`Périodes de stage enregistrées (${enabledCount} classe(s) activée(s)).`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -225,7 +212,7 @@ export default function StagePeriodsEditor({
 
   const enabledCount = classes.filter((c) => c.enabled).length;
   const existingNames = new Set(classes.map((c) => c.className.toLowerCase()));
-  const pickOptions = siecleClasses.filter((c) => !existingNames.has(c.code.toLowerCase()));
+  const pickOptions = classOptions.filter((c) => !existingNames.has(c.code.toLowerCase()));
 
   if (loading) {
     return <p className="text-sm text-stone-500">Chargement des périodes…</p>;
@@ -237,31 +224,20 @@ export default function StagePeriodsEditor({
         <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>
       )}
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="block text-sm">
-          Année scolaire
-          <input
-            className="mt-1 block w-40 rounded-lg border border-stone-300 px-3 py-2"
-            value={schoolYear}
-            onChange={(e) => setSchoolYear(e.target.value)}
-            placeholder="2025-2026"
-          />
-        </label>
-        {previousConfig && previousConfig.classes.length > 0 && (
-          <button
-            type="button"
-            onClick={copyFromPreviousYear}
-            className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
-          >
-            Reprendre {previousConfig.schoolYear}
-          </button>
-        )}
-      </div>
+      {previousConfig && previousConfig.classes.length > 0 && (
+        <button
+          type="button"
+          onClick={copyFromPreviousYear}
+          className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+        >
+          Reprendre les périodes de {previousConfig.schoolYear}
+        </button>
+      )}
 
       <p className="text-sm text-stone-600 max-w-3xl">
-        Sélectionnez les classes collège et lycée importées depuis SIECLE, puis configurez leurs
-        périodes et rappels. Les classes désactivées restent visibles ici mais n&apos;apparaissent
-        pas dans les référents ni sur le formulaire public.
+        Sélectionnez les classes concernées par les stages (dossiers élèves, Siècle, planning), puis
+        configurez leurs périodes et rappels. Les classes désactivées restent visibles ici mais
+        n&apos;apparaissent pas sur le formulaire public.
       </p>
 
       {updatedAt && (
@@ -271,21 +247,21 @@ export default function StagePeriodsEditor({
         </p>
       )}
 
-      {siecleClasses.length === 0 && (
+      {classOptions.length === 0 && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Aucune classe SIECLE (collège / lycée) trouvée. Importez la nomenclature SIECLE avant de
-          configurer les stages.
+          Aucune classe trouvée. Vérifiez la liste élèves (dossiers) ou importez Structures.xml dans
+          Paramètres → Pont Siècle.
         </p>
       )}
 
       {classes.length === 0 ? (
         <p className="rounded-xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-600">
-          Aucune classe configurée. Ajoutez une classe depuis la liste SIECLE ci-dessous.
+          Aucune classe configurée. Ajoutez une classe depuis la liste ci-dessous.
         </p>
       ) : (
         <div className="space-y-2 max-h-[520px] overflow-y-auto rounded-xl border border-stone-200">
           {classes.map((c) => {
-            const siecle = siecleClasses.find((s) => s.code === c.className);
+            const option = classOptions.find((s) => s.code === c.className);
             return (
             <div key={c.className} className="border-b border-stone-100 last:border-0 bg-white">
               <div className="flex flex-wrap items-center gap-3 px-4 py-3">
@@ -296,9 +272,9 @@ export default function StagePeriodsEditor({
                     onChange={(e) => updateClass(c.className, { enabled: e.target.checked })}
                   />
                   <span className="font-bold text-[#1F3D2B] min-w-[3rem]">{c.className}</span>
-                  {siecle && (
+                  {option && (
                     <span className="text-xs text-stone-500">
-                      {siecle.label} · {siecle.pole}
+                      {option.label} · {option.pole}
                     </span>
                   )}
                 </label>
@@ -465,7 +441,7 @@ export default function StagePeriodsEditor({
             value={selectedClass}
             onChange={(e) => setSelectedClass(e.target.value)}
           >
-            <option value="">— Choisir une classe SIECLE —</option>
+            <option value="">— Choisir une classe —</option>
             {pickOptions.map((opt) => (
               <option key={opt.code} value={opt.code}>
                 {opt.code} — {opt.label} ({opt.pole})

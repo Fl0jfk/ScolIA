@@ -1,5 +1,4 @@
-import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
-import { listStageSiecleClassCodes } from "@/app/lib/stage-siecle-classes";
+import { listEstablishmentClassNames } from "@/app/lib/school-classes-resolver";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { STAGE_S3, currentStageSchoolYear, type StageConvention } from "@/app/lib/stage-types";
 
@@ -31,23 +30,7 @@ export function classKey(className: string): string {
 }
 
 export async function listStageReferentClassNames(extra?: string[]): Promise<string[]> {
-  const fromPeriods = await listStageEnabledClassNames();
-  const set = new Set<string>(fromPeriods);
-  for (const c of extra ?? []) {
-    const n = normalizeClassName(c);
-    if (n) set.add(n);
-  }
-  if (set.size > 0) {
-    return [...set].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
-  }
-
-  const fromSiecle = await listStageSiecleClassCodes();
-  for (const c of fromSiecle) set.add(c);
-  for (const c of extra ?? []) {
-    const n = normalizeClassName(c);
-    if (n) set.add(n);
-  }
-  return [...set].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  return listEstablishmentClassNames(extra);
 }
 
 export async function getStageReferentsConfig(schoolYear: string): Promise<StageReferentsConfig | null> {
@@ -130,15 +113,6 @@ export async function listClassesForReferentUser(
     .filter((a) => a.externalUserId === id)
     .map((a) => a.className)
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
-}
-
-function referentAssignmentMatchesUser(
-  assignment: StageClassReferentAssignment,
-  user: { userId?: string; email?: string },
-): boolean {
-  if (user.userId && assignment.externalUserId === user.userId) return true;
-  const email = user.email?.trim().toLowerCase();
-  return Boolean(email && assignment.email === email);
 }
 
 export async function ensureConventionReferent(convention: StageConvention): Promise<StageConvention> {

@@ -21,22 +21,11 @@ function userLabel(u: DirectoryUser): string {
   return u.displayName || `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
 }
 
-function currentSchoolYearLabel() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  if (m >= 8) return `${y}-${y + 1}`;
-  return `${y - 1}-${y}`;
-}
-
 export default function StageReferentsEditor({
-  initialYear,
   onSaved,
 }: {
-  initialYear?: string;
   onSaved?: (message: string) => void;
 }) {
-  const [schoolYear, setSchoolYear] = useState(initialYear || currentSchoolYearLabel());
   const [classes, setClasses] = useState<string[]>([]);
   const [assignments, setAssignments] = useState<Record<string, string[]>>({});
   const [users, setUsers] = useState<DirectoryUser[]>([]);
@@ -56,12 +45,12 @@ export default function StageReferentsEditor({
     return map;
   }, [users]);
 
-  const load = useCallback(async (year: string) => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const [refRes, usersRes] = await Promise.all([
-        fetch(`/api/stages/referents?schoolYear=${encodeURIComponent(year)}`, { cache: "no-store" }),
+        fetch("/api/stages/referents", { cache: "no-store" }),
         fetch("/api/stages/directory-users", { cache: "no-store" }),
       ]);
       const refData = await refRes.json();
@@ -94,8 +83,8 @@ export default function StageReferentsEditor({
   }, []);
 
   useEffect(() => {
-    void load(schoolYear);
-  }, [schoolYear, load]);
+    void load();
+  }, [load]);
 
   function addReferent(className: string, externalUserId: string) {
     if (!externalUserId) return;
@@ -150,15 +139,13 @@ export default function StageReferentsEditor({
       const res = await fetch("/api/stages/referents", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ schoolYear, assignments: payload }),
+        body: JSON.stringify({ assignments: payload }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur");
       setUpdatedAt(data.config?.updatedAt || null);
       setUpdatedBy(data.config?.updatedBy || null);
-      onSaved?.(
-        `Professeurs référents enregistrés pour ${schoolYear} (${payload.length} affectation(s)).`,
-      );
+      onSaved?.(`Professeurs référents enregistrés (${payload.length} affectation(s)).`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -178,31 +165,20 @@ export default function StageReferentsEditor({
         <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{error}</p>
       )}
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="block text-sm">
-          Année scolaire
-          <input
-            className="mt-1 block w-40 rounded-lg border border-stone-300 px-3 py-2"
-            value={schoolYear}
-            onChange={(e) => setSchoolYear(e.target.value)}
-            placeholder="2025-2026"
-          />
-        </label>
-        {previousConfig && previousConfig.assignments.length > 0 && (
-          <button
-            type="button"
-            onClick={copyFromPreviousYear}
-            className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
-          >
-            Reprendre {previousConfig.schoolYear}
-          </button>
-        )}
-      </div>
+      {previousConfig && previousConfig.assignments.length > 0 && (
+        <button
+          type="button"
+          onClick={copyFromPreviousYear}
+          className="rounded-lg border border-stone-300 px-3 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+        >
+          Reprendre les affectations de {previousConfig.schoolYear}
+        </button>
+      )}
 
       <p className="text-sm text-stone-600">
-        Assignez un ou plusieurs professeurs référents à chaque classe activée ci-dessus. Chaque
-        référent voit l&apos;onglet <strong>Suivi classe</strong> pour ses classes et les conventions
-        des élèves concernés.
+        Assignez un ou plusieurs professeurs référents à chaque classe. Chaque référent voit
+        l&apos;onglet <strong>Suivi classe</strong> pour ses classes. Les classes proviennent du
+        référentiel établissement (dossiers élèves, Siècle, planning).
       </p>
 
       {updatedAt && (
@@ -214,8 +190,8 @@ export default function StageReferentsEditor({
 
       {classes.length === 0 ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Aucune classe activée dans la section « Classes concernées ». Activez d&apos;abord les
-          classes avant d&apos;assigner des référents.
+          Aucune classe trouvée. Vérifiez la liste élèves (dossiers) ou importez Structures.xml dans
+          Paramètres → Pont Siècle.
         </p>
       ) : users.length === 0 ? (
         <p className="text-sm text-amber-800 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">

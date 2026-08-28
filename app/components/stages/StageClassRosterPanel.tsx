@@ -28,14 +28,12 @@ type RosterResponse = {
 
 export default function StageClassRosterPanel({
   onOpenConvention,
-  defaultSchoolYear,
   canFileOneDrive,
   oneDriveConnected,
   onFileOneDrive,
   filingConventionId,
 }: {
   onOpenConvention: (conventionId: string) => void;
-  defaultSchoolYear?: string;
   canFileOneDrive?: boolean;
   oneDriveConnected?: boolean;
   onFileOneDrive?: (conventionId: string) => void;
@@ -51,7 +49,6 @@ export default function StageClassRosterPanel({
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (defaultSchoolYear) params.set("schoolYear", defaultSchoolYear);
       if (className) params.set("className", className);
       const res = await fetch(`/api/stages/class-roster?${params}`, { cache: "no-store" });
       const json = (await res.json()) as RosterResponse & { error?: string };
@@ -64,7 +61,7 @@ export default function StageClassRosterPanel({
     } finally {
       setLoading(false);
     }
-  }, [defaultSchoolYear]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -120,7 +117,6 @@ export default function StageClassRosterPanel({
         {data.availableClasses.length === 1 && (
           <p className="text-lg font-bold text-[#1F3D2B]">Classe {roster.className}</p>
         )}
-        <p className="text-xs text-stone-500">Année {roster.schoolYear}</p>
         {data.referents.length > 0 && (
           <p className="text-xs text-stone-500">
             Référents : {data.referents.map((r) => r.name).join(", ")}

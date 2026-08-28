@@ -1,8 +1,7 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
-import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
-import { listStageSiecleClassCodes } from "@/app/lib/stage-siecle-classes";
-import { classKey } from "@/app/lib/stage-referents-config";
+import { listEstablishmentClassNames } from "@/app/lib/school-classes-resolver";
+import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
 import { buildSignatureSummary, type StageSignatureSummary } from "@/app/lib/stage-signature-summary";
 import {
@@ -94,7 +93,7 @@ function resolveEleveClassName(eleve: EleveConfig): string | null {
 function eleveMatchesClass(eleve: EleveConfig, className: string): boolean {
   const resolved = resolveEleveClassName(eleve);
   if (!resolved) return false;
-  return classKey(resolved) === classKey(className);
+  return schoolClassesMatch(resolved, className);
 }
 
 async function loadEleves(): Promise<EleveConfig[]> {
@@ -136,19 +135,9 @@ function studentKey(nom: string, prenom: string, ine?: string): string {
   return `name:${normalizeName(nom)}|${normalizeName(prenom)}`;
 }
 
-/** Classes disponibles dans le suivi classe (config activée, SIECLE, élèves). */
+/** Classes disponibles dans le suivi classe (référentiel établissement). */
 export async function listStageRosterClassNames(): Promise<string[]> {
-  const set = new Set<string>();
-  for (const c of await listStageEnabledClassNames()) set.add(c);
-  for (const c of await listStageSiecleClassCodes()) set.add(c);
-
-  const eleves = await loadEleves();
-  for (const eleve of eleves) {
-    const cls = resolveEleveClassName(eleve);
-    if (cls) set.add(cls);
-  }
-
-  return [...set].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  return listEstablishmentClassNames();
 }
 
 export async function buildStageClassRoster(
@@ -156,7 +145,6 @@ export async function buildStageClassRoster(
   schoolYear?: string,
 ): Promise<StageClassRoster> {
   const year = schoolYear?.trim() || currentStageSchoolYear();
-  const classK = classKey(className);
 
   const [eleves, index] = await Promise.all([loadEleves(), getConventionsIndex()]);
   const classEleves = eleves.filter((e) => eleveMatchesClass(e, className));
@@ -164,7 +152,7 @@ export async function buildStageClassRoster(
   const conventions = (
     await Promise.all(
       index
-        .filter((e) => e.schoolYear === year && classKey(e.className) === classK)
+        .filter((e) => e.schoolYear === year && schoolClassesMatch(e.className, className))
         .map((e) => getStageConvention(e.id)),
     )
   ).filter((c): c is StageConvention => Boolean(c));

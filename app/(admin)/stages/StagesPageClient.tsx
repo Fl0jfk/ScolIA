@@ -38,14 +38,6 @@ const StagesSettingsPanel = dynamic(() => import("@/app/components/stages/Stages
   loading: () => <ModuleTabFallback />,
 });
 
-function currentSchoolYearLabel() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  if (m >= 8) return `${y}-${y + 1}`;
-  return `${y - 1}-${y}`;
-}
-
 function StagesContent() {
   const searchParams = useSearchParams();
   const { user: sessionUser } = useSessionUser();
@@ -95,7 +87,6 @@ function StagesContent() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [schoolYear] = useState(currentSchoolYearLabel);
   const [hasStoredSignature, setHasStoredSignature] = useState<boolean | undefined>(undefined);
   const [filingConventionId, setFilingConventionId] = useState<string | null>(null);
   const [adminReviewNote, setAdminReviewNote] = useState("");
@@ -405,7 +396,6 @@ function StagesContent() {
 
       {tab === "classe" && permissions?.canViewClassRoster && (
         <StagesClassePanel
-          defaultSchoolYear={schoolYear}
           onOpenConvention={(id) => {
             void loadDetail(id);
             setTab("conventions");
@@ -426,7 +416,7 @@ function StagesContent() {
       )}
 
       {tab === "settings" && permissions?.canManageStageSettings && (
-        <StagesSettingsPanel schoolYear={schoolYear} onSavedMsg={setMsg} />
+        <StagesSettingsPanel onSavedMsg={setMsg} />
       )}
 
       {tab === "conventions" && (

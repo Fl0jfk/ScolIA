@@ -3,23 +3,11 @@
 import StageReferentsEditor from "@/app/components/stages/StageReferentsEditor";
 import StagePeriodsEditor from "@/app/components/stages/StagePeriodsEditor";
 
-function currentSchoolYearLabel() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  if (m >= 8) return `${y}-${y + 1}`;
-  return `${y - 1}-${y}`;
-}
-
 export default function StagesSettingsPanel({
-  schoolYear,
   onSavedMsg,
 }: {
-  schoolYear?: string;
   onSavedMsg: (message: string) => void;
 }) {
-  const year = schoolYear || currentSchoolYearLabel();
-
   return (
     <div data-tour="stages-settings" className="space-y-8">
       <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
@@ -36,24 +24,23 @@ export default function StagesSettingsPanel({
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-[#1F3D2B]">Classes concernées par les stages</h2>
         <p className="mt-2 text-sm text-stone-600 max-w-2xl">
-          Sélectionnez les classes collège et lycée importées depuis SIECLE, puis configurez leurs
-          périodes. Seules les classes activées apparaissent dans la section référents ci-dessous.
-          Les classes non configurées restent autorisées sur le formulaire public de préconvention.
+          Sélectionnez les classes concernées par les stages, puis configurez leurs périodes. Les
+          classes proviennent du référentiel établissement (dossiers élèves, Siècle, planning).
         </p>
         <div className="mt-4">
-          <StagePeriodsEditor initialYear={year} onSaved={(m) => onSavedMsg(m)} />
+          <StagePeriodsEditor onSaved={(m) => onSavedMsg(m)} />
         </div>
       </section>
 
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-[#1F3D2B]">Professeurs principaux / référents par classe</h2>
         <p className="mt-2 text-sm text-stone-600 max-w-2xl">
-          Assignez un ou plusieurs professeurs référents pour chaque classe activée ci-dessus. Ils
-          verront l&apos;onglet <strong>Suivi classe</strong> avec tous les élèves et l&apos;état de
-          leurs conventions, et recevront les demandes de signature par e-mail.
+          Assignez un ou plusieurs professeurs référents pour chaque classe. Ils verront l&apos;onglet{" "}
+          <strong>Suivi classe</strong> avec tous les élèves et l&apos;état de leurs conventions, et
+          recevront les demandes de signature par e-mail.
         </p>
         <div className="mt-4">
-          <StageReferentsEditor initialYear={year} onSaved={(m) => onSavedMsg(m)} />
+          <StageReferentsEditor onSaved={(m) => onSavedMsg(m)} />
         </div>
       </section>
     </div>
