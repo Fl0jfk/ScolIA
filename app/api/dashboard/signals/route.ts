@@ -547,6 +547,8 @@ export async function GET() {
         roles,
         userId,
         email,
+        firstName: user?.firstName ?? undefined,
+        lastName: user?.lastName ?? undefined,
         accessibleModuleIds,
         trips: Array.isArray(tripsRaw) ? tripsRaw : [],
         absences,

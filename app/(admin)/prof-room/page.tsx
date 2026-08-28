@@ -19,6 +19,7 @@ import {
   reservationWhoCompact,
   reservationWhoLabel,
 } from "@/app/lib/prof-room-reservation-label";
+import { isReservationBeneficiary } from "@/app/lib/prof-room-reservation-ownership";
 import { dash } from "@/app/lib/dashboard-brand";
 import { DEFAULT_CLASSES_BY_POLE, resolveProfRoomClassesByPole } from "@/app/lib/school-classes-catalog";
 import {
@@ -130,18 +131,25 @@ function ProfRoomPageContent() {
   maxDateLimit.setDate(maxDateLimit.getDate() + (appCtx?.profRoom?.bookingHorizonDays ?? 56));
   const maxDateStr = isAdmin ? "" : localYmd(maxDateLimit);
   const myUpcomingReservations = useMemo(() => {
+    if (!user?.id) return [];
     const nowIso = new Date().toISOString();
+    const viewer = {
+      userId: user.id,
+      email: user.primaryEmailAddress?.emailAddress ?? undefined,
+      firstName: user.firstName ?? undefined,
+      lastName: user.lastName ?? undefined,
+    };
     return reservations
       .filter(
         (r) =>
-          r.userId === user?.id &&
+          isReservationBeneficiary(r, viewer) &&
           r.status !== "CANCELLED" &&
           typeof r.startsAt === "string" &&
           r.startsAt >= nowIso,
       )
       .sort((a, b) => String(a.startsAt || "").localeCompare(String(b.startsAt || "")))
       .slice(0, 5);
-  }, [reservations, user?.id]);
+  }, [reservations, user]);
   const startOfWeek = useMemo(() => {
     const d = new Date(currentDate);
     const day = d.getDay();

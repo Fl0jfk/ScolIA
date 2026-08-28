@@ -17,6 +17,7 @@ export type RoomReservationRow = {
   bookedByFirstName?: string;
   bookedByLastName?: string;
   bookedForOther?: boolean;
+  bookedByUserId?: string;
   createdAt?: string;
   [key: string]: unknown;
 };

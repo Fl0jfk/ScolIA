@@ -21,7 +21,7 @@ import { isProfesseurScopedDossierViewer } from "@/app/lib/eleve-dossier-scope";
 import { canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
 import { resolveDirectionEtab } from "@/app/lib/travels-direction-dashboard";
 import { normalizeRequestEmail } from "@/app/lib/requests-board";
-import { isReservationBookedForOther } from "@/app/lib/prof-room-reservation-label";
+import { isOwnRoomReservation } from "@/app/lib/prof-room-reservation-ownership";
 import { subjectColorToHex } from "@/app/lib/prof-room-subject-colors";
 
 export type DashboardShortcutTone = "neutral" | "info" | "action" | "warn";
@@ -115,6 +115,8 @@ type DashboardSignalsInput = {
   roles: string[];
   userId: string;
   email: string;
+  firstName?: string;
+  lastName?: string;
   accessibleModuleIds: Set<string>;
   trips?: TripIndexRow[];
   absences?: AbsenceRecord[];
@@ -287,46 +289,6 @@ function isReservationLiveNow(
   return start <= nowLocal && nowLocal < end;
 }
 
-/** Signal dashboard : mes créneaux (y compris ceux réservés pour moi par un admin). */
-function isOwnRoomReservation(
-  r: {
-    userId?: string;
-    email?: string;
-    bookedForOther?: boolean;
-    bookedByUserId?: string;
-    firstName?: string;
-    lastName?: string;
-    bookedByFirstName?: string;
-    bookedByLastName?: string;
-  },
-  userId: string,
-  emailNorm: string,
-): boolean {
-  const forOther = isReservationBookedForOther(r);
-
-  if (forOther) {
-    // Le booker ne voit pas le signal « ma salle » (c’est pour quelqu’un d’autre).
-    if (r.bookedByUserId && r.bookedByUserId === userId && r.userId !== userId) {
-      return false;
-    }
-    // Nouveau modèle : userId = bénéficiaire.
-    if (r.userId && r.userId === userId) return true;
-    // Email du bénéficiaire (évite le legacy où l’e-mail était celui du booker).
-    if (
-      r.bookedByUserId &&
-      emailNorm &&
-      normalizeRequestEmail(r.email || "") === emailNorm
-    ) {
-      return true;
-    }
-    return false;
-  }
-
-  if (r.userId && r.userId === userId) return true;
-  if (emailNorm && normalizeRequestEmail(r.email || "") === emailNorm) return true;
-  return false;
-}
-
 function buildTodayNewsFromWeekSheet(
   weekSheet: WeekSheetData | null | undefined,
 ): { items: DashboardTodayNewsItem[]; hasCurrentWeek: boolean } {
@@ -358,6 +320,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     roles,
     userId,
     email,
+    firstName,
+    lastName,
     accessibleModuleIds,
     trips = [],
     absences = [],
@@ -385,6 +349,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   const notifications: DashboardNotification[] = [];
   const has = (moduleId: string) => accessibleModuleIds.has(moduleId);
   const emailNorm = normalizeRequestEmail(email || "");
+  const viewerNames = { firstName, lastName };
 
   const pushNotif = (n: DashboardNotification) => {
     if (n.count > 0) notifications.push(n);
@@ -914,7 +879,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           Boolean(startsAt) &&
           r.status !== "CANCELLED" &&
           startsAt.startsWith(todayKey) &&
-          isOwnRoomReservation(r, userId, emailNorm)
+          isOwnRoomReservation(r, userId, emailNorm, viewerNames)
         );
       })
       .sort((a, b) => String(a.startsAt || "").localeCompare(String(b.startsAt || "")));
