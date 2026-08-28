@@ -3,29 +3,32 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-const LEVELS = ["6e", "5e", "4e", "3e", "2nde", "1re", "Tle"];
-
 export default function StagePreconventionStartPage() {
   const router = useRouter();
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [className, setClassName] = useState("");
-  const [level, setLevel] = useState("3e");
+  const [ine, setIne] = useState("");
+  const [dateNaissance, setDateNaissance] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{
+    firstName: string;
+    lastName: string;
+    className: string;
+  } | null>(null);
 
   async function start(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
+    setPreview(null);
     try {
       const res = await fetch("/api/stages/public/preconvention", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ firstName, lastName, className, level }),
+        body: JSON.stringify({ ine, dateNaissance }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur");
+      if (data.studentPreview) setPreview(data.studentPreview);
       router.push(data.studentLink);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -39,64 +42,61 @@ export default function StagePreconventionStartPage() {
       <div className="mx-auto max-w-lg rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <h1 className="text-2xl font-black text-[#1F3D2B]">Préconvention de stage</h1>
         <p className="mt-2 text-sm text-stone-600">
-          Commencez votre dossier en ligne : entreprise, horaires, contacts. Une fois validé par
-          l&apos;administration, la convention sera envoyée aux signataires (famille, tuteur,
-          professeur principal, direction).
+          Identifiez-vous avec les informations figurant sur le bulletin scolaire ou dans Pronote.
+          Aucune liste d&apos;élèves n&apos;est affichée : seul l&apos;établissement vérifie votre
+          dossier en interne.
         </p>
 
         {error && <p className="mt-4 text-sm text-rose-700">{error}</p>}
+        {preview && (
+          <p className="mt-4 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
+            Bienvenue {preview.firstName} {preview.lastName} ({preview.className}) — redirection…
+          </p>
+        )}
 
         <form onSubmit={(e) => void start(e)} className="mt-6 space-y-4 text-sm">
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              className="rounded-lg border px-3 py-2"
-              placeholder="Prénom *"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              required
-            />
-            <input
-              className="rounded-lg border px-3 py-2"
-              placeholder="Nom *"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              required
-            />
-          </div>
-          <input
-            className="w-full rounded-lg border px-3 py-2"
-            placeholder="Classe * (ex. 3e2)"
-            value={className}
-            onChange={(e) => setClassName(e.target.value)}
-            required
-          />
           <label className="block">
-            <span className="text-xs font-semibold text-stone-600">Niveau</span>
-            <select
+            <span className="text-xs font-semibold text-stone-600">
+              Identifiant national élève (INE) *
+            </span>
+            <input
+              className="mt-1 w-full rounded-lg border px-3 py-2 font-mono uppercase"
+              placeholder="ex. 180123456AB"
+              value={ine}
+              onChange={(e) => setIne(e.target.value.toUpperCase())}
+              autoComplete="off"
+              required
+            />
+            <span className="mt-1 block text-xs text-stone-500">
+              Code à 11 caractères sur le bulletin — connu des parents, jamais publié en liste.
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-stone-600">Date de naissance *</span>
+            <input
+              type="date"
               className="mt-1 w-full rounded-lg border px-3 py-2"
-              value={level}
-              onChange={(e) => setLevel(e.target.value)}
-            >
-              {LEVELS.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </select>
+              value={dateNaissance}
+              onChange={(e) => setDateNaissance(e.target.value)}
+              required
+            />
           </label>
           <button
             type="submit"
             disabled={busy}
             className="w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white disabled:opacity-50"
           >
-            {busy ? "Création…" : "Commencer ma préconvention →"}
+            {busy ? "Vérification…" : "Accéder à ma préconvention →"}
           </button>
         </form>
 
-        <p className="mt-6 text-xs text-stone-500">
-          Vous avez déjà un lien ? Ouvrez directement{" "}
-          <span className="font-mono text-stone-700">/stages/eleve?token=…</span>
-        </p>
+        <div className="mt-6 space-y-2 text-xs text-stone-500">
+          <p>
+            Vous avez reçu un lien personnel du professeur principal ou du secrétariat ? Ouvrez-le
+            directement — pas besoin de saisir l&apos;INE ici.
+          </p>
+          <p className="font-mono text-stone-600">/stages/eleve?token=…</p>
+        </div>
       </div>
     </main>
   );

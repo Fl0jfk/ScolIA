@@ -55,7 +55,8 @@ export default function StagesBoardPanel({
           <div>
             <h2 className="text-sm font-bold text-emerald-900">Lien public — préconvention en ligne</h2>
             <p className="mt-2 text-sm text-emerald-800">
-              Les élèves remplissent entreprise, horaires et contacts sans compte :
+              Les élèves s&apos;identifient avec leur INE + date de naissance (bulletin / Pronote) —
+              sans liste publique de noms :
             </p>
             <p className="mt-2 rounded-lg bg-white border border-emerald-100 px-3 py-2 text-sm font-mono break-all text-[#1F3D2B]">
               {typeof window !== "undefined" ? window.location.origin : ""}/stages/preconvention

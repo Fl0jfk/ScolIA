@@ -21,6 +21,7 @@ import {
   saveStudentTokenRef,
 } from "@/app/lib/stage-storage";
 import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
+import { inferStudentLevelFromClass } from "@/app/lib/stage-student-identity";
 import {
   STAGE_SIGNER_ROLE_LABELS,
   currentStageSchoolYear,
@@ -391,6 +392,9 @@ export async function createPublicPreconventionDraft(student: {
   lastName: string;
   className: string;
   level: string;
+  email?: string;
+  parentEmail?: string;
+  matchedEleveIne?: string;
 }): Promise<{ convention: StageConvention; studentLink: string }> {
   const now = new Date().toISOString();
   let convention: StageConvention = {
@@ -402,8 +406,11 @@ export async function createPublicPreconventionDraft(student: {
       firstName: student.firstName.trim(),
       lastName: student.lastName.trim(),
       className: student.className.trim(),
-      level: student.level.trim() || "3e",
+      level: student.level.trim() || inferStudentLevelFromClass(student.className),
+      email: student.email?.trim() || undefined,
+      parentEmail: student.parentEmail?.trim() || undefined,
     },
+    parentSignerEmail: student.parentEmail?.trim() || undefined,
     company: {
       name: "",
       address: "",
@@ -421,6 +428,13 @@ export async function createPublicPreconventionDraft(student: {
       name: `${student.firstName} ${student.lastName}`.trim(),
     },
     history: [{ at: now, by: `${student.firstName} ${student.lastName}`.trim(), action: "CREATION_PUBLIQUE" }],
+    ocrMeta: student.matchedEleveIne
+      ? {
+          extractedAt: now,
+          matchedEleveIne: student.matchedEleveIne,
+          matchScore: 100,
+        }
+      : undefined,
   };
   convention = await ensureConventionReferent(convention);
   convention = await ensureStudentAccessToken(convention);

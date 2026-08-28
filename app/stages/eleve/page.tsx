@@ -96,6 +96,7 @@ function EleveContent() {
               onSave={() => void save("save")}
               onSubmit={() => void save("submit")}
               busy={busy}
+              identityLocked={Boolean(c.ocrMeta?.matchedEleveIne)}
             />
           </div>
         )}

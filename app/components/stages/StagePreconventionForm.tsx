@@ -12,12 +12,15 @@ export default function StagePreconventionForm({
   onSave,
   onSubmit,
   busy,
+  identityLocked = false,
 }: {
   convention: StageConvention;
   onChange: (next: StageConvention) => void;
   onSave: () => void;
   onSubmit: () => void;
   busy: boolean;
+  /** Identité vérifiée via INE + date de naissance — champs élève non modifiables. */
+  identityLocked?: boolean;
 }) {
   const schedule = convention.schedule;
 
@@ -35,19 +38,27 @@ export default function StagePreconventionForm({
     <div className="space-y-8 text-sm">
       <section className="space-y-3">
         <h2 className="text-base font-bold text-[#1F3D2B]">1. Identité élève</h2>
+        {identityLocked && (
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+            Identité confirmée par l&apos;établissement (INE + date de naissance). Les champs ci-dessous
+            ne sont pas modifiables.
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <input
-            className="rounded-lg border px-3 py-2"
+            className="rounded-lg border px-3 py-2 disabled:bg-stone-100 disabled:text-stone-700"
             placeholder="Prénom *"
             value={convention.student.firstName}
+            disabled={identityLocked}
             onChange={(e) =>
               onChange({ ...convention, student: { ...convention.student, firstName: e.target.value } })
             }
           />
           <input
-            className="rounded-lg border px-3 py-2"
+            className="rounded-lg border px-3 py-2 disabled:bg-stone-100 disabled:text-stone-700"
             placeholder="Nom *"
             value={convention.student.lastName}
+            disabled={identityLocked}
             onChange={(e) =>
               onChange({ ...convention, student: { ...convention.student, lastName: e.target.value } })
             }
@@ -55,16 +66,18 @@ export default function StagePreconventionForm({
         </div>
         <div className="grid grid-cols-2 gap-2">
           <input
-            className="rounded-lg border px-3 py-2"
+            className="rounded-lg border px-3 py-2 disabled:bg-stone-100 disabled:text-stone-700"
             placeholder="Classe *"
             value={convention.student.className}
+            disabled={identityLocked}
             onChange={(e) =>
               onChange({ ...convention, student: { ...convention.student, className: e.target.value } })
             }
           />
           <select
-            className="rounded-lg border px-3 py-2"
+            className="rounded-lg border px-3 py-2 disabled:bg-stone-100 disabled:text-stone-700"
             value={convention.student.level}
+            disabled={identityLocked}
             onChange={(e) =>
               onChange({ ...convention, student: { ...convention.student, level: e.target.value } })
             }
