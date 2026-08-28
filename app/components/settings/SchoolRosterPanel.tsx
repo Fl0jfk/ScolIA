@@ -36,6 +36,8 @@ export default function SchoolRosterPanel() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [customClass, setCustomClass] = useState("");
+  const [classesReadOnly, setClassesReadOnly] = useState(false);
+  const [unmatchedEleveClasses, setUnmatchedEleveClasses] = useState<string[]>([]);
   const elevesInputRef = useRef<HTMLInputElement>(null);
   const teachersInputRef = useRef<HTMLInputElement>(null);
 
@@ -63,6 +65,8 @@ export default function SchoolRosterPanel() {
       });
       setRoster(j.roster || null);
       setClasses(j.classes || []);
+      setClassesReadOnly(Boolean(j.classesReadOnly));
+      setUnmatchedEleveClasses(Array.isArray(j.unmatchedEleveClasses) ? j.unmatchedEleveClasses : []);
       setUsers(j.users || []);
       setTeacherCatalogText((j.roster?.teacherCatalog || []).join("\n"));
       const map: Record<string, string> = {};
@@ -158,6 +162,7 @@ export default function SchoolRosterPanel() {
   }
 
   function addClass() {
+    if (classesReadOnly) return;
     const name = customClass.trim();
     if (!name || classes.includes(name)) {
       setCustomClass("");
@@ -319,8 +324,30 @@ export default function SchoolRosterPanel() {
       <SettingsSection
         icon="2️⃣"
         title="Professeurs par classe"
-        description="Définit qui voit quels élèves pour préparer la classe et les référents stages. Un professeur principal ne voit que les élèves de ses classes. Synchronisé avec Stages."
+        description={
+          classesReadOnly
+            ? "Classes issues exclusivement de Structures.xml (Siècle) — aucune création manuelle. Assignez un professeur principal par division officielle."
+            : "Définit qui voit quels élèves pour préparer la classe et les référents stages. Un professeur principal ne voit que les élèves de ses classes. Synchronisé avec Stages."
+        }
       >
+        {classesReadOnly ? (
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs text-indigo-950 space-y-1 mb-3">
+            <p className="font-bold">Source des classes : Siècle (rectorat)</p>
+            <p>
+              {classes.length} division(s) officielle(s) — ex. « 1 A » et non « 1A ». Les classes
+              saisies ailleurs sont automatiquement rapprochées (1A → 1 A) lors des imports.
+            </p>
+            <Link href="/parametres?tab=siecle" className="font-bold text-indigo-700 hover:underline">
+              Mettre à jour via Structures.xml
+            </Link>
+          </div>
+        ) : null}
+        {unmatchedEleveClasses.length > 0 ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950 mb-3">
+            <p className="font-bold">Classes élèves non reconnues ({unmatchedEleveClasses.length})</p>
+            <p>{unmatchedEleveClasses.join(", ")}</p>
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -330,15 +357,19 @@ export default function SchoolRosterPanel() {
           >
             Importer Excel profs / classes
           </button>
-          <input
-            className="rounded-xl border px-3 py-2 text-sm"
-            placeholder="Ajouter une classe"
-            value={customClass}
-            onChange={(e) => setCustomClass(e.target.value)}
-          />
-          <button type="button" onClick={addClass} className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold">
-            Ajouter classe
-          </button>
+          {!classesReadOnly ? (
+            <>
+              <input
+                className="rounded-xl border px-3 py-2 text-sm"
+                placeholder="Ajouter une classe"
+                value={customClass}
+                onChange={(e) => setCustomClass(e.target.value)}
+              />
+              <button type="button" onClick={addClass} className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold">
+                Ajouter classe
+              </button>
+            </>
+          ) : null}
         </div>
         <p className="text-xs text-slate-500">Excel : colonnes <strong>Classe</strong> + <strong>Email</strong> (ou nom du professeur).</p>
         <input

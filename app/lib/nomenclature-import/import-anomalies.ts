@@ -6,6 +6,7 @@ import { nomenclatureImportLog } from "@/db/schema";
 import { countElevesInDb, resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { getJson } from "@/app/lib/s3-storage";
+import { listUnmatchedEleveClasses } from "@/app/lib/nomenclature-classes";
 
 const SIECLE_ELEVE_MAP_KEY = "siecle/eleve-id-map.json";
 
@@ -174,6 +175,23 @@ export async function buildNomenclatureImportAnomalies(
       label: "Import géographique absent",
       detail: "Geographique.xml non importé — pays, départements et communes manquants.",
     });
+  }
+
+  try {
+    const eleves = await loadElevesRegistry();
+    const eleveClasses = eleves.map((e) => String(e.classe || "").trim()).filter(Boolean);
+    const unmatched = await listUnmatchedEleveClasses(etablissementId, eleveClasses);
+    if (unmatched.length > 0) {
+      anomalies.push({
+        id: "eleves-classes-hors-siecle",
+        severity: "warn",
+        label: "Classes élèves hors référentiel Siècle",
+        detail: `Ces classes ne correspondent à aucune division Structures.xml : ${unmatched.slice(0, 8).join(", ")}${unmatched.length > 8 ? "…" : ""}. Réimportez Structures.xml ou corrigez les classes élèves.`,
+        count: unmatched.length,
+      });
+    }
+  } catch {
+    // best-effort
   }
 
   return anomalies;

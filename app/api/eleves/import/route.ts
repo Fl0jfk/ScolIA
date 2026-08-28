@@ -8,6 +8,8 @@ import {
   parseElevesJsonText,
   type ElevesImportSource,
 } from "@/app/lib/eleves-import";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { normalizeElevesToSiecleClasses } from "@/app/lib/nomenclature-import/normalize-eleves-classes";
 
 function parseSource(raw: string | null): ElevesImportSource {
   if (raw === "pronote" || raw === "ecoledirecte" || raw === "auto") return raw;
@@ -77,6 +79,16 @@ export async function POST(req: Request) {
       mergeStats = merged.stats;
     }
 
+    const etabId = await resolveCurrentEtablissementId();
+    let classesNormalized = 0;
+    let classesUnresolved: string[] = [];
+    if (etabId) {
+      const norm = await normalizeElevesToSiecleClasses(etabId, finalEleves);
+      finalEleves = norm.eleves;
+      classesNormalized = norm.normalized;
+      classesUnresolved = norm.unresolved;
+    }
+
     await saveElevesRegistry(finalEleves);
 
     const removed = mode === "replace" ? Math.max(0, existing.length - result.eleves.length) : undefined;
@@ -94,6 +106,8 @@ export async function POST(req: Request) {
       mode,
       merge: mergeStats,
       removed,
+      classesNormalized,
+      classesUnresolved,
       message,
     });
   } catch (error: unknown) {

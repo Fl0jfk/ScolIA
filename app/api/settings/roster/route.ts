@@ -9,7 +9,7 @@ import {
   type SchoolRosterConfig,
 } from "@/app/lib/school-roster";
 import { listStageReferentClassNames } from "@/app/lib/stage-referents-config";
-import { mergeClassesWithSiecle } from "@/app/lib/nomenclature-classes";
+import { loadOfficialSchoolClasses, listUnmatchedEleveClasses } from "@/app/lib/nomenclature-classes";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 
 export async function GET() {
@@ -29,6 +29,9 @@ export async function GET() {
   for (const e of eleves) {
     regimeCounts[classifyRegime(e.regime)] += 1;
   }
+  const etabId = await resolveCurrentEtablissementId();
+  const official = etabId ? await loadOfficialSchoolClasses(etabId) : null;
+
   const classesFromEleves = [
     ...new Set(
       eleves
@@ -37,21 +40,21 @@ export async function GET() {
     ),
   ].sort((a, b) => a.localeCompare(b, "fr"));
 
-  const etabId = await resolveCurrentEtablissementId();
-  const classes = etabId
-    ? await mergeClassesWithSiecle(
-        etabId,
-        classesFromStages,
-        classesFromEleves,
-        roster.classAssignments.map((a) => a.className),
-      )
-    : [
-        ...new Set([
-          ...classesFromStages,
-          ...classesFromEleves,
-          ...roster.classAssignments.map((a) => a.className),
-        ]),
-      ].sort((a, b) => a.localeCompare(b, "fr"));
+  const classes =
+    official?.source === "siecle"
+      ? official.classes
+      : [
+          ...new Set([
+            ...classesFromStages,
+            ...classesFromEleves,
+            ...roster.classAssignments.map((a) => a.className),
+          ]),
+        ].sort((a, b) => a.localeCompare(b, "fr"));
+
+  const unmatchedEleveClasses =
+    etabId && official?.source === "siecle"
+      ? await listUnmatchedEleveClasses(etabId, classesFromEleves)
+      : [];
 
   return NextResponse.json({
     roster,
@@ -61,6 +64,13 @@ export async function GET() {
     regimeCounts,
     users,
     classes,
+    classesSource: official?.source ?? "fallback",
+    classesReadOnly: official?.source === "siecle",
+    siecleDivisions: official?.divisions.map((d) => ({
+      code: d.code,
+      libelle: d.libelleLong || d.libelleCourt || d.code,
+    })),
+    unmatchedEleveClasses,
   });
 }
 

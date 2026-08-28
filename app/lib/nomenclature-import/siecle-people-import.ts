@@ -11,6 +11,7 @@ import {
 } from "@/db/schema";
 import { mergeElevesLists } from "@/app/lib/eleves-import";
 import { loadElevesRegistry, saveElevesRegistry } from "@/app/lib/eleves-registry";
+import { normalizeElevesToSiecleClasses } from "@/app/lib/nomenclature-import/normalize-eleves-classes";
 import {
   buildSiecleEleveIdToIneMap,
   parseSiecleElevesXmlServer,
@@ -70,7 +71,8 @@ export async function importSiecleElevesXml(
 
   const existing = await loadElevesRegistry();
   const merged = mergeElevesLists(existing, parsed.eleves);
-  await saveElevesRegistry(merged.eleves);
+  const normalized = await normalizeElevesToSiecleClasses(etablissementId, merged.eleves);
+  await saveElevesRegistry(normalized.eleves);
 
   if (Object.keys(parsed.siecleEleveIdMap).length) {
     await saveSiecleEleveIdMap(parsed.siecleEleveIdMap);
@@ -90,6 +92,8 @@ export async function importSiecleElevesXml(
       siecleIds: Object.keys(parsed.siecleEleveIdMap).length,
       sansIne,
       sansClasse,
+      classesNormalized: normalized.normalized,
+      classesUnresolved: normalized.unresolved,
     },
   });
 

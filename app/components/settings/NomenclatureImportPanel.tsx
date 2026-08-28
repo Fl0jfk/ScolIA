@@ -51,6 +51,7 @@ type ImportStatusRow = {
   statut: string | null;
   rows: number | null;
 };
+type DivisionRow = { code: string; libelle: string };
 
 export default function NomenclatureImportPanel() {
   const multiInputRef = useRef<HTMLInputElement>(null);
@@ -69,13 +70,17 @@ export default function NomenclatureImportPanel() {
   const [omogenBusy, setOmogenBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [officialDivisions, setOfficialDivisions] = useState<DivisionRow[]>([]);
+  const [classesReadOnly, setClassesReadOnly] = useState(false);
+  const [unmatchedEleveClasses, setUnmatchedEleveClasses] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const [importRes, exportRes, omogenRes] = await Promise.all([
+      const [importRes, exportRes, omogenRes, classesRes] = await Promise.all([
         fetch("/api/nomenclature/import", { cache: "no-store" }),
         fetch("/api/nomenclature/export-siecle", { cache: "no-store" }),
         fetch("/api/nomenclature/omogen-sync", { cache: "no-store" }),
+        fetch("/api/nomenclature/classes", { cache: "no-store" }),
       ]);
       const data = await importRes.json();
       const exportData = await exportRes.json();
@@ -89,6 +94,12 @@ export default function NomenclatureImportPanel() {
       setImportStatus(data.importStatus || []);
       if (exportRes.ok) setExports(exportData.exports || []);
       setOmogenConfigured(Boolean(omogenData?.configured));
+      if (classesRes.ok) {
+        const classesData = await classesRes.json();
+        setOfficialDivisions(classesData.divisions || []);
+        setClassesReadOnly(Boolean(classesData.readOnly));
+        setUnmatchedEleveClasses(classesData.unmatchedEleveClasses || []);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     }
@@ -303,6 +314,40 @@ export default function NomenclatureImportPanel() {
           })}
         </div>
       </section>
+
+      {officialDivisions.length > 0 ? (
+        <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4">
+          <h3 className="font-bold mb-1 text-indigo-950">Classes officielles (Structures Siècle)</h3>
+          <p className="text-xs text-indigo-900/80 mb-3">
+            Source unique des classes dans ScolIA — {officialDivisions.length} division(s). Format
+            rectorat (ex. <code className="bg-white/80 px-1 rounded">1 A</code>, pas{" "}
+            <code className="bg-white/80 px-1 rounded">1A</code>). Les imports élèves Excel/Pronote
+            rapprochent automatiquement les variantes collées.
+          </p>
+          {classesReadOnly ? (
+            <p className="text-[11px] font-bold text-emerald-800 mb-2">
+              Création manuelle de classes désactivée — référentiel verrouillé sur Siècle.
+            </p>
+          ) : null}
+          {unmatchedEleveClasses.length > 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 mb-3">
+              <span className="font-bold">Classes élèves non reconnues : </span>
+              {unmatchedEleveClasses.join(", ")}
+            </div>
+          ) : null}
+          <ul className="grid gap-1 sm:grid-cols-2 max-h-56 overflow-y-auto text-xs">
+            {officialDivisions.map((d) => (
+              <li
+                key={d.code}
+                className="flex justify-between gap-2 rounded-lg bg-white border border-indigo-100 px-2 py-1.5"
+              >
+                <span className="font-mono font-bold text-indigo-900">{d.code}</span>
+                <span className="text-slate-600 truncate text-right">{d.libelle}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <div className="flex flex-wrap gap-3 items-center">
         <input

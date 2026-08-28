@@ -16,6 +16,8 @@ import { importSiecleEtablissementsXml } from "@/app/lib/nomenclature-import/sie
 import { importSiecleCommunsXml } from "@/app/lib/nomenclature-import/siecle-communs-import";
 import { syncProgrammesToCompetences } from "@/app/lib/nomenclature-import/sync-programmes-competences";
 import { syncMatieresFromNomenclature } from "@/app/lib/nomenclature-import/sync-matieres-from-nomenclature";
+import { normalizeElevesToSiecleClasses } from "@/app/lib/nomenclature-import/normalize-eleves-classes";
+import { loadElevesRegistry, saveElevesRegistry } from "@/app/lib/eleves-registry";
 import { isEntCoreDbEnabled } from "@/app/lib/ent-core-db";
 import {
   parseNomenclatureXml,
@@ -290,6 +292,25 @@ export async function importSiecleXmlBuffer(
   const { inserts, updates } = await upsertNomenclatureRows(etablissementId, rows);
   const db = getDb();
 
+  let elevesClassesNormalized: { normalized: number; unresolved: string[] } | null = null;
+  if (kind === "structures") {
+    try {
+      const registry = await loadElevesRegistry();
+      if (registry.length) {
+        const norm = await normalizeElevesToSiecleClasses(etablissementId, registry);
+        if (norm.normalized > 0 || norm.unresolved.length) {
+          await saveElevesRegistry(norm.eleves);
+        }
+        elevesClassesNormalized = {
+          normalized: norm.normalized,
+          unresolved: norm.unresolved,
+        };
+      }
+    } catch {
+      elevesClassesNormalized = null;
+    }
+  }
+
   let competencesSynced: { domaines: number; items: number } | null = null;
   let matieresSynced: { inserts: number; updates: number } | null = null;
   if (kind === "nomenclature" && isEntCoreDbEnabled()) {
@@ -316,6 +337,7 @@ export async function importSiecleXmlBuffer(
       rows: rows.length,
       ...(competencesSynced ? { competencesSynced } : {}),
       ...(matieresSynced ? { matieresSynced } : {}),
+      ...(elevesClassesNormalized ? { elevesClassesNormalized } : {}),
     },
   });
 
@@ -327,12 +349,16 @@ export async function importSiecleXmlBuffer(
     matieresSynced && matieresSynced.inserts + matieresSynced.updates > 0
       ? ` · ${matieresSynced.inserts + matieresSynced.updates} matière(s) → notes`
       : "";
+  const classNote =
+    elevesClassesNormalized && elevesClassesNormalized.normalized > 0
+      ? ` · ${elevesClassesNormalized.normalized} classe(s) élève normalisée(s)`
+      : "";
 
   return {
     kind,
     inserts,
     updates,
     rows: rows.length,
-    message: `${filename} (${kind}) : ${rows.length} entrées — ${inserts} créées, ${updates} mises à jour.${compNote}${matNote}`,
+    message: `${filename} (${kind}) : ${rows.length} entrées — ${inserts} créées, ${updates} mises à jour.${compNote}${matNote}${classNote}`,
   };
 }

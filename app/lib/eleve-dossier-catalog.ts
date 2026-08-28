@@ -9,6 +9,8 @@ import {
   foldSchoolClass,
   resolveClassesByPoleCatalog,
 } from "@/app/lib/school-classes-catalog";
+import { loadOfficialSchoolClasses } from "@/app/lib/nomenclature-classes";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 
 export type DossierSiteRef = {
   siteId: string;
@@ -206,12 +208,20 @@ export async function buildEleveDossierClassCatalog(
   }
 
   const config = await loadAppConfig();
-  let merged = mergeClassesByPole(
-    config.profRoom?.classesByPole || {},
-    config.domainPlanning?.classesByPole || {},
-  );
-  if (Object.keys(merged).length === 0) {
-    merged = { ...DEFAULT_CLASSES_BY_POLE };
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  const official = etabId ? await loadOfficialSchoolClasses(etabId) : null;
+
+  let merged: Record<string, string[]>;
+  if (official?.source === "siecle" && Object.keys(official.classesByPole).length > 0) {
+    merged = official.classesByPole;
+  } else {
+    merged = mergeClassesByPole(
+      config.profRoom?.classesByPole || {},
+      config.domainPlanning?.classesByPole || {},
+    );
+    if (Object.keys(merged).length === 0) {
+      merged = { ...DEFAULT_CLASSES_BY_POLE };
+    }
   }
 
   // Site école présent mais aucun pôle école dans la config → injecter le catalogue école.
