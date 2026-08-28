@@ -4,9 +4,9 @@ import { NextResponse } from "next/server";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { canReviewPreconvention } from "@/app/lib/stage-access";
-import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
 import {
   getStageReferentsConfig,
+  listStageReferentClassNames,
   saveStageReferentsConfig,
   type StageClassReferentAssignment,
   type StageReferentsConfig,
