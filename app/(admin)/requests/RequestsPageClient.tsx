@@ -20,7 +20,7 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
-import type { RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
+import type { RequestsOrgConfig, RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
@@ -214,6 +214,7 @@ export default function RequestsPage() {
   const isOrgAdmin = useIsOrgAdmin();
   const [mainTab, setMainTab] = useState<RequestsMainTab>("board");
   const [requestsRouting, setRequestsRouting] = useState<RequestsRoutingConfig | null>(null);
+  const [requestsOrg, setRequestsOrg] = useState<RequestsOrgConfig | null>(null);
   const [routingMsg, setRoutingMsg] = useState<string | null>(null);
   const [routingBusy, setRoutingBusy] = useState(false);
   const [directoryMembers, setDirectoryMembers] = useState<
@@ -600,11 +601,16 @@ export default function RequestsPage() {
   };
 
   const loadRoutingSettings = useCallback(async () => {
-    if (!requestsRouting) {
+    if (!requestsRouting || !requestsOrg) {
       try {
-        const res = await fetch("/api/settings/requests-routing");
-        const j = await res.json();
-        if (res.ok) setRequestsRouting(j.config as RequestsRoutingConfig);
+        const [routingRes, orgRes] = await Promise.all([
+          fetch("/api/settings/requests-routing"),
+          fetch("/api/settings/requests-org"),
+        ]);
+        const routingJson = await routingRes.json();
+        const orgJson = await orgRes.json();
+        if (routingRes.ok) setRequestsRouting(routingJson.config as RequestsRoutingConfig);
+        if (orgRes.ok) setRequestsOrg(orgJson.config as RequestsOrgConfig);
       } catch {
         /* ignore */
       }
@@ -637,22 +643,32 @@ export default function RequestsPage() {
         setMembersLoading(false);
       }
     }
-  }, [requestsRouting, directoryMembers.length]);
+  }, [requestsRouting, requestsOrg, directoryMembers.length]);
 
   const saveRouting = async () => {
-    if (!requestsRouting) return;
+    if (!requestsRouting || !requestsOrg) return;
     setRoutingBusy(true);
     setRoutingMsg(null);
     try {
-      const res = await fetch("/api/settings/requests-routing", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestsRouting),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Échec");
-      setRequestsRouting(j.config as RequestsRoutingConfig);
-      setRoutingMsg("Routage enregistré.");
+      const [routingRes, orgRes] = await Promise.all([
+        fetch("/api/settings/requests-routing", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestsRouting),
+        }),
+        fetch("/api/settings/requests-org", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestsOrg),
+        }),
+      ]);
+      const routingJson = await routingRes.json();
+      const orgJson = await orgRes.json();
+      if (!routingRes.ok) throw new Error(routingJson.error || "Échec routage");
+      if (!orgRes.ok) throw new Error(orgJson.error || "Échec organisation");
+      setRequestsRouting(routingJson.config as RequestsRoutingConfig);
+      setRequestsOrg(orgJson.config as RequestsOrgConfig);
+      setRoutingMsg("Réglages enregistrés (routage + organisation services).");
     } catch (e) {
       setRoutingMsg(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -762,7 +778,9 @@ export default function RequestsPage() {
       ) : mainTab === "routing" && isOrgAdmin ? (
         <RequestsRoutingPanel
           requestsRouting={requestsRouting}
-          onChange={setRequestsRouting}
+          onChangeRouting={setRequestsRouting}
+          requestsOrg={requestsOrg}
+          onChangeOrg={setRequestsOrg}
           members={directoryMembers}
           membersLoading={membersLoading}
           routingMsg={routingMsg}

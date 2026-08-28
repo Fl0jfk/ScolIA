@@ -5,8 +5,9 @@ import {
   type RoutingAssignment,
   type RoutingTask,
 } from "@/app/lib/app-config-schemas";
-import { saveStaffDirectory, loadAppConfig } from "@/app/lib/app-config";
+import { loadAppConfig } from "@/app/lib/app-config";
 import { defaultRequestsRouting, RH_REQUEST_ROUTE_ID, isManualOnlyDirectionRoute } from "@/app/lib/requests-routing-defaults";
+import { syncStaffDirectoryFromRequestsConfig } from "@/app/lib/requests-org-config";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import type { ResolvedRequestRouting } from "@/app/lib/requests";
 import {
@@ -62,29 +63,10 @@ export async function getRequestsRoutingConfig(): Promise<RequestsRoutingConfig>
   return config;
 }
 
-function routingToStaffDirectoryRows(config: RequestsRoutingConfig) {
-  const rows: { email: string; branchId: string; role: "leader" | "executor" }[] = [];
-  const seen = new Set<string>();
-  for (const a of getActiveAssignments(config)) {
-    const key = `${a.email.toLowerCase()}::${a.taskId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    rows.push({ email: a.email, branchId: a.taskId, role: "leader" });
-  }
-  for (const d of config.directionQueues.filter((q) => q.active)) {
-    rows.push({ email: d.email, branchId: d.id, role: "leader" });
-  }
-  const corbeille = getActiveAssignments(config).find((a) => a.taskId === "corbeille");
-  if (corbeille) {
-    rows.unshift({ email: corbeille.email, branchId: "corbeille", role: "leader" });
-  }
-  return rows as import("@/app/lib/app-config-schemas").StaffDirectoryRow[];
-}
-
 export async function saveRequestsRoutingConfig(config: RequestsRoutingConfig): Promise<void> {
   const parsed = parseRequestsRouting(config);
   await putJson(ROUTING_KEY, { version: 1, updatedAt: new Date().toISOString(), data: parsed });
-  await saveStaffDirectory(routingToStaffDirectoryRows(parsed));
+  await syncStaffDirectoryFromRequestsConfig(parsed);
   invalidateRequestsRoutingCache();
 }
 

@@ -15,6 +15,8 @@ function invalidateRequestRoutesCache() {
   routesCache = null;
 }
 
+export { invalidateRequestRoutesCache };
+
 export async function ensureRequestRoutes(): Promise<{
   map: Map<string, RequestRouteDef>;
   routes: RequestRouteDef[];

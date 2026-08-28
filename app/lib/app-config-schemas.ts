@@ -280,6 +280,27 @@ export type RequestsRoutingConfig = {
   personnelTags?: RoutingPersonnelTags[];
 };
 
+/** Unité opérationnelle configurable (managers, membres, délégation). */
+export type RequestServiceUnit = {
+  id: string;
+  label: string;
+  parentUnitId: string | null;
+  managerEmails: string[];
+  memberEmails: string[];
+  /** Files / tâches de ticketing rattachées à ce service. */
+  taskIds: string[];
+  /** Le manager peut confier à l'équipe et aux sous-services. */
+  canDelegateToChildUnits: boolean;
+  active: boolean;
+};
+
+export type RequestsOrgConfig = {
+  version: 1;
+  /** Unités dont les managers voient et peuvent confier à tout le monde. */
+  globalOversightUnitIds: string[];
+  units: RequestServiceUnit[];
+};
+
 export type AppConfigBundle = {
   identity: SiteIdentity;
   establishments: Establishment[];
@@ -910,6 +931,61 @@ export function parseRequestsRouting(raw: unknown): RequestsRoutingConfig {
     tagCatalog,
     personnelTags,
   };
+}
+
+export function parseRequestsOrg(raw: unknown): RequestsOrgConfig {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const unitsRaw = Array.isArray(o.units) ? o.units : [];
+  const globalOversightUnitIds = [
+    ...new Set(strArr(o.globalOversightUnitIds).map((id) => id.trim()).filter(Boolean)),
+  ];
+
+  const units: RequestServiceUnit[] = unitsRaw.map((row) => {
+    const x = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
+    const id = str(x.id).trim();
+    if (!id) throw new Error("Service : identifiant requis.");
+    const parentRaw = str(x.parentUnitId).trim();
+    const managerEmails = [
+      ...new Set(
+        strArr(x.managerEmails)
+          .map((e) => e.trim().toLowerCase())
+          .filter((e) => e && isEmail(e)),
+      ),
+    ];
+    const memberEmails = [
+      ...new Set(
+        strArr(x.memberEmails)
+          .map((e) => e.trim().toLowerCase())
+          .filter((e) => e && isEmail(e)),
+      ),
+    ];
+    const taskIds = [...new Set(strArr(x.taskIds).map((t) => t.trim()).filter(Boolean))];
+    return {
+      id,
+      label: str(x.label).trim() || id,
+      parentUnitId: parentRaw || null,
+      managerEmails,
+      memberEmails,
+      taskIds,
+      canDelegateToChildUnits: x.canDelegateToChildUnits !== false,
+      active: x.active !== false,
+    };
+  });
+
+  const ids = new Set(units.map((u) => u.id));
+  for (const u of units) {
+    if (u.parentUnitId && !ids.has(u.parentUnitId)) {
+      throw new Error(`Service « ${u.label} » : parent introuvable (${u.parentUnitId}).`);
+    }
+  }
+
+  for (const gid of globalOversightUnitIds) {
+    if (!ids.has(gid)) {
+      throw new Error(`Unité de supervision globale introuvable : ${gid}.`);
+    }
+  }
+
+  return { version: 1, globalOversightUnitIds, units };
 }
 
 export function parseClassAllocationSettings(raw: unknown): NonNullable<AppConfigBundle["classAllocation"]> {

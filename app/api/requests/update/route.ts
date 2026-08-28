@@ -2,10 +2,9 @@ import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { REQUEST_STATUSES, RequestAttachment, RequestComment, RequestRecord, RequestStatus, assertEligibleRequestAttachment, finalizeRequestPurgeMetadata, getDefaultRequestBranchForStaffEmail, getRequestPoolEmails, getRequestsIndex, isLeaderForRequestBranch, isUserInRequestPool, notifyRequesterOnly, notifyRequestStatusMilestone, resolveRequestRouteById, saveRequestFile, saveRequestsIndex, uploadBuffersAsRequestAttachments, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD, isManualOnlyDirectionRoute} from "@/app/lib/requests";
+import { REQUEST_STATUSES, RequestAttachment, RequestComment, RequestRecord, RequestStatus, assertEligibleRequestAttachment, finalizeRequestPurgeMetadata, getDefaultRequestBranchForStaffEmail, getDelegateTargetEmailsForRequest, getRequestPoolEmails, getRequestsIndex, isLeaderForRequestBranch, isUserInRequestPool, notifyRequesterOnly, notifyRequestStatusMilestone, resolveRequestRouteById, saveRequestFile, saveRequestsIndex, uploadBuffersAsRequestAttachments, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD, isManualOnlyDirectionRoute} from "@/app/lib/requests";
 import { isCorbeilleBranchId, normalizeRequestBranchId, normalizeRequestEmail} from "@/app/lib/requests-board";
 import { canAccessRequestsStaffBoard } from "@/app/lib/requests-staff-access";
-import { isStaffInBranchPool } from "@/app/lib/staff-directory";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
 const LEGACY_ASSIGN_UNIT_TO_ROUTE: Record<string, string> = { comptabilite: "comptabilite", maintenance: "maintenance", "direction-college": "admin_college", "direction-lycee": "admin_lycee", "vie-scolaire": "vie_scolaire_infirmerie", informatique: "maintenance"};
@@ -63,9 +62,13 @@ export async function PATCH(req: Request) {
       if (!(await isLeaderForRequestBranch(current.assignedTo.routeId, current.assignedTo.unit, actorEmail))) { return NextResponse.json({ error: "Seul le responsable du service peut déléguer." }, { status: 403 })}
       const branch = normalizeRequestBranchId(current.assignedTo.routeId, current.assignedTo.unit);
       if (isCorbeilleBranchId(branch)) { return NextResponse.json({ error: "Délégation impossible pour une fiche en corbeille." }, { status: 400 })}
-      if (!(await isStaffInBranchPool(branch, targetEmail))) { return NextResponse.json({ error: "Ce collaborateur n’est pas dans le service (table équipe)." }, { status: 403 })}
-      const pool = (await getRequestPoolEmails(current)).map(normalizeRequestEmail);
-      if (!pool.includes(targetEmail)) { return NextResponse.json({ error: "Ce collaborateur ne figure pas sur la file de cette fiche." }, { status: 403 })}
+      const delegateTargets = await getDelegateTargetEmailsForRequest(current, actorEmail);
+      if (!delegateTargets.includes(targetEmail)) {
+        return NextResponse.json(
+          { error: "Ce collaborateur n’est pas éligible à la délégation pour ce service." },
+          { status: 403 },
+        );
+      }
       if (normalizeRequestEmail(actorEmail) === targetEmail) { return NextResponse.json({ error: "Choisissez un autre collaborateur que vous-même." }, { status: 400 })}
       const delegated: RequestRecord = {
         ...current,

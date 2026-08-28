@@ -489,7 +489,22 @@ export async function getDelegateTargetEmailsForRequest(
   leaderEmail: string,
 ): Promise<string[]> {
   const u = normalizeRequestEmail(leaderEmail);
-  return (await getRequestPoolEmails(record)).map(normalizeRequestEmail).filter((e) => e && e !== u).sort();
+  const pool = (await getRequestPoolEmails(record)).map(normalizeRequestEmail).filter(Boolean);
+  const branch = normalizeRequestBranchId(record.assignedTo.routeId, record.assignedTo.unit);
+
+  try {
+    const { getRequestsOrgConfig, collectDelegateEmailsFromOrg } = await import(
+      "@/app/lib/requests-org-config"
+    );
+    const org = await getRequestsOrgConfig();
+    if (org.units.some((unit) => unit.active)) {
+      return collectDelegateEmailsFromOrg(org, branch, u, pool);
+    }
+  } catch {
+    /* repli pool classique */
+  }
+
+  return pool.filter((e) => e && e !== u).sort();
 }
 
 export async function isUserInRequestPool(record: RequestRecord, userEmail: string) {
