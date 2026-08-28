@@ -151,18 +151,29 @@ export async function buildNomenclatureImportAnomalies(
       .map((l) => String(asRapport(l.rapportJson)?.kind || ""))
       .filter(Boolean),
   );
-  for (const required of ["communs", "nomenclature"] as const) {
+  for (const required of ["communs", "nomenclature", "structures"] as const) {
     if (!kinds.has(required)) {
       anomalies.push({
         id: `missing-${required}`,
-        severity: "info",
+        severity: required === "structures" ? "warn" : "info",
         label: `Import ${required} absent`,
         detail:
           required === "communs"
             ? "Communs.xml non importé — UAJ et année scolaire non synchronisés."
-            : "Nomenclature.xml non importé — MEF, matières et régimes manquants.",
+            : required === "nomenclature"
+              ? "Nomenclature.xml non importé — MEF, matières et régimes manquants."
+              : "Structures.xml non importé — divisions/classes Siècle absentes du référentiel.",
       });
     }
+  }
+
+  if (!kinds.has("geographique")) {
+    anomalies.push({
+      id: "missing-geographique",
+      severity: "info",
+      label: "Import géographique absent",
+      detail: "Geographique.xml non importé — pays, départements et communes manquants.",
+    });
   }
 
   return anomalies;

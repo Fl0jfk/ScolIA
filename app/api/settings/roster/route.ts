@@ -9,6 +9,8 @@ import {
   type SchoolRosterConfig,
 } from "@/app/lib/school-roster";
 import { listStageReferentClassNames } from "@/app/lib/stage-referents-config";
+import { mergeClassesWithSiecle } from "@/app/lib/nomenclature-classes";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 
 export async function GET() {
   const gate = await requireModule("admin-settings");
@@ -34,9 +36,22 @@ export async function GET() {
         .filter(Boolean),
     ),
   ].sort((a, b) => a.localeCompare(b, "fr"));
-  const classes = [
-    ...new Set([...classesFromStages, ...classesFromEleves, ...roster.classAssignments.map((a) => a.className)]),
-  ].sort((a, b) => a.localeCompare(b, "fr"));
+
+  const etabId = await resolveCurrentEtablissementId();
+  const classes = etabId
+    ? await mergeClassesWithSiecle(
+        etabId,
+        classesFromStages,
+        classesFromEleves,
+        roster.classAssignments.map((a) => a.className),
+      )
+    : [
+        ...new Set([
+          ...classesFromStages,
+          ...classesFromEleves,
+          ...roster.classAssignments.map((a) => a.className),
+        ]),
+      ].sort((a, b) => a.localeCompare(b, "fr"));
 
   return NextResponse.json({
     roster,
