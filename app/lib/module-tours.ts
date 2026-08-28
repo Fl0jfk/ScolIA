@@ -698,6 +698,23 @@ export function getModuleTour(moduleId: string): ModuleTourDefinition | undefine
   return MODULE_TOURS.find((t) => t.moduleId === moduleId);
 }
 
+/** Onglet stages à activer pour une cible data-tour du tutoriel. */
+export function resolveStagesTourTab(
+  target?: string,
+): "board" | "classe" | "conventions" | null {
+  switch (target) {
+    case "stages-board":
+      return "board";
+    case "stages-classe":
+      return "classe";
+    case "stages-conventions":
+    case "stages-deposer-link":
+      return "conventions";
+    default:
+      return null;
+  }
+}
+
 export function tourVisibleForRoles(tour: ModuleTourDefinition, roles: string[]): boolean {
   if (!tour.audienceRoles?.length) return true;
   if (roles.includes("admin") || roles.includes("master")) return true;

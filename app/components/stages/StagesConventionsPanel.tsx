@@ -36,7 +36,7 @@ export default function StagesConventionsPanel({
   }, [conventions]);
 
   return (
-    <div data-tour="stages-conventions" className="grid gap-8 lg:grid-cols-2">
+    <div className="grid gap-8 lg:grid-cols-2">
       <div
         className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-6 shadow-sm space-y-3 text-sm"
         data-tour="stages-deposer-link"
@@ -56,7 +56,7 @@ export default function StagesConventionsPanel({
         </a>
       </div>
 
-      <div className="space-y-6 lg:col-span-2">
+      <div data-tour="stages-conventions" className="space-y-6 lg:col-span-2">
         <h2 className="text-lg font-bold text-[#1F3D2B]">Dossiers élèves</h2>
         {dossiers.map(([key, list]) => {
           const first = list[0]!;

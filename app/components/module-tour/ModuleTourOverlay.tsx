@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import type { ModuleTourDefinition } from "@/app/lib/module-tours";
+import { resolveStagesTourTab, type ModuleTourDefinition } from "@/app/lib/module-tours";
 import {
   dispatchModuleTourAction,
   dispatchModuleTourStep,
@@ -50,6 +50,12 @@ function prepareTargetElement(target?: string) {
   }
   if (target === "absences-calendar") {
     const tab = document.querySelector('[data-absences-tab="calendrier"]');
+    if (tab instanceof HTMLButtonElement) tab.click();
+  }
+
+  const stagesTab = resolveStagesTourTab(target);
+  if (stagesTab) {
+    const tab = document.querySelector(`[data-stages-tab="${stagesTab}"]`);
     if (tab instanceof HTMLButtonElement) tab.click();
   }
 
