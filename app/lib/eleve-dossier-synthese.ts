@@ -43,6 +43,10 @@ export type EleveSyntheseSnapshot = {
   siteLabel: string | null;
   initials: string;
   photoUrl: string | null;
+  mef: string | null;
+  ine: string | null;
+  groupesAcademiques: Array<{ code: string; libelle: string; type: string }>;
+  groupesInternes: Array<{ code: string; libelle: string; type: string }>;
   restauration: EleveMealWeek;
   internat: {
     actif: boolean;
@@ -73,9 +77,9 @@ const WEEK_DAYS = MEAL_DAY_ORDER;
 export function eleveStatusLabel(status: string | null | undefined): string {
   switch (String(status || "").trim().toLowerCase()) {
     case "inscrit":
-      return "En cours";
+      return "Scolarisé";
     case "preinscrit":
-      return "Préinscrit";
+      return "Préinscription";
     case "ancien":
       return "Ancien";
     case "archive":
@@ -83,6 +87,37 @@ export function eleveStatusLabel(status: string | null | undefined): string {
     default:
       return status?.trim() || "—";
   }
+}
+
+export function scolariteStatutLabel(statut: string | null | undefined): string {
+  switch (String(statut || "").trim().toLowerCase()) {
+    case "en_cours":
+      return "Année en cours";
+    case "prevue":
+      return "Prévue";
+    case "terminee":
+      return "Terminée";
+    case "annulee":
+      return "Annulée";
+    default:
+      return statut?.trim() || "—";
+  }
+}
+
+function splitGroupesForSynthese(
+  groupes: Array<{ code: string; libelle: string; type: string }>,
+): {
+  groupesAcademiques: Array<{ code: string; libelle: string; type: string }>;
+  groupesInternes: Array<{ code: string; libelle: string; type: string }>;
+} {
+  const academicTypes = new Set(["option", "lv2"]);
+  const groupesAcademiques: Array<{ code: string; libelle: string; type: string }> = [];
+  const groupesInternes: Array<{ code: string; libelle: string; type: string }> = [];
+  for (const g of groupes) {
+    if (academicTypes.has(g.type)) groupesAcademiques.push(g);
+    else groupesInternes.push(g);
+  }
+  return { groupesAcademiques, groupesInternes };
 }
 
 export function eleveInitials(prenom: string, nom: string): string {
@@ -214,6 +249,7 @@ export async function buildEleveSyntheseSnapshot(params: {
     ine?: string | null;
     folderName?: string | null;
     siteId?: string | null;
+    mef?: string | null;
   };
   scolarite: {
     demiPension: boolean;
@@ -225,6 +261,7 @@ export async function buildEleveSyntheseSnapshot(params: {
   notesMoyennes?: Array<{ matiereLibelle: string; moyenne: string | null; nbNotes: number }>;
   absences?: EleveSyntheseSnapshot["absences"];
   finances?: EleveSyntheseSnapshot["finances"];
+  groupes?: Array<{ code: string; libelle: string; type: string }>;
 }): Promise<EleveSyntheseSnapshot> {
   let internatStudent: InternatStudent | null = null;
   let roomLabel: string | null = null;
@@ -294,12 +331,18 @@ export async function buildEleveSyntheseSnapshot(params: {
           .join(" · ")
       : "Moyennes et alertes pédagogiques dès le module Notes.";
 
+  const { groupesAcademiques, groupesInternes } = splitGroupesForSynthese(params.groupes ?? []);
+
   return {
     statusLabel: eleveStatusLabel(params.eleve.status),
     classeLabel,
     siteLabel,
     initials: eleveInitials(params.eleve.prenom, params.eleve.nom),
     photoUrl,
+    mef: params.eleve.mef?.trim() || null,
+    ine: params.eleve.ine?.trim() || null,
+    groupesAcademiques,
+    groupesInternes,
     restauration,
     internat: {
       actif: interne,

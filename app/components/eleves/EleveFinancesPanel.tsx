@@ -44,9 +44,10 @@ type FoyerFinance = {
 type Props = {
   eleveId: string;
   canEdit: boolean;
+  focusFoyerId?: string | null;
 };
 
-export default function EleveFinancesPanel({ eleveId, canEdit }: Props) {
+export default function EleveFinancesPanel({ eleveId, canEdit, focusFoyerId }: Props) {
   const [finances, setFinances] = useState<FoyerFinance[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,6 +79,12 @@ export default function EleveFinancesPanel({ eleveId, canEdit }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!focusFoyerId) return;
+    const el = document.getElementById(`foyer-finance-${focusFoyerId}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [focusFoyerId, finances]);
 
   const post = async (body: Record<string, unknown>) => {
     setBusy(true);
@@ -137,7 +144,15 @@ export default function EleveFinancesPanel({ eleveId, canEdit }: Props) {
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {finances.map((block) => (
-        <section key={block.foyer.id} className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+        <section
+          key={block.foyer.id}
+          id={`foyer-finance-${block.foyer.id}`}
+          className={`rounded-2xl border bg-white p-5 space-y-4 ${
+            focusFoyerId === block.foyer.id
+              ? "border-indigo-300 ring-2 ring-indigo-100"
+              : "border-slate-200"
+          }`}
+        >
           <div className="flex flex-wrap justify-between gap-2 items-start">
             <div>
               <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">Foyer</p>

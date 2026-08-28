@@ -104,6 +104,26 @@ async function latestSiteByEleveId(
   return out;
 }
 
+export async function listClassmatesForEleve(
+  etablissementId: string,
+  classe: string,
+  opts?: { excludeEleveId?: string; assignedClasses?: string[] },
+): Promise<Array<{ id: string; nom: string; prenom: string }>> {
+  const cls = classe.trim();
+  if (!cls) return [];
+  if (opts?.assignedClasses?.length && !studentInAssignedClasses(cls, opts.assignedClasses)) {
+    return [];
+  }
+  const rows = await listElevesDossierFromDb(etablissementId, {
+    classe: cls,
+    status: "inscrit",
+    assignedClasses: opts?.assignedClasses,
+  });
+  return rows
+    .filter((r) => r.id !== opts?.excludeEleveId)
+    .map((r) => ({ id: r.id, nom: r.nom, prenom: r.prenom }));
+}
+
 export async function listElevesDossierFromDb(
   etablissementId: string,
   filters: EleveDossierListFilters = {},

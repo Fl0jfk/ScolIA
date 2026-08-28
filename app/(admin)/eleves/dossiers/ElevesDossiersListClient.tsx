@@ -56,10 +56,9 @@ type AccessReq = {
 
 const STATUS_OPTIONS = [
   { value: "", label: "Tous statuts" },
-  { value: "inscrit", label: "En cours" },
-  { value: "preinscrit", label: "Préinscrit" },
+  { value: "inscrit", label: "Scolarisé" },
+  { value: "preinscrit", label: "Préinscription" },
   { value: "ancien", label: "Ancien" },
-  { value: "archive", label: "Archivé" },
 ];
 
 export default function ElevesDossiersListClient() {
@@ -267,8 +266,6 @@ export default function ElevesDossiersListClient() {
     setStatusFilter("inscrit");
   }
 
-  const classShortcuts = useMemo(() => classOptions.slice(0, 10), [classOptions]);
-
   async function decide(id: string, action: "accept" | "reject") {
     const res = await fetch("/api/eleves/preinscriptions", {
       method: "PATCH",
@@ -376,28 +373,6 @@ export default function ElevesDossiersListClient() {
               autoComplete="off"
               className="w-full rounded-2xl border border-slate-200 bg-white px-5 py-4 text-base text-slate-900 shadow-inner outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
-            {classShortcuts.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="text-xs font-semibold text-slate-500 self-center">Classes :</span>
-                {classShortcuts.map((c) => (
-                  <button
-                    key={c.value}
-                    type="button"
-                    onClick={() => {
-                      setClasseFilter(c.value);
-                      if (canViewFullHub) setStatusFilter("inscrit");
-                    }}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-bold border ${
-                      classeFilter === c.value
-                        ? "bg-indigo-600 text-white border-indigo-600"
-                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                    }`}
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {canViewFullHub ? (
                 <>
@@ -467,8 +442,8 @@ export default function ElevesDossiersListClient() {
             <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-12 text-center">
               <p className="text-base font-semibold text-slate-800">Affinez la recherche</p>
               <p className="mt-2 text-sm text-slate-500">
-                Tapez un nom, choisissez une classe ci-dessus, ou incluez les anciens élèves via le filtre
-                statut.
+                Tapez un nom, choisissez un établissement ou une classe, ou incluez les anciens élèves via le
+                filtre statut.
               </p>
             </div>
           ) : (

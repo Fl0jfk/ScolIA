@@ -28,6 +28,7 @@ import {
 import {
   isProfesseurScopedDossierViewer,
   listAssignedClassesForTeacher,
+  listClassmatesForEleve,
   sanitizeEleveRowForProfViewer,
   teacherCanAccessEleveClasse,
 } from "@/app/lib/eleve-dossier-prof";
@@ -149,10 +150,11 @@ export async function GET(_req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
   }
 
+  let assignedClassesForProf: string[] | undefined;
   if (profRestrictedView) {
-    const assignedClasses = await listAssignedClassesForTeacher(businessUserId);
+    assignedClassesForProf = await listAssignedClassesForTeacher(businessUserId);
     // Hors classe = invisible (même réponse qu’introuvable), pas un 403.
-    if (!teacherCanAccessEleveClasse(row.classe, assignedClasses)) {
+    if (!teacherCanAccessEleveClasse(row.classe, assignedClassesForProf)) {
       return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
     }
   }
@@ -195,6 +197,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     sanctionsRaw,
     carnetRaw,
     financesSynthese,
+    classmates,
   ] = await Promise.all([
     db
       .select()
@@ -283,9 +286,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     needNotes
       ? listCompetencesForEleve(etabId, id).catch(() => [])
       : Promise.resolve([]),
-    needScol
-      ? listGroupesForEleve(etabId, id).catch(() => [])
-      : Promise.resolve([]),
+    listGroupesForEleve(etabId, id).catch(() => []),
     needVs
       ? listAbsencesForEleve(etabId, id, { limit: 40 }).catch(() => [])
       : Promise.resolve([]),
@@ -307,6 +308,12 @@ export async function GET(_req: Request, ctx: Ctx) {
           }))
           .catch(() => undefined)
       : Promise.resolve(undefined),
+    row.classe
+      ? listClassmatesForEleve(etabId, row.classe, {
+          excludeEleveId: id,
+          assignedClasses: assignedClassesForProf,
+        })
+      : Promise.resolve([]),
   ]);
 
   // Foyers : 2 requêtes max au lieu de N+1
@@ -486,6 +493,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       classe: row.classe,
       status: row.status,
       ine: row.ine,
+      mef: row.mef,
       folderName: row.folderName,
       siteId: siteIdFromScolarite,
     },
@@ -501,6 +509,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     notesMoyennes,
     absences: absencesSynthese,
     finances: financesSynthese,
+    groupes: groupesEleve,
   });
 
   return NextResponse.json({
@@ -509,6 +518,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     scolarites,
     groupes: needScol ? groupesEleve : [],
     foyers: needFamille ? foyers : [],
+    classmates,
     notes: needNotes ? notesMoyennes : [],
     competences: needNotes ? competences : [],
     absences: needVs ? absencesEleve : [],
