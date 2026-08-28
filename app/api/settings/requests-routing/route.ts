@@ -25,8 +25,16 @@ export async function PUT(req: Request) {
   if (!gate.ok) return gate.response;
   try {
     const body = await req.json();
-    const parsed = parseRequestsRouting(body);
-    await saveRequestsRoutingConfig(parsed);
+    const rawConfig =
+      body && typeof body === "object" && "config" in body && body.config
+        ? body.config
+        : body;
+    const preserveTags =
+      body && typeof body === "object" && "preserveTags" in body
+        ? body.preserveTags !== false
+        : true;
+    const parsed = parseRequestsRouting(rawConfig);
+    const saved = await saveRequestsRoutingConfig(parsed, { preserveTags });
     const user = await safeCurrentUser();
     return NextResponse.json({
       success: true,
@@ -34,7 +42,7 @@ export async function PUT(req: Request) {
         updatedAt: new Date().toISOString(),
         updatedBy: user?.fullName || user?.id || "admin",
       },
-      config: parsed,
+      config: saved,
     });
   } catch (e) {
     console.error("[settings/requests-routing] PUT", e);

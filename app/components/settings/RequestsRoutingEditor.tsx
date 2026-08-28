@@ -17,9 +17,17 @@ type Props = {
   onChange: (next: RequestsRoutingConfig) => void;
   members: DirectoryMemberOption[];
   membersLoading: boolean;
+  /** files = tâches/mots-clés ; options = portail, direction, affectations legacy */
+  mode?: "full" | "files" | "options";
 };
 
-export default function RequestsRoutingEditor({ config, onChange, members, membersLoading }: Props) {
+export default function RequestsRoutingEditor({
+  config,
+  onChange,
+  members,
+  membersLoading,
+  mode = "full",
+}: Props) {
   const activeTaskIds = useMemo(
     () => new Set(config.tasks.filter((t) => t.active).map((t) => t.id)),
     [config.tasks],
@@ -94,6 +102,7 @@ export default function RequestsRoutingEditor({ config, onChange, members, membe
 
   return (
     <div className="space-y-8">
+      {(mode === "full" || mode === "options") && (
       <section className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50/40 p-6">
         <div>
           <h2 className="text-lg font-bold text-slate-900">Page publique parents</h2>
@@ -131,25 +140,21 @@ export default function RequestsRoutingEditor({ config, onChange, members, membe
           </div>
         ) : (
           <p className="text-xs text-slate-500">
-            Désactivé par défaut. Activez puis enregistrez le routage pour publier le lien.
+            Désactivé par défaut. Activez puis enregistrez pour publier le lien.
           </p>
         )}
-        <p className="text-xs text-slate-500 border-t border-amber-200/60 pt-3">
-          Tags métier du personnel (pour l&apos;IA) : onglet{" "}
-          <a href="/requests" className="font-bold text-indigo-700 underline">
-            Demandes → Tags équipe
-          </a>
-          .
-        </p>
       </section>
+      )}
 
+      {(mode === "full" || mode === "files") && (
       <section className="bg-white rounded-2xl border p-6 space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Catalogue de tâches</h2>
+            <h2 className="text-lg font-bold text-slate-900">Files de demandes</h2>
             <p className="text-sm text-slate-500 mt-1">
-              Chaque tâche décrit un type de demande. Une tâche inactive disparaît du routage IA mais reste
-              enregistrée. Vous pouvez créer plusieurs affectations pour la même tâche (personnes différentes).
+              Chaque file décrit un type de demande. L&apos;IA et le fallback local s&apos;appuient sur les
+              mots-clés pour identifier le <strong>service</strong> cible. Une file inactive disparaît du
+              routage automatique.
             </p>
           </div>
           <button
@@ -234,14 +239,16 @@ export default function RequestsRoutingEditor({ config, onChange, members, membe
           </div>
         ))}
       </section>
+      )}
 
+      {(mode === "full" || mode === "options") && (
       <section className="bg-white rounded-2xl border p-6 space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Affectations (tâche → personne)</h2>
+            <h2 className="text-lg font-bold text-slate-900">Affectations legacy (secours)</h2>
             <p className="text-sm text-slate-500 mt-1">
-              Mistral choisit une affectation dans ce catalogue. Désactivez une affectation pour la retirer du
-              select IA sans supprimer la tâche.
+              Utilisées comme filet de sécurité si aucun manager n&apos;est configuré dans un service.
+              Le routage principal passe par l&apos;organisation services (pile managers).
             </p>
           </div>
           <button
@@ -349,7 +356,9 @@ export default function RequestsRoutingEditor({ config, onChange, members, membe
           );
         })}
       </section>
+      )}
 
+      {(mode === "full" || mode === "options") && (
       <section className="bg-white rounded-2xl border p-6 space-y-4">
         <h2 className="text-lg font-bold text-slate-900">Files direction (transfert manuel uniquement)</h2>
         <p className="text-sm text-slate-500">
@@ -383,6 +392,7 @@ export default function RequestsRoutingEditor({ config, onChange, members, membe
           </div>
         ))}
       </section>
+      )}
     </div>
   );
 }

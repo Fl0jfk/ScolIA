@@ -6,6 +6,7 @@ import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomA
 import RequestsRoutingEditor from "@/app/components/settings/RequestsRoutingEditor";
 import type { RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
 
+/** @deprecated Utiliser RequestsSettingsPanel dans le module Demandes. */
 export default function SettingsRequestsRoutingPanel({
   requestsRouting,
   setRequestsRouting,

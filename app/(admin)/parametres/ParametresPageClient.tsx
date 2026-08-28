@@ -10,7 +10,6 @@ import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import ModuleTabNav, { type ModuleTabItem } from "@/app/components/module-chrome/ModuleTabNav";
-import type { RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
 import { useCanAccessAdminSettings } from "@/app/hooks/useCanAccessAdminSettings";
 import { useIsPlatformMaster } from "@/app/hooks/useIsPlatformMaster";
 import {
@@ -61,10 +60,6 @@ const NomenclatureImportPanel = dynamic(
 );
 const SettingsProfRoomPanel = dynamic(
   () => import("@/app/components/settings/SettingsProfRoomPanel"),
-  { ssr: false, loading: () => <ModuleTabFallback /> },
-);
-const SettingsRequestsRoutingPanel = dynamic(
-  () => import("@/app/components/settings/SettingsRequestsRoutingPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
 const SchoolRosterPanel = dynamic(
@@ -130,7 +125,6 @@ export default function ParametresPage() {
   const [profRoomAdminIds, setProfRoomAdminIds] = useState<string[]>([]);
   const [directoryMembers, setDirectoryMembers] = useState<DirectoryMemberOption[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
-  const [requestsRouting, setRequestsRouting] = useState<RequestsRoutingConfig | null>(null);
   const [travelsCfg, setTravelsCfg] = useState<SettingsTravelsConfig>({ transportProviders: [] });
   const [integrations, setIntegrations] = useState<Record<string, unknown>>({});
 
@@ -228,11 +222,6 @@ export default function ParametresPage() {
           setMefLycee(listToLines(c.lycee));
           setMefCollege(listToLines(c.college));
           setMefEcole(listToLines(c.ecole));
-        }
-        const rrRes = await fetch("/api/settings/requests-routing");
-        const rrJson = await rrRes.json();
-        if (rrRes.ok && rrJson.config) {
-          setRequestsRouting(rrJson.config as RequestsRoutingConfig);
         }
         const [trRes, intRes] = await Promise.all([
           fetch("/api/settings/travels"),
@@ -472,26 +461,6 @@ export default function ParametresPage() {
     }
   };
 
-  const saveRequestsRouting = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/settings/requests-routing", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestsRouting),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Échec enregistrement");
-      setRequestsRouting(j.config as RequestsRoutingConfig);
-      alert("Routage des demandes enregistré.");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   if (loading) {
     return (
       <RequireAdminSettings>
@@ -656,14 +625,20 @@ export default function ParametresPage() {
         )}
 
         {tab === "requests-routing" && (
-          <SettingsRequestsRoutingPanel
-            requestsRouting={requestsRouting}
-            setRequestsRouting={setRequestsRouting}
-            directoryMembers={directoryMembers}
-            membersLoading={membersLoading}
-            saving={saving}
-            onSave={saveRequestsRouting}
-          />
+          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-8 space-y-4 max-w-2xl">
+            <h2 className="text-lg font-black text-slate-900">Demandes — réglages déplacés</h2>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              L&apos;organisation des services, les files, les mots-clés, les tags équipe et le portail
+              parents se configurent désormais dans le module Demandes : un seul endroit, une seule
+              sauvegarde (pile service → managers → délégation).
+            </p>
+            <a
+              href="/requests"
+              className="inline-flex items-center rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-black text-white hover:bg-indigo-700"
+            >
+              Ouvrir Demandes → Réglages
+            </a>
+          </div>
         )}
 
         {tab === "referentiel" && <SchoolRosterPanel />}

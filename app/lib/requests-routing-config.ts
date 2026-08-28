@@ -71,11 +71,42 @@ export async function getRequestsRoutingConfig(): Promise<RequestsRoutingConfig>
   return config;
 }
 
-export async function saveRequestsRoutingConfig(config: RequestsRoutingConfig): Promise<void> {
-  const parsed = parseRequestsRouting(config);
+export type SaveRequestsRoutingOptions = {
+  /** Conserve tagCatalog / personnelTags existants si le payload les vide (sauvegarde structurelle). */
+  preserveTags?: boolean;
+};
+
+function mergeRoutingTagsFromExisting(
+  incoming: RequestsRoutingConfig,
+  existing: RequestsRoutingConfig,
+): RequestsRoutingConfig {
+  const inTags = incoming.personnelTags ?? [];
+  const inCatalog = incoming.tagCatalog ?? [];
+  const exTags = existing.personnelTags ?? [];
+  const exCatalog = existing.tagCatalog ?? [];
+  const wouldWipe =
+    inTags.length === 0 && inCatalog.length === 0 && (exTags.length > 0 || exCatalog.length > 0);
+  if (!wouldWipe) return incoming;
+  return {
+    ...incoming,
+    personnelTags: exTags,
+    tagCatalog: exCatalog,
+  };
+}
+
+export async function saveRequestsRoutingConfig(
+  config: RequestsRoutingConfig,
+  options?: SaveRequestsRoutingOptions,
+): Promise<RequestsRoutingConfig> {
+  invalidateRequestsRoutingCache();
+  const existing = await getRequestsRoutingConfig();
+  const merged =
+    options?.preserveTags === false ? config : mergeRoutingTagsFromExisting(config, existing);
+  const parsed = parseRequestsRouting(merged);
   await putJson(ROUTING_KEY, { version: 1, updatedAt: new Date().toISOString(), data: parsed });
   await syncStaffDirectoryFromRequestsConfig(parsed);
   invalidateRequestsRoutingCache();
+  return parsed;
 }
 
 function getActiveTasks(config: RequestsRoutingConfig): RoutingTask[] {

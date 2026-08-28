@@ -24,14 +24,19 @@ import type { RequestsOrgConfig, RequestsRoutingConfig } from "@/app/lib/app-con
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
-type RequestsMainTab = "board" | "tags" | "routing";
+type RequestsMainTab = "board" | "routing";
 
-const RequestPersonnelTagsPanel = dynamic(
-  () => import("@/app/components/requests/RequestPersonnelTagsPanel"),
-  { ssr: false, loading: () => <ModuleTabFallback /> },
-);
-const RequestsRoutingPanel = dynamic(
-  () => import("@/app/components/requests/RequestsRoutingPanel"),
+type SettingsMember = {
+  externalUserId: string;
+  email: string;
+  displayName: string;
+  firstName?: string;
+  lastName?: string;
+  roles?: string[];
+};
+
+const RequestsSettingsPanel = dynamic(
+  () => import("@/app/components/requests/RequestsSettingsPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
 
@@ -219,9 +224,7 @@ export default function RequestsPage() {
   const [requestsOrg, setRequestsOrg] = useState<RequestsOrgConfig | null>(null);
   const [routingMsg, setRoutingMsg] = useState<string | null>(null);
   const [routingBusy, setRoutingBusy] = useState(false);
-  const [directoryMembers, setDirectoryMembers] = useState<
-    Array<{ externalUserId: string; email: string; displayName: string }>
-  >([]);
+  const [directoryMembers, setDirectoryMembers] = useState<SettingsMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [items, setItems] = useState<RequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -602,12 +605,12 @@ export default function RequestsPage() {
     }
   };
 
-  const loadRoutingSettings = useCallback(async () => {
-    if (!requestsRouting || !requestsOrg) {
+  const loadRoutingSettings = useCallback(async (force = false) => {
+    if (force || !requestsRouting || !requestsOrg) {
       try {
         const [routingRes, orgRes] = await Promise.all([
-          fetch("/api/settings/requests-routing"),
-          fetch("/api/settings/requests-org"),
+          fetch("/api/settings/requests-routing", { cache: "no-store" }),
+          fetch("/api/settings/requests-org", { cache: "no-store" }),
         ]);
         const routingJson = await routingRes.json();
         const orgJson = await orgRes.json();
@@ -617,35 +620,41 @@ export default function RequestsPage() {
         /* ignore */
       }
     }
-    if (directoryMembers.length === 0) {
-      setMembersLoading(true);
-      try {
-        const res = await fetch("/api/reservation-rooms/directory-users");
-        const j = await res.json();
-        if (res.ok && Array.isArray(j.users)) {
-          setDirectoryMembers(
-            j.users.map(
-              (u: {
-                id?: string;
-                externalUserId?: string;
-                email?: string;
-                displayName?: string;
-                name?: string;
-              }) => ({
-                externalUserId: String(u.externalUserId || u.id || ""),
-                email: String(u.email || ""),
-                displayName: String(u.displayName || u.name || u.email || ""),
-              }),
-            ),
-          );
-        }
-      } catch {
-        /* ignore */
-      } finally {
-        setMembersLoading(false);
+    setMembersLoading(true);
+    try {
+      const res = await fetch("/api/members", { cache: "no-store" });
+      const j = await res.json();
+      if (res.ok && Array.isArray(j.users)) {
+        setDirectoryMembers(
+          j.users.map(
+            (u: {
+              id?: string;
+              externalUserId?: string;
+              email?: string;
+              displayName?: string;
+              name?: string;
+              firstName?: string;
+              lastName?: string;
+              roles?: string[];
+            }) => ({
+              externalUserId: String(u.externalUserId || u.id || ""),
+              email: String(u.email || ""),
+              displayName: String(
+                u.displayName || u.name || [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || "",
+              ),
+              firstName: u.firstName,
+              lastName: u.lastName,
+              roles: u.roles,
+            }),
+          ),
+        );
       }
+    } catch {
+      /* ignore */
+    } finally {
+      setMembersLoading(false);
     }
-  }, [requestsRouting, requestsOrg, directoryMembers.length]);
+  }, [requestsRouting, requestsOrg]);
 
   const saveRouting = async () => {
     if (!requestsRouting || !requestsOrg) return;
@@ -656,7 +665,7 @@ export default function RequestsPage() {
         fetch("/api/settings/requests-routing", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestsRouting),
+          body: JSON.stringify({ config: requestsRouting, preserveTags: true }),
         }),
         fetch("/api/settings/requests-org", {
           method: "PUT",
@@ -737,11 +746,9 @@ export default function RequestsPage() {
       <ModulePageHeader
         title="Demandes"
         description={
-          mainTab === "tags"
-            ? "Paramétrage des tags pour le routage IA"
-            : mainTab === "routing"
-              ? "Réglages du ticketing — files et routage des demandes"
-              : `Tableau de traitement — ${serviceLabel}`
+          mainTab === "routing"
+            ? "Réglages du ticketing — services, files, tags et options"
+            : `Tableau de traitement — ${serviceLabel}`
         }
         actions={
           mainTab === "board" ? (
@@ -762,23 +769,18 @@ export default function RequestsPage() {
           className="mb-6"
           tabs={[
             { id: "board", label: "Tableau" },
-            { id: "tags", label: "Tags équipe" },
             { id: "routing", label: "Réglages" },
           ]}
           active={mainTab}
           onChange={(id) => {
-            setMainTab(id);
-            if (id === "routing") void loadRoutingSettings();
+            setMainTab(id as RequestsMainTab);
+            if (id === "routing") void loadRoutingSettings(true);
           }}
         />
       ) : null}
 
-      {mainTab === "tags" && isOrgAdmin ? (
-        <div className="mt-6 max-w-[1280px]">
-          <RequestPersonnelTagsPanel />
-        </div>
-      ) : mainTab === "routing" && isOrgAdmin ? (
-        <RequestsRoutingPanel
+      {mainTab === "routing" && isOrgAdmin ? (
+        <RequestsSettingsPanel
           requestsRouting={requestsRouting}
           onChangeRouting={setRequestsRouting}
           requestsOrg={requestsOrg}

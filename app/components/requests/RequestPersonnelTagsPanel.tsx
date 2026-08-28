@@ -199,7 +199,7 @@ export default function RequestPersonnelTagsPanel() {
       const res = await fetch("/api/settings/requests-routing", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
+        body: JSON.stringify({ config: next, preserveTags: false }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Enregistrement impossible");

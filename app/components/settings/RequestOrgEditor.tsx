@@ -266,9 +266,8 @@ export default function RequestOrgEditor({ org, routing, onChange, members, memb
       <section className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 space-y-3">
         <h2 className="text-lg font-bold text-slate-900">Organisation par service</h2>
         <p className="text-sm text-slate-600 leading-relaxed">
-          Configurez les services, leurs managers et leurs membres. Les managers peuvent confier une demande à
-          leur équipe ou à un sous-service (ex. CPE → surveillants). La direction générale peut superviser
-          l&apos;ensemble si marquée « supervision globale ».
+          Chaque service reçoit les demandes en <strong>pile</strong> (managers d&apos;abord). Les managers
+          prennent en charge ou confient aux membres / sous-services (ex. CPE → surveillants).
         </p>
         <p className="text-xs text-indigo-800/80">
           À l&apos;enregistrement, la table équipe (staff-directory) est recalculée : managers = responsables,
