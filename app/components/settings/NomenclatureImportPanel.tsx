@@ -71,7 +71,7 @@ export default function NomenclatureImportPanel() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [officialDivisions, setOfficialDivisions] = useState<DivisionRow[]>([]);
-  const [classesReadOnly, setClassesReadOnly] = useState(false);
+  const [siecleLockedCollègeLycée, setSiecleLockedCollègeLycée] = useState(false);
   const [unmatchedEleveClasses, setUnmatchedEleveClasses] = useState<string[]>([]);
 
   const load = useCallback(async () => {
@@ -97,7 +97,7 @@ export default function NomenclatureImportPanel() {
       if (classesRes.ok) {
         const classesData = await classesRes.json();
         setOfficialDivisions(classesData.divisions || []);
-        setClassesReadOnly(Boolean(classesData.readOnly));
+        setSiecleLockedCollègeLycée(Boolean(classesData.siecleLockedCollègeLycée));
         setUnmatchedEleveClasses(classesData.unmatchedEleveClasses || []);
       }
     } catch (e: unknown) {
@@ -317,21 +317,22 @@ export default function NomenclatureImportPanel() {
 
       {officialDivisions.length > 0 ? (
         <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4">
-          <h3 className="font-bold mb-1 text-indigo-950">Classes officielles (Structures Siècle)</h3>
+          <h3 className="font-bold mb-1 text-indigo-950">Classes collège / lycée (Structures Siècle)</h3>
           <p className="text-xs text-indigo-900/80 mb-3">
-            Source unique des classes dans ScolIA — {officialDivisions.length} division(s). Format
-            rectorat (ex. <code className="bg-white/80 px-1 rounded">1 A</code>, pas{" "}
-            <code className="bg-white/80 px-1 rounded">1A</code>). Les imports élèves Excel/Pronote
-            rapprochent automatiquement les variantes collées.
+            Imposées telles quelles par le rectorat — {officialDivisions.length} division(s), sans
+            matching manuel. C&apos;est à vous d&apos;affecter les élèves dans ces divisions (
+            <code className="bg-white/80 px-1 rounded">1 A</code>,{" "}
+            <code className="bg-white/80 px-1 rounded">2C</code>, etc.).
           </p>
-          {classesReadOnly ? (
+          {siecleLockedCollègeLycée ? (
             <p className="text-[11px] font-bold text-emerald-800 mb-2">
-              Création manuelle de classes désactivée — référentiel verrouillé sur Siècle.
+              Collège et lycée verrouillés sur Siècle. École : hors périmètre rectorat pour
+              l&apos;instant (catalogue libre dans le référentiel scolaire).
             </p>
           ) : null}
           {unmatchedEleveClasses.length > 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 mb-3">
-              <span className="font-bold">Classes élèves non reconnues : </span>
+              <span className="font-bold">Classes collège/lycée élèves non reconnues : </span>
               {unmatchedEleveClasses.join(", ")}
             </div>
           ) : null}

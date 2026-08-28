@@ -5,17 +5,25 @@ import { foldSchoolClass, schoolClassesMatch } from "@/app/lib/school-classes-ca
 
 export type SiecleDivision = NomenclatureEntry;
 
+/** Pôles dont les classes sont imposées telles quelles par Structures.xml (rectorat). */
+export const RECTORAT_LOCKED_POLES = ["COLLÈGE", "LYCÉE"] as const;
+
+export type SchoolPole = "ÉCOLE" | "COLLÈGE" | "LYCÉE";
+
 export type OfficialClassesResult = {
-  /** Siècle Structures.xml importé → seule source autorisée. */
-  source: "siecle" | "fallback";
-  classes: string[];
+  /** Au moins une division collège/lycée importée depuis Siècle. */
+  hasLockedSiecle: boolean;
+  /** Divisions collège + lycée — codes exacts rectorat (CODE_STRUCTURE). */
+  lockedClasses: string[];
+  lockedClassesByPole: Partial<Record<SchoolPole, string[]>>;
+  /** Toutes les divisions Siècle groupées (y compris école si présentes un jour). */
   classesByPole: Record<string, string[]>;
   divisions: SiecleDivision[];
-  /** foldSchoolClass → code officiel Siècle (ex. 1A → 1 A). */
+  /** fold → code rectorat — uniquement collège/lycée (normalisation import Excel). */
   canonicalByFold: Map<string, string>;
 };
 
-function inferPoleForDivision(code: string, libelle: string | null): string {
+function inferPoleForDivision(code: string, libelle: string | null): SchoolPole {
   const blob = `${code} ${libelle || ""}`
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -43,9 +51,20 @@ function inferPoleForDivision(code: string, libelle: string | null): string {
   return "LYCÉE";
 }
 
+/** Infère le pôle à partir d'un libellé de classe (élève, roster…). */
+export function inferPoleFromClassName(className: string): SchoolPole {
+  return inferPoleForDivision(className.trim(), className.trim());
+}
+
+function isLockedPole(pole: SchoolPole): boolean {
+  return (RECTORAT_LOCKED_POLES as readonly string[]).includes(pole);
+}
+
 function buildCanonicalByFold(divisions: SiecleDivision[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const d of divisions) {
+    const pole = inferPoleForDivision(d.code, d.libelleLong || d.libelleCourt);
+    if (!isLockedPole(pole)) continue;
     const fold = foldSchoolClass(d.code);
     if (fold && !map.has(fold)) map.set(fold, d.code);
   }
@@ -71,57 +90,62 @@ export async function listSiecleDivisions(etablissementId: string): Promise<Siec
   return listNomenclatureByType(etablissementId, "division");
 }
 
-/** Codes division Siècle triés (CODE_STRUCTURE). */
-export async function listSiecleClasses(etablissementId: string): Promise<string[]> {
-  const divisions = await listSiecleDivisions(etablissementId);
-  return divisions
-    .map((d) => d.code)
-    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+/** Codes division collège + lycée (rectorat). */
+export async function listSiecleLockedClasses(etablissementId: string): Promise<string[]> {
+  const official = await loadOfficialSchoolClasses(etablissementId);
+  return official.lockedClasses;
 }
 
 /**
- * Charge les classes officielles.
- * Si Structures.xml a été importé : **uniquement** les divisions Siècle (pas de classes manuelles).
+ * Charge les classes officielles Siècle.
+ * Seuls collège et lycée sont imposés par le rectorat ; l'école reste hors périmètre pour l'instant.
  */
 export async function loadOfficialSchoolClasses(
   etablissementId: string,
 ): Promise<OfficialClassesResult> {
   const divisions = await listSiecleDivisions(etablissementId);
-  const canonicalByFold = buildCanonicalByFold(divisions);
+  const classesByPole = groupDivisionsByPole(divisions);
 
-  if (divisions.length === 0) {
-    return {
-      source: "fallback",
-      classes: [],
-      classesByPole: {},
-      divisions: [],
-      canonicalByFold,
-    };
+  const lockedClassesByPole: Partial<Record<SchoolPole, string[]>> = {};
+  const lockedClasses: string[] = [];
+
+  for (const pole of RECTORAT_LOCKED_POLES) {
+    const list = classesByPole[pole] || [];
+    if (list.length) {
+      lockedClassesByPole[pole] = list;
+      lockedClasses.push(...list);
+    }
   }
 
-  const classes = divisions
-    .map((d) => d.code)
-    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  lockedClasses.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+
+  const lockedDivisions = divisions.filter((d) =>
+    isLockedPole(inferPoleForDivision(d.code, d.libelleLong || d.libelleCourt)),
+  );
 
   return {
-    source: "siecle",
-    classes,
-    classesByPole: groupDivisionsByPole(divisions),
+    hasLockedSiecle: lockedClasses.length > 0,
+    lockedClasses,
+    lockedClassesByPole,
+    classesByPole,
     divisions,
-    canonicalByFold,
+    canonicalByFold: buildCanonicalByFold(lockedDivisions),
   };
 }
 
-/** Résout une classe saisie (1A, 1 A, 1-A…) vers le CODE_STRUCTURE Siècle. */
+/** Résout une classe vers le CODE_STRUCTURE rectorat (collège/lycée uniquement). */
 export function resolveCanonicalSiecleClass(
   raw: string | null | undefined,
   canonicalByFold: Map<string, string>,
-  officialClasses: string[],
+  lockedClasses: string[],
 ): string | null {
   const trimmed = String(raw || "").trim();
   if (!trimmed) return null;
 
-  if (officialClasses.includes(trimmed)) return trimmed;
+  const pole = inferPoleFromClassName(trimmed);
+  if (!isLockedPole(pole)) return null;
+
+  if (lockedClasses.includes(trimmed)) return trimmed;
 
   const fold = foldSchoolClass(trimmed);
   if (!fold) return null;
@@ -129,7 +153,7 @@ export function resolveCanonicalSiecleClass(
   const fromMap = canonicalByFold.get(fold);
   if (fromMap) return fromMap;
 
-  for (const official of officialClasses) {
+  for (const official of lockedClasses) {
     if (schoolClassesMatch(trimmed, official)) return official;
   }
 
@@ -141,51 +165,87 @@ export async function resolveCanonicalSiecleClassForEtab(
   raw: string | null | undefined,
 ): Promise<string | null> {
   const official = await loadOfficialSchoolClasses(etablissementId);
-  if (official.source !== "siecle") return String(raw || "").trim() || null;
-  return resolveCanonicalSiecleClass(raw, official.canonicalByFold, official.classes);
+  if (!official.hasLockedSiecle) return String(raw || "").trim() || null;
+
+  const pole = inferPoleFromClassName(String(raw || ""));
+  if (!isLockedPole(pole)) return String(raw || "").trim() || null;
+
+  return (
+    resolveCanonicalSiecleClass(raw, official.canonicalByFold, official.lockedClasses) ||
+    String(raw || "").trim() ||
+    null
+  );
 }
 
-/** Élèves dont la classe ne correspond à aucune division Siècle (après normalisation fold). */
+/** Classes élèves collège/lycée absentes du référentiel Siècle. */
 export async function listUnmatchedEleveClasses(
   etablissementId: string,
   eleveClasses: string[],
 ): Promise<string[]> {
   const official = await loadOfficialSchoolClasses(etablissementId);
-  if (official.source !== "siecle") return [];
+  if (!official.hasLockedSiecle) return [];
 
   const unmatched = new Set<string>();
   for (const raw of eleveClasses) {
     const t = String(raw || "").trim();
     if (!t) continue;
-    if (!resolveCanonicalSiecleClass(t, official.canonicalByFold, official.classes)) {
+    const pole = inferPoleFromClassName(t);
+    if (!isLockedPole(pole)) continue;
+    if (!resolveCanonicalSiecleClass(t, official.canonicalByFold, official.lockedClasses)) {
       unmatched.add(t);
     }
   }
   return [...unmatched].sort((a, b) => a.localeCompare(b, "fr"));
 }
 
-/** @deprecated Préférer loadOfficialSchoolClasses — ne fusionne plus les sources manuelles si Siècle présent. */
-export async function mergeClassesWithSiecle(
-  etablissementId: string,
-  ...otherSources: string[][]
-): Promise<string[]> {
-  const official = await loadOfficialSchoolClasses(etablissementId);
-  if (official.source === "siecle") return official.classes;
-
+/**
+ * Fusionne la liste roster : rectorat (collège/lycée) + sources libres pour l'école.
+ * Les classes collège/lycée saisies ailleurs sont ignorées si Siècle est importé.
+ */
+export function mergeOfficialAndLocalClasses(
+  official: OfficialClassesResult,
+  ...localSources: string[][]
+): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  const push = (raw: string) => {
+
+  const push = (raw: string, allowWhenLocked: boolean) => {
     const t = raw.trim();
     if (!t) return;
+    const pole = inferPoleFromClassName(t);
+    if (official.hasLockedSiecle && isLockedPole(pole) && !allowWhenLocked) return;
     const key = foldSchoolClass(t);
     if (seen.has(key)) return;
     seen.add(key);
     out.push(t);
   };
-  for (const src of otherSources) {
-    for (const c of src) push(c);
+
+  if (official.hasLockedSiecle) {
+    for (const c of official.lockedClasses) push(c, true);
   }
+
+  for (const src of localSources) {
+    for (const c of src) push(c, false);
+  }
+
   return out.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+}
+
+/** Fusionne classesByPole : collège/lycée Siècle + école depuis config/catalogue local. */
+export function mergeClassesByPoleWithSiecle(
+  official: OfficialClassesResult,
+  localByPole: Record<string, string[]>,
+): Record<string, string[]> {
+  const out: Record<string, string[]> = { ...localByPole };
+
+  if (!official.hasLockedSiecle) return out;
+
+  for (const pole of RECTORAT_LOCKED_POLES) {
+    const siecleList = official.lockedClassesByPole[pole];
+    if (siecleList?.length) out[pole] = [...siecleList];
+  }
+
+  return out;
 }
 
 export async function isKnownSiecleClass(
@@ -193,8 +253,8 @@ export async function isKnownSiecleClass(
   classe: string | null | undefined,
 ): Promise<boolean> {
   const official = await loadOfficialSchoolClasses(etablissementId);
-  if (official.source !== "siecle") return false;
+  if (!official.hasLockedSiecle) return false;
   return (
-    resolveCanonicalSiecleClass(classe, official.canonicalByFold, official.classes) != null
+    resolveCanonicalSiecleClass(classe, official.canonicalByFold, official.lockedClasses) != null
   );
 }

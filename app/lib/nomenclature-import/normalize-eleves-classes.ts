@@ -2,17 +2,24 @@ import "server-only";
 
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import {
+  inferPoleFromClassName,
   loadOfficialSchoolClasses,
+  RECTORAT_LOCKED_POLES,
   resolveCanonicalSiecleClass,
 } from "@/app/lib/nomenclature-classes";
 
-/** Normalise les classes élèves vers le CODE_STRUCTURE Siècle quand Structures.xml est importé. */
+const LOCKED_POLES = new Set<string>(RECTORAT_LOCKED_POLES);
+
+/**
+ * Pour collège/lycée : aligne la classe élève sur le CODE_STRUCTURE rectorat (import Excel/Siècle).
+ * École : laissée telle quelle (pas de matching rectorat pour l'instant).
+ */
 export async function normalizeElevesToSiecleClasses(
   etablissementId: string,
   eleves: EleveConfig[],
 ): Promise<{ eleves: EleveConfig[]; normalized: number; unresolved: string[] }> {
   const official = await loadOfficialSchoolClasses(etablissementId);
-  if (official.source !== "siecle") {
+  if (!official.hasLockedSiecle) {
     return { eleves, normalized: 0, unresolved: [] };
   }
 
@@ -23,10 +30,13 @@ export async function normalizeElevesToSiecleClasses(
     const raw = String(e.classe || "").trim();
     if (!raw) return e;
 
+    const pole = inferPoleFromClassName(raw);
+    if (!LOCKED_POLES.has(pole)) return e;
+
     const canonical = resolveCanonicalSiecleClass(
       raw,
       official.canonicalByFold,
-      official.classes,
+      official.lockedClasses,
     );
     if (!canonical) {
       unresolvedSet.add(raw);

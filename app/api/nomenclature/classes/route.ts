@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
-import { loadOfficialSchoolClasses, listUnmatchedEleveClasses } from "@/app/lib/nomenclature-classes";
+import {
+  loadOfficialSchoolClasses,
+  listUnmatchedEleveClasses,
+  RECTORAT_LOCKED_POLES,
+} from "@/app/lib/nomenclature-classes";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 
 export async function GET() {
@@ -16,16 +20,26 @@ export async function GET() {
   const eleveClasses = eleves.map((e) => String(e.classe || "").trim()).filter(Boolean);
   const unmatched = await listUnmatchedEleveClasses(etabId, eleveClasses);
 
+  const lockedDivisions = official.divisions.filter(
+    (d) =>
+      official.lockedClassesByPole.COLLÈGE?.includes(d.code) ||
+      official.lockedClassesByPole.LYCÉE?.includes(d.code),
+  );
+
   return NextResponse.json({
-    source: official.source,
-    classes: official.classes,
+    hasLockedSiecle: official.hasLockedSiecle,
+    lockedPoles: [...RECTORAT_LOCKED_POLES],
+    lockedClasses: official.lockedClasses,
+    lockedClassesByPole: official.lockedClassesByPole,
     classesByPole: official.classesByPole,
-    divisions: official.divisions.map((d) => ({
+    divisions: lockedDivisions.map((d) => ({
       code: d.code,
       libelle: d.libelleLong || d.libelleCourt || d.code,
       metadata: d.metadataJson,
     })),
+    ecoleFromSiecle: official.classesByPole.ÉCOLE || [],
     unmatchedEleveClasses: unmatched,
-    readOnly: official.source === "siecle",
+    readOnly: false,
+    siecleLockedCollègeLycée: official.hasLockedSiecle,
   });
 }

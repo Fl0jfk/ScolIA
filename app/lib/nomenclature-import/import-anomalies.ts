@@ -185,8 +185,8 @@ export async function buildNomenclatureImportAnomalies(
       anomalies.push({
         id: "eleves-classes-hors-siecle",
         severity: "warn",
-        label: "Classes élèves hors référentiel Siècle",
-        detail: `Ces classes ne correspondent à aucune division Structures.xml : ${unmatched.slice(0, 8).join(", ")}${unmatched.length > 8 ? "…" : ""}. Réimportez Structures.xml ou corrigez les classes élèves.`,
+        label: "Classes collège/lycée hors Siècle",
+        detail: `Classes collège/lycée absentes de Structures.xml : ${unmatched.slice(0, 8).join(", ")}${unmatched.length > 8 ? "…" : ""}. Réimportez Structures.xml ou corrigez l'affectation élèves.`,
         count: unmatched.length,
       });
     }
