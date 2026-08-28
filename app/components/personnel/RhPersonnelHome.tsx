@@ -108,14 +108,19 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
 
   return (
     <div className="space-y-6">
-      <RhMoodPulseCard />
-
       <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-indigo-50/40 p-5 sm:p-6">
-        <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600">Espace personnel</p>
-        <h2 className="text-2xl font-black text-slate-900 mt-1">Bonjour {firstName}</h2>
-        <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-          Votre coin RH : demander une autorisation d&apos;absence, suivre vos demandes et déposer un document.
-        </p>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600">Espace personnel</p>
+            <h2 className="text-2xl font-black text-slate-900 mt-1">Bonjour {firstName}</h2>
+            <p className="text-sm text-slate-600 mt-1 max-w-2xl">
+              Votre coin RH : demander une autorisation d&apos;absence, suivre vos demandes et déposer un document.
+            </p>
+          </div>
+          <div className="w-full shrink-0 lg:w-52 xl:w-56">
+            <RhMoodPulseCard />
+          </div>
+        </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <Link
             href="/rh?tab=absences&view=se-declarer#nouvelle-absence"
