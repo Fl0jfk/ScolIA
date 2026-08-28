@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import RhMoodPulseCard from "@/app/components/personnel/RhMoodPulseCard";
 import RhSelfDepositPanel from "@/app/components/personnel/RhSelfDepositPanel";
-import { canAccessHseModule, canCreateHseDemand } from "@/app/lib/demandes-hse-access";
+import { canCreateHseDemand } from "@/app/lib/demandes-hse-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { formatAbsencePeriod } from "@/app/lib/absence-period";
 
@@ -47,12 +47,18 @@ function statusHse(s: string) {
   return { label: "En attente", className: "bg-amber-50 text-amber-800" };
 }
 
-export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
+export default function RhPersonnelHome({
+  canDirectory,
+  canAccessDemandeRh,
+}: {
+  canDirectory: boolean;
+  canAccessDemandeRh: boolean;
+}) {
   const { user, isLoaded } = useSessionUser();
   const roles = useMemo(() => rolesFromUserLike(user), [user]);
 
-  const showHse = canAccessHseModule(roles);
   const canCreateHse = canCreateHseDemand(roles);
+  const showHse = canCreateHse;
 
   const [absences, setAbsences] = useState<MyAbsence[]>([]);
   const [hseItems, setHseItems] = useState<MyHse[]>([]);
@@ -131,19 +137,21 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
               Demande HSE
             </Link>
           )}
-          <Link
-            href="/rh?tab=demande"
-            className="px-4 py-2.5 rounded-xl bg-white border border-violet-200 text-violet-800 text-xs font-bold hover:bg-violet-50"
-          >
-            Demande RH
-          </Link>
+          {canAccessDemandeRh && (
+            <Link
+              href="/rh?tab=demande"
+              className="px-4 py-2.5 rounded-xl bg-white border border-violet-200 text-violet-800 text-xs font-bold hover:bg-violet-50"
+            >
+              Demande RH
+            </Link>
+          )}
           <Link
             href="/rh?tab=absences&view=se-declarer"
             className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50"
           >
             Mes absences
           </Link>
-          {canManage && (
+          {canDirectory && (
             <Link
               href="/rh?tab=registre"
               className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-50"
@@ -236,9 +244,7 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
         {showHse ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between gap-2 mb-3">
-              <h3 className="font-black text-slate-900">
-                {canCreateHse ? "Mes demandes HSE" : "HSE de mon établissement"}
-              </h3>
+              <h3 className="font-black text-slate-900">Mes demandes HSE</h3>
               <Link href="/rh?tab=hse" className="text-[11px] font-bold text-indigo-600 underline">
                 Ouvrir
               </Link>
@@ -295,11 +301,19 @@ export default function RhPersonnelHome({ canManage }: { canManage: boolean }) {
                 Demander une autorisation d&apos;absence →
               </Link>
               <Link
-                href="/rh?tab=annuaire"
+                href="/rh?tab=planning"
                 className="rounded-xl border border-slate-100 px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50"
               >
-                Annuaire →
+                Mon planning →
               </Link>
+              {canDirectory && (
+                <Link
+                  href="/rh?tab=annuaire"
+                  className="rounded-xl border border-slate-100 px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50"
+                >
+                  Annuaire →
+                </Link>
+              )}
             </div>
           </section>
         )}

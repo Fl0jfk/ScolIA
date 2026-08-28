@@ -3,7 +3,7 @@ import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { getPersonnelRecord } from "@/app/lib/personnel-storage";
-import { canManagePersonnel } from "@/app/lib/personnel-types";
+import { canEditRhPlanning } from "@/app/lib/rh/rh-hub-access";
 import {
   extractPlanningFromPdfBytes,
   mergeStaffImport,
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   }
 
   const roles = rolesFromUserLike(user);
-  const canManage = canManagePersonnel(roles);
+  const canImport = canEditRhPlanning(roles);
 
   let form: FormData;
   try {
@@ -62,15 +62,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "PDF trop volumineux (max 20 Mo)." }, { status: 400 });
   }
 
-  if (kind === "teacher") {
-    if (!canManage && personnelId !== gate.ctx.userId) {
-      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-    }
-  } else if (!canManage && personnelId !== gate.ctx.userId) {
-    const record = await getPersonnelRecord(personnelId);
-    if (!record || record.externalUserId !== gate.ctx.userId) {
-      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-    }
+  if (!canImport) {
+    return NextResponse.json({ error: "Import réservé à la direction / RH." }, { status: 403 });
   }
 
   try {

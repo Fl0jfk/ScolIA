@@ -11,39 +11,48 @@ export type RhHubTab =
   | "absences"
   | "hse"
   | "demande"
-  | "planning"
-  | "organigramme"
-  | "deposit";
+  | "planning";
 
-const TABS: { id: RhHubTab; label: string; manageOnly?: boolean; hseOnly?: boolean }[] = [
+const TABS: {
+  id: RhHubTab;
+  label: string;
+  directoryOnly?: boolean;
+  manageOnly?: boolean;
+  hseOnly?: boolean;
+  ogecOnly?: boolean;
+}[] = [
   { id: "dashboard", label: "Tableau de bord" },
   { id: "absences", label: "Absences" },
   { id: "hse", label: "Demandes HSE", hseOnly: true },
-  { id: "demande", label: "Demande RH" },
+  { id: "demande", label: "Demande RH", ogecOnly: true },
   { id: "planning", label: "Planning" },
-  { id: "annuaire", label: "Annuaire" },
-  { id: "admin", label: "Entrées / sorties", manageOnly: true },
-  { id: "onboarding", label: "Nouveaux arrivants", manageOnly: true },
-  { id: "registre", label: "Registre", manageOnly: true },
-  { id: "organigramme", label: "Organisation" },
-  { id: "deposit", label: "Dépôt IA", manageOnly: true },
+  { id: "annuaire", label: "Annuaire", directoryOnly: true },
+  { id: "admin", label: "Entrées / sorties", directoryOnly: true },
+  { id: "onboarding", label: "Nouveaux arrivants", directoryOnly: true },
+  { id: "registre", label: "Registre", directoryOnly: true },
 ];
 
 export default function RhHubNav({
   active,
   onChange,
-  canManage,
+  canDirectory,
   canAccessHse,
+  canAccessDemandeRh,
 }: {
   active: RhHubTab;
   onChange: (tab: RhHubTab) => void;
-  canManage: boolean;
+  canDirectory: boolean;
   canAccessHse: boolean;
+  canAccessDemandeRh: boolean;
 }) {
   const tabs = TABS.map((t) => ({
     id: t.id,
     label: t.label,
-    hidden: Boolean((t.hseOnly && !canAccessHse) || (t.manageOnly && !canManage)),
+    hidden: Boolean(
+      (t.hseOnly && !canAccessHse) ||
+        (t.ogecOnly && !canAccessDemandeRh) ||
+        ((t.directoryOnly || t.manageOnly) && !canDirectory),
+    ),
   }));
 
   return <ModuleTabNav tabs={tabs} active={active} onChange={onChange} className="mb-6" />;
