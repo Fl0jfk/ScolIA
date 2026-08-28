@@ -519,7 +519,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/vie-scolaire/appels",
       "/api/vie-scolaire/appels",
     ],
-    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe", "professeur"],
+    // Module masqué (UI + signaux) — en cours de développement ; API conservée.
+    allowedRoles: [],
     dashboard: {
       id: 242,
       name: "Appels & absences",
@@ -532,13 +533,14 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-absences",
     pathPrefixes: ["/vie-scolaire/absences", "/api/vie-scolaire/absences"],
-    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe"],
-    // Tuile absorbée dans « Appels & absences » (`vs-appels` → /vie-scolaire/presence).
+    // Module masqué — tuile absorbée dans vs-appels quand réactivé.
+    allowedRoles: [],
   },
   {
     id: "vs-sanctions",
     pathPrefixes: ["/vie-scolaire/sanctions", "/api/vie-scolaire/sanctions"],
-    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe"],
+    // Module masqué (UI + signaux) — en cours de développement ; API conservée.
+    allowedRoles: [],
     dashboard: {
       id: 244,
       name: "Sanctions",
@@ -551,7 +553,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-carnet",
     pathPrefixes: ["/vie-scolaire/carnet", "/api/vie-scolaire/carnet"],
-    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe", "professeur"],
+    // Module masqué (UI + signaux) — en cours de développement ; API conservée.
+    allowedRoles: [],
     dashboard: {
       id: 245,
       name: "Carnet",
@@ -847,6 +850,15 @@ export function rolesAllowModule(
   if (module.orgAdminOnly) return false;
   // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
   if (module.id === "pilotage-eleves") return false;
+  // Vie scolaire (appels, absences, sanctions, carnet) : masqués en UI — modules en dev.
+  if (
+    module.id === "vs-appels" ||
+    module.id === "vs-absences" ||
+    module.id === "vs-sanctions" ||
+    module.id === "vs-carnet"
+  ) {
+    return false;
+  }
 
   // Dossiers élèves : masqué pour les profs jusqu’à réactivation (rentrée).
   if (
@@ -961,9 +973,6 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
   ],
   "pillar-vie-scolaire": [
     "internat",
-    "vs-appels",
-    "vs-sanctions",
-    "vs-carnet",
     "vs-calendrier",
     "groupes-pedagogiques",
   ],
