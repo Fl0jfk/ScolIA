@@ -6,6 +6,12 @@ import { WeekGrid } from "@/app/components/personnel/RhPlanningEditors";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import { dash } from "@/app/lib/dashboard-brand";
 import {
+  planningSlotCardClass,
+  planningSlotMetaTextClass,
+  planningSlotTimeClass,
+  planningSlotTitleTextClass,
+} from "@/app/lib/rh/planning-slot-colors";
+import {
   PLANNING_WEEKDAY_LABELS,
   type PlanningWeekday,
 } from "@/app/lib/rh/planning-types";
@@ -248,19 +254,18 @@ export default function ClassPlanningPanel({ initialClasse = "", compact = false
               slots={gridSlots}
               renderCard={(slot) => {
                 const full = slotById.get(slot.id)!;
+                const colorKey = full.subject || "cours";
                 return (
                   <div
-                    className={`h-full rounded-lg border px-1.5 py-1 text-[10px] leading-tight overflow-hidden shadow-sm ${
-                      full.kind === "remplacement"
-                        ? "bg-violet-50 border-violet-200"
-                        : "bg-white border-indigo-100"
+                    className={`${planningSlotCardClass(colorKey)} ${
+                      full.kind === "remplacement" ? "ring-2 ring-violet-300 ring-offset-0" : ""
                     }`}
                   >
-                    <p className="font-bold text-indigo-900 tabular-nums">
+                    <p className={planningSlotTimeClass(colorKey)}>
                       {full.start}–{full.end}
                     </p>
-                    <p className="text-slate-800 font-semibold truncate">{full.subject}</p>
-                    <p className="text-slate-500 truncate">
+                    <p className={planningSlotTitleTextClass(colorKey)}>{full.subject}</p>
+                    <p className={planningSlotMetaTextClass(colorKey)}>
                       {full.teacherName}
                       {full.room ? ` · ${full.room}` : ""}
                     </p>
