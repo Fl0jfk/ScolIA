@@ -15,10 +15,10 @@ export function canAccessInternatModule(roles: string[]) {
 
 /**
  * Signal dashboard / rappel opérationnel « appel du soir » :
- * réservé à l’équipe internat régulière (pas tous les surveillants — dépannage ponctuel sans spam).
+ * uniquement le rôle `internat` (surveillants et CPE gardent l’accès module sans spam quotidien).
  */
 export function canSeeInternatRollCallSignal(roles: string[]) {
-  return hasRole(roles, "internat") || hasRole(roles, "cpe");
+  return hasRole(roles, "internat");
 }
 
 export function canAccessInternatFromMetadata(meta: unknown) {
