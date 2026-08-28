@@ -19,7 +19,6 @@ function canFollowAbsences(roles: string[], orgAdmin: boolean): boolean {
   if (INTRANET_DIRECTION_SLUGS.some((slug) => roles.includes(slug))) return true;
   return (
     hasRole(roles, "cpe") ||
-    hasRole(roles, "surveillant") ||
     hasRole(roles, "administratif") ||
     roles.includes("admin")
   );

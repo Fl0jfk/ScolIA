@@ -47,11 +47,7 @@ function teacherNameMatches(
 function canManageCalendrier(roles: string[], orgAdmin: boolean): boolean {
   if (orgAdmin || hasGlobalAdminRole(roles) || roles.includes("admin")) return true;
   if (INTRANET_DIRECTION_SLUGS.some((s) => roles.includes(s))) return true;
-  return (
-    hasRole(roles, "administratif") ||
-    hasRole(roles, "cpe") ||
-    hasRole(roles, "surveillant")
-  );
+  return hasRole(roles, "administratif") || hasRole(roles, "cpe");
 }
 
 export async function GET(req: Request) {
