@@ -13,6 +13,10 @@ import {
   canViewPersonnelDashboard,
   inferCategoryFromRoles,
 } from "@/app/lib/personnel-types";
+import {
+  canAccessRhDirectoryViews,
+  canEditRhPlanning,
+} from "@/app/lib/rh/rh-hub-access";
 import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { readRhPlanning, writeRhPlanning } from "@/app/lib/rh/planning-storage";
 import {
@@ -71,7 +75,7 @@ export async function GET(req: Request) {
   }
 
   const canManage = canManagePersonnel(roles);
-  const canViewAll = canViewPersonnelDashboard(roles);
+  const canViewAll = canAccessRhDirectoryViews(roles);
   const url = new URL(req.url);
   const listAudience = url.searchParams.get("audience");
 
@@ -187,7 +191,7 @@ export async function GET(req: Request) {
   }
 
   const isSelf = subjectId === gate.ctx.userId;
-  const canEdit = canManage || !!isSelf;
+  const canEdit = canEditRhPlanning(roles);
 
   const balance =
     planning.kind === "staff" && planning.mode === "fixed"
@@ -234,6 +238,7 @@ export async function PUT(req: Request) {
 
   const roles = rolesFromUserLike(user);
   const canManage = canManagePersonnel(roles);
+  const canEditPlanning = canEditRhPlanning(roles);
 
   let body: { personnelId?: unknown; planning?: unknown };
   try {
@@ -255,11 +260,7 @@ export async function PUT(req: Request) {
   const kindHint = (raw as { kind?: string }).kind;
   const kind: RhPlanningKind = kindHint === "staff" ? "staff" : "teacher";
 
-  let allowed = canManage || personnelId === gate.ctx.userId;
-  if (!allowed && kind === "staff") {
-    const record = await getPersonnelRecord(personnelId);
-    allowed = !!record && record.externalUserId === gate.ctx.userId;
-  }
+  let allowed = canEditPlanning;
 
   if (!allowed) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 403 });

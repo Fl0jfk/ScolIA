@@ -17,6 +17,11 @@ import { canAccessHseModule } from "@/app/lib/demandes-hse-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import type { PersonnelDashboardData } from "@/app/lib/personnel-dashboard";
 import { type PersonnelIndexEntry, type SharedPersonnelDocument } from "@/app/lib/personnel-types";
+import {
+  canAccessRhDirectoryViews,
+  canAccessRhPilotageDashboard,
+  canAccessRhStaffRequest,
+} from "@/app/lib/rh/rh-hub-access";
 
 const AbsencesPageClient = dynamic(() => import("@/app/(admin)/absences/AbsencesPageClient"), {
   ssr: false,
@@ -35,10 +40,6 @@ const RhDemandePanel = dynamic(() => import("@/app/components/personnel/RhDemand
   loading: () => <ModuleTabFallback />,
 });
 const RhOnboardingPanel = dynamic(() => import("@/app/components/personnel/RhOnboardingPanel"), {
-  ssr: false,
-  loading: () => <ModuleTabFallback />,
-});
-const RhOrganigramPanel = dynamic(() => import("@/app/components/personnel/RhOrganigramPanel"), {
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
@@ -61,8 +62,6 @@ const TAB_IDS: RhHubTab[] = [
   "hse",
   "demande",
   "planning",
-  "organigramme",
-  "deposit",
 ];
 
 function parseTab(raw: string | null): RhHubTab {
@@ -88,6 +87,9 @@ export default function RhModuleClient() {
   const roles = useMemo(() => rolesFromUserLike(user), [user]);
 
   const canAccessHse = canAccessHseModule(roles);
+  const canDirectory = canAccessRhDirectoryViews(roles);
+  const canAccessDemandeRh = canAccessRhStaffRequest(roles);
+  const canPilotage = canAccessRhPilotageDashboard(roles);
 
   const setTab = (tab: RhHubTab) => {
     if (tab === "absences") {
@@ -128,8 +130,22 @@ export default function RhModuleClient() {
     if (!isLoaded) return;
     if (activeTab === "hse" && !canAccessHse) {
       router.replace("/rh?tab=dashboard");
+      return;
     }
-  }, [activeTab, canAccessHse, isLoaded, router]);
+    if (activeTab === "demande" && !canAccessDemandeRh) {
+      router.replace("/rh?tab=dashboard");
+      return;
+    }
+    if (
+      (activeTab === "annuaire" ||
+        activeTab === "admin" ||
+        activeTab === "onboarding" ||
+        activeTab === "registre") &&
+      !canDirectory
+    ) {
+      router.replace("/rh?tab=dashboard");
+    }
+  }, [activeTab, canAccessDemandeRh, canAccessHse, canDirectory, isLoaded, router]);
 
   if (!isLoaded || (loading && !dashboard)) {
     return <p className="p-10 text-center text-slate-500">Chargement du module RH…</p>;
@@ -148,30 +164,16 @@ export default function RhModuleClient() {
       <RhHubNav
         active={activeTab}
         onChange={setTab}
-        canManage={canManage}
+        canDirectory={canDirectory}
         canAccessHse={canAccessHse}
+        canAccessDemandeRh={canAccessDemandeRh}
       />
 
-      {activeTab === "deposit" && canManage ? (
-        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/70 p-6 space-y-3">
-          <h2 className="text-lg font-black text-slate-900">Dépôt de documents</h2>
-          <p className="text-sm text-slate-700 leading-relaxed">
-            Les PDF du personnel OGEC se déposent désormais dans{" "}
-            <strong>Ajout de documents IA</strong> — la même banette que pour les élèves et les
-            enseignants. L’IA identifie la personne et range le fichier dans son dossier OneDrive.
-          </p>
-          <a
-            href="/agentIAOCR"
-            className="inline-flex rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700"
-          >
-            Ouvrir Ajout de documents IA
-          </a>
-        </div>
-      ) : activeTab === "admin" && canManage ? (
+      {activeTab === "admin" && canDirectory ? (
         <RhAdminOverviewPanel index={index} />
-      ) : activeTab === "onboarding" && canManage ? (
+      ) : activeTab === "onboarding" && canDirectory ? (
         <RhOnboardingPanel />
-      ) : activeTab === "registre" && canManage ? (
+      ) : activeTab === "registre" && canDirectory ? (
         <RhRegistrePanel />
       ) : activeTab === "absences" ? (
         <Suspense fallback={<p className="text-sm text-slate-500">Chargement des absences…</p>}>
@@ -183,13 +185,11 @@ export default function RhModuleClient() {
         <RhDemandePanel />
       ) : activeTab === "planning" ? (
         <RhPlanningPanel />
-      ) : activeTab === "organigramme" ? (
-        <RhOrganigramPanel index={index} />
-      ) : activeTab === "annuaire" ? (
+      ) : activeTab === "annuaire" && canDirectory ? (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
             <h2 className="font-black text-slate-800 mb-1">Annuaire RH</h2>
-            {canManage && (
+            {canDirectory && (
               <p className="text-xs text-indigo-600 font-medium mb-4">
                 Glissez un fichier sur une fiche pour le déposer via l&apos;IA.
               </p>
@@ -199,22 +199,25 @@ export default function RhModuleClient() {
             ) : (
               <div data-tour="rh-list" className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {index.map((p) => (
-                  <PersonnelStaffCard key={p.id} person={p} canDrop={canManage} onUploaded={() => void load()} />
+                  <PersonnelStaffCard key={p.id} person={p} canDrop={canDirectory} onUploaded={() => void load()} />
                 ))}
               </div>
             )}
           </div>
-          <SharedDocsBlock sharedDocs={sharedDocs} canManage={canManage} onRefresh={load} />
+          <SharedDocsBlock sharedDocs={sharedDocs} canManage={canDirectory} onRefresh={load} />
         </div>
       ) : (
         <>
-          <RhPersonnelHome canManage={canManage} />
-          {canManage && (
+          <RhPersonnelHome
+            canDirectory={canDirectory}
+            canAccessDemandeRh={canAccessDemandeRh}
+          />
+          {canPilotage && (
             <div className="pt-2 border-t border-slate-100 space-y-4">
               <h2 className="text-lg font-black text-slate-800">Pilotage RH</h2>
               <RhMoodPulseAdminPanel />
               <PersonnelDashboard data={dashboard} onNewStaff={() => setShowNew(true)} />
-              <SharedDocsBlock sharedDocs={sharedDocs} canManage={canManage} onRefresh={load} />
+              <SharedDocsBlock sharedDocs={sharedDocs} canManage={canDirectory} onRefresh={load} />
             </div>
           )}
         </>

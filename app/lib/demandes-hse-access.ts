@@ -47,5 +47,5 @@ export function canViewHseDemand(
 
 export function canAccessHseModule(roles: string[]) {
   const f = getHseRoleFlags(roles);
-  return f.isProfesseur || f.isDirection;
+  return f.isProfesseur || f.isDirection || f.isAdministratif;
 }

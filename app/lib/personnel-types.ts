@@ -2,8 +2,8 @@ import { hasRole } from "@/app/lib/absences-types";
 import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { defaultPersonnelProfile, normalizePersonnelProfile, type PersonnelProfile } from "@/app/lib/personnel-profile";
 
-/** Phase pilote : accès ouvert à tous les utilisateurs connectés. À restreindre plus tard. */
-const PERSONNEL_OPEN_ACCESS = true;
+/** Désactivé — droits RH via canManagePersonnel / canViewPersonnelDashboard / rh-hub-access. */
+const PERSONNEL_OPEN_ACCESS = false;
 
 export type { PersonnelProfile };
 
