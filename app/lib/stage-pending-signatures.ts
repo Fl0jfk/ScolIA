@@ -1,5 +1,7 @@
 import type { StageConvention, StageSignature } from "@/app/lib/stage-types";
 import { STAGE_SIGNER_ROLE_LABELS } from "@/app/lib/stage-types";
+import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
+import { resolveStagesDirectionEmail } from "@/app/lib/stage-config";
 
 export type PendingStageSignature = {
   conventionId: string;
@@ -15,12 +17,19 @@ export type PendingStageSignature = {
   validatedAt?: string;
 };
 
-function signatureAwaitingUser(
+function hasDirectionRole(roles: string[]): boolean {
+  return roles.some((r) =>
+    INTRANET_DIRECTION_SLUGS.includes(r as (typeof INTRANET_DIRECTION_SLUGS)[number]),
+  );
+}
+
+async function signatureAwaitingUser(
   sig: StageSignature,
   convention: StageConvention,
   userEmail: string,
   userId?: string,
-): boolean {
+  roles: string[] = [],
+): Promise<boolean> {
   if (sig.status !== "en_attente" || !sig.signToken) return false;
 
   const email = userEmail.trim().toLowerCase();
@@ -33,21 +42,28 @@ function signatureAwaitingUser(
     if (refEmail && email && refEmail === email) return true;
   }
 
+  if (sig.role === "direction" && hasDirectionRole(roles)) {
+    const directionEmail = (await resolveStagesDirectionEmail(convention.student.level))?.toLowerCase();
+    if (!directionEmail || !email || directionEmail === email) return true;
+    if (sigEmail && email && sigEmail === email) return true;
+  }
+
   return false;
 }
 
 /** Conventions en attente de signature pour l'utilisateur connecté. */
-export function listPendingSignaturesForUser(
+export async function listPendingSignaturesForUser(
   conventions: StageConvention[],
   userEmail: string,
   userId?: string,
-): PendingStageSignature[] {
+  roles: string[] = [],
+): Promise<PendingStageSignature[]> {
   const out: PendingStageSignature[] = [];
 
   for (const c of conventions) {
     if (c.status !== "signatures_pending") continue;
     for (const sig of c.signatures) {
-      if (!signatureAwaitingUser(sig, c, userEmail, userId)) continue;
+      if (!(await signatureAwaitingUser(sig, c, userEmail, userId, roles))) continue;
       out.push({
         conventionId: c.id,
         signatureId: sig.id,

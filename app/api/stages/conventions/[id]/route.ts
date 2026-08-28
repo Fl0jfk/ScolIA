@@ -160,21 +160,29 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         );
         return NextResponse.json({ success: true, convention: next, signLinks: [] });
       }
-      const next = await reviewPreconvention(convention, {
-              by: gate.ctx.userId,
-              byName: displayName(user),
-              approved,
-              note: String(body.note ?? "").trim() || undefined,
-            });
-      const signLinks = next.signatures
-        .filter((s) => s.signToken)
-        .map((s) => ({
-          role: s.role,
-          label: s.label,
-          email: s.signEmail,
-          link: `/stages/signer?token=${encodeURIComponent(s.signToken!)}`,
-        }));
-      return NextResponse.json({ success: true, convention: next, signLinks });
+      try {
+        const next = await reviewPreconvention(convention, {
+          by: gate.ctx.userId,
+          byName: displayName(user),
+          approved,
+          note: String(body.note ?? "").trim() || undefined,
+        });
+        const signLinks = next.signatures
+          .filter((s) => s.signToken)
+          .map((s) => ({
+            role: s.role,
+            label: s.label,
+            email: s.signEmail,
+            secureCode: s.signSecureCode,
+            link: `/stages/signer?token=${encodeURIComponent(s.signToken!)}`,
+          }));
+        return NextResponse.json({ success: true, convention: next, signLinks });
+      } catch (e: unknown) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "Erreur validation préconvention." },
+          { status: 400 },
+        );
+      }
     }
 
     if (action === "attach_eleve") {

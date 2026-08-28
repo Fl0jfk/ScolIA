@@ -7,6 +7,7 @@ import {
   type StageOfferApplication,
   type StageOfferCandidatureTokenRef,
   type StageOfferIndexEntry,
+  type StageSignCodeLookupRef,
   type StageSignTokenRef,
   type StageStudentTokenRef,
   studentDossierKey,
@@ -101,6 +102,18 @@ export async function saveSignTokenRef(token: string, ref: StageSignTokenRef) {
 
 export async function getSignTokenRef(token: string): Promise<StageSignTokenRef | null> {
   const hit = await getJson<StageSignTokenRef>(STAGE_S3.signToken(token));
+  return hit?.data ?? null;
+}
+
+export async function saveSignCodeLookup(email: string, code: string, ref: StageSignCodeLookupRef) {
+  await putJson(STAGE_S3.signCodeLookup(email, code), ref);
+}
+
+export async function getSignCodeLookup(
+  email: string,
+  code: string,
+): Promise<StageSignCodeLookupRef | null> {
+  const hit = await getJson<StageSignCodeLookupRef>(STAGE_S3.signCodeLookup(email, code));
   return hit?.data ?? null;
 }
 

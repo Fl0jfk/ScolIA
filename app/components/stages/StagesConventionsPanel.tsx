@@ -41,18 +41,21 @@ export default function StagesConventionsPanel({
         className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-6 shadow-sm space-y-3 text-sm"
         data-tour="stages-deposer-link"
       >
-        <h2 className="text-lg font-bold text-[#1F3D2B]">Dépôt élève (PDF)</h2>
+        <h2 className="text-lg font-bold text-[#1F3D2B]">Préconventions élèves</h2>
         <p className="text-stone-600">
-          Les élèves envoient leur convention remplie et signée sur la page publique. Plus besoin de
-          remplir une préconvention en ligne.
+          Les élèves remplissent leur préconvention sur{" "}
+          <a href="/stages/preconvention" target="_blank" rel="noopener noreferrer" className="text-[#2F6B4A] underline font-semibold">
+            /stages/preconvention
+          </a>
+          . Après validation administrative, les signataires reçoivent un code sécurisé par e-mail.
         </p>
         <a
-          href="/stages/deposer"
+          href="/stages/preconvention"
           target="_blank"
           rel="noopener noreferrer"
           className="inline-block rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-semibold text-white"
         >
-          Ouvrir /stages/deposer →
+          Ouvrir la page élève →
         </a>
       </div>
 

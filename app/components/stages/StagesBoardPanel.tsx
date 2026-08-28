@@ -51,17 +51,25 @@ export default function StagesBoardPanel({
       </div>
 
       {!permissions?.referentOnly && (
-        <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
-          <h2 className="text-sm font-bold text-emerald-900">Lien public — dépôt convention PDF</h2>
-          <p className="mt-2 text-sm text-emerald-800">
-            Communiquez cette adresse aux élèves (mail, ENT, affiche…) :
-          </p>
-          <p className="mt-2 rounded-lg bg-white border border-emerald-100 px-3 py-2 text-sm font-mono break-all text-[#1F3D2B]">
-            {typeof window !== "undefined" ? window.location.origin : ""}/stages/deposer
-          </p>
-          <p className="mt-2 text-xs text-emerald-700">
-            Le PDF est lu par OCR et IA (entreprise, SIRET, élève, classe). Aucun compte requis.
-          </p>
+        <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 space-y-4">
+          <div>
+            <h2 className="text-sm font-bold text-emerald-900">Lien public — préconvention en ligne</h2>
+            <p className="mt-2 text-sm text-emerald-800">
+              Les élèves remplissent entreprise, horaires et contacts sans compte :
+            </p>
+            <p className="mt-2 rounded-lg bg-white border border-emerald-100 px-3 py-2 text-sm font-mono break-all text-[#1F3D2B]">
+              {typeof window !== "undefined" ? window.location.origin : ""}/stages/preconvention
+            </p>
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-emerald-900">Lien public — dépôt convention PDF</h2>
+            <p className="mt-2 text-sm text-emerald-800">
+              Alternative : convention papier déjà signée, déposée en PDF :
+            </p>
+            <p className="mt-2 rounded-lg bg-white border border-emerald-100 px-3 py-2 text-sm font-mono break-all text-[#1F3D2B]">
+              {typeof window !== "undefined" ? window.location.origin : ""}/stages/deposer
+            </p>
+          </div>
         </section>
       )}
 

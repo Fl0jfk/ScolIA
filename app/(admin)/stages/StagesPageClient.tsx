@@ -459,7 +459,7 @@ function StagesContent() {
     <ModulePageShell maxWidthClass="max-w-[1400px]" tourModuleId="stages">
       <ModulePageHeader
         title="Stages & conventions"
-        description="Les élèves déposent leur convention signée en PDF sur une page publique. L'IA extrait entreprise, SIRET et classe — vous validez dans la file d'attente."
+        description="Les élèves remplissent leur préconvention en ligne (entreprise, horaires, contacts). Après validation, chaque signataire reçoit un code sécurisé par e-mail."
       />
 
       {permissions?.canFileToOneDrive && od.oneDriveEnabled && (

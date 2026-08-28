@@ -564,7 +564,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "stages",
     pathPrefixes: ["/stages", "/api/stages"],
-    excludePrefixes: ["/stages/eleve", "/stages/signer", "/stages/candidater", "/api/stages/public"],
+    excludePrefixes: ["/stages/eleve", "/stages/signer", "/stages/candidater", "/stages/preconvention", "/api/stages/public"],
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",

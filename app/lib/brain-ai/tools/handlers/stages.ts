@@ -43,7 +43,12 @@ export async function handleGetStagesOverview(ctx: BrainToolCtx): Promise<BrainT
       c.status === "convention_deposited",
   );
   const signaturesPending = conventions.filter((c) => c.status === "signatures_pending");
-  const myPendingSignatures = listPendingSignaturesForUser(conventions, userEmail, ctx.userId);
+  const myPendingSignatures = await listPendingSignaturesForUser(
+    conventions,
+    userEmail,
+    ctx.userId,
+    ctx.roles,
+  );
 
   const recentConventions = conventions.slice(0, 8).map((c) => ({
     id: c.id,
