@@ -250,6 +250,28 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       return NextResponse.json({ success: true, mail });
     }
 
+    if (action === "file_eleve_dossier") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const { fileSignedConventionToEleveDossier } = await import(
+        "@/app/lib/stage-eleve-dossier-filing"
+      );
+      const result = await fileSignedConventionToEleveDossier(convention, displayName(user));
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      return NextResponse.json({
+        success: true,
+        convention: result.convention,
+        eleveDossier: {
+          eleveId: result.eleveId,
+          documentId: result.documentId,
+          dossierUrl: `/eleves/dossier/${result.eleveId}`,
+        },
+      });
+    }
+
     if (action === "cancel") {
       if (!canReviewPreconvention(roles)) {
         return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });

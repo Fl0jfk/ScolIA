@@ -2,7 +2,6 @@ import { resolveDepositFinalRecipients } from "@/app/lib/stage-contacts";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
 import { scheduleSummary } from "@/app/lib/stage-schedule";
 import { resolveStagesAdminEmails, resolveStagesDirectionEmail } from "@/app/lib/stage-config";
-import { tryAutoFileConventionToOneDrive } from "@/app/lib/stage-onedrive-filing";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
@@ -403,10 +402,6 @@ export async function notifyStageFullySigned(convention: StageConvention) {
       ...(attachment ? { attachments: [attachment] } : {}),
     });
   }
-
-  void tryAutoFileConventionToOneDrive(convention).catch((e) =>
-    console.error("[stages] auto OneDrive:", e),
-  );
 
   return { sent: true, recipients };
 }

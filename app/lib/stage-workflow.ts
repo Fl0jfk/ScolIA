@@ -424,6 +424,11 @@ export async function applyConventionSignature(params: {
   }
   await saveStageConvention(next);
   if (allSigned) {
+    void import("@/app/lib/stage-eleve-dossier-filing").then((m) =>
+      m.finalizeSignedConventionDestinations(next).catch((e) =>
+        console.error("[stages] finalize destinations:", e),
+      ),
+    );
     void notifyStageFullySigned(next).catch((e) => console.error("[stages] notify signed:", e));
   }
   return { ok: true, convention: next };
@@ -584,6 +589,9 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
     oneDriveFiling: base?.oneDriveFiling,
     oneDriveFilingPending: base?.oneDriveFilingPending,
     oneDriveFilingError: base?.oneDriveFilingError,
+    eleveDossierFiling: base?.eleveDossierFiling,
+    eleveDossierFilingPending: base?.eleveDossierFilingPending,
+    eleveDossierFilingError: base?.eleveDossierFilingError,
     uploadedPdf: base?.uploadedPdf,
     ocrMeta: base?.ocrMeta,
   };

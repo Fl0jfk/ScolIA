@@ -204,9 +204,19 @@ export type StageConvention = {
     fileName: string;
     matchedFolderName?: string;
   } | null;
-  /** Dépôt auto en attente (token secteur manquant ou matching échoué). */
+  /** Dépôt auto dans le dossier élève ENT (tiroir scolaire). */
+  eleveDossierFiling?: {
+    filedAt: string;
+    filedBy: string;
+    eleveId: string;
+    documentId: string;
+    s3Key: string;
+    title: string;
+  } | null;
   oneDriveFilingPending?: boolean;
   oneDriveFilingError?: string;
+  eleveDossierFilingPending?: boolean;
+  eleveDossierFilingError?: string;
   /** PDF déposé par l'élève (convention papier / déjà signée). */
   uploadedPdf?: {
     s3Key: string;

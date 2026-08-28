@@ -485,8 +485,37 @@ function StagesContent() {
     await fileConventionToOneDrive(detail.convention.id);
   }
 
+  async function fileToEleveDossier() {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "file_eleve_dossier" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setDetail({ ...detail, convention: data.convention });
+      setMsg(
+        `Convention enregistrée dans le dossier élève (tiroir scolaire).${
+          data.eleveDossier?.dossierUrl ? ` Voir : ${data.eleveDossier.dossierUrl}` : ""
+        }`,
+      );
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const canShowOneDriveFiling =
     permissions?.canFileToOneDrive && detail?.convention.status === "signed";
+
+  const canShowEleveDossierFiling =
+    permissions?.canReviewPreconvention && detail?.convention.status === "signed";
 
   return (
     <ModulePageShell maxWidthClass="max-w-[1400px]" tourModuleId="stages">
@@ -772,6 +801,62 @@ function StagesContent() {
                   Enregistrer le rattachement
                 </button>
               </div>
+            </div>
+          )}
+
+          {canShowEleveDossierFiling && (
+            <div className="mt-6 rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+              <h3 className="text-sm font-bold text-[#1F3D2B]">Dossier élève (intranet)</h3>
+              <p className="mt-1 text-xs text-stone-600">
+                Une fois toutes les signatures recueillies, la convention signée est déposée
+                automatiquement dans le tiroir <strong>Scolaire</strong> du dossier élève.
+              </p>
+
+              {detail.convention.eleveDossierFilingPending &&
+                !detail.convention.eleveDossierFiling && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    <p className="font-semibold">Dépôt dossier élève en attente</p>
+                    {detail.convention.eleveDossierFilingError && (
+                      <p className="mt-1 text-xs">{detail.convention.eleveDossierFilingError}</p>
+                    )}
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void fileToEleveDossier()}
+                      className="mt-3 rounded-lg bg-[#2F6B4A] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      Réessayer le dépôt dossier élève
+                    </button>
+                  </div>
+                )}
+
+              {detail.convention.eleveDossierFiling ? (
+                <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  <p className="font-semibold">Enregistrée dans le dossier élève</p>
+                  <p className="mt-1">{detail.convention.eleveDossierFiling.title}</p>
+                  <p className="mt-1 text-xs text-emerald-800">
+                    Par {detail.convention.eleveDossierFiling.filedBy} le{" "}
+                    {new Date(detail.convention.eleveDossierFiling.filedAt).toLocaleString("fr-FR")}
+                  </p>
+                  <a
+                    href={`/eleves/dossier/${detail.convention.eleveDossierFiling.eleveId}`}
+                    className="mt-2 inline-block text-xs font-semibold text-[#2F6B4A] underline"
+                  >
+                    Ouvrir le dossier élève →
+                  </a>
+                </div>
+              ) : (
+                !detail.convention.eleveDossierFilingPending && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void fileToEleveDossier()}
+                    className="mt-3 rounded-lg border border-indigo-300 bg-white px-4 py-2 text-sm font-semibold text-indigo-900 disabled:opacity-50"
+                  >
+                    Déposer dans le dossier élève
+                  </button>
+                )
+              )}
             </div>
           )}
 
