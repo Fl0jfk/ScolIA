@@ -137,7 +137,12 @@ export async function buildSiecleImportStatus(etablissementId: string): Promise<
     return {
       kind: slot.kind,
       imported,
-      lastImport: last?.dateImport?.toISOString?.() ?? (last?.dateImport as string | null) ?? null,
+      lastImport:
+        last?.dateImport instanceof Date
+          ? last.dateImport.toISOString()
+          : typeof last?.dateImport === "string"
+            ? last.dateImport
+            : null,
       lastFile: last?.fichier ?? null,
       statut: last?.statut ?? null,
       rows,

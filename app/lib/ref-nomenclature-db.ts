@@ -11,12 +11,18 @@ export type NomenclatureEntry = {
   metadataJson: Record<string, unknown> | null;
 };
 
+function asMetadataJson(raw: unknown): Record<string, unknown> | null {
+  if (raw == null) return null;
+  if (typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  return null;
+}
+
 export async function listNomenclatureByType(
   etablissementId: string,
   type: string,
 ): Promise<NomenclatureEntry[]> {
   const db = getDb();
-  return db
+  const rows = await db
     .select({
       code: refNomenclature.code,
       libelleCourt: refNomenclature.libelleCourt,
@@ -26,6 +32,10 @@ export async function listNomenclatureByType(
     .from(refNomenclature)
     .where(and(eq(refNomenclature.etablissementId, etablissementId), eq(refNomenclature.type, type)))
     .orderBy(asc(refNomenclature.code));
+  return rows.map((row) => ({
+    ...row,
+    metadataJson: asMetadataJson(row.metadataJson),
+  }));
 }
 
 export async function listDivisionCodes(etablissementId: string): Promise<string[]> {
