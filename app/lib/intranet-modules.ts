@@ -502,7 +502,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-calendrier",
     pathPrefixes: ["/vie-scolaire/calendrier", "/api/vie-scolaire/calendrier"],
-    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe", "professeur"],
+    allowedRoles: [...DIRECTIONS, "administratif", "cpe", "professeur"],
     dashboard: {
       id: 241,
       name: "Calendrier & EDT",
@@ -519,7 +519,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/vie-scolaire/appels",
       "/api/vie-scolaire/appels",
     ],
-    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe", "professeur"],
+    allowedRoles: [...DIRECTIONS, "administratif", "cpe", "professeur"],
     dashboard: {
       id: 242,
       name: "Appels & absences",
@@ -532,13 +532,13 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-absences",
     pathPrefixes: ["/vie-scolaire/absences", "/api/vie-scolaire/absences"],
-    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe"],
+    allowedRoles: [...DIRECTIONS, "administratif", "cpe"],
     // Tuile absorbée dans « Appels & absences » (`vs-appels` → /vie-scolaire/presence).
   },
   {
     id: "vs-sanctions",
     pathPrefixes: ["/vie-scolaire/sanctions", "/api/vie-scolaire/sanctions"],
-    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe"],
+    allowedRoles: [...DIRECTIONS, "administratif", "cpe"],
     dashboard: {
       id: 244,
       name: "Sanctions",
@@ -551,7 +551,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-carnet",
     pathPrefixes: ["/vie-scolaire/carnet", "/api/vie-scolaire/carnet"],
-    allowedRoles: [...DIRECTIONS, "administratif", "surveillant", "cpe", "professeur"],
+    allowedRoles: [...DIRECTIONS, "administratif", "cpe", "professeur"],
     dashboard: {
       id: 245,
       name: "Carnet",
