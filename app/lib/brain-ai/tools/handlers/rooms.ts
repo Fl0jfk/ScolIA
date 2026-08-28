@@ -1,5 +1,6 @@
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import { loadAppConfig } from "@/app/lib/app-config";
+import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { isListedProfRoomAdmin, isProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
 import { reservationWhoLabel } from "@/app/lib/prof-room-reservation-label";
 import { getJson, putJson } from "@/app/lib/s3-storage";
@@ -26,11 +27,38 @@ type ReservationRow = {
   status?: string;
   startsAt: string;
   endsAt: string;
+  userId?: string;
+  bookedByUserId?: string;
+  bookedForOther?: boolean;
   firstName?: string;
   lastName?: string;
+  bookedByFirstName?: string;
+  bookedByLastName?: string;
+  email?: string;
   subject?: string;
   [k: string]: unknown;
 };
+
+async function resolveBeneficiaryUserId(
+  firstName: string,
+  lastName: string,
+  email?: string,
+): Promise<string | null> {
+  const members = await listDirectoryMembers();
+  const targetName = `${firstName} ${lastName}`.trim().toLowerCase();
+  const targetEmail = email?.trim().toLowerCase() || "";
+  for (const member of members) {
+    if (!member.externalUserId || member.pending) continue;
+    if (targetEmail && member.email.trim().toLowerCase() === targetEmail) {
+      return member.externalUserId;
+    }
+    const memberName = `${member.firstName ?? ""} ${member.lastName ?? ""}`.trim().toLowerCase();
+    if (memberName && memberName === targetName) {
+      return member.externalUserId;
+    }
+  }
+  return null;
+}
 
 function ymdLocal(d: Date): string {
   const y = d.getFullYear();
@@ -462,6 +490,24 @@ export async function handleCreateReservation(
     return { ok: false, error: "Connexion requise pour réserver.", code: "AUTH_REQUIRED" };
   }
 
+  let beneficiaryUserId: string | null = null;
+  let beneficiaryEmail = email;
+  if (bookedForOther && firstName && lastName) {
+    beneficiaryUserId = await resolveBeneficiaryUserId(firstName, lastName, email);
+    if (!beneficiaryUserId) {
+      return {
+        ok: false,
+        error:
+          "Personne introuvable dans l’annuaire. Choisissez un collègue inscrit pour rattacher la réservation à son compte.",
+      };
+    }
+    if (!beneficiaryEmail) {
+      const members = await listDirectoryMembers();
+      beneficiaryEmail =
+        members.find((m) => m.externalUserId === beneficiaryUserId)?.email || undefined;
+    }
+  }
+
   let existing = await loadReservations();
   const profCfg = (await loadAppConfig()).profRoom;
   const newReservationsAdded: ReservationRow[] = [];
@@ -503,13 +549,14 @@ export async function handleCreateReservation(
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
           groupId: groupId || undefined,
           roomId,
-          userId: ctx.userId,
+          userId: bookedForOther ? beneficiaryUserId! : ctx.userId,
           firstName,
           lastName,
           bookedByFirstName,
           bookedByLastName,
+          bookedByUserId: bookedForOther ? ctx.userId : undefined,
           bookedForOther,
-          email,
+          email: bookedForOther ? beneficiaryEmail : email || ctx.email || undefined,
           subject,
           className,
           comment,
