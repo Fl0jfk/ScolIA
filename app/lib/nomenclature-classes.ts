@@ -2,6 +2,11 @@ import "server-only";
 
 import { listNomenclatureByType, type NomenclatureEntry } from "@/app/lib/ref-nomenclature-db";
 import { foldSchoolClass, schoolClassesMatch } from "@/app/lib/school-classes-catalog";
+import type { Secteur } from "@/app/lib/onedrive-eleves";
+import { inferSecteurFromMef } from "@/app/lib/mef-secteur-inference";
+import { loadMefSecteurMapFromNomenclature } from "@/app/lib/mef-secteurs-nomenclature";
+import { normMefCode } from "@/app/lib/mef-secteurs";
+import { listGroupes } from "@/app/lib/groupes-pedagogiques-db";
 
 export type SiecleDivision = NomenclatureEntry;
 
@@ -23,32 +28,73 @@ export type OfficialClassesResult = {
   canonicalByFold: Map<string, string>;
 };
 
+function secteurToPole(secteur: Secteur): SchoolPole {
+  if (secteur === "college") return "COLLÈGE";
+  if (secteur === "lycee") return "LYCÉE";
+  return "ÉCOLE";
+}
+
 function inferPoleForDivision(code: string, libelle: string | null): SchoolPole {
-  const blob = `${code} ${libelle || ""}`
+  const trimmedCode = code.trim();
+  const blob = `${trimmedCode} ${libelle || ""}`
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase();
 
   if (
     /\b(TPS|PS[^A-Z]|PSA|PSB|MSA|MSB|GSA|GSB|MATERNELLE)\b/.test(blob) ||
-    /^(TPS|PS|MS|GS)/.test(foldSchoolClass(code))
+    /^(TPS|PS|MS|GS)/.test(foldSchoolClass(trimmedCode))
   ) {
     return "ÉCOLE";
   }
   if (
-    /\b(CP|CE1|CE2|CM1|CM2|PRIMAIRE|ELEMENTAIRE)\b/.test(blob) ||
-    /^(CP|CE1|CE2|CM1|CM2)/.test(foldSchoolClass(code))
+    /\b(CP|CE1|CE2|CM1|CM2|PRIMAIRE|ELEMENTAIRE|ÉLÉMENTAIRE)\b/.test(blob) ||
+    /^(CP|CE1|CE2|CM1|CM2)/.test(foldSchoolClass(trimmedCode))
   ) {
     return "ÉCOLE";
   }
   if (
-    /^[3456][\sA-Z]?/.test(code.trim()) ||
-    /\b[3456](E|EME|ÈME)\b/.test(blob) ||
-    /\b(COLLEGE|COLLÈGE)\b/.test(blob)
+    /\b(COLLEGE|COLLÈGE|6EME|6ÈME|5EME|5ÈME|4EME|4ÈME|3EME|3ÈME)\b/.test(blob) ||
+    /^[3456][\s./-]?[A-Z0-9]*$/i.test(trimmedCode)
   ) {
     return "COLLÈGE";
   }
+  if (
+    /\b(LYCEE|LYCÉE|TERMINALE|TLE|PREMIERE|PREMIÈRE|1ERE|1ÈRE|1RE|2NDE|SECONDE|CAP|BTS|BAC\s*PRO)\b/.test(
+      blob,
+    ) ||
+    /^1[\s./-]?[A-Z0-9]*$/i.test(trimmedCode) ||
+    /^2[\s./-]?[A-Z0-9]*$/i.test(trimmedCode) ||
+    /^T[A-Z0-9]/i.test(trimmedCode)
+  ) {
+    return "LYCÉE";
+  }
   return "LYCÉE";
+}
+
+/** Pôle scolaire d'une division Structures.xml (MEF + libellé + code). */
+export function resolveDivisionSchoolPole(
+  division: SiecleDivision,
+  mefMap: Map<string, Secteur>,
+): SchoolPole {
+  const meta = division.metadataJson;
+  const stored = meta?.pole;
+  if (stored === "COLLÈGE" || stored === "LYCÉE" || stored === "ÉCOLE") {
+    return stored;
+  }
+
+  const mefs = meta?.mefs;
+  if (Array.isArray(mefs)) {
+    for (const raw of mefs) {
+      const mefCode = normMefCode(String(raw));
+      const fromMap = mefMap.get(mefCode);
+      if (fromMap) return secteurToPole(fromMap);
+      const inferred = inferSecteurFromMef(String(raw), String(raw));
+      if (inferred) return secteurToPole(inferred);
+    }
+  }
+
+  return inferPoleForDivision(division.code, division.libelleLong || division.libelleCourt);
 }
 
 /** Infère le pôle à partir d'un libellé de classe (élève, roster…). */
@@ -60,10 +106,13 @@ function isLockedPole(pole: SchoolPole): boolean {
   return (RECTORAT_LOCKED_POLES as readonly string[]).includes(pole);
 }
 
-function buildCanonicalByFold(divisions: SiecleDivision[]): Map<string, string> {
+function buildCanonicalByFold(
+  divisions: SiecleDivision[],
+  mefMap: Map<string, Secteur>,
+): Map<string, string> {
   const map = new Map<string, string>();
   for (const d of divisions) {
-    const pole = inferPoleForDivision(d.code, d.libelleLong || d.libelleCourt);
+    const pole = resolveDivisionSchoolPole(d, mefMap);
     if (!isLockedPole(pole)) continue;
     const fold = foldSchoolClass(d.code);
     if (fold && !map.has(fold)) map.set(fold, d.code);
@@ -71,10 +120,13 @@ function buildCanonicalByFold(divisions: SiecleDivision[]): Map<string, string> 
   return map;
 }
 
-function groupDivisionsByPole(divisions: SiecleDivision[]): Record<string, string[]> {
+function groupDivisionsByPole(
+  divisions: SiecleDivision[],
+  mefMap: Map<string, Secteur>,
+): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   for (const d of divisions) {
-    const pole = inferPoleForDivision(d.code, d.libelleLong || d.libelleCourt);
+    const pole = resolveDivisionSchoolPole(d, mefMap);
     const list = out[pole] || [];
     if (!list.includes(d.code)) list.push(d.code);
     out[pole] = list;
@@ -87,7 +139,18 @@ function groupDivisionsByPole(divisions: SiecleDivision[]): Record<string, strin
 
 /** Divisions Structures.xml — liste complète avec libellés. */
 export async function listSiecleDivisions(etablissementId: string): Promise<SiecleDivision[]> {
-  return listNomenclatureByType(etablissementId, "division");
+  const divisions = await listNomenclatureByType(etablissementId, "division");
+  if (divisions.length) return divisions;
+
+  const groupes = await listGroupes(etablissementId);
+  if (!groupes.length) return [];
+
+  return groupes.map((g) => ({
+    code: g.code,
+    libelleCourt: g.libelle,
+    libelleLong: g.libelle,
+    metadataJson: { source: "groupe_pedagogique" },
+  }));
 }
 
 /** Codes division collège + lycée (rectorat). */
@@ -104,7 +167,10 @@ export async function loadOfficialSchoolClasses(
   etablissementId: string,
 ): Promise<OfficialClassesResult> {
   const divisions = await listSiecleDivisions(etablissementId);
-  const classesByPole = groupDivisionsByPole(divisions);
+  const mefMap = await loadMefSecteurMapFromNomenclature(etablissementId).catch(
+    () => new Map<string, Secteur>(),
+  );
+  const classesByPole = groupDivisionsByPole(divisions, mefMap);
 
   const lockedClassesByPole: Partial<Record<SchoolPole, string[]>> = {};
   const lockedClasses: string[] = [];
@@ -120,7 +186,7 @@ export async function loadOfficialSchoolClasses(
   lockedClasses.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 
   const lockedDivisions = divisions.filter((d) =>
-    isLockedPole(inferPoleForDivision(d.code, d.libelleLong || d.libelleCourt)),
+    isLockedPole(resolveDivisionSchoolPole(d, mefMap)),
   );
 
   return {
@@ -129,7 +195,7 @@ export async function loadOfficialSchoolClasses(
     lockedClassesByPole,
     classesByPole,
     divisions,
-    canonicalByFold: buildCanonicalByFold(lockedDivisions),
+    canonicalByFold: buildCanonicalByFold(lockedDivisions, mefMap),
   };
 }
 

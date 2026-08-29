@@ -5,7 +5,9 @@ import {
   libelleFromBlock,
   parseSiecleDate,
   tagValue,
+  type SiecleElement,
 } from "@/app/lib/nomenclature-import/siecle-xml-parse-utils";
+import { inferSecteurFromMef } from "@/app/lib/mef-secteur-inference";
 
 type SectionSpec = {
   tag: string;
@@ -15,6 +17,8 @@ type SectionSpec = {
   libelleTags?: string[];
   metadataTags?: string[];
 };
+
+type StructurePole = "COLLÈGE" | "LYCÉE" | "ÉCOLE";
 
 const SIMPLE_SECTIONS: SectionSpec[] = [
   { tag: "MEF", type: "mef", codeAttrs: ["CODE_MEF"] },
@@ -142,6 +146,89 @@ function pushOptionsObligatoires(rows: NomenclatureUpsertRow[], xml: string): vo
   }
 }
 
+function extractMefsFromStructureBlock(inner: string): string[] {
+  const mefs: string[] = [];
+  for (const mefBlock of extractSiecleElements(inner, "MEF_APPARTENANCE")) {
+    const mefCode = tagValue(mefBlock.inner, "CODE_MEF");
+    if (mefCode) mefs.push(mefCode);
+  }
+  const directMef = tagValue(inner, "CODE_MEF");
+  if (directMef) mefs.push(directMef);
+  return mefs;
+}
+
+function inferStructurePole(code: string, libelle: string, mefs: string[]): StructurePole | undefined {
+  for (const mef of mefs) {
+    const secteur = inferSecteurFromMef(mef, mef);
+    if (secteur === "college") return "COLLÈGE";
+    if (secteur === "lycee") return "LYCÉE";
+    if (secteur === "ecole") return "ÉCOLE";
+  }
+
+  const trimmedCode = code.trim();
+  const blob = `${trimmedCode} ${libelle}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+
+  if (
+    /\b(TPS|PS[^A-Z]|PSA|PSB|MSA|MSB|GSA|GSB|MATERNELLE)\b/.test(blob) ||
+    /^(TPS|PS|MS|GS)/.test(trimmedCode)
+  ) {
+    return "ÉCOLE";
+  }
+  if (
+    /\b(CP|CE1|CE2|CM1|CM2|PRIMAIRE|ELEMENTAIRE|ÉLÉMENTAIRE)\b/.test(blob) ||
+    /^(CP|CE1|CE2|CM1|CM2)/.test(trimmedCode)
+  ) {
+    return "ÉCOLE";
+  }
+  if (
+    /\b(COLLEGE|COLLÈGE|6EME|6ÈME|5EME|5ÈME|4EME|4ÈME|3EME|3ÈME)\b/.test(blob) ||
+    /^[3456][\s./-]?[A-Z0-9]*$/i.test(trimmedCode)
+  ) {
+    return "COLLÈGE";
+  }
+  if (
+    /\b(LYCEE|LYCÉE|TERMINALE|TLE|PREMIERE|PREMIÈRE|1ERE|1ÈRE|1RE|2NDE|SECONDE|CAP|BTS)\b/.test(
+      blob,
+    ) ||
+    /^1[\s./-]?[A-Z0-9]*$/i.test(trimmedCode) ||
+    /^2[\s./-]?[A-Z0-9]*$/i.test(trimmedCode) ||
+    /^T[A-Z0-9]/i.test(trimmedCode)
+  ) {
+    return "LYCÉE";
+  }
+
+  return undefined;
+}
+
+function buildDivisionRow(
+  el: SiecleElement,
+  sourceTag: "DIVISION" | "STRUCTURE" | "GROUPE",
+): NomenclatureUpsertRow | null {
+  const code = codeFromElement(el, ["CODE_STRUCTURE", "CODE_DIVISION", "CODE_GROUPE"]);
+  if (!code) return null;
+
+  const libelle = libelleFromBlock(el.inner, code);
+  const mefs = extractMefsFromStructureBlock(el.inner);
+  const pole = inferStructurePole(code, libelle, mefs);
+
+  return {
+    type: "division",
+    code,
+    libelleCourt: libelle,
+    libelleLong: libelle,
+    metadataJson: {
+      sourceTag,
+      codeContrat: tagValue(el.inner, "CODE_CONTRAT") || undefined,
+      codeRne: tagValue(el.inner, "CODE_RNE") || undefined,
+      mefs: mefs.length ? mefs : undefined,
+      pole,
+    },
+  };
+}
+
 /** Parse BEE_NOMENCLATURES v5 (codes en attribut XML). */
 export function parseNomenclatureXml(xml: string): NomenclatureUpsertRow[] {
   const rows: NomenclatureUpsertRow[] = [];
@@ -158,29 +245,27 @@ export function parseNomenclatureXml(xml: string): NomenclatureUpsertRow[] {
 /** Parse BEE_STRUCTURES — divisions (classes) et métadonnées MEF. */
 export function parseStructuresDivisions(xml: string): NomenclatureUpsertRow[] {
   const rows: NomenclatureUpsertRow[] = [];
+  const seen = new Set<string>();
 
-  for (const el of extractSiecleElements(xml, "DIVISION")) {
-    const code = codeFromElement(el, ["CODE_STRUCTURE", "CODE_DIVISION"]);
-    if (!code) continue;
+  const push = (row: NomenclatureUpsertRow) => {
+    const key = row.code.trim().toUpperCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    rows.push(row);
+  };
 
-    const libelle = libelleFromBlock(el.inner, code);
-    const mefs: string[] = [];
-    for (const mefBlock of extractSiecleElements(el.inner, "MEF_APPARTENANCE")) {
-      const mefCode = tagValue(mefBlock.inner, "CODE_MEF");
-      if (mefCode) mefs.push(mefCode);
+  for (const tag of ["DIVISION", "STRUCTURE"] as const) {
+    for (const el of extractSiecleElements(xml, tag)) {
+      const row = buildDivisionRow(el, tag);
+      if (row) push(row);
     }
+  }
 
-    rows.push({
-      type: "division",
-      code,
-      libelleCourt: libelle,
-      libelleLong: libelle,
-      metadataJson: {
-        codeContrat: tagValue(el.inner, "CODE_CONTRAT") || undefined,
-        codeRne: tagValue(el.inner, "CODE_RNE") || undefined,
-        mefs: mefs.length ? mefs : undefined,
-      },
-    });
+  if (!rows.length) {
+    for (const el of extractSiecleElements(xml, "GROUPE")) {
+      const row = buildDivisionRow(el, "GROUPE");
+      if (row) push(row);
+    }
   }
 
   return rows;
