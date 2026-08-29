@@ -969,7 +969,7 @@ export function parseRequestsOrg(raw: unknown): RequestsOrgConfig {
     const taskIds = [...new Set(strArr(x.taskIds).map((t) => t.trim()).filter(Boolean))];
     const tags = [
       ...new Set(
-        strArr(x.tags)
+        strArr(x.tags ?? [])
           .map((t) => t.trim().replace(/\s+/g, " "))
           .filter(Boolean),
       ),
