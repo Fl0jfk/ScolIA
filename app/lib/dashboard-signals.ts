@@ -714,17 +714,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         detail: "Documents personnels · absences",
         tone: "info",
       });
-      shortcuts.push({
-        id: "rh-demande-absence",
-        pillarId: "compta_rh",
-        moduleId: "rh",
-        href: "/rh?tab=dashboard&section=absences#nouvelle-absence",
-        label: "Demander une absence",
-        rich: true,
-        detail: "Autorisation d’absence (self-service)",
-        tone: "action",
-      });
-
       if (canCreateHseDemand(roles)) {
         shortcuts.push({
           id: "rh-demande-hse",
