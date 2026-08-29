@@ -19,8 +19,9 @@ export async function listStageSiecleClassOptions(): Promise<StageSiecleClassOpt
 
   for (const code of official.lockedClasses) {
     const division = official.divisions.find((d) => d.code === code);
-    const pole =
-      official.lockedClassesByPole.COLLÈGE?.includes(code) ? "COLLÈGE" : "LYCÉE";
+    const pole: StageSiecleClassOption["pole"] = official.lockedClassesByPole.LYCÉE?.includes(code)
+      ? "LYCÉE"
+      : "COLLÈGE";
     out.push({
       code,
       label: division?.libelleLong || division?.libelleCourt || code,

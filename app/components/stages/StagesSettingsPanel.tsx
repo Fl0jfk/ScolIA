@@ -24,8 +24,8 @@ export default function StagesSettingsPanel({
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-[#1F3D2B]">Classes concernées par les stages</h2>
         <p className="mt-2 text-sm text-stone-600 max-w-2xl">
-          Sélectionnez les classes concernées par les stages, puis configurez leurs périodes. Les
-          classes proviennent du référentiel établissement (dossiers élèves, Siècle, planning).
+          Sélectionnez les classes collège et lycée importées depuis SIECLE, puis configurez leurs
+          périodes. L&apos;école primaire n&apos;est pas incluse.
         </p>
         <div className="mt-4">
           <StagePeriodsEditor onSaved={(m) => onSavedMsg(m)} />
@@ -35,9 +35,8 @@ export default function StagesSettingsPanel({
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-[#1F3D2B]">Professeurs principaux / référents par classe</h2>
         <p className="mt-2 text-sm text-stone-600 max-w-2xl">
-          Assignez un ou plusieurs professeurs référents pour chaque classe. Ils verront l&apos;onglet{" "}
-          <strong>Suivi classe</strong> avec tous les élèves et l&apos;état de leurs conventions, et
-          recevront les demandes de signature par e-mail.
+          Assignez un ou plusieurs professeurs référents pour chaque classe activée ci-dessus. Si
+          aucune classe n&apos;est configurée, cette section reste vide.
         </p>
         <div className="mt-4">
           <StageReferentsEditor onSaved={(m) => onSavedMsg(m)} />

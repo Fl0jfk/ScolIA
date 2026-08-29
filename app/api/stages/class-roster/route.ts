@@ -42,7 +42,7 @@ export async function GET(req: Request) {
 
     let availableClasses: string[];
     if (isAdmin) {
-      const fromRoster = await listStageRosterClassNames();
+      const fromRoster = await listStageRosterClassNames(schoolYear);
       availableClasses = [...new Set([...fromRoster, ...referentClasses])].sort((a, b) =>
         a.localeCompare(b, "fr", { sensitivity: "base" }),
       );

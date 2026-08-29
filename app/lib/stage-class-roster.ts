@@ -1,6 +1,6 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
-import { listEstablishmentClassNames } from "@/app/lib/school-classes-resolver";
+import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
 import { buildSignatureSummary, type StageSignatureSummary } from "@/app/lib/stage-signature-summary";
@@ -135,9 +135,9 @@ function studentKey(nom: string, prenom: string, ine?: string): string {
   return `name:${normalizeName(nom)}|${normalizeName(prenom)}`;
 }
 
-/** Classes disponibles dans le suivi classe (référentiel établissement). */
-export async function listStageRosterClassNames(): Promise<string[]> {
-  return listEstablishmentClassNames();
+/** Classes disponibles dans le suivi classe (config stages activée). */
+export async function listStageRosterClassNames(schoolYear?: string): Promise<string[]> {
+  return listStageEnabledClassNames(schoolYear);
 }
 
 export async function buildStageClassRoster(

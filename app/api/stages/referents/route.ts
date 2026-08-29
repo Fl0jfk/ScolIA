@@ -49,9 +49,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const schoolYear = searchParams.get("schoolYear")?.trim() || currentStageSchoolYear();
     const config = await getStageReferentsConfig(schoolYear);
-    const classes = await listStageReferentClassNames(
-      config?.assignments.map((a) => a.className),
-    );
+    const classes = await listStageReferentClassNames(schoolYear);
 
     const prevYearParts = schoolYear.split("-").map(Number);
     const prevYear =

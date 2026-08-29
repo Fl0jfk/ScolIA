@@ -11,7 +11,7 @@ import {
   type StagePeriodReminder,
   type StageClassPeriod,
 } from "@/app/lib/stage-periods-config";
-import { listEstablishmentClassOptions } from "@/app/lib/school-classes-resolver";
+import { listStageSiecleClassOptions } from "@/app/lib/stage-siecle-classes";
 import { currentStageSchoolYear, stageUid } from "@/app/lib/stage-types";
 
 function displayName(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
@@ -76,7 +76,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const schoolYear = searchParams.get("schoolYear")?.trim() || currentStageSchoolYear();
     const config = await getStagePeriodsConfig(schoolYear);
-    const siecleClasses = await listEstablishmentClassOptions();
+    const siecleClasses = await listStageSiecleClassOptions();
 
     const prevYearParts = schoolYear.split("-").map(Number);
     const prevYear =

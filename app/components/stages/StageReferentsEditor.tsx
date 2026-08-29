@@ -176,9 +176,8 @@ export default function StageReferentsEditor({
       )}
 
       <p className="text-sm text-stone-600">
-        Assignez un ou plusieurs professeurs référents à chaque classe. Chaque référent voit
-        l&apos;onglet <strong>Suivi classe</strong> pour ses classes. Les classes proviennent du
-        référentiel établissement (dossiers élèves, Siècle, planning).
+        Assignez un ou plusieurs professeurs référents à chaque classe activée dans la section
+        ci-dessus. Chaque référent voit l&apos;onglet <strong>Suivi classe</strong> pour ses classes.
       </p>
 
       {updatedAt && (
@@ -190,8 +189,8 @@ export default function StageReferentsEditor({
 
       {classes.length === 0 ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Aucune classe trouvée. Vérifiez la liste élèves (dossiers) ou importez Structures.xml dans
-          Paramètres → Pont Siècle.
+          Aucune classe activée dans « Classes concernées par les stages ». Ajoutez et activez des
+          classes collège / lycée ci-dessus avant d&apos;assigner des référents.
         </p>
       ) : users.length === 0 ? (
         <p className="text-sm text-amber-800 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">

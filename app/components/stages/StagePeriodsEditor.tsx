@@ -10,7 +10,7 @@ import type {
 type ClassOption = {
   code: string;
   label: string;
-  pole: "COLLÈGE" | "LYCÉE" | "ÉCOLE";
+  pole: "COLLÈGE" | "LYCÉE";
 };
 
 function uid(prefix: string) {
@@ -235,9 +235,10 @@ export default function StagePeriodsEditor({
       )}
 
       <p className="text-sm text-stone-600 max-w-3xl">
-        Sélectionnez les classes concernées par les stages (dossiers élèves, Siècle, planning), puis
-        configurez leurs périodes et rappels. Les classes désactivées restent visibles ici mais
-        n&apos;apparaissent pas sur le formulaire public.
+        Sélectionnez les classes collège et lycée importées depuis SIECLE (Structures.xml), puis
+        configurez leurs périodes et rappels. L&apos;école primaire n&apos;est pas concernée par les
+        stages. Les classes désactivées restent visibles ici mais n&apos;apparaissent pas dans les
+        référents ni sur le formulaire public.
       </p>
 
       {updatedAt && (
@@ -249,8 +250,8 @@ export default function StagePeriodsEditor({
 
       {classOptions.length === 0 && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Aucune classe trouvée. Vérifiez la liste élèves (dossiers) ou importez Structures.xml dans
-          Paramètres → Pont Siècle.
+          Aucune classe SIECLE (collège / lycée) trouvée. Importez Structures.xml dans Paramètres →
+          Pont Siècle avant de configurer les stages.
         </p>
       )}
 
@@ -441,7 +442,7 @@ export default function StagePeriodsEditor({
             value={selectedClass}
             onChange={(e) => setSelectedClass(e.target.value)}
           >
-            <option value="">— Choisir une classe —</option>
+            <option value="">— Choisir une classe SIECLE —</option>
             {pickOptions.map((opt) => (
               <option key={opt.code} value={opt.code}>
                 {opt.code} — {opt.label} ({opt.pole})

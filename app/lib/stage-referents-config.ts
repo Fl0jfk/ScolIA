@@ -1,4 +1,4 @@
-import { listEstablishmentClassNames } from "@/app/lib/school-classes-resolver";
+import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { STAGE_S3, currentStageSchoolYear, type StageConvention } from "@/app/lib/stage-types";
 
@@ -29,8 +29,8 @@ export function classKey(className: string): string {
     .toLowerCase();
 }
 
-export async function listStageReferentClassNames(extra?: string[]): Promise<string[]> {
-  return listEstablishmentClassNames(extra);
+export async function listStageReferentClassNames(schoolYear?: string): Promise<string[]> {
+  return listStageEnabledClassNames(schoolYear);
 }
 
 export async function getStageReferentsConfig(schoolYear: string): Promise<StageReferentsConfig | null> {
