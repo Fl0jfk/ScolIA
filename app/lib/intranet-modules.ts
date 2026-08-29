@@ -32,8 +32,7 @@ export type DashboardTileVariant =
   | "personnel-ogec"
   | "internat"
   | "week-sheet"
-  | "photocopies-couleur"
-  | "toolbox";
+  | "photocopies-couleur";
 
 export type DashboardCategory = {
   id: number;
@@ -176,33 +175,24 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "qrcreator",
     pathPrefixes: ["/qrcreator"],
     allowedRoles: [...ROLES_EXCEPT_PARENT],
+    dashboard: {
+      id: 501,
+      name: "QR Code",
+      img: "",
+      link: "/qrcreator",
+      external: false,
+      description: "Créer un QR code personnalisé avec le logo de l'établissement.",
+    },
   },
   {
-    id: "toolbox",
-    pathPrefixes: ["/toolbox", "/api/toolbox"],
-    // Pas de défaut professeur : accès via Droits modules / rôles admin & staff.
-    allowedRoles: [
-      ...DIRECTIONS,
-      "administratif",
-      "comptabilite",
-      "surveillant",
-      "cpe",
-      "maintenance",
-      "infirmerie",
-      "psychologue",
-      "internat",
-      "admin",
+    id: "repartition-classes",
+    pathPrefixes: [
+      "/toolbox/repartition-classes",
+      "/api/toolbox/class-allocation",
+      "/repartition-classes",
     ],
-    orgAdminOnly: false,
-    dashboard: {
-      id: 5,
-      name: "Boîte à outils",
-      img: "",
-      link: "/toolbox",
-      external: false,
-      variant: "toolbox",
-      description: "QR code, photocopies et outils activables.",
-    },
+    allowedRoles: [...DIRECTIONS, "administratif", "admin", "cpe"],
+    // Pas de tuile front — module configurable dans Droits modules uniquement.
   },
   {
     id: "prof-room",
@@ -330,7 +320,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "evenements",
-    pathPrefixes: ["/etablissement/evenements"],
+    pathPrefixes: ["/etablissement/evenements", "/api/toolbox"],
+    excludePrefixes: ["/api/toolbox/class-allocation"],
     allowedRoles: [...ROLES_EXCEPT_PARENT].filter((r) => r !== "eleve"),
     dashboard: {
       id: 30,
@@ -404,8 +395,16 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "photocopies-couleur",
     pathPrefixes: ["/photocopies-couleur", "/api/photocopies-couleur"],
     allowedRoles: [...DIRECTIONS, "administratif", "professeur"],
-    // Tuile dashboard retirée : accès via Boîte à outils (+ alertes direction si file d’attente).
-    // Route /photocopies-couleur conservée.
+    dashboard: {
+      id: 502,
+      name: "Photocopies couleur",
+      img: "",
+      link: "/photocopies-couleur",
+      external: false,
+      variant: "photocopies-couleur",
+      description:
+        "Demander une impression couleur — validation direction puis service impressions.",
+    },
   },
   {
     id: "demandes-hse",
@@ -645,7 +644,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "covoiturage",
     pathPrefixes: ["/covoiturage", "/api/covoiturage"],
     allowedRoles: ["parent", ...DIRECTIONS, "administratif", "admin"],
-    // Tuile dashboard retirée : outil activable via Boîte à outils (désactivé par défaut).
+    // Pas de tuile front — module configurable dans Droits modules uniquement.
   },
   {
     id: "assistance",
@@ -734,7 +733,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "pillar-services",
-    pathPrefixes: ["/services"],
+    pathPrefixes: ["/services", "/toolbox"],
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
@@ -1004,7 +1003,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "requests-staff",
     "domain-planning",
     "documents",
-    "toolbox",
+    "qrcreator",
     "channels",
     "assistance",
     "photocopies-couleur",

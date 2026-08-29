@@ -44,7 +44,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
   // Services
   "documents",
   "travels",
-  "toolbox",
+  "qrcreator",
   "prof-room",
   "domain-planning",
   "channels",

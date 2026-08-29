@@ -15,7 +15,7 @@ type ToolboxToolMeta = {
   season?: string;
 };
 
-/** Outils restants dans la boîte à outils. */
+/** Outils extraits de l’ancienne boîte à outils (config / API legacy). */
 export const TOOLBOX_TOOLS_META: ToolboxToolMeta[] = [
   {
     id: "qrcreator",
@@ -48,7 +48,7 @@ export const TOOLBOX_TOOLS_META: ToolboxToolMeta[] = [
   },
 ];
 
-/** Liens permanents du hub (pas de toggle on/off). */
+/** Liens permanents (ex-hub) — conservés pour compat API publique. */
 export type ToolboxHubLinkId = "photocopies-couleur";
 
 export type ToolboxHubLinkMeta = {

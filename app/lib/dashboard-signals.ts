@@ -1153,7 +1153,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         shortcuts.push({
           id: "photo-dir",
           pillarId: "administratif",
-          moduleId: "toolbox",
+          moduleId: "photocopies-couleur",
           href: photoHome,
           label: "Photocopies couleur",
           rich: true,
@@ -1164,7 +1164,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
         pushNotif({
           id: "photo-dir",
-          moduleId: "toolbox",
+          moduleId: "photocopies-couleur",
           label: "Photocopies couleur",
           count: pendingDir,
           href: photoHome,
@@ -1195,9 +1195,9 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     { moduleId: "domain-planning", label: "Enseignements transversaux" },
     { moduleId: "documents", label: "Cloud personnel" },
     {
-      moduleId: "toolbox",
-      label: "Boîte à outils",
-      detail: "QR code · Photocopies · outils activables",
+      moduleId: "qrcreator",
+      label: "QR Code",
+      detail: "Créer un QR code avec le logo de l'établissement",
     },
     { moduleId: "channels", label: "Salons" },
     { moduleId: "assistance", label: "Assistance" },

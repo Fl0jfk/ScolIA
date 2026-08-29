@@ -105,10 +105,10 @@ export default function ClassAllocationHubPage() {
 
   return (
     <ClassAllocationShell
-      badge="Boîte à outils"
+      badge="Répartition des classes"
       title="Répartition des classes"
       subtitle="Campagne annuelle et lancement du moteur de répartition."
-      backHref="/toolbox"
+      backHref="/services"
     >
       <ClassAllocationAlert tone="info">
         Liste élèves, professeurs par classe et catalogue profs :{" "}

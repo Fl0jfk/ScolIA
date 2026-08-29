@@ -202,15 +202,15 @@ export default function CovoituragePage() {
     return (
       <ModulePageShell maxWidthClass="max-w-3xl">
         <ModulePageHeader
-          eyebrow="Boîte à outils"
+          eyebrow="Services"
           title="Covoiturage"
           description="Outil désactivé pour cet établissement."
         />
         <ModuleCard bodyClassName="p-6">
           <p className={`text-sm ${dash.textMid}`}>
-            Le covoiturage n’est pas encore activé. Un administrateur peut l’activer depuis la{" "}
-            <a href="/toolbox" className={`font-semibold underline ${dash.textPrimary}`}>
-              boîte à outils
+            Le covoiturage n’est pas encore activé. Un administrateur peut l’activer dans{" "}
+            <a href="/parametres?tab=modules" className={`font-semibold underline ${dash.textPrimary}`}>
+              Paramètres → Droits modules
             </a>
             .
           </p>
@@ -227,7 +227,7 @@ export default function CovoituragePage() {
   return (
     <ModulePageShell maxWidthClass="max-w-3xl" className="pb-24">
       <ModulePageHeader
-        eyebrow="Boîte à outils"
+        eyebrow="Services"
         title="Covoiturage"
         description="Mise en relation entre familles par zone (code postal) et établissement. Aucune adresse exacte n'est stockée. Les coordonnées ne sont échangées qu'avec votre accord."
       />
