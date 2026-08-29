@@ -13,6 +13,7 @@ import { pickExactCurrentWeekSheet } from "@/app/lib/dashboard-week-sheet-active
 import type { WeekSheetData, WeekSheetEvent } from "@/app/lib/dashboard-week-sheet-types";
 import { WEEK_DAYS, type WeekDayKey } from "@/app/lib/dashboard-week-sheet-types";
 import { canAccessHseModule, getHseRoleFlags, type HseRecordLike } from "@/app/lib/demandes-hse-access";
+import { canCreatePhotocopiesDemand } from "@/app/lib/photocopies-couleur-access";
 import { directionRolesMatchEstablishmentRef, isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
@@ -155,6 +156,7 @@ type DashboardSignalsInput = {
     status: string;
     etablissement?: string;
     createdBy?: { userId?: string };
+    nombrePhotocopies?: number;
   }>;
   hse?: Array<HseRecordLike & { id: string }>;
   stagesPendingSignatures?: number;
@@ -237,6 +239,13 @@ function photocopiePendingForDirection(
       p.status === "EN_ATTENTE" &&
       directionRolesMatchEstablishmentRef(roles, p.etablissement, establishments),
   ).length;
+}
+
+function photocopiesReadyForUser(
+  userId: string,
+  photocopies: Array<{ status: string; createdBy?: { userId?: string } }>,
+): number {
+  return photocopies.filter((p) => p.status === "PRETE" && p.createdBy?.userId === userId).length;
 }
 
 function slotTimeLabel(startsAt: string): string {
@@ -1047,39 +1056,76 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
   }
 
-  // —— Services : Photocopies (alertes direction uniquement — entrée via Boîte à outils) ——
+  // —— Services : Photocopies ——
   if (has("photocopies-couleur")) {
     const photoHome = moduleHref("photocopies-couleur");
-    const etab = photocopiePendingForDirection(roles, photocopies, establishments);
-    if (etab > 0) {
-      const pending = etab;
-      if (pending > 0) {
-        shortcuts.push({
-          id: "photo-dir",
-          pillarId: "administratif",
-          moduleId: "toolbox",
-          href: photoHome,
-          label: "Photocopies couleur",
-          rich: true,
-          badge: `${pending} à traiter`,
-          detail:
-            pending === 1
-              ? "1 photocopie à traiter"
-              : `${pending} photocopies à traiter`,
-          tone: "warn",
-        });
-        pushNotif({
-          id: "photo-dir",
-          moduleId: "toolbox",
-          label: "Photocopies couleur",
-          count: pending,
-          href: photoHome,
-          detail:
-            pending === 1
-              ? "1 photocopie à traiter"
-              : `${pending} photocopies à traiter`,
-        });
-      }
+    const readyCount = photocopiesReadyForUser(userId, photocopies);
+    const pendingDir = photocopiePendingForDirection(roles, photocopies, establishments);
+    const isProf = hasRole(roles, "professeur");
+
+    if (isProf || canCreatePhotocopiesDemand(roles)) {
+      shortcuts.push({
+        id: "photocopies-new",
+        pillarId: "administratif",
+        moduleId: "photocopies-couleur",
+        href: photoHome,
+        label: "Photocopies couleur",
+        rich: true,
+        detail: "Demander une impression couleur",
+        tone: "action",
+      });
+    }
+
+    if (readyCount > 0) {
+      shortcuts.push({
+        id: "photocopies-ready",
+        pillarId: "administratif",
+        moduleId: "photocopies-couleur",
+        href: photoHome,
+        label: "Photocopies prêtes",
+        rich: true,
+        badge: `${readyCount} prête${readyCount > 1 ? "s" : ""}`,
+        detail:
+          readyCount === 1
+            ? "Votre demande de photocopies est prête à retirer"
+            : `${readyCount} demandes de photocopies prêtes à retirer`,
+        tone: "info",
+      });
+      pushNotif({
+        id: "photocopies-ready",
+        moduleId: "photocopies-couleur",
+        label: "Photocopies prêtes",
+        count: readyCount,
+        href: photoHome,
+        detail:
+          readyCount === 1
+            ? "Votre demande de photocopies couleur est prête"
+            : `${readyCount} demandes de photocopies couleur sont prêtes`,
+      });
+    }
+
+    if (pendingDir > 0) {
+      shortcuts.push({
+        id: "photo-dir",
+        pillarId: "administratif",
+        moduleId: "toolbox",
+        href: photoHome,
+        label: "Photocopies couleur",
+        rich: true,
+        badge: `${pendingDir} à traiter`,
+        detail:
+          pendingDir === 1 ? "1 photocopie à traiter" : `${pendingDir} photocopies à traiter`,
+        tone: "warn",
+      });
+      pushNotif({
+        id: "photo-dir",
+        moduleId: "toolbox",
+        label: "Photocopies couleur",
+        count: pendingDir,
+        href: photoHome,
+        detail:
+          pendingDir === 1 ? "1 photocopie à traiter" : `${pendingDir} photocopies à traiter`,
+      });
     }
   }
 
