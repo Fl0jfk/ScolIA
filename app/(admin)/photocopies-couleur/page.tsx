@@ -16,6 +16,7 @@ import {
   canManagePhotocopiesDemand,
   getPhotocopiesRoleFlags,
 } from "@/app/lib/photocopies-couleur-access";
+import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
 import DirectoryPersonSelect, {
   directoryMemberLabel,
 } from "@/app/components/settings/DirectoryPersonSelect";
@@ -110,7 +111,11 @@ export default function PhotocopiesCouleurPage() {
   const creator = canCreatePhotocopiesDemand(roles);
   const canOnBehalf = canDeclarePhotocopiesOnBehalf(roles);
   const dirFlags = getPhotocopiesRoleFlags(roles);
-  const directionAny = dirFlags.isDirection;
+  const directionAny =
+    dirFlags.isDirection ||
+    hasGlobalAdminRole(roles) ||
+    hasMasterRole(roles) ||
+    roles.includes("admin");
   const userEmail = user?.primaryEmailAddress?.emailAddress?.trim() ?? "";
 
   const fetchItems = useCallback(async () => {
