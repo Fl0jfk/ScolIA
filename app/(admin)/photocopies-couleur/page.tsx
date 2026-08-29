@@ -2,7 +2,7 @@
 
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -26,6 +26,64 @@ import {
   type PhotoCopieRecord,
   type PhotoCopieStatus,
 } from "@/app/lib/photocopies-couleur-types";
+
+async function openPhotocopieDocument(id: string): Promise<void> {
+  const res = await fetch(`/api/photocopies-couleur/document?id=${encodeURIComponent(id)}`, {
+    cache: "no-store",
+  });
+  const data = (await res.json().catch(() => ({}))) as { signedUrl?: string; error?: string };
+  if (!res.ok || !data.signedUrl) {
+    throw new Error(data.error || "Impossible d'ouvrir le PDF.");
+  }
+  window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+}
+
+function PhotocopieDocumentButton({
+  item,
+  emphasize,
+}: {
+  item: PhotoCopieRecord;
+  /** Mise en avant pour la file d'impression (ouvrir pour imprimer). */
+  emphasize?: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (!item.documentKey || !item.documentFileName) {
+    return (
+      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 mb-3">
+        Aucun PDF joint à cette demande.
+      </p>
+    );
+  }
+  return (
+    <div className="mb-3">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
+          setErr(null);
+          setBusy(true);
+          void openPhotocopieDocument(item.id)
+            .catch((e: unknown) => {
+              setErr(e instanceof Error ? e.message : "Ouverture impossible.");
+            })
+            .finally(() => setBusy(false));
+        }}
+        className={
+          emphasize
+            ? "inline-flex items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-600 px-3 py-2 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-60"
+            : "inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
+        }
+      >
+        {busy ? "Ouverture…" : emphasize ? "Ouvrir le PDF pour imprimer" : "Voir / télécharger le PDF"}
+        <span className={emphasize ? "font-medium opacity-90" : "font-normal text-indigo-600"}>
+          {item.documentFileName}
+        </span>
+      </button>
+      {err ? <p className="mt-1 text-xs text-rose-700">{err}</p> : null}
+    </div>
+  );
+}
 
 export default function PhotocopiesCouleurPage() {
   const { user, isLoaded } = useSessionUser();
@@ -277,8 +335,10 @@ export default function PhotocopiesCouleurPage() {
   const renderItemCard = (item: PhotoCopieRecord, opts?: { showReadyBanner?: boolean }) => (
     <div
       key={item.id}
-      className={`relative rounded-[1.5rem] border bg-white/50 p-5 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl ${
-        item.status === "PRETE" ? "border-emerald-300 ring-1 ring-emerald-200" : "border-white/55"
+      className={`rounded-2xl border bg-white p-4 sm:p-5 ${
+        item.status === "PRETE"
+          ? "border-emerald-200 shadow-[0_0_0_1px_rgba(16,185,129,0.12)]"
+          : "border-slate-200/90"
       }`}
     >
       {opts?.showReadyBanner && item.status === "PRETE" ? (
@@ -286,38 +346,43 @@ export default function PhotocopiesCouleurPage() {
           Vos photocopies sont prêtes — vous pouvez venir les retirer.
         </div>
       ) : null}
-      <div className="flex flex-wrap gap-3 items-center justify-between mb-3">
-        <div>
-          <p className="font-semibold text-[var(--dash-ink)]">
-            {item.etablissement} · {item.nombrePhotocopies} copie(s)
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <p className={`font-semibold ${dash.ink}`}>
+            {item.etablissement}
+            <span className="font-medium text-slate-500"> · {item.nombrePhotocopies} copie(s)</span>
           </p>
-          <p className="text-xs text-slate-500">
-            Créée le {new Date(item.createdAt).toLocaleString("fr-FR")} — {item.createdBy.name}
+          <p className="text-xs text-slate-500 mt-0.5">
+            {new Date(item.createdAt).toLocaleString("fr-FR")}
+            {item.createdBy.name ? ` — ${item.createdBy.name}` : ""}
           </p>
           {item.submittedBy ? (
-            <p className="text-xs text-indigo-600 mt-0.5">
-              Déposée par {item.submittedBy.name} pour le compte de l'enseignant
+            <p className="text-xs text-slate-600 mt-0.5">
+              Déposée par {item.submittedBy.name} pour l&apos;enseignant
             </p>
           ) : null}
         </div>
         <span
-          className={`text-xs font-black px-3 py-1.5 rounded-xl border ${photoCopieStatusBadgeClass(item.status)}`}
+          className={`shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-lg border ${photoCopieStatusBadgeClass(item.status)}`}
         >
           {photoCopieStatusLabel(item.status)}
         </span>
       </div>
-      <p className="text-sm text-slate-700 mb-1">
-        <span className="font-bold">Motif :</span> {item.motif}
-      </p>
-      <p className="text-sm text-slate-700 mb-1">
-        <span className="font-bold">Classes / matière :</span> {item.classesOuMatiere}
-      </p>
-      {item.documentFileName ? (
-        <p className="text-xs text-indigo-700 mb-1">PDF joint : {item.documentFileName}</p>
-      ) : null}
+      <dl className="space-y-1.5 text-sm text-slate-700 mb-2">
+        <div>
+          <dt className="inline text-slate-500">Motif · </dt>
+          <dd className="inline">{item.motif}</dd>
+        </div>
+        <div>
+          <dt className="inline text-slate-500">Classes / matière · </dt>
+          <dd className="inline">{item.classesOuMatiere}</dd>
+        </div>
+      </dl>
+      {item.documentFileName || item.documentKey ? <PhotocopieDocumentButton item={item} /> : null}
       {item.directionNote ? (
-        <p className="text-sm text-indigo-800 mt-2">
-          <span className="font-bold">Message direction :</span> {item.directionNote}
+        <p className="text-sm text-slate-700 mt-2 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
+          <span className="font-semibold text-slate-800">Message direction · </span>
+          {item.directionNote}
         </p>
       ) : null}
       {item.readyAt ? (
@@ -328,9 +393,32 @@ export default function PhotocopiesCouleurPage() {
       ) : null}
       {item.decidedBy ? (
         <p className="text-xs text-slate-500 mt-2">
-          Décision par {item.decidedBy.name} le{" "}
-          {item.decidedAt ? new Date(item.decidedAt).toLocaleString("fr-FR") : "—"}
+          Décision par {item.decidedBy.name}
+          {item.decidedAt ? ` le ${new Date(item.decidedAt).toLocaleString("fr-FR")}` : ""}
         </p>
+      ) : null}
+    </div>
+  );
+
+  const EmptyHint = ({ children }: { children: ReactNode }) => (
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center text-sm text-slate-500">
+      {children}
+    </div>
+  );
+
+  const SectionLabel = ({
+    title,
+    count,
+  }: {
+    title: string;
+    count?: number;
+  }) => (
+    <div className="flex items-center gap-2 mb-3">
+      <h4 className={`text-sm font-semibold ${dash.ink}`}>{title}</h4>
+      {typeof count === "number" ? (
+        <span className="inline-flex min-w-[1.4rem] justify-center rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold text-slate-600">
+          {count}
+        </span>
       ) : null}
     </div>
   );
@@ -367,7 +455,7 @@ export default function PhotocopiesCouleurPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
         {creator ? (
           <ModuleCard data-tour="photocopies-new" className="xl:col-span-1 h-fit" bodyClassName="p-6">
             <h2 className={`mb-4 text-xl font-semibold ${dash.ink}`}>Nouvelle demande</h2>
@@ -470,7 +558,7 @@ export default function PhotocopiesCouleurPage() {
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-1 file:font-semibold file:text-indigo-700"
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Optionnel : joint à l'e-mail de la direction et, si acceptée, au service impressions.
+                  Recommandé : visible par la direction à la validation, puis par le service impressions.
                 </p>
               </div>
               {error && (
@@ -496,234 +584,253 @@ export default function PhotocopiesCouleurPage() {
           )
         )}
 
-        <div className={`space-y-6 ${creator ? "xl:col-span-2" : "xl:col-span-3"}`}>
+        <div className={`space-y-5 ${creator ? "xl:col-span-2" : "xl:col-span-3"}`}>
           {creator && (
-            <>
-              <div
-                data-tour="photocopies-mine"
-                className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-4 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl"
-              >
-                <h3 className="font-semibold text-[var(--dash-ink)]">Mes demandes</h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Historique personnel (y compris en attente de traitement).
-                </p>
+            <ModuleCard data-tour="photocopies-mine" bodyClassName="p-5 sm:p-6">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+                <h3 className={`text-lg font-semibold ${dash.ink}`}>Mes demandes</h3>
+                {!loading ? (
+                  <span className="text-xs font-medium text-slate-500">{mine.length} au total</span>
+                ) : null}
               </div>
+              <p className="text-xs text-slate-500 mb-4">Suivi de vos demandes, y compris en attente.</p>
               {loading ? (
-                <div className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-8 text-[var(--dash-mid)] shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl">
-                  Chargement…
-                </div>
+                <p className="text-sm text-slate-500 py-6 text-center">Chargement…</p>
               ) : mine.length === 0 ? (
-                <div className="relative rounded-[1.5rem] border border-dashed border-white/70 bg-white/40 p-8 text-[var(--dash-mid)]">
-                  Aucune demande encore.
-                </div>
+                <EmptyHint>Aucune demande pour le moment.</EmptyHint>
               ) : (
-                mine.map((item) => renderItemCard(item, { showReadyBanner: true }))
+                <div className="space-y-3">{mine.map((item) => renderItemCard(item, { showReadyBanner: true }))}</div>
               )}
-            </>
+            </ModuleCard>
           )}
 
           {isOpsHandler && (
-            <div data-tour="photocopies-ops-queue" className="space-y-4">
-              <div className="relative rounded-[1.5rem] border border-teal-200/80 bg-teal-50/60 p-4 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl">
-                <h3 className="font-semibold text-[var(--dash-ink)]">File d&apos;impression</h3>
-                <p className="text-xs text-slate-600 mt-1">
-                  Demandes acceptées par la direction — à imprimer. Une fois marquées prêtes, le demandeur est notifié
-                  (si plusieurs réceptionnaires, la première validation vaut pour tous).
-                </p>
+            <ModuleCard data-tour="photocopies-ops-queue" bodyClassName="p-5 sm:p-6">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+                <h3 className={`text-lg font-semibold ${dash.ink}`}>File d&apos;impression</h3>
+                {!loading ? (
+                  <span className="text-xs font-medium text-slate-500">
+                    {opsPrintQueue.length} à imprimer
+                  </span>
+                ) : null}
               </div>
+              <p className="text-xs text-slate-500 mb-4">
+                Demandes acceptées par la direction. Une validation « prête » notifie le demandeur pour tous les
+                réceptionnaires.
+              </p>
 
               {loading ? (
-                <div className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-8 text-[var(--dash-mid)]">
-                  Chargement…
-                </div>
+                <p className="text-sm text-slate-500 py-6 text-center">Chargement…</p>
               ) : (
-                <>
-                  <h4 className={`px-1 text-sm font-semibold uppercase tracking-wide ${dash.ink}`}>
-                    À imprimer ({opsPrintQueue.length})
-                  </h4>
-                  {opsPrintQueue.length === 0 ? (
-                    <div className="rounded-[1.5rem] border border-dashed border-white/70 bg-white/40 p-6 text-sm text-[var(--dash-mid)]">
-                      Aucune photocopie en attente d&apos;impression.
-                    </div>
-                  ) : (
-                    opsPrintQueue.map((item) => (
-                      <div
-                        key={item.id}
-                        className="relative rounded-[1.5rem] border border-sky-200 bg-white/60 p-5 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl"
-                      >
-                        <div className="flex flex-wrap gap-3 items-center justify-between mb-3">
-                          <div>
-                            <p className="font-semibold text-[var(--dash-ink)]">
-                              {item.createdBy.name} — {item.etablissement}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              {item.createdBy.email} · {item.nombrePhotocopies} copie(s) · acceptée le{" "}
-                              {item.decidedAt
-                                ? new Date(item.decidedAt).toLocaleString("fr-FR")
-                                : new Date(item.createdAt).toLocaleString("fr-FR")}
-                            </p>
-                          </div>
-                          <span
-                            className={`text-xs font-black px-3 py-1.5 rounded-xl border ${photoCopieStatusBadgeClass("ACCEPTEE")}`}
+                <div className="space-y-5">
+                  <div>
+                    <SectionLabel title="À imprimer" count={opsPrintQueue.length} />
+                    {opsPrintQueue.length === 0 ? (
+                      <EmptyHint>Rien en attente d&apos;impression.</EmptyHint>
+                    ) : (
+                      <div className="space-y-3">
+                        {opsPrintQueue.map((item) => (
+                          <div
+                            key={item.id}
+                            className="rounded-2xl border border-sky-200 bg-sky-50/40 p-4 sm:p-5"
                           >
-                            À imprimer
-                          </span>
-                        </div>
-                        <p className="text-sm text-slate-700 mb-1">
-                          <span className="font-bold">Motif :</span> {item.motif}
-                        </p>
-                        <p className="text-sm text-slate-700 mb-3">
-                          <span className="font-bold">Classes / matière :</span> {item.classesOuMatiere}
-                        </p>
-                        {item.documentFileName ? (
-                          <p className="text-xs text-indigo-700 mb-3">PDF joint : {item.documentFileName}</p>
-                        ) : null}
-                        {item.directionNote ? (
-                          <p className="text-sm text-indigo-800 mb-3">
-                            <span className="font-bold">Note direction :</span> {item.directionNote}
-                          </p>
-                        ) : null}
-                        <button
-                          type="button"
-                          disabled={patchingId === item.id}
-                          onClick={() => void patchStatus(item.id, "PRETE")}
-                          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm disabled:opacity-60"
-                        >
-                          {patchingId === item.id ? "…" : "Marquer comme imprimée / prête"}
-                        </button>
+                            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                              <div className="min-w-0">
+                                <p className={`font-semibold ${dash.ink}`}>
+                                  {item.createdBy.name}
+                                  <span className="font-medium text-slate-500">
+                                    {" "}
+                                    — {item.etablissement}
+                                  </span>
+                                </p>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                  {item.nombrePhotocopies} copie(s)
+                                  {item.createdBy.email ? ` · ${item.createdBy.email}` : ""}
+                                  {" · acceptée "}
+                                  {item.decidedAt
+                                    ? new Date(item.decidedAt).toLocaleString("fr-FR")
+                                    : new Date(item.createdAt).toLocaleString("fr-FR")}
+                                </p>
+                              </div>
+                              <span
+                                className={`shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-lg border ${photoCopieStatusBadgeClass("ACCEPTEE")}`}
+                              >
+                                À imprimer
+                              </span>
+                            </div>
+                            <dl className="space-y-1.5 text-sm text-slate-700 mb-3">
+                              <div>
+                                <dt className="inline text-slate-500">Motif · </dt>
+                                <dd className="inline">{item.motif}</dd>
+                              </div>
+                              <div>
+                                <dt className="inline text-slate-500">Classes / matière · </dt>
+                                <dd className="inline">{item.classesOuMatiere}</dd>
+                              </div>
+                            </dl>
+                            <PhotocopieDocumentButton item={item} emphasize />
+                            {item.directionNote ? (
+                              <p className="text-sm text-slate-700 mb-3 rounded-xl bg-white border border-slate-100 px-3 py-2">
+                                <span className="font-semibold">Note direction · </span>
+                                {item.directionNote}
+                              </p>
+                            ) : null}
+                            <button
+                              type="button"
+                              disabled={patchingId === item.id}
+                              onClick={() => void patchStatus(item.id, "PRETE")}
+                              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm disabled:opacity-60"
+                            >
+                              {patchingId === item.id ? "…" : "Marquer comme imprimée / prête"}
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                    ))
-                  )}
+                    )}
+                  </div>
 
                   {opsDone.length > 0 ? (
-                    <>
-                      <h4 className={`px-1 pt-2 text-sm font-semibold uppercase tracking-wide ${dash.ink}`}>
-                        Récemment prêtes
-                      </h4>
-                      {opsDone.slice(0, 8).map((item) => renderItemCard(item))}
-                    </>
+                    <div>
+                      <SectionLabel title="Récemment prêtes" count={Math.min(opsDone.length, 8)} />
+                      <div className="space-y-3">
+                        {opsDone.slice(0, 8).map((item) => renderItemCard(item))}
+                      </div>
+                    </div>
                   ) : null}
-                </>
+                </div>
               )}
-            </div>
+            </ModuleCard>
           )}
 
           {directionAny && (
-            <div data-tour="photocopies-queue">
-              <>
-                <div className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-4 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl">
-                  <h3 className="font-semibold text-[var(--dash-ink)]">File de votre pôle</h3>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Demandes pour l'établissement dont vous assurez la direction — en attente ou déjà traitées sur
-                    votre périmètre.
-                  </p>
-                  {error && !creator && (
-                    <p className="text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2 mt-3">
-                      {error}
-                    </p>
-                  )}
-                </div>
+            <ModuleCard data-tour="photocopies-queue" bodyClassName="p-5 sm:p-6">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+                <h3 className={`text-lg font-semibold ${dash.ink}`}>File de votre pôle</h3>
+                {!loading ? (
+                  <span className="text-xs font-medium text-slate-500">
+                    {directionPending.length} en attente
+                  </span>
+                ) : null}
+              </div>
+              <p className="text-xs text-slate-500 mb-4">
+                Demandes de l&apos;établissement dont vous assurez la direction.
+              </p>
+              {error && !creator ? (
+                <p className="text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2 mb-4">
+                  {error}
+                </p>
+              ) : null}
 
-                {loading ? (
-                  <div className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-8 text-[var(--dash-mid)] shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl">
-                    Chargement…
-                  </div>
-                ) : (
-                  <>
-                    <h4 className={`px-1 text-sm font-semibold uppercase tracking-wide ${dash.ink}`}>À traiter</h4>
+              {loading ? (
+                <p className="text-sm text-slate-500 py-6 text-center">Chargement…</p>
+              ) : (
+                <div className="space-y-5">
+                  <div>
+                    <SectionLabel title="À traiter" count={directionPending.length} />
                     {directionPending.length === 0 ? (
-                      <div className="rounded-[1.5rem] border border-dashed border-white/70 bg-white/40 p-6 text-sm text-[var(--dash-mid)]">
-                        Aucune demande en attente pour votre périmètre.
-                      </div>
+                      <EmptyHint>Aucune demande en attente.</EmptyHint>
                     ) : (
-                      directionPending.map((item) => (
-                        <div
-                          key={item.id}
-                          className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-5 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl"
-                        >
-                          <div className="flex flex-wrap gap-3 items-center justify-between mb-3">
-                            <div>
-                              <p className="font-semibold text-[var(--dash-ink)]">
-                                {item.createdBy.name} — {item.etablissement}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                {item.createdBy.email} · {item.nombrePhotocopies} copie(s) · le{" "}
-                                {new Date(item.createdAt).toLocaleString("fr-FR")}
-                              </p>
-                              {item.submittedBy ? (
-                                <p className="text-xs text-indigo-600 mt-0.5">
-                                  Déposée par {item.submittedBy.name}
+                      <div className="space-y-3">
+                        {directionPending.map((item) => (
+                          <div
+                            key={item.id}
+                            className="rounded-2xl border border-amber-200/80 bg-amber-50/30 p-4 sm:p-5"
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                              <div className="min-w-0">
+                                <p className={`font-semibold ${dash.ink}`}>
+                                  {item.createdBy.name}
+                                  <span className="font-medium text-slate-500">
+                                    {" "}
+                                    — {item.etablissement}
+                                  </span>
                                 </p>
-                              ) : null}
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                  {item.nombrePhotocopies} copie(s)
+                                  {item.createdBy.email ? ` · ${item.createdBy.email}` : ""}
+                                  {" · "}
+                                  {new Date(item.createdAt).toLocaleString("fr-FR")}
+                                </p>
+                                {item.submittedBy ? (
+                                  <p className="text-xs text-slate-600 mt-0.5">
+                                    Déposée par {item.submittedBy.name}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <span
+                                className={`shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-lg border ${photoCopieStatusBadgeClass(item.status as PhotoCopieStatus)}`}
+                              >
+                                {photoCopieStatusLabel(item.status as PhotoCopieStatus)}
+                              </span>
                             </div>
-                            <span
-                              className={`text-xs font-black px-3 py-1.5 rounded-xl border ${photoCopieStatusBadgeClass(item.status as PhotoCopieStatus)}`}
-                            >
-                              {photoCopieStatusLabel(item.status as PhotoCopieStatus)}
-                            </span>
+                            <dl className="space-y-1.5 text-sm text-slate-700 mb-3">
+                              <div>
+                                <dt className="inline text-slate-500">Motif · </dt>
+                                <dd className="inline">{item.motif}</dd>
+                              </div>
+                              <div>
+                                <dt className="inline text-slate-500">Classes / matière · </dt>
+                                <dd className="inline">{item.classesOuMatiere}</dd>
+                              </div>
+                            </dl>
+                            <PhotocopieDocumentButton item={item} emphasize />
+                            <label className={`mb-2 block ${dash.fieldLabel}`}>
+                              Note pour le demandeur (optionnel)
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={directionNotes[item.id] ?? ""}
+                              onChange={(e) =>
+                                setDirectionNotes((p) => ({ ...p, [item.id]: e.target.value }))
+                              }
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm mb-3"
+                              placeholder="Ex. : à retirer au secrétariat, délai, motif du refus…"
+                            />
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={patchingId === item.id}
+                                onClick={() => void patchStatus(item.id, "ACCEPTEE")}
+                                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm disabled:opacity-60"
+                              >
+                                {patchingId === item.id ? "…" : "Accepter"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={patchingId === item.id}
+                                onClick={() => void patchStatus(item.id, "REFUSEE")}
+                                className="px-4 py-2 rounded-xl border border-rose-200 bg-white text-rose-700 hover:bg-rose-50 font-bold text-sm disabled:opacity-60"
+                              >
+                                Refuser
+                              </button>
+                            </div>
                           </div>
-                          <p className="text-sm text-slate-700 mb-1">
-                            <span className="font-bold">Motif :</span> {item.motif}
-                          </p>
-                          <p className="text-sm text-slate-700 mb-3">
-                            <span className="font-bold">Classes / matière :</span> {item.classesOuMatiere}
-                          </p>
-                          {item.documentFileName ? (
-                            <p className="text-xs text-indigo-700 mb-3">PDF joint : {item.documentFileName}</p>
-                          ) : null}
-                          <label className={`mb-2 block ${dash.fieldLabel}`}>
-                            Note pour le demandeur (optionnel)
-                          </label>
-                          <textarea
-                            rows={2}
-                            value={directionNotes[item.id] ?? ""}
-                            onChange={(e) => setDirectionNotes((p) => ({ ...p, [item.id]: e.target.value }))}
-                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm mb-3"
-                            placeholder="Ex. : à retirer au secrétariat, délai, motif du refus…"
-                          />
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              disabled={patchingId === item.id}
-                              onClick={() => void patchStatus(item.id, "ACCEPTEE")}
-                              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm disabled:opacity-60"
-                            >
-                              {patchingId === item.id ? "…" : "Accepter"}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={patchingId === item.id}
-                              onClick={() => void patchStatus(item.id, "REFUSEE")}
-                              className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm disabled:opacity-60"
-                            >
-                              Refuser
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-
-                    <h4 className={`px-1 pt-4 text-sm font-semibold uppercase tracking-wide ${dash.ink}`}>
-                      Traitées (pôle)
-                    </h4>
-                    {directionHistory.length === 0 ? (
-                      <div className="rounded-[1.5rem] border border-dashed border-white/70 bg-white/40 p-6 text-sm text-[var(--dash-mid)]">
-                        Pas encore d'historique de décision sur votre périmètre.
+                        ))}
                       </div>
-                    ) : (
-                      directionHistory.map((item) => renderItemCard(item))
                     )}
-                  </>
-                )}
-              </>
-            </div>
+                  </div>
+
+                  <div>
+                    <SectionLabel title="Traitées" count={directionHistory.length} />
+                    {directionHistory.length === 0 ? (
+                      <EmptyHint>Pas encore d&apos;historique sur votre périmètre.</EmptyHint>
+                    ) : (
+                      <div className="space-y-3">
+                        {directionHistory.map((item) => renderItemCard(item))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </ModuleCard>
           )}
 
           {!creator && !directionAny && !isOpsHandler && !loading && (
-            <div className="rounded-[1.5rem] border border-white/55 bg-white/50 p-8 text-[var(--dash-mid)] backdrop-blur-xl">
-              Votre profil ne permet pas d&apos;accéder à cette page. Contactez l&apos;administrateur si vous pensez
-              qu&apos;il s&apos;agit d&apos;une erreur.
-            </div>
+            <ModuleCard bodyClassName="p-6">
+              <p className="text-sm text-slate-600 text-center py-4">
+                Votre profil ne permet pas d&apos;accéder à cette page. Contactez l&apos;administrateur si besoin.
+              </p>
+            </ModuleCard>
           )}
         </div>
       </div>
