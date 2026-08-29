@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { authUserMapping, user, userRole } from "@/db/schema";
 import { hasMasterRole, normalizeIntranetRoles } from "@/app/lib/intranet-roles";
@@ -16,6 +16,29 @@ export async function listUserRolesFromDb(
     .from(userRole)
     .where(and(eq(userRole.userId, userId), eq(userRole.etablissementId, etablissementId)));
   return normalizeIntranetRoles(rows.map((r) => r.role));
+}
+
+/** Rôles pour plusieurs utilisateurs en une requête (évite N+1 sur l’annuaire). */
+export async function listUserRolesBatchFromDb(
+  userIds: string[],
+  etablissementId: string,
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (!isDatabaseConfigured() || userIds.length === 0) return map;
+  const db = getDb();
+  const rows = await db
+    .select({ userId: userRole.userId, role: userRole.role })
+    .from(userRole)
+    .where(and(eq(userRole.etablissementId, etablissementId), inArray(userRole.userId, userIds)));
+  for (const row of rows) {
+    const existing = map.get(row.userId) ?? [];
+    existing.push(row.role);
+    map.set(row.userId, existing);
+  }
+  for (const [userId, roles] of map) {
+    map.set(userId, normalizeIntranetRoles(roles));
+  }
+  return map;
 }
 
 export async function setUserRolesInDb(

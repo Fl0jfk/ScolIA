@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { user, userRole } from "@/db/schema";
 import type { DirectoryMemberRow } from "@/app/lib/directory-members";
-import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
+import { listUserRolesBatchFromDb, listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import { ensureUserInvitationSentAtColumn } from "@/app/lib/user-invitation-sent";
 
 export async function listMembersFromDb(etablissementId: string): Promise<DirectoryMemberRow[]> {
@@ -12,9 +12,13 @@ export async function listMembersFromDb(etablissementId: string): Promise<Direct
   await ensureUserInvitationSentAtColumn();
   const db = getDb();
   const users = await db.select().from(user).where(eq(user.etablissementId, etablissementId));
+  const rolesByUserId = await listUserRolesBatchFromDb(
+    users.map((u) => u.id),
+    etablissementId,
+  );
   const rows: DirectoryMemberRow[] = [];
   for (const u of users) {
-    const roles = await listUserRolesFromDb(u.id, etablissementId);
+    const roles = rolesByUserId.get(u.id) ?? [];
     rows.push({
       userId: u.id,
       externalUserId: u.externalUserId ?? u.id,

@@ -1,17 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { RequestsRoutingConfig, RoutingPersonnelTags } from "@/app/lib/app-config-schemas";
+import type {
+  RequestsOrgConfig,
+  RequestsRoutingConfig,
+  RoutingPersonnelTags,
+} from "@/app/lib/app-config-schemas";
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import { normalizeIntranetRoles } from "@/app/lib/intranet-roles";
+import { normalizeRequestEmail } from "@/app/lib/requests-board";
 
 function isProfesseurOnly(roles: string[]): boolean {
   const normalized = normalizeIntranetRoles(roles);
   return normalized.length > 0 && normalized.every((r) => r === "professeur");
-}
-
-function normalizeEmail(email: string) {
-  return email.trim().toLowerCase();
 }
 
 function normalizeTagLabel(raw: string): string {
@@ -23,11 +24,12 @@ type RowDraft = {
   personName: string;
   tags: string[];
   rolesLabel: string;
-  fromAssignment: boolean;
+  serviceLabels: string[];
 };
 
 type Props = {
   config: RequestsRoutingConfig;
+  org: RequestsOrgConfig;
   onChange: (next: RequestsRoutingConfig) => void;
   members: Array<
     DirectoryMemberOption & { roles?: string[]; firstName?: string; lastName?: string }
@@ -35,34 +37,74 @@ type Props = {
   membersLoading: boolean;
 };
 
-/** Éditeur tags (sans fetch) — intégré au panneau réglages demandes. */
-export default function RequestPersonnelTagsEditor({ config, onChange, members, membersLoading }: Props) {
+/** Affinage par personne : qui fait quoi (paye, facturation…) au sein d'un service. */
+export default function RequestPersonnelTagsEditor({
+  config,
+  org,
+  onChange,
+  members,
+  membersLoading,
+}: Props) {
   const [newTag, setNewTag] = useState("");
   const [filter, setFilter] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const catalog = config.tagCatalog ?? [];
+  const serviceTags = useMemo(
+    () =>
+      [...new Set(org.units.flatMap((u) => u.tags))].sort((a, b) =>
+        a.localeCompare(b, "fr", { sensitivity: "base" }),
+      ),
+    [org.units],
+  );
+
+  const catalog = useMemo(() => {
+    const merged = [...new Set([...(config.tagCatalog ?? []), ...serviceTags])];
+    return merged.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  }, [config.tagCatalog, serviceTags]);
+
+  const assignedEmails = useMemo(() => {
+    const emails = new Set<string>();
+    for (const unit of org.units) {
+      if (!unit.active) continue;
+      for (const email of [...unit.managerEmails, ...unit.memberEmails]) {
+        const n = normalizeRequestEmail(email);
+        if (n) emails.add(n);
+      }
+    }
+    return emails;
+  }, [org.units]);
+
+  const serviceLabelsByEmail = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const unit of org.units) {
+      if (!unit.active) continue;
+      for (const email of [...unit.managerEmails, ...unit.memberEmails]) {
+        const n = normalizeRequestEmail(email);
+        if (!n) continue;
+        const list = map.get(n) ?? [];
+        if (!list.includes(unit.label)) list.push(unit.label);
+        map.set(n, list);
+      }
+    }
+    return map;
+  }, [org.units]);
 
   const rows = useMemo(() => {
     const tagsByEmail = new Map(
-      (config.personnelTags ?? []).map((p) => [normalizeEmail(p.email), p]),
-    );
-    const assignmentEmails = new Set(
-      (config.assignments ?? [])
-        .filter((a) => a.active)
-        .map((a) => normalizeEmail(a.email)),
+      (config.personnelTags ?? []).map((p) => [normalizeRequestEmail(p.email), p]),
     );
 
     const staffMembers = members.filter((m) => {
-      const email = normalizeEmail(m.email || "");
+      const email = normalizeRequestEmail(m.email || "");
       if (!email) return false;
+      if (assignedEmails.has(email)) return true;
       if (!m.roles?.length) return true;
       return !isProfesseurOnly(m.roles);
     });
 
     const byEmail = new Map<string, RowDraft>();
     for (const m of staffMembers) {
-      const email = normalizeEmail(m.email || "");
+      const email = normalizeRequestEmail(m.email || "");
       const existing = tagsByEmail.get(email);
       const personName =
         existing?.personName ||
@@ -75,14 +117,17 @@ export default function RequestPersonnelTagsEditor({ config, onChange, members, 
         personName,
         tags: [...(existing?.tags ?? [])],
         rolesLabel: (m.roles || []).join(" · ") || "—",
-        fromAssignment: assignmentEmails.has(email),
+        serviceLabels: serviceLabelsByEmail.get(email) ?? [],
       });
     }
 
-    return [...byEmail.values()].sort((a, b) =>
-      a.personName.localeCompare(b.personName, "fr", { sensitivity: "base" }),
-    );
-  }, [config.assignments, config.personnelTags, members]);
+    return [...byEmail.values()].sort((a, b) => {
+      const aAssigned = a.serviceLabels.length > 0 ? 0 : 1;
+      const bAssigned = b.serviceLabels.length > 0 ? 0 : 1;
+      if (aAssigned !== bAssigned) return aAssigned - bAssigned;
+      return a.personName.localeCompare(b.personName, "fr", { sensitivity: "base" });
+    });
+  }, [assignedEmails, config.personnelTags, members, serviceLabelsByEmail]);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -92,6 +137,7 @@ export default function RequestPersonnelTagsEditor({ config, onChange, members, 
         r.personName.toLowerCase().includes(q) ||
         r.email.includes(q) ||
         r.tags.some((t) => t.toLowerCase().includes(q)) ||
+        r.serviceLabels.some((s) => s.toLowerCase().includes(q)) ||
         r.rolesLabel.toLowerCase().includes(q),
     );
   }, [filter, rows]);
@@ -129,9 +175,14 @@ export default function RequestPersonnelTagsEditor({ config, onChange, members, 
   };
 
   const removeTagFromCatalog = (tag: string) => {
+    if (serviceTags.some((t) => t.toLowerCase() === tag.toLowerCase())) {
+      setLocalError(`« ${tag} » est défini sur un service — retirez-le d'abord dans l'onglet Services.`);
+      return;
+    }
     const nextCatalog = catalog.filter((t) => t !== tag);
     const nextRows = rows.map((r) => ({ ...r, tags: r.tags.filter((t) => t !== tag) }));
     persistTags(nextCatalog, nextRows);
+    setLocalError(null);
   };
 
   const togglePersonTag = (email: string, tag: string) => {
@@ -146,30 +197,28 @@ export default function RequestPersonnelTagsEditor({ config, onChange, members, 
   return (
     <div className="space-y-5">
       <section className="rounded-2xl border border-amber-200 bg-amber-50/50 p-5">
-        <h3 className="text-base font-black text-slate-900">Tags du personnel</h3>
+        <h3 className="text-base font-black text-slate-900">Compétences par personne</h3>
         <p className="mt-1 text-sm leading-relaxed text-slate-600">
-          Affinent le routage IA (cycles école / collège / lycée, compétences métier). En cas de doute
-          sur la <em>personne</em> mais service identifié, la demande va quand même vers la pile du
-          service — les tags aident surtout à choisir le bon service ou cycle.
+          Les tags des services (onglet 1) décrivent le périmètre global. Ici, vous précisez{" "}
+          <strong>qui fait quoi</strong> : par exemple dans Comptabilité, Marie → paye, Paul →
+          facturation. L&apos;IA s&apos;en sert pour cibler la bonne personne quand le service est déjà
+          identifié.
         </p>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {["lycée", "collège", "école", "secrétariat lycée", "secrétariat collège", "plomberie"].map(
-            (s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => addTagToCatalog(s)}
-                className="rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-amber-900 ring-1 ring-amber-200 hover:bg-amber-100"
-              >
-                + {s}
-              </button>
-            ),
-          )}
-        </div>
+        {serviceTags.length > 0 ? (
+          <p className="mt-2 text-xs text-amber-900">
+            Tags disponibles depuis vos services : {serviceTags.join(", ")}
+          </p>
+        ) : null}
       </section>
 
       <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
-        <h4 className="text-sm font-black uppercase tracking-wide text-slate-700">Catalogue de tags</h4>
+        <h4 className="text-sm font-black uppercase tracking-wide text-slate-700">
+          Tags personnels (hors services)
+        </h4>
+        <p className="text-xs text-slate-500">
+          Pour des compétences transverses (cycles école/collège/lycée, secrétariat…) non liées à un
+          service.
+        </p>
         <div className="flex flex-wrap gap-2">
           <input
             type="text"
@@ -181,7 +230,7 @@ export default function RequestPersonnelTagsEditor({ config, onChange, members, 
                 addTagToCatalog(newTag);
               }
             }}
-            placeholder="ex. factures, transport, infirmerie…"
+            placeholder="ex. secrétariat lycée, transport…"
             className="min-w-[200px] flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
           />
           <button
@@ -196,34 +245,45 @@ export default function RequestPersonnelTagsEditor({ config, onChange, members, 
           <p className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-800">{localError}</p>
         ) : null}
         {catalog.length === 0 ? (
-          <p className="text-xs text-slate-400">Aucun tag — créez-en pour commencer.</p>
+          <p className="text-xs text-slate-400">
+            Ajoutez des tags dans Services ou ici pour commencer.
+          </p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {catalog.map((tag) => (
-              <span
-                key={tag}
-                className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-950 ring-1 ring-amber-200"
-              >
-                {tag}
-                <button
-                  type="button"
-                  title="Supprimer ce tag"
-                  onClick={() => removeTagFromCatalog(tag)}
-                  className="rounded-full px-1 text-amber-800/70 hover:bg-amber-200"
+            {catalog.map((tag) => {
+              const fromService = serviceTags.some((t) => t.toLowerCase() === tag.toLowerCase());
+              return (
+                <span
+                  key={tag}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ring-1 ${
+                    fromService
+                      ? "bg-emerald-50 text-emerald-900 ring-emerald-200"
+                      : "bg-amber-100 text-amber-950 ring-amber-200"
+                  }`}
                 >
-                  ×
-                </button>
-              </span>
-            ))}
+                  {tag}
+                  {fromService ? (
+                    <span className="text-[10px] font-normal opacity-70">service</span>
+                  ) : (
+                    <button
+                      type="button"
+                      title="Supprimer ce tag"
+                      onClick={() => removeTagFromCatalog(tag)}
+                      className="rounded-full px-1 hover:bg-amber-200"
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+              );
+            })}
           </div>
         )}
       </section>
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h4 className="text-sm font-black uppercase tracking-wide text-slate-700">
-            Attribution aux personnes
-          </h4>
+          <h4 className="text-sm font-black uppercase tracking-wide text-slate-700">Personnes</h4>
           <input
             type="search"
             value={filter}
@@ -237,7 +297,7 @@ export default function RequestPersonnelTagsEditor({ config, onChange, members, 
           <p className="text-xs text-slate-400">Chargement annuaire…</p>
         ) : catalog.length === 0 ? (
           <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-            Créez d&apos;abord des tags, puis cochez-les sur le personnel.
+            Créez d&apos;abord des tags (Services ou ci-dessus), puis cochez-les sur le personnel.
           </p>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -245,7 +305,7 @@ export default function RequestPersonnelTagsEditor({ config, onChange, members, 
               <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3 font-bold">Personne</th>
-                  <th className="px-4 py-3 font-bold">Rôles</th>
+                  <th className="px-4 py-3 font-bold">Service(s)</th>
                   <th className="px-4 py-3 font-bold">Tags</th>
                 </tr>
               </thead>
@@ -262,13 +322,10 @@ export default function RequestPersonnelTagsEditor({ config, onChange, members, 
                       <td className="px-4 py-3">
                         <p className="font-bold text-slate-900">{r.personName}</p>
                         <p className="break-all text-xs text-slate-500">{r.email}</p>
-                        {r.fromAssignment ? (
-                          <span className="mt-1 inline-block rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
-                            Affectation legacy
-                          </span>
-                        ) : null}
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-600">{r.rolesLabel}</td>
+                      <td className="px-4 py-3 text-xs text-slate-600">
+                        {r.serviceLabels.length > 0 ? r.serviceLabels.join(", ") : "—"}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1.5">
                           {catalog.map((tag) => {

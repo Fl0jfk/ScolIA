@@ -22,6 +22,7 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
         parentUnitId: null,
         managerEmails: [],
         memberEmails: [],
+        tags: [],
         taskIds: ["direction_ecole", "direction_college", "direction_lycee"],
         canDelegateToChildUnits: true,
         active: true,
@@ -32,6 +33,7 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
         parentUnitId: null,
         managerEmails: [],
         memberEmails: [],
+        tags: ["paye", "facturation", "budget"],
         taskIds: ["comptabilite"],
         canDelegateToChildUnits: true,
         active: true,
@@ -42,6 +44,7 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
         parentUnitId: null,
         managerEmails: [],
         memberEmails: [],
+        tags: ["plomberie", "électricité", "bâtiment"],
         taskIds: ["maintenance"],
         canDelegateToChildUnits: true,
         active: true,
@@ -52,6 +55,7 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
         parentUnitId: null,
         managerEmails: [],
         memberEmails: [],
+        tags: [],
         taskIds: ["cpe_3e4e", "cpe_5e6e"],
         canDelegateToChildUnits: true,
         active: true,
@@ -62,6 +66,7 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
         parentUnitId: "cpe_college",
         managerEmails: [],
         memberEmails: [],
+        tags: [],
         taskIds: ["cpe_3e4e", "cpe_5e6e"],
         canDelegateToChildUnits: false,
         active: true,
@@ -72,6 +77,7 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
         parentUnitId: null,
         managerEmails: [],
         memberEmails: [],
+        tags: [],
         taskIds: ["cpe_lycee"],
         canDelegateToChildUnits: true,
         active: true,
@@ -82,6 +88,7 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
         parentUnitId: "cpe_lycee",
         managerEmails: [],
         memberEmails: [],
+        tags: [],
         taskIds: ["cpe_lycee"],
         canDelegateToChildUnits: false,
         active: true,
@@ -92,6 +99,7 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
         parentUnitId: null,
         managerEmails: [],
         memberEmails: [],
+        tags: [],
         taskIds: ["accueil"],
         canDelegateToChildUnits: true,
         active: true,
@@ -102,6 +110,7 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
         parentUnitId: null,
         managerEmails: [],
         memberEmails: [],
+        tags: [],
         taskIds: ["vie_scolaire_infirmerie"],
         canDelegateToChildUnits: true,
         active: true,
@@ -112,6 +121,7 @@ export function defaultRequestsOrg(): RequestsOrgConfig {
         parentUnitId: null,
         managerEmails: [],
         memberEmails: [],
+        tags: [],
         taskIds: ["corbeille"],
         canDelegateToChildUnits: false,
         active: true,
@@ -145,7 +155,9 @@ export function mergeStaffDirectoryFromRoutingAndOrg(
   const activeUnits = org.units.filter((u) => u.active);
 
   for (const unit of activeUnits) {
-    for (const taskId of unit.taskIds) {
+    const branchIds =
+      unit.taskIds.length > 0 ? unit.taskIds : unit.tags.length > 0 ? [unit.id] : [];
+    for (const taskId of branchIds) {
       for (const email of unit.managerEmails) {
         push(email, taskId, "leader");
       }
@@ -302,6 +314,7 @@ export function newRequestServiceUnit(label = "Nouveau service"): RequestService
     parentUnitId: null,
     managerEmails: [],
     memberEmails: [],
+    tags: [],
     taskIds: [],
     canDelegateToChildUnits: true,
     active: true,

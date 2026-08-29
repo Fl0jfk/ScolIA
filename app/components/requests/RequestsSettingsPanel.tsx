@@ -9,7 +9,7 @@ import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import type { RequestsOrgConfig, RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 
-type SettingsTab = "services" | "files" | "tags" | "options";
+type SettingsTab = "services" | "personnes" | "options";
 
 type Member = DirectoryMemberOption;
 
@@ -36,21 +36,22 @@ export default function RequestsSettingsPanel({
 }) {
   const [tab, setTab] = useState<SettingsTab>("services");
 
+  const orgReady = Boolean(requestsOrg);
+  const routingReady = Boolean(requestsRouting);
+
   return (
     <div className="mt-6 max-w-5xl space-y-4">
       <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-indigo-50/30 p-5 space-y-2">
         <h2 className="text-lg font-black text-slate-900">Réglages des demandes</h2>
         <p className="text-sm text-slate-600 leading-relaxed">
-          Le routage cible d&apos;abord un <strong>service</strong> (pile des managers), pas une personne.
-          Si le service est clair mais la personne ne l&apos;est pas, la demande reste en pile — les managers
-          peuvent la prendre ou la confier. La corbeille établissement n&apos;intervient qu&apos;en cas
-          d&apos;ambiguïté entre services.
+          Trois étapes simples : créez vos <strong>services</strong> avec leurs tags métier et affectez
+          managers et membres ; précisez ensuite les <strong>compétences par personne</strong> ; configurez
+          les <strong>options</strong> (page parents, règle direction).
         </p>
-        <ol className="text-xs text-slate-500 list-decimal list-inside space-y-0.5">
-          <li>Organisez les services, managers et membres</li>
-          <li>Direction globale / métier (compta, maintenance…) pour superviser le tableau</li>
-          <li>Définissez les files et mots-clés ; affinez avec les tags équipe</li>
-        </ol>
+        <p className="text-xs text-slate-500">
+          Les demandes « pour la direction » passent toujours d&apos;abord par l&apos;administratif — la
+          direction ne reçoit qu&apos;un transfert manuel validé.
+        </p>
       </section>
 
       {routingMsg ? (
@@ -64,60 +65,58 @@ export default function RequestsSettingsPanel({
       <ModuleTabNav
         tabs={[
           { id: "services", label: "1. Services" },
-          { id: "files", label: "2. Files & mots-clés" },
-          { id: "tags", label: "3. Tags équipe" },
-          { id: "options", label: "4. Options" },
+          { id: "personnes", label: "2. Personnes" },
+          { id: "options", label: "3. Options" },
         ]}
         active={tab}
         onChange={(id) => setTab(id as SettingsTab)}
       />
 
-      {tab === "services" && requestsOrg && requestsRouting ? (
-        <RequestOrgEditor
-          org={requestsOrg}
-          routing={requestsRouting}
-          onChange={onChangeOrg}
-          members={members}
-          membersLoading={membersLoading}
-        />
+      {tab === "services" ? (
+        orgReady && routingReady ? (
+          <RequestOrgEditor
+            org={requestsOrg!}
+            routing={requestsRouting!}
+            onChange={onChangeOrg}
+            members={members}
+            membersLoading={membersLoading}
+          />
+        ) : (
+          <p className="text-sm text-slate-500">Chargement des services…</p>
+        )
       ) : null}
 
-      {tab === "files" && requestsRouting ? (
-        <RequestsRoutingEditor
-          config={requestsRouting}
-          onChange={onChangeRouting}
-          members={members}
-          membersLoading={membersLoading}
-          mode="files"
-        />
+      {tab === "personnes" ? (
+        routingReady && orgReady ? (
+          <RequestPersonnelTagsEditor
+            config={requestsRouting!}
+            org={requestsOrg!}
+            onChange={onChangeRouting}
+            members={members}
+            membersLoading={membersLoading}
+          />
+        ) : (
+          <p className="text-sm text-slate-500">Chargement du personnel…</p>
+        )
       ) : null}
 
-      {tab === "tags" && requestsRouting ? (
-        <RequestPersonnelTagsEditor
-          config={requestsRouting}
-          onChange={onChangeRouting}
-          members={members}
-          membersLoading={membersLoading}
-        />
-      ) : null}
-
-      {tab === "options" && requestsRouting ? (
-        <RequestsRoutingEditor
-          config={requestsRouting}
-          onChange={onChangeRouting}
-          members={members}
-          membersLoading={membersLoading}
-          mode="options"
-        />
-      ) : null}
-
-      {!requestsRouting || !requestsOrg ? (
-        <p className="text-sm text-slate-500">Chargement des réglages…</p>
+      {tab === "options" ? (
+        routingReady ? (
+          <RequestsRoutingEditor
+            config={requestsRouting!}
+            onChange={onChangeRouting}
+            members={members}
+            membersLoading={membersLoading}
+            mode="options"
+          />
+        ) : (
+          <p className="text-sm text-slate-500">Chargement des options…</p>
+        )
       ) : null}
 
       <ModuleButton
         variant="primary"
-        disabled={routingBusy || !requestsRouting || !requestsOrg}
+        disabled={routingBusy || !routingReady || !orgReady}
         onClick={() => void onSave()}
       >
         {routingBusy ? "Enregistrement…" : "Enregistrer tous les réglages"}
