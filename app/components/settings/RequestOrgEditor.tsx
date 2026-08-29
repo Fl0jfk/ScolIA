@@ -245,7 +245,7 @@ function UnitCard({
       </div>
 
       <ServiceTagsEditor
-        tags={unit.tags}
+        tags={unit.tags ?? []}
         onChange={(tags) => onUpdate({ tags })}
         suggestions={tagSuggestions}
       />
