@@ -204,6 +204,13 @@ export type StageConvention = {
   parentSignerEmail?: string;
   /** E-mail signataire responsable légal 2. */
   parent2SignerEmail?: string;
+  /** Vérification OTP de l'e-mail parent1 avant soumission. */
+  parentEmailVerification?: {
+    email: string;
+    code: string;
+    sentAt: string;
+    verifiedAt?: string;
+  };
   adminReview?: {
     at: string;
     by: string;

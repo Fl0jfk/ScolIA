@@ -216,6 +216,30 @@ function StagesContent() {
     }
   }
 
+  async function resendSignature(signatureId: string) {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resend_signature", signatureId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setMsg(
+        data.mail?.sent
+          ? `Relance envoyée à ${data.email || "le signataire"}.`
+          : `Relance non envoyée (${data.mail?.reason || "erreur"}).`,
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function resendSignatures() {
     if (!detail) return;
     setBusy(true);
@@ -841,15 +865,33 @@ function StagesContent() {
             <div className="mt-6">
               <h3 className="text-sm font-bold text-stone-700">Liens de signature</h3>
               <ul className="mt-2 space-y-2 text-sm">
-                {detail.signLinks.map((s) => (
-                  <li key={s.link}>
-                    <span className="font-medium">{s.label}</span>
-                    {s.email ? ` (${s.email})` : ""} —{" "}
-                    <a href={s.link} className="text-[#2F6B4A] underline break-all">
-                      {s.link}
-                    </a>
-                  </li>
-                ))}
+                {detail.signLinks.map((s) => {
+                  const pending = detail.convention.signatures.find(
+                    (sig) => sig.role === s.role && sig.status === "en_attente" && sig.signToken,
+                  );
+                  return (
+                    <li
+                      key={s.link}
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-stone-100 bg-stone-50 px-3 py-2"
+                    >
+                      <span className="font-medium">{s.label}</span>
+                      {s.email ? <span className="text-stone-500">({s.email})</span> : null}
+                      <a href={s.link} className="text-[#2F6B4A] underline break-all text-xs">
+                        Lien
+                      </a>
+                      {pending && permissions?.canReviewPreconvention && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void resendSignature(pending.id)}
+                          className="rounded-lg border border-[#2F6B4A] px-2 py-1 text-xs font-semibold text-[#2F6B4A] disabled:opacity-50"
+                        >
+                          Relancer
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

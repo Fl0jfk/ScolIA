@@ -94,6 +94,14 @@ export async function POST(req: Request) {
           firstName: loaded.student.firstName,
           lastName: loaded.student.lastName,
           className: loaded.student.className,
+          parent1Email: loaded.parent1Email || null,
+          parent2Email: loaded.parent2Email || null,
+          parentPhone:
+            loaded.eleve.parent1Phone?.trim() ||
+            loaded.eleve.parentPhone?.trim() ||
+            null,
+          parent2Phone: loaded.eleve.parent2Phone?.trim() || null,
+          studentEmail: loaded.eleve.email?.trim() || null,
         },
         dossier: {
           schoolYear: loaded.dossier.schoolYear,
@@ -128,12 +136,15 @@ export async function POST(req: Request) {
         );
       }
 
+      const parent1Override = String(body.parent1Email ?? "").trim() || undefined;
+      const parent2Override = String(body.parent2Email ?? "").trim() || undefined;
+
       const { convention, studentLink } = await createPublicPreconventionDraft({
         ...loaded.student,
         email: loaded.eleve.email?.trim() || undefined,
-        parent1Email: loaded.parent1Email,
-        parent2Email: loaded.parent2Email,
-        parentEmail: loaded.parent1Email,
+        parent1Email: parent1Override || loaded.parent1Email,
+        parent2Email: parent2Override || loaded.parent2Email,
+        parentEmail: parent1Override || loaded.parent1Email,
         matchedEleveIne: loaded.eleve.ine,
         stagePeriodId: selectedPeriod?.id,
         stageLabel: selectedPeriod?.label || String(body.stageLabel ?? "").trim() || undefined,

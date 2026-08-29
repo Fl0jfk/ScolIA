@@ -24,10 +24,13 @@ import {
 } from "@/app/lib/stage-types";
 import {
   notifyAllStageSignatureRequests,
+  notifyParentEmailVerification,
+  notifyParentTutorEmailFailed,
   notifyStageAdminRejected,
   notifyStageFullySigned,
   notifyStagePreconventionSubmitted,
   notifyStageSignatureRejected,
+  notifyStageSignatureRequest,
 } from "@/app/lib/stage-notify";
 import {
   getSignTokenRef,
@@ -255,6 +258,23 @@ export async function submitPreconvention(
   let prepared = await ensureConventionReferent(convention);
   const err = validateConventionForSubmit(prepared);
   if (err) return { ok: false, error: err };
+
+  const parentEmail =
+    prepared.parentSignerEmail?.trim() ||
+    prepared.student.parent1Email?.trim() ||
+    prepared.student.parentEmail?.trim() ||
+    "";
+  const verified =
+    prepared.parentEmailVerification?.verifiedAt &&
+    prepared.parentEmailVerification.email.trim().toLowerCase() === parentEmail.toLowerCase();
+  if (!verified) {
+    return {
+      ok: false,
+      error:
+        "Confirmez d'abord l'adresse e-mail du responsable légal avec le code reçu par e-mail.",
+    };
+  }
+
   let next = pushHistory(
     { ...prepared, status: "admin_review" },
     by,
@@ -264,6 +284,170 @@ export async function submitPreconvention(
   void notifyStagePreconventionSubmitted(next).catch((e) =>
     console.error("[stages] notify preconvention:", e),
   );
+  return { ok: true, convention: next };
+}
+
+const PARENT_VERIFY_TTL_MS = 30 * 60 * 1000;
+
+export async function sendParentEmailVerificationCode(
+  convention: StageConvention,
+): Promise<
+  | { ok: true; convention: StageConvention; sent: boolean; reason?: string }
+  | { ok: false; error: string }
+> {
+  const email =
+    convention.parentSignerEmail?.trim() ||
+    convention.student.parent1Email?.trim() ||
+    convention.student.parentEmail?.trim() ||
+    "";
+  if (!email || !isValidEmail(email)) {
+    return { ok: false, error: "Adresse e-mail du responsable légal invalide." };
+  }
+
+  const code = generateStageSecureCode();
+  const now = new Date().toISOString();
+  const next: StageConvention = {
+    ...convention,
+    parentEmailVerification: {
+      email: email.toLowerCase(),
+      code,
+      sentAt: now,
+      verifiedAt: undefined,
+    },
+    updatedAt: now,
+  };
+  await saveStageConvention(next);
+
+  const mail = await notifyParentEmailVerification({
+    to: email,
+    studentName: `${convention.student.firstName} ${convention.student.lastName}`.trim(),
+    code,
+  });
+
+  return {
+    ok: true,
+    convention: next,
+    sent: mail.sent,
+    reason: !mail.sent && "reason" in mail ? String(mail.reason) : undefined,
+  };
+}
+
+export async function confirmParentEmailVerificationCode(
+  convention: StageConvention,
+  code: string,
+): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const pending = convention.parentEmailVerification;
+  if (!pending?.code || !pending.sentAt) {
+    return { ok: false, error: "Aucun code n'a été envoyé. Demandez d'abord un code." };
+  }
+  const age = Date.now() - new Date(pending.sentAt).getTime();
+  if (age > PARENT_VERIFY_TTL_MS) {
+    return { ok: false, error: "Code expiré. Demandez un nouveau code." };
+  }
+  const expected = pending.code.replace(/\D/g, "");
+  const given = code.replace(/\D/g, "").trim();
+  if (expected !== given) {
+    return { ok: false, error: "Code incorrect." };
+  }
+
+  const email =
+    convention.parentSignerEmail?.trim() ||
+    convention.student.parent1Email?.trim() ||
+    convention.student.parentEmail?.trim() ||
+    pending.email;
+  if (email.toLowerCase() !== pending.email.toLowerCase()) {
+    return {
+      ok: false,
+      error: "L'e-mail a changé depuis l'envoi du code. Demandez un nouveau code.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const next: StageConvention = {
+    ...convention,
+    parentEmailVerification: {
+      ...pending,
+      verifiedAt: now,
+    },
+    updatedAt: now,
+  };
+  await saveStageConvention(next);
+  return { ok: true, convention: next };
+}
+
+/** Met à jour l'e-mail tuteur et relance la signature si déjà en cours. */
+export async function updateTutorEmailAndResend(params: {
+  convention: StageConvention;
+  tutorEmail: string;
+  tutorName?: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const email = params.tutorEmail.trim().toLowerCase();
+  if (!isValidEmail(email)) {
+    return { ok: false, error: "Adresse e-mail du tuteur invalide." };
+  }
+
+  const now = new Date().toISOString();
+  let next: StageConvention = {
+    ...params.convention,
+    company: {
+      ...params.convention.company,
+      tutorEmail: email,
+      tutorName: params.tutorName?.trim() || params.convention.company.tutorName,
+    },
+    updatedAt: now,
+  };
+  next = pushHistory(next, "Famille", "TUTEUR_EMAIL_MODIFIE", email);
+
+  if (next.status === "signatures_pending") {
+    const tutorSig = next.signatures.find(
+      (s) => s.role === "tuteur_entreprise" && s.status === "en_attente",
+    );
+    if (tutorSig) {
+      const token = generateStageToken();
+      const secureCode = generateStageSecureCode();
+      const ref: StageSignTokenRef = {
+        conventionId: next.id,
+        signatureId: tutorSig.id,
+        role: tutorSig.role,
+        createdAt: now,
+      };
+      await saveSignTokenRef(token, ref);
+      await saveSignCodeLookup(email, secureCode, {
+        token,
+        conventionId: next.id,
+        signatureId: tutorSig.id,
+        createdAt: now,
+      });
+      next = {
+        ...next,
+        signatures: next.signatures.map((s) =>
+          s.id === tutorSig.id
+            ? {
+                ...s,
+                signEmail: email,
+                signToken: token,
+                signSecureCode: secureCode,
+                signSentAt: now,
+              }
+            : s,
+        ),
+      };
+      await saveStageConvention(next);
+      const updatedSig = next.signatures.find((s) => s.id === tutorSig.id)!;
+      const mail = await notifyStageSignatureRequest(next, updatedSig);
+      if (!mail.sent) {
+        void notifyParentTutorEmailFailed(next, email, mail.error).catch(() => undefined);
+        return {
+          ok: false,
+          error:
+            "L'e-mail du tuteur a été enregistré, mais l'envoi a encore échoué. Vérifiez l'adresse.",
+        };
+      }
+      return { ok: true, convention: next };
+    }
+  }
+
+  await saveStageConvention(next);
   return { ok: true, convention: next };
 }
 
@@ -779,6 +963,18 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
       str(o.parent2SignerEmail, base?.parent2SignerEmail) ||
       str(studentRaw.parent2Email, base?.student.parent2Email) ||
       undefined,
+    parentEmailVerification: (() => {
+      const nextParent =
+        str(o.parentSignerEmail, base?.parentSignerEmail) ||
+        str(studentRaw.parent1Email, base?.student.parent1Email) ||
+        "";
+      const prev = base?.parentEmailVerification;
+      if (!prev) return undefined;
+      if (prev.email.toLowerCase() !== nextParent.toLowerCase()) {
+        return { ...prev, verifiedAt: undefined };
+      }
+      return prev;
+    })(),
     adminReview: base?.adminReview,
     signatures: base?.signatures ?? [],
     createdAt: base?.createdAt ?? new Date().toISOString(),

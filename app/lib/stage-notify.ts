@@ -241,12 +241,12 @@ function uniqueContactEmails(...lists: Array<string | undefined | null>): string
 async function notifyStageSignatureRequest(
   convention: StageConvention,
   signature: StageSignature,
-) {
+): Promise<{ sent: boolean; reason?: string; error?: string }> {
   const m = await mailer();
-  if (!m) return { sent: false, reason: "smtp" as const };
+  if (!m) return { sent: false, reason: "smtp" };
 
   const to = signature.signEmail?.trim();
-  if (!to || !signature.signToken) return { sent: false, reason: "no_email" as const };
+  if (!to || !signature.signToken) return { sent: false, reason: "no_email" };
 
   const bundle = await loadAppConfig();
   const school = bundle.identity.shortName || bundle.identity.name;
@@ -296,13 +296,71 @@ async function notifyStageSignatureRequest(
     .filter(Boolean)
     .join("\n");
 
-  await m.transporter.sendMail({
-    from: `"Stages ${school}" <${m.smtp.user}>`,
-    to,
-    subject: `[Stages] Convention validée — signature requise (${roleLabel}) — ${studentLabel(convention)}`,
-    text,
-  });
-  return { sent: true, recipients: [to] };
+  try {
+    await m.transporter.sendMail({
+      from: `"Stages ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `[Stages] Convention validée — signature requise (${roleLabel}) — ${studentLabel(convention)}`,
+      text,
+    });
+    return { sent: true };
+  } catch (err) {
+    console.error("[stages] send signature mail failed:", to, err);
+    return {
+      sent: false,
+      reason: "smtp_error",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export { notifyStageSignatureRequest };
+
+/** Code OTP pour confirmer l'e-mail du responsable légal avant soumission. */
+export async function notifyParentEmailVerification(params: {
+  to: string;
+  studentName: string;
+  code: string;
+}) {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" as const };
+  const to = params.to.trim();
+  if (!to) return { sent: false, reason: "no_email" as const };
+
+  const bundle = await loadAppConfig();
+  const school = bundle.identity.shortName || bundle.identity.name;
+  const text = [
+    "Bonjour,",
+    "",
+    `Pour confirmer votre adresse e-mail et envoyer la préconvention de stage de ${params.studentName},`,
+    `saisissez ce code à 6 chiffres sur la page du formulaire :`,
+    "",
+    `  ${params.code}`,
+    "",
+    "Ce code est valable 30 minutes.",
+    "",
+    "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.",
+    "",
+    "Cordialement,",
+    school,
+  ].join("\n");
+
+  try {
+    await m.transporter.sendMail({
+      from: `"Stages ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `[Stages] Code de confirmation e-mail — ${params.studentName}`,
+      text,
+    });
+    return { sent: true as const };
+  } catch (err) {
+    console.error("[stages] parent verify mail failed:", to, err);
+    return {
+      sent: false as const,
+      reason: "smtp_error" as const,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /** Signature refusée par l'administratif — nouvelle demande envoyée au signataire. */
@@ -341,25 +399,103 @@ export async function notifyStageSignatureRejected(
     .filter(Boolean)
     .join("\n");
 
-  await m.transporter.sendMail({
-    from: `"Stages ${school}" <${m.smtp.user}>`,
-    to,
-    subject: `[Stages] Signature non acceptée — ${roleLabel} — ${studentLabel(convention)}`,
-    text,
-  });
-  return { sent: true, recipients: [to] };
+  try {
+    await m.transporter.sendMail({
+      from: `"Stages ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `[Stages] Signature non acceptée — ${roleLabel} — ${studentLabel(convention)}`,
+      text,
+    });
+    return { sent: true, recipients: [to] };
+  } catch (err) {
+    console.error("[stages] signature rejected mail failed:", to, err);
+    return { sent: false, reason: "smtp_error" as const };
+  }
+}
+
+/** Alerte parent : l'e-mail du tuteur d'entreprise a échoué. */
+export async function notifyParentTutorEmailFailed(
+  convention: StageConvention,
+  tutorEmail: string,
+  smtpError?: string,
+) {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" as const };
+
+  const recipients = uniqueContactEmails(
+    convention.parentSignerEmail,
+    convention.student.parent1Email,
+    convention.student.parentEmail,
+    convention.parent2SignerEmail,
+    convention.student.parent2Email,
+  );
+  if (!recipients.length) return { sent: false, reason: "no_recipients" as const };
+
+  const bundle = await loadAppConfig();
+  const school = bundle.identity.shortName || bundle.identity.name;
+  const studentLinkUrl = convention.studentAccessToken
+    ? await studentLink(convention.studentAccessToken)
+    : await tenantAbsolutePath("/stages/preconvention");
+
+  const text = [
+    "Bonjour,",
+    "",
+    `Nous avons tenté d'envoyer la convention de stage de ${studentLabel(convention)} au tuteur en entreprise.`,
+    `L'adresse e-mail indiquée a renvoyé une erreur :`,
+    "",
+    `  ${tutorEmail}`,
+    smtpError ? `Détail technique : ${smtpError}` : null,
+    "",
+    "Merci de vérifier et de corriger l'adresse du tuteur si besoin.",
+    "Ouvrez le dossier élève pour modifier l'e-mail du tuteur :",
+    studentLinkUrl,
+    "",
+    "Cordialement,",
+    school,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const sentTo: string[] = [];
+  for (const to of recipients) {
+    try {
+      await m.transporter.sendMail({
+        from: `"Stages ${school}" <${m.smtp.user}>`,
+        to,
+        subject: `[Stages] E-mail tuteur invalide — ${studentLabel(convention)}`,
+        text,
+      });
+      sentTo.push(to);
+    } catch (err) {
+      console.error("[stages] notify parent tutor fail mail:", to, err);
+    }
+  }
+  return sentTo.length
+    ? { sent: true as const, recipients: sentTo }
+    : { sent: false as const, reason: "smtp_error" as const };
 }
 
 export async function notifyAllStageSignatureRequests(convention: StageConvention) {
-  const results: Array<{ role: string; sent: boolean; reason?: string }> = [];
+  const results: Array<{ role: string; sent: boolean; reason?: string; error?: string }> = [];
   for (const sig of convention.signatures) {
     if (sig.status !== "en_attente") continue;
     const r = await notifyStageSignatureRequest(convention, sig);
     results.push({
       role: sig.role,
       sent: r.sent,
-      reason: !r.sent && "reason" in r ? String(r.reason) : undefined,
+      reason: r.reason,
+      error: r.error,
     });
+
+    if (
+      !r.sent &&
+      (sig.role === "tuteur_entreprise" || sig.role === "rh_entreprise") &&
+      sig.signEmail
+    ) {
+      void notifyParentTutorEmailFailed(convention, sig.signEmail, r.error).catch((e) =>
+        console.error("[stages] notify parent tutor email failed:", e),
+      );
+    }
   }
   const sentCount = results.filter((r) => r.sent).length;
   return { sentCount, total: results.length, results };

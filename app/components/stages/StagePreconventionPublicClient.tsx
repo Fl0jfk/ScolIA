@@ -26,6 +26,11 @@ type StudentPreview = {
   firstName: string;
   lastName: string;
   className: string;
+  parent1Email?: string | null;
+  parent2Email?: string | null;
+  parentPhone?: string | null;
+  parent2Phone?: string | null;
+  studentEmail?: string | null;
 };
 
 function extractTokenFromStudentLink(studentLink: string): string | null {
@@ -54,6 +59,7 @@ function StagePreconventionPublicContent() {
   const [token, setToken] = useState(tokenFromUrl);
   const [convention, setConvention] = useState<StageConvention | null>(null);
   const [readOnly, setReadOnly] = useState(false);
+  const [canEditTutorEmail, setCanEditTutorEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -64,6 +70,15 @@ function StagePreconventionPublicContent() {
   const [signatureSummary, setSignatureSummary] = useState<
     import("@/app/lib/stage-signature-summary").StageSignatureSummary | null
   >(null);
+
+  const [parent1Email, setParent1Email] = useState("");
+  const [parent2Email, setParent2Email] = useState("");
+  const [editingParentEmail, setEditingParentEmail] = useState(false);
+  const [parentEmailVerified, setParentEmailVerified] = useState(false);
+  const [showParentCode, setShowParentCode] = useState(false);
+  const [parentCode, setParentCode] = useState("");
+  const [infoMsg, setInfoMsg] = useState<string | null>(null);
+  const [tutorEmailEdit, setTutorEmailEdit] = useState("");
 
   function applyStageContext(ctx: unknown) {
     if (!ctx || typeof ctx !== "object") {
@@ -86,7 +101,10 @@ function StagePreconventionPublicContent() {
     if (!res.ok) throw new Error(data?.error || "Lien invalide");
     setConvention(data.convention);
     setReadOnly(data.readOnly === true);
+    setCanEditTutorEmail(data.canEditTutorEmail === true);
     setSignatureSummary(data.signatureSummary ?? null);
+    setParentEmailVerified(data.parentEmailVerified === true);
+    setTutorEmailEdit(String(data.convention?.company?.tutorEmail ?? ""));
     applyStageContext(data.stageContext);
     if (data.convention?.status === "admin_rejected" && data.convention.adminReview?.note) {
       setRejectNote(data.convention.adminReview.note);
@@ -118,7 +136,11 @@ function StagePreconventionPublicContent() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur");
 
-      setStudentPreview(data.studentPreview);
+      const preview = data.studentPreview as StudentPreview;
+      setStudentPreview(preview);
+      setParent1Email(String(preview.parent1Email ?? ""));
+      setParent2Email(String(preview.parent2Email ?? ""));
+      setEditingParentEmail(false);
       setDossier(data.dossier);
       applyStageContext(data.stageContext);
       setStep("dashboard");
@@ -141,6 +163,8 @@ function StagePreconventionPublicContent() {
           dateNaissance,
           action: "create",
           periodId: selectedPeriodId || undefined,
+          parent1Email: parent1Email.trim() || undefined,
+          parent2Email: parent2Email.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -175,7 +199,24 @@ function StagePreconventionPublicContent() {
     if (!convention || !token) return;
     setBusy(true);
     setError(null);
+    setInfoMsg(null);
     try {
+      if (action === "submit" && !parentEmailVerified) {
+        const sendRes = await fetch("/api/stages/public/student", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token, action: "send_parent_code", convention }),
+        });
+        const sendData = await sendRes.json();
+        if (!sendRes.ok) throw new Error(sendData?.error || "Erreur envoi code");
+        setConvention(sendData.convention);
+        setShowParentCode(true);
+        setInfoMsg(
+          "Un code à 6 chiffres a été envoyé à l'adresse du responsable légal. Saisissez-le ci-dessous pour confirmer.",
+        );
+        return;
+      }
+
       const res = await fetch("/api/stages/public/student", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -192,11 +233,66 @@ function StagePreconventionPublicContent() {
     }
   }
 
+  async function confirmParentCode() {
+    if (!convention || !token) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stages/public/student", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          action: "confirm_parent_code",
+          code: parentCode,
+          convention,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Code invalide");
+      setConvention(data.convention);
+      setParentEmailVerified(true);
+      setShowParentCode(false);
+      setInfoMsg("Adresse e-mail confirmée. Vous pouvez envoyer la préconvention.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveTutorEmail() {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    setInfoMsg(null);
+    try {
+      const res = await fetch("/api/stages/public/student", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          action: "update_tutor_email",
+          tutorEmail: tutorEmailEdit,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setConvention(data.convention);
+      setInfoMsg("E-mail du tuteur mis à jour — demande de signature renvoyée.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function backToDashboard() {
     setToken("");
     setConvention(null);
     setDone(false);
     setRejectNote(null);
+    setShowParentCode(false);
     router.replace("/stages/preconvention");
     if (studentPreview && dossier) {
       setStep("dashboard");
@@ -210,6 +306,11 @@ function StagePreconventionPublicContent() {
         if (res.ok) {
           setDossier(data.dossier);
           applyStageContext(data.stageContext);
+          if (data.studentPreview) {
+            setStudentPreview(data.studentPreview);
+            setParent1Email(String(data.studentPreview.parent1Email ?? parent1Email));
+            setParent2Email(String(data.studentPreview.parent2Email ?? parent2Email));
+          }
         }
       })();
     } else {
@@ -233,6 +334,11 @@ function StagePreconventionPublicContent() {
         </p>
 
         {error && <p className="mt-4 text-sm text-rose-700">{error}</p>}
+        {infoMsg && (
+          <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            {infoMsg}
+          </p>
+        )}
 
         {step === "identity" && !token && (
           <form onSubmit={(e) => void verifyIdentity(e)} className="mt-6 space-y-4 text-sm">
@@ -275,12 +381,89 @@ function StagePreconventionPublicContent() {
 
         {step === "dashboard" && studentPreview && dossier && (
           <div className="mt-6 space-y-6 text-sm">
-            <p className="text-stone-600">
-              <strong>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">
+                Élève reconnu
+              </p>
+              <p className="mt-1 text-base font-black text-[#1F3D2B]">
                 {studentPreview.firstName} {studentPreview.lastName}
-              </strong>{" "}
-              · {studentPreview.className} · Année {dossier.schoolYear}
-            </p>
+              </p>
+              <p className="text-stone-600">
+                {studentPreview.className} · Année {dossier.schoolYear}
+              </p>
+              {(studentPreview.parentPhone || studentPreview.parent2Phone) && (
+                <p className="mt-1 text-xs text-stone-600">
+                  Tél. responsable :{" "}
+                  {[studentPreview.parentPhone, studentPreview.parent2Phone]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-xl border-2 border-rose-300 bg-rose-50 px-4 py-4 space-y-3">
+              <p className="text-sm font-black text-rose-950">
+                Important — convention à signer
+              </p>
+              <p className="text-xs text-rose-900 leading-relaxed">
+                La convention de stage à signer sera envoyée à l&apos;adresse e-mail du responsable
+                légal ci-dessous. Vérifiez qu&apos;elle est correcte (par exemple celle du parent qui
+                pourra signer).
+              </p>
+              {!editingParentEmail ? (
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="text-sm text-rose-950">
+                    <p>
+                      <span className="font-semibold">Responsable 1 :</span>{" "}
+                      {parent1Email || (
+                        <span className="italic text-rose-700">non renseigné</span>
+                      )}
+                    </p>
+                    {parent2Email && (
+                      <p className="mt-1">
+                        <span className="font-semibold">Responsable 2 :</span> {parent2Email}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditingParentEmail(true)}
+                    className="shrink-0 rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-xs font-bold text-rose-900"
+                  >
+                    Modifier
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-rose-950">
+                    E-mail responsable légal 1 *
+                    <input
+                      type="email"
+                      className="mt-1 w-full rounded-lg border border-rose-300 px-3 py-2 text-sm"
+                      value={parent1Email}
+                      onChange={(e) => setParent1Email(e.target.value)}
+                      required
+                    />
+                  </label>
+                  <label className="block text-xs font-semibold text-rose-950">
+                    E-mail responsable légal 2 (optionnel)
+                    <input
+                      type="email"
+                      className="mt-1 w-full rounded-lg border border-rose-300 px-3 py-2 text-sm"
+                      value={parent2Email}
+                      onChange={(e) => setParent2Email(e.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setEditingParentEmail(false)}
+                    className="rounded-lg bg-rose-800 px-3 py-1.5 text-xs font-bold text-white"
+                  >
+                    Enregistrer ces adresses
+                  </button>
+                </div>
+              )}
+            </div>
 
             {(reminders.length > 0 || officialPeriods.length > 0) && (
               <section className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 space-y-2">
@@ -301,7 +484,9 @@ function StagePreconventionPublicContent() {
             )}
 
             <section>
-              <h2 className="text-base font-bold text-[#1F3D2B]">Mes stages ({dossier.conventions.length})</h2>
+              <h2 className="text-base font-bold text-[#1F3D2B]">
+                Mes stages ({dossier.conventions.length})
+              </h2>
               {dossier.conventions.length === 0 ? (
                 <p className="mt-2 text-stone-500">Aucun stage déposé pour le moment.</p>
               ) : (
@@ -358,12 +543,17 @@ function StagePreconventionPublicContent() {
                 )}
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || !parent1Email.trim()}
                   onClick={() => void createNewStage()}
                   className="w-full rounded-lg bg-[#2F6B4A] py-2.5 text-sm font-bold text-white disabled:opacity-50"
                 >
                   {busy ? "Création…" : "+ Déposer un nouveau stage"}
                 </button>
+                {!parent1Email.trim() && (
+                  <p className="text-xs text-rose-700">
+                    Indiquez au moins l&apos;e-mail du responsable légal 1 avant de continuer.
+                  </p>
+                )}
               </section>
             )}
           </div>
@@ -373,11 +563,9 @@ function StagePreconventionPublicContent() {
           <>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-stone-600">
-                <strong>
-                  {convention.stageLabel || "Stage"}
-                </strong>{" "}
-                · {convention.student.firstName} {convention.student.lastName} (
-                {convention.student.className}) · {STAGE_CONVENTION_STATUS_LABELS[convention.status]}
+                <strong>{convention.stageLabel || "Stage"}</strong> · {convention.student.firstName}{" "}
+                {convention.student.lastName} ({convention.student.className}) ·{" "}
+                {STAGE_CONVENTION_STATUS_LABELS[convention.status]}
               </p>
               <button
                 type="button"
@@ -402,10 +590,28 @@ function StagePreconventionPublicContent() {
             )}
 
             {!readOnly && !done && (
-              <div className="mt-6" data-tour="stages-preconvention-form">
+              <div className="mt-6 space-y-4" data-tour="stages-preconvention-form">
+                <div className="rounded-xl border-2 border-rose-300 bg-rose-50 px-4 py-3 text-xs text-rose-950">
+                  <p className="font-black">Convention envoyée à cette adresse</p>
+                  <p className="mt-1">
+                    {convention.parentSignerEmail ||
+                      convention.student.parent1Email ||
+                      "—"}{" "}
+                    — vous confirmez cet e-mail avec un code avant l&apos;envoi à
+                    l&apos;administratif.
+                  </p>
+                  {parentEmailVerified && (
+                    <p className="mt-2 font-semibold text-emerald-800">✓ E-mail confirmé</p>
+                  )}
+                </div>
+
                 <StagePreconventionForm
                   convention={convention}
-                  onChange={setConvention}
+                  onChange={(c) => {
+                    setConvention(c);
+                    setParentEmailVerified(false);
+                    setShowParentCode(false);
+                  }}
                   onSave={() => void save("save")}
                   onSubmit={() => void save("submit")}
                   busy={busy}
@@ -413,6 +619,51 @@ function StagePreconventionPublicContent() {
                   reminders={reminders}
                   officialPeriods={officialPeriods}
                 />
+
+                {showParentCode && (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
+                    <p className="text-sm font-bold text-blue-950">
+                      Confirmez l&apos;e-mail du responsable
+                    </p>
+                    <input
+                      className="w-full rounded-lg border px-3 py-2 font-mono tracking-widest text-center text-lg"
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="Code 6 chiffres"
+                      value={parentCode}
+                      onChange={(e) => setParentCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={busy || parentCode.length !== 6}
+                        onClick={() => void confirmParentCode()}
+                        className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                      >
+                        Valider le code
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void save("submit")}
+                        className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-900"
+                      >
+                        Renvoyer le code
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {parentEmailVerified && !done && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void save("submit")}
+                    className="w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white disabled:opacity-50"
+                  >
+                    {busy ? "Envoi…" : "Envoyer à l'administratif"}
+                  </button>
+                )}
               </div>
             )}
 
@@ -429,8 +680,39 @@ function StagePreconventionPublicContent() {
                   <p>
                     <strong>Horaires :</strong> {scheduleSummary(convention.schedule)}
                   </p>
+                  <p>
+                    <strong>Tuteur :</strong> {convention.company.tutorName} —{" "}
+                    {convention.company.tutorEmail}
+                  </p>
                 </div>
                 {signatureSummary && <StageSignatureProgress summary={signatureSummary} />}
+
+                {canEditTutorEmail && (
+                  <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-3">
+                    <p className="text-sm font-bold text-amber-950">
+                      Corriger l&apos;e-mail du tuteur
+                    </p>
+                    <p className="text-xs text-amber-900">
+                      Si l&apos;adresse du tuteur a renvoyé une erreur, corrigez-la ici. Une nouvelle
+                      demande de signature sera envoyée automatiquement.
+                    </p>
+                    <input
+                      type="email"
+                      className="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm"
+                      value={tutorEmailEdit}
+                      onChange={(e) => setTutorEmailEdit(e.target.value)}
+                      placeholder="tuteur@entreprise.fr"
+                    />
+                    <button
+                      type="button"
+                      disabled={busy || !tutorEmailEdit.trim()}
+                      onClick={() => void saveTutorEmail()}
+                      className="rounded-lg bg-amber-800 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                    >
+                      Enregistrer et relancer le tuteur
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </>

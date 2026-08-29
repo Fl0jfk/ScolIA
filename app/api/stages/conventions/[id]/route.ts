@@ -13,7 +13,7 @@ import {
 } from "@/app/lib/stage-workflow";
 import { getStageConvention, saveStageConvention } from "@/app/lib/stage-storage";
 import { ensureConventionReferent, listClassesForReferentUser } from "@/app/lib/stage-referents-config";
-import { notifyAllStageSignatureRequests, notifyStageDepositAdminRejected } from "@/app/lib/stage-notify";
+import { notifyAllStageSignatureRequests, notifyStageDepositAdminRejected, notifyStageSignatureRequest } from "@/app/lib/stage-notify";
 import {
   findEleveByIne,
   matchEleveForConvention,
@@ -267,6 +267,27 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       });
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
       return NextResponse.json({ success: true, convention: result.convention });
+    }
+
+    if (action === "resend_signature") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      if (convention.status !== "signatures_pending") {
+        return NextResponse.json({ error: "Aucune signature en attente." }, { status: 400 });
+      }
+      const signatureId = String(body.signatureId ?? "").trim();
+      const sig = convention.signatures.find((s) => s.id === signatureId);
+      if (!sig || sig.status !== "en_attente") {
+        return NextResponse.json({ error: "Signature introuvable ou déjà signée." }, { status: 400 });
+      }
+      const mail = await notifyStageSignatureRequest(convention, sig);
+      return NextResponse.json({
+        success: true,
+        mail,
+        role: sig.role,
+        email: sig.signEmail,
+      });
     }
 
     if (action === "resend_signatures") {
