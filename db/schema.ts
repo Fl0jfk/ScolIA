@@ -20,6 +20,7 @@ import { charlemagneP2Schema } from "./schema-charlemagne-p2";
 import { charlemagneP3Schema } from "./schema-charlemagne-p3";
 import { charlemagneP4Schema } from "./schema-charlemagne-p4";
 import { charlemagneP5Schema } from "./schema-charlemagne-p5";
+import { fichesDialogueSchema } from "./schema-fiches-dialogue";
 
 export { etablissement };
 export * from "./schema-ent-relational";
@@ -29,6 +30,7 @@ export * from "./schema-charlemagne-p2";
 export * from "./schema-charlemagne-p3";
 export * from "./schema-charlemagne-p4";
 export * from "./schema-charlemagne-p5";
+export * from "./schema-fiches-dialogue";
 
 /** Utilisateur Better-Auth (multi-tenant via etablissement_id). */
 export const user = pgTable(
@@ -806,6 +808,7 @@ export const appSchema = {
   ...charlemagneP3Schema,
   ...charlemagneP4Schema,
   ...charlemagneP5Schema,
+  ...fichesDialogueSchema,
 };
 
 export const schema = {

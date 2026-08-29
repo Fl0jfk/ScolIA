@@ -586,6 +586,28 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "fiches-dialogue",
+    pathPrefixes: ["/fiches-dialogue", "/api/fiches-dialogue"],
+    excludePrefixes: ["/fiches-dialogue/remplir", "/api/fiches-dialogue/public"],
+    allowedRoles: [
+      ...DIRECTIONS,
+      "administratif",
+      "professeur",
+      "cpe",
+      "surveillant",
+      "parent",
+    ],
+    dashboard: {
+      id: 53,
+      name: "Fiches de dialogue",
+      img: "",
+      link: "/fiches-dialogue",
+      external: false,
+      description:
+        "Orientation année suivante — vœux familles, conseils, signatures et appels",
+    },
+  },
+  {
     id: "certificates",
     pathPrefixes: ["/certificates", "/api/certificates"],
     excludePrefixes: ["/certificates/verify", "/api/certificates/verify"],
@@ -949,6 +971,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "notes",
     "groupes-pedagogiques",
     "stages",
+    "fiches-dialogue",
     "agent-ia-ocr",
     "certificates",
   ],

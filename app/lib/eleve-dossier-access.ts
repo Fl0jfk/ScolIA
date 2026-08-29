@@ -39,7 +39,8 @@ export type EleveDocTiroir =
   | "facturation"
   | "voyages"
   | "sante"
-  | "vie_scolaire";
+  | "vie_scolaire"
+  | "orientation";
 
 export type EleveDocConfidentialite = "standard" | "restreint" | "sante";
 
