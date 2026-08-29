@@ -180,7 +180,19 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "toolbox",
     pathPrefixes: ["/toolbox", "/api/toolbox"],
-    allowedRoles: [...ROLES_EXCEPT_PARENT],
+    // Pas de défaut professeur : accès via Droits modules / rôles admin & staff.
+    allowedRoles: [
+      ...DIRECTIONS,
+      "administratif",
+      "comptabilite",
+      "surveillant",
+      "cpe",
+      "maintenance",
+      "infirmerie",
+      "psychologue",
+      "internat",
+      "admin",
+    ],
     orgAdminOnly: false,
     dashboard: {
       id: 5,

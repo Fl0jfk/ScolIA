@@ -159,8 +159,10 @@ type DashboardSignalsInput = {
     createdBy?: { userId?: string; name?: string };
     nombrePhotocopies?: number;
   }>;
-  /** E-mails des réceptionnaires impressions (file ops). */
+  /** E-mails des réceptionnaires impressions (file ops) — legacy. */
   photocopiesOpsEmails?: string[];
+  /** True si l'utilisateur est réceptionnaire (Droits modules ou e-mails legacy). */
+  photocopiesOpsHandler?: boolean;
   hse?: Array<HseRecordLike & { id: string }>;
   stagesPendingSignatures?: number;
   internatRollCallStatus?: "validee" | "en_cours" | "non_demarre" | null;
@@ -343,6 +345,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     requestsBoard = [],
     photocopies = [],
     photocopiesOpsEmails = [],
+    photocopiesOpsHandler = false,
     hse = [],
     stagesPendingSignatures = 0,
     internatRollCallStatus = null,
@@ -1051,7 +1054,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   // —— Services : Photocopies ——
   {
     const photoHome = moduleHref("photocopies-couleur");
-    const isOps = isPhotocopiesOpsHandler(email, photocopiesOpsEmails);
+    const isOps =
+      photocopiesOpsHandler || isPhotocopiesOpsHandler(email, photocopiesOpsEmails);
     const canSeePhoto = has("photocopies-couleur") || isOps;
     if (canSeePhoto) {
       const readyCount = photocopiesReadyForUser(userId, photocopies);

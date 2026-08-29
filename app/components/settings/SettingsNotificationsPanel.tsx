@@ -129,7 +129,7 @@ export default function SettingsNotificationsPanel({
         <SettingsField
           label="Réceptionnaires photocopies couleur"
           as="div"
-          hint="Une ou plusieurs personnes voient la file d'impression sur l'intranet après validation direction."
+          hint="Préférez Paramètres → Droits modules → case « Réceptionnaire impressions » sous Photocopies couleur. Cette liste e-mail reste un repli legacy."
         >
           <DirectoryPeopleSelect
             members={directoryMembers}

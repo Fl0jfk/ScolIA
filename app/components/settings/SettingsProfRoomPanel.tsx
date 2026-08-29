@@ -24,7 +24,7 @@ export default function SettingsProfRoomPanel({
     <SettingsSection
       icon="🚪"
       title="Administrateurs du module réservation de salles"
-      description="Sélectionnez les personnes dans le directory. Elles auront le mode administrateur dans l’espace réservation de salles et pourront gérer le paramétrage (salles, matières, couleurs)."
+      description="Préférez Paramètres → Droits modules → case « Administrateur réservation de salles » sous Réservation de salle. Cette liste reste un repli legacy."
     >
       <ProfRoomAdminPicker
         members={directoryMembers}

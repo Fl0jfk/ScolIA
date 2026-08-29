@@ -161,12 +161,17 @@ export async function GET() {
     }
 
     const { loadAppConfig } = await import("@/app/lib/app-config");
-    const { resolvePhotocopiesOpsEmails, isPhotocopiesOpsHandler } = await import(
+    const { resolvePhotocopiesOpsEmails, isPhotocopiesOpsHandlerResolved } = await import(
       "@/app/lib/photocopies-couleur-ops"
     );
     const appBundle = await loadAppConfig().catch(() => null);
     const photocopiesOpsEmails = resolvePhotocopiesOpsEmails(appBundle?.notifications ?? null);
-    const isPhotoOps = isPhotocopiesOpsHandler(email, photocopiesOpsEmails);
+    const isPhotoOps = isPhotocopiesOpsHandlerResolved({
+      email,
+      opsEmails: photocopiesOpsEmails,
+      moduleAccess,
+      lookup: { userId: authUserId, businessUserId },
+    });
     if (isPhotoOps) accessibleModuleIds.add("photocopies-couleur");
 
     let establishments: NonNullable<typeof appBundle>["establishments"] = appBundle?.establishments ?? [];
@@ -569,6 +574,7 @@ export async function GET() {
         requestsBoard,
         photocopies,
         photocopiesOpsEmails,
+        photocopiesOpsHandler: isPhotoOps,
         hse,
         stagesPendingSignatures,
         internatRollCallStatus,

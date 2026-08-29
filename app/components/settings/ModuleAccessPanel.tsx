@@ -10,7 +10,12 @@ type PillarGroup = {
   title: string;
   modules: Array<{ id: string; name: string; description?: string }>;
 };
-type AccessOverride = { modules: string[]; dossierSections?: string[] };
+type AccessOverride = {
+  modules: string[];
+  dossierSections?: string[];
+  photocopiesOps?: boolean;
+  profRoomAdmin?: boolean;
+};
 type AccessConfig = {
   byRole: Record<string, AccessOverride>;
   byUser: Record<string, AccessOverride>;
@@ -151,23 +156,61 @@ export default function ModuleAccessPanel() {
     return new Set(selected.baselineDossierSections);
   }, [selected, config.byUser]);
 
+  const photocopiesOps = Boolean(selected && config.byUser[selected.userId]?.photocopiesOps);
+  const profRoomAdmin = Boolean(selected && config.byUser[selected.userId]?.profRoomAdmin);
+
   const isCustomized = Boolean(selected && config.byUser[selected.userId]);
+
+  const patchUserOverride = (
+    patch: Partial<AccessOverride> & {
+      modules: string[];
+      clearPhotocopiesOps?: boolean;
+      clearProfRoomAdmin?: boolean;
+    },
+  ) => {
+    if (!selected) return;
+    setConfig((prev) => {
+      const current = prev.byUser[selected.userId];
+      let photocopiesOpsVal =
+        patch.photocopiesOps !== undefined ? patch.photocopiesOps : current?.photocopiesOps;
+      let profRoomAdminVal =
+        patch.profRoomAdmin !== undefined ? patch.profRoomAdmin : current?.profRoomAdmin;
+      if (patch.clearPhotocopiesOps) photocopiesOpsVal = undefined;
+      if (patch.clearProfRoomAdmin) profRoomAdminVal = undefined;
+      const next: AccessOverride = {
+        modules: patch.modules,
+        dossierSections:
+          patch.dossierSections ??
+          current?.dossierSections ??
+          selected.baselineDossierSections ??
+          ["identite", "scolarite"],
+      };
+      if (photocopiesOpsVal) next.photocopiesOps = true;
+      if (profRoomAdminVal) next.profRoomAdmin = true;
+      return {
+        ...prev,
+        byUser: {
+          ...prev.byUser,
+          [selected.userId]: next,
+        },
+      };
+    });
+  };
 
   const setModulesForUser = (next: Set<string>) => {
     if (!selected) return;
-    setConfig((prev) => ({
-      ...prev,
-      byUser: {
-        ...prev.byUser,
-        [selected.userId]: {
-          modules: [...next],
-          dossierSections:
-            prev.byUser[selected.userId]?.dossierSections ??
-            selected.baselineDossierSections ??
-            ["identite", "scolarite"],
-        },
-      },
-    }));
+    const modules = [...next];
+    const keepPhotoOps =
+      config.byUser[selected.userId]?.photocopiesOps === true && modules.includes("photocopies-couleur");
+    const keepRoomAdmin =
+      config.byUser[selected.userId]?.profRoomAdmin === true && modules.includes("prof-room");
+    patchUserOverride({
+      modules,
+      photocopiesOps: keepPhotoOps || undefined,
+      clearPhotocopiesOps: !keepPhotoOps,
+      clearProfRoomAdmin: !keepRoomAdmin,
+      profRoomAdmin: keepRoomAdmin || undefined,
+    });
   };
 
   const toggleModule = (moduleId: string) => {
@@ -184,16 +227,34 @@ export default function ModuleAccessPanel() {
     else next.add(sectionId);
     if (!next.has("identite")) next.add("identite");
     if (!next.has("scolarite")) next.add("scolarite");
-    setConfig((prev) => ({
-      ...prev,
-      byUser: {
-        ...prev.byUser,
-        [selected.userId]: {
-          modules: [...effectiveModules],
-          dossierSections: [...next],
-        },
-      },
-    }));
+    patchUserOverride({
+      modules: [...effectiveModules],
+      dossierSections: [...next],
+    });
+  };
+
+  const togglePhotocopiesOps = () => {
+    if (!selected) return;
+    const nextModules = new Set(effectiveModules);
+    const next = !photocopiesOps;
+    if (next) nextModules.add("photocopies-couleur");
+    patchUserOverride({
+      modules: [...nextModules],
+      photocopiesOps: next || undefined,
+      clearPhotocopiesOps: !next,
+    });
+  };
+
+  const toggleProfRoomAdmin = () => {
+    if (!selected) return;
+    const nextModules = new Set(effectiveModules);
+    const next = !profRoomAdmin;
+    if (next) nextModules.add("prof-room");
+    patchUserOverride({
+      modules: [...nextModules],
+      profRoomAdmin: next || undefined,
+      clearProfRoomAdmin: !next,
+    });
   };
 
   const save = async () => {
@@ -416,6 +477,39 @@ export default function ModuleAccessPanel() {
                                   </label>
                                 ))}
                               </div>
+                            ) : null}
+                            {mod.id === "photocopies-couleur" ? (
+                              <label className="mt-3 ml-7 flex cursor-pointer items-start gap-2 rounded-lg border border-teal-100 bg-teal-50/60 px-2.5 py-2 text-xs font-semibold text-slate-800">
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300"
+                                  checked={photocopiesOps}
+                                  onChange={togglePhotocopiesOps}
+                                />
+                                <span>
+                                  Réceptionnaire impressions
+                                  <span className="mt-0.5 block font-medium text-slate-500">
+                                    Voit la file d&apos;impression après validation direction et peut
+                                    marquer « prête ».
+                                  </span>
+                                </span>
+                              </label>
+                            ) : null}
+                            {mod.id === "prof-room" ? (
+                              <label className="mt-3 ml-7 flex cursor-pointer items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-2.5 py-2 text-xs font-semibold text-slate-800">
+                                <input
+                                  type="checkbox"
+                                  className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300"
+                                  checked={profRoomAdmin}
+                                  onChange={toggleProfRoomAdmin}
+                                />
+                                <span>
+                                  Administrateur réservation de salles
+                                  <span className="mt-0.5 block font-medium text-slate-500">
+                                    Paramétrage du module (salles, matières, couleurs).
+                                  </span>
+                                </span>
+                              </label>
                             ) : null}
                           </li>
                         );

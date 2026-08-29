@@ -21,9 +21,10 @@ import {
 } from "@/app/lib/photocopies-couleur-access";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
 import {
-  isPhotocopiesOpsHandler,
+  isPhotocopiesOpsHandlerResolved,
   resolvePhotocopiesOpsEmails,
 } from "@/app/lib/photocopies-couleur-ops";
+import { loadModuleAccess } from "@/app/lib/module-access-store";
 import type { PhotoCopieRecord } from "@/app/lib/photocopies-couleur-types";
 
 const INDEX_KEY = "photocopies-couleur/index.json";
@@ -83,7 +84,13 @@ export async function GET() {
   const email = user?.primaryEmailAddress?.emailAddress?.trim() || "";
   const bundle = await loadAppConfig();
   const opsEmails = resolvePhotocopiesOpsEmails(bundle.notifications);
-  const isOps = isPhotocopiesOpsHandler(email, opsEmails);
+  const moduleAccess = await loadModuleAccess().catch(() => null);
+  const isOps = isPhotocopiesOpsHandlerResolved({
+    email,
+    opsEmails,
+    moduleAccess,
+    lookup: { userId: userId, businessUserId: userId },
+  });
 
   if (!canCreatePhotocopiesDemand(roles) && !isOps) {
     const f = getPhotocopiesRoleFlags(roles);
@@ -324,7 +331,13 @@ export async function PATCH(req: Request) {
     const current = all[idx];
     const bundle = await loadAppConfig();
     const opsEmails = resolvePhotocopiesOpsEmails(bundle.notifications);
-    const isOps = isPhotocopiesOpsHandler(actorEmail, opsEmails);
+    const moduleAccess = await loadModuleAccess().catch(() => null);
+    const isOps = isPhotocopiesOpsHandlerResolved({
+      email: actorEmail,
+      opsEmails,
+      moduleAccess,
+      lookup: { userId, businessUserId: userId },
+    });
     const base = await tenantAbsolutePath("/photocopies-couleur");
 
     // —— Ops : marquer imprimée (ACCEPTEE → PRETE) ——

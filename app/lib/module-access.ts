@@ -28,6 +28,9 @@ const SKIP_MODULE_IDS = new Set([
   "rh-paie-spec",
   "dashboard-week-sheet",
   "vs-absences",
+  "vs-appels",
+  "vs-carnet",
+  "vs-sanctions",
   "pilotage-eleves",
   "facturation-familles",
 ]);
@@ -35,6 +38,10 @@ const SKIP_MODULE_IDS = new Set([
 export type ModuleAccessOverride = {
   modules: string[];
   dossierSections?: EleveDossierSection[];
+  /** Réceptionnaire file d'impression photocopies couleur. */
+  photocopiesOps?: boolean;
+  /** Administrateur du module réservation de salles. */
+  profRoomAdmin?: boolean;
 };
 
 /** @deprecated alias — préférer ModuleAccessOverride */
@@ -78,9 +85,13 @@ function parseOverride(value: unknown): ModuleAccessOverride | null {
           ALL_DOSSIER_SECTIONS.includes(s as EleveDossierSection),
         )
     : undefined;
+  const photocopiesOps = row.photocopiesOps === true ? true : undefined;
+  const profRoomAdmin = row.profRoomAdmin === true ? true : undefined;
   return {
     modules: [...new Set(modules)],
     ...(dossierSections && dossierSections.length > 0 ? { dossierSections } : {}),
+    ...(photocopiesOps ? { photocopiesOps: true } : {}),
+    ...(profRoomAdmin ? { profRoomAdmin: true } : {}),
   };
 }
 
@@ -175,6 +186,33 @@ export function findUserOverride(
     if (hit) return hit;
   }
   return null;
+}
+
+/** Droit extra Droits modules : réceptionnaire photocopies. */
+export function userHasPhotocopiesOpsFlag(
+  config: ModuleAccessConfig | null | undefined,
+  lookup?: ModuleAccessLookup | null,
+): boolean {
+  return findUserOverride(config, lookup)?.photocopiesOps === true;
+}
+
+/** Droit extra Droits modules : admin réservation de salles. */
+export function userHasProfRoomAdminFlag(
+  config: ModuleAccessConfig | null | undefined,
+  lookup?: ModuleAccessLookup | null,
+): boolean {
+  return findUserOverride(config, lookup)?.profRoomAdmin === true;
+}
+
+/** Liste des Better-Auth user.id (clés byUser) ayant un flag extra. */
+export function listUserIdsWithModuleFlag(
+  config: ModuleAccessConfig | null | undefined,
+  flag: "photocopiesOps" | "profRoomAdmin",
+): string[] {
+  if (!config?.byUser) return [];
+  return Object.entries(config.byUser)
+    .filter(([, ov]) => ov?.[flag] === true)
+    .map(([id]) => id);
 }
 
 export function effectiveModulesForRole(

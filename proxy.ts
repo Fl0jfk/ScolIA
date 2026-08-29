@@ -480,14 +480,21 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
   ) {
     try {
       const { loadAppConfig } = await import("@/app/lib/app-config");
-      const { resolvePhotocopiesOpsEmails, isPhotocopiesOpsHandler } = await import(
+      const { resolvePhotocopiesOpsEmails, isPhotocopiesOpsHandlerResolved } = await import(
         "@/app/lib/photocopies-couleur-ops"
       );
+      const { loadModuleAccess } = await import("@/app/lib/module-access-store");
       const bundle = await loadAppConfig();
-      photocopiesOpsBypass = isPhotocopiesOpsHandler(
-        betterAuthState.email,
-        resolvePhotocopiesOpsEmails(bundle.notifications),
-      );
+      const access = await loadModuleAccess().catch(() => null);
+      photocopiesOpsBypass = isPhotocopiesOpsHandlerResolved({
+        email: betterAuthState.email,
+        opsEmails: resolvePhotocopiesOpsEmails(bundle.notifications),
+        moduleAccess: access,
+        lookup: {
+          userId: betterAuthState.authUserId,
+          businessUserId: betterAuthState.userId,
+        },
+      });
     } catch {
       photocopiesOpsBypass = false;
     }
