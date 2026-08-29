@@ -46,6 +46,7 @@ export default function PhotocopiesCouleurPage() {
   const [colleague, setColleague] = useState<DirectoryMemberOption | null>(null);
   const [directoryMembers, setDirectoryMembers] = useState<DirectoryMemberOption[]>([]);
   const [loadingDirectory, setLoadingDirectory] = useState(false);
+  const [isOpsHandler, setIsOpsHandler] = useState(false);
 
   const roles = rolesFromUserLike(user);
   const creator = canCreatePhotocopiesDemand(roles);
@@ -61,6 +62,7 @@ export default function PhotocopiesCouleurPage() {
       const res = await fetch("/api/photocopies-couleur");
       if (res.status === 403) {
         setItems([]);
+        setIsOpsHandler(false);
         setError("Accès réservé à l'administratif, la vie scolaire, aux enseignants et aux directions.");
         return;
       }
@@ -70,6 +72,7 @@ export default function PhotocopiesCouleurPage() {
       }
       const list = Array.isArray(data?.items) ? (data.items as PhotoCopieRecord[]) : [];
       setItems(list);
+      setIsOpsHandler(Boolean(data?.isOpsHandler));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Erreur de chargement.";
       setError(msg);
@@ -114,6 +117,22 @@ export default function PhotocopiesCouleurPage() {
   );
 
   const readyMine = useMemo(() => mine.filter((i) => i.status === "PRETE"), [mine]);
+
+  const opsPrintQueue = useMemo(
+    () =>
+      [...items]
+        .filter((i) => i.status === "ACCEPTEE")
+        .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt)),
+    [items],
+  );
+
+  const opsDone = useMemo(
+    () =>
+      [...items]
+        .filter((i) => i.status === "PRETE")
+        .sort((a, b) => +new Date(b.readyAt || b.updatedAt) - +new Date(a.readyAt || a.updatedAt)),
+    [items],
+  );
 
   const directionPending = useMemo(
     () =>
@@ -218,11 +237,13 @@ export default function PhotocopiesCouleurPage() {
     }
   };
 
-  const patchStatus = async (id: string, status: "ACCEPTEE" | "REFUSEE") => {
+  const patchStatus = async (id: string, status: "ACCEPTEE" | "REFUSEE" | "PRETE") => {
     const confirmed = window.confirm(
-      status === "ACCEPTEE"
-        ? "Marquer cette demande comme acceptée et notifier le demandeur ?"
-        : "Marquer cette demande comme refusée et notifier le demandeur ?",
+      status === "PRETE"
+        ? "Marquer ces photocopies comme imprimées / prêtes et notifier le demandeur ?"
+        : status === "ACCEPTEE"
+          ? "Marquer cette demande comme acceptée et notifier le demandeur ?"
+          : "Marquer cette demande comme refusée et notifier le demandeur ?",
     );
     if (!confirmed) return;
     try {
@@ -232,7 +253,11 @@ export default function PhotocopiesCouleurPage() {
       const res = await fetch("/api/photocopies-couleur", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status, directionNote: note || undefined }),
+        body: JSON.stringify({
+          id,
+          status,
+          ...(status !== "PRETE" ? { directionNote: note || undefined } : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Décision impossible.");
@@ -497,6 +522,92 @@ export default function PhotocopiesCouleurPage() {
             </>
           )}
 
+          {isOpsHandler && (
+            <div data-tour="photocopies-ops-queue" className="space-y-4">
+              <div className="relative rounded-[1.5rem] border border-teal-200/80 bg-teal-50/60 p-4 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl">
+                <h3 className="font-semibold text-[var(--dash-ink)]">File d&apos;impression</h3>
+                <p className="text-xs text-slate-600 mt-1">
+                  Demandes acceptées par la direction — à imprimer. Une fois marquées prêtes, le demandeur est notifié
+                  (si plusieurs réceptionnaires, la première validation vaut pour tous).
+                </p>
+              </div>
+
+              {loading ? (
+                <div className="relative rounded-[1.5rem] border border-white/55 bg-white/50 p-8 text-[var(--dash-mid)]">
+                  Chargement…
+                </div>
+              ) : (
+                <>
+                  <h4 className={`px-1 text-sm font-semibold uppercase tracking-wide ${dash.ink}`}>
+                    À imprimer ({opsPrintQueue.length})
+                  </h4>
+                  {opsPrintQueue.length === 0 ? (
+                    <div className="rounded-[1.5rem] border border-dashed border-white/70 bg-white/40 p-6 text-sm text-[var(--dash-mid)]">
+                      Aucune photocopie en attente d&apos;impression.
+                    </div>
+                  ) : (
+                    opsPrintQueue.map((item) => (
+                      <div
+                        key={item.id}
+                        className="relative rounded-[1.5rem] border border-sky-200 bg-white/60 p-5 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.45)] backdrop-blur-xl"
+                      >
+                        <div className="flex flex-wrap gap-3 items-center justify-between mb-3">
+                          <div>
+                            <p className="font-semibold text-[var(--dash-ink)]">
+                              {item.createdBy.name} — {item.etablissement}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {item.createdBy.email} · {item.nombrePhotocopies} copie(s) · acceptée le{" "}
+                              {item.decidedAt
+                                ? new Date(item.decidedAt).toLocaleString("fr-FR")
+                                : new Date(item.createdAt).toLocaleString("fr-FR")}
+                            </p>
+                          </div>
+                          <span
+                            className={`text-xs font-black px-3 py-1.5 rounded-xl border ${photoCopieStatusBadgeClass("ACCEPTEE")}`}
+                          >
+                            À imprimer
+                          </span>
+                        </div>
+                        <p className="text-sm text-slate-700 mb-1">
+                          <span className="font-bold">Motif :</span> {item.motif}
+                        </p>
+                        <p className="text-sm text-slate-700 mb-3">
+                          <span className="font-bold">Classes / matière :</span> {item.classesOuMatiere}
+                        </p>
+                        {item.documentFileName ? (
+                          <p className="text-xs text-indigo-700 mb-3">PDF joint : {item.documentFileName}</p>
+                        ) : null}
+                        {item.directionNote ? (
+                          <p className="text-sm text-indigo-800 mb-3">
+                            <span className="font-bold">Note direction :</span> {item.directionNote}
+                          </p>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={patchingId === item.id}
+                          onClick={() => void patchStatus(item.id, "PRETE")}
+                          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm disabled:opacity-60"
+                        >
+                          {patchingId === item.id ? "…" : "Marquer comme imprimée / prête"}
+                        </button>
+                      </div>
+                    ))
+                  )}
+
+                  {opsDone.length > 0 ? (
+                    <>
+                      <h4 className={`px-1 pt-2 text-sm font-semibold uppercase tracking-wide ${dash.ink}`}>
+                        Récemment prêtes
+                      </h4>
+                      {opsDone.slice(0, 8).map((item) => renderItemCard(item))}
+                    </>
+                  ) : null}
+                </>
+              )}
+            </div>
+          )}
+
           {directionAny && (
             <div data-tour="photocopies-queue">
               <>
@@ -608,10 +719,10 @@ export default function PhotocopiesCouleurPage() {
             </div>
           )}
 
-          {!creator && !directionAny && !loading && (
+          {!creator && !directionAny && !isOpsHandler && !loading && (
             <div className="rounded-[1.5rem] border border-white/55 bg-white/50 p-8 text-[var(--dash-mid)] backdrop-blur-xl">
-              Votre profil ne permet pas d'accéder à cette page. Contactez l'administrateur si vous pensez qu'il
-              s'agit d'une erreur.
+              Votre profil ne permet pas d&apos;accéder à cette page. Contactez l&apos;administrateur si vous pensez
+              qu&apos;il s&apos;agit d&apos;une erreur.
             </div>
           )}
         </div>

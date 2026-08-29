@@ -15,6 +15,7 @@ import { user } from "@/db/schema";
 export type BetterAuthProxyState = {
   userId: string;
   authUserId: string;
+  email: string;
   /** Établissement du hostname courant (rôles scopés). */
   etablissementId: string | null;
   /** Établissement « maison » sur la ligne user (legacy / primaire). */
@@ -71,6 +72,7 @@ export async function resolveBetterAuthProxyState(
     return {
       userId: businessUserId,
       authUserId: u.id,
+      email: String(u.email || row?.email || "").trim(),
       etablissementId: activeEtablissementId,
       homeEtablissementId,
       roles,

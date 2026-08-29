@@ -14,6 +14,7 @@ import type { WeekSheetData, WeekSheetEvent } from "@/app/lib/dashboard-week-she
 import { WEEK_DAYS, type WeekDayKey } from "@/app/lib/dashboard-week-sheet-types";
 import { canAccessHseModule, canCreateHseDemand, getHseRoleFlags, type HseRecordLike } from "@/app/lib/demandes-hse-access";
 import { canCreatePhotocopiesDemand } from "@/app/lib/photocopies-couleur-access";
+import { isPhotocopiesOpsHandler, photocopiesOpsPendingCount } from "@/app/lib/photocopies-couleur-ops";
 import { directionRolesMatchEstablishmentRef, isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
@@ -155,9 +156,11 @@ type DashboardSignalsInput = {
     id: string;
     status: string;
     etablissement?: string;
-    createdBy?: { userId?: string };
+    createdBy?: { userId?: string; name?: string };
     nombrePhotocopies?: number;
   }>;
+  /** E-mails des réceptionnaires impressions (file ops). */
+  photocopiesOpsEmails?: string[];
   hse?: Array<HseRecordLike & { id: string }>;
   stagesPendingSignatures?: number;
   internatRollCallStatus?: "validee" | "en_cours" | "non_demarre" | null;
@@ -339,6 +342,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     roomSubjectColors = {},
     requestsBoard = [],
     photocopies = [],
+    photocopiesOpsEmails = [],
     hse = [],
     stagesPendingSignatures = 0,
     internatRollCallStatus = null,
@@ -1056,75 +1060,125 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   }
 
   // —— Services : Photocopies ——
-  if (has("photocopies-couleur")) {
+  {
     const photoHome = moduleHref("photocopies-couleur");
-    const readyCount = photocopiesReadyForUser(userId, photocopies);
-    const pendingDir = photocopiePendingForDirection(roles, photocopies, establishments);
-    const isProf = hasRole(roles, "professeur");
+    const isOps = isPhotocopiesOpsHandler(email, photocopiesOpsEmails);
+    const canSeePhoto = has("photocopies-couleur") || isOps;
+    if (canSeePhoto) {
+      const readyCount = photocopiesReadyForUser(userId, photocopies);
+      const pendingDir = photocopiePendingForDirection(roles, photocopies, establishments);
+      const opsPending = isOps ? photocopiesOpsPendingCount(photocopies) : 0;
+      const isProf = hasRole(roles, "professeur");
 
-    if (isProf || canCreatePhotocopiesDemand(roles)) {
-      shortcuts.push({
-        id: "photocopies-new",
-        pillarId: "administratif",
-        moduleId: "photocopies-couleur",
-        href: photoHome,
-        label: "Photocopies couleur",
-        rich: true,
-        detail: "Demander une impression couleur",
-        tone: "action",
-      });
-    }
+      if (isOps && opsPending > 0) {
+        const first = photocopies.find((p) => p.status === "ACCEPTEE");
+        const who = first?.createdBy?.name?.trim();
+        shortcuts.push({
+          id: "photocopies-ops-queue",
+          pillarId: "administratif",
+          moduleId: "photocopies-couleur",
+          href: photoHome,
+          label: "Photocopies à imprimer",
+          rich: true,
+          badge: `${opsPending} à faire`,
+          detail:
+            opsPending === 1
+              ? who
+                ? `Demande de ${who} — à imprimer`
+                : "1 demande de photocopies à imprimer"
+              : `${opsPending} demandes de photocopies à imprimer`,
+          tone: "warn",
+        });
+        pushNotif({
+          id: "photocopies-ops-queue",
+          moduleId: "photocopies-couleur",
+          label: "Photocopies à imprimer",
+          count: opsPending,
+          href: photoHome,
+          detail:
+            opsPending === 1
+              ? who
+                ? `Demande validée de ${who}`
+                : "1 photocopie couleur à imprimer"
+              : `${opsPending} photocopies couleur à imprimer`,
+        });
+      } else if (isOps) {
+        shortcuts.push({
+          id: "photocopies-ops-empty",
+          pillarId: "administratif",
+          moduleId: "photocopies-couleur",
+          href: photoHome,
+          label: "Photocopies couleur",
+          rich: true,
+          detail: "File d'impression — rien en attente",
+          tone: "neutral",
+        });
+      }
 
-    if (readyCount > 0) {
-      shortcuts.push({
-        id: "photocopies-ready",
-        pillarId: "administratif",
-        moduleId: "photocopies-couleur",
-        href: photoHome,
-        label: "Photocopies prêtes",
-        rich: true,
-        badge: `${readyCount} prête${readyCount > 1 ? "s" : ""}`,
-        detail:
-          readyCount === 1
-            ? "Votre demande de photocopies est prête à retirer"
-            : `${readyCount} demandes de photocopies prêtes à retirer`,
-        tone: "info",
-      });
-      pushNotif({
-        id: "photocopies-ready",
-        moduleId: "photocopies-couleur",
-        label: "Photocopies prêtes",
-        count: readyCount,
-        href: photoHome,
-        detail:
-          readyCount === 1
-            ? "Votre demande de photocopies couleur est prête"
-            : `${readyCount} demandes de photocopies couleur sont prêtes`,
-      });
-    }
+      if (isProf || canCreatePhotocopiesDemand(roles)) {
+        shortcuts.push({
+          id: "photocopies-new",
+          pillarId: "administratif",
+          moduleId: "photocopies-couleur",
+          href: photoHome,
+          label: "Photocopies couleur",
+          rich: true,
+          detail: "Demander une impression couleur",
+          tone: "action",
+        });
+      }
 
-    if (pendingDir > 0) {
-      shortcuts.push({
-        id: "photo-dir",
-        pillarId: "administratif",
-        moduleId: "toolbox",
-        href: photoHome,
-        label: "Photocopies couleur",
-        rich: true,
-        badge: `${pendingDir} à traiter`,
-        detail:
-          pendingDir === 1 ? "1 photocopie à traiter" : `${pendingDir} photocopies à traiter`,
-        tone: "warn",
-      });
-      pushNotif({
-        id: "photo-dir",
-        moduleId: "toolbox",
-        label: "Photocopies couleur",
-        count: pendingDir,
-        href: photoHome,
-        detail:
-          pendingDir === 1 ? "1 photocopie à traiter" : `${pendingDir} photocopies à traiter`,
-      });
+      if (readyCount > 0) {
+        shortcuts.push({
+          id: "photocopies-ready",
+          pillarId: "administratif",
+          moduleId: "photocopies-couleur",
+          href: photoHome,
+          label: "Photocopies prêtes",
+          rich: true,
+          badge: `${readyCount} prête${readyCount > 1 ? "s" : ""}`,
+          detail:
+            readyCount === 1
+              ? "Votre demande de photocopies est prête à retirer"
+              : `${readyCount} demandes de photocopies prêtes à retirer`,
+          tone: "info",
+        });
+        pushNotif({
+          id: "photocopies-ready",
+          moduleId: "photocopies-couleur",
+          label: "Photocopies prêtes",
+          count: readyCount,
+          href: photoHome,
+          detail:
+            readyCount === 1
+              ? "Votre demande de photocopies couleur est prête"
+              : `${readyCount} demandes de photocopies couleur sont prêtes`,
+        });
+      }
+
+      if (pendingDir > 0) {
+        shortcuts.push({
+          id: "photo-dir",
+          pillarId: "administratif",
+          moduleId: "toolbox",
+          href: photoHome,
+          label: "Photocopies couleur",
+          rich: true,
+          badge: `${pendingDir} à traiter`,
+          detail:
+            pendingDir === 1 ? "1 photocopie à valider" : `${pendingDir} photocopies à valider`,
+          tone: "warn",
+        });
+        pushNotif({
+          id: "photo-dir",
+          moduleId: "toolbox",
+          label: "Photocopies couleur",
+          count: pendingDir,
+          href: photoHome,
+          detail:
+            pendingDir === 1 ? "1 photocopie à valider" : `${pendingDir} photocopies à valider`,
+        });
+      }
     }
   }
 

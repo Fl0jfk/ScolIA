@@ -126,12 +126,27 @@ export default function SettingsNotificationsPanel({
             onChange={(member) => setPersonEmail("hseOps", member)}
           />
         </SettingsField>
-        <SettingsField label="Gestionnaire photocopies couleur" as="div">
-          <DirectoryPersonSelect
+        <SettingsField
+          label="Réceptionnaires photocopies couleur"
+          as="div"
+          hint="Une ou plusieurs personnes voient la file d'impression sur l'intranet après validation direction."
+        >
+          <DirectoryPeopleSelect
             members={directoryMembers}
             loading={membersLoading}
-            selectedEmail={String(notifications.photocopiesOps || "")}
-            onChange={(member) => setPersonEmail("photocopiesOps", member)}
+            selectedEmails={emailsOf(notifications.photocopiesOpsEmails).length
+              ? emailsOf(notifications.photocopiesOpsEmails)
+              : emailsOf(
+                  notifications.photocopiesOps
+                    ? [String(notifications.photocopiesOps)]
+                    : [],
+                )}
+            onChange={(emails) =>
+              patch({
+                photocopiesOpsEmails: emails,
+                photocopiesOps: emails[0] || undefined,
+              })
+            }
           />
         </SettingsField>
       </SettingsSection>

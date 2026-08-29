@@ -28,6 +28,19 @@ export async function GET() {
       const moduleIds = [
         ...accessibleModuleIdsForRoles(appUser.user.roles, isOrgAdmin, access, lookup),
       ];
+      try {
+        const { loadAppConfig } = await import("@/app/lib/app-config");
+        const { resolvePhotocopiesOpsEmails, isPhotocopiesOpsHandler } = await import(
+          "@/app/lib/photocopies-couleur-ops"
+        );
+        const bundle = await loadAppConfig();
+        const ops = resolvePhotocopiesOpsEmails(bundle.notifications);
+        if (isPhotocopiesOpsHandler(appUser.user.email, ops) && !moduleIds.includes("photocopies-couleur")) {
+          moduleIds.push("photocopies-couleur");
+        }
+      } catch {
+        /* ignore */
+      }
       const dossierSections = [
         ...dossierSectionsForRolesWithAccess(
           appUser.user.roles,

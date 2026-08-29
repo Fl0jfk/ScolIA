@@ -160,6 +160,25 @@ export async function GET() {
       if (canAccessHseModule(roles)) accessibleModuleIds.add("demandes-hse");
     }
 
+    const { loadAppConfig } = await import("@/app/lib/app-config");
+    const { resolvePhotocopiesOpsEmails, isPhotocopiesOpsHandler } = await import(
+      "@/app/lib/photocopies-couleur-ops"
+    );
+    const appBundle = await loadAppConfig().catch(() => null);
+    const photocopiesOpsEmails = resolvePhotocopiesOpsEmails(appBundle?.notifications ?? null);
+    const isPhotoOps = isPhotocopiesOpsHandler(email, photocopiesOpsEmails);
+    if (isPhotoOps) accessibleModuleIds.add("photocopies-couleur");
+
+    let establishments: NonNullable<typeof appBundle>["establishments"] = appBundle?.establishments ?? [];
+    if (!appBundle) {
+      try {
+        const appConfig = await loadAppConfig();
+        establishments = appConfig.establishments;
+      } catch (err) {
+        console.error("[dashboard/signals] loadAppConfig", err);
+      }
+    }
+
     const tripsPromise = accessibleModuleIds.has("travels")
       ? safeJson<TripIndexRow[]>("travels/index.json")
       : Promise.resolve(null);
@@ -183,16 +202,17 @@ export async function GET() {
       ? safeJson<unknown>("settings/modules/prof-room.json")
       : Promise.resolve(null);
 
-    const photocopiesPromise = accessibleModuleIds.has("photocopies-couleur")
-      ? safeJson<
-          Array<{
-            id: string;
-            status: string;
-            etablissement?: string;
-            createdBy?: { userId?: string };
-          }>
-        >("photocopies-couleur/index.json")
-      : Promise.resolve(null);
+    const photocopiesPromise =
+      accessibleModuleIds.has("photocopies-couleur") || isPhotoOps
+        ? safeJson<
+            Array<{
+              id: string;
+              status: string;
+              etablissement?: string;
+              createdBy?: { userId?: string; name?: string };
+            }>
+          >("photocopies-couleur/index.json")
+        : Promise.resolve(null);
 
     const hsePromise =
       accessibleModuleIds.has("demandes-hse") && canAccessHseModule(roles)
@@ -251,13 +271,6 @@ export async function GET() {
     } catch (err) {
       console.error("[dashboard/signals] prof-room config", err);
       roomSubjectColors = withDefaultProfRoomSubjects(defaultProfRoomModule()).subjectColors;
-    }
-    let establishments: Awaited<ReturnType<typeof loadAppConfig>>["establishments"] = [];
-    try {
-      const appConfig = await loadAppConfig();
-      establishments = appConfig.establishments;
-    } catch (err) {
-      console.error("[dashboard/signals] loadAppConfig", err);
     }
     const absenceDirCtx = { establishments, userId };
     let absences: AbsenceRecord[] = [];
@@ -555,6 +568,7 @@ export async function GET() {
         roomSubjectColors,
         requestsBoard,
         photocopies,
+        photocopiesOpsEmails,
         hse,
         stagesPendingSignatures,
         internatRollCallStatus,

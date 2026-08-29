@@ -460,17 +460,42 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL(dest, request.url));
   }
 
+  const pathAllowed = canAccessIntranetPath(
+    pathname,
+    roles,
+    isOrgAdmin,
+    await loadModuleAccessForProxy(),
+    {
+      userId: betterAuthState.authUserId,
+      businessUserId: betterAuthState.userId,
+    },
+  );
+  let photocopiesOpsBypass = false;
   if (
-    !canAccessIntranetPath(
-      pathname,
-      roles,
-      isOrgAdmin,
-      await loadModuleAccessForProxy(),
-      {
-        userId: betterAuthState.authUserId,
-        businessUserId: betterAuthState.userId,
-      },
-    ) &&
+    !pathAllowed &&
+    (pathname === "/photocopies-couleur" ||
+      pathname.startsWith("/photocopies-couleur/") ||
+      pathname === "/api/photocopies-couleur" ||
+      pathname.startsWith("/api/photocopies-couleur/"))
+  ) {
+    try {
+      const { loadAppConfig } = await import("@/app/lib/app-config");
+      const { resolvePhotocopiesOpsEmails, isPhotocopiesOpsHandler } = await import(
+        "@/app/lib/photocopies-couleur-ops"
+      );
+      const bundle = await loadAppConfig();
+      photocopiesOpsBypass = isPhotocopiesOpsHandler(
+        betterAuthState.email,
+        resolvePhotocopiesOpsEmails(bundle.notifications),
+      );
+    } catch {
+      photocopiesOpsBypass = false;
+    }
+  }
+
+  if (
+    !pathAllowed &&
+    !photocopiesOpsBypass &&
     !isMustChangePasswordAllowedPath(pathname) &&
     !isTwoFactorSetupAllowedPath(pathname)
   ) {

@@ -109,12 +109,27 @@ export default function ChapterContacts(props: Props) {
             onChange={(e) => setNotifications({ ...notifications, hseOps: e.target.value })}
           />
         </OnboardingField>
-        <OnboardingField label="Gestionnaire photocopies couleur">
+        <OnboardingField label="Réceptionnaires photocopies (e-mails, virgules)">
           <input
             className={onboardingInputClass}
-            type="email"
-            value={notifications.photocopiesOps || ""}
-            onChange={(e) => setNotifications({ ...notifications, photocopiesOps: e.target.value })}
+            type="text"
+            placeholder="personne1@etab.fr, personne2@etab.fr"
+            value={
+              Array.isArray(notifications.photocopiesOpsEmails)
+                ? notifications.photocopiesOpsEmails.join(", ")
+                : notifications.photocopiesOps || ""
+            }
+            onChange={(e) => {
+              const emails = e.target.value
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean);
+              setNotifications({
+                ...notifications,
+                photocopiesOpsEmails: emails,
+                photocopiesOps: emails[0] || "",
+              });
+            }}
           />
         </OnboardingField>
       </Accordion>

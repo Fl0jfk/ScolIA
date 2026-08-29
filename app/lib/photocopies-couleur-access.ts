@@ -8,6 +8,7 @@ import { hasGlobalAdminRole, hasMasterRole, hasRole } from "@/app/lib/intranet-r
 type PhotocopiesRecordLike = {
   etablissement: string;
   createdBy: { userId: string };
+  status?: string;
 };
 
 export function getPhotocopiesRoleFlags(roles: string[]) {
@@ -58,7 +59,25 @@ export function canViewPhotocopiesDemand(
   userId: string,
   roles: string[],
   establishments: Establishment[] = [],
+  opts?: { isOpsHandler?: boolean },
 ) {
   if (rec.createdBy.userId === userId) return true;
+  if (opts?.isOpsHandler) {
+    // File impressions : acceptées (à imprimer) + déjà marquées prêtes
+    return rec.status === "ACCEPTEE" || rec.status === "PRETE";
+  }
   return canManagePhotocopiesDemand(rec, roles, establishments, userId);
+}
+
+/** Réceptionnaire impressions : marquer ACCEPTEE → PRETE. */
+export function canProcessPhotocopiesOps(
+  roles: string[],
+  isOpsHandler: boolean,
+) {
+  if (isOpsHandler) return true;
+  return (
+    hasGlobalAdminRole(roles) ||
+    hasMasterRole(roles) ||
+    roles.includes("admin")
+  );
 }

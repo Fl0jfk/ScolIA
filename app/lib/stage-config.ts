@@ -3,6 +3,7 @@ import {
   establishmentIdForStudentLevel,
   resolveDirectionSignatureDisplayUrlForLevel,
 } from "@/app/lib/direction-signature";
+import { resolvePhotocopiesOpsEmails } from "@/app/lib/photocopies-couleur-ops";
 
 /** @deprecated Plus de signatures sur le CDN public — utiliser Paramètres → Établissements. */
 const DEFAULT_DIRECTION_SIGNATURE_URLS: Record<string, string> = {};
@@ -11,8 +12,7 @@ export async function resolveStagesAdminEmails(): Promise<string[]> {
   const bundle = await loadAppConfig();
   const fromNotif = bundle.notifications.stagesAdminEmails ?? [];
   if (fromNotif.length) return fromNotif;
-  const fallback = bundle.notifications.photocopiesOps?.trim();
-  return fallback ? [fallback] : [];
+  return resolvePhotocopiesOpsEmails(bundle.notifications);
 }
 
 export async function resolveStagesDirectionEmail(studentLevel: string): Promise<string | undefined> {

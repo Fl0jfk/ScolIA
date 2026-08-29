@@ -161,7 +161,10 @@ export type NotificationsConfig = {
   travelsCuisine?: string;
   travelsZeendoc?: string;
   hseOps?: string;
+  /** @deprecated Préférer photocopiesOpsEmails */
   photocopiesOps?: string;
+  /** Réceptionnaires impressions (file à imprimer) — 1 ou plusieurs. */
+  photocopiesOpsEmails?: string[];
   absencesNotifyProfEcole?: { label?: string; email: string };
   absencesNotifyProfCollege?: { label?: string; email: string };
   absencesNotifyProfLycee?: { label?: string; email: string };
@@ -479,6 +482,12 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
     travelsZeendoc: str(o.travelsZeendoc) || undefined,
     hseOps: str(o.hseOps) || undefined,
     photocopiesOps: str(o.photocopiesOps) || undefined,
+    photocopiesOpsEmails: (() => {
+      const fromArr = strArr(o.photocopiesOpsEmails).filter(isEmail);
+      if (fromArr.length > 0) return fromArr;
+      const legacy = str(o.photocopiesOps).trim();
+      return legacy && isEmail(legacy) ? [legacy] : undefined;
+    })(),
     absencesNotifyProfEcole: parseNotify(o.absencesNotifyProfEcole),
     absencesNotifyProfCollege: parseNotify(o.absencesNotifyProfCollege),
     absencesNotifyProfLycee: parseNotify(o.absencesNotifyProfLycee),

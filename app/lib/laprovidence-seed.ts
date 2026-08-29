@@ -113,6 +113,7 @@ export function laprovidenceNotifications(): NotificationsConfig {
     travelsZeendoc: "comptabilite@laprovidence-nicolasbarre.fr",
     hseOps: "sarah.buno@ac-normandie.fr",
     photocopiesOps: "carine.perier@ac-normandie.fr",
+    photocopiesOpsEmails: ["carine.perier@ac-normandie.fr"],
     absencesNotifyProfEcole: {
       label: SCHOOL.absences.notifyProfEcole.label,
       email: SCHOOL.absences.notifyProfEcole.email,
