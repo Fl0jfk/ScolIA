@@ -78,10 +78,6 @@ const MembresPanel = dynamic(
   () => import("@/app/components/settings/MembresPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
-const IdentitePanel = dynamic(
-  () => import("@/app/components/settings/IdentitePanel"),
-  { ssr: false, loading: () => <ModuleTabFallback /> },
-);
 const ModuleAccessPanel = dynamic(
   () => import("@/app/components/settings/ModuleAccessPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
@@ -92,7 +88,6 @@ const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
   { id: "establishments", label: "Sites / directions", icon: "🗺️" },
   { id: "utilisateurs", label: "Utilisateurs", icon: "👥" },
   { id: "module-access", label: "Droits modules", icon: "🔐" },
-  { id: "identite", label: "Identité", icon: "🪪" },
   { id: "referentiel", label: "Liste des élèves", icon: "🎒" },
   { id: "photos", label: "Photos élèves", icon: "🖼️" },
   { id: "annees", label: "Année scolaire", icon: "📅" },
@@ -654,8 +649,6 @@ export default function ParametresPage() {
         {tab === "utilisateurs" && <MembresPanel />}
 
         {tab === "module-access" && <ModuleAccessPanel />}
-
-        {tab === "identite" && <IdentitePanel />}
         </div>
       </ModulePageShell>
     </RequireAdminSettings>

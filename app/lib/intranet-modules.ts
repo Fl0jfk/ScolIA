@@ -435,6 +435,9 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/membres",
       "/api/members",
       "/api/nomenclature",
+      "/api/annees-scolaires",
+      "/api/identite",
+      "/api/mef-secteurs",
     ],
     allowedRoles: [...DIRECTIONS, "admin"],
     dashboard: {
