@@ -7,6 +7,8 @@ import RequestPersonnelTagsEditor from "@/app/components/settings/RequestPersonn
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import type { RequestsOrgConfig, RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
+import { defaultRequestsOrg } from "@/app/lib/requests-org-shared";
+import { defaultRequestsRouting } from "@/app/lib/requests-routing-defaults";
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 
 type SettingsTab = "services" | "personnes" | "options";
@@ -20,6 +22,7 @@ export default function RequestsSettingsPanel({
   onChangeOrg,
   members,
   membersLoading,
+  settingsLoading,
   routingMsg,
   routingBusy,
   onSave,
@@ -30,6 +33,7 @@ export default function RequestsSettingsPanel({
   onChangeOrg: (config: RequestsOrgConfig) => void;
   members: Member[];
   membersLoading: boolean;
+  settingsLoading: boolean;
   routingMsg: string | null;
   routingBusy: boolean;
   onSave: () => void | Promise<void>;
@@ -38,6 +42,8 @@ export default function RequestsSettingsPanel({
 
   const orgReady = Boolean(requestsOrg);
   const routingReady = Boolean(requestsRouting);
+  const orgConfig = requestsOrg ?? defaultRequestsOrg();
+  const routingConfig = requestsRouting ?? defaultRequestsRouting();
 
   return (
     <div className="mt-6 max-w-5xl space-y-4">
@@ -73,50 +79,50 @@ export default function RequestsSettingsPanel({
       />
 
       {tab === "services" ? (
-        orgReady && routingReady ? (
+        settingsLoading && !orgReady ? (
+          <p className="text-sm text-slate-500">Chargement des services…</p>
+        ) : (
           <RequestOrgEditor
-            org={requestsOrg!}
-            routing={requestsRouting!}
+            org={orgConfig}
+            routing={routingConfig}
             onChange={onChangeOrg}
             members={members}
             membersLoading={membersLoading}
           />
-        ) : (
-          <p className="text-sm text-slate-500">Chargement des services…</p>
         )
       ) : null}
 
       {tab === "personnes" ? (
-        routingReady && orgReady ? (
+        settingsLoading && !routingReady ? (
+          <p className="text-sm text-slate-500">Chargement du personnel…</p>
+        ) : (
           <RequestPersonnelTagsEditor
-            config={requestsRouting!}
-            org={requestsOrg!}
+            config={routingConfig}
+            org={orgConfig}
             onChange={onChangeRouting}
             members={members}
             membersLoading={membersLoading}
           />
-        ) : (
-          <p className="text-sm text-slate-500">Chargement du personnel…</p>
         )
       ) : null}
 
       {tab === "options" ? (
-        routingReady ? (
+        settingsLoading && !routingReady ? (
+          <p className="text-sm text-slate-500">Chargement des options…</p>
+        ) : (
           <RequestsRoutingEditor
-            config={requestsRouting!}
+            config={routingConfig}
             onChange={onChangeRouting}
             members={members}
             membersLoading={membersLoading}
             mode="options"
           />
-        ) : (
-          <p className="text-sm text-slate-500">Chargement des options…</p>
         )
       ) : null}
 
       <ModuleButton
         variant="primary"
-        disabled={routingBusy || !routingReady || !orgReady}
+        disabled={routingBusy || settingsLoading}
         onClick={() => void onSave()}
       >
         {routingBusy ? "Enregistrement…" : "Enregistrer tous les réglages"}

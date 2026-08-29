@@ -36,7 +36,13 @@ export function invalidateRequestsOrgCache() {
 export async function getRequestsOrgConfig(): Promise<RequestsOrgConfig> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.config;
   const raw = await getJson<{ data?: unknown }>(ORG_KEY);
-  const config = raw?.data ? parseRequestsOrg(raw.data) : defaultRequestsOrg();
+  let config: RequestsOrgConfig;
+  try {
+    config = raw?.data ? parseRequestsOrg(raw.data) : defaultRequestsOrg();
+  } catch (e) {
+    console.error("[requests-org-config] parse fallback", e);
+    config = defaultRequestsOrg();
+  }
   cache = { at: Date.now(), config };
   return config;
 }

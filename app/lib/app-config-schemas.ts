@@ -988,24 +988,19 @@ export function parseRequestsOrg(raw: unknown): RequestsOrgConfig {
   });
 
   const ids = new Set(units.map((u) => u.id));
-  for (const u of units) {
-    if (u.parentUnitId && !ids.has(u.parentUnitId)) {
-      throw new Error(`Service « ${u.label} » : parent introuvable (${u.parentUnitId}).`);
-    }
-  }
+  const sanitizedUnits = units.map((u) => ({
+    ...u,
+    parentUnitId: u.parentUnitId && ids.has(u.parentUnitId) ? u.parentUnitId : null,
+  }));
+  const sanitizedGlobal = globalOversightUnitIds.filter((id) => ids.has(id));
+  const sanitizedMetier = metierOversightUnitIds.filter((id) => ids.has(id));
 
-  for (const gid of globalOversightUnitIds) {
-    if (!ids.has(gid)) {
-      throw new Error(`Unité de supervision globale introuvable : ${gid}.`);
-    }
-  }
-  for (const mid of metierOversightUnitIds) {
-    if (!ids.has(mid)) {
-      throw new Error(`Unité de direction métier introuvable : ${mid}.`);
-    }
-  }
-
-  return { version: 1, globalOversightUnitIds, metierOversightUnitIds, units };
+  return {
+    version: 1,
+    globalOversightUnitIds: sanitizedGlobal,
+    metierOversightUnitIds: sanitizedMetier,
+    units: sanitizedUnits,
+  };
 }
 
 export function parseClassAllocationSettings(raw: unknown): NonNullable<AppConfigBundle["classAllocation"]> {

@@ -21,6 +21,8 @@ import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import type { RequestsOrgConfig, RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
+import { defaultRequestsOrg } from "@/app/lib/requests-org-shared";
+import { defaultRequestsRouting } from "@/app/lib/requests-routing-defaults";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import {
@@ -228,6 +230,7 @@ export default function RequestsPage() {
   const [requestsOrg, setRequestsOrg] = useState<RequestsOrgConfig | null>(null);
   const [routingMsg, setRoutingMsg] = useState<string | null>(null);
   const [routingBusy, setRoutingBusy] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
   const [directoryMembers, setDirectoryMembers] = useState<SettingsMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
   const [items, setItems] = useState<RequestRecord[]>([]);
@@ -631,8 +634,13 @@ export default function RequestsPage() {
     }
   };
 
+  const requestsRoutingRef = useRef(requestsRouting);
+  const requestsOrgRef = useRef(requestsOrg);
+  requestsRoutingRef.current = requestsRouting;
+  requestsOrgRef.current = requestsOrg;
+
   const loadRoutingSettings = useCallback(async (force = false) => {
-    if (!force && requestsRouting && requestsOrg) {
+    if (!force && requestsRoutingRef.current && requestsOrgRef.current) {
       setMembersLoading(true);
       try {
         const res = await fetch("/api/members", { cache: "no-store" });
@@ -670,7 +678,9 @@ export default function RequestsPage() {
       return;
     }
 
+    setSettingsLoading(true);
     setMembersLoading(true);
+    const errors: string[] = [];
     try {
       const [routingRes, orgRes, membersRes] = await Promise.all([
         fetch("/api/settings/requests-routing", { cache: "no-store" }),
@@ -682,8 +692,18 @@ export default function RequestsPage() {
         orgRes.json(),
         membersRes.json(),
       ]);
-      if (routingRes.ok) setRequestsRouting(routingJson.config as RequestsRoutingConfig);
-      if (orgRes.ok) setRequestsOrg(orgJson.config as RequestsOrgConfig);
+      if (routingRes.ok && routingJson.config) {
+        setRequestsRouting(routingJson.config as RequestsRoutingConfig);
+      } else {
+        setRequestsRouting((cur) => cur ?? defaultRequestsRouting());
+        errors.push(routingJson.error || "Impossible de charger le routage.");
+      }
+      if (orgRes.ok && orgJson.config) {
+        setRequestsOrg(orgJson.config as RequestsOrgConfig);
+      } else {
+        setRequestsOrg((cur) => cur ?? defaultRequestsOrg());
+        errors.push(orgJson.error || "Impossible de charger les services.");
+      }
       if (membersRes.ok && Array.isArray(membersJson.users)) {
         setDirectoryMembers(
           membersJson.users.map(
@@ -709,25 +729,40 @@ export default function RequestsPage() {
           ),
         );
       }
+      if (errors.length > 0) {
+        setRoutingMsg(errors.join(" "));
+      }
     } catch {
-      /* ignore */
+      setRequestsRouting((cur) => cur ?? defaultRequestsRouting());
+      setRequestsOrg((cur) => cur ?? defaultRequestsOrg());
+      setRoutingMsg("Erreur réseau — affichage des valeurs par défaut.");
     } finally {
+      setSettingsLoading(false);
       setMembersLoading(false);
     }
-  }, [requestsRouting, requestsOrg]);
+  }, []);
+
+  useEffect(() => {
+    if (mainTab === "routing" && isOrgAdmin) {
+      setRequestsOrg((cur) => cur ?? defaultRequestsOrg());
+      setRequestsRouting((cur) => cur ?? defaultRequestsRouting());
+      void loadRoutingSettings(true);
+    }
+  }, [mainTab, isOrgAdmin, loadRoutingSettings]);
 
   const saveRouting = async () => {
-    if (!requestsRouting || !requestsOrg) return;
+    const org = requestsOrg ?? defaultRequestsOrg();
+    const routing = requestsRouting ?? defaultRequestsRouting();
     setRoutingBusy(true);
     setRoutingMsg(null);
     try {
       const serviceTags = [
-        ...new Set(requestsOrg.units.flatMap((u) => u.tags ?? [])),
+        ...new Set(org.units.flatMap((u) => u.tags ?? [])),
       ].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
       const mergedCatalog = [
-        ...new Set([...(requestsRouting.tagCatalog ?? []), ...serviceTags]),
+        ...new Set([...(routing.tagCatalog ?? []), ...serviceTags]),
       ].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
-      const routingToSave = { ...requestsRouting, tagCatalog: mergedCatalog };
+      const routingToSave = { ...routing, tagCatalog: mergedCatalog };
 
       const [routingRes, orgRes] = await Promise.all([
         fetch("/api/settings/requests-routing", {
@@ -738,7 +773,7 @@ export default function RequestsPage() {
         fetch("/api/settings/requests-org", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestsOrg),
+          body: JSON.stringify(org),
         }),
       ]);
       const routingJson = await routingRes.json();
@@ -843,7 +878,6 @@ export default function RequestsPage() {
           active={mainTab}
           onChange={(id) => {
             setMainTab(id as RequestsMainTab);
-            if (id === "routing") void loadRoutingSettings(true);
           }}
         />
       ) : null}
@@ -856,6 +890,7 @@ export default function RequestsPage() {
           onChangeOrg={setRequestsOrg}
           members={directoryMembers}
           membersLoading={membersLoading}
+          settingsLoading={settingsLoading}
           routingMsg={routingMsg}
           routingBusy={routingBusy}
           onSave={saveRouting}
