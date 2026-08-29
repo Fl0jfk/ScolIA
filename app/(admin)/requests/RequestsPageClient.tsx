@@ -632,27 +632,61 @@ export default function RequestsPage() {
   };
 
   const loadRoutingSettings = useCallback(async (force = false) => {
-    if (force || !requestsRouting || !requestsOrg) {
+    if (!force && requestsRouting && requestsOrg) {
+      setMembersLoading(true);
       try {
-        const [routingRes, orgRes] = await Promise.all([
-          fetch("/api/settings/requests-routing", { cache: "no-store" }),
-          fetch("/api/settings/requests-org", { cache: "no-store" }),
-        ]);
-        const routingJson = await routingRes.json();
-        const orgJson = await orgRes.json();
-        if (routingRes.ok) setRequestsRouting(routingJson.config as RequestsRoutingConfig);
-        if (orgRes.ok) setRequestsOrg(orgJson.config as RequestsOrgConfig);
+        const res = await fetch("/api/members", { cache: "no-store" });
+        const j = await res.json();
+        if (res.ok && Array.isArray(j.users)) {
+          setDirectoryMembers(
+            j.users.map(
+              (u: {
+                id?: string;
+                externalUserId?: string;
+                email?: string;
+                displayName?: string;
+                name?: string;
+                firstName?: string;
+                lastName?: string;
+                roles?: string[];
+              }) => ({
+                externalUserId: String(u.externalUserId || u.id || ""),
+                email: String(u.email || ""),
+                displayName: String(
+                  u.displayName || u.name || [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || "",
+                ),
+                firstName: u.firstName,
+                lastName: u.lastName,
+                roles: u.roles,
+              }),
+            ),
+          );
+        }
       } catch {
         /* ignore */
+      } finally {
+        setMembersLoading(false);
       }
+      return;
     }
+
     setMembersLoading(true);
     try {
-      const res = await fetch("/api/members", { cache: "no-store" });
-      const j = await res.json();
-      if (res.ok && Array.isArray(j.users)) {
+      const [routingRes, orgRes, membersRes] = await Promise.all([
+        fetch("/api/settings/requests-routing", { cache: "no-store" }),
+        fetch("/api/settings/requests-org", { cache: "no-store" }),
+        fetch("/api/members", { cache: "no-store" }),
+      ]);
+      const [routingJson, orgJson, membersJson] = await Promise.all([
+        routingRes.json(),
+        orgRes.json(),
+        membersRes.json(),
+      ]);
+      if (routingRes.ok) setRequestsRouting(routingJson.config as RequestsRoutingConfig);
+      if (orgRes.ok) setRequestsOrg(orgJson.config as RequestsOrgConfig);
+      if (membersRes.ok && Array.isArray(membersJson.users)) {
         setDirectoryMembers(
-          j.users.map(
+          membersJson.users.map(
             (u: {
               id?: string;
               externalUserId?: string;
@@ -687,11 +721,19 @@ export default function RequestsPage() {
     setRoutingBusy(true);
     setRoutingMsg(null);
     try {
+      const serviceTags = [
+        ...new Set(requestsOrg.units.flatMap((u) => u.tags ?? [])),
+      ].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+      const mergedCatalog = [
+        ...new Set([...(requestsRouting.tagCatalog ?? []), ...serviceTags]),
+      ].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+      const routingToSave = { ...requestsRouting, tagCatalog: mergedCatalog };
+
       const [routingRes, orgRes] = await Promise.all([
         fetch("/api/settings/requests-routing", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ config: requestsRouting, preserveTags: true }),
+          body: JSON.stringify({ config: routingToSave, preserveTags: true }),
         }),
         fetch("/api/settings/requests-org", {
           method: "PUT",
@@ -705,7 +747,7 @@ export default function RequestsPage() {
       if (!orgRes.ok) throw new Error(orgJson.error || "Échec organisation");
       setRequestsRouting(routingJson.config as RequestsRoutingConfig);
       setRequestsOrg(orgJson.config as RequestsOrgConfig);
-      setRoutingMsg("Réglages enregistrés (routage + organisation services).");
+      setRoutingMsg("Réglages enregistrés (services + personnes + options).");
     } catch (e) {
       setRoutingMsg(e instanceof Error ? e.message : "Erreur");
     } finally {

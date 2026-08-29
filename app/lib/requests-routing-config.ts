@@ -6,6 +6,14 @@ import {
   type RoutingTask,
 } from "@/app/lib/app-config-schemas";
 import { loadAppConfig } from "@/app/lib/app-config";
+import { defaultEstablishments } from "@/app/lib/app-config-defaults";
+import { parseEstablishmentsFile, type Establishment } from "@/app/lib/app-config-schemas";
+import {
+  countSitesInDb,
+  isEntCoreDbEnabled,
+  listSitesFromDb,
+  resolveCurrentEtablissementId,
+} from "@/app/lib/ent-core-db";
 import { defaultRequestsRouting, RH_REQUEST_ROUTE_ID, isManualOnlyDirectionRoute, syncDirectionQueuesFromTasks, syncRequestsRoutingWithEstablishments } from "@/app/lib/requests-routing-defaults";
 import { syncStaffDirectoryFromRequestsConfig, getRequestsOrgConfig } from "@/app/lib/requests-org-config";
 import {
@@ -35,6 +43,28 @@ const AMBIGUITY_RATIO = 0.85;
 const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
 
 let cache: { at: number; config: RequestsRoutingConfig } | null = null;
+
+async function loadEstablishmentsForRouting(): Promise<Establishment[]> {
+  try {
+    const estRaw = await getJson<unknown>("settings/establishments.json");
+    let establishments = estRaw?.data
+      ? parseEstablishmentsFile(estRaw.data)
+      : defaultEstablishments();
+    if (isEntCoreDbEnabled()) {
+      try {
+        const etabId = await resolveCurrentEtablissementId();
+        if (etabId && (await countSitesInDb(etabId)) > 0) {
+          establishments = await listSitesFromDb(etabId);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return establishments;
+  } catch {
+    return defaultEstablishments();
+  }
+}
 
 function invalidateRequestsRoutingCache() {
   cache = null;
@@ -72,10 +102,10 @@ export async function getRequestsRoutingConfig(): Promise<RequestsRoutingConfig>
     config.directionQueues.every((q) => !q.email?.trim());
   if (needsDirectionSync) {
     try {
-      const appConfig = await loadAppConfig();
+      const establishments = await loadEstablishmentsForRouting();
       config = syncDirectionQueuesFromTasks(
-        syncRequestsRoutingWithEstablishments(config, appConfig.establishments),
-        appConfig.establishments,
+        syncRequestsRoutingWithEstablishments(config, establishments),
+        establishments,
       );
     } catch {
       config = syncDirectionQueuesFromTasks(config);
@@ -119,10 +149,10 @@ export async function saveRequestsRoutingConfig(
   const parsed = parseRequestsRouting(merged);
   let enriched = parsed;
   try {
-    const appConfig = await loadAppConfig();
+    const establishments = await loadEstablishmentsForRouting();
     enriched = syncDirectionQueuesFromTasks(
-      syncRequestsRoutingWithEstablishments(parsed, appConfig.establishments),
-      appConfig.establishments,
+      syncRequestsRoutingWithEstablishments(parsed, establishments),
+      establishments,
     );
   } catch {
     enriched = syncDirectionQueuesFromTasks(parsed);

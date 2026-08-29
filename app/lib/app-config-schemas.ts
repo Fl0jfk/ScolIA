@@ -287,7 +287,9 @@ export type RequestServiceUnit = {
   parentUnitId: string | null;
   managerEmails: string[];
   memberEmails: string[];
-  /** Files / tâches de ticketing rattachées à ce service. */
+  /** Tags métier du service (ex. paye, facturation) — utilisés pour le routage IA. */
+  tags: string[];
+  /** Files / tâches de ticketing rattachées (legacy, conservé pour compatibilité). */
   taskIds: string[];
   /** Le manager peut confier à l'équipe et aux sous-services. */
   canDelegateToChildUnits: boolean;
@@ -965,12 +967,20 @@ export function parseRequestsOrg(raw: unknown): RequestsOrgConfig {
       ),
     ];
     const taskIds = [...new Set(strArr(x.taskIds).map((t) => t.trim()).filter(Boolean))];
+    const tags = [
+      ...new Set(
+        strArr(x.tags)
+          .map((t) => t.trim().replace(/\s+/g, " "))
+          .filter(Boolean),
+      ),
+    ];
     return {
       id,
       label: str(x.label).trim() || id,
       parentUnitId: parentRaw || null,
       managerEmails,
       memberEmails,
+      tags,
       taskIds,
       canDelegateToChildUnits: x.canDelegateToChildUnits !== false,
       active: x.active !== false,

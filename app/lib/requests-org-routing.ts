@@ -30,7 +30,7 @@ export type UnitCatalogEntry = {
 };
 
 export function orgUnitRoutingEnabled(org: RequestsOrgConfig): boolean {
-  return getActiveUnits(org).some((u) => u.taskIds.length > 0);
+  return getActiveUnits(org).some((u) => u.taskIds.length > 0 || u.tags.length > 0);
 }
 
 export function buildUnitCatalog(org: RequestsOrgConfig, routing: RequestsRoutingConfig): UnitCatalogEntry[] {
@@ -38,7 +38,7 @@ export function buildUnitCatalog(org: RequestsOrgConfig, routing: RequestsRoutin
   const unitById = new Map(getActiveUnits(org).map((u) => [u.id, u]));
 
   return getActiveUnits(org)
-    .filter((u) => u.taskIds.length > 0)
+    .filter((u) => u.taskIds.length > 0 || u.tags.length > 0)
     .map((unit) => {
       const tasks = unit.taskIds
         .map((id) => taskById.get(id))
@@ -48,18 +48,36 @@ export function buildUnitCatalog(org: RequestsOrgConfig, routing: RequestsRoutin
         for (const k of t.keywords) keywords.add(k);
         if (t.hint) keywords.add(t.hint);
       }
+      for (const tag of unit.tags) keywords.add(tag);
+      if (unit.label) keywords.add(unit.label);
+
+      const effectiveTasks =
+        tasks.length > 0
+          ? tasks
+          : unit.tags.length > 0
+            ? [
+                {
+                  id: unit.id,
+                  label: unit.label,
+                  hint: unit.label,
+                  keywords: unit.tags,
+                  active: true,
+                } satisfies RoutingTask,
+              ]
+            : [];
+
       const parent = unit.parentUnitId ? unitById.get(unit.parentUnitId) : undefined;
       return {
         unitId: unit.id,
         unitLabel: unit.label,
         parentUnitId: unit.parentUnitId,
         parentUnitLabel: parent?.label ?? null,
-        taskIds: tasks.map((t) => t.id),
-        tasks: tasks.map((t) => ({
+        taskIds: effectiveTasks.map((t) => t.id),
+        tasks: effectiveTasks.map((t) => ({
           id: t.id,
           label: t.label,
           hint: t.hint,
-          keywords: t.keywords,
+          keywords: [...t.keywords, ...unit.tags],
         })),
         aggregatedKeywords: [...keywords],
       };

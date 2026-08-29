@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import type { RequestsOrgConfig, RequestsRoutingConfig, RequestServiceUnit } from "@/app/lib/app-config-schemas";
 import { newRequestServiceUnit } from "@/app/lib/requests-org-shared";
@@ -12,6 +12,10 @@ type Props = {
   members: DirectoryMemberOption[];
   membersLoading: boolean;
 };
+
+function normalizeTag(raw: string): string {
+  return raw.trim().replace(/\s+/g, " ");
+}
 
 function EmailMultiPicker({
   label,
@@ -72,10 +76,105 @@ function EmailMultiPicker({
   );
 }
 
+function ServiceTagsEditor({
+  tags,
+  onChange,
+  suggestions,
+}: {
+  tags: string[];
+  onChange: (tags: string[]) => void;
+  suggestions: string[];
+}) {
+  const [draft, setDraft] = useState("");
+
+  const addTag = (raw: string) => {
+    const label = normalizeTag(raw);
+    if (!label) return;
+    if (tags.some((t) => t.toLowerCase() === label.toLowerCase())) return;
+    onChange([...tags, label].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" })));
+    setDraft("");
+  };
+
+  const removeTag = (tag: string) => {
+    onChange(tags.filter((t) => t !== tag));
+  };
+
+  const unusedSuggestions = suggestions.filter(
+    (s) => !tags.some((t) => t.toLowerCase() === s.toLowerCase()),
+  );
+
+  return (
+    <div>
+      <p className="text-xs font-bold text-slate-500 mb-1">Tags du service</p>
+      <p className="text-[11px] text-slate-400 mb-2">
+        Ex. comptabilité → paye, facturation · maintenance → plomberie, électricité
+      </p>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {tags.length === 0 ? (
+          <span className="text-xs text-slate-400 italic">Aucun tag — ajoutez-en pour le routage IA</span>
+        ) : (
+          tags.map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-900 ring-1 ring-emerald-200"
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={() => removeTag(tag)}
+                className="rounded-full px-1 hover:bg-emerald-200"
+                title="Retirer"
+              >
+                ×
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addTag(draft);
+            }
+          }}
+          placeholder="Nouveau tag…"
+          className="min-w-[140px] flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+        />
+        <button
+          type="button"
+          onClick={() => addTag(draft)}
+          className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-bold text-white"
+        >
+          + Tag
+        </button>
+      </div>
+      {unusedSuggestions.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {unusedSuggestions.slice(0, 8).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => addTag(s)}
+              className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-200"
+            >
+              + {s}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function UnitCard({
   unit,
   org,
-  routing,
+  tagSuggestions,
   members,
   membersLoading,
   onUpdate,
@@ -83,14 +182,13 @@ function UnitCard({
 }: {
   unit: RequestServiceUnit;
   org: RequestsOrgConfig;
-  routing: RequestsRoutingConfig;
+  tagSuggestions: string[];
   members: DirectoryMemberOption[];
   membersLoading: boolean;
   onUpdate: (patch: Partial<RequestServiceUnit>) => void;
   onRemove: () => void;
 }) {
   const parentOptions = org.units.filter((u) => u.id !== unit.id);
-  const taskOptions = routing.tasks.filter((t) => t.active);
 
   const depth = unit.parentUnitId
     ? 1 + (org.units.find((u) => u.id === unit.parentUnitId)?.parentUnitId ? 1 : 0)
@@ -110,7 +208,6 @@ function UnitCard({
           />
           Actif
         </label>
-        <span className="text-[10px] font-mono text-slate-400">{unit.id}</span>
         {org.globalOversightUnitIds.includes(unit.id) ? (
           <span className="text-[10px] font-black uppercase tracking-wide text-violet-700 bg-violet-50 px-2 py-0.5 rounded">
             Supervision globale
@@ -147,37 +244,11 @@ function UnitCard({
         </div>
       </div>
 
-      <div>
-        <p className="text-xs font-bold text-slate-500 mb-1">Files de demandes rattachées</p>
-        <div className="flex flex-wrap gap-1.5">
-          {taskOptions.map((t) => {
-            const checked = unit.taskIds.includes(t.id);
-            return (
-              <label
-                key={t.id}
-                className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-semibold cursor-pointer ${
-                  checked
-                    ? "bg-emerald-50 border-emerald-300 text-emerald-900"
-                    : "bg-white border-slate-200 text-slate-600"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  className="sr-only"
-                  checked={checked}
-                  onChange={() => {
-                    const next = checked
-                      ? unit.taskIds.filter((id) => id !== t.id)
-                      : [...unit.taskIds, t.id];
-                    onUpdate({ taskIds: next });
-                  }}
-                />
-                {t.label}
-              </label>
-            );
-          })}
-        </div>
-      </div>
+      <ServiceTagsEditor
+        tags={unit.tags}
+        onChange={(tags) => onUpdate({ tags })}
+        suggestions={tagSuggestions}
+      />
 
       <EmailMultiPicker
         label="Managers (peuvent confier des tâches)"
@@ -208,6 +279,14 @@ function UnitCard({
 }
 
 export default function RequestOrgEditor({ org, routing, onChange, members, membersLoading }: Props) {
+  const tagSuggestions = useMemo(() => {
+    const fromCatalog = routing.tagCatalog ?? [];
+    const fromUnits = org.units.flatMap((u) => u.tags);
+    return [...new Set([...fromCatalog, ...fromUnits])].sort((a, b) =>
+      a.localeCompare(b, "fr", { sensitivity: "base" }),
+    );
+  }, [org.units, routing.tagCatalog]);
+
   const updateUnit = (idx: number, patch: Partial<RequestServiceUnit>) => {
     const units = [...org.units];
     units[idx] = { ...units[idx]!, ...patch };
@@ -274,21 +353,17 @@ export default function RequestOrgEditor({ org, routing, onChange, members, memb
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-5 space-y-3">
-        <h2 className="text-lg font-bold text-slate-900">Organisation par service</h2>
+        <h2 className="text-lg font-bold text-slate-900">Services</h2>
         <p className="text-sm text-slate-600 leading-relaxed">
-          Chaque service reçoit les demandes en <strong>pile</strong> (managers d&apos;abord).
-          <strong> Direction globale</strong> : voit tout le tableau et peut confier partout.
-          <strong> Direction métier</strong> (compta, maintenance…) : voit les demandes de son service.
-        </p>
-        <p className="text-xs text-indigo-800/80">
-          À l&apos;enregistrement, la table équipe (staff-directory) est recalculée : managers = responsables,
-          membres = exécutants sur les files rattachées.
+          Créez un service, définissez ses <strong>tags métier</strong>, puis affectez un ou plusieurs{" "}
+          <strong>managers</strong> et des <strong>membres</strong>. Les demandes arrivent en pile chez
+          les managers — ils peuvent les prendre ou les confier.
         </p>
       </section>
 
       <section className="space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="font-black text-slate-800">Services</h3>
+          <h3 className="font-black text-slate-800">Liste des services</h3>
           <button
             type="button"
             onClick={addUnit}
@@ -306,7 +381,7 @@ export default function RequestOrgEditor({ org, routing, onChange, members, memb
               <UnitCard
                 unit={unit}
                 org={org}
-                routing={routing}
+                tagSuggestions={tagSuggestions}
                 members={members}
                 membersLoading={membersLoading}
                 onUpdate={(patch) => updateUnit(idx, patch)}
