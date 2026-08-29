@@ -258,7 +258,7 @@ async function notifyStageSignatureRequest(
     signature.role === "professeur_referent"
       ? [
           "",
-          "Conseil : enregistrez votre signature une fois dans l'intranet (module Stages → « Ma signature »),",
+          "Conseil : enregistrez votre signature une fois dans Mon compte → Sécurité → Ma signature,",
           "puis signez en un clic depuis ce lien ou depuis le bandeau de notifications du module.",
         ]
       : signature.role === "direction"
@@ -300,6 +300,51 @@ async function notifyStageSignatureRequest(
     from: `"Stages ${school}" <${m.smtp.user}>`,
     to,
     subject: `[Stages] Convention validée — signature requise (${roleLabel}) — ${studentLabel(convention)}`,
+    text,
+  });
+  return { sent: true, recipients: [to] };
+}
+
+/** Signature refusée par l'administratif — nouvelle demande envoyée au signataire. */
+export async function notifyStageSignatureRejected(
+  convention: StageConvention,
+  signature: StageSignature,
+  note?: string,
+) {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" as const };
+  const to = signature.signEmail?.trim();
+  if (!to || !signature.signToken) return { sent: false, reason: "no_email" as const };
+
+  const bundle = await loadAppConfig();
+  const school = bundle.identity.shortName || bundle.identity.name;
+  const roleLabel = STAGE_SIGNER_ROLE_LABELS[signature.role];
+  const link = await signLink(signature.signToken);
+
+  const text = [
+    "Bonjour,",
+    "",
+    `Votre signature pour la convention de stage de ${studentLabel(convention)} n'a pas pu être acceptée.`,
+    note ? `Motif : ${note}` : null,
+    "",
+    "Merci de signer à nouveau la convention en utilisant l'un des modes proposés :",
+    "- code sécurisé reçu par e-mail,",
+    "- signature au doigt sur l'écran,",
+    "- ou dépôt du document signé en papier (scan / photo PDF).",
+    "",
+    signature.signSecureCode ? `Nouveau code : ${signature.signSecureCode}` : null,
+    `Lien : ${link}`,
+    "",
+    "Cordialement,",
+    school,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  await m.transporter.sendMail({
+    from: `"Stages ${school}" <${m.smtp.user}>`,
+    to,
+    subject: `[Stages] Signature non acceptée — ${roleLabel} — ${studentLabel(convention)}`,
     text,
   });
   return { sent: true, recipients: [to] };

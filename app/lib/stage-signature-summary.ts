@@ -1,6 +1,8 @@
 import {
   STAGE_CONVENTION_STATUS_LABELS,
   STAGE_SIGNER_ROLE_LABELS,
+  conventionAllSignaturesValidated,
+  isStageSignatureFullyValidated,
   type StageConvention,
   type StageSignature,
   type StageSignatureStatus,
@@ -12,6 +14,8 @@ export type StageSignatureProgressItem = {
   label: string;
   status: StageSignatureStatus;
   signedAt?: string;
+  reviewStatus?: StageSignature["reviewStatus"];
+  signMethod?: StageSignature["signMethod"];
 };
 
 export type StageSignatureSummary = {
@@ -43,6 +47,8 @@ function mapSignature(sig: StageSignature): StageSignatureProgressItem {
     label: sig.label || STAGE_SIGNER_ROLE_LABELS[sig.role],
     status: sig.status,
     signedAt: sig.signedAt,
+    reviewStatus: sig.reviewStatus,
+    signMethod: sig.signMethod,
   };
 }
 
@@ -52,12 +58,13 @@ export function buildSignatureSummary(convention: StageConvention): StageSignatu
   const pending = items.filter((s) => s.status === "en_attente").length;
   const refused = items.filter((s) => s.status === "refuse").length;
   const total = items.length;
+  const validated = convention.signatures.filter(isStageSignatureFullyValidated).length;
   return {
     total,
-    signed,
-    pending,
+    signed: validated,
+    pending: total - validated - refused,
     refused,
-    complete: total > 0 && signed === total,
+    complete: conventionAllSignaturesValidated(convention.signatures),
     items,
   };
 }

@@ -28,11 +28,12 @@ export async function GET(req: Request) {
     if (!bytes) return NextResponse.json({ error: "Fichier vide." }, { status: 500 });
 
     const filename = convention.uploadedPdf.fileName || "convention.pdf";
+    const download = new URL(req.url).searchParams.get("download") === "1";
     return new NextResponse(Buffer.from(bytes), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${filename}"`,
+        "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${filename}"`,
         "Cache-Control": "no-store",
       },
     });

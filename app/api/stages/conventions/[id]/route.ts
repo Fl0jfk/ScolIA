@@ -7,6 +7,7 @@ import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import {
   approveDepositedConvention,
   normalizeConventionInput,
+  reviewConventionSignature,
   reviewPreconvention,
   submitPreconvention,
 } from "@/app/lib/stage-workflow";
@@ -246,6 +247,26 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       };
       await saveStageConvention(convention);
       return NextResponse.json({ success: true, convention });
+    }
+
+    if (action === "review_signature") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const signatureId = String(body.signatureId ?? "").trim();
+      if (!signatureId) {
+        return NextResponse.json({ error: "signatureId requis." }, { status: 400 });
+      }
+      const result = await reviewConventionSignature({
+        conventionId: convention.id,
+        signatureId,
+        accepted: body.accepted === true,
+        by: gate.ctx.userId,
+        byName: displayName(user),
+        note: String(body.note ?? "").trim() || undefined,
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({ success: true, convention: result.convention });
     }
 
     if (action === "resend_signatures") {

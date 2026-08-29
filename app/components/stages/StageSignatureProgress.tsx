@@ -50,11 +50,13 @@ export default function StageSignatureProgress({
             >
               <span>{item.label}</span>
               <span className="font-medium">
-                {item.status === "signe"
-                  ? "Signé"
-                  : item.status === "refuse"
-                    ? "Refusé"
-                    : "En attente"}
+                {item.reviewStatus === "pending"
+                  ? "À valider"
+                  : item.status === "signe"
+                    ? "Signé"
+                    : item.status === "refuse"
+                      ? "Refusé"
+                      : "En attente"}
               </span>
             </li>
           ))}

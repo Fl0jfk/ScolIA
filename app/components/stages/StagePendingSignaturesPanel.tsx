@@ -24,8 +24,8 @@ export default function StagePendingSignaturesPanel({
           </p>
           {hasStoredSignature === false && (
             <p className="mt-2 text-xs font-semibold text-violet-900">
-              Astuce : enregistrez d&apos;abord votre signature dans le bloc « Ma signature » ci-dessous
-              pour signer en un clic.
+              Astuce : enregistrez d&apos;abord votre signature dans Mon compte → Sécurité → Ma
+              signature pour signer en un clic.
             </p>
           )}
         </div>

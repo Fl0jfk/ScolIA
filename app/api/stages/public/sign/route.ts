@@ -4,7 +4,11 @@ import { roleStampsPdf } from "@/app/lib/stage-pdf-sign";
 import { loadReferentSignatureBytes } from "@/app/lib/stage-signature-store";
 import { getSignTokenRef, getStageConvention } from "@/app/lib/stage-storage";
 import { scheduleSummary } from "@/app/lib/stage-schedule";
-import { STAGE_SIGNER_ROLE_LABELS } from "@/app/lib/stage-types";
+import {
+  isExternalStageSignerRole,
+  STAGE_SIGNER_ROLE_LABELS,
+  type StageSignMethod,
+} from "@/app/lib/stage-types";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 
 const signPublicLimiter = createMemoryRateLimiter({
@@ -33,8 +37,9 @@ export async function GET(req: Request) {
       hasStoredReferentSignature = Boolean(stored?.length);
     }
 
+    const isExternal = isExternalStageSignerRole(signature.role);
     const needsDrawnSignature =
-      signature.role === "professeur_referent" && stampsPdf && !hasStoredReferentSignature;
+      !isExternal && signature.role === "professeur_referent" && stampsPdf && !hasStoredReferentSignature;
 
     return NextResponse.json({
       convention: {
@@ -53,12 +58,18 @@ export async function GET(req: Request) {
         status: signature.status,
         signedAt: signature.signedAt,
         signedBy: signature.signedBy,
+        reviewStatus: signature.reviewStatus,
+        signMethod: signature.signMethod,
       },
+      isExternalSigner: isExternal,
       stampsPdf,
       needsDrawnSignature,
       hasStoredReferentSignature,
       pdfUrl: convention.uploadedPdf?.s3Key
         ? `/api/stages/public/sign/pdf?token=${encodeURIComponent(token)}`
+        : null,
+      pdfDownloadUrl: convention.uploadedPdf?.s3Key
+        ? `/api/stages/public/sign/pdf?token=${encodeURIComponent(token)}&download=1`
         : null,
     });
   } catch (error) {
@@ -91,11 +102,25 @@ export async function POST(req: Request) {
     const token = String(body.token ?? "").trim();
     const signerName = String(body.signerName ?? "").trim();
     const signaturePngBase64 = String(body.signaturePngBase64 ?? "").trim() || undefined;
+    const paperPdfBase64 = String(body.paperPdfBase64 ?? "").trim() || undefined;
+    const paperFileName = String(body.paperFileName ?? "").trim() || undefined;
+    const signMethod = String(body.signMethod ?? "").trim() as StageSignMethod | "";
     if (!token) return NextResponse.json({ error: "Jeton manquant." }, { status: 400 });
 
-    const result = await applyConventionSignature({ token, signerName, signaturePngBase64 });
+    const result = await applyConventionSignature({
+      token,
+      signerName,
+      signaturePngBase64,
+      paperPdfBase64,
+      paperFileName,
+      signMethod: signMethod || undefined,
+    });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-    return NextResponse.json({ success: true, status: result.convention.status });
+    return NextResponse.json({
+      success: true,
+      status: result.convention.status,
+      reviewStatus: result.convention.signatures.find((s) => s.signToken === token)?.reviewStatus,
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
