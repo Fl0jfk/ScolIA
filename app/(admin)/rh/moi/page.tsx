@@ -75,14 +75,14 @@ export default function RhMoiPage() {
             Mon planning
           </Link>
           <Link
-            href="/rh?tab=absences&view=se-declarer#nouvelle-absence"
+            href="/rh?tab=dashboard&section=absences#nouvelle-absence"
             className="text-indigo-600 hover:underline"
           >
             Absences
           </Link>
           {isRh && (
-            <Link href="/rh" className="text-indigo-600 hover:underline">
-              Module RH →
+            <Link href="/rh?tab=dashboard" className="text-indigo-600 hover:underline">
+              Mon espace RH →
             </Link>
           )}
         </div>
@@ -117,7 +117,7 @@ export default function RhMoiPage() {
           </p>
         </div>
         <Link
-          href="/rh?tab=absences&view=se-declarer#nouvelle-absence"
+          href="/rh?tab=dashboard&section=absences#nouvelle-absence"
           className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold"
         >
           Demander une autorisation d&apos;absence

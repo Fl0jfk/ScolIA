@@ -2,58 +2,61 @@
 
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 
-export type RhHubTab =
-  | "dashboard"
-  | "annuaire"
-  | "admin"
-  | "onboarding"
-  | "registre"
-  | "absences"
-  | "hse"
-  | "demande"
-  | "planning";
+export type RhHubTab = "dashboard" | "pilotage";
 
-const TABS: {
-  id: RhHubTab;
-  label: string;
-  directoryOnly?: boolean;
-  manageOnly?: boolean;
-  hseOnly?: boolean;
-  ogecOnly?: boolean;
-}[] = [
+const TABS: { id: RhHubTab; label: string; pilotageOnly?: boolean }[] = [
   { id: "dashboard", label: "Tableau de bord" },
-  { id: "absences", label: "Absences" },
-  { id: "hse", label: "Demandes HSE", hseOnly: true },
-  { id: "demande", label: "Demande RH", ogecOnly: true },
-  { id: "planning", label: "Planning" },
-  { id: "annuaire", label: "Annuaire", directoryOnly: true },
-  { id: "admin", label: "Entrées / sorties", directoryOnly: true },
-  { id: "onboarding", label: "Nouveaux arrivants", directoryOnly: true },
-  { id: "registre", label: "Registre", directoryOnly: true },
+  { id: "pilotage", label: "Pilotage RH", pilotageOnly: true },
 ];
 
 export default function RhHubNav({
   active,
   onChange,
-  canDirectory,
-  canAccessHse,
-  canAccessDemandeRh,
+  canPilotage,
 }: {
   active: RhHubTab;
   onChange: (tab: RhHubTab) => void;
-  canDirectory: boolean;
-  canAccessHse: boolean;
-  canAccessDemandeRh: boolean;
+  canPilotage: boolean;
 }) {
   const tabs = TABS.map((t) => ({
     id: t.id,
     label: t.label,
-    hidden: Boolean(
-      (t.hseOnly && !canAccessHse) ||
-        (t.ogecOnly && !canAccessDemandeRh) ||
-        ((t.directoryOnly || t.manageOnly) && !canDirectory),
-    ),
+    hidden: Boolean(t.pilotageOnly && !canPilotage),
   }));
 
   return <ModuleTabNav tabs={tabs} active={active} onChange={onChange} className="mb-6" />;
+}
+
+export type RhPilotageSection =
+  | "overview"
+  | "validations"
+  | "annuaire"
+  | "admin"
+  | "onboarding"
+  | "registre";
+
+export function RhPilotageNav({
+  active,
+  onChange,
+}: {
+  active: RhPilotageSection;
+  onChange: (section: RhPilotageSection) => void;
+}) {
+  const tabs: { id: RhPilotageSection; label: string }[] = [
+    { id: "overview", label: "Vue d'ensemble" },
+    { id: "validations", label: "Dossiers à valider" },
+    { id: "annuaire", label: "Annuaire" },
+    { id: "admin", label: "Entrées / sorties" },
+    { id: "onboarding", label: "Nouveaux arrivants" },
+    { id: "registre", label: "Registre" },
+  ];
+
+  return (
+    <ModuleTabNav
+      tabs={tabs}
+      active={active}
+      onChange={onChange}
+      className="mb-4"
+    />
+  );
 }

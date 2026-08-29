@@ -126,7 +126,7 @@ export default function AbsencesPageClient({
       ? "se-declarer"
       : rawTab || defaultTab;
   const absencesHref = (view: string) =>
-    embeddedInRh ? `/rh?tab=absences&view=${view}` : `/absences?tab=${view}`;
+    embeddedInRh ? `/rh?tab=dashboard&section=absences&view=${view}` : `/absences?tab=${view}`;
   const setTab = (tab: string) => router.push(absencesHref(tab));
   const [calendarRefresh, setCalendarRefresh] = useState(0);
 

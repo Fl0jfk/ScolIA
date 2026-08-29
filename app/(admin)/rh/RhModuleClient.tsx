@@ -6,44 +6,26 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import PersonnelDashboard from "@/app/components/personnel/PersonnelDashboard";
 import PersonnelStaffCard from "@/app/components/personnel/PersonnelStaffCard";
-import RhHubNav, { type RhHubTab } from "@/app/components/personnel/RhHubNav";
+import RhHubNav, { RhPilotageNav, type RhHubTab, type RhPilotageSection } from "@/app/components/personnel/RhHubNav";
 import RhNewStaffModal from "@/app/components/personnel/RhNewStaffModal";
 import RhMoodPulseAdminPanel from "@/app/components/personnel/RhMoodPulseAdminPanel";
 import RhPersonnelHome from "@/app/components/personnel/RhPersonnelHome";
+import RhValidationsPanel from "@/app/components/personnel/RhValidationsPanel";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
-import { canAccessHseModule } from "@/app/lib/demandes-hse-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import type { PersonnelDashboardData } from "@/app/lib/personnel-dashboard";
 import { type PersonnelIndexEntry, type SharedPersonnelDocument } from "@/app/lib/personnel-types";
 import {
-  canAccessRhDirectoryViews,
   canAccessRhPilotageDashboard,
-  canAccessRhStaffRequest,
 } from "@/app/lib/rh/rh-hub-access";
 
-const AbsencesPageClient = dynamic(() => import("@/app/(admin)/absences/AbsencesPageClient"), {
-  ssr: false,
-  loading: () => <ModuleTabFallback />,
-});
-const DemandesHsePanel = dynamic(() => import("@/app/components/demandes-hse/DemandesHsePanel"), {
-  ssr: false,
-  loading: () => <ModuleTabFallback />,
-});
 const RhAdminOverviewPanel = dynamic(() => import("@/app/components/personnel/RhAdminOverviewPanel"), {
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
-const RhDemandePanel = dynamic(() => import("@/app/components/personnel/RhDemandePanel"), {
-  ssr: false,
-  loading: () => <ModuleTabFallback />,
-});
 const RhOnboardingPanel = dynamic(() => import("@/app/components/personnel/RhOnboardingPanel"), {
-  ssr: false,
-  loading: () => <ModuleTabFallback />,
-});
-const RhPlanningPanel = dynamic(() => import("@/app/components/personnel/RhPlanningPanel"), {
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
@@ -52,28 +34,55 @@ const RhRegistrePanel = dynamic(() => import("@/app/components/personnel/RhRegis
   loading: () => <ModuleTabFallback />,
 });
 
-const TAB_IDS: RhHubTab[] = [
-  "dashboard",
-  "annuaire",
-  "admin",
-  "onboarding",
-  "registre",
-  "absences",
-  "hse",
-  "demande",
-  "planning",
-];
+const LEGACY_TAB_MAP: Record<string, RhHubTab> = {
+  dashboard: "dashboard",
+  temps: "dashboard",
+  absences: "dashboard",
+  hse: "dashboard",
+  demande: "dashboard",
+  planning: "dashboard",
+  annuaire: "pilotage",
+  admin: "pilotage",
+  onboarding: "pilotage",
+  registre: "pilotage",
+  pilotage: "pilotage",
+};
 
-function parseTab(raw: string | null): RhHubTab {
-  if (raw === "temps") return "absences";
-  if (raw && TAB_IDS.includes(raw as RhHubTab)) return raw as RhHubTab;
-  return "dashboard";
+const LEGACY_PILOTAGE_MAP: Record<string, RhPilotageSection> = {
+  annuaire: "annuaire",
+  admin: "admin",
+  onboarding: "onboarding",
+  registre: "registre",
+};
+
+function parseHubTab(raw: string | null): RhHubTab {
+  const mapped = raw ? LEGACY_TAB_MAP[raw] : undefined;
+  return mapped ?? "dashboard";
+}
+
+function parsePilotageSection(raw: string | null, legacyTab: string | null): RhPilotageSection {
+  if (raw && ["overview", "validations", "annuaire", "admin", "onboarding", "registre"].includes(raw)) {
+    return raw as RhPilotageSection;
+  }
+  if (legacyTab && LEGACY_PILOTAGE_MAP[legacyTab]) {
+    return LEGACY_PILOTAGE_MAP[legacyTab];
+  }
+  return "overview";
+}
+
+function parseDashboardSection(raw: string | null, legacyTab: string | null): string | null {
+  if (raw) return raw;
+  if (legacyTab && ["absences", "hse", "demande", "planning"].includes(legacyTab)) return legacyTab;
+  return null;
 }
 
 export default function RhModuleClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const activeTab = parseTab(searchParams.get("tab"));
+  const legacyTab = searchParams.get("tab");
+  const activeTab = parseHubTab(legacyTab);
+  const pilotageSection = parsePilotageSection(searchParams.get("section"), legacyTab);
+  const dashboardSection = parseDashboardSection(searchParams.get("section"), legacyTab);
   const { isLoaded, user } = useSessionUser();
 
   const [dashboard, setDashboard] = useState<PersonnelDashboardData | null>(null);
@@ -82,21 +91,20 @@ export default function RhModuleClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
-  const [canManage, setCanManage] = useState(false);
 
   const roles = useMemo(() => rolesFromUserLike(user), [user]);
-
-  const canAccessHse = canAccessHseModule(roles);
-  const canDirectory = canAccessRhDirectoryViews(roles);
-  const canAccessDemandeRh = canAccessRhStaffRequest(roles);
   const canPilotage = canAccessRhPilotageDashboard(roles);
 
   const setTab = (tab: RhHubTab) => {
-    if (tab === "absences") {
-      router.push("/rh?tab=absences&view=se-declarer");
+    if (tab === "pilotage") {
+      router.push("/rh?tab=pilotage&section=overview");
       return;
     }
-    router.push(`/rh?tab=${tab}`);
+    router.push("/rh?tab=dashboard");
+  };
+
+  const setPilotageSection = (section: RhPilotageSection) => {
+    router.push(`/rh?tab=pilotage&section=${section}`);
   };
 
   const load = useCallback(async () => {
@@ -108,12 +116,11 @@ export default function RhModuleClient() {
       ]);
       const dJson = await dRes.json();
       const lJson = await lRes.json();
-      if (!dRes.ok) throw new Error(dJson.error || "Dashboard indisponible");
-      if (!lRes.ok) throw new Error(lJson.error || "Liste indisponible");
-      setDashboard(dJson);
-      setIndex(lJson.index || []);
-      setSharedDocs(lJson.sharedDocs || []);
-      setCanManage(!!lJson.canManage);
+      if (!dRes.ok && dRes.status !== 403) throw new Error(dJson.error || "Dashboard indisponible");
+      if (!lRes.ok && lRes.status !== 403) throw new Error(lJson.error || "Liste indisponible");
+      setDashboard(dRes.ok ? dJson : null);
+      setIndex(lRes.ok ? lJson.index || [] : []);
+      setSharedDocs(lRes.ok ? lJson.sharedDocs || [] : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -128,99 +135,69 @@ export default function RhModuleClient() {
 
   useEffect(() => {
     if (!isLoaded) return;
-    if (activeTab === "hse" && !canAccessHse) {
-      router.replace("/rh?tab=dashboard");
-      return;
-    }
-    if (activeTab === "demande" && !canAccessDemandeRh) {
-      router.replace("/rh?tab=dashboard");
-      return;
-    }
-    if (
-      (activeTab === "annuaire" ||
-        activeTab === "admin" ||
-        activeTab === "onboarding" ||
-        activeTab === "registre") &&
-      !canDirectory
-    ) {
+    if (activeTab === "pilotage" && !canPilotage) {
       router.replace("/rh?tab=dashboard");
     }
-  }, [activeTab, canAccessDemandeRh, canAccessHse, canDirectory, isLoaded, router]);
+  }, [activeTab, canPilotage, isLoaded, router]);
 
-  if (!isLoaded || (loading && !dashboard)) {
+  if (!isLoaded || (loading && !dashboard && index.length === 0)) {
     return <p className="p-10 text-center text-slate-500">Chargement du module RH…</p>;
   }
   if (error) return <p className="p-10 text-center text-rose-600">{error}</p>;
-  if (!dashboard) return null;
 
   return (
     <ModulePageShell maxWidthClass="max-w-[1500px]" tourModuleId="rh">
       <ModulePageHeader
         eyebrow="RH"
-        title="Module RH"
-        description="Portail RH unifié — personnel, absences, HSE (sans paie ni coffre bulletins)."
+        title="Ressources humaines"
+        description="Votre espace personnel — demandes, documents et suivi. Le pilotage RH est réservé aux gestionnaires."
       />
 
-      <RhHubNav
-        active={activeTab}
-        onChange={setTab}
-        canDirectory={canDirectory}
-        canAccessHse={canAccessHse}
-        canAccessDemandeRh={canAccessDemandeRh}
-      />
+      <RhHubNav active={activeTab} onChange={setTab} canPilotage={canPilotage} />
 
-      {activeTab === "admin" && canDirectory ? (
-        <RhAdminOverviewPanel index={index} />
-      ) : activeTab === "onboarding" && canDirectory ? (
-        <RhOnboardingPanel />
-      ) : activeTab === "registre" && canDirectory ? (
-        <RhRegistrePanel />
-      ) : activeTab === "absences" ? (
-        <Suspense fallback={<p className="text-sm text-slate-500">Chargement des absences…</p>}>
-          <AbsencesPageClient embeddedInRh />
-        </Suspense>
-      ) : activeTab === "hse" && canAccessHse ? (
-        <DemandesHsePanel embeddedInRh />
-      ) : activeTab === "demande" ? (
-        <RhDemandePanel />
-      ) : activeTab === "planning" ? (
-        <RhPlanningPanel />
-      ) : activeTab === "annuaire" && canDirectory ? (
-        <div className="space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
-            <h2 className="font-black text-slate-800 mb-1">Annuaire RH</h2>
-            {canDirectory && (
-              <p className="text-xs text-indigo-600 font-medium mb-4">
-                Glissez un fichier sur une fiche pour le déposer via l&apos;IA.
-              </p>
-            )}
-            {index.length === 0 ? (
-              <p className="text-sm text-slate-400 italic">Aucun dossier.</p>
-            ) : (
-              <div data-tour="rh-list" className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {index.map((p) => (
-                  <PersonnelStaffCard key={p.id} person={p} canDrop={canDirectory} onUploaded={() => void load()} />
-                ))}
+      {activeTab === "pilotage" && canPilotage ? (
+        <div className="space-y-4">
+          <RhPilotageNav active={pilotageSection} onChange={setPilotageSection} />
+
+          {pilotageSection === "validations" ? (
+            <RhValidationsPanel />
+          ) : pilotageSection === "admin" ? (
+            <RhAdminOverviewPanel index={index} />
+          ) : pilotageSection === "onboarding" ? (
+            <RhOnboardingPanel />
+          ) : pilotageSection === "registre" ? (
+            <RhRegistrePanel />
+          ) : pilotageSection === "annuaire" ? (
+            <div className="space-y-6">
+              <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
+                <h2 className="font-black text-slate-800 mb-1">Annuaire RH</h2>
+                <p className="text-xs text-indigo-600 font-medium mb-4">
+                  Glissez un fichier sur une fiche pour le déposer via l&apos;IA.
+                </p>
+                {index.length === 0 ? (
+                  <p className="text-sm text-slate-400 italic">Aucun dossier.</p>
+                ) : (
+                  <div data-tour="rh-list" className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {index.map((p) => (
+                      <PersonnelStaffCard key={p.id} person={p} canDrop onUploaded={() => void load()} />
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <SharedDocsBlock sharedDocs={sharedDocs} canManage={canDirectory} onRefresh={load} />
-        </div>
-      ) : (
-        <>
-          <RhPersonnelHome
-            canDirectory={canDirectory}
-            canAccessDemandeRh={canAccessDemandeRh}
-          />
-          {canPilotage && (
-            <div className="pt-2 border-t border-slate-100 space-y-4">
-              <h2 className="text-lg font-black text-slate-800">Pilotage RH</h2>
+              <SharedDocsBlock sharedDocs={sharedDocs} canManage onRefresh={load} />
+            </div>
+          ) : (
+            <div className="space-y-4">
               <RhMoodPulseAdminPanel />
-              <PersonnelDashboard data={dashboard} onNewStaff={() => setShowNew(true)} />
-              <SharedDocsBlock sharedDocs={sharedDocs} canManage={canDirectory} onRefresh={load} />
+              {dashboard ? (
+                <PersonnelDashboard data={dashboard} onNewStaff={() => setShowNew(true)} />
+              ) : null}
+              <SharedDocsBlock sharedDocs={sharedDocs} canManage onRefresh={load} />
             </div>
           )}
-        </>
+        </div>
+      ) : (
+        <RhPersonnelHome dashboardSection={dashboardSection} />
       )}
 
       <RhNewStaffModal

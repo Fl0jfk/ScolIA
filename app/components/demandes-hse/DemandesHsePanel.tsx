@@ -7,9 +7,15 @@ import EstablishmentSelect from "@/app/components/establishments/EstablishmentSe
 import { useAppContext } from "@/app/hooks/useAppContext";
 import {
   canCreateHseDemand,
+  canCreateHseOnBehalf,
   canManageHseDemand,
+  canSubmitHseDemand,
   getHseRoleFlags,
 } from "@/app/lib/demandes-hse-access";
+import DirectoryPersonSelect, {
+  directoryMemberLabel,
+} from "@/app/components/settings/DirectoryPersonSelect";
+import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 
 type Etablissement = string;
 type HseStatus = "EN_ATTENTE" | "ACCEPTEE" | "REFUSEE" | "ANNULEE";
@@ -87,9 +93,14 @@ export default function DemandesHsePanel({
   const [directionNotes, setDirectionNotes] = useState<Record<string, string>>({});
   const [patchingId, setPatchingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [forOther, setForOther] = useState(false);
+  const [colleague, setColleague] = useState<(DirectoryMemberOption & { roles?: string[] }) | null>(null);
+  const [directoryMembers, setDirectoryMembers] = useState<(DirectoryMemberOption & { roles?: string[] })[]>([]);
+  const [loadingDirectory, setLoadingDirectory] = useState(false);
 
   const roles = rolesFromUserLike(user);
-  const creator = canCreateHseDemand(roles);
+  const creator = canSubmitHseDemand(roles);
+  const canOnBehalf = canCreateHseOnBehalf(roles);
   const dirFlags = getHseRoleFlags(roles);
   const directionAny = dirFlags.isDirection;
   const userEmail = user?.primaryEmailAddress?.emailAddress?.trim() ?? "";
@@ -121,6 +132,32 @@ export default function DemandesHsePanel({
   useEffect(() => {
     if (isLoaded && user) void fetchItems();
   }, [isLoaded, user, fetchItems]);
+
+  useEffect(() => {
+    if (!canOnBehalf || !forOther) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingDirectory(true);
+      try {
+        const res = await fetch("/api/absences/directory-users");
+        const j = await res.json();
+        if (!cancelled && res.ok) {
+          setDirectoryMembers(
+            (Array.isArray(j.users) ? j.users : []).filter((u: { roles?: string[] }) =>
+              u.roles?.includes("professeur"),
+            ),
+          );
+        }
+      } catch {
+        if (!cancelled) setDirectoryMembers([]);
+      } finally {
+        if (!cancelled) setLoadingDirectory(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canOnBehalf, forOther]);
 
   const mine = useMemo(
     () =>
@@ -172,6 +209,10 @@ export default function DemandesHsePanel({
 
   const submit = async () => {
     setError(null);
+    if (forOther && !colleague?.externalUserId) {
+      setError("Choisissez l'enseignant concerné.");
+      return;
+    }
     if (!resumeDemande.trim()) {
       setError("Décrivez votre demande (objet et motivation).");
       return;
@@ -189,7 +230,7 @@ export default function DemandesHsePanel({
       setError("Indiquez la classe ou le contexte.");
       return;
     }
-    if (!userEmail) {
+    if (!forOther && !userEmail) {
       setError("Votre compte ne comporte pas d’adresse e-mail : impossible de recevoir la décision de la direction.");
       return;
     }
@@ -199,6 +240,9 @@ export default function DemandesHsePanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(forOther && colleague?.externalUserId
+            ? { onBehalfOf: { userId: colleague.externalUserId } }
+            : {}),
           etablissement,
           resumeDemande: resumeDemande.trim(),
           nombreHeures: Math.round(heures * 4) / 4,
@@ -214,6 +258,7 @@ export default function DemandesHsePanel({
       setNombreHeures("");
       setClasse("");
       setDetails("");
+      if (forOther) setColleague(null);
       await fetchItems();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur lors de l’envoi.");
@@ -288,6 +333,53 @@ export default function DemandesHsePanel({
           <div className="xl:col-span-1 bg-white border border-slate-200 rounded-3xl p-6 h-fit">
             <h2 className="text-xl font-black text-slate-900 mb-4">Nouvelle demande</h2>
             <div className="space-y-4">
+              {canOnBehalf ? (
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    checked={forOther}
+                    onChange={(e) => {
+                      setForOther(e.target.checked);
+                      setError(null);
+                      if (!e.target.checked) setColleague(null);
+                    }}
+                  />
+                  <span className="text-sm text-slate-700">
+                    <span className="font-bold text-slate-900">Pour une autre personne</span>
+                    <span className="block text-xs text-slate-500 mt-0.5">
+                      Déposer la demande HSE au nom d&apos;un enseignant (administratif / compta / direction).
+                    </span>
+                  </span>
+                </label>
+              ) : null}
+              {canOnBehalf && forOther ? (
+                <div>
+                  <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">
+                    Enseignant concerné
+                  </label>
+                  <DirectoryPersonSelect
+                    members={directoryMembers}
+                    selectedId={colleague?.externalUserId}
+                    selectedEmail={colleague?.email}
+                    onChange={(m) => {
+                      if (!m) {
+                        setColleague(null);
+                        return;
+                      }
+                      const full =
+                        directoryMembers.find((x) => x.externalUserId === m.externalUserId) || m;
+                      setColleague(full);
+                    }}
+                    loading={loadingDirectory}
+                  />
+                  {colleague ? (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Demande pour <span className="font-semibold">{directoryMemberLabel(colleague)}</span>
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               <div>
                 <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">Établissement</label>
                 <EstablishmentSelect
@@ -353,7 +445,7 @@ export default function DemandesHsePanel({
               <button
                 type="button"
                 onClick={() => void submit()}
-                disabled={saving || !userEmail}
+                disabled={saving || (!forOther && !userEmail) || (forOther && !colleague?.externalUserId)}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl disabled:opacity-60"
               >
                 {saving ? "Envoi..." : "Envoyer la demande"}

@@ -75,7 +75,7 @@ export default function RhDemandePanel() {
         variant="inline"
         forceRouteId={RH_REQUEST_ROUTE_ID}
         subjectPrefix={RH_REQUEST_SUBJECT_PREFIX}
-        mesDemandesHref="/rh?tab=demande#mes-demandes-rh"
+        mesDemandesHref="/rh?tab=dashboard&section=demande#mes-demandes-rh"
         heading="Nouvelle demande"
         intro="Décrivez votre besoin. Un destinataire RH (ou la corbeille si la file n’est pas encore affectée) traitera votre ticket."
         placeholder="Ex. : j’ai besoin d’une attestation de travail, d’une mise à jour de mon dossier, d’une info sur mon contrat…"

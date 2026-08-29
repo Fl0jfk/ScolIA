@@ -18,10 +18,12 @@ import type { Establishment } from "@/app/lib/app-config-schemas";
 import {
   canAccessHseModule,
   canCreateHseDemand,
+  canCreateHseOnBehalf,
   canManageHseDemand,
   canViewHseDemand,
   type HseEtablissement,
 } from "@/app/lib/demandes-hse-access";
+import { listDirectoryMembers } from "@/app/lib/directory-members";
 
 const INDEX_KEY = "demandes-hse/index.json";
 
@@ -132,13 +134,8 @@ export async function POST(req: Request) {
   const user = await safeCurrentUser();
   const roles = rolesFromUserLike(user);
 
-  if (!canCreateHseDemand(roles)) {
-    return NextResponse.json({ error: "Seuls les enseignants peuvent créer une demande HSE." }, { status: 403 });
-  }
-
-  const email = user?.primaryEmailAddress?.emailAddress?.trim() || "";
-  if (!email) {
-    return NextResponse.json({ error: "Votre compte doit avoir une adresse e-mail pour suivre les réponses." }, { status: 400 });
+  if (!canCreateHseDemand(roles) && !canCreateHseOnBehalf(roles)) {
+    return NextResponse.json({ error: "Vous ne pouvez pas créer de demande HSE." }, { status: 403 });
   }
 
   let body: Record<string, unknown>;
@@ -146,6 +143,48 @@ export async function POST(req: Request) {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "JSON invalide" }, { status: 400 });
+  }
+
+  const onBehalfRaw = body?.onBehalfOf && typeof body.onBehalfOf === "object" ? body.onBehalfOf : null;
+  const onBehalfUserId = onBehalfRaw ? String((onBehalfRaw as { userId?: string }).userId || "").trim() : "";
+
+  let creatorUserId = userId;
+  let creatorName = user?.fullName || user?.firstName || "Utilisateur";
+  let creatorEmail = user?.primaryEmailAddress?.emailAddress?.trim() || "";
+
+  if (onBehalfUserId) {
+    if (!canCreateHseOnBehalf(roles)) {
+      return NextResponse.json(
+        { error: "Seuls l'administratif, la comptabilité et la direction peuvent déposer une demande HSE pour un collègue." },
+        { status: 403 },
+      );
+    }
+    if (onBehalfUserId === userId) {
+      return NextResponse.json({ error: "Pour vous-même, décochez « Pour une autre personne »." }, { status: 400 });
+    }
+    const members = await listDirectoryMembers();
+    const subject = members.find((m) => m.externalUserId === onBehalfUserId && !m.pending);
+    if (!subject) {
+      return NextResponse.json({ error: "Collègue introuvable dans l'annuaire." }, { status: 404 });
+    }
+    if (!subject.roles?.includes("professeur")) {
+      return NextResponse.json({ error: "Les demandes HSE ne concernent que les enseignants." }, { status: 400 });
+    }
+    creatorUserId = subject.externalUserId;
+    creatorName =
+      subject.displayName?.trim() ||
+      `${subject.firstName ?? ""} ${subject.lastName ?? ""}`.trim() ||
+      subject.email;
+    creatorEmail = subject.email || "";
+  } else if (!canCreateHseDemand(roles)) {
+    return NextResponse.json({ error: "Seuls les enseignants peuvent créer leur propre demande HSE." }, { status: 403 });
+  }
+
+  if (!creatorEmail) {
+    return NextResponse.json(
+      { error: "Le demandeur doit avoir une adresse e-mail pour suivre les réponses." },
+      { status: 400 },
+    );
   }
 
   const etablissement = String(body.etablissement || "").trim();
@@ -181,9 +220,9 @@ export async function POST(req: Request) {
     updatedAt: new Date().toISOString(),
     status: "EN_ATTENTE",
     createdBy: {
-      userId,
-      name: user?.fullName || user?.firstName || email,
-      email,
+      userId: creatorUserId,
+      name: creatorName,
+      email: creatorEmail,
     },
     etablissement,
     resumeDemande,
