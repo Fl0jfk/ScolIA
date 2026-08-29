@@ -221,6 +221,7 @@ export async function POST(req: Request) {
       medecineTravail: defaultMedecineTravail(),
       entretiens: [],
       onboarding: withOnboarding ? defaultOnboarding(hireDate || now.slice(0, 10)) : null,
+      rhSpace: { status: "active" as const },
       profile,
     });
 

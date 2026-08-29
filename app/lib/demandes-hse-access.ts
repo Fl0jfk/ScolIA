@@ -26,6 +26,21 @@ export function canCreateHseDemand(roles: string[]) {
   return getHseRoleFlags(roles).isProfesseur;
 }
 
+/** Déposer une demande HSE pour un collègue (administratif, compta, direction). */
+export function canCreateHseOnBehalf(roles: string[]) {
+  const f = getHseRoleFlags(roles);
+  return (
+    f.isAdministratif ||
+    hasRole(roles, "comptabilite") ||
+    f.isDirection ||
+    hasRole(roles, "admin")
+  );
+}
+
+export function canSubmitHseDemand(roles: string[]) {
+  return canCreateHseDemand(roles) || canCreateHseOnBehalf(roles);
+}
+
 export function canManageHseDemand(
   rec: HseRecordLike,
   roles: string[],

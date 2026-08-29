@@ -1,13 +1,37 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import RhMoodPulseCard from "@/app/components/personnel/RhMoodPulseCard";
+import RhPersonnelOnboarding from "@/app/components/personnel/RhPersonnelOnboarding";
 import RhSelfDepositPanel from "@/app/components/personnel/RhSelfDepositPanel";
-import { canCreateHseDemand } from "@/app/lib/demandes-hse-access";
+import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
+import { canCreateHseDemand, canCreateHseOnBehalf } from "@/app/lib/demandes-hse-access";
+import { canAccessRhStaffRequest } from "@/app/lib/rh/rh-hub-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { formatAbsencePeriod } from "@/app/lib/absence-period";
+import type { PersonnelRecord } from "@/app/lib/personnel-types";
+import type { RhEspacePhase } from "@/app/lib/rh/rh-space-status";
+
+const AbsencesPageClient = dynamic(() => import("@/app/(admin)/absences/AbsencesPageClient"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const DemandesHsePanel = dynamic(() => import("@/app/components/demandes-hse/DemandesHsePanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const RhDemandePanel = dynamic(() => import("@/app/components/personnel/RhDemandePanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
+const RhPlanningPanel = dynamic(() => import("@/app/components/personnel/RhPlanningPanel"), {
+  ssr: false,
+  loading: () => <ModuleTabFallback />,
+});
 
 type MyAbsence = {
   id: string;
@@ -34,6 +58,26 @@ type MyHse = {
   nombreHeures?: number;
 };
 
+type MyRhRequest = {
+  id: string;
+  status: string;
+  subject: string;
+  createdAt?: string;
+};
+
+type EspaceData = {
+  phase: RhEspacePhase;
+  record: PersonnelRecord | null;
+  identityComplete: boolean;
+  submittedAt: string | null;
+  validationNote: string | null;
+  metaSummary: {
+    birthDate: string | null;
+    birthPlace: string | null;
+    displayName: string;
+  } | null;
+};
+
 function statusAbsence(a: MyAbsence) {
   if (a.managerDecision === "VALIDEE") return { label: "Validée", className: "bg-emerald-50 text-emerald-800" };
   if (a.managerDecision === "REFUSEE") return { label: "Refusée", className: "bg-rose-50 text-rose-800" };
@@ -47,32 +91,59 @@ function statusHse(s: string) {
   return { label: "En attente", className: "bg-amber-50 text-amber-800" };
 }
 
+function requestStatusLabel(s: string) {
+  if (s === "TERMINEE") return { label: "Terminée", className: "bg-emerald-50 text-emerald-800" };
+  if (s === "EN_COURS" || s === "EN_ATTENTE") return { label: "En cours", className: "bg-amber-50 text-amber-800" };
+  return { label: s, className: "bg-slate-100 text-slate-600" };
+}
+
 export default function RhPersonnelHome({
-  canDirectory,
-  canAccessDemandeRh,
+  dashboardSection,
 }: {
-  canDirectory: boolean;
-  canAccessDemandeRh: boolean;
+  dashboardSection?: string | null;
 }) {
+  const router = useRouter();
   const { user, isLoaded } = useSessionUser();
   const roles = useMemo(() => rolesFromUserLike(user), [user]);
 
-  const canCreateHse = canCreateHseDemand(roles);
-  const showHse = canCreateHse;
+  const canCreateHse = canCreateHseDemand(roles) || canCreateHseOnBehalf(roles);
+  const canAccessDemandeRh = canAccessRhStaffRequest(roles);
 
+  const [espace, setEspace] = useState<EspaceData | null>(null);
+  const [espaceLoading, setEspaceLoading] = useState(true);
   const [absences, setAbsences] = useState<MyAbsence[]>([]);
   const [hseItems, setHseItems] = useState<MyHse[]>([]);
+  const [rhRequests, setRhRequests] = useState<MyRhRequest[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const loadEspace = useCallback(async () => {
+    setEspaceLoading(true);
+    try {
+      const res = await fetch("/api/rh/espace", { cache: "no-store" });
+      const j = await res.json();
+      if (res.ok) setEspace(j as EspaceData);
+    } catch {
+      setEspace(null);
+    } finally {
+      setEspaceLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!isLoaded || !user) return;
+    if (!isLoaded) return;
+    void loadEspace();
+  }, [isLoaded, loadEspace]);
+
+  useEffect(() => {
+    if (!isLoaded || !user || espace?.phase !== "active") return;
     let cancelled = false;
     (async () => {
       setLoading(true);
       try {
-        const [absRes, hseRes] = await Promise.all([
+        const [absRes, hseRes, reqRes] = await Promise.all([
           fetch("/api/absences", { cache: "no-store" }),
-          showHse ? fetch("/api/demandes-hse", { cache: "no-store" }) : Promise.resolve(null),
+          canCreateHse ? fetch("/api/demandes-hse", { cache: "no-store" }) : Promise.resolve(null),
+          fetch("/api/requests/list?scope=submitted", { cache: "no-store" }),
         ]);
         if (cancelled) return;
 
@@ -86,8 +157,21 @@ export default function RhPersonnelHome({
 
         if (hseRes && hseRes.ok) {
           const j = await hseRes.json();
-          const items = Array.isArray(j.items) ? (j.items as MyHse[]) : [];
-          setHseItems(items.slice(0, 6));
+          setHseItems(Array.isArray(j.items) ? (j.items as MyHse[]).slice(0, 6) : []);
+        }
+
+        if (reqRes.ok) {
+          const list = await reqRes.json();
+          const rh = (Array.isArray(list) ? list : [])
+            .filter((r: { category?: string; subject?: string }) => r.category === "RH" || r.subject?.startsWith("[RH]"))
+            .slice(0, 6)
+            .map((r: { id: string; status: string; subject: string; createdAt?: string }) => ({
+              id: r.id,
+              status: r.status,
+              subject: r.subject,
+              createdAt: r.createdAt,
+            }));
+          setRhRequests(rh);
         }
       } catch {
         /* ignore */
@@ -98,7 +182,79 @@ export default function RhPersonnelHome({
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, user, showHse]);
+  }, [isLoaded, user, canCreateHse, espace?.phase]);
+
+  const firstName = user?.firstName || "vous";
+  const phase = espace?.phase ?? "onboarding";
+  const record = espace?.record ?? null;
+  const birthDate = record?.profile?.birthDate ?? espace?.metaSummary?.birthDate ?? null;
+  const birthPlace = record?.profile?.birthPlace ?? espace?.metaSummary?.birthPlace ?? null;
+
+  if (dashboardSection === "absences") {
+    return (
+      <Suspense fallback={<ModuleTabFallback />}>
+        <AbsencesPageClient embeddedInRh />
+      </Suspense>
+    );
+  }
+  if (dashboardSection === "hse" && canCreateHse) {
+    return (
+      <Suspense fallback={<ModuleTabFallback />}>
+        <DemandesHsePanel embeddedInRh />
+      </Suspense>
+    );
+  }
+  if (dashboardSection === "demande" && canAccessDemandeRh) {
+    return (
+      <Suspense fallback={<ModuleTabFallback />}>
+        <RhDemandePanel />
+      </Suspense>
+    );
+  }
+  if (dashboardSection === "planning") {
+    return (
+      <Suspense fallback={<ModuleTabFallback />}>
+        <RhPlanningPanel />
+      </Suspense>
+    );
+  }
+
+  if (espaceLoading) {
+    return <p className="text-sm text-slate-500 py-10 text-center">Chargement de votre espace…</p>;
+  }
+
+  if (phase === "onboarding") {
+    return (
+      <RhPersonnelOnboarding
+        record={record}
+        identityComplete={espace?.identityComplete ?? false}
+        onRefresh={loadEspace}
+      />
+    );
+  }
+
+  if (phase === "pending_validation") {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-8 text-center space-y-3 max-w-xl mx-auto">
+        <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">En attente</p>
+        <h2 className="text-xl font-black text-slate-900">Dossier transmis à la RH</h2>
+        <p className="text-sm text-slate-600">
+          Votre espace personnel sera débloqué dès validation par la RH ou l&apos;administratif de votre
+          établissement.
+        </p>
+        {espace?.submittedAt && (
+          <p className="text-xs text-slate-500">
+            Envoyé le {new Date(espace.submittedAt).toLocaleString("fr-FR")}
+          </p>
+        )}
+        {espace?.validationNote && (
+          <p className="text-sm text-rose-800 bg-white rounded-xl px-3 py-2 border border-rose-100">
+            {espace.validationNote}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   const now = Date.now();
   const upcoming = absences
@@ -110,17 +266,21 @@ export default function RhPersonnelHome({
     .sort((a, b) => +new Date(b.data.startAt) - +new Date(a.data.startAt))
     .slice(0, 4);
 
-  const firstName = user?.firstName || "vous";
-
   return (
     <div className="space-y-6">
       <section className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-indigo-50/40 p-5 sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600">Espace personnel</p>
+            <p className="text-[11px] font-black uppercase tracking-widest text-indigo-600">Mon dossier RH</p>
             <h2 className="text-2xl font-black text-slate-900 mt-1">Bonjour {firstName}</h2>
-            <p className="text-sm text-slate-600 mt-1 max-w-2xl">
-              Votre coin RH : demander une autorisation d&apos;absence, suivre vos demandes et déposer un document.
+            {(birthDate || birthPlace) && (
+              <p className="text-sm text-slate-600 mt-1">
+                {birthDate && `Né(e) le ${new Date(birthDate).toLocaleDateString("fr-FR")}`}
+                {birthPlace ? ` · ${birthPlace}` : ""}
+              </p>
+            )}
+            <p className="text-sm text-slate-500 mt-2 max-w-2xl">
+              Votre espace personnel : absences, HSE, demandes RH et coffre documents.
             </p>
           </div>
           <div className="w-full shrink-0 lg:w-52 xl:w-56">
@@ -129,151 +289,115 @@ export default function RhPersonnelHome({
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <Link
-            href="/rh?tab=absences&view=se-declarer#nouvelle-absence"
+            href="/rh?tab=dashboard&section=absences#nouvelle-absence"
             className="px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow-sm hover:bg-indigo-700"
           >
             Demander une autorisation d&apos;absence
           </Link>
           {canCreateHse && (
             <Link
-              href="/rh?tab=hse"
+              href="/rh?tab=dashboard&section=hse"
               className="px-4 py-2.5 rounded-xl bg-white border border-indigo-200 text-indigo-800 text-xs font-bold hover:bg-indigo-50"
             >
-              Demande HSE
+              Faire une demande HSE
             </Link>
           )}
           {canAccessDemandeRh && (
             <Link
-              href="/rh?tab=demande"
+              href="/rh?tab=dashboard&section=demande"
               className="px-4 py-2.5 rounded-xl bg-white border border-violet-200 text-violet-800 text-xs font-bold hover:bg-violet-50"
             >
               Demande RH
             </Link>
           )}
           <Link
-            href="/rh?tab=absences&view=se-declarer"
+            href="/mon-planning"
             className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50"
           >
-            Mes absences
+            Mon planning
           </Link>
-          {canDirectory && (
-            <Link
-              href="/rh?tab=registre"
-              className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-50"
-            >
-              Pilotage RH →
-            </Link>
-          )}
+          <Link
+            href="/rh/moi"
+            className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-50"
+          >
+            Voir mon dossier complet →
+          </Link>
         </div>
       </section>
 
-      <div className="grid lg:grid-cols-2 gap-4">
+      <div className="grid lg:grid-cols-2 xl:grid-cols-3 gap-4">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between gap-2 mb-3">
             <h3 className="font-black text-slate-900">Mes absences</h3>
-            <Link href="/rh?tab=absences&view=se-declarer" className="text-[11px] font-bold text-indigo-600 underline">
+            <button
+              type="button"
+              onClick={() => router.push("/rh?tab=dashboard&section=absences")}
+              className="text-[11px] font-bold text-indigo-600 underline"
+            >
               Voir tout
-            </Link>
+            </button>
           </div>
           {loading ? (
             <p className="text-sm text-slate-400">Chargement…</p>
           ) : upcoming.length === 0 && recent.length === 0 ? (
-            <p className="text-sm text-slate-400 italic">Aucune demande d&apos;autorisation d&apos;absence pour le moment.</p>
+            <p className="text-sm text-slate-400 italic">Aucune demande pour le moment.</p>
           ) : (
-            <div className="space-y-4">
-              {upcoming.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-wide text-emerald-700 mb-2">
-                    À venir / en cours
-                  </p>
-                  <ul className="space-y-2">
-                    {upcoming.map((a) => {
-                      const st = statusAbsence(a);
-                      return (
-                        <li key={a.id} className="rounded-xl border border-emerald-100 bg-emerald-50/50 px-3 py-2.5">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-bold text-slate-900">{a.data.reason || "Absence"}</p>
-                              <p className="text-xs text-slate-600 mt-0.5">
-                                {formatAbsencePeriod({
-                                  periodType:
-                                    a.data.periodType === "single_day" ? "single_day" : "multi_day",
-                                  startDate: a.data.startDate || a.data.startAt.slice(0, 10),
-                                  endDate: a.data.endDate || a.data.endAt.slice(0, 10),
-                                  startTime: a.data.startTime ?? null,
-                                  endTime: a.data.endTime ?? null,
-                                })}
-                              </p>
-                            </div>
-                            <span className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-lg ${st.className}`}>
-                              {st.label}
-                            </span>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              )}
-              {recent.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-wide text-slate-500 mb-2">
-                    Récentes
-                  </p>
-                  <ul className="space-y-2">
-                    {recent.map((a) => {
-                      const st = statusAbsence(a);
-                      return (
-                        <li key={a.id} className="rounded-xl border border-slate-100 px-3 py-2">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-bold text-slate-800">{a.data.reason || "Absence"}</p>
-                              <p className="text-xs text-slate-500 mt-0.5">
-                                {new Date(a.data.startAt).toLocaleDateString("fr-FR")}
-                              </p>
-                            </div>
-                            <span className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-lg ${st.className}`}>
-                              {st.label}
-                            </span>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              )}
-            </div>
+            <ul className="space-y-2">
+              {[...upcoming, ...recent].slice(0, 5).map((a) => {
+                const st = statusAbsence(a);
+                return (
+                  <li key={a.id} className="rounded-xl border border-slate-100 px-3 py-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">{a.data.reason || "Absence"}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {formatAbsencePeriod({
+                            periodType: a.data.periodType === "single_day" ? "single_day" : "multi_day",
+                            startDate: a.data.startDate || a.data.startAt.slice(0, 10),
+                            endDate: a.data.endDate || a.data.endAt.slice(0, 10),
+                            startTime: a.data.startTime ?? null,
+                            endTime: a.data.endTime ?? null,
+                          })}
+                        </p>
+                      </div>
+                      <span className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-lg ${st.className}`}>
+                        {st.label}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </section>
 
-        {showHse ? (
+        {canCreateHse ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between gap-2 mb-3">
               <h3 className="font-black text-slate-900">Mes demandes HSE</h3>
-              <Link href="/rh?tab=hse" className="text-[11px] font-bold text-indigo-600 underline">
+              <button
+                type="button"
+                onClick={() => router.push("/rh?tab=dashboard&section=hse")}
+                className="text-[11px] font-bold text-indigo-600 underline"
+              >
                 Ouvrir
-              </Link>
+              </button>
             </div>
             {loading ? (
               <p className="text-sm text-slate-400">Chargement…</p>
             ) : hseItems.length === 0 ? (
-              <div className="space-y-3">
-                <p className="text-sm text-slate-400 italic">Aucune demande pour le moment.</p>
-                {canCreateHse && (
-                  <Link
-                    href="/rh?tab=hse"
-                    className="inline-flex px-3 py-2 rounded-xl bg-indigo-50 text-indigo-800 text-xs font-bold border border-indigo-100"
-                  >
-                    Faire une demande HSE
-                  </Link>
-                )}
-              </div>
+              <Link
+                href="/rh?tab=dashboard&section=hse"
+                className="inline-flex px-3 py-2 rounded-xl bg-indigo-50 text-indigo-800 text-xs font-bold border border-indigo-100"
+              >
+                Faire une demande HSE
+              </Link>
             ) : (
               <ul className="space-y-2">
                 {hseItems.map((h) => {
                   const st = statusHse(h.status);
                   return (
-                    <li key={h.id} className="rounded-xl border border-slate-100 px-3 py-2.5">
+                    <li key={h.id} className="rounded-xl border border-slate-100 px-3 py-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-sm font-bold text-slate-900 truncate">{h.resumeDemande}</p>
@@ -292,36 +416,43 @@ export default function RhPersonnelHome({
               </ul>
             )}
           </section>
-        ) : (
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="font-black text-slate-900 mb-2">Raccourcis</h3>
-            <p className="text-sm text-slate-500 mb-3">
-              Accédez rapidement à vos actions du quotidien.
-            </p>
-            <div className="flex flex-col gap-2">
-              <Link
-                href="/rh?tab=absences&view=se-declarer#nouvelle-absence"
-                className="rounded-xl border border-slate-100 px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50"
+        ) : null}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <h3 className="font-black text-slate-900">Mes demandes RH</h3>
+            {canAccessDemandeRh && (
+              <button
+                type="button"
+                onClick={() => router.push("/rh?tab=dashboard&section=demande")}
+                className="text-[11px] font-bold text-indigo-600 underline"
               >
-                Demander une autorisation d&apos;absence →
-              </Link>
-              <Link
-                href="/rh?tab=planning"
-                className="rounded-xl border border-slate-100 px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50"
-              >
-                Mon planning →
-              </Link>
-              {canDirectory && (
-                <Link
-                  href="/rh?tab=annuaire"
-                  className="rounded-xl border border-slate-100 px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50"
-                >
-                  Annuaire →
-                </Link>
-              )}
-            </div>
-          </section>
-        )}
+                Nouvelle
+              </button>
+            )}
+          </div>
+          {loading ? (
+            <p className="text-sm text-slate-400">Chargement…</p>
+          ) : rhRequests.length === 0 ? (
+            <p className="text-sm text-slate-400 italic">Aucune demande RH récente.</p>
+          ) : (
+            <ul className="space-y-2">
+              {rhRequests.map((r) => {
+                const st = requestStatusLabel(r.status);
+                return (
+                  <li key={r.id} className="rounded-xl border border-slate-100 px-3 py-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-bold text-slate-900 truncate">{r.subject}</p>
+                      <span className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-lg ${st.className}`}>
+                        {st.label}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       </div>
 
       <RhSelfDepositPanel />

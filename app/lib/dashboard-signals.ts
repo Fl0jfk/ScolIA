@@ -12,7 +12,7 @@ import { moduleHref } from "@/app/lib/pillar-module-routes";
 import { pickExactCurrentWeekSheet } from "@/app/lib/dashboard-week-sheet-active";
 import type { WeekSheetData, WeekSheetEvent } from "@/app/lib/dashboard-week-sheet-types";
 import { WEEK_DAYS, type WeekDayKey } from "@/app/lib/dashboard-week-sheet-types";
-import { canAccessHseModule, getHseRoleFlags, type HseRecordLike } from "@/app/lib/demandes-hse-access";
+import { canAccessHseModule, canCreateHseDemand, getHseRoleFlags, type HseRecordLike } from "@/app/lib/demandes-hse-access";
 import { directionRolesMatchEstablishmentRef, isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
@@ -705,24 +705,23 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "rh-demande-absence",
         pillarId: "compta_rh",
         moduleId: "rh",
-        href: "/rh?tab=absences&view=se-declarer#nouvelle-absence",
+        href: "/rh?tab=dashboard&section=absences#nouvelle-absence",
         label: "Demander une absence",
         rich: true,
         detail: "Autorisation d’absence (self-service)",
         tone: "action",
       });
 
-      if (!input.moodPulseSubmittedToday) {
+      if (canCreateHseDemand(roles)) {
         shortcuts.push({
-          id: "rh-mood-pulse",
+          id: "rh-demande-hse",
           pillarId: "compta_rh",
-          moduleId: "rh",
-          href: "/rh?tab=dashboard",
-          label: "Comment je me sens",
+          moduleId: "demandes-hse",
+          href: "/rh?tab=dashboard&section=hse",
+          label: "Faire une demande de HSE",
           rich: true,
-          detail: "Note anonyme du jour — 30 secondes",
+          detail: "Heures supplémentaires exceptionnelles",
           tone: "action",
-          emoji: "😊",
         });
       }
     }
@@ -754,7 +753,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "absences-pending",
           pillarId: "compta_rh",
           moduleId: "absences",
-          href: "/rh?tab=absences&view=a-traiter",
+          href: "/rh?tab=dashboard&section=absences&view=a-traiter",
           label: "Absences à traiter",
           rich: true,
           badge: `${pendingManager.length} à traiter`,
@@ -769,7 +768,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           moduleId: "absences",
           label: "Absences à traiter",
           count: pendingManager.length,
-          href: "/rh?tab=absences&view=a-traiter",
+          href: "/rh?tab=dashboard&section=absences&view=a-traiter",
           detail:
             pendingManager.length === 1
               ? "1 demande d'autorisation d'absence en attente de votre décision"
@@ -782,7 +781,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "absences-today",
           pillarId: "compta_rh",
           moduleId: "absences",
-          href: "/rh?tab=absences",
+          href: "/rh?tab=pilotage&section=overview",
           label: "Absences",
           rich: true,
           badge: String(count),
@@ -795,8 +794,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           pillarId: "compta_rh",
           moduleId: "absences",
           href: isDirectionRole(roles)
-            ? "/rh?tab=absences&view=a-traiter"
-            : "/rh?tab=absences&view=se-declarer",
+            ? "/rh?tab=pilotage&section=overview"
+            : "/rh?tab=dashboard&section=absences",
           label: "Absences",
         });
       }
@@ -805,7 +804,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "absences",
         pillarId: "compta_rh",
         moduleId: "absences",
-        href: "/rh?tab=absences&view=se-declarer",
+        href: "/rh?tab=dashboard&section=absences",
         label: "Mes absences",
       });
     }
@@ -821,7 +820,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             id: "hse-pending",
             pillarId: "compta_rh",
             moduleId: "demandes-hse",
-            href: "/rh?tab=hse",
+            href: "/rh?tab=dashboard&section=hse",
             label: "Demandes HSE",
             rich: true,
             badge: `${pending} à traiter`,
@@ -836,7 +835,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             moduleId: "demandes-hse",
             label: "Demandes HSE",
             count: pending,
-            href: "/rh?tab=hse",
+            href: "/rh?tab=dashboard&section=hse",
             detail:
               pending === 1
                 ? "1 demande HSE à traiter"
@@ -847,7 +846,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             id: "hse",
             pillarId: "compta_rh",
             moduleId: "demandes-hse",
-            href: "/rh?tab=hse",
+            href: "/rh?tab=dashboard&section=hse",
             label: "Demandes HSE",
           });
         }
@@ -856,7 +855,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "hse",
           pillarId: "compta_rh",
           moduleId: "demandes-hse",
-          href: "/rh?tab=hse",
+          href: "/rh?tab=dashboard&section=hse",
           label: "Mes demandes HSE",
         });
       }

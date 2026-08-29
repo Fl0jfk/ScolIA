@@ -8,5 +8,5 @@ export default async function AbsencesPage({
 }) {
   const sp = await searchParams;
   const view = sp.tab === "declarer" || sp.tab === "mes-demandes" ? "se-declarer" : sp.tab || "se-declarer";
-  redirect(`/rh?tab=absences&view=${encodeURIComponent(view)}`);
+  redirect(`/rh?tab=dashboard&section=absences&view=${encodeURIComponent(view)}`);
 }

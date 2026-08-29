@@ -157,6 +157,17 @@ export type PersonnelOnboarding = {
   notes?: string;
 };
 
+/** Statut de l’espace personnel RH (tableau de bord collaborateur). */
+export type RhSpaceStatus = "onboarding" | "pending_validation" | "active";
+
+export type PersonnelRhSpace = {
+  status: RhSpaceStatus;
+  submittedAt?: string | null;
+  validatedAt?: string | null;
+  validatedBy?: string | null;
+  validationNote?: string | null;
+};
+
 export type PersonnelRecord = {
   id: string;
   externalUserId?: string | null;
@@ -183,6 +194,8 @@ export type PersonnelRecord = {
   onboarding?: PersonnelOnboarding | null;
   offboarding?: PersonnelOffboarding | null;
   profile?: PersonnelProfile;
+  /** Parcours d’accueil espace RH personnel (Postgres, complète OneDrive si absent). */
+  rhSpace?: PersonnelRhSpace | null;
   establishment?: string | null;
   managerId?: string | null;
 };
@@ -198,6 +211,7 @@ export type PersonnelIndexEntry = {
   active: boolean;
   hireDate?: string | null;
   onboardingStatus?: OnboardingStatus | null;
+  rhSpaceStatus?: RhSpaceStatus | null;
 };
 
 export type SharedPersonnelDocument = {
@@ -343,6 +357,8 @@ export function sanitizeRecordForViewer(
     entretiens: isRh ? record.entretiens : isSelf ? record.entretiens.filter((e) => e.status === "realise") : [],
     onboarding: isRh ? record.onboarding : null,
     offboarding: isRh ? record.offboarding : null,
+    rhSpace: isRh || isSelf ? record.rhSpace : null,
+    profile: isRh || isSelf ? record.profile : undefined,
   };
 }
 
@@ -383,6 +399,27 @@ export function defaultOnboarding(startDate: string): PersonnelOnboarding {
       { id: uid("sig"), role: "compta", label: "Comptabilité", status: "en_attente" },
       { id: uid("sig"), role: "president_ogec", label: "Président OGEC", status: "en_attente" },
     ],
+  };
+}
+
+export function normalizePersonnelRhSpace(raw: unknown): PersonnelRhSpace | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const statusRaw = String(o.status || "").trim();
+  const status: RhSpaceStatus =
+    statusRaw === "pending_validation" || statusRaw === "active" || statusRaw === "onboarding"
+      ? statusRaw
+      : "onboarding";
+  const str = (v: unknown) => {
+    const s = String(v ?? "").trim();
+    return s || null;
+  };
+  return {
+    status,
+    submittedAt: str(o.submittedAt),
+    validatedAt: str(o.validatedAt),
+    validatedBy: str(o.validatedBy),
+    validationNote: str(o.validationNote),
   };
 }
 
@@ -437,6 +474,7 @@ export function normalizePersonnelRecord(raw: unknown): PersonnelRecord {
     medecineTravail: med,
     entretiens,
     onboarding: (o.onboarding as PersonnelOnboarding | null) || null,
+    rhSpace: normalizePersonnelRhSpace(o.rhSpace),
     offboarding: (o.offboarding as PersonnelOffboarding | null) || null,
     profile: normalizePersonnelProfile(o.profile),
     establishment: str(o.establishment) || null,
@@ -464,6 +502,7 @@ export function toIndexEntry(record: PersonnelRecord): PersonnelIndexEntry {
     active: record.active,
     hireDate: record.hireDate,
     onboardingStatus: record.onboarding?.status ?? null,
+    rhSpaceStatus: record.rhSpace?.status ?? null,
   };
 }
 

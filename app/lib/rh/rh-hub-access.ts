@@ -32,6 +32,17 @@ export function canEditRhPlanning(roles: string[]) {
   return f.isAdmin || f.isCompta || f.isAdministratif || f.isDirection;
 }
 
+/** Espace personnel RH (tableau de bord collaborateur) — profs + personnel OGEC + direction. */
+export function canAccessRhPersonalEspace(roles: string[]) {
+  const f = roleFlags(roles);
+  return (
+    f.isTeacher ||
+    f.isOgecStaff ||
+    f.isDirection ||
+    f.isAdmin
+  );
+}
+
 /** Onglet Demande RH — personnel OGEC uniquement (pas les profs seuls). */
 export function canAccessRhStaffRequest(roles: string[]) {
   const f = roleFlags(roles);
@@ -39,7 +50,8 @@ export function canAccessRhStaffRequest(roles: string[]) {
   return f.isOgecStaff || f.isDirection || f.isAdmin;
 }
 
-/** Tableau de bord « Pilotage RH » (stats, mood admin). */
+/** Tableau de bord « Pilotage RH » (stats, mood admin, annuaire). */
 export function canAccessRhPilotageDashboard(roles: string[]) {
-  return canAccessRhDirectoryViews(roles);
+  const f = roleFlags(roles);
+  return f.isAdmin || f.isCompta || f.isDirection || f.isAdministratif;
 }
