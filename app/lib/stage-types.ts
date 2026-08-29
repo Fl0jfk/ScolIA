@@ -15,7 +15,11 @@ export const STAGE_S3 = {
   offerApplications: (offerId: string) => `stages/offer-applications/${offerId}.json`,
   referentsConfig: (schoolYear: string) => `stages/referents/${schoolYear}.json`,
   periodsConfig: (schoolYear: string) => `stages/periods/${schoolYear}.json`,
-  referentSignature: (externalUserId: string) => `stages/signatures/referents/${externalUserId}.png`,
+  referentSignature: (externalUserId: string) => `signatures/users/${externalUserId}.png`,
+  externalSignature: (conventionId: string, signatureId: string) =>
+    `stages/signatures/external/${conventionId}/${signatureId}.png`,
+  paperSignedUpload: (conventionId: string, signatureId: string, safeFileName: string) =>
+    `stages/signatures/paper/${conventionId}/${signatureId}/${safeFileName}`,
 } as const;
 
 export type StageOfferKind = "pfmp" | "stage_observation" | "job_ete" | "autre";
@@ -118,6 +122,12 @@ export type StageSignerRole =
 
 export type StageSignatureStatus = "en_attente" | "signe" | "refuse";
 
+/** Mode de signature choisi par le signataire externe (parent, entreprise). */
+export type StageSignMethod = "code_confirm" | "touch" | "paper_upload";
+
+/** Validation administrative d'une signature soumise. */
+export type StageSignatureReviewStatus = "pending" | "accepted" | "rejected";
+
 export type StageSignature = {
   id: string;
   role: StageSignerRole;
@@ -130,6 +140,16 @@ export type StageSignature = {
   signSentAt?: string;
   signedAt?: string;
   signedBy?: string;
+  signMethod?: StageSignMethod;
+  /** Paraphe dessiné (PNG) pour parents / entreprises. */
+  signaturePngS3Key?: string;
+  /** PDF signé papier déposé par le signataire. */
+  paperUploadS3Key?: string;
+  paperUploadFileName?: string;
+  reviewStatus?: StageSignatureReviewStatus;
+  reviewNote?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
 };
 
 export type StageSignCodeLookupRef = {
@@ -316,3 +336,24 @@ export const STAGE_SIGNER_ROLE_LABELS: Record<StageSignerRole, string> = {
   direction: "Direction",
   administratif: "Administratif",
 };
+
+const EXTERNAL_SIGNER_ROLES: StageSignerRole[] = [
+  "parent",
+  "parent_2",
+  "tuteur_entreprise",
+  "rh_entreprise",
+];
+
+export function isExternalStageSignerRole(role: StageSignerRole): boolean {
+  return EXTERNAL_SIGNER_ROLES.includes(role);
+}
+
+export function isStageSignatureFullyValidated(sig: StageSignature): boolean {
+  if (sig.status !== "signe") return false;
+  if (sig.reviewStatus === "pending" || sig.reviewStatus === "rejected") return false;
+  return true;
+}
+
+export function conventionAllSignaturesValidated(signatures: StageSignature[]): boolean {
+  return signatures.length > 0 && signatures.every(isStageSignatureFullyValidated);
+}

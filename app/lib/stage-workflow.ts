@@ -5,10 +5,29 @@ import { generateAndStoreConventionPdf } from "@/app/lib/stage-pdf-store";
 import { stampSignatureOnConventionPdf, roleStampsPdf } from "@/app/lib/stage-pdf-sign";
 import { generateStageSecureCode, normalizeSignEmail } from "@/app/lib/stage-secure-code";
 import {
+  saveExternalSignaturePng,
+  savePaperSignedPdf,
+  parseExternalSignaturePng,
+  parsePaperUploadBase64,
+} from "@/app/lib/stage-external-signature-store";
+import {
+  STAGE_SIGNER_ROLE_LABELS,
+  conventionAllSignaturesValidated,
+  currentStageSchoolYear,
+  isExternalStageSignerRole,
+  stageUid,
+  type StageConvention,
+  type StageSignMethod,
+  type StageSignature,
+  type StageSignerRole,
+  type StageSignTokenRef,
+} from "@/app/lib/stage-types";
+import {
   notifyAllStageSignatureRequests,
   notifyStageAdminRejected,
   notifyStageFullySigned,
   notifyStagePreconventionSubmitted,
+  notifyStageSignatureRejected,
 } from "@/app/lib/stage-notify";
 import {
   getSignTokenRef,
@@ -22,15 +41,6 @@ import {
 } from "@/app/lib/stage-storage";
 import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
 import { inferStudentLevelFromClass } from "@/app/lib/stage-student-identity";
-import {
-  STAGE_SIGNER_ROLE_LABELS,
-  currentStageSchoolYear,
-  stageUid,
-  type StageConvention,
-  type StageSignature,
-  type StageSignerRole,
-  type StageSignTokenRef,
-} from "@/app/lib/stage-types";
 
 export function generateStageToken() {
   return randomBytes(32).toString("base64url");
@@ -376,6 +386,9 @@ export async function applyConventionSignature(params: {
   token: string;
   signerName?: string;
   signaturePngBase64?: string;
+  signMethod?: StageSignMethod;
+  paperPdfBase64?: string;
+  paperFileName?: string;
 }): Promise<
   | { ok: true; convention: StageConvention }
   | { ok: false; error: string }
@@ -388,16 +401,69 @@ export async function applyConventionSignature(params: {
 
   const sig = convention.signatures.find((s) => s.id === ref.signatureId);
   if (!sig) return { ok: false, error: "Signature introuvable." };
-  if (sig.status === "signe") return { ok: false, error: "Déjà signé." };
+  if (sig.status === "signe" && sig.reviewStatus !== "rejected") {
+    return { ok: false, error: "Déjà signé." };
+  }
 
-  if (roleStampsPdf(sig.role)) {
+  const signMethod: StageSignMethod =
+    params.signMethod ??
+    (params.paperPdfBase64 ? "paper_upload" : params.signaturePngBase64 ? "touch" : "code_confirm");
+
+  if (isExternalStageSignerRole(sig.role)) {
+    if (signMethod === "touch" && !params.signaturePngBase64?.trim()) {
+      return { ok: false, error: "Dessinez votre signature dans le cadre prévu." };
+    }
+    if (signMethod === "paper_upload" && !params.paperPdfBase64?.trim()) {
+      return { ok: false, error: "Déposez le PDF signé." };
+    }
+  }
+
+  let signaturePngS3Key = sig.signaturePngS3Key;
+  let paperUploadS3Key = sig.paperUploadS3Key;
+  let paperUploadFileName = sig.paperUploadFileName;
+
+  if (signMethod === "touch" && params.signaturePngBase64) {
+    const png = parseExternalSignaturePng(params.signaturePngBase64);
+    if (!png) return { ok: false, error: "Image de signature invalide." };
+    signaturePngS3Key = await saveExternalSignaturePng(convention.id, sig.id, png);
+  }
+
+  if (signMethod === "paper_upload" && params.paperPdfBase64) {
+    const pdf = parsePaperUploadBase64(params.paperPdfBase64);
+    if (!pdf) return { ok: false, error: "Fichier PDF invalide." };
+    paperUploadS3Key = await savePaperSignedPdf(
+      convention.id,
+      sig.id,
+      params.paperFileName?.trim() || "convention-signee.pdf",
+      pdf,
+    );
+    paperUploadFileName = params.paperFileName?.trim() || "convention-signee.pdf";
+  }
+
+  if (roleStampsPdf(sig.role) && signMethod === "touch") {
     const stamp = await stampSignatureOnConventionPdf({
       convention,
       role: sig.role,
       drawnPngBase64: params.signaturePngBase64,
     });
     if (!stamp.ok) return { ok: false, error: stamp.error };
+  } else if (roleStampsPdf(sig.role) && signMethod === "code_confirm") {
+    const stamp = await stampSignatureOnConventionPdf({
+      convention,
+      role: sig.role,
+      drawnPngBase64: undefined,
+    });
+    if (!stamp.ok && sig.role !== "parent" && sig.role !== "parent_2" && sig.role !== "tuteur_entreprise" && sig.role !== "rh_entreprise") {
+      return { ok: false, error: stamp.error };
+    }
   }
+
+  const reviewStatus =
+    signMethod === "code_confirm" && (sig.role === "professeur_referent" || sig.role === "direction")
+      ? ("accepted" as const)
+      : signMethod === "code_confirm"
+        ? ("accepted" as const)
+        : ("pending" as const);
 
   const now = new Date().toISOString();
   const signatures = convention.signatures.map((s) =>
@@ -407,23 +473,31 @@ export async function applyConventionSignature(params: {
           status: "signe" as const,
           signedAt: now,
           signedBy: params.signerName?.trim() || s.label,
+          signMethod,
+          signaturePngS3Key,
+          paperUploadS3Key,
+          paperUploadFileName,
+          reviewStatus,
+          reviewNote: undefined,
+          reviewedAt: reviewStatus === "accepted" ? now : undefined,
+          reviewedBy: reviewStatus === "accepted" ? params.signerName?.trim() || s.label : undefined,
         }
       : s,
   );
 
-  const allSigned = signatures.every((s) => s.status === "signe");
+  const allValidated = conventionAllSignaturesValidated(signatures);
   let next: StageConvention = {
     ...convention,
     signatures,
-    status: allSigned ? "signed" : "signatures_pending",
+    status: allValidated ? "signed" : "signatures_pending",
     updatedAt: now,
   };
-  next = pushHistory(next, params.signerName || sig.label, "SIGNATURE", sig.role);
-  if (allSigned) {
+  next = pushHistory(next, params.signerName || sig.label, "SIGNATURE", `${sig.role}:${signMethod}`);
+  if (allValidated) {
     next = await generateAndStoreConventionPdf(next);
   }
   await saveStageConvention(next);
-  if (allSigned) {
+  if (allValidated) {
     void import("@/app/lib/stage-eleve-dossier-filing").then((m) =>
       m.finalizeSignedConventionDestinations(next).catch((e) =>
         console.error("[stages] finalize destinations:", e),
@@ -431,6 +505,131 @@ export async function applyConventionSignature(params: {
     );
     void notifyStageFullySigned(next).catch((e) => console.error("[stages] notify signed:", e));
   }
+  return { ok: true, convention: next };
+}
+
+async function regenerateSignatureToken(
+  conventionId: string,
+  sig: StageSignature,
+): Promise<StageSignature> {
+  const token = generateStageToken();
+  const secureCode = generateStageSecureCode();
+  const ref: StageSignTokenRef = {
+    conventionId,
+    signatureId: sig.id,
+    role: sig.role,
+    createdAt: new Date().toISOString(),
+  };
+  await saveSignTokenRef(token, ref);
+  if (sig.signEmail?.trim()) {
+    await saveSignCodeLookup(sig.signEmail, secureCode, {
+      token,
+      conventionId,
+      signatureId: sig.id,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  return {
+    ...sig,
+    signToken: token,
+    signSecureCode: secureCode,
+    signSentAt: new Date().toISOString(),
+  };
+}
+
+export async function reviewConventionSignature(params: {
+  conventionId: string;
+  signatureId: string;
+  accepted: boolean;
+  by: string;
+  byName: string;
+  note?: string;
+}): Promise<
+  | { ok: true; convention: StageConvention }
+  | { ok: false; error: string }
+> {
+  const convention = await getStageConvention(params.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+
+  const sig = convention.signatures.find((s) => s.id === params.signatureId);
+  if (!sig) return { ok: false, error: "Signature introuvable." };
+  if (sig.reviewStatus !== "pending") {
+    return { ok: false, error: "Cette signature n'est pas en attente de validation." };
+  }
+
+  const now = new Date().toISOString();
+
+  if (params.accepted) {
+    const signatures = convention.signatures.map((s) =>
+      s.id === sig.id
+        ? {
+            ...s,
+            reviewStatus: "accepted" as const,
+            reviewNote: params.note,
+            reviewedAt: now,
+            reviewedBy: params.byName,
+          }
+        : s,
+    );
+    const allValidated = conventionAllSignaturesValidated(signatures);
+    let next: StageConvention = {
+      ...convention,
+      signatures,
+      status: allValidated ? "signed" : "signatures_pending",
+      updatedAt: now,
+    };
+    next = pushHistory(next, params.byName, "SIGNATURE_ACCEPTEE", sig.role);
+    if (allValidated) {
+      next = await generateAndStoreConventionPdf(next);
+    }
+    await saveStageConvention(next);
+    if (allValidated) {
+      void import("@/app/lib/stage-eleve-dossier-filing").then((m) =>
+        m.finalizeSignedConventionDestinations(next).catch((e) =>
+          console.error("[stages] finalize destinations:", e),
+        ),
+      );
+      void notifyStageFullySigned(next).catch((e) => console.error("[stages] notify signed:", e));
+    }
+    return { ok: true, convention: next };
+  }
+
+  let resetSig: StageSignature = {
+    ...sig,
+    status: "en_attente",
+    signedAt: undefined,
+    signedBy: undefined,
+    signMethod: undefined,
+    signaturePngS3Key: undefined,
+    paperUploadS3Key: undefined,
+    paperUploadFileName: undefined,
+    reviewStatus: "rejected",
+    reviewNote: params.note,
+    reviewedAt: now,
+    reviewedBy: params.byName,
+  };
+  resetSig = await regenerateSignatureToken(convention.id, resetSig);
+  resetSig = {
+    ...resetSig,
+    status: "en_attente",
+    reviewStatus: undefined,
+    reviewNote: undefined,
+    reviewedAt: undefined,
+    reviewedBy: undefined,
+  };
+
+  const signatures = convention.signatures.map((s) => (s.id === sig.id ? resetSig : s));
+  let next: StageConvention = {
+    ...convention,
+    signatures,
+    status: "signatures_pending",
+    updatedAt: now,
+  };
+  next = pushHistory(next, params.byName, "SIGNATURE_REFUSEE", params.note || sig.role);
+  await saveStageConvention(next);
+  void notifyStageSignatureRejected(next, resetSig, params.note).catch((e) =>
+    console.error("[stages] notify signature rejected:", e),
+  );
   return { ok: true, convention: next };
 }
 

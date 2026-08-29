@@ -2,12 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import UserSignaturePad from "@/app/components/account/UserSignaturePad";
 import PasswordRequirementsChecklist from "@/app/components/auth/PasswordRequirementsChecklist";
 import SessionsManager from "@/app/components/account/SessionsManager";
 import { useAppUser } from "@/app/hooks/useAppUser";
 import { validatePasswordPolicy } from "@/app/lib/password-policy";
 
-type Mode = "menu" | "password" | "email" | "sessions";
+type Mode = "menu" | "password" | "email" | "sessions" | "signature";
 
 type Props = {
   open: boolean;
@@ -128,7 +129,7 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
     >
       <div
         className={`w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl ${
-          mode === "sessions" ? "max-w-lg" : "max-w-md"
+          mode === "sessions" || mode === "signature" ? "max-w-lg" : "max-w-md"
         }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -139,8 +140,9 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
           <h2 id="account-security-title" className="text-base font-bold text-slate-900">
             {mode === "menu" && "Sécurité"}
             {mode === "password" && "Changer le mot de passe"}
-            {mode === "email" && "Changer l’e-mail de connexion"}
+            {mode === "email" && "Changer l'e-mail de connexion"}
             {mode === "sessions" && "Appareils & sessions"}
+            {mode === "signature" && "Ma signature"}
           </h2>
           {success && mode === "password" ? null : (
             <button
@@ -195,6 +197,16 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                 type="button"
                 onClick={() => {
                   resetForm();
+                  setMode("signature");
+                }}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/50"
+              >
+                Ma signature (conventions & certificats)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
                   setMode("sessions");
                 }}
                 className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/50"
@@ -217,6 +229,22 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                 ← Retour
               </button>
               <SessionsManager embedded />
+            </div>
+          )}
+
+          {mode === "signature" && (
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setMode("menu");
+                }}
+                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+              >
+                ← Retour
+              </button>
+              <UserSignaturePad compact />
             </div>
           )}
 

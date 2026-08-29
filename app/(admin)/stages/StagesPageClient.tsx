@@ -9,7 +9,6 @@ import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 import type { StageConvention } from "@/app/lib/stage-types";
 import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
 import StagePendingSignaturesPanel from "@/app/components/stages/StagePendingSignaturesPanel";
-import StageMySignatureBlock from "@/app/components/stages/StageMySignatureBlock";
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 import { buildSignatureSummary } from "@/app/lib/stage-signature-summary";
@@ -238,6 +237,37 @@ function StagesContent() {
     }
   }
 
+  async function reviewSignature(signatureId: string, accepted: boolean, note?: string) {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "review_signature",
+          signatureId,
+          accepted,
+          note: note?.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setDetail({ ...detail, convention: data.convention });
+      setMsg(
+        accepted
+          ? "Signature acceptée."
+          : "Signature refusée — un e-mail de relance a été envoyé au signataire.",
+      );
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function attachEleveIne() {
     if (!detail) return;
     setBusy(true);
@@ -360,7 +390,6 @@ function StagesContent() {
         </div>
       )}
 
-      {permissions?.canViewClassRoster && permissions.referentOnly && <StageMySignatureBlock />}
 
       <ModuleTabNav
         className="mb-6"
@@ -755,6 +784,59 @@ function StagesContent() {
               </div>
             </div>
           )}
+          {detail.convention.signatures.some((s) => s.reviewStatus === "pending") &&
+            permissions?.canReviewPreconvention && (
+              <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <h3 className="text-sm font-bold text-[#1F3D2B]">Signatures à valider</h3>
+                <p className="mt-1 text-xs text-stone-600">
+                  Vérifiez les signatures déposées (doigt ou document papier) avant de clôturer la
+                  convention.
+                </p>
+                <ul className="mt-3 space-y-3">
+                  {detail.convention.signatures
+                    .filter((s) => s.reviewStatus === "pending")
+                    .map((s) => (
+                      <li
+                        key={s.id}
+                        className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-100 bg-white px-3 py-2 text-sm"
+                      >
+                        <span className="font-semibold">{s.label}</span>
+                        <span className="text-xs text-stone-500">
+                          {s.signMethod === "paper_upload"
+                            ? "Document papier"
+                            : s.signMethod === "touch"
+                              ? "Signature au doigt"
+                              : "Code e-mail"}
+                          {s.signedBy ? ` · ${s.signedBy}` : ""}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void reviewSignature(s.id, true)}
+                          className="rounded-lg bg-emerald-700 px-3 py-1 text-xs font-bold text-white disabled:opacity-50"
+                        >
+                          Accepter
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            const note = window.prompt(
+                              "Motif du refus (envoyé au signataire) :",
+                              "Signature illisible ou absente sur le document.",
+                            );
+                            if (note === null) return;
+                            void reviewSignature(s.id, false, note);
+                          }}
+                          className="rounded-lg bg-amber-600 px-3 py-1 text-xs font-bold text-white disabled:opacity-50"
+                        >
+                          Refuser et redemander
+                        </button>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
           {detail.signLinks?.length > 0 && (
             <div className="mt-6">
               <h3 className="text-sm font-bold text-stone-700">Liens de signature</h3>

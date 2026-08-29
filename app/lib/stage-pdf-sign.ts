@@ -46,6 +46,15 @@ function fallbackZone(pageWidth: number, role: StageSignerRole): { x: number; y:
   if (role === "direction") {
     return { x: pageWidth - SIG_W - 48, y: 72 };
   }
+  if (role === "tuteur_entreprise" || role === "rh_entreprise") {
+    return { x: pageWidth - SIG_W - 48, y: 140 };
+  }
+  if (role === "parent_2") {
+    return { x: pageWidth / 2 - SIG_W / 2, y: 72 };
+  }
+  if (role === "parent") {
+    return { x: 48, y: 140 };
+  }
   return { x: 48, y: 72 };
 }
 
@@ -122,7 +131,14 @@ async function fetchImageFromUrl(url: string): Promise<Uint8Array | null> {
 }
 
 export function roleStampsPdf(role: StageSignerRole): boolean {
-  return role === "professeur_referent" || role === "direction";
+  return (
+    role === "professeur_referent" ||
+    role === "direction" ||
+    role === "parent" ||
+    role === "parent_2" ||
+    role === "tuteur_entreprise" ||
+    role === "rh_entreprise"
+  );
 }
 
 async function resolveSignaturePngForRole(
@@ -177,8 +193,12 @@ export async function stampSignatureOnConventionPdf(params: {
     return {
       ok: false,
       error:
-        "Dessinez votre signature ci-dessous ou enregistrez-la une fois dans Stages (connecté à l'intranet).",
+        "Enregistrez votre signature dans Mon compte → Sécurité → Ma signature, puis signez en un clic.",
     };
+  }
+
+  if (!sigBytes && (params.role === "parent" || params.role === "parent_2" || params.role === "tuteur_entreprise" || params.role === "rh_entreprise")) {
+    return { ok: false, error: "Dessinez votre signature dans le cadre prévu." };
   }
 
   const isJpg = sigBytes![0] === 0xff && sigBytes![1] === 0xd8;
