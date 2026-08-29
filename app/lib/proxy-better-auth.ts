@@ -120,6 +120,7 @@ export async function resolveBetterAuthProxyStateByUserId(
   return {
     userId: row.externalUserId?.trim() || row.id,
     authUserId: row.id,
+    email: String(row.email || "").trim(),
     etablissementId: row.etablissementId,
     homeEtablissementId: row.etablissementId,
     roles,

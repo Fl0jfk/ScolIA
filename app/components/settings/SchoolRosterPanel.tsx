@@ -240,9 +240,6 @@ export default function SchoolRosterPanel() {
               <Link href="/parametres?tab=annees" className="text-indigo-600 hover:underline">
                 Année scolaire
               </Link>
-              <Link href="/parametres?tab=identite" className="text-indigo-600 hover:underline">
-                Identité comptes
-              </Link>
               <Link href="/toolbox/repartition-classes" className="text-emerald-700 hover:underline">
                 Composition de classes
               </Link>

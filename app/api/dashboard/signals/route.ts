@@ -161,8 +161,9 @@ export async function GET() {
     }
 
     const { loadAppConfig } = await import("@/app/lib/app-config");
-    const { resolvePhotocopiesOpsEmails, isPhotocopiesOpsHandlerResolved } = await import(
-      "@/app/lib/photocopies-couleur-ops"
+    const { resolvePhotocopiesOpsEmails } = await import("@/app/lib/photocopies-couleur-ops");
+    const { isPhotocopiesOpsHandlerResolved } = await import(
+      "@/app/lib/photocopies-couleur-ops-server"
     );
     const appBundle = await loadAppConfig().catch(() => null);
     const photocopiesOpsEmails = resolvePhotocopiesOpsEmails(appBundle?.notifications ?? null);

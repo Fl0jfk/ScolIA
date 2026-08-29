@@ -20,10 +20,8 @@ import {
   getPhotocopiesRoleFlags,
 } from "@/app/lib/photocopies-couleur-access";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
-import {
-  isPhotocopiesOpsHandlerResolved,
-  resolvePhotocopiesOpsEmails,
-} from "@/app/lib/photocopies-couleur-ops";
+import { resolvePhotocopiesOpsEmails } from "@/app/lib/photocopies-couleur-ops";
+import { isPhotocopiesOpsHandlerResolved } from "@/app/lib/photocopies-couleur-ops-server";
 import { loadModuleAccess } from "@/app/lib/module-access-store";
 import type { PhotoCopieRecord } from "@/app/lib/photocopies-couleur-types";
 
