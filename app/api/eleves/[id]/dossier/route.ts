@@ -62,6 +62,7 @@ const TIROIRS: EleveDocTiroir[] = [
   "voyages",
   "sante",
   "vie_scolaire",
+  "orientation",
 ];
 const CONFIDS: EleveDocConfidentialite[] = ["standard", "restreint", "sante"];
 

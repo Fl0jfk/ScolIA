@@ -11,7 +11,8 @@ export type EleveDocTiroirId =
   | "facturation"
   | "voyages"
   | "sante"
-  | "vie_scolaire";
+  | "vie_scolaire"
+  | "orientation";
 
 export const DOC_CATEGORIE_ORDER: EleveDocCategorie[] = [
   "administratif",
@@ -32,6 +33,7 @@ export const TIROIR_LABELS: Record<string, string> = {
   voyages: "Voyages",
   sante: "Santé / PAP",
   vie_scolaire: "Vie scolaire",
+  orientation: "Orientation / fiches de dialogue",
 };
 
 export const TIROIR_TO_CATEGORIE: Record<EleveDocTiroirId, EleveDocCategorie> = {
@@ -39,12 +41,13 @@ export const TIROIR_TO_CATEGORIE: Record<EleveDocTiroirId, EleveDocCategorie> = 
   inscription: "administratif",
   voyages: "administratif",
   vie_scolaire: "administratif",
+  orientation: "administratif",
   facturation: "financier",
   sante: "sante",
 };
 
 export const CATEGORIE_TIROIRS: Record<EleveDocCategorie, EleveDocTiroirId[]> = {
-  administratif: ["scolaire", "inscription", "voyages", "vie_scolaire"],
+  administratif: ["scolaire", "inscription", "voyages", "vie_scolaire", "orientation"],
   financier: ["facturation"],
   sante: ["sante"],
 };

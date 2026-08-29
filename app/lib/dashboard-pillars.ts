@@ -36,7 +36,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     id: "administratif",
     title: "Administratif",
     href: "/administratif",
-    description: "Dossiers élèves, notes & bulletins, stages",
+    description: "Dossiers élèves, notes & bulletins, stages, fiches de dialogue",
     // Profs : pilier visible mais modules réduits (voir moduleIdsForPillarViewer).
     allowedRoles: [
       ...DIRECTIONS,
@@ -54,6 +54,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "notes",
       "groupes-pedagogiques",
       "stages",
+      "fiches-dialogue",
       "agent-ia-ocr",
       "certificates",
     ],
@@ -170,6 +171,7 @@ const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
   "groupes-pedagogiques": "administratif",
   "facturation-familles": "compta_rh",
   stages: "administratif",
+  "fiches-dialogue": "administratif",
   "agent-ia-ocr": "administratif",
   certificates: "administratif",
   "pilotage-eleves": "administratif",
