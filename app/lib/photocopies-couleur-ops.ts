@@ -1,6 +1,4 @@
 import type { NotificationsConfig } from "@/app/lib/app-config-schemas";
-import type { ModuleAccessConfig, ModuleAccessLookup } from "@/app/lib/module-access";
-import { userHasPhotocopiesOpsFlag } from "@/app/lib/module-access";
 
 function normEmail(value: string | undefined | null): string {
   return String(value || "").trim().toLowerCase();
@@ -44,17 +42,6 @@ export function isPhotocopiesOpsHandler(
   const mine = normEmail(email);
   if (!mine) return false;
   return opsEmails.some((e) => normEmail(e) === mine);
-}
-
-/** E-mails legacy OU flag Droits modules. */
-export function isPhotocopiesOpsHandlerResolved(opts: {
-  email?: string | null;
-  opsEmails: string[];
-  moduleAccess?: ModuleAccessConfig | null;
-  lookup?: ModuleAccessLookup | null;
-}): boolean {
-  if (isPhotocopiesOpsHandler(opts.email, opts.opsEmails)) return true;
-  return userHasPhotocopiesOpsFlag(opts.moduleAccess, opts.lookup);
 }
 
 export function photocopiesOpsPendingCount(

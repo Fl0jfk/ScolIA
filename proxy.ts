@@ -480,8 +480,9 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
   ) {
     try {
       const { loadAppConfig } = await import("@/app/lib/app-config");
-      const { resolvePhotocopiesOpsEmails, isPhotocopiesOpsHandlerResolved } = await import(
-        "@/app/lib/photocopies-couleur-ops"
+      const { resolvePhotocopiesOpsEmails } = await import("@/app/lib/photocopies-couleur-ops");
+      const { isPhotocopiesOpsHandlerResolved } = await import(
+        "@/app/lib/photocopies-couleur-ops-server"
       );
       const { loadModuleAccess } = await import("@/app/lib/module-access-store");
       const bundle = await loadAppConfig();
