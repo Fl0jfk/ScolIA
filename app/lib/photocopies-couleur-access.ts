@@ -3,7 +3,7 @@ import {
   directionRolesMatchEstablishmentRef,
   isAnyDirectionRole,
 } from "@/app/lib/establishment-catalog";
-import { hasRole } from "@/app/lib/intranet-role-utils";
+import { hasGlobalAdminRole, hasMasterRole, hasRole } from "@/app/lib/intranet-role-utils";
 
 type PhotocopiesRecordLike = {
   etablissement: string;
@@ -21,7 +21,27 @@ export function getPhotocopiesRoleFlags(roles: string[]) {
 
 export function canCreatePhotocopiesDemand(roles: string[]) {
   const f = getPhotocopiesRoleFlags(roles);
-  return f.isProfesseur || f.isAdministratif || f.isEducation;
+  return (
+    f.isProfesseur ||
+    f.isAdministratif ||
+    f.isEducation ||
+    hasGlobalAdminRole(roles) ||
+    hasMasterRole(roles) ||
+    roles.includes("admin")
+  );
+}
+
+/** Administratif, comptabilité, direction et admin établissement — déposer une demande pour un enseignant. */
+export function canDeclarePhotocopiesOnBehalf(roles: string[]) {
+  const f = getPhotocopiesRoleFlags(roles);
+  return (
+    f.isAdministratif ||
+    hasRole(roles, "comptabilite") ||
+    f.isDirection ||
+    hasGlobalAdminRole(roles) ||
+    hasMasterRole(roles) ||
+    roles.includes("admin")
+  );
 }
 
 export function canManagePhotocopiesDemand(
