@@ -1,4 +1,5 @@
 import { canViewOgecAbsences } from "@/app/lib/absences-types";
+import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
 import type { AccueilBoardKind } from "@/app/lib/accueil-absences-types";
 
 /**
@@ -10,8 +11,10 @@ export function canDeclareAccueilAbsence(_roles: string[]): boolean {
   return true;
 }
 
-/** Lignes personnel OGEC : uniquement administratif, compta RH, direction. */
+/** Lignes personnel OGEC : administratif, compta RH, direction, admin établissement. */
 export function canSeeAccueilBoardKind(kind: AccueilBoardKind, roles: string[]): boolean {
-  if (kind === "ogec") return canViewOgecAbsences(roles);
+  if (kind === "ogec") {
+    return canViewOgecAbsences(roles) || hasGlobalAdminRole(roles) || hasMasterRole(roles);
+  }
   return true;
 }
