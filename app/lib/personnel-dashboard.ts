@@ -121,21 +121,14 @@ export type PersonnelDashboardData = {
 
 
 function isAbsenceToday(record: AbsenceRecord) {
-
   if (record.data.scope !== "ogec") return false;
-
   const today = new Date();
-
   const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-
   const dayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-
   const start = new Date(record.data.startAt);
-
   const end = new Date(record.data.endAt);
-
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
   return start <= dayEnd && end >= dayStart;
-
 }
 
 
@@ -520,7 +513,12 @@ export async function buildPersonnelDashboard(records: PersonnelRecord[]): Promi
 
 
 
-  const absenceIndex = await getAbsenceIndex();
+  let absenceIndex: AbsenceRecord[] = [];
+  try {
+    absenceIndex = await getAbsenceIndex();
+  } catch (err) {
+    console.error("[personnel-dashboard] lecture absences", err);
+  }
 
   const absencesToday: DashboardAbsenceToday[] = absenceIndex
 
