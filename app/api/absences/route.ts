@@ -367,6 +367,7 @@ export async function PATCH(req: Request) {
       managerNote,
       updatedAt: new Date().toISOString(),
     };
+    let validationRecipients: string[] | undefined;
 
     if (action === "DEPOSER_JUSTIFICATIF") {
       if (!justification?.fileName || !justification?.fileUrl) {
@@ -422,6 +423,7 @@ export async function PATCH(req: Request) {
       };
 
       const { sent: validationMailSent, recipients } = await notifyAbsenceValidated(updated);
+      validationRecipients = recipients;
 
       if (validationMailSent || recipients.length === 0) {
         updated = await applyPostValidationPrivacy(updated, index);
@@ -664,7 +666,15 @@ export async function PATCH(req: Request) {
     if (pos >= 0) index[pos] = updated;
     await saveAbsenceIndex(index);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      ...(action === "VALIDER"
+        ? {
+            calendarVisible: updated.calendarVisible === true,
+            validationRecipients: validationRecipients ?? [],
+          }
+        : {}),
+    });
   } catch (error) {
     console.error("Absences patch error:", error);
     return NextResponse.json({ error: "Erreur mise à jour absence" }, { status: 500 });

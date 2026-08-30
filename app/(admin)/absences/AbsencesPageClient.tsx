@@ -343,6 +343,16 @@ export default function AbsencesPageClient({
       if (action === "RELANCER_JUSTIFICATIF") {
         alert("Relance envoyée au demandeur par e-mail.");
       }
+      if (action === "VALIDER" && item?.data.scope !== "ogec") {
+        const emails = Array.isArray(payload?.validationRecipients)
+          ? (payload.validationRecipients as unknown[]).filter((e) => typeof e === "string")
+          : [];
+        if (emails.length === 0) {
+          alert(
+            "Absence validée et affichée au calendrier. Aucune personne n’est configurée pour la déclaration rectorat (Réglages → Notifications → Absences professeurs).",
+          );
+        }
+      }
       await fetchItems();
     } catch (e: any) { alert(e?.message || "Erreur mise à jour.")}
   };
