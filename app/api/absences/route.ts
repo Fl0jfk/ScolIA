@@ -15,7 +15,6 @@ import { s3Key } from "@/app/lib/s3-path";
 import { formatAbsencePeriod, normalizeAbsencePeriodInput } from "@/app/lib/absence-period";
 import {
   formatHoursTreatmentCreatorMailLine,
-  formatHoursTreatmentMailLine,
   validateHoursTreatmentForAbsence,
 } from "@/app/lib/absence-hours-treatment";
 import {
@@ -36,12 +35,8 @@ import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import { getAbsenceDocumentKeys, isDocumentKeyReferenced } from "@/app/lib/absences-documents";
 import {
-  formatJustificatifMailLine,
-  loadAbsenceValidationAttachments,
-} from "@/app/lib/absences-notify";
-import {
   notifyAbsenceCreated,
-  resolveAbsenceValidationRecipients,
+  notifyAbsenceValidated,
 } from "@/app/lib/absences-workflow-mail";
 import {
   consolidatePendingAbsencesInIndex,
@@ -70,10 +65,6 @@ async function getMailer() {
   const transporter = await createTenantTransporter();
   if (!transporter) return null;
   return { smtp, transporter };
-}
-
-async function resolveValidationRecipients(record: AbsenceRecord) {
-  return resolveAbsenceValidationRecipients(record);
 }
 
 function isTodayOverlap(record: AbsenceRecord) {
@@ -430,52 +421,7 @@ export async function PATCH(req: Request) {
         ],
       };
 
-      const recipients = await resolveValidationRecipients(updated);
-      let validationMailSent = false;
-      if (recipients.length > 0) {
-        try {
-          const mail = await getMailer();
-          if (mail) {
-          const { smtp, transporter } = mail;
-          const mailAttachments = await loadAbsenceValidationAttachments(updated);
-          const justificatifLine = formatJustificatifMailLine(updated, mailAttachments);
-          const scope = resolveAbsenceScope(updated);
-          const treatmentLine = formatHoursTreatmentMailLine(updated.hoursTreatment!, scope);
-          await transporter.sendMail({
-            from: `"Absences" <${smtp.user}>`,
-            to: recipients.join(","),
-            subject: `Absence validée — ${updated.createdBy.name}`,
-            text: [
-              `Bonjour,`,
-              ``,
-              `Une absence a été validée.`,
-              `Personne : ${updated.createdBy.name}`,
-              `Type : ${scope === "ogec" ? "Personnel OGEC" : "Professeur"}`,
-              `Établissement : ${scope === "ogec" ? "OGEC" : updated.data.etablissement || "—"}`,
-              `Période : ${formatAbsencePeriod(updated.data)}`,
-              `Motif : ${updated.data.reason}`,
-              updated.data.details ? `Détails : ${updated.data.details}` : "",
-              justificatifLine,
-              treatmentLine,
-              mailAttachments.length > 0 ? `` : undefined,
-              mailAttachments.length > 0
-                ? `Les justificatifs et documents sont en pièce(s) jointe(s) à ce message.`
-                : undefined,
-            ]
-              .filter(Boolean)
-              .join("\n"),
-            attachments: mailAttachments.map((a) => ({
-              filename: a.filename,
-              content: a.content,
-              contentType: a.contentType,
-            })),
-          });
-          validationMailSent = true;
-          }
-        } catch (mailErr) {
-          console.error("Absences validation mail error:", mailErr);
-        }
-      }
+      const { sent: validationMailSent, recipients } = await notifyAbsenceValidated(updated);
 
       if (validationMailSent || recipients.length === 0) {
         updated = await applyPostValidationPrivacy(updated, index);

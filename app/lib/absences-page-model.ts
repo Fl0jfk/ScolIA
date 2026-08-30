@@ -55,12 +55,9 @@ export function validationConfirmMessage(item: AbsenceItem) {
   const base =
     "Êtes-vous sûr de valider cette absence ?\n\nCette action est définitive (sans retour possible).";
   if (item.data.scope === "ogec") {
-    return `${base}\n\nL'absence sera transmise à la comptabilité.`;
+    return `${base}\n\nL'absence sera affichée au calendrier et transmise à la comptabilité RH.`;
   }
-  if (item.data.etablissement) {
-    return `${base}\n\nL'absence sera transmise au secrétariat.`;
-  }
-  return `${base}\n\nL'absence sera transmise au secrétariat.`;
+  return `${base}\n\nL'absence sera affichée au calendrier des absences professeurs et un e-mail partira à la personne qui gère les déclarations rectorat / instance (réglages Notifications).`;
 }
 
 export function transmissionLabel(item: AbsenceItem) {

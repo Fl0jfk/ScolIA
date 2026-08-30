@@ -154,10 +154,14 @@ export default function SettingsNotificationsPanel({
       <SettingsSection
         icon="🗓️"
         title="Absences"
-        description="Notifications après validation direction (compta RH, secrétariat, responsables des surveillants)."
+        description="Notifications après validation direction. Pour les professeurs : la personne qui déclare au rectorat (ou à l’ONISE pour l’école) — y compris les absences saisies à l’accueil."
       >
         {activeEstablishmentKinds.has("ecole") ? (
-          <SettingsField label="Professeurs — école" as="div">
+          <SettingsField
+            label="Professeurs — école"
+            hint="Personne qui déclare les absences professeurs à l’ONISE. Notifiée après validation direction, y compris saisie accueil."
+            as="div"
+          >
             <DirectoryPersonSelect
               members={directoryMembers}
               loading={membersLoading}
@@ -167,7 +171,11 @@ export default function SettingsNotificationsPanel({
           </SettingsField>
         ) : null}
         {activeEstablishmentKinds.has("college") ? (
-          <SettingsField label="Professeurs — collège" as="div">
+          <SettingsField
+            label="Professeurs — collège"
+            hint="Personne qui déclare les absences professeurs au rectorat. Notifiée après validation direction, y compris saisie accueil."
+            as="div"
+          >
             <DirectoryPersonSelect
               members={directoryMembers}
               loading={membersLoading}
@@ -177,7 +185,11 @@ export default function SettingsNotificationsPanel({
           </SettingsField>
         ) : null}
         {activeEstablishmentKinds.has("lycee") ? (
-          <SettingsField label="Professeurs — lycée" as="div">
+          <SettingsField
+            label="Professeurs — lycée"
+            hint="Personne qui déclare les absences professeurs au rectorat. Notifiée après validation direction, y compris saisie accueil."
+            as="div"
+          >
             <DirectoryPersonSelect
               members={directoryMembers}
               loading={membersLoading}

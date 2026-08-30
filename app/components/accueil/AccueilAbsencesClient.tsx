@@ -102,8 +102,13 @@ export default function AccueilAbsencesClient() {
       };
       if (!res.ok) throw new Error(data.error || "Enregistrement impossible");
       const name = data.displayName || selected.displayName;
+      const isProf = selected.kind === "enseignant" || selected.scope === "professeur";
       if (data.pendingDirection) {
-        setMessage(`${name} — déclaré(e). En attente de validation direction (calendrier + secrétariat rectorat ensuite).`);
+        setMessage(
+          isProf
+            ? `${name} — transmis à la direction. Après validation : calendrier absences professeurs + mail à la personne qui déclare au rectorat.`
+            : `${name} — transmis à la direction. Après validation : calendrier + comptabilité RH.`,
+        );
       } else {
         setMessage(`${name} — absence enregistrée.`);
       }
@@ -141,7 +146,7 @@ export default function AccueilAbsencesClient() {
       <ModulePageHeader
         eyebrow="Standard"
         title="Absence accueil"
-        description="Téléphone à l’oreille : 3 lettres, on déclare. Élèves tout de suite ; professeurs et personnel passent par la direction, puis le calendrier et le secrétariat (rectorat)."
+        description="Téléphone à l’oreille : 3 lettres, on déclare. Élèves tout de suite. Professeurs : validation direction, puis calendrier absences profs et mail à la personne qui déclare au rectorat. Personnel OGEC : circuit RH / compta."
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
@@ -302,6 +307,20 @@ export default function AccueilAbsencesClient() {
               >
                 {busy ? "Enregistrement…" : "Déclarer l’absence"}
               </button>
+              {selected.kind === "enseignant" || selected.scope === "professeur" ? (
+                <p className="text-xs text-slate-500">
+                  La direction valide d’abord. Ensuite l’absence apparaît au calendrier professeurs et
+                  un e-mail part à la personne qui déclare au rectorat (réglages Notifications).
+                </p>
+              ) : selected.kind === "personnel" ? (
+                <p className="text-xs text-slate-500">
+                  Circuit RH : validation direction, puis calendrier et comptabilité.
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  Enregistré tout de suite pour la vie scolaire (pas de validation direction).
+                </p>
+              )}
             </>
           ) : (
             <p className="text-sm text-slate-500">Tapez au moins 3 lettres d’un nom ou prénom.</p>

@@ -48,8 +48,9 @@ export const SCHOOL = {
     internPlaces: 125,
   },
   /**
-   * Routage absences (demande d'autorisation → validation direction → notification après validation).
-   * Prof : mail création → direction de l'établissement ; validation → destinataires config (secrétariat cycle).
+   * Routage absences (demande d'autorisation ou saisie accueil → validation direction → notification).
+   * Prof : mail création → direction de l'établissement ; validation → destinataires config
+   * (personne qui déclare au rectorat / ONISE, par cycle) + calendrier absences professeurs.
    * OGEC : mail création → direction ; validation → compta RH (+ responsables des surveillants si profil Surveillant).
    */
   absences: {
