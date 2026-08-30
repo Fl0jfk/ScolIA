@@ -12,7 +12,7 @@ export type AbsenceScope = "professeur" | "ogec";
 export type Etablissement = string;
 export type AbsenceWorkflowStatus = "OUVERTE" | "JUSTIFICATIF_DEPOSE" | "CLOTUREE";
 export type AbsenceDecision = "EN_ATTENTE" | "VALIDEE" | "REFUSEE";
-export type AbsenceSource = "self" | "admin_manual" | "admin_pdf";
+export type AbsenceSource = "self" | "admin_manual" | "admin_pdf" | "accueil";
 
 export type AbsenceRecord = {
   id: string;
@@ -66,6 +66,8 @@ export type AbsenceRecord = {
   privacyReasonRedacted?: boolean;
   /** Date de suppression des pièces jointes sensibles. */
   privacyDocumentsPurgedAt?: string | null;
+  personnelId?: string | null;
+  enseignantId?: string | null;
   history: Array<{
     at: string;
     by: string;
@@ -187,7 +189,7 @@ export function resolveAbsenceScope(abs: AbsenceRecord): AbsenceScope {
 }
 
 /** Qui peut consulter les absences du personnel OGEC (hors les siennes). */
-function canViewOgecAbsences(roles: string[]) {
+export function canViewOgecAbsences(roles: string[]) {
   const flags = getRoleFlags(roles);
   return flags.isAdministratif || flags.isCompta || flags.isDirection;
 }
@@ -373,7 +375,10 @@ export function normalizeAbsenceRecord(raw: AbsenceRecord): AbsenceRecord {
   };
 
   const source: AbsenceSource =
-    raw.source === "admin_manual" || raw.source === "admin_pdf" || raw.source === "self"
+    raw.source === "admin_manual" ||
+    raw.source === "admin_pdf" ||
+    raw.source === "self" ||
+    raw.source === "accueil"
       ? raw.source
       : raw.managerDecision === "VALIDEE" && raw.workflowStatus === "CLOTUREE" && !raw.createdBy?.userId
         ? "admin_pdf"

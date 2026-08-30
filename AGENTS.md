@@ -77,6 +77,10 @@ Si un MCP n’est pas disponible : le signaler, ne pas inventer l’état.
 - Auth cible : **Better-Auth uniquement** (pas NextAuth / Clerk).
 - Secrets : uniquement `process.env` / dashboard Secrets — jamais committer `.env.local`.
 
+## Absences accueil & Charlemagne
+
+La page **Absence accueil** (`/accueil/absences`, module `accueil-absences`) enregistre le signal jour J (élèves → `vs_absence_eleve`, profs / OGEC → table `absence` RH). Charlemagne reste l’outil officiel de vie scolaire tant que le pont n’est pas branché. Point d’accroche : `app/lib/absences-sync/port.ts` (`noop` aujourd’hui). Les absences profs saisies à l’accueil passent par la validation direction, puis calendrier + mail secrétariat (déclaration rectorat), comme le circuit RH classique.
+
 ## Hors scope sans confirmation explicite
 
 - Mutations prod Scaleway (RDB, buckets, containers)

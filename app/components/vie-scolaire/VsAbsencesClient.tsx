@@ -17,6 +17,7 @@ type AbsenceRow = {
   motif: string | null;
   noteCpe: string | null;
   relanceAt: string | null;
+  source?: string | null;
   interne?: boolean;
   internatStudentId?: string | null;
 };
@@ -243,6 +244,11 @@ export default function VsAbsencesClient({ embedded = false }: { embedded?: bool
                     {parentJustif ? (
                       <span className="rounded-full bg-indigo-600 text-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
                         Justificatif famille
+                      </span>
+                    ) : null}
+                    {a.source === "accueil" ? (
+                      <span className="rounded-full bg-emerald-600 text-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                        Prévenu (accueil)
                       </span>
                     ) : null}
                   </div>

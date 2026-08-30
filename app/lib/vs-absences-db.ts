@@ -1,11 +1,17 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, groupePedagogiqueMembre, vsAbsenceEleve, vsAppel, vsAppelLigne } from "@/db/schema";
 import { matchInternatStudent } from "@/app/lib/eleve-dossier-synthese";
 import { getInternatStudents } from "@/app/lib/internat-storage";
 import type { InternatStudent } from "@/app/lib/internat-types";
+import {
+  absenceCoversSlot,
+  datesOverlap,
+  timesOverlap,
+  type AccueilAbsenceCanal,
+} from "@/app/lib/accueil-absences-types";
 
 export type AppelLigneStatut = "present" | "absent" | "retard" | "dispense";
 export type AbsenceType = "absence" | "retard";
@@ -249,7 +255,14 @@ export async function saveAppelLignes(
     saved += 1;
 
     if (isNonPresent(statut)) {
-      await upsertAbsenceFromAppelLigne(etablissementId, appel, ligne.eleveId, statut);
+      const covered = await eleveHasAccueilCoveringSlot(etablissementId, ligne.eleveId, {
+        date: appel.dateAppel,
+        heureDebut: appel.heureDebut,
+        heureFin: appel.heureFin,
+      });
+      if (!covered) {
+        await upsertAbsenceFromAppelLigne(etablissementId, appel, ligne.eleveId, statut);
+      }
     } else {
       await db
         .delete(vsAbsenceEleve)
@@ -332,12 +345,15 @@ export async function listAbsencesATraiter(
       appelId: vsAbsenceEleve.appelId,
       dateDebut: vsAbsenceEleve.dateDebut,
       dateFin: vsAbsenceEleve.dateFin,
+      heureDebut: vsAbsenceEleve.heureDebut,
+      heureFin: vsAbsenceEleve.heureFin,
       type: vsAbsenceEleve.type,
       statut: vsAbsenceEleve.statut,
       justifie: vsAbsenceEleve.justifie,
       motif: vsAbsenceEleve.motif,
       noteCpe: vsAbsenceEleve.noteCpe,
       relanceAt: vsAbsenceEleve.relanceAt,
+      source: vsAbsenceEleve.source,
       createdAt: vsAbsenceEleve.createdAt,
     })
     .from(vsAbsenceEleve)
@@ -432,14 +448,19 @@ export async function updateAbsenceCpe(
 export async function markAbsenceRelance(etablissementId: string, absenceIds: string[]) {
   if (!absenceIds.length) return 0;
   const db = getDb();
+  const existing = await db
+    .select({ id: vsAbsenceEleve.id, source: vsAbsenceEleve.source })
+    .from(vsAbsenceEleve)
+    .where(
+      and(eq(vsAbsenceEleve.etablissementId, etablissementId), inArray(vsAbsenceEleve.id, absenceIds)),
+    );
+  const ids = existing.filter((r) => r.source !== "accueil").map((r) => r.id);
+  if (!ids.length) return 0;
   const result = await db
     .update(vsAbsenceEleve)
     .set({ relanceAt: new Date(), updatedAt: new Date() })
     .where(
-      and(
-        eq(vsAbsenceEleve.etablissementId, etablissementId),
-        inArray(vsAbsenceEleve.id, absenceIds),
-      ),
+      and(eq(vsAbsenceEleve.etablissementId, etablissementId), inArray(vsAbsenceEleve.id, ids)),
     )
     .returning({ id: vsAbsenceEleve.id });
   return result.length;
@@ -632,4 +653,183 @@ export async function listAppelsManquants(
 export async function countAppelsManquants(etablissementId: string): Promise<number> {
   const rows = await listAppelsManquants(etablissementId);
   return rows.length;
+}
+
+export type AccueilEleveAbsenceInput = {
+  eleveId: string;
+  dateDebut: string;
+  dateFin: string;
+  heureDebut?: string | null;
+  heureFin?: string | null;
+  motif?: string | null;
+  canal?: AccueilAbsenceCanal;
+  createdByUserId: string;
+  createdByNom: string;
+};
+
+export async function listAccueilCoveringForEleves(
+  etablissementId: string,
+  eleveIds: string[],
+  slot: { date: string; heureDebut?: string | null; heureFin?: string | null },
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!eleveIds.length) return out;
+  const db = getDb();
+  const rows = await db
+    .select({
+      eleveId: vsAbsenceEleve.eleveId,
+      dateDebut: vsAbsenceEleve.dateDebut,
+      dateFin: vsAbsenceEleve.dateFin,
+      heureDebut: vsAbsenceEleve.heureDebut,
+      heureFin: vsAbsenceEleve.heureFin,
+      statut: vsAbsenceEleve.statut,
+    })
+    .from(vsAbsenceEleve)
+    .where(
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.source, "accueil"),
+        inArray(vsAbsenceEleve.eleveId, eleveIds),
+      ),
+    );
+  for (const r of rows) {
+    if (r.statut === "classee") continue;
+    if (
+      absenceCoversSlot({
+        dateDebut: String(r.dateDebut),
+        dateFin: String(r.dateFin),
+        heureDebut: r.heureDebut,
+        heureFin: r.heureFin,
+        slotDate: slot.date,
+        slotHeureDebut: slot.heureDebut,
+        slotHeureFin: slot.heureFin,
+      })
+    ) {
+      out.add(r.eleveId);
+    }
+  }
+  return out;
+}
+
+export async function eleveHasAccueilCoveringSlot(
+  etablissementId: string,
+  eleveId: string,
+  slot: { date: string; heureDebut?: string | null; heureFin?: string | null },
+): Promise<boolean> {
+  const set = await listAccueilCoveringForEleves(etablissementId, [eleveId], slot);
+  return set.has(eleveId);
+}
+
+export async function createAbsenceAccueilEleve(
+  etablissementId: string,
+  input: AccueilEleveAbsenceInput,
+) {
+  const db = getDb();
+  const overlap = await db
+    .select({
+      id: vsAbsenceEleve.id,
+      dateDebut: vsAbsenceEleve.dateDebut,
+      dateFin: vsAbsenceEleve.dateFin,
+      heureDebut: vsAbsenceEleve.heureDebut,
+      heureFin: vsAbsenceEleve.heureFin,
+      statut: vsAbsenceEleve.statut,
+    })
+    .from(vsAbsenceEleve)
+    .where(
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.eleveId, input.eleveId),
+        eq(vsAbsenceEleve.source, "accueil"),
+      ),
+    );
+  const clash = overlap.find(
+    (r) =>
+      r.statut !== "classee" &&
+      absenceCoversSlot({
+        dateDebut: String(r.dateDebut),
+        dateFin: String(r.dateFin),
+        heureDebut: r.heureDebut,
+        heureFin: r.heureFin,
+        slotDate: input.dateDebut,
+        slotHeureDebut: input.heureDebut,
+        slotHeureFin: input.heureFin,
+      }) &&
+      datesOverlap(String(r.dateDebut), String(r.dateFin), input.dateDebut, input.dateFin) &&
+      timesOverlap(r.heureDebut, r.heureFin, input.heureDebut, input.heureFin),
+  );
+  if (clash) {
+    throw new Error("Une absence accueil existe déjà sur cette période pour cet élève.");
+  }
+
+  const [created] = await db
+    .insert(vsAbsenceEleve)
+    .values({
+      etablissementId,
+      eleveId: input.eleveId,
+      appelId: null,
+      dateDebut: input.dateDebut,
+      dateFin: input.dateFin,
+      heureDebut: input.heureDebut || null,
+      heureFin: input.heureFin || null,
+      type: "absence",
+      statut: "a_traiter",
+      justifie: false,
+      motif: input.motif?.trim() || "Parents ont appelé l’accueil",
+      source: "accueil",
+      canal: input.canal || "telephone",
+      createdByUserId: input.createdByUserId,
+      createdByNom: input.createdByNom,
+    })
+    .returning();
+  return created;
+}
+
+export async function listAccueilEleveAbsencesForDate(etablissementId: string, dateIso: string) {
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: vsAbsenceEleve.id,
+      eleveId: vsAbsenceEleve.eleveId,
+      eleveNom: eleve.nom,
+      elevePrenom: eleve.prenom,
+      eleveClasse: eleve.classe,
+      dateDebut: vsAbsenceEleve.dateDebut,
+      dateFin: vsAbsenceEleve.dateFin,
+      heureDebut: vsAbsenceEleve.heureDebut,
+      heureFin: vsAbsenceEleve.heureFin,
+      motif: vsAbsenceEleve.motif,
+      statut: vsAbsenceEleve.statut,
+      createdByNom: vsAbsenceEleve.createdByNom,
+    })
+    .from(vsAbsenceEleve)
+    .innerJoin(eleve, eq(eleve.id, vsAbsenceEleve.eleveId))
+    .where(
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.source, "accueil"),
+        lte(vsAbsenceEleve.dateDebut, dateIso),
+        gte(vsAbsenceEleve.dateFin, dateIso),
+      ),
+    )
+    .orderBy(asc(eleve.nom), asc(eleve.prenom));
+  return rows.filter((r) => r.statut !== "classee");
+}
+
+export async function cancelAccueilEleveAbsence(
+  etablissementId: string,
+  absenceId: string,
+): Promise<boolean> {
+  const db = getDb();
+  const [row] = await db
+    .update(vsAbsenceEleve)
+    .set({ statut: "classee", updatedAt: new Date(), noteCpe: "Annulée par l’accueil" })
+    .where(
+      and(
+        eq(vsAbsenceEleve.etablissementId, etablissementId),
+        eq(vsAbsenceEleve.id, absenceId),
+        eq(vsAbsenceEleve.source, "accueil"),
+      ),
+    )
+    .returning({ id: vsAbsenceEleve.id });
+  return Boolean(row);
 }

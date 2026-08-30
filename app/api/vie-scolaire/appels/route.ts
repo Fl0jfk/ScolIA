@@ -10,6 +10,7 @@ import {
   listElevesForClasse,
   listElevesForGroupeAppel,
   saveAppelLignes,
+  listAccueilCoveringForEleves,
   type VsAppelLigneInput,
 } from "@/app/lib/vs-absences-db";
 import {
@@ -57,7 +58,18 @@ export async function GET(req: Request) {
         id: l.eleveId,
       })),
     );
-    return NextResponse.json({ ...data, lignes });
+    const prevenu = await listAccueilCoveringForEleves(
+      etabId,
+      lignes.map((l) => l.eleveId),
+      { date: data.appel.dateAppel, heureDebut: data.appel.heureDebut, heureFin: data.appel.heureFin },
+    );
+    return NextResponse.json({
+      ...data,
+      lignes: lignes.map((l) => ({
+        ...l,
+        prevenuAccueil: prevenu.has(l.eleveId),
+      })),
+    });
   }
 
   if (date) {
@@ -164,10 +176,19 @@ export async function POST(req: Request) {
         : await listElevesForClasse(etabId, classe);
       const elevesWithPhotos = await withPhotoUrls(eleves);
       const existing = await getAppelWithLignes(etabId, appel.id);
+      const prevenu = await listAccueilCoveringForEleves(
+        etabId,
+        elevesWithPhotos.map((e) => e.id),
+        { date: dateAppel, heureDebut, heureFin },
+      );
+      const lignes = (existing?.lignes ?? []).map((l) => ({
+        ...l,
+        prevenuAccueil: prevenu.has(l.eleveId),
+      }));
       return NextResponse.json({
         appel,
-        eleves: elevesWithPhotos,
-        lignes: existing?.lignes ?? [],
+        eleves: elevesWithPhotos.map((e) => ({ ...e, prevenuAccueil: prevenu.has(e.id) })),
+        lignes,
       });
     }
 

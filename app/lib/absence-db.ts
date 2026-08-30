@@ -70,6 +70,8 @@ export function absenceRecordToRows(etablissementId: string, record: AbsenceReco
     justificatifRelanceAt: parseTs(r.justificatifRelanceAt ?? null),
     privacyReasonRedacted: !!r.privacyReasonRedacted,
     privacyDocumentsPurgedAt: parseTs(r.privacyDocumentsPurgedAt ?? null),
+    personnelId: r.personnelId?.trim() || null,
+    enseignantId: r.enseignantId?.trim() || null,
   };
   const history = (r.history ?? []).map((h, i) => ({
     etablissementId,
@@ -134,6 +136,8 @@ export function rowsToAbsenceRecord(
     justificatifRelanceAt: main.justificatifRelanceAt?.toISOString() ?? null,
     privacyReasonRedacted: main.privacyReasonRedacted,
     privacyDocumentsPurgedAt: main.privacyDocumentsPurgedAt?.toISOString() ?? null,
+    personnelId: main.personnelId ?? null,
+    enseignantId: main.enseignantId ?? null,
     history: sorted.map((h) => ({
       at: h.at.toISOString(),
       by: h.by,
@@ -237,6 +241,8 @@ export async function upsertAbsenceInDb(
         justificatifRelanceAt: main.justificatifRelanceAt,
         privacyReasonRedacted: main.privacyReasonRedacted,
         privacyDocumentsPurgedAt: main.privacyDocumentsPurgedAt,
+        personnelId: main.personnelId,
+        enseignantId: main.enseignantId,
       },
     });
   await db

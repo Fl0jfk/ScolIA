@@ -70,7 +70,7 @@ export const vsAppelLigne = pgTable(
 
 /**
  * Absence / retard consolidé pour le suivi CPE (justifs, relances).
- * Créé automatiquement depuis les lignes d'appel absentes/retard.
+ * Sources : appel de classe, saisie accueil, famille, pont Charlemagne (futur).
  */
 export const vsAbsenceEleve = pgTable(
   "vs_absence_eleve",
@@ -83,6 +83,8 @@ export const vsAbsenceEleve = pgTable(
     appelId: uuid("appel_id").references(() => vsAppel.id, { onDelete: "set null" }),
     dateDebut: date("date_debut").notNull(),
     dateFin: date("date_fin").notNull(),
+    heureDebut: text("heure_debut"),
+    heureFin: text("heure_fin"),
     type: text("type").notNull().default("absence"),
     statut: text("statut").notNull().default("a_traiter"),
     justifie: boolean("justifie").notNull().default(false),
@@ -92,6 +94,12 @@ export const vsAbsenceEleve = pgTable(
     traiteParUserId: text("traite_par_user_id"),
     traiteAt: timestamp("traite_at", { withTimezone: true }),
     noteCpe: text("note_cpe"),
+    /** appel | accueil | famille | charlemagne */
+    source: text("source").notNull().default("appel"),
+    createdByUserId: text("created_by_user_id"),
+    createdByNom: text("created_by_nom"),
+    /** telephone | physique | mail */
+    canal: text("canal"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -99,6 +107,7 @@ export const vsAbsenceEleve = pgTable(
     index("vs_absence_eleve_etab_statut_idx").on(t.etablissementId, t.statut),
     index("vs_absence_eleve_eleve_idx").on(t.etablissementId, t.eleveId),
     index("vs_absence_eleve_date_idx").on(t.etablissementId, t.dateDebut),
+    index("vs_absence_eleve_etab_source_date_idx").on(t.etablissementId, t.source, t.dateDebut),
     uniqueIndex("vs_absence_eleve_appel_uidx").on(t.etablissementId, t.appelId, t.eleveId),
   ],
 );

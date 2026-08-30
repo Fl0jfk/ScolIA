@@ -133,6 +133,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     moduleIds: [
       "internat",
       "vs-calendrier",
+      "accueil-absences",
       "groupes-pedagogiques",
     ],
   },
@@ -195,6 +196,7 @@ const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
   "repartition-classes": "administratif",
   internat: "vie_scolaire",
   "vs-calendrier": "vie_scolaire",
+  "accueil-absences": "vie_scolaire",
   "vs-appels": "vie_scolaire",
   "vs-absences": "vie_scolaire",
   "vs-sanctions": "vie_scolaire",

@@ -527,6 +527,19 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "accueil-absences",
+    pathPrefixes: ["/accueil/absences", "/api/accueil/absences"],
+    allowedRoles: [...DIRECTIONS, "administratif", "cpe", "comptabilite", "surveillant"],
+    dashboard: {
+      id: 243,
+      name: "Absence accueil",
+      img: "",
+      link: "/accueil/absences",
+      external: false,
+      description: "Déclarer une absence au standard — élèves, professeurs, personnel",
+    },
+  },
+  {
     id: "vs-appels",
     pathPrefixes: [
       "/vie-scolaire/presence",
@@ -1011,6 +1024,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
   "pillar-vie-scolaire": [
     "internat",
     "vs-calendrier",
+    "accueil-absences",
     "groupes-pedagogiques",
   ],
   "pillar-compta-rh": ["rh", "mon-planning", "conformite-rgpd", "absences", "demandes-hse"],

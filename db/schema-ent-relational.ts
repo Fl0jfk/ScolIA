@@ -83,11 +83,15 @@ export const absence = pgTable(
     justificatifRelanceAt: timestamp("justificatif_relance_at", { withTimezone: true }),
     privacyReasonRedacted: boolean("privacy_reason_redacted").notNull().default(false),
     privacyDocumentsPurgedAt: timestamp("privacy_documents_purged_at", { withTimezone: true }),
+    personnelId: text("personnel_id"),
+    enseignantId: text("enseignant_id"),
   },
   (t) => [
     index("absence_etablissement_idx").on(t.etablissementId),
     index("absence_etablissement_status_idx").on(t.etablissementId, t.workflowStatus),
     index("absence_etablissement_start_idx").on(t.etablissementId, t.startAt),
+    index("absence_etablissement_personnel_idx").on(t.etablissementId, t.personnelId),
+    index("absence_etablissement_enseignant_idx").on(t.etablissementId, t.enseignantId),
   ],
 );
 

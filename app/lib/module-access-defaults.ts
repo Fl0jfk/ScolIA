@@ -54,6 +54,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
   // Vie scolaire
   "internat",
   "vs-calendrier",
+  "accueil-absences",
   // Compta & RH
   "rh",
   "absences",
@@ -100,6 +101,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "assistance",
     "internat",
     "vs-calendrier",
+    "accueil-absences",
     "rh",
     "absences",
     "mon-planning",
@@ -184,6 +186,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "assistance",
     "internat",
     "vs-calendrier",
+    "accueil-absences",
     "rh",
     "absences",
     "mon-planning",

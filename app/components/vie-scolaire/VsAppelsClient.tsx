@@ -99,8 +99,13 @@ export default function VsAppelsClient({ embedded = false }: { embedded?: boolea
 
   const applyAppelPayload = (data: {
     appel: { id: string; statut: string };
-    eleves: EleveRow[];
-    lignes: Array<{ eleveId: string; statut: string; retardMinutes?: number | null }>;
+    eleves: Array<EleveRow & { prevenuAccueil?: boolean }>;
+    lignes: Array<{
+      eleveId: string;
+      statut: string;
+      retardMinutes?: number | null;
+      prevenuAccueil?: boolean;
+    }>;
   }) => {
     setAppelId(data.appel.id);
     setClos(data.appel.statut === "clos");
@@ -108,9 +113,10 @@ export default function VsAppelsClient({ embedded = false }: { embedded?: boolea
     const next: Record<string, LigneState> = {};
     for (const e of data.eleves || []) {
       const existing = (data.lignes || []).find((l) => l.eleveId === e.id);
+      const prevenu = Boolean(existing?.prevenuAccueil || e.prevenuAccueil);
       next[e.id] = {
         eleveId: e.id,
-        statut: (existing?.statut as LigneStatut) || "present",
+        statut: (existing?.statut as LigneStatut) || (prevenu ? "absent" : "present"),
         retardMinutes: existing?.retardMinutes ?? null,
       };
     }

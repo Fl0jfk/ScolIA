@@ -7,9 +7,7 @@ import {
   createTenantTransporter,
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
-import { loadAppConfig, getEstablishmentByLabel } from "@/app/lib/app-config";
-import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
-import { matchEstablishment } from "@/app/lib/establishment-catalog";
+import { loadAppConfig } from "@/app/lib/app-config";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
@@ -26,7 +24,6 @@ import {
   canViewAbsence,
   canViewCalendar,
   isAbsenceVisibleOnCalendar,
-  isEducationSurveillanceStaff,
   computeStartEndAt,
   filterAbsenceForViewer,
   resolveAbsenceScope,
@@ -42,6 +39,10 @@ import {
   formatJustificatifMailLine,
   loadAbsenceValidationAttachments,
 } from "@/app/lib/absences-notify";
+import {
+  notifyAbsenceCreated,
+  resolveAbsenceValidationRecipients,
+} from "@/app/lib/absences-workflow-mail";
 import {
   consolidatePendingAbsencesInIndex,
   getAbsenceIndex,
@@ -63,28 +64,6 @@ function recordKey(id: string) {
   return `absences/${id}.json`;
 }
 
-async function resolveDecisionTarget(scope: AbsenceScope, etablissement: Etablissement | null) {
-  const bundle = await loadAppConfig();
-  if (scope === "ogec") {
-    const dirs = bundle.establishments.filter((e) => e.active !== false);
-    const fallback = dirs[dirs.length - 1];
-    return {
-      roleLabel: fallback ? `Direction ${fallback.label}` : "Direction",
-      name: fallback?.directorName || bundle.identity.name,
-      email: fallback?.directorEmail || "",
-    };
-  }
-  const est = etablissement ? matchEstablishment(bundle.establishments, etablissement) : null;
-  if (est) {
-    return {
-      roleLabel: `Direction ${est.label}`,
-      name: est.directorName || est.label,
-      email: est.directorEmail || "",
-    };
-  }
-  return { roleLabel: "Direction", name: bundle.identity.name, email: "" };
-}
-
 async function getMailer() {
   const smtp = await getTenantSmtpConfig();
   if (!smtp) return null;
@@ -94,36 +73,7 @@ async function getMailer() {
 }
 
 async function resolveValidationRecipients(record: AbsenceRecord) {
-  const bundle = await loadAppConfig();
-  const n = bundle.notifications;
-  const emails = new Set<string>();
-
-  if (record.data.scope === "ogec") {
-    for (const e of n.absencesNotifyOgecCompta) {
-      if (e) emails.add(e.trim().toLowerCase());
-    }
-    if (isEducationSurveillanceStaff(record.createdBy.roles)) {
-      for (const e of n.absencesNotifySurveillanceResponsables || []) {
-        if (e) emails.add(e.trim().toLowerCase());
-      }
-    }
-    return [...emails];
-  }
-
-  const est = matchEstablishment(bundle.establishments, record.data.etablissement);
-  const kind = est ? inferEstablishmentKind(est) : inferEstablishmentKind({ label: record.data.etablissement || "" });
-  if (kind === "ecole") {
-    if (n.absencesNotifyProfEcole?.email) emails.add(n.absencesNotifyProfEcole.email.trim().toLowerCase());
-  } else if (kind === "college") {
-    const email = n.absencesNotifyProfCollege?.email || n.absencesNotifyProfCollegeLycee?.email;
-    if (email) emails.add(email.trim().toLowerCase());
-  } else if (kind === "lycee") {
-    const email = n.absencesNotifyProfLycee?.email || n.absencesNotifyProfCollegeLycee?.email;
-    if (email) emails.add(email.trim().toLowerCase());
-  } else if (n.absencesNotifyProfCollegeLycee?.email) {
-    emails.add(n.absencesNotifyProfCollegeLycee.email.trim().toLowerCase());
-  }
-  return [...emails];
+  return resolveAbsenceValidationRecipients(record);
 }
 
 function isTodayOverlap(record: AbsenceRecord) {
@@ -348,39 +298,10 @@ export async function POST(req: Request) {
     }
 
     try {
-      const target = await resolveDecisionTarget(scope, scope === "ogec" ? null : etablissement);
-      const mail = await getMailer();
-      const absencesLink = await tenantAbsolutePath("/rh?tab=absences");
-      if (mail) {
-      const { smtp, transporter } = mail;
-      await transporter.sendMail({
-        from: `"Absences" <${smtp.user}>`,
-        to: target.email,
-        subject: `Nouvelle demande d'autorisation d'absence — ${scope === "ogec" ? "Personnel OGEC" : `Professeur ${etablissement || ""}`}`.trim(),
-        text: [
-          `Bonjour ${target.name},`,
-          ``,
-          `Une nouvelle demande d'autorisation d'absence nécessite votre décision.`,
-          ``,
-          `Type : ${scope === "ogec" ? "Personnel OGEC" : "Professeur"}`,
-          `Établissement : ${scope === "ogec" ? "OGEC" : etablissement || "—"}`,
-          `Personne concernée : ${subjectName} (${subjectEmail || "email non renseigné"})`,
-          submittedBy
-            ? `Saisie par (administratif) : ${submittedBy.name} (${submittedBy.email || "email non renseigné"})`
-            : `Créateur : ${subjectName} (${subjectEmail || "email non renseigné"})`,
-          `Période : ${formatAbsencePeriod(saved.data)}`,
-          `Motif : ${reason}`,
-          details ? `Détails : ${details}` : "",
-          justificationPayload?.fileName ? `Justificatif fourni : ${justificationPayload.fileName}` : `Justificatif : en attente`,
-          ``,
-          `Action attendue : Valider / Refuser / Relancer justificatif`,
-          ``,
-          `Espace Absences: ${absencesLink}`,
-        ]
-          .filter(Boolean)
-          .join("\n"),
+      await notifyAbsenceCreated({
+        record: saved,
+        actorName: submittedBy?.name || actorName,
       });
-      }
     } catch (mailErr) {
       console.error("Absences creation mail error:", mailErr);
     }
