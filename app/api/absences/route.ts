@@ -3,20 +3,13 @@ import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { NextResponse } from "next/server";
 
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
-import {
-  createTenantTransporter,
-  getTenantSmtpConfig,
-} from "@/app/lib/tenant-mail";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 import { s3Key } from "@/app/lib/s3-path";
-import { formatAbsencePeriod, normalizeAbsencePeriodInput } from "@/app/lib/absence-period";
-import {
-  formatHoursTreatmentCreatorMailLine,
-  validateHoursTreatmentForAbsence,
-} from "@/app/lib/absence-hours-treatment";
+import { normalizeAbsencePeriodInput } from "@/app/lib/absence-period";
+import { validateHoursTreatmentForAbsence } from "@/app/lib/absence-hours-treatment";
 import {
   canDeclareAbsenceOnBehalf,
   canManageAbsence,
@@ -32,12 +25,19 @@ import {
   type Etablissement,
 } from "@/app/lib/absences-types";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
-import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import { getAbsenceDocumentKeys, isDocumentKeyReferenced } from "@/app/lib/absences-documents";
 import {
   notifyAbsenceCreated,
   notifyAbsenceValidated,
+  notifyAbsenceCreatorValidated,
+  notifyAbsenceJustificatifRequested,
+  notifyAbsenceJustificatifDeposited,
+  notifyAbsenceAdminTreated,
 } from "@/app/lib/absences-workflow-mail";
+import {
+  processorMayAccessValidatedAbsence,
+  viewerIsAbsenceProcessor,
+} from "@/app/lib/absences-admin-access";
 import {
   consolidatePendingAbsencesInIndex,
   getAbsenceIndex,
@@ -57,14 +57,6 @@ import {
 
 function recordKey(id: string) {
   return `absences/${id}.json`;
-}
-
-async function getMailer() {
-  const smtp = await getTenantSmtpConfig();
-  if (!smtp) return null;
-  const transporter = await createTenantTransporter();
-  if (!transporter) return null;
-  return { smtp, transporter };
 }
 
 function isTodayOverlap(record: AbsenceRecord) {
@@ -103,8 +95,14 @@ export async function GET(req: Request) {
       index = await mergeLegacyConvocationsForCalendar(index);
     }
     const bundle = await loadAppConfig();
+    const viewerEmail = user?.primaryEmailAddress?.emailAddress || "";
     const ctx = { establishments: bundle.establishments, userId };
-    let visible = index.filter((a) => canViewAbsence(a, userId, roles, ctx));
+    const viewer = { email: viewerEmail, userId, roles };
+    let visible = index.filter(
+      (a) =>
+        canViewAbsence(a, userId, roles, ctx) ||
+        processorMayAccessValidatedAbsence(a, viewer, bundle.notifications, bundle.establishments),
+    );
     if (calendarOnly) {
       visible = visible.filter((a) => isAbsenceVisibleOnCalendar(a, userId, roles));
     }
@@ -113,7 +111,12 @@ export async function GET(req: Request) {
     }
 
     visible.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-    const payload = visible.map((abs) => filterAbsenceForViewer(abs, userId, roles, ctx));
+    const payload = visible.map((abs) => {
+      if (processorMayAccessValidatedAbsence(abs, viewer, bundle.notifications, bundle.establishments)) {
+        return abs;
+      }
+      return filterAbsenceForViewer(abs, userId, roles, ctx);
+    });
     return NextResponse.json(payload);
   } catch (error) {
     console.error("Absences list error:", error);
@@ -328,6 +331,7 @@ export async function PATCH(req: Request) {
         "REOUVRIR",
         "CORRIGER_SCOPE",
         "MODIFIER_CALENDRIER",
+        "TRAITER_ADMIN",
       ].includes(action)
     ) {
       return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
@@ -345,8 +349,27 @@ export async function PATCH(req: Request) {
       establishments: bundle.establishments,
       userId,
     });
+    const viewerEmail = user?.primaryEmailAddress?.emailAddress || "";
+    const canProcess = viewerIsAbsenceProcessor(
+      current,
+      { email: viewerEmail, userId, roles },
+      bundle.notifications,
+      bundle.establishments,
+    );
 
-    if (action === "DEPOSER_JUSTIFICATIF" && !isOwner && !isSubmitter && !canManage) {
+    if (
+      action === "DEPOSER_JUSTIFICATIF" &&
+      !isOwner &&
+      !isSubmitter &&
+      !canManage &&
+      !canProcess
+    ) {
+      return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
+    }
+    if (action === "TRAITER_ADMIN" && !canProcess) {
+      return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
+    }
+    if (action === "RELANCER_JUSTIFICATIF" && !canManage && !canProcess) {
       return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
     }
     if (
@@ -354,7 +377,6 @@ export async function PATCH(req: Request) {
         action === "REOUVRIR" ||
         action === "VALIDER" ||
         action === "REFUSER" ||
-        action === "RELANCER_JUSTIFICATIF" ||
         action === "CORRIGER_SCOPE" ||
         action === "MODIFIER_CALENDRIER") &&
       !canManage
@@ -392,6 +414,13 @@ export async function PATCH(req: Request) {
           },
         ],
       };
+      if (current.managerDecision === "VALIDEE" && updated.workflowStatus !== "CLOTUREE") {
+        try {
+          await notifyAbsenceJustificatifDeposited(updated);
+        } catch (err) {
+          console.error("Absences justificatif deposited mail:", err);
+        }
+      }
     } else if (action === "VALIDER") {
       const treatmentResult = validateHoursTreatmentForAbsence(
         current.data.scope,
@@ -402,19 +431,18 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: treatmentResult.error }, { status: 400 });
       }
       const hoursTreatment = treatmentResult.treatment;
-      const closedAt = new Date().toISOString();
+      const decidedAt = new Date().toISOString();
       updated = {
         ...updated,
         managerDecision: "VALIDEE",
-        workflowStatus: "CLOTUREE",
+        workflowStatus: current.justification?.fileUrl ? "JUSTIFICATIF_DEPOSE" : "A_TRAITER",
         calendarVisible: true,
-        closedAt,
-        justificatifRelanceAt: null,
+        closedAt: null,
         hoursTreatment,
         history: [
           ...(current.history || []),
           {
-            at: closedAt,
+            at: decidedAt,
             by: actor,
             action: "DECISION_VALIDEE",
             note: managerNote || undefined,
@@ -422,40 +450,10 @@ export async function PATCH(req: Request) {
         ],
       };
 
-      const { sent: validationMailSent, recipients } = await notifyAbsenceValidated(updated);
+      const { recipients } = await notifyAbsenceValidated(updated);
       validationRecipients = recipients;
-
-      if (validationMailSent || recipients.length === 0) {
-        updated = await applyPostValidationPrivacy(updated, index);
-      }
-
       try {
-        if (updated.createdBy.email) {
-          const mail = await getMailer();
-          if (mail) {
-          const { smtp, transporter } = mail;
-          await transporter.sendMail({
-            from: `"Absences" <${smtp.user}>`,
-            to: updated.createdBy.email,
-            subject: "Votre absence a été validée",
-            text: [
-              `Bonjour ${updated.createdBy.name},`,
-              ``,
-              `Votre absence a bien été validée.`,
-              ``,
-              `Période : ${formatAbsencePeriod(updated.data)}`,
-              `Motif : ${updated.data.reason}`,
-              updated.data.details ? `Détails : ${updated.data.details}` : "",
-              formatHoursTreatmentCreatorMailLine(updated.hoursTreatment!, updated.data.scope),
-              ``,
-              `Cordialement,`,
-              `L'établissement`,
-            ]
-              .filter(Boolean)
-              .join("\n"),
-          });
-          }
-        }
+        await notifyAbsenceCreatorValidated(updated);
       } catch (mailErr) {
         console.error("Absences creator validation mail error:", mailErr);
       }
@@ -494,48 +492,56 @@ export async function PATCH(req: Request) {
         ],
       };
       try {
-        if (current.createdBy.email) {
-          const mail = await getMailer();
-          if (mail) {
-          const { smtp, transporter } = mail;
-          const absencesLink = await tenantAbsolutePath("/rh?tab=absences");
-          await transporter.sendMail({
-            from: `"Absences" <${smtp.user}>`,
-            to: current.createdBy.email,
-            subject: "Complément souhaité — justificatif d'absence",
-            text: [
-              `Bonjour ${current.createdBy.name},`,
-              ``,
-              current.justification?.fileName
-                ? `La direction a examiné le justificatif déjà transmis (${current.justification.fileName}) et souhaiterait un complément ou un autre document pour finaliser votre dossier.`
-                : `Votre demande d'autorisation d'absence a bien été reçue.`,
-              ``,
-              current.justification?.fileName
-                ? `Merci de déposer le document complémentaire sur l'espace Absences. Il remplacera le fichier actuel.`
-                : `La direction vous invite à déposer, si vous le souhaitez et si votre situation le nécessite, une pièce justificative pour compléter votre dossier.`,
-              current.justification?.fileName
-                ? ``
-                : `Ce document n'est pas toujours obligatoire : cela dépend du type d'absence. En revanche, si vous en disposez, merci de le transmettre.`,
-              ``,
-              `Période : ${formatAbsencePeriod(current.data)}`,
-              `Motif : ${current.data.reason}`,
-              managerNote ? `Message de la direction : ${managerNote}` : "",
-              ``,
-              `Pour déposer votre justificatif :`,
-              absencesLink || "Espace Absences de l'intranet",
-              ``,
-              `Cordialement,`,
-              `La direction`,
-            ]
-              .filter(Boolean)
-              .join("\n"),
-          });
-          }
-        }
+        await notifyAbsenceJustificatifRequested({
+          record: updated,
+          fromProcessor: current.managerDecision === "VALIDEE",
+          note: managerNote,
+        });
       } catch (mailErr) {
         console.error("Absences relance mail error:", mailErr);
       }
+    } else if (action === "TRAITER_ADMIN") {
+      if (current.managerDecision !== "VALIDEE") {
+        return NextResponse.json(
+          { error: "La direction doit d’abord valider l’absence." },
+          { status: 400 },
+        );
+      }
+      const treatedAt = new Date().toISOString();
+      updated = {
+        ...updated,
+        workflowStatus: "CLOTUREE",
+        closedAt: treatedAt,
+        adminTreatedAt: treatedAt,
+        adminTreatedBy: actor,
+        adminNote: managerNote || null,
+        justificatifRelanceAt: null,
+        history: [
+          ...(current.history || []),
+          {
+            at: treatedAt,
+            by: actor,
+            action: "TRAITEMENT_ADMIN",
+            note: managerNote || "Dossier traité (rectorat / RH).",
+          },
+        ],
+      };
+      try {
+        await notifyAbsenceAdminTreated(updated);
+      } catch (mailErr) {
+        console.error("Absences admin treated mail error:", mailErr);
+      }
+      updated = await applyPostValidationPrivacy(updated, index);
     } else if (action === "CLOTURER") {
+      if (current.managerDecision === "VALIDEE" && !current.adminTreatedAt) {
+        return NextResponse.json(
+          {
+            error:
+              "Après validation direction, la clôture administrative se fait dans Traitement RH / rectorat.",
+          },
+          { status: 400 },
+        );
+      }
       updated = {
         ...updated,
         workflowStatus: "CLOTUREE",

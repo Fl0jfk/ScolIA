@@ -12,6 +12,7 @@ import type { AbsenceRecord, AbsenceScope, Etablissement } from "@/app/lib/absen
 import { resolveAbsenceScope } from "@/app/lib/absences-types";
 import { collectAbsenceValidationEmails } from "@/app/lib/absences-validation-recipients";
 import {
+  formatHoursTreatmentCreatorMailLine,
   formatHoursTreatmentMailLine,
 } from "@/app/lib/absence-hours-treatment";
 import {
@@ -56,6 +57,10 @@ export async function resolveAbsenceValidationRecipients(record: AbsenceRecord):
   return collectAbsenceValidationEmails(record, bundle.notifications, bundle.establishments);
 }
 
+async function absenceAppLink(view: "a-traiter" | "traitement" | "se-declarer") {
+  return tenantAbsolutePath(`/rh?tab=dashboard&section=absences&view=${view}`);
+}
+
 async function getMailer() {
   const smtp = await getTenantSmtpConfig();
   if (!smtp) return null;
@@ -76,7 +81,7 @@ export async function notifyAbsenceCreated(input: {
   if (!target.email.trim()) return;
   const mail = await getMailer();
   if (!mail) return;
-  const absencesLink = await tenantAbsolutePath("/rh?tab=absences");
+  const absencesLink = await absenceAppLink("a-traiter");
   const origin = input.fromAccueil ? "saisie à l'accueil (standard)" : "demande d'autorisation";
   await mail.transporter.sendMail({
     from: `"Absences" <${mail.smtp.user}>`,
@@ -97,8 +102,8 @@ export async function notifyAbsenceCreated(input: {
       `Motif : ${input.record.data.reason}`,
       input.record.data.details ? `Détails : ${input.record.data.details}` : "",
       ``,
-      `Action attendue : Valider / Refuser`,
-      `Après validation, le calendrier absences est mis à jour et le secrétariat (déclaration rectorat / instance) est notifié.`,
+      `Action attendue : Valider / Refuser dans l’application.`,
+      `Après votre accord, le calendrier est mis à jour et le dossier passe à la personne qui traite (rectorat / RH) dans l’intranet.`,
       ``,
       `Espace Absences: ${absencesLink}`,
     ]
@@ -119,7 +124,7 @@ export async function notifyAbsenceValidated(
   if (recipients.length === 0) {
     if (scope === "professeur") {
       console.warn(
-        "Absences — aucun destinataire secrétariat/rectorat configuré (Réglages → Notifications).",
+        "Absences — aucun destinataire rectorat / ONISE configuré (Absences → Paramétrage).",
       );
     }
     return { sent: false, recipients };
@@ -139,10 +144,12 @@ export async function notifyAbsenceValidated(
 
   const intro =
     scope === "ogec"
-      ? "Une absence personnel OGEC a été validée par la direction. Elle figure désormais au calendrier."
+      ? "Une absence personnel OGEC a été validée par la direction. Elle figure au calendrier. Merci de la traiter dans l’application (pièces, déclaration, clôture)."
       : fromAccueil
-        ? "Une absence professeur déclarée à l’accueil a été validée par la direction. Elle figure désormais au calendrier des absences professeurs. Merci d’effectuer la déclaration auprès du rectorat (ou de l’instance) selon le traitement indiqué."
-        : "Une absence professeur a été validée par la direction. Elle figure désormais au calendrier des absences professeurs. Merci d’effectuer la déclaration auprès du rectorat (ou de l’instance) si le traitement l’exige.";
+        ? "Une absence professeur déclarée à l’accueil a été validée par la direction. Elle figure au calendrier. Traitez le dossier dans l’application (déclaration rectorat / instance, pièces si besoin)."
+        : "Une absence professeur a été validée par la direction. Elle figure au calendrier. Traitez le dossier dans l’application.";
+
+  const treatLink = await absenceAppLink("traitement");
 
   try {
     const mailAttachments = await loadAbsenceValidationAttachments(record);
@@ -174,6 +181,9 @@ export async function notifyAbsenceValidated(
         mailAttachments.length > 0
           ? `Les justificatifs et documents sont en pièce(s) jointe(s) à ce message.`
           : undefined,
+        ``,
+        `Traiter l’absence dans l’application :`,
+        treatLink,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -188,4 +198,148 @@ export async function notifyAbsenceValidated(
     console.error("Absences validation mail error:", err);
     return { sent: false, recipients };
   }
+}
+
+export async function notifyAbsenceCreatorValidated(record: AbsenceRecord): Promise<void> {
+  const email = record.createdBy.email?.trim();
+  if (!email) return;
+  const mail = await getMailer();
+  if (!mail) return;
+  const link = await absenceAppLink("se-declarer");
+  const scope = resolveAbsenceScope(record);
+  const treatment = record.hoursTreatment
+    ? formatHoursTreatmentCreatorMailLine(record.hoursTreatment, scope)
+    : "";
+  await mail.transporter.sendMail({
+    from: `"Absences" <${mail.smtp.user}>`,
+    to: email,
+    subject: "La direction a validé votre absence",
+    text: [
+      `Bonjour ${record.createdBy.name},`,
+      ``,
+      `La direction a validé votre absence.`,
+      ``,
+      `Période : ${formatAbsencePeriod(record.data)}`,
+      `Motif : ${record.data.reason}`,
+      record.data.details ? `Détails : ${record.data.details}` : "",
+      treatment,
+      ``,
+      `Le dossier est maintenant chez la personne qui assure le traitement administratif (rectorat / RH). Vous pouvez suivre l’avancement et déposer une pièce si elle vous est demandée :`,
+      link,
+      ``,
+      `Cordialement,`,
+      `L'établissement`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  });
+}
+
+export async function notifyAbsenceJustificatifRequested(input: {
+  record: AbsenceRecord;
+  fromProcessor: boolean;
+  note?: string;
+}): Promise<void> {
+  const email = input.record.createdBy.email?.trim();
+  if (!email) return;
+  const mail = await getMailer();
+  if (!mail) return;
+  const link = await absenceAppLink("se-declarer");
+  const who = input.fromProcessor
+    ? "La personne en charge du traitement administratif"
+    : "La direction";
+  const hasFile = Boolean(input.record.justification?.fileName);
+  await mail.transporter.sendMail({
+    from: `"Absences" <${mail.smtp.user}>`,
+    to: email,
+    subject: hasFile ? "Complément de justificatif demandé" : "Pièce justificative demandée",
+    text: [
+      `Bonjour ${input.record.createdBy.name},`,
+      ``,
+      hasFile
+        ? `${who} a besoin d’un complément ou d’un autre document (${input.record.justification?.fileName}).`
+        : `${who} vous demande une pièce justificative pour finaliser le dossier (par exemple un arrêt maladie, selon le cas).`,
+      input.fromProcessor
+        ? `La direction a déjà validé l’absence : cette demande ne repasse pas par elle.`
+        : "",
+      ``,
+      `Période : ${formatAbsencePeriod(input.record.data)}`,
+      `Motif : ${input.record.data.reason}`,
+      input.note ? `Message : ${input.note}` : "",
+      ``,
+      `Déposez le document dans l’application :`,
+      link,
+      ``,
+      `Cordialement,`,
+      `L'établissement`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  });
+}
+
+export async function notifyAbsenceJustificatifDeposited(record: AbsenceRecord): Promise<void> {
+  const recipients = await resolveAbsenceValidationRecipients(record);
+  if (recipients.length === 0) return;
+  const mail = await getMailer();
+  if (!mail) return;
+  const link = await absenceAppLink("traitement");
+  const mailAttachments = await loadAbsenceValidationAttachments(record);
+  await mail.transporter.sendMail({
+    from: `"Absences" <${mail.smtp.user}>`,
+    to: recipients.join(","),
+    subject: `Pièce déposée — ${record.displayName || record.createdBy.name}`,
+    text: [
+      `Bonjour,`,
+      ``,
+      `Une pièce justificative a été déposée pour une absence déjà validée par la direction.`,
+      `Personne : ${record.displayName || record.createdBy.name}`,
+      `Période : ${formatAbsencePeriod(record.data)}`,
+      `Motif : ${record.data.reason}`,
+      formatJustificatifMailLine(record, mailAttachments),
+      ``,
+      `Traiter le dossier dans l’application :`,
+      link,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    attachments: mailAttachments.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      contentType: a.contentType,
+    })),
+  });
+}
+
+export async function notifyAbsenceAdminTreated(record: AbsenceRecord): Promise<void> {
+  const email = record.createdBy.email?.trim();
+  if (!email) return;
+  const mail = await getMailer();
+  if (!mail) return;
+  const link = await absenceAppLink("se-declarer");
+  const scope = resolveAbsenceScope(record);
+  await mail.transporter.sendMail({
+    from: `"Absences" <${mail.smtp.user}>`,
+    to: email,
+    subject: "Votre absence a été traitée",
+    text: [
+      `Bonjour ${record.createdBy.name},`,
+      ``,
+      scope === "ogec"
+        ? `La RH a clôturé le traitement administratif de votre absence.`
+        : `Le traitement administratif de votre absence est terminé (déclaration rectorat / instance si nécessaire).`,
+      ``,
+      `Période : ${formatAbsencePeriod(record.data)}`,
+      `Motif : ${record.data.reason}`,
+      record.adminNote ? `Note : ${record.adminNote}` : "",
+      ``,
+      `Suivi dans l’application :`,
+      link,
+      ``,
+      `Cordialement,`,
+      `L'établissement`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  });
 }

@@ -4,46 +4,59 @@ import { isEducationSurveillanceStaff } from "@/app/lib/absences-types";
 import { matchEstablishment } from "@/app/lib/establishment-catalog";
 import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 
-function addEmail(set: Set<string>, email: string | undefined | null) {
-  const v = String(email || "").trim().toLowerCase();
-  if (v) set.add(v);
+export type AbsenceProcessorRef = {
+  email: string;
+  userId?: string;
+  label?: string;
+};
+
+function addProcessor(
+  list: AbsenceProcessorRef[],
+  seen: Set<string>,
+  person?: { email?: string; userId?: string; label?: string } | null,
+) {
+  const email = String(person?.email || "").trim().toLowerCase();
+  if (!email || seen.has(email)) return;
+  seen.add(email);
+  const userId = String(person?.userId || "").trim() || undefined;
+  const label = String(person?.label || "").trim() || undefined;
+  list.push({ email, userId, label });
 }
 
-function addNotifyPerson(set: Set<string>, person?: { email?: string } | null) {
-  addEmail(set, person?.email);
+function addEmailProcessor(list: AbsenceProcessorRef[], seen: Set<string>, email: string | undefined | null) {
+  addProcessor(list, seen, { email: email || undefined });
 }
 
-function addAllProfNotifyPeople(set: Set<string>, n: NotificationsConfig) {
-  addNotifyPerson(set, n.absencesNotifyProfEcole);
-  addNotifyPerson(set, n.absencesNotifyProfCollege);
-  addNotifyPerson(set, n.absencesNotifyProfLycee);
-  addNotifyPerson(set, n.absencesNotifyProfCollegeLycee);
+function addAllProfProcessors(
+  list: AbsenceProcessorRef[],
+  seen: Set<string>,
+  n: NotificationsConfig,
+) {
+  addProcessor(list, seen, n.absencesNotifyProfEcole);
+  addProcessor(list, seen, n.absencesNotifyProfCollege);
+  addProcessor(list, seen, n.absencesNotifyProfLycee);
+  addProcessor(list, seen, n.absencesNotifyProfCollegeLycee);
 }
 
 /**
- * Destinataires après validation direction :
- * - professeurs → personne qui déclare au rectorat / ONISE (réglages Notifications, par cycle)
- * - OGEC → compta RH (+ responsables des surveillants si profil surveillance)
- *
- * Même circuit pour une auto-déclaration et une saisie accueil.
- * Si le cycle n’est pas reconnu ou si le destinataire du cycle n’est pas renseigné,
- * on notifie toutes les personnes « absences professeurs » configurées plutôt que
- * de laisser tomber la déclaration rectorat.
+ * Personnes qui traitent l’absence après validation direction
+ * (rectorat / ONISE pour les profs, RH / compta pour l’OGEC).
  */
-export function collectAbsenceValidationEmails(
+export function collectAbsenceProcessors(
   record: Pick<AbsenceRecord, "data" | "createdBy">,
   notifications: NotificationsConfig,
   establishments: Establishment[],
-): string[] {
-  const emails = new Set<string>();
+): AbsenceProcessorRef[] {
+  const list: AbsenceProcessorRef[] = [];
+  const seen = new Set<string>();
   const n = notifications;
 
   if (record.data.scope === "ogec") {
-    for (const e of n.absencesNotifyOgecCompta || []) addEmail(emails, e);
+    for (const e of n.absencesNotifyOgecCompta || []) addEmailProcessor(list, seen, e);
     if (isEducationSurveillanceStaff(record.createdBy.roles)) {
-      for (const e of n.absencesNotifySurveillanceResponsables || []) addEmail(emails, e);
+      for (const e of n.absencesNotifySurveillanceResponsables || []) addEmailProcessor(list, seen, e);
     }
-    return [...emails];
+    return list;
   }
 
   const est = matchEstablishment(establishments, record.data.etablissement);
@@ -52,15 +65,51 @@ export function collectAbsenceValidationEmails(
     : inferEstablishmentKind({ label: record.data.etablissement || "" });
 
   if (kind === "ecole") {
-    addNotifyPerson(emails, n.absencesNotifyProfEcole);
+    addProcessor(list, seen, n.absencesNotifyProfEcole);
   } else if (kind === "college") {
-    addNotifyPerson(emails, n.absencesNotifyProfCollege);
-    if (emails.size === 0) addNotifyPerson(emails, n.absencesNotifyProfCollegeLycee);
+    addProcessor(list, seen, n.absencesNotifyProfCollege);
+    if (list.length === 0) addProcessor(list, seen, n.absencesNotifyProfCollegeLycee);
   } else if (kind === "lycee") {
-    addNotifyPerson(emails, n.absencesNotifyProfLycee);
-    if (emails.size === 0) addNotifyPerson(emails, n.absencesNotifyProfCollegeLycee);
+    addProcessor(list, seen, n.absencesNotifyProfLycee);
+    if (list.length === 0) addProcessor(list, seen, n.absencesNotifyProfCollegeLycee);
   }
 
-  if (emails.size === 0) addAllProfNotifyPeople(emails, n);
-  return [...emails];
+  if (list.length === 0) addAllProfProcessors(list, seen, n);
+  return list;
+}
+
+export function collectAbsenceValidationEmails(
+  record: Pick<AbsenceRecord, "data" | "createdBy">,
+  notifications: NotificationsConfig,
+  establishments: Establishment[],
+): string[] {
+  return collectAbsenceProcessors(record, notifications, establishments).map((p) => p.email);
+}
+
+export function isConfiguredAbsenceProcessor(
+  viewer: { email?: string | null; userId?: string | null },
+  notifications: NotificationsConfig,
+): boolean {
+  const email = String(viewer.email || "").trim().toLowerCase();
+  const userId = String(viewer.userId || "").trim();
+  const people = [
+    notifications.absencesNotifyProfEcole,
+    notifications.absencesNotifyProfCollege,
+    notifications.absencesNotifyProfLycee,
+    notifications.absencesNotifyProfCollegeLycee,
+  ];
+  if (
+    people.some((p) => {
+      if (email && p?.email && p.email.trim().toLowerCase() === email) return true;
+      if (userId && p?.userId && p.userId === userId) return true;
+      return false;
+    })
+  ) {
+    return true;
+  }
+  const extra = [
+    ...(notifications.absencesNotifyOgecCompta || []),
+    ...(notifications.absencesNotifySurveillanceResponsables || []),
+  ];
+  return extra.some((e) => email && e.trim().toLowerCase() === email);
 }

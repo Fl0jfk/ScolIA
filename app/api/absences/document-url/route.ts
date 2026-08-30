@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAbsenceDocumentKeys } from "@/app/lib/absences-documents";
 import { canViewAbsenceAttachment } from "@/app/lib/absences-types";
+import { processorMayAccessValidatedAbsence } from "@/app/lib/absences-admin-access";
 import { getAbsenceOrLegacyRecord } from "@/app/lib/absences-legacy-convocations";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { requireAuth } from "@/app/lib/intranet-auth";
@@ -29,7 +30,14 @@ export async function GET(req: Request) {
 
     const bundle = await loadAppConfig();
     const ctx = { establishments: bundle.establishments, userId };
-    if (!canViewAbsenceAttachment(record, userId, roles, ctx)) {
+    const viewerEmail = user?.primaryEmailAddress?.emailAddress || "";
+    const mayAsProcessor = processorMayAccessValidatedAbsence(
+      record,
+      { email: viewerEmail, userId, roles },
+      bundle.notifications,
+      bundle.establishments,
+    );
+    if (!canViewAbsenceAttachment(record, userId, roles, ctx) && !mayAsProcessor) {
       return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
     }
 

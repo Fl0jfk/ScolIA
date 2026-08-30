@@ -72,6 +72,9 @@ export function absenceRecordToRows(etablissementId: string, record: AbsenceReco
     privacyDocumentsPurgedAt: parseTs(r.privacyDocumentsPurgedAt ?? null),
     personnelId: r.personnelId?.trim() || null,
     enseignantId: r.enseignantId?.trim() || null,
+    adminTreatedAt: parseTs(r.adminTreatedAt ?? null),
+    adminTreatedBy: r.adminTreatedBy?.trim() || null,
+    adminNote: r.adminNote?.trim() || null,
   };
   const history = (r.history ?? []).map((h, i) => ({
     etablissementId,
@@ -138,6 +141,9 @@ export function rowsToAbsenceRecord(
     privacyDocumentsPurgedAt: main.privacyDocumentsPurgedAt?.toISOString() ?? null,
     personnelId: main.personnelId ?? null,
     enseignantId: main.enseignantId ?? null,
+    adminTreatedAt: main.adminTreatedAt?.toISOString() ?? null,
+    adminTreatedBy: main.adminTreatedBy ?? null,
+    adminNote: main.adminNote ?? null,
     history: sorted.map((h) => ({
       at: h.at.toISOString(),
       by: h.by,
@@ -243,6 +249,9 @@ export async function upsertAbsenceInDb(
         privacyDocumentsPurgedAt: main.privacyDocumentsPurgedAt,
         personnelId: main.personnelId,
         enseignantId: main.enseignantId,
+        adminTreatedAt: main.adminTreatedAt,
+        adminTreatedBy: main.adminTreatedBy,
+        adminNote: main.adminNote,
       },
     });
   await db

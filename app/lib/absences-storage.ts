@@ -163,7 +163,7 @@ async function purgeAbsenceDocumentsFromStorage(
         at: now,
         by: "Système",
         action: "RGPD_PIECES_SUPPRIMEES",
-        note: "Pièces jointes sensibles supprimées après envoi du mail de validation.",
+        note: "Pièces jointes sensibles supprimées après clôture administrative (rectorat / RH).",
       },
     ],
   };

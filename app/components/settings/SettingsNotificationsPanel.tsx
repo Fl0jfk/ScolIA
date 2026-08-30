@@ -10,15 +10,17 @@ import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomA
 import { SettingsField, SettingsSection, settingsInputClass } from "@/app/components/settings/SettingsChrome";
 import { dash } from "@/app/lib/dashboard-brand";
 
-type NotifyPerson = { label?: string; email: string };
+type NotifyPerson = { label?: string; email: string; userId?: string };
 
 function asNotify(value: unknown): NotifyPerson | undefined {
   if (!value || typeof value !== "object") return undefined;
   const email = String((value as { email?: string }).email || "").trim();
   if (!email) return undefined;
+  const userId = String((value as { userId?: string }).userId || "").trim();
   return {
     label: String((value as { label?: string }).label || "").trim() || undefined,
     email,
+    userId: userId || undefined,
   };
 }
 
@@ -55,7 +57,11 @@ export default function SettingsNotificationsPanel({
       return;
     }
     patch({
-      [key]: { label: directoryMemberLabel(member), email: member.email.trim() },
+      [key]: {
+        label: directoryMemberLabel(member),
+        email: member.email.trim(),
+        userId: member.externalUserId || undefined,
+      },
     });
   };
 
@@ -154,7 +160,7 @@ export default function SettingsNotificationsPanel({
       <SettingsSection
         icon="🗓️"
         title="Absences"
-        description="Notifications après validation direction. Pour les professeurs : la personne qui déclare au rectorat (ou à l’ONISE pour l’école) — y compris les absences saisies à l’accueil."
+        description="Après validation direction, un mail avec un lien intranet est envoyé à la personne absente et à celle qui traite (rectorat / ONISE / RH). Le dossier se clôture dans Absences → Traitement. Vous pouvez aussi les choisir dans Absences → Paramétrage."
       >
         {activeEstablishmentKinds.has("ecole") ? (
           <SettingsField
@@ -166,6 +172,7 @@ export default function SettingsNotificationsPanel({
               members={directoryMembers}
               loading={membersLoading}
               selectedEmail={profEcole?.email}
+              selectedId={profEcole?.userId}
               onChange={(member) => setNotifyPerson("absencesNotifyProfEcole", member)}
             />
           </SettingsField>
@@ -180,6 +187,7 @@ export default function SettingsNotificationsPanel({
               members={directoryMembers}
               loading={membersLoading}
               selectedEmail={profCollege?.email}
+              selectedId={profCollege?.userId}
               onChange={(member) => setNotifyPerson("absencesNotifyProfCollege", member)}
             />
           </SettingsField>
@@ -194,6 +202,7 @@ export default function SettingsNotificationsPanel({
               members={directoryMembers}
               loading={membersLoading}
               selectedEmail={profLycee?.email}
+              selectedId={profLycee?.userId}
               onChange={(member) => setNotifyPerson("absencesNotifyProfLycee", member)}
             />
           </SettingsField>

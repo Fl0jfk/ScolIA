@@ -66,7 +66,7 @@ export async function POST(req: Request) {
     if (isJustificationDoc) {
       record.justification = null;
       if (record.workflowStatus === "JUSTIFICATIF_DEPOSE") {
-        record.workflowStatus = "OUVERTE";
+        record.workflowStatus = record.managerDecision === "VALIDEE" ? "A_TRAITER" : "OUVERTE";
       }
     } else if (keyToDelete) {
       const keyIndex = documentKeys.indexOf(keyToDelete);

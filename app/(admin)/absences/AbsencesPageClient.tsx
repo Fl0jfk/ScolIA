@@ -26,6 +26,9 @@ import {
   resolveSelfDeclarationScope,
   type AbsenceRecord,
 } from "@/app/lib/absences-types";
+import { viewerCanConfigureAbsenceProcessors, viewerIsAbsenceProcessor } from "@/app/lib/absences-admin-access";
+import type { NotificationsConfig } from "@/app/lib/app-config-schemas";
+import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
 import { formatAbsencePeriod, type AbsencePeriodType } from "@/app/lib/absence-period";
 import {
   formatAbsenceHoursTreatment,
@@ -35,7 +38,9 @@ import {
 } from "@/app/lib/absence-hours-treatment";
 import { compareAbsenceRecordsAlphabetically } from "@/app/lib/absences-shared-utils";
 import {
+  canDepositJustificatif,
   isPendingAbsence,
+  isWaitingAdminTreatment,
   itemDecision,
   resolvedHoursTreatment,
   transmissionLabel,
@@ -49,6 +54,10 @@ import {
 
 const AbsencesDeclareOther = dynamic(
   () => import("@/app/components/absences/AbsencesDeclareOther"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
+const AbsencesProcessorsPanel = dynamic(
+  () => import("@/app/components/absences/AbsencesProcessorsPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
 
@@ -94,8 +103,11 @@ export default function AbsencesPageClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const showCalendar = canViewCalendar(roles);
-  const canTreat = isAnyDirectionRole(roles);
+  const canTreat = isAnyDirectionRole(roles) || hasGlobalAdminRole(roles) || hasMasterRole(roles);
   const canOnBehalf = canDeclareAbsenceOnBehalf(roles);
+  const canConfigureProcessors = viewerCanConfigureAbsenceProcessors(roles);
+  const [viewerIsProcessor, setViewerIsProcessor] = useState(false);
+  const [processorNotifications, setProcessorNotifications] = useState<NotificationsConfig | null>(null);
 
   const subjectRoles = useMemo(() => {
     if (forOther && colleague) {
@@ -108,11 +120,23 @@ export default function AbsencesPageClient({
 
   const asRecord = (item: AbsenceItem) => item as unknown as AbsenceRecord;
 
+  const viewerRef = {
+    email: user?.primaryEmailAddress?.emailAddress,
+    userId: user?.id,
+    roles,
+  };
+
+  const isProcessorForItem = (item: AbsenceItem) =>
+    Boolean(processorNotifications) &&
+    viewerIsAbsenceProcessor(asRecord(item), viewerRef, processorNotifications, establishments);
+
   const canViewJustificatif = (item: AbsenceItem) =>
-    canViewAbsenceAttachment(asRecord(item), user?.id || "", roles, {
+    Boolean(item.justification?.fileUrl) &&
+    (canViewAbsenceAttachment(asRecord(item), user?.id || "", roles, {
       establishments,
       userId: user?.id,
-    });
+    }) ||
+      isProcessorForItem(item));
 
   const canDeleteJustificatif = (item: AbsenceItem) =>
     canManageAbsenceAttachment(asRecord(item), roles, {
@@ -193,6 +217,41 @@ export default function AbsencesPageClient({
     } finally { setLoading(false);
     }
   };
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/absences/processors", { cache: "no-store" });
+        const data = (await res.json()) as {
+          viewerIsProcessor?: boolean;
+          processors?: {
+            absencesNotifyProfEcole?: { email: string; userId?: string } | null;
+            absencesNotifyProfCollege?: { email: string; userId?: string } | null;
+            absencesNotifyProfLycee?: { email: string; userId?: string } | null;
+            absencesNotifyOgecCompta?: string[];
+          };
+        };
+        if (!res.ok || cancelled) return;
+        setViewerIsProcessor(Boolean(data.viewerIsProcessor));
+        if (data.processors) {
+          setProcessorNotifications({
+            travelsCompta: [],
+            absencesNotifyOgecCompta: data.processors.absencesNotifyOgecCompta ?? [],
+            absencesNotifyProfEcole: data.processors.absencesNotifyProfEcole ?? undefined,
+            absencesNotifyProfCollege: data.processors.absencesNotifyProfCollege ?? undefined,
+            absencesNotifyProfLycee: data.processors.absencesNotifyProfLycee ?? undefined,
+          });
+        }
+      } catch {
+        /* onglet traitement masqué */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, user]);
+
   useEffect(() => {
     if (isLoaded && user) fetchItems();
   }, [isLoaded, user]);
@@ -302,7 +361,11 @@ export default function AbsencesPageClient({
       establishments,
       userId: user?.id,
     });
-  const updateWorkflow = async (id: string, action: "VALIDER" | "REFUSER" | "RELANCER_JUSTIFICATIF", item?: AbsenceItem) => {
+  const updateWorkflow = async (
+    id: string,
+    action: "VALIDER" | "REFUSER" | "RELANCER_JUSTIFICATIF" | "TRAITER_ADMIN",
+    item?: AbsenceItem,
+  ) => {
     if (action === "VALIDER" && item) {
       const treatmentCheck = validateHoursTreatmentForAbsence(
         item.data.scope,
@@ -325,6 +388,14 @@ export default function AbsencesPageClient({
     ) {
       return;
     }
+    if (
+      action === "TRAITER_ADMIN" &&
+      !confirm(
+        "Marquer cette absence comme traitée (déclaration rectorat / RH effectuée) ? Le dossier sera clôturé.",
+      )
+    ) {
+      return;
+    }
     try {
       const res = await fetch("/api/absences", {
         method: "PATCH",
@@ -341,7 +412,7 @@ export default function AbsencesPageClient({
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.error || "Échec mise à jour");
       if (action === "RELANCER_JUSTIFICATIF") {
-        alert("Relance envoyée au demandeur par e-mail.");
+        alert("Demande de pièce envoyée. La personne peut la déposer dans l’application.");
       }
       if (action === "VALIDER" && item?.data.scope !== "ogec") {
         const emails = Array.isArray(payload?.validationRecipients)
@@ -349,7 +420,7 @@ export default function AbsencesPageClient({
           : [];
         if (emails.length === 0) {
           alert(
-            "Absence validée et affichée au calendrier. Aucune personne n’est configurée pour la déclaration rectorat (Réglages → Notifications → Absences professeurs).",
+            "Absence validée et affichée au calendrier. Aucune personne n’est configurée pour le traitement rectorat (Absences → Paramétrage).",
           );
         }
       }
@@ -460,6 +531,8 @@ export default function AbsencesPageClient({
       ? "bg-emerald-50 text-emerald-700 border-emerald-200"
       : s === "JUSTIFICATIF_DEPOSE"
       ? "bg-blue-50 text-blue-700 border-blue-200"
+      : s === "A_TRAITER"
+      ? "bg-indigo-50 text-indigo-700 border-indigo-200"
       : "bg-amber-50 text-amber-700 border-amber-200";
   const decisionStyle = (d: AbsenceDecision) =>
     d === "VALIDEE"
@@ -469,16 +542,19 @@ export default function AbsencesPageClient({
       : "bg-slate-50 text-slate-700 border-slate-200";
   const sorted = useMemo(() => [...items].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)), [items]);
   const selfItems = useMemo(() => {
+    const myEmail = (user?.primaryEmailAddress?.emailAddress || "").toLowerCase();
     const mine = sorted.filter((i) => {
-      if (i.createdBy.userId !== user?.id) return false;
-      const src = (i as { source?: string }).source;
-      return !src || src === "self";
+      const src = i.source;
+      if (src === "admin_manual" || src === "admin_pdf") return false;
+      if (user?.id && i.createdBy.userId === user.id) return true;
+      if (myEmail && i.createdBy.email && i.createdBy.email.toLowerCase() === myEmail) return true;
+      return false;
     });
-    const pending = mine.filter(isPendingAbsence);
-    const rest = mine.filter((i) => !isPendingAbsence(i));
+    const pending = mine.filter((i) => isPendingAbsence(i) || isWaitingAdminTreatment(i));
+    const rest = mine.filter((i) => !isPendingAbsence(i) && !isWaitingAdminTreatment(i));
     pending.sort((a, b) => compareAbsenceRecordsAlphabetically(asRecord(a), asRecord(b)));
     return [...pending, ...rest];
-  }, [sorted, user?.id]);
+  }, [sorted, user?.id, user?.primaryEmailAddress?.emailAddress]);
   const pendingItems = useMemo(
     () =>
       sorted
@@ -491,14 +567,34 @@ export default function AbsencesPageClient({
         .sort((a, b) => compareAbsenceRecordsAlphabetically(asRecord(a), asRecord(b))),
     [sorted, user?.id, roles, establishments],
   );
-  const treatedItems = selfItems.filter(
-    (i) => !isPendingAbsence(i) && (i.workflowStatus === "CLOTUREE" || itemDecision(i) !== "EN_ATTENTE"),
+  const adminQueue = useMemo(
+    () =>
+      sorted.filter((i) => {
+        if (!isWaitingAdminTreatment(i)) return false;
+        if (i.source === "admin_manual" || i.source === "admin_pdf") return false;
+        if (!processorNotifications) return viewerIsProcessor || canTreat;
+        return viewerIsAbsenceProcessor(
+          asRecord(i),
+          {
+            email: user?.primaryEmailAddress?.emailAddress,
+            userId: user?.id,
+            roles,
+          },
+          processorNotifications,
+          establishments,
+        );
+      }),
+    [sorted, processorNotifications, viewerIsProcessor, canTreat, user, roles, establishments],
   );
-  const pendingSelfCount = selfItems.filter(isPendingAbsence).length;
+  const treatedItems = selfItems.filter((i) => i.workflowStatus === "CLOTUREE");
+  const pendingSelfCount = selfItems.filter((i) => isPendingAbsence(i) || isWaitingAdminTreatment(i)).length;
+  const showTraitementTab = viewerIsProcessor || adminQueue.length > 0;
   const tabs = [
     { id: "calendrier", label: "Calendrier", show: showCalendar },
     { id: "se-declarer", label: "Demande d'autorisation", show: true },
-    { id: "a-traiter", label: "À traiter", show: canTreat },
+    { id: "a-traiter", label: "Direction", show: canTreat },
+    { id: "traitement", label: "Traitement RH / rectorat", show: showTraitementTab },
+    { id: "parametrage", label: "Paramétrage", show: canConfigureProcessors },
   ].filter((t) => t.show);
 
   if (!isLoaded) return null;
@@ -517,6 +613,7 @@ export default function AbsencesPageClient({
       badges={{
         "a-traiter": pendingItems.length,
         "se-declarer": pendingSelfCount,
+        traitement: adminQueue.length,
       }}
     />
   );
@@ -754,14 +851,20 @@ export default function AbsencesPageClient({
           ) : selfItems.length === 0 ? (
             <div className="bg-white border border-dashed border-slate-300 rounded-3xl p-8 text-slate-500">Aucune demande enregistrée.</div>
           ) : (
-            selfItems.map((item) => (
+            selfItems.filter((item) => item.workflowStatus !== "CLOTUREE").map((item) => (
               <div key={item.id} className="bg-white border border-slate-200 rounded-2xl p-4">
                 <div className="flex flex-wrap gap-2 items-center justify-between mb-2">
                   <p className="font-bold text-slate-800">
                     {item.data.scope === "ogec" ? "Personnel OGEC" : `Professeur (${item.data.etablissement})`}
                   </p>
                   <span className={`text-xs font-black px-3 py-1 rounded-xl border ${decisionStyle(itemDecision(item))}`}>
-                    {itemDecision(item) === "VALIDEE" ? "VALIDÉE" : itemDecision(item) === "REFUSEE" ? "REFUSÉE" : "EN ATTENTE"}
+                    {itemDecision(item) === "VALIDEE"
+                      ? item.workflowStatus === "CLOTUREE"
+                        ? "VALIDÉE · TRAITÉE"
+                        : "VALIDÉE · EN TRAITEMENT"
+                      : itemDecision(item) === "REFUSEE"
+                        ? "REFUSÉE"
+                        : "EN ATTENTE"}
                   </span>
                 </div>
                 <p className="text-xs text-slate-500">{formatAbsencePeriod(item.data)}</p>
@@ -780,8 +883,15 @@ export default function AbsencesPageClient({
                     </button>
                   </p>
                 ) : null}
-                {item.justificatifRelanceAt && isPendingAbsence(item) && (
+                {canDepositJustificatif(item) ? (
                   <div className="mt-3">
+                    <p className="text-sm text-amber-700 mb-2 font-semibold">
+                      {item.justificatifRelanceAt
+                        ? "Une pièce justificative vous est demandée (sans nouvelle validation direction)."
+                        : isWaitingAdminTreatment(item)
+                          ? "Vous pouvez déposer une pièce (arrêt maladie, justificatif…) pour le traitement administratif."
+                          : "Vous pouvez déposer un justificatif."}
+                    </p>
                     <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold cursor-pointer hover:bg-slate-50">
                       {uploadingJustificationId === item.id ? "Upload…" : "Déposer justificatif"}
                       <input
@@ -796,7 +906,7 @@ export default function AbsencesPageClient({
                       />
                     </label>
                   </div>
-                )}
+                ) : null}
               </div>
             ))
           )}
@@ -849,7 +959,13 @@ export default function AbsencesPageClient({
                   </div>
                   <div className="flex gap-2">
                     <span className={`text-xs font-black px-3 py-1.5 rounded-xl border ${statusStyle(item.workflowStatus)}`}>
-                      {item.workflowStatus === "OUVERTE" ? "OUVERTE" : item.workflowStatus === "JUSTIFICATIF_DEPOSE" ? "JUSTIFICATIF DÉPOSÉ" : "CLOTURÉE"}
+                      {item.workflowStatus === "OUVERTE"
+                        ? "OUVERTE"
+                        : item.workflowStatus === "JUSTIFICATIF_DEPOSE"
+                          ? "JUSTIFICATIF DÉPOSÉ"
+                          : item.workflowStatus === "A_TRAITER"
+                            ? "À TRAITER RH"
+                            : "CLOTURÉE"}
                     </span>
                     <span className={`text-xs font-black px-3 py-1.5 rounded-xl border ${decisionStyle(itemDecision(item))}`}>
                       {itemDecision(item) === "VALIDEE" ? "VALIDÉE" : itemDecision(item) === "REFUSEE" ? "REFUSÉE" : "DÉCISION EN ATTENTE"}
@@ -1011,6 +1127,103 @@ export default function AbsencesPageClient({
           )}
         </div>
       ) : null}
+
+      {activeTab === "traitement" && showTraitementTab ? (
+        <div className="space-y-4">
+          <div className="bg-white border border-slate-200 rounded-3xl p-4">
+            <h3 className="font-black text-slate-900">Dossiers à traiter</h3>
+            <p className="text-xs text-slate-500">
+              La direction a déjà validé. Demandez une pièce si besoin (ça va à la personne, pas à la
+              direction), puis marquez le dossier traité une fois le rectorat / la RH à jour.
+            </p>
+          </div>
+          {loading ? (
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 text-slate-500">Chargement…</div>
+          ) : adminQueue.length === 0 ? (
+            <div className="bg-white border border-dashed border-slate-300 rounded-3xl p-8 text-slate-500">
+              Aucun dossier en attente de traitement.
+            </div>
+          ) : (
+            adminQueue.map((item) => (
+              <div key={`adm-${item.id}`} className="bg-white border border-slate-200 rounded-3xl p-5">
+                <p className="font-black text-slate-900">
+                  {item.createdBy.name} —{" "}
+                  {resolveAbsenceScope(asRecord(item)) === "ogec"
+                    ? "Personnel OGEC"
+                    : `Professeur (${item.data.etablissement || "—"})`}
+                </p>
+                <p className="text-xs text-slate-500 mt-1">{formatAbsencePeriod(item.data)}</p>
+                <p className="text-sm text-slate-700 mt-2">
+                  <span className="font-bold">Motif :</span> {item.data.reason}
+                </p>
+                {item.hoursTreatment ? (
+                  <p className="text-sm text-indigo-700 mt-1 font-semibold">
+                    {formatAbsenceHoursTreatment(item.hoursTreatment)}
+                  </p>
+                ) : null}
+                {item.justification?.fileUrl && canViewJustificatif(item) ? (
+                  <p className="text-sm text-slate-700 mt-2">
+                    <span className="font-bold">Pièce :</span>{" "}
+                    <button
+                      type="button"
+                      onClick={() => openAbsenceDocument(item.id)}
+                      className="text-indigo-700 underline font-semibold"
+                    >
+                      {item.justification.fileName || "Voir le fichier"}
+                    </button>
+                  </p>
+                ) : (
+                  <p className="text-sm text-amber-700 mt-2">Aucune pièce jointe pour l’instant.</p>
+                )}
+                {item.justificatifRelanceAt ? (
+                  <p className="text-sm text-amber-700 mt-2 font-semibold">Pièce demandée à la personne.</p>
+                ) : null}
+                <label className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold cursor-pointer hover:bg-slate-50">
+                  {uploadingJustificationId === item.id
+                    ? "Upload…"
+                    : item.justification?.fileUrl
+                      ? "Joindre un autre document"
+                      : "Joindre une pièce"}
+                  <input
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      uploadJustification(item.id, f);
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+                <textarea
+                  placeholder="Note interne (optionnel)"
+                  value={managerNotes[item.id] ?? item.adminNote ?? ""}
+                  onChange={(e) => setManagerNotes((p) => ({ ...p, [item.id]: e.target.value }))}
+                  className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => updateWorkflow(item.id, "RELANCER_JUSTIFICATIF", item)}
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm"
+                  >
+                    {item.justification?.fileUrl ? "Demander un complément" : "Demander une pièce jointe"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateWorkflow(item.id, "TRAITER_ADMIN", item)}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm"
+                  >
+                    Marquer comme traité
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
+
+      {activeTab === "parametrage" && canConfigureProcessors ? <AbsencesProcessorsPanel /> : null}
     </>
   );
 

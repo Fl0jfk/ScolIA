@@ -5,6 +5,12 @@ import {
   resolveAbsenceScope,
   type AbsenceRecord,
 } from "@/app/lib/absences-types";
+import {
+  isAbsencePendingForProcessor,
+  viewerCanSeeProcessorQueue,
+  viewerIsAbsenceProcessor,
+} from "@/app/lib/absences-admin-access";
+import type { NotificationsConfig } from "@/app/lib/app-config-schemas";
 import { absencesToday } from "@/app/lib/dashboard-absences";
 import { moduleIdToPillarId, type DashboardPillarId } from "@/app/lib/dashboard-pillars";
 import { tripsThisWeek, tripsToday, type TripIndexRow } from "@/app/lib/dashboard-trips";
@@ -177,6 +183,7 @@ type DashboardSignalsInput = {
     end: string;
   } | null;
   establishments?: Establishment[];
+  absenceNotifications?: NotificationsConfig | null;
   /** Dossiers cloud partagés invitant l'utilisateur, non encore ouverts. */
   unseenSharedFolders?: Array<{ id: string; name: string }>;
   /** Absences élèves à traiter (CPE). */
@@ -351,6 +358,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     internatRollCallStatus = null,
     weekSheet = null,
     establishments = [],
+    absenceNotifications = null,
     unseenSharedFolders = [],
     vsAbsencesATraiter = 0,
     vsAbsencesJustifFamille = 0,
@@ -731,7 +739,12 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       }
     }
 
-    if (has("rh") && (canViewCalendar(roles) || isDirectionRole(roles))) {
+    if (
+      has("rh") &&
+      (canViewCalendar(roles) ||
+        isDirectionRole(roles) ||
+        viewerCanSeeProcessorQueue({ email, userId, roles }, absenceNotifications))
+    ) {
       const flags = getRoleFlags(roles);
       const dirCtx = { establishments, userId };
       let scoped = absences;
@@ -751,6 +764,11 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       const count = canViewCalendar(roles) ? absencesToday(scoped).length : 0;
       const pendingManager = absences.filter((a) =>
         isAbsencePendingForManager(a, userId, roles, dirCtx),
+      );
+      const pendingProcessor = absences.filter(
+        (a) =>
+          isAbsencePendingForProcessor(a) &&
+          viewerIsAbsenceProcessor(a, { email, userId, roles }, absenceNotifications, establishments),
       );
 
       if (pendingManager.length > 0) {
@@ -781,6 +799,34 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
       }
 
+      if (pendingProcessor.length > 0) {
+        shortcuts.push({
+          id: "absences-admin-queue",
+          pillarId: "compta_rh",
+          moduleId: "absences",
+          href: "/rh?tab=dashboard&section=absences&view=traitement",
+          label: "Dossiers à traiter (RH / rectorat)",
+          rich: true,
+          badge: `${pendingProcessor.length} à clôturer`,
+          detail:
+            pendingProcessor.length === 1
+              ? "1 absence validée par la direction, à traiter dans l’application"
+              : `${pendingProcessor.length} absences validées par la direction, à traiter dans l’application`,
+          tone: "warn",
+        });
+        pushNotif({
+          id: "absences-admin-queue",
+          moduleId: "absences",
+          label: "Traitement absences",
+          count: pendingProcessor.length,
+          href: "/rh?tab=dashboard&section=absences&view=traitement",
+          detail:
+            pendingProcessor.length === 1
+              ? "1 dossier validé à traiter (pièces, rectorat / RH)"
+              : `${pendingProcessor.length} dossiers validés à traiter (pièces, rectorat / RH)`,
+        });
+      }
+
       if (count > 0) {
         shortcuts.push({
           id: "absences-today",
@@ -793,7 +839,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           detail: count === 1 ? `1 ${labelSingular} aujourd'hui` : `${count} ${labelPlural} aujourd'hui`,
           tone: "info",
         });
-      } else if (pendingManager.length === 0) {
+      } else if (pendingManager.length === 0 && pendingProcessor.length === 0) {
         shortcuts.push({
           id: "absences",
           pillarId: "compta_rh",

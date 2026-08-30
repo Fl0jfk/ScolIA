@@ -10,7 +10,7 @@ import { parseParisDateTime, parisDateKey } from "@/app/lib/paris-time";
 
 export type AbsenceScope = "professeur" | "ogec";
 export type Etablissement = string;
-export type AbsenceWorkflowStatus = "OUVERTE" | "JUSTIFICATIF_DEPOSE" | "CLOTUREE";
+export type AbsenceWorkflowStatus = "OUVERTE" | "JUSTIFICATIF_DEPOSE" | "A_TRAITER" | "CLOTUREE";
 export type AbsenceDecision = "EN_ATTENTE" | "VALIDEE" | "REFUSEE";
 export type AbsenceSource = "self" | "admin_manual" | "admin_pdf" | "accueil";
 
@@ -68,6 +68,10 @@ export type AbsenceRecord = {
   privacyDocumentsPurgedAt?: string | null;
   personnelId?: string | null;
   enseignantId?: string | null;
+  /** Clôture administrative (rectorat / RH) après l’accord direction. */
+  adminTreatedAt?: string | null;
+  adminTreatedBy?: string | null;
+  adminNote?: string | null;
   history: Array<{
     at: string;
     by: string;
@@ -236,6 +240,7 @@ export function canViewAbsenceAttachment(
   roles: string[],
   ctx?: DirectionAuthCtx,
 ) {
+  if (hasGlobalAdminRole(roles) || hasMasterRole(roles)) return true;
   if (abs.createdBy.userId === viewerUserId) return true;
   const scope = resolveAbsenceScope(abs);
   if (scope === "ogec") return canViewOgecAbsenceAttachments(roles);
@@ -290,6 +295,7 @@ export function canViewAbsence(
   roles: string[],
   ctx?: DirectionAuthCtx,
 ) {
+  if (hasGlobalAdminRole(roles) || hasMasterRole(roles)) return true;
   if (abs.createdBy.userId === viewerUserId) return true;
   const flags = getRoleFlags(roles);
   const scope = resolveAbsenceScope(abs);
@@ -306,6 +312,7 @@ export function canViewAbsence(
 }
 
 export function canManageAbsence(abs: AbsenceRecord, roles: string[], ctx?: DirectionAuthCtx) {
+  if (hasGlobalAdminRole(roles) || hasMasterRole(roles)) return true;
   const flags = getRoleFlags(roles);
   const scope = resolveAbsenceScope(abs);
   if (scope === "ogec") return flags.isDirection;

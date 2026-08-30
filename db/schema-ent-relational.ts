@@ -85,6 +85,9 @@ export const absence = pgTable(
     privacyDocumentsPurgedAt: timestamp("privacy_documents_purged_at", { withTimezone: true }),
     personnelId: text("personnel_id"),
     enseignantId: text("enseignant_id"),
+    adminTreatedAt: timestamp("admin_treated_at", { withTimezone: true }),
+    adminTreatedBy: text("admin_treated_by"),
+    adminNote: text("admin_note"),
   },
   (t) => [
     index("absence_etablissement_idx").on(t.etablissementId),

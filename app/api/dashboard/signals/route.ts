@@ -8,6 +8,11 @@ import {
   isAbsenceVisibleOnCalendar,
   type AbsenceRecord,
 } from "@/app/lib/absences-types";
+import {
+  isAbsencePendingForProcessor,
+  viewerCanSeeProcessorQueue,
+  viewerIsAbsenceProcessor,
+} from "@/app/lib/absences-admin-access";
 import { getAbsenceIndex } from "@/app/lib/absences-storage";
 import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { getJson } from "@/app/lib/s3-storage";
@@ -190,7 +195,13 @@ export async function GET() {
       : Promise.resolve(null);
 
     const absencesPromise =
-      accessibleModuleIds.has("rh") && (canViewCalendar(roles) || isAnyDirectionRole(roles))
+      accessibleModuleIds.has("rh") &&
+      (canViewCalendar(roles) ||
+        isAnyDirectionRole(roles) ||
+        viewerCanSeeProcessorQueue(
+          { email, userId, roles },
+          appBundle?.notifications ?? null,
+        ))
         ? getAbsenceIndex().catch(() => [] as AbsenceRecord[])
         : Promise.resolve([] as AbsenceRecord[]);
 
@@ -284,7 +295,14 @@ export async function GET() {
       absences = absencesRaw.filter(
         (a) =>
           isAbsenceVisibleOnCalendar(a, userId, roles) ||
-          isAbsencePendingForManager(a, userId, roles, absenceDirCtx),
+          isAbsencePendingForManager(a, userId, roles, absenceDirCtx) ||
+          (isAbsencePendingForProcessor(a) &&
+            viewerIsAbsenceProcessor(
+              a,
+              { email, userId, roles },
+              appBundle?.notifications ?? null,
+              establishments,
+            )),
       );
     } catch (err) {
       console.error("[dashboard/signals] absences filter", err);
@@ -583,6 +601,7 @@ export async function GET() {
         moodPulseSubmittedToday,
         planningNow,
         establishments,
+        absenceNotifications: appBundle?.notifications ?? null,
         unseenSharedFolders,
         vsAbsencesATraiter,
         vsAbsencesJustifFamille,

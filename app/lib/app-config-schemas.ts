@@ -156,6 +156,8 @@ export type InternatRollCallRecipients = {
   cpeCollege?: string;
 };
 
+export type AbsenceNotifyPerson = { label?: string; email: string; userId?: string };
+
 export type NotificationsConfig = {
   travelsCompta: string[];
   travelsCuisine?: string;
@@ -165,11 +167,11 @@ export type NotificationsConfig = {
   photocopiesOps?: string;
   /** Réceptionnaires impressions (file à imprimer) — 1 ou plusieurs. */
   photocopiesOpsEmails?: string[];
-  absencesNotifyProfEcole?: { label?: string; email: string };
-  absencesNotifyProfCollege?: { label?: string; email: string };
-  absencesNotifyProfLycee?: { label?: string; email: string };
+  absencesNotifyProfEcole?: AbsenceNotifyPerson;
+  absencesNotifyProfCollege?: AbsenceNotifyPerson;
+  absencesNotifyProfLycee?: AbsenceNotifyPerson;
   /** @deprecated Préférer absencesNotifyProfCollege / absencesNotifyProfLycee */
-  absencesNotifyProfCollegeLycee?: { label?: string; email: string };
+  absencesNotifyProfCollegeLycee?: AbsenceNotifyPerson;
   absencesNotifyOgecCompta: string[];
   /**
    * Après validation d'une absence OGEC d'un personnel « éducation / surveillance » :
@@ -459,7 +461,8 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
     const b = block as Record<string, unknown>;
     const email = str(b.email).trim();
     if (!email || !isEmail(email)) return undefined;
-    return { label: str(b.label) || undefined, email };
+    const userId = str(b.userId).trim();
+    return { label: str(b.label) || undefined, email, userId: userId || undefined };
   };
   const parseInternatRollCall = (block: unknown): InternatRollCallRecipients | undefined => {
     if (!block || typeof block !== "object") return undefined;
