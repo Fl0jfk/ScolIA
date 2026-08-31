@@ -121,7 +121,7 @@ export async function POST(req: Request) {
       resetMfa: result.resetMfa === true,
       message: hadMfa
         ? `Lien d’invitation envoyé à ${result.email}. L’ancien mot de passe et la MFA ont été réinitialisés — la personne repart de zéro (nouveau MDP puis nouvelle MFA). Lien valable 24 heures.`
-        : `Lien d’invitation envoyé à ${result.email}. Valable 24 heures — la personne crée son mot de passe. La MFA est obligatoire selon le rôle (facultative pour les professeurs).`,
+        : `Lien d’invitation envoyé à ${result.email}. Valable 24 heures — la personne crée son mot de passe. La MFA est obligatoire selon le rôle (facultative pour les professeurs, surveillants et CPE).`,
       baseUrl: betterAuthBaseUrl(),
       redirectTo: `${betterAuthBaseUrl()}/auth/reset-password`,
     });

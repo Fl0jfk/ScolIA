@@ -218,7 +218,7 @@ D) À chaque connexion suivante : e-mail + mot de passe + code de l’appli.`
     : `━━━━━━━━━━━━━━━━━━━━
 ÉTAPE 2 — Double authentification (MFA) — facultative
 ━━━━━━━━━━━━━━━━━━━━
-Pour les professeurs, la MFA n’est pas obligatoire. Elle reste recommandée pour sécuriser votre compte.
+Pour les professeurs, surveillants et CPE, la MFA n’est pas obligatoire. Elle reste recommandée pour sécuriser votre compte.
 Vous pourrez l’activer plus tard depuis votre compte (Sécurité).
 
 Si vous souhaitez l’activer maintenant :
@@ -300,7 +300,7 @@ Si vous n’êtes pas concerné par ce message, ignorez-le.
             ? `La MFA, c’est un <strong>code à 6 chiffres</strong> généré par une application sur votre téléphone.
         Sans cette étape, vous ne pourrez pas utiliser pleinement la plateforme
         (cloud, dossiers partagés, outils métiers, etc.).`
-            : `Pour les professeurs, la MFA n’est <strong>pas obligatoire</strong>. Elle reste recommandée.
+            : `Pour les professeurs, surveillants et CPE, la MFA n’est <strong>pas obligatoire</strong>. Elle reste recommandée.
         Vous pourrez l’activer plus tard depuis votre compte (Sécurité). Si vous l’activez, elle restera demandée à chaque connexion.`
         }
       </p>

@@ -279,7 +279,7 @@ export default function MembresPanel() {
           `Un lien a déjà été envoyé il y a moins de 24 heures. Un nouveau lien invalidera l’ancien.`
         : `Envoyer un lien d’invitation à ${name} (${u.email}) ?\n\n` +
           `La personne reçoit un e-mail pour créer son mot de passe (lien valable 24 h).\n` +
-          `La MFA est obligatoire pour la direction, l’administration et le personnel ; facultative pour les professeurs.\n` +
+          `La MFA est obligatoire pour la direction et le personnel administratif ; facultative pour les professeurs, surveillants et CPE.\n` +
           `Un éventuel ancien mot de passe ne fonctionnera plus.`;
 
     if (!confirm(confirmMsg)) return;
@@ -314,7 +314,7 @@ export default function MembresPanel() {
       !confirm(
         `Envoyer une invitation à ${n} personne(s) qui n’ont pas encore reçu de lien récent ?\n\n` +
           `Les comptes déjà activés et ceux déjà invités il y a moins de 24 h sont exclus.\n` +
-          `Les professeurs sans MFA (compte déjà utilisable) ne sont pas relancés.`,
+          `Les professeurs, surveillants et CPE sans MFA (compte déjà utilisable) ne sont pas relancés.`,
       )
     ) {
       return;
@@ -357,8 +357,8 @@ export default function MembresPanel() {
         <h3 className={`text-sm font-semibold ${dash.ink}`}>Lien d’invitation</h3>
         <p className={`mt-1 text-sm ${dash.textMid}`}>
           Envoie un e-mail pour créer le mot de passe (lien 24&nbsp;h). La double authentification
-          est ensuite obligatoire pour la direction, l’administration et le personnel ; facultative
-          pour les professeurs. Ceux qui l’ont déjà activée la conservent. Après envoi, le bouton
+          est ensuite obligatoire pour la direction et le personnel administratif ; facultative
+          pour les professeurs, surveillants et CPE. Ceux qui l’ont déjà activée la conservent. Après envoi, le bouton
           devient <strong>Réenvoyer le lien</strong> (ligne grisée) pendant 24&nbsp;h. Sur un
           compte <strong>déjà activé (MFA)</strong>, le bouton devient une{" "}
           <strong>réinitialisation complète</strong> — à réserver aux cas où l’accès est perdu.

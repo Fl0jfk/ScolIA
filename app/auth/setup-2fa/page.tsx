@@ -175,8 +175,8 @@ function Setup2faForm() {
           <h1 className="text-xl font-semibold text-amber-950">Sécurité renforcée (2FA)</h1>
           <p className="mt-2 text-sm text-amber-900/80">
             {canSkipMfa
-              ? "La double authentification est recommandée, mais facultative pour les professeurs. Direction, administration et personnel doivent l’activer. Si vous l’activez, elle restera demandée à chaque connexion."
-              : "Les comptes direction, administration et personnel doivent activer une application d’authentification (Google Authenticator, Authy, etc.) pour sécuriser l’accès à l’intranet."}
+              ? "La double authentification est recommandée, mais facultative pour les professeurs, surveillants et CPE. Direction et personnel administratif doivent l’activer. Si vous l’activez, elle restera demandée à chaque connexion."
+              : "Les comptes direction et personnel administratif doivent activer une application d’authentification (Google Authenticator, Authy, etc.) pour sécuriser l’accès à l’intranet."}
           </p>
         </div>
 

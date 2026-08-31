@@ -42,7 +42,7 @@ test("professeur orgAdmin : MFA obligatoire", () => {
   );
 });
 
-test("personnel / admin / direction : MFA obligatoire", () => {
+test("personnel administratif / admin / direction / compta : MFA obligatoire", () => {
   assert.equal(
     roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["administratif"] }),
     true,
@@ -54,6 +54,65 @@ test("personnel / admin / direction : MFA obligatoire", () => {
   assert.equal(
     roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["admin"] }),
     true,
+  );
+  assert.equal(
+    roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["comptabilite"] }),
+    true,
+  );
+});
+
+test("surveillant / CPE : MFA facultative", () => {
+  assert.equal(
+    roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["surveillant"] }),
+    false,
+  );
+  assert.equal(
+    roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["cpe"] }),
+    false,
+  );
+  assert.equal(
+    roleRequiresTwoFactor({
+      platformAdmin: false,
+      orgAdmin: false,
+      roles: ["surveillant", "cpe"],
+    }),
+    false,
+  );
+});
+
+test("CPE + direction : MFA obligatoire", () => {
+  assert.equal(
+    roleRequiresTwoFactor({
+      platformAdmin: false,
+      orgAdmin: false,
+      roles: ["cpe", "direction_college"],
+    }),
+    true,
+  );
+});
+
+test("surveillant déjà connecté sans MFA : plus en attente", () => {
+  assert.equal(
+    isAccountActivationPending({
+      emailVerified: true,
+      mustChangePassword: false,
+      twoFactorEnabled: false,
+      platformAdmin: false,
+      orgAdmin: false,
+      roles: ["surveillant"],
+    }),
+    false,
+  );
+  assert.equal(
+    isAccountActivationPending({
+      emailVerified: true,
+      mustChangePassword: false,
+      twoFactorEnabled: false,
+      platformAdmin: false,
+      orgAdmin: false,
+      roles: ["cpe"],
+    }),
+    false,
   );
 });
 

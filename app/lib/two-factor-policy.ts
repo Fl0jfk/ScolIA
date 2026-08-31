@@ -5,10 +5,18 @@ import { hasGlobalAdminRole, hasMasterRole, normRole } from "@/app/lib/intranet-
 const FAMILY_ONLY_ROLES = new Set(["parent", "eleve"]);
 
 /**
- * Rôles enseignants : MFA facultative (ceux qui l’ont déjà activée la gardent à la connexion).
- * Un professeur qui a aussi un rôle direction / admin / personnel reste soumis à la MFA obligatoire.
+ * MFA obligatoire uniquement pour la direction et le personnel administratif.
+ * Professeurs, surveillants, CPE (et le reste du personnel de terrain) : facultative.
+ * Ceux qui l’ont déjà activée la gardent à la connexion.
  */
-const TEACHER_MFA_OPTIONAL_ROLES = new Set(["professeur", "enseignant"]);
+const MFA_REQUIRED_STAFF_ROLES = new Set([
+  "admin",
+  "master",
+  "administratif",
+  "comptabilite",
+  "direction",
+  ...INTRANET_DIRECTION_SLUGS,
+]);
 
 export const MFA_TRUST_STAFF_SECONDS = 60 * 60 * 24 * 30; // 30 jours
 export const MFA_TRUST_DIRECTION_SECONDS = 60 * 60 * 24 * 7; // 7 jours
@@ -23,15 +31,19 @@ export type MfaTrustPolicy = {
   hint: string;
 };
 
-export function isTeacherMfaOptionalRole(role: string): boolean {
+export function isMfaRequiredStaffRole(role: string): boolean {
   const n = normRole(role);
-  return TEACHER_MFA_OPTIONAL_ROLES.has(n) || n.includes("professeur") || n.includes("enseignant");
+  if (MFA_REQUIRED_STAFF_ROLES.has(role) || MFA_REQUIRED_STAFF_ROLES.has(n)) return true;
+  if (n.includes("direction")) return true;
+  if (n.includes("administratif") || n === "admin") return true;
+  if (n.includes("comptab")) return true;
+  return false;
 }
 
 /**
  * Indique si le compte doit activer la 2FA (TOTP).
- * Obligatoire pour admin, direction et personnel (hors professeur « pur »).
- * Facultative pour les professeurs / enseignants — y compris cumulés avec parent/élève.
+ * Obligatoire pour admin, direction et personnel administratif (dont comptabilité).
+ * Facultative pour les professeurs, surveillants, CPE — y compris cumulés avec parent/élève.
  * Si la MFA est déjà activée, Better-Auth continue de la demander à la connexion.
  */
 export function roleRequiresTwoFactor(opts: {
@@ -47,8 +59,7 @@ export function roleRequiresTwoFactor(opts: {
   const staffRoles = roles.filter((role) => !FAMILY_ONLY_ROLES.has(role));
   if (staffRoles.length === 0) return false;
 
-  const hasPrivilegedStaff = staffRoles.some((role) => !isTeacherMfaOptionalRole(role));
-  return hasPrivilegedStaff;
+  return staffRoles.some((role) => isMfaRequiredStaffRole(role));
 }
 
 /** Compte encore « en attente » d’activation (MDP / e-mail / MFA obligatoire). */
