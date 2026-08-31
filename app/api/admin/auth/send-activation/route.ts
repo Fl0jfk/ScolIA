@@ -5,6 +5,11 @@ import { isBetterAuthConfigured, betterAuthBaseUrl } from "@/app/lib/auth-config
 import { requireTenantAdminRole } from "@/app/lib/intranet-auth";
 import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
 import { getTenant } from "@/app/lib/tenant-context";
+import { getDb } from "@/db/index";
+import { user as userTable } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
+import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
 import {
   listPendingInvitationTargets,
   resolveInvitationTarget,
@@ -103,7 +108,20 @@ export async function POST(req: Request) {
     }
 
     const hadMfa = resolved.target.twoFactorEnabled;
-    const result = await sendPasswordActivationToUser(resolved.target, { resetMfa: true });
+    const [userRow] = await getDb()
+      .select({ platformAdmin: userTable.platformAdmin, orgAdmin: userTable.orgAdmin })
+      .from(userTable)
+      .where(eq(userTable.id, resolved.target.id))
+      .limit(1);
+    const roles = await listUserRolesFromDb(resolved.target.id, etablissementId);
+    const mfaRequired = roleRequiresTwoFactor({
+      platformAdmin: Boolean(userRow?.platformAdmin),
+      orgAdmin: Boolean(userRow?.orgAdmin) || roles.includes("admin"),
+      roles,
+    });
+    /** Prof / surveillant / CPE : on conserve une MFA déjà activée. */
+    const resetMfa = hadMfa && mfaRequired;
+    const result = await sendPasswordActivationToUser(resolved.target, { resetMfa });
     if (!result.ok) {
       return NextResponse.json(
         {
@@ -115,13 +133,19 @@ export async function POST(req: Request) {
       );
     }
 
+    const message = hadMfa
+      ? resetMfa
+        ? `Lien d’invitation envoyé à ${result.email}. L’ancien mot de passe et la MFA ont été réinitialisés — la personne repart de zéro (nouveau MDP puis nouvelle MFA). Lien valable 24 heures.`
+        : `Lien d’invitation envoyé à ${result.email}. Nouveau mot de passe à créer via le lien (24 h). La double authentification déjà en place est conservée.`
+      : mfaRequired
+        ? `Lien d’invitation envoyé à ${result.email}. Valable 24 heures — mot de passe puis double authentification obligatoires (direction / personnel administratif).`
+        : `Lien d’invitation envoyé à ${result.email}. Valable 24 heures — connexion ensuite avec e-mail et mot de passe (sans double authentification obligatoire).`;
+
     return NextResponse.json({
       ok: true,
       email: result.email,
       resetMfa: result.resetMfa === true,
-      message: hadMfa
-        ? `Lien d’invitation envoyé à ${result.email}. L’ancien mot de passe et la MFA ont été réinitialisés — la personne repart de zéro (nouveau MDP puis nouvelle MFA). Lien valable 24 heures.`
-        : `Lien d’invitation envoyé à ${result.email}. Valable 24 heures — la personne crée son mot de passe. La MFA est obligatoire selon le rôle (facultative pour les professeurs, surveillants et CPE).`,
+      message,
       baseUrl: betterAuthBaseUrl(),
       redirectTo: `${betterAuthBaseUrl()}/auth/reset-password`,
     });

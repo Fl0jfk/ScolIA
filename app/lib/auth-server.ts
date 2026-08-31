@@ -216,23 +216,17 @@ C) L’écran affiche un QR code :
 
 D) À chaque connexion suivante : e-mail + mot de passe + code de l’appli.`
     : `━━━━━━━━━━━━━━━━━━━━
-ÉTAPE 2 — Double authentification (MFA) — facultative
+CONNEXION — sans double authentification obligatoire
 ━━━━━━━━━━━━━━━━━━━━
-Pour les professeurs, surveillants et CPE, la MFA n’est pas obligatoire. Elle reste recommandée pour sécuriser votre compte.
-Vous pourrez l’activer plus tard depuis votre compte (Sécurité).
+Pour les professeurs, surveillants et CPE, la double authentification n’est plus requise.
 
-Si vous souhaitez l’activer maintenant :
+Après avoir créé votre mot de passe :
+1. Connectez-vous avec votre adresse e-mail et votre mot de passe.
+2. C’est tout — vous accédez directement à l’intranet ScolIA.
 
-A) Installez UNE application gratuite d’authentification, par exemple :
-   • Microsoft Authenticator (Windows, Android, iPhone)
-   • Google Authenticator (Android, iPhone)
-   • « Mots de passe » d’Apple (iPhone / Mac) — codes à deux facteurs
+Si vous aviez déjà activé la double authentification par le passé, rien ne change : vous continuerez à saisir votre code comme avant.
 
-B) Connectez-vous sur ScolIA avec votre e-mail + le nouveau mot de passe.
-
-C) Dans votre compte → Sécurité → « Configurer la double authentification », scannez le QR code et saisissez le code à 6 chiffres.
-
-Si vous l’activez, elle restera demandée à chaque connexion.`;
+La double authentification reste disponible en option depuis Mon compte → Sécurité.`;
 
   const text = `${hello}
 
@@ -288,11 +282,13 @@ Si vous n’êtes pas concerné par ce message, ignorez-le.
     </p>
     <p style="font-size:12px;color:#64748b;word-break:break-all;">Si le bouton ne fonctionne pas, copiez cette adresse :<br/><a href="${opts.url}">${opts.url}</a></p>
 
-    <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:12px;padding:16px;margin:28px 0 12px;">
+    <div style="background:${
+        mfaRequired ? "#eff6ff;border:1px solid #93c5fd" : "#ecfdf5;border:1px solid #6ee7b7"
+      };border-radius:12px;padding:16px;margin:28px 0 12px;">
       <p style="margin:0 0 8px;font-size:15px;"><strong>${
         mfaRequired
           ? "Étape 2 — Double authentification (MFA) — obligatoire"
-          : "Étape 2 — Double authentification (MFA) — facultative"
+          : "Connexion simple — sans double authentification obligatoire"
       }</strong></p>
       <p style="margin:0 0 12px;font-size:14px;">
         ${
@@ -300,30 +296,30 @@ Si vous n’êtes pas concerné par ce message, ignorez-le.
             ? `La MFA, c’est un <strong>code à 6 chiffres</strong> généré par une application sur votre téléphone.
         Sans cette étape, vous ne pourrez pas utiliser pleinement la plateforme
         (cloud, dossiers partagés, outils métiers, etc.).`
-            : `Pour les professeurs, surveillants et CPE, la MFA n’est <strong>pas obligatoire</strong>. Elle reste recommandée.
-        Vous pourrez l’activer plus tard depuis votre compte (Sécurité). Si vous l’activez, elle restera demandée à chaque connexion.`
+            : `Pour les <strong>professeurs, surveillants et CPE</strong>, la double authentification n’est <strong>plus obligatoire</strong>.
+        Après avoir créé votre mot de passe, connectez-vous avec votre <strong>e-mail et mot de passe</strong> — c’est suffisant pour accéder à l’intranet.
+        Si vous l’aviez déjà activée, vous continuerez à saisir votre code comme avant.
+        Vous pourrez la gérer plus tard depuis <strong>Mon compte → Sécurité</strong> (facultatif).`
         }
       </p>
-      <p style="margin:0 0 6px;font-size:14px;"><strong>A. Installez une appli gratuite</strong> (une seule suffit) :</p>
+      ${
+        mfaRequired
+          ? `<p style="margin:0 0 6px;font-size:14px;"><strong>A. Installez une appli gratuite</strong> (une seule suffit) :</p>
       <ul style="margin:0 0 12px;padding-left:18px;font-size:14px;">
         <li><strong>Microsoft Authenticator</strong> — Windows / Android / iPhone</li>
         <li><strong>Google Authenticator</strong> — Android / iPhone</li>
         <li><strong>Mots de passe d’Apple</strong> — iPhone / Mac (codes à deux facteurs)</li>
       </ul>
       <p style="margin:0 0 6px;font-size:14px;"><strong>B. Connectez-vous</strong> avec votre e-mail et le nouveau mot de passe.</p>
-      <p style="margin:0 0 6px;font-size:14px;"><strong>C. ${
-        mfaRequired ? "Quand le QR code s’affiche" : "Si vous activez la MFA (compte → Sécurité)"
-      } :</strong></p>
+      <p style="margin:0 0 6px;font-size:14px;"><strong>C. Quand le QR code s’affiche :</strong></p>
       <ol style="margin:0 0 12px;padding-left:18px;font-size:14px;">
         <li>Ouvrez l’application d’authentification</li>
         <li>Ajoutez un compte → « Scanner un QR code »</li>
         <li>Scannez le QR code à l’écran</li>
         <li>Saisissez le code à 6 chiffres pour valider</li>
       </ol>
-      ${
-        mfaRequired
-          ? `<p style="margin:0;font-size:14px;"><strong>D. Ensuite</strong> : à chaque connexion = e-mail + mot de passe + code de l’appli.</p>`
-          : `<p style="margin:0;font-size:14px;">Cette étape est facultative : vous pouvez ignorer le QR code et accéder à l’intranet.</p>`
+      <p style="margin:0;font-size:14px;"><strong>D. Ensuite</strong> : à chaque connexion = e-mail + mot de passe + code de l’appli.</p>`
+          : ""
       }
     </div>
 

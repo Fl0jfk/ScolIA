@@ -86,9 +86,10 @@ function ResetPasswordForm() {
         >
           <p className="text-lg font-semibold text-emerald-900">Mot de passe créé</p>
           <p className="text-sm text-emerald-800/80">
-            Vous pouvez vous connecter. Selon votre rôle, la double authentification pourra
-            vous être demandée (obligatoire pour la direction et le personnel administratif ;
-            facultative pour les professeurs, surveillants et CPE).
+            Vous pouvez vous connecter avec votre e-mail et votre mot de passe.
+            La double authentification n’est obligatoire que pour la direction et le personnel
+            administratif. Si vous l’aviez déjà activée, vous continuerez à saisir votre code
+            comme avant.
           </p>
         </div>
       </div>
@@ -104,10 +105,10 @@ function ResetPasswordForm() {
         <div>
           <h1 className="text-xl font-semibold text-emerald-950">Créer votre mot de passe</h1>
           <p className="mt-2 text-sm text-emerald-800/70">
-            Choisissez un mot de passe personnel. Après connexion, la double
-            authentification est obligatoire pour la direction et le personnel administratif ;
-            facultative pour les professeurs, surveillants et CPE (Microsoft Authenticator,
-            Google Authenticator, Mots de passe d’Apple…).
+            Choisissez un mot de passe personnel. Ensuite, connectez-vous avec votre e-mail et
+            ce mot de passe. La double authentification n’est obligatoire que pour la direction
+            et le personnel administratif ; les professeurs, surveillants et CPE peuvent s’en
+            passer.
           </p>
         </div>
         <PasswordRequirementsChecklist password={newPassword} />

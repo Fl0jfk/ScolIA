@@ -144,7 +144,8 @@ export async function sendPasswordActivationToUser(
   target: PasswordActivationTarget,
   opts?: { resetMfa?: boolean },
 ): Promise<PasswordActivationResult> {
-  const resetMfa = opts?.resetMfa === true || target.twoFactorEnabled;
+  /** Ne réinitialise la MFA que si explicitement demandé (ex. direction / admin). */
+  const resetMfa = opts?.resetMfa === true;
 
   if (!getPlatformSmtpConfig()) {
     return {

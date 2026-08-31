@@ -10,6 +10,7 @@ import {
 } from "@/app/components/settings/SettingsChrome";
 import { dash } from "@/app/lib/dashboard-brand";
 import { invitationRecentlySent } from "@/app/lib/invitation-window";
+import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
 import { useHasTenantAdminRole } from "@/app/hooks/useHasTenantAdminRole";
 import SessionsManager from "@/app/components/account/SessionsManager";
 
@@ -266,20 +267,34 @@ export default function MembresPanel() {
     const name = labelFor(u);
     const mfa = u.mfaEnabled === true;
     const recent = invitationRecentlySent(u.invitationSentAt);
+    const mfaRequired = roleRequiresTwoFactor({
+      platformAdmin: false,
+      orgAdmin: u.roles.includes("admin"),
+      roles: u.roles,
+    });
     const confirmMsg = mfa
-      ? `Réinitialiser l’accès de ${name} (${u.email}) ?\n\n` +
-        `ATTENTION : ce compte a déjà la MFA.\n` +
-        `Le lien d’invitation va :\n` +
-        `• invalider l’ancien mot de passe\n` +
-        `• supprimer la double authentification actuelle\n` +
-        `• envoyer un e-mail (lien 24 h) pour tout recommencer (nouveau MDP + nouvelle MFA)\n\n` +
-        `À utiliser seulement si la personne a perdu l’accès ou doit repartir de zéro.`
+      ? mfaRequired
+        ? `Réinitialiser l’accès de ${name} (${u.email}) ?\n\n` +
+          `ATTENTION : ce compte a déjà la MFA.\n` +
+          `Le lien d’invitation va :\n` +
+          `• invalider l’ancien mot de passe\n` +
+          `• supprimer la double authentification actuelle\n` +
+          `• envoyer un e-mail (lien 24 h) pour tout recommencer (nouveau MDP + nouvelle MFA)\n\n` +
+          `À utiliser seulement si la personne a perdu l’accès ou doit repartir de zéro.`
+        : `Réinitialiser le mot de passe de ${name} (${u.email}) ?\n\n` +
+          `Ce compte a déjà la double authentification : elle sera conservée.\n` +
+          `Le lien d’invitation va uniquement :\n` +
+          `• invalider l’ancien mot de passe\n` +
+          `• envoyer un e-mail (lien 24 h) pour en créer un nouveau\n\n` +
+          `La personne se connectera ensuite avec e-mail + mot de passe (+ son code MFA habituel).`
       : recent
         ? `Réenvoyer le lien d’invitation à ${name} (${u.email}) ?\n\n` +
           `Un lien a déjà été envoyé il y a moins de 24 heures. Un nouveau lien invalidera l’ancien.`
         : `Envoyer un lien d’invitation à ${name} (${u.email}) ?\n\n` +
           `La personne reçoit un e-mail pour créer son mot de passe (lien valable 24 h).\n` +
-          `La MFA est obligatoire pour la direction et le personnel administratif ; facultative pour les professeurs, surveillants et CPE.\n` +
+          (mfaRequired
+            ? `La double authentification sera obligatoire (direction / personnel administratif).\n`
+            : `Connexion ensuite avec e-mail + mot de passe — sans double authentification obligatoire.\n`) +
           `Un éventuel ancien mot de passe ne fonctionnera plus.`;
 
     if (!confirm(confirmMsg)) return;
@@ -356,10 +371,11 @@ export default function MembresPanel() {
       <SettingsSection>
         <h3 className={`text-sm font-semibold ${dash.ink}`}>Lien d’invitation</h3>
         <p className={`mt-1 text-sm ${dash.textMid}`}>
-          Envoie un e-mail pour créer le mot de passe (lien 24&nbsp;h). La double authentification
-          est ensuite obligatoire pour la direction et le personnel administratif ; facultative
-          pour les professeurs, surveillants et CPE. Ceux qui l’ont déjà activée la conservent. Après envoi, le bouton
-          devient <strong>Réenvoyer le lien</strong> (ligne grisée) pendant 24&nbsp;h. Sur un
+          Envoie un e-mail pour créer le mot de passe (lien 24&nbsp;h). Pour les professeurs,
+          surveillants et CPE : connexion avec e-mail + mot de passe, sans double authentification
+          obligatoire. Direction et personnel administratif : MFA obligatoire. Ceux qui l’ont déjà
+          activée la conservent lors d’un renvoi de lien. Après envoi, le bouton devient{" "}
+          <strong>Réenvoyer le lien</strong> (ligne grisée) pendant 24&nbsp;h. Sur un
           compte <strong>déjà activé (MFA)</strong>, le bouton devient une{" "}
           <strong>réinitialisation complète</strong> — à réserver aux cas où l’accès est perdu.
         </p>
@@ -497,6 +513,11 @@ export default function MembresPanel() {
             const name = labelFor(u);
             const recentInvite = invitationRecentlySent(u.invitationSentAt);
             const rowMuted = recentInvite && u.pending === true;
+            const mfaRequiredForUser = roleRequiresTwoFactor({
+              platformAdmin: false,
+              orgAdmin: u.roles.includes("admin"),
+              roles: u.roles,
+            });
             return (
               <li
                 key={key}
@@ -553,7 +574,9 @@ export default function MembresPanel() {
                           }`}
                           title={
                             u.mfaEnabled
-                              ? "Réinitialise MDP + MFA et renvoie un lien d’invitation"
+                              ? mfaRequiredForUser
+                                ? "Réinitialise MDP + MFA et renvoie un lien d’invitation"
+                                : "Réinitialise le mot de passe — la MFA existante est conservée"
                               : recentInvite
                                 ? "Réenvoyer un nouveau lien (invalide l’ancien)"
                                 : "Envoie un lien d’invitation (création du mot de passe)"
