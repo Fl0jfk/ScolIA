@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import SwitchAccountLink from "@/app/components/auth/SwitchAccountLink";
 import { authClient } from "@/app/lib/auth-client";
+import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
 
 type Step = "password" | "verify" | "done";
 
@@ -31,9 +32,36 @@ function Setup2faForm() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [canSkipMfa, setCanSkipMfa] = useState(false);
 
   useEffect(() => {
     void prepareTwoFactorSetup();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/auth/me", { credentials: "include" });
+        const data = (await res.json()) as {
+          user?: { roles?: string[]; orgAdmin?: boolean; platformAdmin?: boolean } | null;
+        };
+        const u = data.user;
+        if (!u || cancelled) return;
+        setCanSkipMfa(
+          !roleRequiresTwoFactor({
+            platformAdmin: Boolean(u.platformAdmin),
+            orgAdmin: Boolean(u.orgAdmin),
+            roles: Array.isArray(u.roles) ? u.roles : [],
+          }),
+        );
+      } catch {
+        /* si /me échoue, on n’affiche pas « Passer » (sécurité) */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -68,6 +96,19 @@ function Setup2faForm() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Impossible de recommencer.");
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function skipSetup() {
+    setBusy(true);
+    setError(null);
+    try {
+      await prepareTwoFactorSetup();
+      router.replace(redirectTo);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible de continuer sans MFA.");
       setBusy(false);
     }
   }
@@ -133,8 +174,9 @@ function Setup2faForm() {
         <div>
           <h1 className="text-xl font-semibold text-amber-950">Sécurité renforcée (2FA)</h1>
           <p className="mt-2 text-sm text-amber-900/80">
-            Tous les comptes du personnel doivent activer une application d’authentification
-            (Google Authenticator, Authy, etc.) pour sécuriser l’accès à l’intranet.
+            {canSkipMfa
+              ? "La double authentification est recommandée, mais facultative pour les professeurs. Direction, administration et personnel doivent l’activer. Si vous l’activez, elle restera demandée à chaque connexion."
+              : "Les comptes direction, administration et personnel doivent activer une application d’authentification (Google Authenticator, Authy, etc.) pour sécuriser l’accès à l’intranet."}
           </p>
         </div>
 
@@ -164,6 +206,16 @@ function Setup2faForm() {
             >
               {busy ? "Génération…" : "Générer le QR code"}
             </button>
+            {canSkipMfa ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void skipSetup()}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-60"
+              >
+                Passer cette étape
+              </button>
+            ) : null}
           </form>
         ) : null}
 
@@ -214,6 +266,16 @@ function Setup2faForm() {
             >
               Recommencer (nouveau QR)
             </button>
+            {canSkipMfa ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void skipSetup()}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-60"
+              >
+                Passer sans activer
+              </button>
+            ) : null}
             <p className="text-xs text-slate-500">
               Si vous aviez déjà scanné un ancien QR, utilisez « Recommencer » puis scannez uniquement
               le nouveau code.

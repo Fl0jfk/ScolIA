@@ -16,7 +16,7 @@ export const maxDuration = 300;
 
 const bodySchema = z.object({
   email: z.string().email().optional(),
-  /** Envoie à tous les comptes sans MFA n’ayant pas reçu d’invitation dans la fenêtre de validité. */
+  /** Envoie à tous les comptes encore en attente d’activation n’ayant pas reçu d’invitation récente. */
   bulkPending: z.boolean().optional(),
 });
 
@@ -52,7 +52,7 @@ export async function POST(req: Request) {
           sent: 0,
           failed: 0,
           message:
-            "Aucun destinataire : tout le monde a déjà reçu une invitation récente (moins de 24 h) ou a déjà activé la MFA.",
+            "Aucun destinataire : tout le monde a déjà activé son compte, ou une invitation récente a déjà été envoyée.",
         });
       }
 
@@ -121,7 +121,7 @@ export async function POST(req: Request) {
       resetMfa: result.resetMfa === true,
       message: hadMfa
         ? `Lien d’invitation envoyé à ${result.email}. L’ancien mot de passe et la MFA ont été réinitialisés — la personne repart de zéro (nouveau MDP puis nouvelle MFA). Lien valable 24 heures.`
-        : `Lien d’invitation envoyé à ${result.email}. Valable 24 heures — la personne crée son mot de passe puis active la MFA.`,
+        : `Lien d’invitation envoyé à ${result.email}. Valable 24 heures — la personne crée son mot de passe. La MFA est obligatoire selon le rôle (facultative pour les professeurs).`,
       baseUrl: betterAuthBaseUrl(),
       redirectTo: `${betterAuthBaseUrl()}/auth/reset-password`,
     });

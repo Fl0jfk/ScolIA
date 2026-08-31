@@ -183,16 +183,22 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
               >
                 Changer mon e-mail de connexion
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  closeAll();
-                  window.location.href = "/auth/setup-2fa";
-                }}
-                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/50"
-              >
-                Configurer la double authentification (2FA)
-              </button>
+              {user?.twoFactorEnabled ? (
+                <p className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-900">
+                  Double authentification déjà active. Elle reste exigée à la connexion.
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeAll();
+                    window.location.href = "/auth/setup-2fa";
+                  }}
+                  className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/50"
+                >
+                  Configurer la double authentification (2FA)
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

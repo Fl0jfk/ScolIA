@@ -6,6 +6,8 @@ import { account, session, twoFactor, user } from "@/db/schema";
 import { betterAuthBaseUrl } from "@/app/lib/auth-config";
 import { getBetterAuth } from "@/app/lib/auth-server";
 import { getPlatformSmtpConfig } from "@/app/lib/tenant-mail";
+import { listUserRolesBatchFromDb } from "@/app/lib/auth-roles-db";
+import { isAccountActivationPending } from "@/app/lib/two-factor-policy";
 import { ensureUserInvitationSentAtColumn, INVITATION_RECENT_MS } from "@/app/lib/user-invitation-sent";
 
 export type PasswordActivationTarget = {
@@ -72,16 +74,43 @@ export async function listPendingInvitationTargets(opts: {
       etablissementId: user.etablissementId,
       twoFactorEnabled: user.twoFactorEnabled,
       invitationSentAt: user.invitationSentAt,
+      emailVerified: user.emailVerified,
+      mustChangePassword: user.mustChangePassword,
+      platformAdmin: user.platformAdmin,
+      orgAdmin: user.orgAdmin,
     })
     .from(user)
-    .where(
-      and(eq(user.etablissementId, opts.etablissementId), eq(user.twoFactorEnabled, false)),
-    )
+    .where(eq(user.etablissementId, opts.etablissementId))
     .orderBy(user.email);
 
+  const rolesByUserId = await listUserRolesBatchFromDb(
+    rows.map((r) => r.id),
+    opts.etablissementId,
+  );
+
   return rows
-    .filter((r) => !r.invitationSentAt || r.invitationSentAt < cutoff)
-    .map(({ invitationSentAt: _ignored, ...target }) => target);
+    .filter((r) => {
+      if (r.invitationSentAt && r.invitationSentAt >= cutoff) return false;
+      const roles = rolesByUserId.get(r.id) ?? [];
+      return isAccountActivationPending({
+        emailVerified: r.emailVerified,
+        mustChangePassword: r.mustChangePassword,
+        twoFactorEnabled: r.twoFactorEnabled,
+        platformAdmin: r.platformAdmin,
+        orgAdmin: r.orgAdmin || roles.includes("admin"),
+        roles,
+      });
+    })
+    .map(
+      ({
+        invitationSentAt: _invitationSentAt,
+        emailVerified: _emailVerified,
+        mustChangePassword: _mustChangePassword,
+        platformAdmin: _platformAdmin,
+        orgAdmin: _orgAdmin,
+        ...target
+      }) => target,
+    );
 }
 
 /** Statut d’un compte pour l’envoi d’un lien d’invitation. */

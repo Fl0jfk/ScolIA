@@ -59,7 +59,7 @@ export default function ForgotPasswordPage() {
           <h1 className="text-xl font-semibold text-emerald-950">Mot de passe oublié</h1>
           <p className="mt-2 text-sm text-emerald-800/70">
             Saisissez l’e-mail de votre compte ScolIA. Vous recevrez un lien pour créer un nouveau
-            mot de passe et activer la double authentification.
+            mot de passe.
           </p>
         </div>
         {error ? (

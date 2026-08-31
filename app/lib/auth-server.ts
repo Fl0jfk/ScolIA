@@ -31,7 +31,7 @@ import {
   INVITATION_TOKEN_EXPIRES_IN_SEC,
   INVITATION_VALIDITY_HOURS,
 } from "@/app/lib/invitation-window";
-import { MFA_TRUST_STAFF_SECONDS } from "@/app/lib/two-factor-policy";
+import { MFA_TRUST_STAFF_SECONDS, roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
 
 type MailAttachment = {
   filename: string;
@@ -149,10 +149,33 @@ async function resolveInvitationEstablishment(): Promise<{
   return { name, shortName, logo };
 }
 
+async function userRequiresTwoFactor(userId: string): Promise<boolean> {
+  const [row] = await getDb()
+    .select({
+      platformAdmin: userTable.platformAdmin,
+      orgAdmin: userTable.orgAdmin,
+      etablissementId: userTable.etablissementId,
+    })
+    .from(userTable)
+    .where(eq(userTable.id, userId))
+    .limit(1);
+  if (!row) return true;
+  const { listUserRolesFromDb } = await import("@/app/lib/auth-roles-db");
+  const roles = await listUserRolesFromDb(userId, row.etablissementId);
+  const orgAdmin = Boolean(row.orgAdmin) || Boolean(row.platformAdmin) || roles.includes("admin");
+  return roleRequiresTwoFactor({
+    platformAdmin: Boolean(row.platformAdmin),
+    orgAdmin,
+    roles,
+  });
+}
+
 /** Corps du mail d’activation / reset MDP (texte + HTML), branding tenant inclus. */
 export async function buildPasswordActivationEmail(opts: {
   firstName?: string | null;
   url: string;
+  /** Si false : MFA présentée comme facultative (professeurs). Défaut : obligatoire. */
+  mfaRequired?: boolean;
 }): Promise<{
   subject: string;
   text: string;
@@ -167,21 +190,10 @@ export async function buildPasswordActivationEmail(opts: {
   const short = branding.shortName;
   const subject = `[${short}] Invitation ScolIA — activez votre compte`;
   const fromName = `${short} · ScolIA`;
+  const mfaRequired = opts.mfaRequired !== false;
 
-  const text = `${hello}
-
-Cet e-mail vous est envoyé par ${etab}.
-Il s’agit de l’invitation pour activer votre espace personnel sur la plateforme ScolIA (intranet / ENT de votre établissement).
-
-━━━━━━━━━━━━━━━━━━━━
-ÉTAPE 1 — Créer votre mot de passe (lien valable ${INVITATION_VALIDITY_HOURS} heures)
-━━━━━━━━━━━━━━━━━━━━
-Ouvrez ce lien uniquement :
-${opts.url}
-
-Important : si un ancien mot de passe existait, il ne fonctionne plus. Utilisez uniquement ce lien.
-
-━━━━━━━━━━━━━━━━━━━━
+  const mfaText = mfaRequired
+    ? `━━━━━━━━━━━━━━━━━━━━
 ÉTAPE 2 — Double authentification (MFA) — obligatoire
 ━━━━━━━━━━━━━━━━━━━━
 La MFA, c’est un code à 6 chiffres généré par une application sur votre téléphone (ou tablette).
@@ -202,7 +214,40 @@ C) L’écran affiche un QR code :
    3. Scannez le QR code affiché à l’écran
    4. Saisissez le code à 6 chiffres proposé par l’appli pour valider
 
-D) À chaque connexion suivante : e-mail + mot de passe + code de l’appli.
+D) À chaque connexion suivante : e-mail + mot de passe + code de l’appli.`
+    : `━━━━━━━━━━━━━━━━━━━━
+ÉTAPE 2 — Double authentification (MFA) — facultative
+━━━━━━━━━━━━━━━━━━━━
+Pour les professeurs, la MFA n’est pas obligatoire. Elle reste recommandée pour sécuriser votre compte.
+Vous pourrez l’activer plus tard depuis votre compte (Sécurité).
+
+Si vous souhaitez l’activer maintenant :
+
+A) Installez UNE application gratuite d’authentification, par exemple :
+   • Microsoft Authenticator (Windows, Android, iPhone)
+   • Google Authenticator (Android, iPhone)
+   • « Mots de passe » d’Apple (iPhone / Mac) — codes à deux facteurs
+
+B) Connectez-vous sur ScolIA avec votre e-mail + le nouveau mot de passe.
+
+C) Dans votre compte → Sécurité → « Configurer la double authentification », scannez le QR code et saisissez le code à 6 chiffres.
+
+Si vous l’activez, elle restera demandée à chaque connexion.`;
+
+  const text = `${hello}
+
+Cet e-mail vous est envoyé par ${etab}.
+Il s’agit de l’invitation pour activer votre espace personnel sur la plateforme ScolIA (intranet / ENT de votre établissement).
+
+━━━━━━━━━━━━━━━━━━━━
+ÉTAPE 1 — Créer votre mot de passe (lien valable ${INVITATION_VALIDITY_HOURS} heures)
+━━━━━━━━━━━━━━━━━━━━
+Ouvrez ce lien uniquement :
+${opts.url}
+
+Important : si un ancien mot de passe existait, il ne fonctionne plus. Utilisez uniquement ce lien.
+
+${mfaText}
 
 ━━━━━━━━━━━━━━━━━━━━
 Lien expiré ?
@@ -244,11 +289,20 @@ Si vous n’êtes pas concerné par ce message, ignorez-le.
     <p style="font-size:12px;color:#64748b;word-break:break-all;">Si le bouton ne fonctionne pas, copiez cette adresse :<br/><a href="${opts.url}">${opts.url}</a></p>
 
     <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:12px;padding:16px;margin:28px 0 12px;">
-      <p style="margin:0 0 8px;font-size:15px;"><strong>Étape 2 — Double authentification (MFA) — obligatoire</strong></p>
+      <p style="margin:0 0 8px;font-size:15px;"><strong>${
+        mfaRequired
+          ? "Étape 2 — Double authentification (MFA) — obligatoire"
+          : "Étape 2 — Double authentification (MFA) — facultative"
+      }</strong></p>
       <p style="margin:0 0 12px;font-size:14px;">
-        La MFA, c’est un <strong>code à 6 chiffres</strong> généré par une application sur votre téléphone.
+        ${
+          mfaRequired
+            ? `La MFA, c’est un <strong>code à 6 chiffres</strong> généré par une application sur votre téléphone.
         Sans cette étape, vous ne pourrez pas utiliser pleinement la plateforme
-        (cloud, dossiers partagés, outils métiers, etc.).
+        (cloud, dossiers partagés, outils métiers, etc.).`
+            : `Pour les professeurs, la MFA n’est <strong>pas obligatoire</strong>. Elle reste recommandée.
+        Vous pourrez l’activer plus tard depuis votre compte (Sécurité). Si vous l’activez, elle restera demandée à chaque connexion.`
+        }
       </p>
       <p style="margin:0 0 6px;font-size:14px;"><strong>A. Installez une appli gratuite</strong> (une seule suffit) :</p>
       <ul style="margin:0 0 12px;padding-left:18px;font-size:14px;">
@@ -257,14 +311,20 @@ Si vous n’êtes pas concerné par ce message, ignorez-le.
         <li><strong>Mots de passe d’Apple</strong> — iPhone / Mac (codes à deux facteurs)</li>
       </ul>
       <p style="margin:0 0 6px;font-size:14px;"><strong>B. Connectez-vous</strong> avec votre e-mail et le nouveau mot de passe.</p>
-      <p style="margin:0 0 6px;font-size:14px;"><strong>C. Quand le QR code s’affiche :</strong></p>
+      <p style="margin:0 0 6px;font-size:14px;"><strong>C. ${
+        mfaRequired ? "Quand le QR code s’affiche" : "Si vous activez la MFA (compte → Sécurité)"
+      } :</strong></p>
       <ol style="margin:0 0 12px;padding-left:18px;font-size:14px;">
         <li>Ouvrez l’application d’authentification</li>
         <li>Ajoutez un compte → « Scanner un QR code »</li>
         <li>Scannez le QR code à l’écran</li>
         <li>Saisissez le code à 6 chiffres pour valider</li>
       </ol>
-      <p style="margin:0;font-size:14px;"><strong>D. Ensuite</strong> : à chaque connexion = e-mail + mot de passe + code de l’appli.</p>
+      ${
+        mfaRequired
+          ? `<p style="margin:0;font-size:14px;"><strong>D. Ensuite</strong> : à chaque connexion = e-mail + mot de passe + code de l’appli.</p>`
+          : `<p style="margin:0;font-size:14px;">Cette étape est facultative : vous pouvez ignorer le QR code et accéder à l’intranet.</p>`
+      }
     </div>
 
     <p style="font-size:13px;color:#64748b;margin:20px 0 0;">
@@ -333,10 +393,12 @@ function createAuth() {
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url }) => {
         const u = user as {
+          id?: string;
           email: string;
           name?: string | null;
           firstName?: string | null;
         };
+        const mfaRequired = u.id ? await userRequiresTwoFactor(u.id) : true;
         const mail = await buildPasswordActivationEmail({
           firstName:
             typeof u.firstName === "string" && u.firstName.trim()
@@ -345,6 +407,7 @@ function createAuth() {
                 ? u.name.split(/\s+/)[0] || null
                 : null,
           url,
+          mfaRequired,
         });
         const ok = await sendPlatformMail({
           to: u.email,

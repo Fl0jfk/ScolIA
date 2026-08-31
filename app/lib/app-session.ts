@@ -25,6 +25,7 @@ export type AppUser = {
   roles: string[];
   orgAdmin: boolean;
   platformAdmin: boolean;
+  twoFactorEnabled: boolean;
   externalUserId?: string;
   authSource: AuthSource;
 };
@@ -60,6 +61,7 @@ async function betterAuthSessionToAppUser(): Promise<AppUser | null> {
       lastName?: string | null;
       orgAdmin?: boolean;
       platformAdmin?: boolean;
+      twoFactorEnabled?: boolean;
     };
 
     const etablissementId = u.etablissementId;
@@ -84,6 +86,7 @@ async function betterAuthSessionToAppUser(): Promise<AppUser | null> {
       platformAdmin:
         Boolean(u.platformAdmin) ||
         isPlatformMasterFromAppUser({ roles, platformAdmin: u.platformAdmin }),
+      twoFactorEnabled: Boolean(u.twoFactorEnabled),
       externalUserId: u.externalUserId ?? undefined,
       authSource: "better-auth",
     };

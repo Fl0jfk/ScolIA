@@ -2,9 +2,10 @@ import "server-only";
 
 import { eq } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
-import { user, userRole } from "@/db/schema";
+import { user } from "@/db/schema";
 import type { DirectoryMemberRow } from "@/app/lib/directory-members";
 import { listUserRolesBatchFromDb, listUserRolesFromDb } from "@/app/lib/auth-roles-db";
+import { isAccountActivationPending } from "@/app/lib/two-factor-policy";
 import { ensureUserInvitationSentAtColumn } from "@/app/lib/user-invitation-sent";
 
 export async function listMembersFromDb(etablissementId: string): Promise<DirectoryMemberRow[]> {
@@ -27,7 +28,14 @@ export async function listMembersFromDb(etablissementId: string): Promise<Direct
       lastName: u.lastName ?? undefined,
       displayName: u.name,
       roles,
-      pending: !u.emailVerified || u.mustChangePassword || !u.twoFactorEnabled,
+      pending: isAccountActivationPending({
+        emailVerified: u.emailVerified,
+        mustChangePassword: u.mustChangePassword,
+        twoFactorEnabled: u.twoFactorEnabled,
+        platformAdmin: u.platformAdmin,
+        orgAdmin: u.orgAdmin || roles.includes("admin"),
+        roles,
+      }),
       mfaEnabled: u.twoFactorEnabled,
       invitationSentAt: u.invitationSentAt ? u.invitationSentAt.toISOString() : null,
       createdAt: u.createdAt.toISOString(),

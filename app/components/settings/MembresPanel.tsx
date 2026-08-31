@@ -257,7 +257,7 @@ export default function MembresPanel() {
   const pendingInviteTargets = useMemo(
     () =>
       users.filter(
-        (u) => !u.mfaEnabled && !invitationRecentlySent(u.invitationSentAt),
+        (u) => u.pending === true && !invitationRecentlySent(u.invitationSentAt),
       ),
     [users],
   );
@@ -278,7 +278,8 @@ export default function MembresPanel() {
         ? `Réenvoyer le lien d’invitation à ${name} (${u.email}) ?\n\n` +
           `Un lien a déjà été envoyé il y a moins de 24 heures. Un nouveau lien invalidera l’ancien.`
         : `Envoyer un lien d’invitation à ${name} (${u.email}) ?\n\n` +
-          `La personne reçoit un e-mail pour créer son mot de passe (lien valable 24 h), puis active la MFA.\n` +
+          `La personne reçoit un e-mail pour créer son mot de passe (lien valable 24 h).\n` +
+          `La MFA est obligatoire pour la direction, l’administration et le personnel ; facultative pour les professeurs.\n` +
           `Un éventuel ancien mot de passe ne fonctionnera plus.`;
 
     if (!confirm(confirmMsg)) return;
@@ -306,13 +307,14 @@ export default function MembresPanel() {
   const sendBulkPendingInvites = async () => {
     const n = pendingInviteTargets.length;
     if (n === 0) {
-      setError("Personne à inviter : MFA déjà active ou invitation déjà envoyée récemment (< 24 h).");
+      setError("Personne à inviter : activation déjà terminée ou invitation déjà envoyée récemment (< 24 h).");
       return;
     }
     if (
       !confirm(
         `Envoyer une invitation à ${n} personne(s) qui n’ont pas encore reçu de lien récent ?\n\n` +
-          `Les comptes déjà activés (MFA) et ceux déjà invités il y a moins de 24 h sont exclus.`,
+          `Les comptes déjà activés et ceux déjà invités il y a moins de 24 h sont exclus.\n` +
+          `Les professeurs sans MFA (compte déjà utilisable) ne sont pas relancés.`,
       )
     ) {
       return;
@@ -354,8 +356,10 @@ export default function MembresPanel() {
       <SettingsSection>
         <h3 className={`text-sm font-semibold ${dash.ink}`}>Lien d’invitation</h3>
         <p className={`mt-1 text-sm ${dash.textMid}`}>
-          Envoie un e-mail pour créer le mot de passe (lien 24&nbsp;h), puis activer la MFA. Après envoi,
-          le bouton devient <strong>Réenvoyer le lien</strong> (ligne grisée) pendant 24&nbsp;h. Sur un
+          Envoie un e-mail pour créer le mot de passe (lien 24&nbsp;h). La double authentification
+          est ensuite obligatoire pour la direction, l’administration et le personnel ; facultative
+          pour les professeurs. Ceux qui l’ont déjà activée la conservent. Après envoi, le bouton
+          devient <strong>Réenvoyer le lien</strong> (ligne grisée) pendant 24&nbsp;h. Sur un
           compte <strong>déjà activé (MFA)</strong>, le bouton devient une{" "}
           <strong>réinitialisation complète</strong> — à réserver aux cas où l’accès est perdu.
         </p>
@@ -492,7 +496,7 @@ export default function MembresPanel() {
             const key = u.externalUserId || u.email;
             const name = labelFor(u);
             const recentInvite = invitationRecentlySent(u.invitationSentAt);
-            const rowMuted = recentInvite && !u.mfaEnabled;
+            const rowMuted = recentInvite && u.pending === true;
             return (
               <li
                 key={key}
@@ -516,7 +520,7 @@ export default function MembresPanel() {
                     {u.pending && !u.mfaEnabled && !recentInvite && (
                       <span className="text-xs text-amber-600 font-bold">Invitation / activation en attente</span>
                     )}
-                    {recentInvite && !u.mfaEnabled && (
+                    {recentInvite && u.pending && (
                       <span className="text-xs text-slate-500 font-bold">
                         Lien envoyé
                         {u.invitationSentAt
@@ -532,6 +536,9 @@ export default function MembresPanel() {
                     )}
                     {u.mfaEnabled && (
                       <span className="text-xs text-emerald-700 font-bold">Compte activé (MFA)</span>
+                    )}
+                    {!u.pending && !u.mfaEnabled && (
+                      <span className="text-xs text-emerald-700 font-bold">Compte actif</span>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-3 shrink-0">

@@ -86,8 +86,9 @@ function ResetPasswordForm() {
         >
           <p className="text-lg font-semibold text-emerald-900">Mot de passe créé</p>
           <p className="text-sm text-emerald-800/80">
-            Vous pouvez vous connecter. Vous serez ensuite guidé pour activer la double
-            authentification (MFA).
+            Vous pouvez vous connecter. Selon votre rôle, la double authentification pourra
+            vous être demandée (obligatoire pour la direction, l’administration et le
+            personnel ; facultative pour les professeurs).
           </p>
         </div>
       </div>
@@ -103,9 +104,10 @@ function ResetPasswordForm() {
         <div>
           <h1 className="text-xl font-semibold text-emerald-950">Créer votre mot de passe</h1>
           <p className="mt-2 text-sm text-emerald-800/70">
-            Choisissez un mot de passe personnel. Après connexion, vous configurerez la double
-            authentification avec une application (Microsoft Authenticator, Google Authenticator,
-            Mots de passe d’Apple…).
+            Choisissez un mot de passe personnel. Après connexion, la double
+            authentification est obligatoire pour la direction, l’administration et le
+            personnel ; facultative pour les professeurs (Microsoft Authenticator, Google
+            Authenticator, Mots de passe d’Apple…).
           </p>
         </div>
         <PasswordRequirementsChecklist password={newPassword} />

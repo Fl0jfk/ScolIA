@@ -1,8 +1,14 @@
 import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
-import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
+import { hasGlobalAdminRole, hasMasterRole, normRole } from "@/app/lib/intranet-role-utils";
 
 /** Rôles famille / portail — pas de 2FA TOTP obligatoire pour l’instant. */
 const FAMILY_ONLY_ROLES = new Set(["parent", "eleve"]);
+
+/**
+ * Rôles enseignants : MFA facultative (ceux qui l’ont déjà activée la gardent à la connexion).
+ * Un professeur qui a aussi un rôle direction / admin / personnel reste soumis à la MFA obligatoire.
+ */
+const TEACHER_MFA_OPTIONAL_ROLES = new Set(["professeur", "enseignant"]);
 
 export const MFA_TRUST_STAFF_SECONDS = 60 * 60 * 24 * 30; // 30 jours
 export const MFA_TRUST_DIRECTION_SECONDS = 60 * 60 * 24 * 7; // 7 jours
@@ -17,10 +23,16 @@ export type MfaTrustPolicy = {
   hint: string;
 };
 
+export function isTeacherMfaOptionalRole(role: string): boolean {
+  const n = normRole(role);
+  return TEACHER_MFA_OPTIONAL_ROLES.has(n) || n.includes("professeur") || n.includes("enseignant");
+}
+
 /**
  * Indique si le compte doit activer la 2FA (TOTP).
- * Obligatoire pour tout le personnel intranet ; exclus uniquement les comptes
- * dont les rôles sont purement `parent` et/ou `eleve`.
+ * Obligatoire pour admin, direction et personnel (hors professeur « pur »).
+ * Facultative pour les professeurs / enseignants — y compris cumulés avec parent/élève.
+ * Si la MFA est déjà activée, Better-Auth continue de la demander à la connexion.
  */
 export function roleRequiresTwoFactor(opts: {
   platformAdmin: boolean;
@@ -32,8 +44,30 @@ export function roleRequiresTwoFactor(opts: {
   const roles = opts.roles.filter(Boolean);
   if (roles.length === 0) return true;
 
-  const hasStaffRole = roles.some((role) => !FAMILY_ONLY_ROLES.has(role));
-  return hasStaffRole;
+  const staffRoles = roles.filter((role) => !FAMILY_ONLY_ROLES.has(role));
+  if (staffRoles.length === 0) return false;
+
+  const hasPrivilegedStaff = staffRoles.some((role) => !isTeacherMfaOptionalRole(role));
+  return hasPrivilegedStaff;
+}
+
+/** Compte encore « en attente » d’activation (MDP / e-mail / MFA obligatoire). */
+export function isAccountActivationPending(opts: {
+  emailVerified: boolean;
+  mustChangePassword: boolean;
+  twoFactorEnabled: boolean;
+  platformAdmin: boolean;
+  orgAdmin: boolean;
+  roles: string[];
+}): boolean {
+  if (!opts.emailVerified || opts.mustChangePassword) return true;
+  return (
+    roleRequiresTwoFactor({
+      platformAdmin: opts.platformAdmin,
+      orgAdmin: opts.orgAdmin,
+      roles: opts.roles,
+    }) && !opts.twoFactorEnabled
+  );
 }
 
 function isDirectionRoleSet(roles: string[]): boolean {
