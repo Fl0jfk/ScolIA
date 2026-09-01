@@ -5,13 +5,70 @@
  * Usage (sur une machine avec accès DATABASE_URL prod) :
  *   npx tsx --env-file=.env.local --require ./scripts/stub-server-only.cjs scripts/restore-travels-from-s3.ts
  *   npx tsx --env-file=.env.local --require ./scripts/stub-server-only.cjs scripts/restore-travels-from-s3.ts --dry-run
+ *   npx tsx ... scripts/restore-travels-from-s3.ts --tenant=la-providence-nicolas-barre
  */
+import { existsSync, readFileSync } from "node:fs";
 import { GetObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
-import { loadEnvFile } from "node:process";
+import { eq } from "drizzle-orm";
 import type { TravelsTrip } from "@/app/lib/travels-types";
-import { listTravelsFromDb, travelsDbReady, upsertTravelInDb } from "@/app/lib/travel-db";
+import { ensureEtablissementFromSlug } from "@/app/lib/etablissement-db";
+import { listTravelsFromDb, upsertTravelInDb } from "@/app/lib/travel-db";
+import { getDb, isDatabaseConfigured } from "@/db/index";
+import { etablissement } from "@/db/schema";
+
+function loadEnvFile(path: string) {
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const i = trimmed.indexOf("=");
+    if (i < 0) continue;
+    const key = trimmed.slice(0, i).trim();
+    let val = trimmed.slice(i + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = val;
+  }
+}
 
 loadEnvFile(".env.local");
+loadEnvFile(".env");
+process.env.ENT_CORE_DB = process.env.ENT_CORE_DB || "1";
+
+function argValue(name: string): string | null {
+  const prefix = `--${name}=`;
+  const hit = process.argv.find((a) => a.startsWith(prefix));
+  return hit ? hit.slice(prefix.length).trim() : null;
+}
+
+async function resolveEtablissementId(): Promise<string> {
+  if (!isDatabaseConfigured()) {
+    throw new Error("DATABASE_URL manquante.");
+  }
+  const slug =
+    argValue("tenant")?.trim() ||
+    process.env.DEFAULT_TENANT_SLUG?.trim() ||
+    process.env.RESTORE_TRAVELS_TENANT?.trim();
+  if (!slug) {
+    throw new Error("Indiquez --tenant=<slug> ou DEFAULT_TENANT_SLUG dans .env.local");
+  }
+  try {
+    return await ensureEtablissementFromSlug(slug);
+  } catch {
+    const db = getDb();
+    const [row] = await db
+      .select({ id: etablissement.id })
+      .from(etablissement)
+      .where(eq(etablissement.slug, slug))
+      .limit(1);
+    if (!row?.id) throw new Error(`Établissement introuvable pour slug « ${slug} ».`);
+    return row.id;
+  }
+}
 
 const dryRun = process.argv.includes("--dry-run");
 const bucket = process.env.BUCKET_NAME || "docslapro";
@@ -51,8 +108,8 @@ async function readTrip(key: string): Promise<TravelsTrip | null> {
 }
 
 async function main() {
-  const etabId = await travelsDbReady();
-  if (!etabId) throw new Error("Postgres travels indisponible (ENT_CORE_DB / DATABASE_URL).");
+  const etabId = await resolveEtablissementId();
+  console.log("Établissement:", etabId);
 
   const before = await listTravelsFromDb(etabId);
   const beforeIds = new Set(before.map((t) => String(t.id)));
