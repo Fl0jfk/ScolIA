@@ -338,6 +338,7 @@ export async function upsertTravelInDb(
   }
 }
 
+/** Remplacement complet — script de migration uniquement (efface les dossiers absents de la liste). */
 export async function replaceTravelsInDb(
   etablissementId: string,
   trips: TravelsTrip[],

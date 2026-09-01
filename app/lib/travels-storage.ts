@@ -4,7 +4,6 @@ import type { TravelsTrip } from "@/app/lib/travels-types";
 import {
   getTravelFromDb,
   listTravelsFromDb,
-  replaceTravelsInDb,
   travelsDbReady,
   upsertTravelInDb,
 } from "@/app/lib/travel-db";
@@ -15,13 +14,13 @@ export async function listTravelsIndex(): Promise<TravelsTrip[]> {
   return listTravelsFromDb(etabId);
 }
 
+/** @deprecated Index JSON obsolète — préférer saveTravelTrip. Conservé pour compat. */
 export async function saveTravelsIndex(index: TravelsTrip[]): Promise<void> {
   const etabId = await travelsDbReady();
   if (!etabId) throw new Error("[travels] Postgres requis");
-  await replaceTravelsInDb(
-    etabId,
-    index.filter((t) => t?.id),
-  );
+  for (const t of index) {
+    if (t?.id) await upsertTravelInDb(etabId, t);
+  }
 }
 
 export async function getTravelTrip(id: string): Promise<TravelsTrip | null> {

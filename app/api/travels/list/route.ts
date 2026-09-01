@@ -8,7 +8,7 @@ import {
 } from "@/app/lib/travels-trip-helpers";
 import { normalizeTripImageFields } from "@/app/lib/travels-image-url";
 import type { TravelsTrip } from "@/app/lib/travels-types";
-import { listTravelsIndex, saveTravelsIndex } from "@/app/lib/travels-storage";
+import { listTravelsIndex } from "@/app/lib/travels-storage";
 import { deleteTravelFromDb, travelsDbReady } from "@/app/lib/travel-db";
 
 async function purgeOldTrips(trips: TravelsTrip[]): Promise<TravelsTrip[]> {
@@ -29,7 +29,6 @@ async function purgeOldTrips(trips: TravelsTrip[]): Promise<TravelsTrip[]> {
   );
 
   const remaining = trips.filter((t) => !expiredIds.has(String(t.id)));
-  await saveTravelsIndex(remaining);
   return remaining;
 }
 

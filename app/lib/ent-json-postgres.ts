@@ -125,10 +125,8 @@ async function tryTypedPut(relativePath: string, data: unknown): Promise<string 
     return key;
   }
   if (key === "travels/index.json" && Array.isArray(data)) {
-    const { travelsDbReady, replaceTravelsInDb } = await import("@/app/lib/travel-db");
-    const etabId = await travelsDbReady();
-    if (!etabId) throw new Error("[ent] Postgres requis");
-    await replaceTravelsInDb(etabId, data as import("@/app/lib/travels-types").TravelsTrip[]);
+    // Index legacy : la liste lit `travel` directement. Ne pas remplacer toute la table
+    // (sinon suppression de dossiers non finalisés lors d'une simple mise à jour).
     return key;
   }
   if (relativePath === "settings/requests-routing.json") {
