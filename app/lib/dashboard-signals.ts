@@ -1467,6 +1467,37 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       });
     }
   }
+  if (has("accueil-absences")) {
+    shortcuts.push({
+      id: "accueil-absences",
+      pillarId: "vie_scolaire",
+      moduleId: "accueil-absences",
+      href: moduleHref("accueil-absences"),
+      label: "Absence accueil",
+      emoji: "☎️",
+      detail: "Déclarer une absence au standard",
+    });
+  }
+  if (has("absences-accueil-consultation")) {
+    shortcuts.push({
+      id: "absences-accueil-consultation",
+      pillarId: "vie_scolaire",
+      moduleId: "absences-accueil-consultation",
+      href: moduleHref("absences-accueil-consultation"),
+      label: "Absences déclarées accueil",
+      emoji: "📋",
+      detail: "Consulter les absences saisies à l’accueil",
+    });
+  }
+  if (has("vs-calendrier")) {
+    shortcuts.push({
+      id: "vs-calendrier",
+      pillarId: "vie_scolaire",
+      moduleId: "vs-calendrier",
+      href: moduleHref("vs-calendrier"),
+      label: "Calendrier & EDT",
+    });
+  }
   if (has("sante")) {
     shortcuts.push({
       id: "sante",
