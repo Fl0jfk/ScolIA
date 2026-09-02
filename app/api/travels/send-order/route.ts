@@ -14,7 +14,7 @@ import {
   createTenantTransporter,
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
-import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
+import { buildTransportReplyTo, mergeTransportMailCc } from "@/app/lib/travel-email-routing";
 import {
   fetchTravelsPdfBytes,
   resolveTravelsS3ObjectLocation,
@@ -267,6 +267,7 @@ export async function POST(req: Request) {
         from: `"Gestion Voyages" <${smtp.user}>`,
         to: toEmail,
         ...(replyTo ? { replyTo } : {}),
+        cc: mergeTransportMailCc(),
         subject: `Confirmation de commande : ${tripTitle}`,
         html: `
         <div style="font-family: sans-serif; line-height: 1.5; color: #333;">

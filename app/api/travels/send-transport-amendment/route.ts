@@ -12,7 +12,7 @@ import {
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
 import type { TransportAmendment, TravelsTrip } from "@/app/lib/travels-types";
-import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
+import { buildTransportReplyTo, mergeTransportMailCc } from "@/app/lib/travel-email-routing";
 
 type TripRecord = TravelsTrip;
 
@@ -109,6 +109,7 @@ export async function POST(req: Request) {
         from: `"Plateforme Voyages" <${smtp.user}>`,
         to: r.email,
         ...(replyTo ? { replyTo } : {}),
+        cc: mergeTransportMailCc(),
         subject: `AVENANT DEVIS (effectif) - ${String(data.destination).toUpperCase()}`,
         html: `
           <div style="font-family: sans-serif; line-height: 1.5; color: #334155;">

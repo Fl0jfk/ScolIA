@@ -9,7 +9,7 @@ import {
   createTenantTransporter,
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
-import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
+import { buildTransportReplyTo, mergeTransportMailCc } from "@/app/lib/travel-email-routing";
 
 export async function POST(req: Request) {
   const session = await resolveSession();
@@ -72,6 +72,7 @@ export async function POST(req: Request) {
           from: `"Plateforme Voyages" <${smtp.user}>`,
           to: transporteur.email,
           ...(replyTo ? { replyTo } : {}),
+          cc: mergeTransportMailCc(),
           subject: `DEMANDE DE DEVIS - ${data.destination.toUpperCase()} - ${userName}`,
           html: `
           <div style="font-family: sans-serif; line-height: 1.5; color: #334155;">

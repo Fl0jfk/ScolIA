@@ -22,6 +22,46 @@ export function travelEmailAlertRecipients(): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Copie (CC) sur les e-mails sortants vers les transporteurs — mode test / défense.
+ * `TRAVEL_TRANSPORT_MAIL_CC` prioritaire, sinon `MAILER_ALERT_TO`.
+ */
+export function travelTransportMailCc(): string[] {
+  const raw =
+    process.env.TRAVEL_TRANSPORT_MAIL_CC?.trim() ||
+    process.env.MAILER_ALERT_TO?.trim() ||
+    process.env.TRAVEL_EMAIL_ALERT_TO?.trim() ||
+    "";
+  if (!raw) return [];
+  return [
+    ...new Set(
+      raw
+        .split(/[,;]/)
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+/** Fusionne une CC existante avec la copie test transporteurs. */
+export function mergeTransportMailCc(
+  existing?: string | string[] | null,
+): string | undefined {
+  const fromExisting = Array.isArray(existing)
+    ? existing
+    : typeof existing === "string"
+      ? existing.split(/[,;]/)
+      : [];
+  const merged = [
+    ...new Set(
+      [...fromExisting, ...travelTransportMailCc()]
+        .map((s) => String(s || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  return merged.length > 0 ? merged.join(", ") : undefined;
+}
+
 function parseEmailAddress(raw: string): { local: string; domain: string } | null {
   const m = raw.match(/([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
   if (!m) return null;

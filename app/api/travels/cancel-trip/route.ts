@@ -11,6 +11,7 @@ import {
   createTenantTransporter,
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
+import { mergeTransportMailCc } from "@/app/lib/travel-email-routing";
 
 export async function POST(req: Request) {
   const gate = await requireAuth();
@@ -58,6 +59,7 @@ export async function POST(req: Request) {
         await transporter.sendMail({
           from: `"Plateforme Voyages" <${smtp.user}>`,
           to,
+          cc: mergeTransportMailCc(),
           subject: preview.subject,
           text: reason ? `${preview.text}\n\nMotif : ${reason}` : preview.text,
         });

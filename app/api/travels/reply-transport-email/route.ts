@@ -7,7 +7,7 @@ import {
   createTenantTransporter,
   getTenantSmtpConfig,
 } from "@/app/lib/tenant-mail";
-import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
+import { buildTransportReplyTo, mergeTransportMailCc } from "@/app/lib/travel-email-routing";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
 /** Réponse e-mail au transporteur depuis le fil du séjour. */
@@ -77,6 +77,7 @@ export async function POST(req: Request) {
       from: `"Plateforme Voyages" <${smtp.user}>`,
       to: toEmail,
       ...(replyTo ? { replyTo } : {}),
+      cc: mergeTransportMailCc(),
       subject,
       text: [
         bodyText,
