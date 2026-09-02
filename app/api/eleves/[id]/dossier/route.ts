@@ -21,6 +21,7 @@ import {
   eleveDocCategoriesMetaForRoles,
   eleveDocTiroirsForRoles,
   listEleveDocumentsForViewer,
+  getLatestPapDocumentForEleve,
   recordEleveAccessAudit,
   type EleveDocConfidentialite,
   type EleveDocTiroir,
@@ -206,6 +207,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     carnetRaw,
     financesSynthese,
     classmates,
+    papDoc,
   ] = await Promise.all([
     db
       .select()
@@ -322,6 +324,7 @@ export async function GET(_req: Request, ctx: Ctx) {
           assignedClasses: assignedClassesForProf,
         })
       : Promise.resolve([]),
+    getLatestPapDocumentForEleve({ etablissementId: etabId, eleveId: id }).catch(() => null),
   ]);
 
   // Foyers : 2 requêtes max au lieu de N+1
@@ -539,11 +542,27 @@ export async function GET(_req: Request, ctx: Ctx) {
     sanctions: needVs ? sanctionsEleve : [],
     carnet: needVs ? carnetEleve : [],
     documents,
+    pap: papDoc
+      ? {
+          id: papDoc.id,
+          title: papDoc.title,
+          fileUrl: papDoc.fileUrl,
+          mimeType: papDoc.mimeType,
+          createdAt:
+            papDoc.createdAt instanceof Date
+              ? papDoc.createdAt.toISOString()
+              : String(papDoc.createdAt ?? ""),
+        }
+      : null,
     meta: {
       sites,
       annees,
       canEditStructure: canEditStructure(roles, { orgAdmin, platformAdmin }),
       canDecideAccess: canDecide,
+      canUploadPap: canRegisterEleveDocument("sante", "standard", roles, {
+        orgAdmin,
+        platformAdmin,
+      }),
       profRestrictedView,
       tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),

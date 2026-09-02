@@ -12,6 +12,7 @@ import {
   TIROIR_TO_CATEGORIE,
   type EleveDocCategorie,
 } from "@/app/lib/eleve-doc-categories";
+import { defaultPapDocumentTitle, isPapDocumentTitle } from "@/app/lib/eleve-pap";
 import EleveFinancesPanel from "@/app/components/eleves/EleveFinancesPanel";
 import EleveDossierSidebar from "@/app/components/eleves/EleveDossierSidebar";
 import { scolariteStatutLabel } from "@/app/lib/eleve-dossier-labels";
@@ -150,12 +151,21 @@ type DossierPayload = {
     fileUrl: string | null;
     confidentialite: string;
   }>;
+  /** PAP le plus récent (synthèse) — accessible aussi aux professeurs. */
+  pap?: {
+    id: string;
+    title: string;
+    fileUrl: string | null;
+    mimeType: string | null;
+    createdAt: string;
+  } | null;
   classmates?: Array<{ id: string; nom: string; prenom: string }>;
   meta: {
     sites: Array<{ siteId: string; label: string; kind: string | null }>;
     annees: Array<{ id: string; label: string; isCurrent: boolean }>;
     canEditStructure: boolean;
     canDecideAccess: boolean;
+    canUploadPap?: boolean;
     profRestrictedView?: boolean;
     tiroirs: string[];
     docCategories?: Array<"administratif" | "financier" | "sante">;
@@ -512,7 +522,11 @@ export default function EleveDossierClient() {
     }
   }
 
-  async function uploadFiles(files: FileList | File[]) {
+  async function uploadFiles(files: FileList | File[], opts?: {
+    tiroir?: string;
+    confidentialite?: string;
+    title?: string;
+  }) {
     const list = Array.from(files);
     if (list.length === 0) return;
     setBusy(true);
@@ -545,7 +559,7 @@ export default function EleveDossierClient() {
         if (!put.ok) throw new Error(`Upload S3 échoué (${put.status})`);
 
         const title =
-          uploadMeta.title.trim() ||
+          (opts?.title || uploadMeta.title).trim() ||
           file.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() ||
           file.name;
         const reg = await fetch(`/api/eleves/${id}/dossier`, {
@@ -554,8 +568,8 @@ export default function EleveDossierClient() {
           body: JSON.stringify({
             action: "register_document",
             title,
-            tiroir: uploadMeta.tiroir,
-            confidentialite: uploadMeta.confidentialite,
+            tiroir: opts?.tiroir || uploadMeta.tiroir,
+            confidentialite: opts?.confidentialite || uploadMeta.confidentialite,
             s3Key: prepJ.s3Key,
             fileUrl: prepJ.fileUrl,
             mimeType: file.type || "application/octet-stream",
@@ -573,6 +587,15 @@ export default function EleveDossierClient() {
       setBusy(false);
       setDragOver(false);
     }
+  }
+
+  async function uploadPapFile(file: File) {
+    const annee = data?.meta.annees.find((a) => a.isCurrent)?.label ?? null;
+    await uploadFiles([file], {
+      tiroir: "sante",
+      confidentialite: "standard",
+      title: defaultPapDocumentTitle(annee),
+    });
   }
 
   function onDrop(e: DragEvent<HTMLDivElement>) {
@@ -893,6 +916,41 @@ export default function EleveDossierClient() {
                   </p>
                 ) : null}
               </div>
+              {data.pap?.fileUrl || data.meta.canUploadPap ? (
+                <div className="flex w-full shrink-0 flex-col gap-2 sm:ml-auto sm:w-44">
+                  {data.pap?.fileUrl ? (
+                    <a
+                      href={data.pap.fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex flex-col items-start gap-1 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-left shadow-sm transition hover:border-teal-400 hover:bg-teal-100"
+                      title="Ouvrir le PAP (PDF)"
+                    >
+                      <span className="rounded-lg bg-teal-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                        PAP
+                      </span>
+                      <span className="text-sm font-bold text-teal-950">Ouvrir le PDF</span>
+                    </a>
+                  ) : null}
+                  {data.meta.canUploadPap ? (
+                    <label className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50">
+                      <IconUpload className="h-3.5 w-3.5" />
+                      {data.pap ? "Remplacer le PAP" : "Déposer le PAP"}
+                      <input
+                        type="file"
+                        accept="application/pdf,image/*"
+                        className="hidden"
+                        disabled={busy}
+                        onChange={(ev) => {
+                          const f = ev.target.files?.[0];
+                          if (f) void uploadPapFile(f);
+                          ev.target.value = "";
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -1903,6 +1961,35 @@ export default function EleveDossierClient() {
               </div>
             ) : null}
 
+            {data.meta.canUploadPap ? (
+              <div className="rounded-2xl border border-teal-200 bg-teal-50/70 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-teal-950">Plan d’accompagnement (PAP)</p>
+                    <p className="mt-1 text-xs text-teal-800/80">
+                      Déposez le PDF ici — il apparaît sur la synthèse et dans Documents → Santé.
+                      {data.pap ? " Un nouveau fichier remplace le PAP affiché sur la synthèse." : ""}
+                    </p>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-teal-700 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-teal-800">
+                    <IconUpload className="h-3.5 w-3.5" />
+                    {data.pap ? "Remplacer le PAP" : "Déposer le PAP"}
+                    <input
+                      type="file"
+                      accept="application/pdf,image/*"
+                      className="hidden"
+                      disabled={busy}
+                      onChange={(ev) => {
+                        const f = ev.target.files?.[0];
+                        if (f) void uploadPapFile(f);
+                        ev.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
             <div className="grid gap-3 sm:grid-cols-3">
               <label className="text-xs font-semibold text-slate-600">
                 Tiroir
@@ -1995,10 +2082,15 @@ export default function EleveDossierClient() {
                     (d.mimeType?.startsWith("image/") ||
                       /\.(jpe?g|png|gif|webp)$/i.test(d.fileUrl || ""));
                   const cat = TIROIR_TO_CATEGORIE[d.tiroir as keyof typeof TIROIR_TO_CATEGORIE];
+                  const isPap = isPapDocumentTitle(d.title);
                   return (
                     <li
                       key={d.id}
-                      className="flex gap-3 rounded-2xl border border-slate-100 bg-white p-3 text-sm"
+                      className={`flex gap-3 rounded-2xl border p-3 text-sm ${
+                        isPap
+                          ? "border-teal-200 bg-teal-50/50"
+                          : "border-slate-100 bg-white"
+                      }`}
                     >
                       <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100">
                         {isImage && d.fileUrl ? (
@@ -2014,7 +2106,14 @@ export default function EleveDossierClient() {
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-slate-900 truncate">{d.title}</p>
+                        <p className="font-semibold text-slate-900 truncate">
+                          {isPap ? (
+                            <span className="mr-1.5 rounded bg-teal-600 px-1.5 py-0.5 text-[10px] font-black uppercase text-white">
+                              PAP
+                            </span>
+                          ) : null}
+                          {d.title}
+                        </p>
                         <p className="text-xs text-slate-500">
                           {cat ? `${DOC_CATEGORIE_LABELS[cat]} · ` : ""}
                           {TIROIR_LABELS[d.tiroir] || d.tiroir} · {d.confidentialite}

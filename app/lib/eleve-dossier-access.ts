@@ -14,6 +14,7 @@ import {
   tiroirsForCategories,
   type EleveDocCategorie,
 } from "@/app/lib/eleve-doc-categories";
+import { isPapDocumentTitle } from "@/app/lib/eleve-pap";
 
 function isExactAdmin(roles: string[]): boolean {
   return roles.includes("admin") || hasGlobalAdminRole(roles);
@@ -56,6 +57,7 @@ export function eleveDocCategoriesForRoles(
   if (hasRole(roles, "administratif")) {
     out.add("administratif");
     out.add("financier");
+    out.add("sante"); // dépôt / consultation PAP (et docs santé standard)
   }
   if (hasRole(roles, "comptabilite")) {
     out.add("financier");
@@ -68,6 +70,7 @@ export function eleveDocCategoriesForRoles(
   }
   if (hasRole(roles, "professeur")) {
     out.add("administratif");
+    out.add("sante"); // PAP visible (filtré à la liste / ouverture)
   }
   return out;
 }
@@ -104,6 +107,8 @@ export function eleveDossierSectionsForRoles(
   }
   if (hasRole(roles, "professeur")) {
     out.add("notes");
+    out.add("documents");
+    out.add("vie_scolaire");
   }
   if (hasRole(roles, "cpe")) {
     out.add("vie_scolaire");
@@ -146,8 +151,8 @@ export function eleveDocTiroirsForRoles(
 
   // Affinages métier dans la catégorie administratif
   if (hasRole(roles, "professeur") && !isDirection(roles) && !opts?.orgAdmin) {
-    // Prof : scolaire + voyages uniquement (pas inscription / vie scolaire docs).
-    return new Set<EleveDocTiroir>(["scolaire", "voyages"]);
+    // Prof : scolaire + voyages + santé (PAP uniquement à l’ouverture / liste).
+    return new Set<EleveDocTiroir>(["scolaire", "voyages", "sante"]);
   }
   if (hasRole(roles, "cpe") || hasRole(roles, "surveillant")) {
     tiroirs.add("vie_scolaire");
@@ -188,11 +193,20 @@ export function canRegisterEleveDocument(
   if (confidentialite === "sante") {
     return hasRole(roles, "infirmerie");
   }
+  // PAP pédagogique (tiroir santé, confidentialité standard) : secrétariat / direction / infirmière.
+  if (tiroir === "sante") {
+    return (
+      hasRole(roles, "administratif") ||
+      hasRole(roles, "infirmerie") ||
+      isDirection(roles) ||
+      isExactAdmin(roles)
+    );
+  }
   return true;
 }
 
 export function canOpenDocumentWithoutGrant(
-  doc: Pick<EleveDocumentRow, "tiroir" | "confidentialite">,
+  doc: Pick<EleveDocumentRow, "tiroir" | "confidentialite" | "title">,
   roles: string[],
   opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
 ): boolean {
@@ -212,6 +226,18 @@ export function canOpenDocumentWithoutGrant(
     }
   }
   if (doc.confidentialite === "restreint") return false;
+  // Prof : dans le tiroir santé, seul le PAP (pas le reste du dossier médical).
+  if (
+    doc.tiroir === "sante" &&
+    hasRole(roles, "professeur") &&
+    !isDirection(roles) &&
+    !opts?.orgAdmin &&
+    !isExactAdmin(roles) &&
+    !hasRole(roles, "infirmerie") &&
+    !hasRole(roles, "administratif")
+  ) {
+    return isPapDocumentTitle(doc.title);
+  }
   return true;
 }
 
@@ -311,8 +337,19 @@ export async function listEleveDocumentsForViewer(opts: {
     orgAdmin: opts.orgAdmin,
     platformAdmin: opts.platformAdmin,
   });
+  const profPapOnly =
+    hasRole(opts.roles, "professeur") &&
+    !isDirection(opts.roles) &&
+    !opts.orgAdmin &&
+    !opts.platformAdmin &&
+    !isExactAdmin(opts.roles) &&
+    !hasRole(opts.roles, "infirmerie") &&
+    !hasRole(opts.roles, "administratif");
 
   for (const doc of docs) {
+    if (profPapOnly && doc.tiroir === "sante" && !isPapDocumentTitle(doc.title)) {
+      continue;
+    }
     const tiroirAllowed = allowedTiroirs.has(doc.tiroir as EleveDocTiroir);
 
     let canOpen = canOpenDocumentWithoutGrant(doc, opts.roles, {
@@ -350,4 +387,52 @@ export async function listEleveDocumentsForViewer(opts: {
     });
   }
   return out;
+}
+
+/** Dernier PAP déposé (tiroir santé, titre PAP) — pour le badge synthèse. */
+export async function getLatestPapDocumentForEleve(opts: {
+  etablissementId: string;
+  eleveId: string;
+}): Promise<{
+  id: string;
+  title: string;
+  fileUrl: string | null;
+  mimeType: string | null;
+  createdAt: Date;
+} | null> {
+  const db = getDb();
+  const docs = await db
+    .select({
+      id: eleveDocument.id,
+      title: eleveDocument.title,
+      fileUrl: eleveDocument.fileUrl,
+      mimeType: eleveDocument.mimeType,
+      createdAt: eleveDocument.createdAt,
+      confidentialite: eleveDocument.confidentialite,
+      tiroir: eleveDocument.tiroir,
+    })
+    .from(eleveDocument)
+    .where(
+      and(
+        eq(eleveDocument.etablissementId, opts.etablissementId),
+        eq(eleveDocument.eleveId, opts.eleveId),
+        eq(eleveDocument.tiroir, "sante"),
+      ),
+    )
+    .orderBy(desc(eleveDocument.createdAt))
+    .limit(40);
+
+  for (const doc of docs) {
+    if (doc.confidentialite === "restreint" || doc.confidentialite === "sante") continue;
+    if (!isPapDocumentTitle(doc.title)) continue;
+    if (!doc.fileUrl) continue;
+    return {
+      id: doc.id,
+      title: doc.title,
+      fileUrl: doc.fileUrl,
+      mimeType: doc.mimeType,
+      createdAt: doc.createdAt,
+    };
+  }
+  return null;
 }
