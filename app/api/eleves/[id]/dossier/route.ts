@@ -17,15 +17,20 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId, syncEleveScolariteFromEleveRow, ensureEleveFoyerFromParentContacts } from "@/app/lib/ent-core-db";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import {
+  canOpenDocumentWithoutGrant,
   canRegisterEleveDocument,
   eleveDocCategoriesMetaForRoles,
   eleveDocTiroirsForRoles,
   listEleveDocumentsForViewer,
   getLatestPapDocumentForEleve,
+  hasActiveDocumentGrant,
   recordEleveAccessAudit,
   type EleveDocConfidentialite,
   type EleveDocTiroir,
 } from "@/app/lib/eleve-dossier-access";
+import { normalizeDocumentAccessDurationDays } from "@/app/lib/eleve-document-access-duration";
+import { notifyDirectionPapAccessRequest } from "@/app/lib/eleve-pap-access-notify";
+import { isPapDocumentTitle } from "@/app/lib/eleve-pap";
 import {
   isProfesseurScopedDossierViewer,
   listAssignedClassesForTeacher,
@@ -403,6 +408,44 @@ export async function GET(_req: Request, ctx: Ctx) {
       d.createdAt instanceof Date ? d.createdAt.toISOString() : String(d.createdAt ?? ""),
   }));
 
+  let papPayload: {
+    id: string;
+    title: string;
+    fileUrl: string | null;
+    mimeType: string | null;
+    createdAt: string;
+    canOpen: boolean;
+  } | null = null;
+  if (papDoc) {
+    const papAsDoc = {
+      tiroir: "sante" as const,
+      confidentialite: "standard" as const,
+      title: papDoc.title,
+    };
+    let canOpenPap = canOpenDocumentWithoutGrant(papAsDoc, roles, {
+      orgAdmin,
+      platformAdmin,
+    });
+    if (!canOpenPap) {
+      canOpenPap = await hasActiveDocumentGrant({
+        etablissementId: etabId,
+        documentId: papDoc.id,
+        userId: authUserId,
+      });
+    }
+    papPayload = {
+      id: papDoc.id,
+      title: papDoc.title,
+      fileUrl: canOpenPap ? papDoc.fileUrl : null,
+      mimeType: papDoc.mimeType,
+      createdAt:
+        papDoc.createdAt instanceof Date
+          ? papDoc.createdAt.toISOString()
+          : String(papDoc.createdAt ?? ""),
+      canOpen: canOpenPap,
+    };
+  }
+
   // Audit non bloquant
   after(() => {
     void recordEleveAccessAudit({
@@ -542,18 +585,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     sanctions: needVs ? sanctionsEleve : [],
     carnet: needVs ? carnetEleve : [],
     documents,
-    pap: papDoc
-      ? {
-          id: papDoc.id,
-          title: papDoc.title,
-          fileUrl: papDoc.fileUrl,
-          mimeType: papDoc.mimeType,
-          createdAt:
-            papDoc.createdAt instanceof Date
-              ? papDoc.createdAt.toISOString()
-              : String(papDoc.createdAt ?? ""),
-        }
-      : null,
+    pap: papPayload,
     meta: {
       sites,
       annees,
@@ -1017,7 +1049,7 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ error: "Document introuvable." }, { status: 404 });
     }
 
-    const durationDays = Math.min(7, Math.max(1, Number(body.durationDays) || 1));
+    const durationDays = normalizeDocumentAccessDurationDays(body.durationDays, 7);
     const [created] = await db
       .insert(documentAccessRequest)
       .values({
@@ -1039,6 +1071,33 @@ export async function POST(req: Request, ctx: Ctx) {
       action: "request",
       metadata: { requestId: created.id, durationDays },
     });
+
+    if (isPapDocumentTitle(doc.title)) {
+      after(async () => {
+        try {
+          const session = await getAppSession();
+          const u = session?.user;
+          const requesterName =
+            [u?.name, u?.firstName && u?.lastName ? `${u.firstName} ${u.lastName}` : null, u?.email]
+              .filter(Boolean)
+              .join(" — ") || authUserId;
+          await notifyDirectionPapAccessRequest({
+            eleveNom: row.nom,
+            elevePrenom: row.prenom,
+            classe: row.classe,
+            level: row.secteur || row.classe,
+            documentTitle: doc.title,
+            requesterName,
+            requesterEmail: u?.email ?? null,
+            durationDays,
+            note: body.note,
+          });
+        } catch (err) {
+          console.error("[eleves/dossier] notify PAP access", err);
+        }
+      });
+    }
+
     return NextResponse.json({ success: true, request: created });
   }
 
@@ -1067,15 +1126,20 @@ export async function POST(req: Request, ctx: Ctx) {
 
     const now = new Date();
     let expiresAt: Date | null = null;
+    let durationDays = reqRow.durationDays;
     if (body.decision === "approved") {
-      const days = Math.min(7, Math.max(1, reqRow.durationDays || 1));
-      expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+      durationDays = normalizeDocumentAccessDurationDays(
+        body.durationDays ?? reqRow.durationDays,
+        7,
+      );
+      expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
     }
 
     const [updated] = await db
       .update(documentAccessRequest)
       .set({
         status: body.decision,
+        durationDays,
         decidedByUserId: authUserId,
         decidedAt: now,
         expiresAt,
@@ -1090,7 +1154,11 @@ export async function POST(req: Request, ctx: Ctx) {
       resourceId: reqRow.documentId,
       eleveId: id,
       action: body.decision === "approved" ? "grant" : "deny",
-      metadata: { requestId: reqRow.id },
+      metadata: {
+        requestId: reqRow.id,
+        durationDays,
+        expiresAt: expiresAt?.toISOString() ?? null,
+      },
     });
     return NextResponse.json({ success: true, request: updated });
   }

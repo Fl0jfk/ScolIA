@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt, inArray } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   documentAccessRequest,
@@ -226,7 +226,20 @@ export function canOpenDocumentWithoutGrant(
     }
   }
   if (doc.confidentialite === "restreint") return false;
-  // Prof : dans le tiroir santé, seul le PAP (pas le reste du dossier médical).
+  // PAP : même pour un professeur, pas d’ouverture directe — demande d’accès direction requise.
+  if (
+    doc.tiroir === "sante" &&
+    isPapDocumentTitle(doc.title) &&
+    hasRole(roles, "professeur") &&
+    !isDirection(roles) &&
+    !opts?.orgAdmin &&
+    !isExactAdmin(roles) &&
+    !hasRole(roles, "infirmerie") &&
+    !hasRole(roles, "administratif")
+  ) {
+    return false;
+  }
+  // Prof : dans le tiroir santé, seul le PAP est listé (accès via grant) — pas le reste médical.
   if (
     doc.tiroir === "sante" &&
     hasRole(roles, "professeur") &&
@@ -389,6 +402,41 @@ export async function listEleveDocumentsForViewer(opts: {
   return out;
 }
 
+/** Élèves ayant au moins un PAP (tiroir santé, titre PAP, fichier présent). */
+export async function listEleveIdsWithPap(opts: {
+  etablissementId: string;
+  eleveIds: string[];
+}): Promise<Set<string>> {
+  const ids = [...new Set(opts.eleveIds.filter(Boolean))];
+  const out = new Set<string>();
+  if (ids.length === 0) return out;
+
+  const db = getDb();
+  const docs = await db
+    .select({
+      eleveId: eleveDocument.eleveId,
+      title: eleveDocument.title,
+      fileUrl: eleveDocument.fileUrl,
+      confidentialite: eleveDocument.confidentialite,
+    })
+    .from(eleveDocument)
+    .where(
+      and(
+        eq(eleveDocument.etablissementId, opts.etablissementId),
+        eq(eleveDocument.tiroir, "sante"),
+        inArray(eleveDocument.eleveId, ids),
+      ),
+    );
+
+  for (const doc of docs) {
+    if (doc.confidentialite === "restreint" || doc.confidentialite === "sante") continue;
+    if (!doc.fileUrl) continue;
+    if (!isPapDocumentTitle(doc.title)) continue;
+    out.add(doc.eleveId);
+  }
+  return out;
+}
+
 /** Dernier PAP déposé (tiroir santé, titre PAP) — pour le badge synthèse. */
 export async function getLatestPapDocumentForEleve(opts: {
   etablissementId: string;
@@ -409,7 +457,6 @@ export async function getLatestPapDocumentForEleve(opts: {
       mimeType: eleveDocument.mimeType,
       createdAt: eleveDocument.createdAt,
       confidentialite: eleveDocument.confidentialite,
-      tiroir: eleveDocument.tiroir,
     })
     .from(eleveDocument)
     .where(

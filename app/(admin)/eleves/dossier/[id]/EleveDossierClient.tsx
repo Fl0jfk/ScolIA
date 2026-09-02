@@ -13,6 +13,7 @@ import {
   type EleveDocCategorie,
 } from "@/app/lib/eleve-doc-categories";
 import { defaultPapDocumentTitle, isPapDocumentTitle } from "@/app/lib/eleve-pap";
+import { DOCUMENT_ACCESS_DURATION_OPTIONS } from "@/app/lib/eleve-document-access-duration";
 import EleveFinancesPanel from "@/app/components/eleves/EleveFinancesPanel";
 import EleveDossierSidebar from "@/app/components/eleves/EleveDossierSidebar";
 import { scolariteStatutLabel } from "@/app/lib/eleve-dossier-labels";
@@ -151,13 +152,14 @@ type DossierPayload = {
     fileUrl: string | null;
     confidentialite: string;
   }>;
-  /** PAP le plus récent (synthèse) — accessible aussi aux professeurs. */
+  /** PAP le plus récent (synthèse) — ouverture selon droits / grant. */
   pap?: {
     id: string;
     title: string;
     fileUrl: string | null;
     mimeType: string | null;
     createdAt: string;
+    canOpen?: boolean;
   } | null;
   classmates?: Array<{ id: string; nom: string; prenom: string }>;
   meta: {
@@ -615,8 +617,17 @@ export default function EleveDossierClient() {
     if (ok) setAccessForm(null);
   }
 
-  async function decideAccess(requestId: string, decision: "approved" | "rejected") {
-    await postAction({ action: "decide_document_access", requestId, decision });
+  async function decideAccess(
+    requestId: string,
+    decision: "approved" | "rejected",
+    durationDays?: number,
+  ) {
+    await postAction({
+      action: "decide_document_access",
+      requestId,
+      decision,
+      durationDays,
+    });
   }
 
   if (error && !data) {
@@ -916,39 +927,41 @@ export default function EleveDossierClient() {
                   </p>
                 ) : null}
               </div>
-              {data.pap?.fileUrl || data.meta.canUploadPap ? (
-                <div className="flex w-full shrink-0 flex-col gap-2 sm:ml-auto sm:w-44">
-                  {data.pap?.fileUrl ? (
+              {data.pap ? (
+                <div className="flex w-full shrink-0 flex-col sm:ml-auto sm:w-44">
+                  {data.pap.canOpen && data.pap.fileUrl ? (
                     <a
                       href={data.pap.fileUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex flex-col items-start gap-1 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 text-left shadow-sm transition hover:border-teal-400 hover:bg-teal-100"
+                      className="inline-flex flex-col items-start gap-1 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-left shadow-sm transition hover:border-rose-400 hover:bg-rose-100"
                       title="Ouvrir le PAP (PDF)"
                     >
-                      <span className="rounded-lg bg-teal-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                      <span className="rounded-lg bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
                         PAP
                       </span>
-                      <span className="text-sm font-bold text-teal-950">Ouvrir le PDF</span>
+                      <span className="text-sm font-bold text-rose-950">Ouvrir le PDF</span>
                     </a>
-                  ) : null}
-                  {data.meta.canUploadPap ? (
-                    <label className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition hover:border-teal-300 hover:bg-teal-50">
-                      <IconUpload className="h-3.5 w-3.5" />
-                      {data.pap ? "Remplacer le PAP" : "Déposer le PAP"}
-                      <input
-                        type="file"
-                        accept="application/pdf,image/*"
-                        className="hidden"
-                        disabled={busy}
-                        onChange={(ev) => {
-                          const f = ev.target.files?.[0];
-                          if (f) void uploadPapFile(f);
-                          ev.target.value = "";
-                        }}
-                      />
-                    </label>
-                  ) : null}
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTab("documents");
+                        setAccessForm({
+                          documentId: data.pap!.id,
+                          durationDays: 7,
+                          note: "Consultation pédagogique du PAP",
+                        });
+                      }}
+                      className="inline-flex flex-col items-start gap-1 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-left shadow-sm transition hover:border-rose-400 hover:bg-rose-100"
+                      title="Demander l’accès au PAP auprès de la direction"
+                    >
+                      <span className="rounded-lg bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                        PAP
+                      </span>
+                      <span className="text-sm font-bold text-rose-950">Demander l’accès</span>
+                    </button>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -1894,14 +1907,38 @@ export default function EleveDossierClient() {
                     <div>
                       <p className="font-semibold">{r.docTitle}</p>
                       <p className="text-xs text-slate-500">
-                        {r.durationDays} j · {r.note || "sans motif"}
+                        Durée demandée :{" "}
+                        {DOCUMENT_ACCESS_DURATION_OPTIONS.find((o) => o.days === r.durationDays)
+                          ?.label || `${r.durationDays} j`}
+                        {r.note ? ` · ${r.note}` : ""}
                       </p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        id={`decide-duration-${r.id}`}
+                        defaultValue={r.durationDays}
+                        className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                        aria-label="Durée d’accès"
+                      >
+                        {DOCUMENT_ACCESS_DURATION_OPTIONS.map((o) => (
+                          <option key={o.days} value={o.days}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => void decideAccess(r.id, "approved")}
+                        onClick={() => {
+                          const sel = document.getElementById(
+                            `decide-duration-${r.id}`,
+                          ) as HTMLSelectElement | null;
+                          void decideAccess(
+                            r.id,
+                            "approved",
+                            sel ? Number(sel.value) : r.durationDays,
+                          );
+                        }}
                         className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-bold text-white"
                       >
                         Approuver
@@ -1962,16 +1999,16 @@ export default function EleveDossierClient() {
             ) : null}
 
             {data.meta.canUploadPap ? (
-              <div className="rounded-2xl border border-teal-200 bg-teal-50/70 p-4">
+              <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-bold text-teal-950">Plan d’accompagnement (PAP)</p>
-                    <p className="mt-1 text-xs text-teal-800/80">
+                    <p className="text-sm font-bold text-rose-950">Plan d’accompagnement (PAP)</p>
+                    <p className="mt-1 text-xs text-rose-800/80">
                       Déposez le PDF ici — il apparaît sur la synthèse et dans Documents → Santé.
                       {data.pap ? " Un nouveau fichier remplace le PAP affiché sur la synthèse." : ""}
                     </p>
                   </div>
-                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-teal-700 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-teal-800">
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-rose-700 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-rose-800">
                     <IconUpload className="h-3.5 w-3.5" />
                     {data.pap ? "Remplacer le PAP" : "Déposer le PAP"}
                     <input
@@ -2088,7 +2125,7 @@ export default function EleveDossierClient() {
                       key={d.id}
                       className={`flex gap-3 rounded-2xl border p-3 text-sm ${
                         isPap
-                          ? "border-teal-200 bg-teal-50/50"
+                          ? "border-rose-200 bg-rose-50/50"
                           : "border-slate-100 bg-white"
                       }`}
                     >
@@ -2108,7 +2145,7 @@ export default function EleveDossierClient() {
                       <div className="min-w-0 flex-1">
                         <p className="font-semibold text-slate-900 truncate">
                           {isPap ? (
-                            <span className="mr-1.5 rounded bg-teal-600 px-1.5 py-0.5 text-[10px] font-black uppercase text-white">
+                            <span className="mr-1.5 rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-black uppercase text-white">
                               PAP
                             </span>
                           ) : null}
@@ -2140,8 +2177,8 @@ export default function EleveDossierClient() {
                               onClick={() =>
                                 setAccessForm({
                                   documentId: d.id,
-                                  durationDays: 1,
-                                  note: "",
+                                  durationDays: 7,
+                                  note: isPap ? "Consultation pédagogique du PAP" : "",
                                 })
                               }
                             >
@@ -2160,8 +2197,12 @@ export default function EleveDossierClient() {
           {accessForm ? (
             <div className="rounded-3xl border border-amber-200 bg-white p-6 space-y-3 shadow-sm">
               <h3 className="text-sm font-bold text-slate-900">Demande d’accès direction</h3>
+              <p className="text-xs text-slate-500">
+                La direction du cycle (école, collège ou lycée) recevra la demande et choisira la
+                durée d’accès pour vous uniquement.
+              </p>
               <label className="block text-xs font-semibold text-slate-600">
-                Durée (1–7 jours)
+                Durée souhaitée
                 <select
                   value={accessForm.durationDays}
                   onChange={(ev) =>
@@ -2171,9 +2212,9 @@ export default function EleveDossierClient() {
                   }
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 >
-                  {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-                    <option key={n} value={n}>
-                      {n} jour{n > 1 ? "s" : ""}
+                  {DOCUMENT_ACCESS_DURATION_OPTIONS.map((o) => (
+                    <option key={o.days} value={o.days}>
+                      {o.label}
                     </option>
                   ))}
                 </select>

@@ -6,6 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
+import {
+  DOCUMENT_ACCESS_DURATION_OPTIONS,
+  documentAccessDurationLabel,
+} from "@/app/lib/eleve-document-access-duration";
 
 type EleveRow = {
   id: string;
@@ -19,6 +23,7 @@ type EleveRow = {
   folderName: string;
   ine: string | null;
   photoUrl?: string | null;
+  hasPap?: boolean;
 };
 
 type SiteOption = { siteId: string; label: string };
@@ -52,6 +57,9 @@ type AccessReq = {
   eleveId?: string;
   eleveNom?: string;
   elevePrenom?: string;
+  eleveClasse?: string | null;
+  requesterName?: string | null;
+  requesterEmail?: string | null;
 };
 
 const STATUS_OPTIONS = [
@@ -286,14 +294,18 @@ export default function ElevesDossiersListClient() {
     }
   }
 
-  async function decideAccess(id: string, decision: "approved" | "rejected") {
+  async function decideAccess(
+    id: string,
+    decision: "approved" | "rejected",
+    durationDays?: number,
+  ) {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/eleves/document-access-requests", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, decision }),
+        body: JSON.stringify({ id, decision, durationDays }),
       });
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(j.error || "Échec");
@@ -475,6 +487,11 @@ export default function ElevesDossiersListClient() {
                           <p className="truncate text-base font-semibold text-slate-900">
                             {e.prenom} {e.nom}
                           </p>
+                          {e.hasPap ? (
+                            <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                              PAP
+                            </span>
+                          ) : null}
                           {canViewFullHub && e.status ? (
                             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
                               {statusLabel(e.status)}
@@ -632,15 +649,19 @@ export default function ElevesDossiersListClient() {
                       <span className="font-normal text-slate-600">
                         {" "}
                         — {r.elevePrenom} {r.eleveNom}
+                        {r.eleveClasse ? ` (${r.eleveClasse})` : ""}
                       </span>
                     ) : null}
                   </p>
                   <p className="text-xs text-slate-500">
-                    {r.docTiroir || "tiroir"} · {r.durationDays} j
+                    {r.requesterName || r.requesterEmail
+                      ? `Demandeur : ${r.requesterName || r.requesterEmail} · `
+                      : ""}
+                    {r.docTiroir || "tiroir"} · {documentAccessDurationLabel(r.durationDays)}
                     {r.note ? ` · ${r.note}` : ""}
                   </p>
                 </div>
-                <div className="flex gap-2 items-center">
+                <div className="flex flex-wrap gap-2 items-center">
                   {r.eleveId ? (
                     <Link
                       href={dossierHref(r.eleveId)}
@@ -651,10 +672,31 @@ export default function ElevesDossiersListClient() {
                   ) : null}
                   {canDecideAccess ? (
                     <>
+                      <select
+                        id={`list-decide-duration-${r.id}`}
+                        defaultValue={r.durationDays}
+                        className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                        aria-label="Durée d’accès"
+                      >
+                        {DOCUMENT_ACCESS_DURATION_OPTIONS.map((o) => (
+                          <option key={o.days} value={o.days}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => void decideAccess(r.id, "approved")}
+                        onClick={() => {
+                          const sel = document.getElementById(
+                            `list-decide-duration-${r.id}`,
+                          ) as HTMLSelectElement | null;
+                          void decideAccess(
+                            r.id,
+                            "approved",
+                            sel ? Number(sel.value) : r.durationDays,
+                          );
+                        }}
                         className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
                       >
                         Approuver

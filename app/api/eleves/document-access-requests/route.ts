@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
-import { documentAccessRequest, eleve, eleveDocument } from "@/db/schema";
+import { documentAccessRequest, eleve, eleveDocument, user } from "@/db/schema";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getAppSession } from "@/app/lib/intranet-session";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { recordEleveAccessAudit } from "@/app/lib/eleve-dossier-access";
+import { normalizeDocumentAccessDurationDays } from "@/app/lib/eleve-document-access-duration";
+import { stageCycleKindFromStudent } from "@/app/lib/stage-config";
+import { directionSecteursFromRoles } from "@/app/lib/pilotage-eleves-access";
 
 function canDecideAccess(roles: string[], opts: { orgAdmin?: boolean; platformAdmin?: boolean }) {
   if (opts.orgAdmin || opts.platformAdmin || roles.includes("admin") || hasGlobalAdminRole(roles)) {
@@ -42,26 +45,33 @@ export async function GET(req: Request) {
 
   const db = getDb();
 
+  const selectShape = {
+    id: documentAccessRequest.id,
+    documentId: documentAccessRequest.documentId,
+    requesterUserId: documentAccessRequest.requesterUserId,
+    status: documentAccessRequest.status,
+    durationDays: documentAccessRequest.durationDays,
+    note: documentAccessRequest.note,
+    createdAt: documentAccessRequest.createdAt,
+    expiresAt: documentAccessRequest.expiresAt,
+    docTitle: eleveDocument.title,
+    docTiroir: eleveDocument.tiroir,
+    eleveId: eleveDocument.eleveId,
+    eleveNom: eleve.nom,
+    elevePrenom: eleve.prenom,
+    eleveClasse: eleve.classe,
+    eleveSecteur: eleve.secteur,
+    requesterName: user.name,
+    requesterEmail: user.email,
+  };
+
   if (!canDecideAccess(roles, { orgAdmin, platformAdmin })) {
     const mine = await db
-      .select({
-        id: documentAccessRequest.id,
-        documentId: documentAccessRequest.documentId,
-        requesterUserId: documentAccessRequest.requesterUserId,
-        status: documentAccessRequest.status,
-        durationDays: documentAccessRequest.durationDays,
-        note: documentAccessRequest.note,
-        createdAt: documentAccessRequest.createdAt,
-        expiresAt: documentAccessRequest.expiresAt,
-        docTitle: eleveDocument.title,
-        docTiroir: eleveDocument.tiroir,
-        eleveId: eleveDocument.eleveId,
-        eleveNom: eleve.nom,
-        elevePrenom: eleve.prenom,
-      })
+      .select(selectShape)
       .from(documentAccessRequest)
       .innerJoin(eleveDocument, eq(documentAccessRequest.documentId, eleveDocument.id))
       .innerJoin(eleve, eq(eleveDocument.eleveId, eleve.id))
+      .leftJoin(user, eq(documentAccessRequest.requesterUserId, user.id))
       .where(
         and(
           eq(documentAccessRequest.etablissementId, etabId),
@@ -74,25 +84,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ requests: mine, canDecide: false });
   }
 
-  const requests = await db
-    .select({
-      id: documentAccessRequest.id,
-      documentId: documentAccessRequest.documentId,
-      requesterUserId: documentAccessRequest.requesterUserId,
-      status: documentAccessRequest.status,
-      durationDays: documentAccessRequest.durationDays,
-      note: documentAccessRequest.note,
-      createdAt: documentAccessRequest.createdAt,
-      expiresAt: documentAccessRequest.expiresAt,
-      docTitle: eleveDocument.title,
-      docTiroir: eleveDocument.tiroir,
-      eleveId: eleveDocument.eleveId,
-      eleveNom: eleve.nom,
-      elevePrenom: eleve.prenom,
-    })
+  let requests = await db
+    .select(selectShape)
     .from(documentAccessRequest)
     .innerJoin(eleveDocument, eq(documentAccessRequest.documentId, eleveDocument.id))
     .innerJoin(eleve, eq(eleveDocument.eleveId, eleve.id))
+    .leftJoin(user, eq(documentAccessRequest.requesterUserId, user.id))
     .where(
       and(
         eq(documentAccessRequest.etablissementId, etabId),
@@ -101,6 +98,24 @@ export async function GET(req: Request) {
     )
     .orderBy(desc(documentAccessRequest.createdAt))
     .limit(100);
+
+  // Direction cycle : ne voir que les demandes du collège / lycée / école concernés.
+  const userSecteurs = directionSecteursFromRoles(roles);
+  if (
+    userSecteurs.length > 0 &&
+    !orgAdmin &&
+    !platformAdmin &&
+    !roles.includes("admin") &&
+    !hasGlobalAdminRole(roles)
+  ) {
+    requests = requests.filter((r) => {
+      const cycle = stageCycleKindFromStudent(
+        String(r.eleveSecteur || r.eleveClasse || ""),
+        r.eleveClasse || undefined,
+      );
+      return userSecteurs.includes(cycle);
+    });
+  }
 
   return NextResponse.json({ requests, canDecide: true });
 }
@@ -131,6 +146,7 @@ export async function PATCH(req: Request) {
   const body = (await req.json()) as {
     id?: string;
     decision?: "approved" | "rejected";
+    durationDays?: number;
   };
   if (!body.id || (body.decision !== "approved" && body.decision !== "rejected")) {
     return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
@@ -154,15 +170,20 @@ export async function PATCH(req: Request) {
 
   const now = new Date();
   let expiresAt: Date | null = null;
+  let durationDays = reqRow.durationDays;
   if (body.decision === "approved") {
-    const days = Math.min(7, Math.max(1, reqRow.durationDays || 1));
-    expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+    durationDays = normalizeDocumentAccessDurationDays(
+      body.durationDays ?? reqRow.durationDays,
+      7,
+    );
+    expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
   }
 
   const [updated] = await db
     .update(documentAccessRequest)
     .set({
       status: body.decision,
+      durationDays,
       decidedByUserId: session.user.id,
       decidedAt: now,
       expiresAt,
@@ -185,7 +206,11 @@ export async function PATCH(req: Request) {
     resourceId: reqRow.documentId,
     eleveId: doc?.eleveId ?? null,
     action: body.decision === "approved" ? "grant" : "deny",
-    metadata: { requestId: reqRow.id, expiresAt: expiresAt?.toISOString() ?? null },
+    metadata: {
+      requestId: reqRow.id,
+      durationDays,
+      expiresAt: expiresAt?.toISOString() ?? null,
+    },
   });
 
   return NextResponse.json({ success: true, request: updated });

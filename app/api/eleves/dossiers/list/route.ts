@@ -9,6 +9,7 @@ import {
   listElevesDossierFromDb,
 } from "@/app/lib/eleve-dossier-prof";
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
+import { listEleveIdsWithPap } from "@/app/lib/eleve-dossier-access";
 import {
   buildEleveDossierClassCatalog,
   classOptionLabel,
@@ -132,6 +133,15 @@ export async function GET(req: NextRequest) {
     ...e,
     photoUrl: photoUrls[e.id] ?? null,
     photoKey: undefined,
+  }));
+
+  const papIds = await listEleveIdsWithPap({
+    etablissementId: tenant.ctx.etablissementId,
+    eleveIds: eleves.map((e) => e.id),
+  }).catch(() => new Set<string>());
+  eleves = eleves.map((e) => ({
+    ...e,
+    hasPap: papIds.has(e.id),
   }));
 
   const extraClasses = [
