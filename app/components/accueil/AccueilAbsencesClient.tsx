@@ -9,10 +9,10 @@ import type {
   AccueilPeriodMode,
   AccueilSearchHit,
 } from "@/app/lib/accueil-absences-types";
+import { parisDateKey } from "@/app/lib/paris-time";
 
 function todayIso(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return parisDateKey(new Date());
 }
 
 function kindBadge(kind: AccueilBoardRow["kind"] | AccueilSearchHit["kind"]): string {

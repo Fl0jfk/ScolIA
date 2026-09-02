@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { absenceCoversSlot, datesOverlap, timesOverlap } from "./accueil-absences-types";
+import { absenceCoversSlot, asDateKey, datesOverlap, timesOverlap } from "./accueil-absences-types";
+
+test("asDateKey normalise string et Date UTC minuit", () => {
+  assert.equal(asDateKey("2026-09-02"), "2026-09-02");
+  assert.equal(asDateKey("2026-09-02T00:00:00.000Z"), "2026-09-02");
+  assert.equal(asDateKey(new Date(Date.UTC(2026, 8, 2))), "2026-09-02");
+});
 
 test("datesOverlap inclusive", () => {
   assert.equal(datesOverlap("2026-08-30", "2026-08-30", "2026-08-30", "2026-08-30"), true);

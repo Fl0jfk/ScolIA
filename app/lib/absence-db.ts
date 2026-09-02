@@ -16,12 +16,26 @@ function parseTs(raw: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function toDateOnly(raw: string): string {
+function toDateOnly(raw: string | Date | null | undefined): string {
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+    if (
+      raw.getUTCHours() === 0 &&
+      raw.getUTCMinutes() === 0 &&
+      raw.getUTCSeconds() === 0 &&
+      raw.getUTCMilliseconds() === 0
+    ) {
+      const y = raw.getUTCFullYear();
+      const m = String(raw.getUTCMonth() + 1).padStart(2, "0");
+      const d = String(raw.getUTCDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+    return raw.toISOString().slice(0, 10);
+  }
   const s = String(raw ?? "").trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
-  return d.toISOString().slice(0, 10);
+  return toDateOnly(d);
 }
 
 export function absenceRecordToRows(etablissementId: string, record: AbsenceRecord) {
@@ -110,8 +124,8 @@ export function rowsToAbsenceRecord(
       scope: main.scope as AbsenceRecord["data"]["scope"],
       etablissement: main.siteLabel,
       periodType: main.periodType as AbsenceRecord["data"]["periodType"],
-      startDate: String(main.startDate),
-      endDate: String(main.endDate),
+      startDate: toDateOnly(main.startDate),
+      endDate: toDateOnly(main.endDate),
       startTime: main.startTime,
       endTime: main.endTime,
       startAt: main.startAt.toISOString(),

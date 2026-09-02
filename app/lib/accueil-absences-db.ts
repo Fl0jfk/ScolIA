@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, gte, lte, or } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { absence, eleve, enseignant, personnel } from "@/db/schema";
 import { loadAppConfig } from "@/app/lib/app-config";
@@ -10,7 +10,6 @@ import { normalizeAbsencePeriodInput } from "@/app/lib/absence-period";
 import {
   saveOrMergeAbsenceRecord,
   getAbsenceIndex,
-  saveAbsenceIndex,
   saveAbsenceRecord,
   purgeExpiredAbsences,
 } from "@/app/lib/absences-storage";
@@ -19,6 +18,7 @@ import { notifyAbsenceCreated } from "@/app/lib/absences-workflow-mail";
 import { getAbsenceSyncPort } from "@/app/lib/absences-sync/port";
 import {
   asCycle,
+  asDateKey,
   cycleLabel,
   datesOverlap,
   timesOverlap,
@@ -215,12 +215,14 @@ async function createRhAccueilAbsence(input: {
   };
 
   const index = await purgeExpiredAbsences(await getAbsenceIndex());
-  const { index: nextIndex, record: saved, merged } = await saveOrMergeAbsenceRecord(
+  // Upsert unitaire déjà fait dans saveOrMergeAbsenceRecord — ne pas rappeler
+  // saveAbsenceIndex (DELETE + réinsert complet) : course critique qui efface
+  // des absences accueil juste après déclaration.
+  const { record: saved, merged } = await saveOrMergeAbsenceRecord(
     index,
     record,
     input.actor.name,
   );
-  await saveAbsenceIndex(nextIndex);
   if (!merged) {
     try {
       await notifyAbsenceCreated({
@@ -403,7 +405,8 @@ export async function listAccueilBoard(
   etablissementId: string,
   dateIso: string,
 ): Promise<AccueilBoardRow[]> {
-  const eleves = await listAccueilEleveAbsencesForDate(etablissementId, dateIso);
+  const day = asDateKey(dateIso);
+  const eleves = await listAccueilEleveAbsencesForDate(etablissementId, day || dateIso);
   const studentRows: AccueilBoardRow[] = eleves.map((r) => {
     const nature: AccueilEleveNature = r.type === "retard" ? "retard" : "absence";
     return {
@@ -414,16 +417,16 @@ export async function listAccueilBoard(
         nature === "retard" ? "Retard" : "Absence",
         r.eleveClasse,
         formatPeriodSubtitle({
-          dateDebut: String(r.dateDebut),
-          dateFin: String(r.dateFin),
+          dateDebut: asDateKey(r.dateDebut),
+          dateFin: asDateKey(r.dateFin),
           heureDebut: r.heureDebut,
           heureFin: r.heureFin,
         }),
       ]
         .filter(Boolean)
         .join(" · "),
-      dateDebut: String(r.dateDebut),
-      dateFin: String(r.dateFin),
+      dateDebut: asDateKey(r.dateDebut),
+      dateFin: asDateKey(r.dateFin),
       heureDebut: r.heureDebut,
       heureFin: r.heureFin,
       motif: r.motif,
@@ -437,18 +440,16 @@ export async function listAccueilBoard(
   const staff = await db
     .select()
     .from(absence)
-    .where(
-      and(
-        eq(absence.etablissementId, etablissementId),
-        eq(absence.source, "accueil"),
-        lte(absence.startDate, dateIso),
-        gte(absence.endDate, dateIso),
-      ),
-    )
+    .where(and(eq(absence.etablissementId, etablissementId), eq(absence.source, "accueil")))
     .orderBy(desc(absence.startAt));
 
   const staffRows: AccueilBoardRow[] = staff
     .filter((r) => r.managerDecision !== "REFUSEE")
+    .filter((r) =>
+      day
+        ? datesOverlap(asDateKey(r.startDate), asDateKey(r.endDate), day, day)
+        : true,
+    )
     .map((r) => {
       const kind: AccueilBoardKind = r.scope === "ogec" ? "ogec" : "professeur";
       const pending = r.managerDecision === "EN_ATTENTE";
@@ -460,16 +461,16 @@ export async function listAccueilBoard(
           kind === "ogec" ? "Personnel OGEC" : "Professeur",
           pending ? "En attente direction" : r.managerDecision === "VALIDEE" ? "Validée" : null,
           formatPeriodSubtitle({
-            dateDebut: String(r.startDate),
-            dateFin: String(r.endDate),
+            dateDebut: asDateKey(r.startDate),
+            dateFin: asDateKey(r.endDate),
             heureDebut: r.startTime,
             heureFin: r.endTime,
           }),
         ]
           .filter(Boolean)
           .join(" · "),
-        dateDebut: String(r.startDate),
-        dateFin: String(r.endDate),
+        dateDebut: asDateKey(r.startDate),
+        dateFin: asDateKey(r.endDate),
         heureDebut: r.startTime,
         heureFin: r.endTime,
         motif: r.reason,
@@ -521,11 +522,5 @@ export async function cancelAccueilAbsence(
     ],
   };
   await saveAbsenceRecord(updated);
-  const index = await getAbsenceIndex();
-  const pos = index.findIndex((a) => a.id === id);
-  if (pos >= 0) {
-    index[pos] = updated;
-    await saveAbsenceIndex(index);
-  }
   return true;
 }

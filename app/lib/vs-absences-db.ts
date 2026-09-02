@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, groupePedagogiqueMembre, vsAbsenceEleve, vsAppel, vsAppelLigne } from "@/db/schema";
 import { matchInternatStudent } from "@/app/lib/eleve-dossier-synthese";
@@ -8,6 +8,7 @@ import { getInternatStudents } from "@/app/lib/internat-storage";
 import type { InternatStudent } from "@/app/lib/internat-types";
 import {
   absenceCoversSlot,
+  asDateKey,
   datesOverlap,
   timesOverlap,
   type AccueilAbsenceCanal,
@@ -798,7 +799,12 @@ export async function createAbsenceAccueilEleve(
 }
 
 export async function listAccueilEleveAbsencesForDate(etablissementId: string, dateIso: string) {
+  const day = asDateKey(dateIso);
+  if (!day) return [];
   const db = getDb();
+  // Pas de filtre date en SQL (comparaisons date/string parfois fragiles selon le driver) :
+  // on charge les absences accueil de l’établissement puis on filtre en JS — même pattern
+  // que listAccueilCoveringForEleves. leftJoin : une ligne orpheline reste visible.
   const rows = await db
     .select({
       id: vsAbsenceEleve.id,
@@ -816,17 +822,26 @@ export async function listAccueilEleveAbsencesForDate(etablissementId: string, d
       createdByNom: vsAbsenceEleve.createdByNom,
     })
     .from(vsAbsenceEleve)
-    .innerJoin(eleve, eq(eleve.id, vsAbsenceEleve.eleveId))
-    .where(
-      and(
-        eq(vsAbsenceEleve.etablissementId, etablissementId),
-        eq(vsAbsenceEleve.source, "accueil"),
-        lte(vsAbsenceEleve.dateDebut, dateIso),
-        gte(vsAbsenceEleve.dateFin, dateIso),
-      ),
+    .leftJoin(
+      eleve,
+      and(eq(eleve.id, vsAbsenceEleve.eleveId), eq(eleve.etablissementId, etablissementId)),
     )
-    .orderBy(asc(eleve.nom), asc(eleve.prenom));
-  return rows.filter((r) => r.statut !== "classee");
+    .where(
+      and(eq(vsAbsenceEleve.etablissementId, etablissementId), eq(vsAbsenceEleve.source, "accueil")),
+    )
+    .orderBy(asc(eleve.nom), asc(eleve.prenom), desc(vsAbsenceEleve.createdAt));
+
+  return rows
+    .filter((r) => r.statut !== "classee")
+    .filter((r) => datesOverlap(asDateKey(r.dateDebut), asDateKey(r.dateFin), day, day))
+    .map((r) => ({
+      ...r,
+      eleveNom: r.eleveNom?.trim() || "Élève",
+      elevePrenom: r.elevePrenom?.trim() || "inconnu",
+      eleveClasse: r.eleveClasse ?? null,
+      dateDebut: asDateKey(r.dateDebut),
+      dateFin: asDateKey(r.dateFin),
+    }));
 }
 
 export async function cancelAccueilEleveAbsence(

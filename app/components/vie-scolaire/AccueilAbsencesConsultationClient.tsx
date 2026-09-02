@@ -33,7 +33,7 @@ function formatPeriod(row: AccueilBoardRow): string {
 
 export default function AccueilAbsencesConsultationClient() {
   const [date, setDate] = useState(() => parisDateKey(new Date()));
-  const [kindFilter, setKindFilter] = useState<KindFilter>("eleve");
+  const [kindFilter, setKindFilter] = useState<KindFilter>("tous");
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<AccueilBoardRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -119,9 +119,9 @@ export default function AccueilAbsencesConsultationClient() {
         <div className="flex flex-wrap gap-2">
           {(
             [
+              ["tous", `Tous (${counts.total})`],
               ["eleve", `Élèves (${counts.eleves})`],
               ["professeur", `Professeurs (${counts.profs})`],
-              ["tous", `Tous (${counts.total})`],
             ] as const
           ).map(([value, label]) => (
             <button
