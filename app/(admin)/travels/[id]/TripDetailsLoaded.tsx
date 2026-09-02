@@ -1129,6 +1129,11 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     if (!canSign) return alert("Seule la direction de l'établissement concerné peut signer un devis.");
     const quote = quoteOverride ?? trip.data.selectedBusQuote;
     if (!quote) return alert("Aucun devis sélectionné.");
+    if (!quote.fileUrl) {
+      return alert(
+        "Le PDF du devis est introuvable (fileUrl manquant). Supprimez le devis et réimportez-le, ou relancez le transporteur.",
+      );
+    }
     if (!confirm("Voulez-vous signer le devis et envoyer la commande au transporteur ?")) return;
     const transporteurEmail = orderEmailForQuote(quote);
     if (!transporteurEmail) {
@@ -1138,22 +1143,39 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
     setLoadingAction("signing");
     const etab = trip.data?.etablissement || "";
-    const sigType = matchEstablishment(appCtx?.establishments || [], etab)?.id || "";
-    if (!sigType) return alert("Erreur de rôle.");
+    const matchedEst = matchEstablishment(appCtx?.establishments || [], etab);
+    const sigType = matchedEst?.id || "";
+    if (!sigType) {
+      setLoadingAction(null);
+      return alert(
+        `Impossible d’identifier l’établissement « ${etab || "?" } » pour apposer la signature. Vérifiez le champ établissement du dossier (Paramètres → Établissements).`,
+      );
+    }
+    const legacySig = appCtx?.travelsOptions?.signatureImageUrls?.[sigType]?.trim();
+    if (!matchedEst?.signatureS3Key?.trim() && !legacySig) {
+      setLoadingAction(null);
+      return alert(
+        "Signature direction non configurée pour cet établissement. Paramètres → Établissements → téléverser la signature PNG/JPEG, puis réessayer.",
+      );
+    }
     try {
       const signRes = await fetch('/api/travels/sign-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ quoteUrl: quote.fileUrl, signatureType: sigType })
       });
-      const { signedPdfData } = await signRes.json();
-      const fileName = `Devis_Signe_${quote.providerName.replace(/\s+/g, '_')}.pdf`;
+      const signPayload = (await signRes.json()) as { error?: string; signedPdfData?: string };
+      if (!signRes.ok || !signPayload.signedPdfData) {
+        throw new Error(signPayload.error || `Signature impossible (${signRes.status}).`);
+      }
+      const { signedPdfData } = signPayload;
+      const fileName = `Devis_Signe_${String(quote.providerName || "transport").replace(/\s+/g, '_')}.pdf`;
       const byteArray = new Uint8Array(atob(signedPdfData.split(',')[1]).split("").map(c => c.charCodeAt(0)));
       const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(
         new Blob([byteArray], { type: "application/pdf" }),
         fileName,
       );
-      await fetch('/api/travels/send-order', {
+      const orderRes = await fetch('/api/travels/send-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1165,6 +1187,10 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           providerName: quote.providerName,
         })
       });
+      const orderPayload = (await orderRes.json()) as { error?: string };
+      if (!orderRes.ok) {
+        throw new Error(orderPayload.error || `Envoi commande impossible (${orderRes.status}).`);
+      }
       const newAttachment = { name: `✅ ${fileName}`, url: fileUrl, s3Key: uploadedKey };
       handleAction("EN_ATTENTE_COMPTA", `Devis signé et commande envoyée`, {
         selectedBusQuote: quote,
@@ -1173,7 +1199,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         signedQuoteS3Key: uploadedKey,
       });
     } catch (err) {
-      alert("Erreur lors de la signature.");
+      const message = err instanceof Error ? err.message : "Erreur lors de la signature.";
+      alert(message);
     } finally {
       setLoadingAction(null);
     }

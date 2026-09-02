@@ -4,7 +4,7 @@ import {
   shouldShowGroupeScolaire,
 } from "@/app/lib/app-config-establishments";
 import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
-import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
+import { intranetRolesFromMetadata, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { normRole } from "@/app/lib/intranet-role-utils";
 
 export const GROUPE_SCOLAIRE_ID = "groupe_scolaire";
@@ -153,12 +153,26 @@ export function isAnyDirectionRole(roles: string[]): boolean {
   return INTRANET_DIRECTION_SLUGS.some((slug) => userRolesMatchSlug(roles, slug));
 }
 
-function rolesFromUser(user: {
-  publicMetadata?: Record<string, unknown> | null;
-} | null | undefined): string[] {
-  if (!user?.publicMetadata) return [];
-  const raw = user.publicMetadata.role;
-  return Array.isArray(raw) ? raw.map(String) : raw ? [String(raw)] : [];
+function rolesFromUser(
+  user: {
+    publicMetadata?: Record<string, unknown> | null;
+  } | null | undefined,
+  rolesOverride?: string[],
+): string[] {
+  if (rolesOverride?.length) return intranetRolesFromMetadata({ role: rolesOverride });
+  return intranetRolesFromMetadata(user?.publicMetadata);
+}
+
+function userIdCandidates(
+  user: { id?: string | null } | null | undefined,
+  extraUserIds?: Array<string | null | undefined>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const raw of [user?.id, ...(extraUserIds ?? [])]) {
+    const s = String(raw || "").trim();
+    if (s) ids.add(s);
+  }
+  return ids;
 }
 
 export function userCanActAsDirectionFor(
@@ -166,11 +180,16 @@ export function userCanActAsDirectionFor(
   establishments: Establishment[],
   etabRef: string | null | undefined,
   rolesOverride?: string[],
+  extraUserIds?: string[],
 ): boolean {
   const est = matchEstablishment(establishments, etabRef);
   if (!est) return false;
-  if (est.directorExternalUserId && user?.id && est.directorExternalUserId === user.id) return true;
-  const roles = rolesOverride ?? rolesFromUser(user);
+  const directorId = est.directorExternalUserId?.trim();
+  if (directorId) {
+    const ids = userIdCandidates(user, extraUserIds);
+    if (ids.has(directorId)) return true;
+  }
+  const roles = rolesFromUser(user, rolesOverride);
   const slugs =
     est.roleSlugs && est.roleSlugs.length > 0
       ? est.roleSlugs
@@ -182,13 +201,16 @@ export function userIsAnyDirection(
   user: { id?: string | null; publicMetadata?: Record<string, unknown> | null } | null | undefined,
   establishments: Establishment[] = [],
   rolesOverride?: string[],
+  extraUserIds?: string[],
 ): boolean {
-  const roles = rolesOverride ?? rolesFromUser(user);
+  const roles = rolesFromUser(user, rolesOverride);
   if (isAnyDirectionRole(roles)) return true;
-  if (user?.id) {
-    return getActiveEstablishments(establishments).some((e) => e.directorExternalUserId === user.id);
-  }
-  return false;
+  const ids = userIdCandidates(user, extraUserIds);
+  if (ids.size === 0) return false;
+  return getActiveEstablishments(establishments).some((e) => {
+    const directorId = e.directorExternalUserId?.trim();
+    return Boolean(directorId && ids.has(directorId));
+  });
 }
 
 export function rolesCanManageEstablishmentLabel(

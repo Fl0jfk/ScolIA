@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { PDFDocument } from "pdf-lib";
-import { requireAuth } from "@/app/lib/intranet-auth";
+import { requireAppUser } from "@/app/lib/app-session";
+import { canSignTravelsDirectionFromAppUserByEstablishmentId } from "@/app/lib/establishments";
 import { resolveDirectionSignatureBytes } from "@/app/lib/direction-signature";
 import {
   findAllDevisSignatureZones,
@@ -12,12 +13,35 @@ const SIG_W = 150;
 const SIG_H = 75;
 
 export async function POST(req: Request) {
-  const gate = await requireAuth();
-  if (!gate.ok) return gate.response;
+  const appUser = await requireAppUser();
+  if (!appUser.ok) {
+    return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
+  }
 
   try {
     const { quoteUrl, signatureType } = await req.json();
     const estId = String(signatureType || "").trim();
+    if (!estId) {
+      return NextResponse.json(
+        { error: "Établissement de signature manquant (signatureType)." },
+        { status: 400 },
+      );
+    }
+
+    const allowed = await canSignTravelsDirectionFromAppUserByEstablishmentId(
+      appUser.user,
+      estId,
+    );
+    if (!allowed) {
+      return NextResponse.json(
+        {
+          error:
+            "Seule la direction de l’établissement concerné peut signer ce devis.",
+        },
+        { status: 403 },
+      );
+    }
+
     const sigBytes = await resolveDirectionSignatureBytes(estId);
     if (!sigBytes?.length) {
       return NextResponse.json(

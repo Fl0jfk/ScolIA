@@ -552,7 +552,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/vie-scolaire/absences-accueil",
       external: false,
-      description: "Consulter les élèves et professeurs absents signalés à l’accueil",
+      description: "Élèves prévenus à l’accueil (et profs) — absents des autres écrans vie scolaire",
     },
   },
   {

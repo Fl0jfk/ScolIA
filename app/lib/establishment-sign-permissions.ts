@@ -14,7 +14,14 @@ export function canSignForEstablishmentLabel(
   user: SessionLikeUser | null | undefined,
   establishments: Establishment[],
   etablissementLabel: string | null | undefined,
+  opts?: { rolesOverride?: string[]; extraUserIds?: string[] },
 ): boolean {
   if (!user || !etablissementLabel) return false;
-  return userCanActAsDirectionFor(user, establishments, etablissementLabel);
+  return userCanActAsDirectionFor(
+    user,
+    establishments,
+    etablissementLabel,
+    opts?.rolesOverride,
+    opts?.extraUserIds,
+  );
 }

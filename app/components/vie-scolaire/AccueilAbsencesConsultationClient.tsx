@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { parisDateKey } from "@/app/lib/paris-time";
@@ -33,7 +32,7 @@ function formatPeriod(row: AccueilBoardRow): string {
 
 export default function AccueilAbsencesConsultationClient() {
   const [date, setDate] = useState(() => parisDateKey(new Date()));
-  const [kindFilter, setKindFilter] = useState<KindFilter>("tous");
+  const [kindFilter, setKindFilter] = useState<KindFilter>("eleve");
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<AccueilBoardRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -92,16 +91,15 @@ export default function AccueilAbsencesConsultationClient() {
       <ModulePageHeader
         eyebrow="Vie scolaire"
         title="Absences déclarées à l’accueil"
-        description="Liste des élèves et professeurs signalés absents par le standard. Consultation seule — pour déclarer une absence, utilisez le module « Absence accueil »."
+        description="Élèves (et professeurs) signalés absents par le standard — source unique pour les absences élèves prévenues par téléphone, absentes des autres écrans vie scolaire. Consultation seule."
         actions={
           <button
             type="button"
             disabled={busy}
             onClick={() => void load()}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
-            <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
-            Actualiser
+            {busy ? "Actualisation…" : "Actualiser"}
           </button>
         }
       />
@@ -120,9 +118,9 @@ export default function AccueilAbsencesConsultationClient() {
         <div className="flex flex-wrap gap-2">
           {(
             [
-              ["tous", `Tous (${counts.total})`],
               ["eleve", `Élèves (${counts.eleves})`],
               ["professeur", `Professeurs (${counts.profs})`],
+              ["tous", `Tous (${counts.total})`],
             ] as const
           ).map(([value, label]) => (
             <button

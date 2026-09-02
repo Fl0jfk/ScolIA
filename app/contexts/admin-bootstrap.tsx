@@ -25,6 +25,7 @@ import type {
   DomainPlanningModuleConfig,
   Establishment,
   ProfRoomModuleConfig,
+  TravelsModuleConfig,
 } from "@/app/lib/app-config-schemas";
 
 export type AppContextPayload = {
@@ -32,6 +33,7 @@ export type AppContextPayload = {
   establishments: Establishment[];
   profRoom?: ProfRoomModuleConfig;
   domainPlanning?: DomainPlanningModuleConfig;
+  travelsOptions?: TravelsModuleConfig;
   session?: {
     intranetRoles: string[];
     isGlobalAdmin: boolean;
