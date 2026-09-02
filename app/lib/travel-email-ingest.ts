@@ -5,6 +5,8 @@ import { getDataS3ClientForTenantSlug, getTenantDataS3Client } from "@/app/lib/s
 import { getTenantBucketName } from "@/app/lib/tenant-config";
 import { getTenant } from "@/app/lib/tenant-context";
 import { resolveTenantBySlug } from "@/app/lib/tenant-registry";
+import { resolveEtablissementIdBySlug } from "@/app/lib/etablissement-db";
+import { getTravelFromDb, listTravelsFromDb, upsertTravelInDb } from "@/app/lib/travel-db";
 import { providerNameFromEmail } from "@/app/lib/transport-providers";
 import { ocrPdfBytes, type TripCandidateForMatch } from "@/app/lib/travel-devis-ocr";
 import {
@@ -12,12 +14,17 @@ import {
   type TransportEmailMessage,
   type TravelEmailAnalysis,
 } from "@/app/lib/travel-email-intelligence";
+import {
+  candidateFromTrip,
+  resolveTripMatchDeterministic,
+  tripAlreadyHasSignedBusQuote,
+} from "@/app/lib/travel-email-match";
 import { sendTravelEmailUnmatchedAlert } from "@/app/lib/travel-email-alert";
 import { resolveTenantSlugWithMistral } from "@/app/lib/travel-tenant-match";
+import type { TravelsTrip } from "@/app/lib/travels-types";
 
 const INCOMING_PREFIX = "devis-incoming/";
 const UNMATCHED_EMAIL_KEY = "travels/email-devis-unmatched.json";
-const INDEX_KEY = "travels/index.json";
 const MAX_CANDIDATES = 80;
 const MARKER_PREFIX = "travels/email-ingest-markers/";
 const PENDING_STALE_MS = 15 * 60 * 1000;
@@ -88,20 +95,23 @@ type IngestTarget = {
   client: S3Client;
   bucket: string;
   tenantSlug: string;
+  /** Présent quand le tenant métier est résolu (ingest vers un séjour). */
+  etablissementId?: string;
 };
 
 async function resolveIngestTarget(slugHint?: string | null): Promise<IngestTarget | null> {
   const hint = (slugHint || "").trim().toLowerCase();
   if (hint) {
     const tenant = await resolveTenantBySlug(hint);
-    if (tenant) {
-      return {
-        client: await getDataS3ClientForTenantSlug(tenant.slug),
-        bucket: tenant.dataBucket,
-        tenantSlug: tenant.slug,
-      };
-    }
-    return null;
+    if (!tenant) return null;
+    const etablissementId = await resolveEtablissementIdBySlug(tenant.slug);
+    if (!etablissementId) return null;
+    return {
+      client: await getDataS3ClientForTenantSlug(tenant.slug),
+      bucket: tenant.dataBucket,
+      tenantSlug: tenant.slug,
+      etablissementId,
+    };
   }
   return null;
 }
@@ -243,72 +253,27 @@ async function writeIngestMarker(client: S3Client, bucket: string, key: string, 
   );
 }
 
-type IndexTrip = {
-  id: string | number;
-  status?: string;
-  createdAt?: string;
-  data?: {
-    title?: string;
-    destination?: string;
-    etablissement?: string;
-    date?: string | null;
-    startDate?: string | null;
-    endDate?: string | null;
-    startTime?: string | null;
-    endTime?: string | null;
-    needsBus?: boolean;
-    transportRequest?: Record<string, unknown>;
-    classes?: string | string[];
-    nbEleves?: number | string;
-  };
-};
-
-function transportContextSnippet(tr: Record<string, unknown> | undefined): string | undefined {
-  if (!tr) return undefined;
-  const parts: string[] = [];
-  for (const key of ["departure", "arrival", "aller", "retour", "from", "to", "lieuDepart", "lieuArrivee", "freeText"]) {
-    const v = tr[key];
-    if (typeof v === "string" && v.trim()) parts.push(v.trim().slice(0, 200));
-  }
-  return parts.length ? parts.join(" · ").slice(0, 400) : undefined;
-}
-
-async function loadTripCandidates(client: S3Client, bucket: string): Promise<TripCandidateForMatch[]> {
+async function loadTripCandidates(etablissementId: string): Promise<{
+  candidates: TripCandidateForMatch[];
+  tripsById: Map<string, TravelsTrip>;
+}> {
   try {
-    const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: INDEX_KEY }));
-    const raw = await res.Body?.transformToString();
-    if (!raw) return [];
-    const all = JSON.parse(raw) as IndexTrip[];
-    if (!Array.isArray(all)) return [];
+    const all = await listTravelsFromDb(etablissementId);
     const sorted = [...all].sort(
       (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
     );
     const active = sorted.filter((t) => !INACTIVE_STATUSES.has(String(t.status || "")));
     const withTransport = active.filter((t) => Boolean(t.data?.needsBus || t.data?.transportRequest));
     const pool = withTransport.length > 0 ? withTransport : active;
-    return pool.slice(0, MAX_CANDIDATES).map((t) => {
-      const d = t.data || {};
-      const classes = Array.isArray(d.classes) ? d.classes.join(", ") : String(d.classes || "");
-      return {
-        id: String(t.id),
-        title: String(d.title || ""),
-        destination: String(d.destination || ""),
-        startDate: d.startDate || d.date || undefined,
-        endDate: d.endDate || d.date || undefined,
-        startTime: d.startTime || undefined,
-        endTime: d.endTime || undefined,
-        status: t.status || "",
-        classes,
-        etablissement: d.etablissement ? String(d.etablissement) : undefined,
-        needsBus: Boolean(d.needsBus || d.transportRequest),
-        nbEleves: d.nbEleves != null ? String(d.nbEleves) : undefined,
-        transportContext: transportContextSnippet(
-          d.transportRequest && typeof d.transportRequest === "object" ? d.transportRequest : undefined,
-        ),
-      };
-    });
-  } catch {
-    return [];
+    const selected = pool.slice(0, MAX_CANDIDATES);
+    const tripsById = new Map(selected.map((t) => [String(t.id), t]));
+    return {
+      candidates: selected.map((t) => candidateFromTrip(t)),
+      tripsById,
+    };
+  } catch (e) {
+    console.error("[travel-email-ingest] loadTripCandidates:", e);
+    return { candidates: [], tripsById: new Map() };
   }
 }
 
@@ -541,6 +506,7 @@ async function runIngestJob(p: {
   client: S3Client;
   bucket: string;
   tenantSlug: string;
+  etablissementId: string;
   markerKey: string;
   s3Key?: string;
   fromEmail: string;
@@ -557,6 +523,7 @@ async function runIngestJob(p: {
     client,
     bucket,
     tenantSlug,
+    etablissementId,
     markerKey,
     s3Key,
     fromEmail,
@@ -611,6 +578,20 @@ async function runIngestJob(p: {
       }
     }
 
+    const deterministic = resolveTripMatchDeterministic({
+      subject: subject || "",
+      bodyPlain: emailBodyPlain,
+      snippet,
+      ocrText,
+      candidates,
+    });
+
+    let aiCandidates = candidates;
+    if (deterministic.dateFilteredCandidateIds?.length) {
+      const allow = new Set(deterministic.dateFilteredCandidateIds);
+      aiCandidates = candidates.filter((c) => allow.has(c.id));
+    }
+
     const analysis = await analyzeTravelEmailWithMistral({
       subject: subject || "",
       snippet: snippet || "",
@@ -618,8 +599,24 @@ async function runIngestJob(p: {
       ocrText,
       fromEmail,
       hasPdfAttachment,
-      candidates,
+      candidates: aiCandidates,
     });
+
+    if (deterministic.tripId) {
+      analysis.matchedTripId = deterministic.tripId;
+      analysis.matchConfidence = deterministic.confidence;
+      analysis.matchMotif = deterministic.motif;
+      analysis.matchReviewRequired = deterministic.confidence !== "high";
+    } else if (
+      analysis.matchedTripId &&
+      deterministic.dateFilteredCandidateIds &&
+      !deterministic.dateFilteredCandidateIds.includes(analysis.matchedTripId)
+    ) {
+      analysis.suggestedTripId = analysis.matchedTripId;
+      analysis.matchedTripId = null;
+      analysis.matchMotif = "date_incompatible_avec_sejour_ia";
+      analysis.matchConfidence = "low";
+    }
 
     if (analysis.matchMotif && TRANSIENT_FAIL_REASONS.has(analysis.matchMotif)) {
       // completed: false → le prochain poll peut retenter (clé IA revenue, etc.).
@@ -666,18 +663,23 @@ async function runIngestJob(p: {
       return finishUnmatched({ ...unmatchedBase(), reason: "pas_de_correspondance_ia" }, "pas_de_correspondance_ia");
     }
 
-    const tripKey = `travels/${tripId}.json`;
-    let tripFresh: Record<string, unknown>;
-    try {
-      const tripRes = await client.send(new GetObjectCommand({ Bucket: bucket, Key: tripKey }));
-      const tripRaw = await tripRes.Body?.transformToString();
-      tripFresh = tripRaw ? JSON.parse(tripRaw) : {};
-    } catch {
+    let tripFresh = await getTravelFromDb(etablissementId, tripId);
+    if (!tripFresh) {
       return finishUnmatched(
-        { ...unmatchedBase(), guessedTripId: tripId, reason: "voyage_introuvable_s3" },
-        "voyage_introuvable_s3",
+        { ...unmatchedBase(), guessedTripId: tripId, reason: "voyage_introuvable_db" },
+        "voyage_introuvable_db",
         tripId,
       );
+    }
+
+    const isDevis = analysis.messageType === "devis_pdf";
+    if (isDevis && tripAlreadyHasSignedBusQuote(tripFresh)) {
+      return finish({
+        matched: true,
+        tripId,
+        duplicate: true,
+        reason: "sejour_deja_commande_signee",
+      });
     }
 
     let devisId: string | null = null;
@@ -685,10 +687,10 @@ async function runIngestJob(p: {
     let attachmentAdded = false;
     let duplicate = false;
     const fileViewUrl = s3Key ? await publicS3UrlForKey(s3Key) : undefined;
-    const isDevis = analysis.messageType === "devis_pdf";
+    const tripMutable = tripFresh as TravelsTrip & Record<string, unknown>;
 
     if (isDevis && hasPdfAttachment && s3Key) {
-      const received = Array.isArray(tripFresh.receivedDevis) ? tripFresh.receivedDevis : [];
+      const received = Array.isArray(tripMutable.receivedDevis) ? tripMutable.receivedDevis : [];
       if (devisAlreadyInTrip(received, gmailMessageId, s3Key, originalFilename)) {
         duplicate = true;
       } else {
@@ -704,18 +706,18 @@ async function runIngestJob(p: {
           extractedPrice: analysis.price,
           extractedCompany: analysis.company,
           s3KeyIncoming: s3Key,
-          matchMethod: "mistral_email_ia",
+          matchMethod: deterministic.tripId ? "dates_destination" : "mistral_email_ia",
           matchConfidence: analysis.matchConfidence,
           matchMotif: analysis.matchMotif,
           matchReviewRequired: analysis.matchReviewRequired,
           extractedContactEmail: analysis.contactEmail,
         };
         devisId = newDevis.id;
-        tripFresh.receivedDevis = [...received, newDevis];
+        tripMutable.receivedDevis = [...received, newDevis];
       }
     }
 
-    const data = (tripFresh.data && typeof tripFresh.data === "object" ? tripFresh.data : {}) as Record<
+    const data = (tripMutable.data && typeof tripMutable.data === "object" ? tripMutable.data : {}) as Record<
       string,
       unknown
     >;
@@ -738,37 +740,31 @@ async function runIngestJob(p: {
         now,
       );
       messageId = msg.id;
-      applyTransportInfoToTripData(tripFresh, analysis, msg);
+      applyTransportInfoToTripData(tripMutable, analysis, msg);
     }
 
     if (hasPdfAttachment && s3Key && fileViewUrl && !isDevis && analysis.messageType !== "non_lie") {
-      attachmentAdded = appendEmailPdfToAttachments(tripFresh, {
+      attachmentAdded = appendEmailPdfToAttachments(tripMutable, {
         fileUrl: fileViewUrl,
         s3Key,
         gmailMessageId,
         label: buildEmailAttachmentLabel(analysis, originalFilename, providerName),
       });
       if (attachmentAdded) {
-        const history = Array.isArray(tripFresh.history) ? tripFresh.history : [];
+        const history = Array.isArray(tripMutable.history) ? tripMutable.history : [];
         history.unshift({
           date: now,
           user: "Système (e-mail)",
           action: "Document ajouté au dossier",
           note: buildEmailAttachmentLabel(analysis, originalFilename, providerName),
         });
-        tripFresh.history = history.slice(0, 200);
+        tripMutable.history = history.slice(0, 200);
       }
     }
 
     if (devisId || messageId || attachmentAdded) {
-      await client.send(
-        new PutObjectCommand({
-          Bucket: bucket,
-          Key: tripKey,
-          Body: JSON.stringify(tripFresh),
-          ContentType: "application/json",
-        }),
-      );
+      tripMutable.updatedAt = now;
+      await upsertTravelInDb(etablissementId, tripMutable as TravelsTrip);
       return finish({
         matched: true,
         tripId,
@@ -929,7 +925,17 @@ export async function ingestTravelEmail(input: TravelEmailIngestInput): Promise<
     };
   }
 
-  const { client, bucket, tenantSlug } = target;
+  const { client, bucket, tenantSlug, etablissementId } = target;
+  if (!etablissementId) {
+    return {
+      ok: false,
+      completed: true,
+      failed: true,
+      matched: false,
+      reason: "etablissement_introuvable",
+      safeToMarkRead: false,
+    };
+  }
   const markerKey = ingestMarkerKey(gmailMessageId, s3Key);
   const existing = await readIngestMarker(client, bucket, markerKey);
 
@@ -967,13 +973,14 @@ export async function ingestTravelEmail(input: TravelEmailIngestInput): Promise<
     tenantSlug,
   });
 
-  const candidates = await loadTripCandidates(client, bucket);
+  const { candidates } = await loadTripCandidates(etablissementId);
   const providerName = (await providerNameFromEmail(fromEmail)) ?? "Transporteur (e-mail)";
 
   const marker = await runIngestJob({
     client,
     bucket,
     tenantSlug,
+    etablissementId,
     markerKey,
     s3Key,
     fromEmail,

@@ -130,9 +130,13 @@ export async function analyzeTravelEmailWithMistral(input: {
               "Tu analyses des e-mails reçus par une école concernant des sorties / séjours scolaires (souvent transport bus). " +
               "On te donne l'objet, le corps du mail, éventuellement le texte OCR d'une pièce jointe PDF, et une liste JSON de séjours en cours " +
               "(id, titre, destination/lieux, dates, horaires, établissement, classes, besoin bus, effectif, contexte transport).\n" +
-              "PRIORITÉ ABSOLUE: déduire à QUEL séjour (trip_id de la liste) rattacher ce mail. " +
-              "Base-toi uniquement sur le contenu (dates, lieux, intitulés, classes, société, montants, contexte). " +
-              "N'exige AUCUNE référence dossier / numéro interne généré par l'école. Les transporteurs n'en mettent pas forcément.\n" +
+              "PRIORITÉ DE MATCHING (ordre strict):\n" +
+              "1) DATE(S) du devis/mail vs dates du séjour — critère le plus fort (rare d'avoir 2 sorties le même jour).\n" +
+              "2) Destination / lieux / titre (Caen, plages, musée, etc.).\n" +
+              "3) Autres indices (classes, effectif, contexte transport).\n" +
+              "Si une date du mail/OCR ne correspond à AUCUN séjour de la liste → trip_id null (ne force PAS un mauvais séjour).\n" +
+              "Si une date correspond à un seul séjour → trip_id de ce séjour (high).\n" +
+              "N'exige AUCUNE référence dossier / numéro interne. Si présente (ex. « ref trip … »), utilise-la si elle matche un id de la liste.\n" +
               "IMPORTANT: une pièce jointe PDF n'est PAS automatiquement un devis. Lis le contenu OCR pour décider.\n" +
               "Types possibles:\n" +
               "- devis_pdf: proposition commerciale / devis / offre de prix / facture proforma transport.\n" +
@@ -141,7 +145,7 @@ export async function analyzeTravelEmailWithMistral(input: {
               "- reponse_generique: question, demande de détails, réponse utile sans catégorie claire — à rattacher quand même au séjour.\n" +
               "- non_lie: spam ou hors sujet (trip_id null).\n" +
               "Tu dois:\n" +
-              "1) Associer UN séjour (trip_id) de la liste, ou null seulement si vraiment impossible.\n" +
+              "1) Associer UN séjour (trip_id) de la liste, ou null si impossible sans inventer.\n" +
               "2) Classer le message (message_type) selon le CONTENU.\n" +
               "3) Résumer en 1-2 phrases (resume).\n" +
               "4) Extraire si présent: nom_chauffeur, telephone_chauffeur, details_confirmation, montant_ttc, societe_emetrice, email_contact.\n" +
