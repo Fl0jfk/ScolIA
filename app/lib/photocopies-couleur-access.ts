@@ -15,6 +15,7 @@ export function getPhotocopiesRoleFlags(roles: string[]) {
   return {
     isDirection: isAnyDirectionRole(roles),
     isAdministratif: hasRole(roles, "administratif"),
+    isAccueil: hasRole(roles, "accueil"),
     isProfesseur: hasRole(roles, "professeur"),
     isEducation: hasRole(roles, "surveillant") || hasRole(roles, "cpe"),
   };
@@ -25,6 +26,7 @@ export function canCreatePhotocopiesDemand(roles: string[]) {
   return (
     f.isProfesseur ||
     f.isAdministratif ||
+    f.isAccueil ||
     f.isEducation ||
     hasGlobalAdminRole(roles) ||
     hasMasterRole(roles) ||
@@ -32,11 +34,12 @@ export function canCreatePhotocopiesDemand(roles: string[]) {
   );
 }
 
-/** Administratif, comptabilité, direction et admin établissement — déposer une demande pour un enseignant. */
+/** Administratif, accueil, comptabilité, direction et admin établissement — déposer une demande pour un enseignant. */
 export function canDeclarePhotocopiesOnBehalf(roles: string[]) {
   const f = getPhotocopiesRoleFlags(roles);
   return (
     f.isAdministratif ||
+    f.isAccueil ||
     hasRole(roles, "comptabilite") ||
     f.isDirection ||
     hasGlobalAdminRole(roles) ||

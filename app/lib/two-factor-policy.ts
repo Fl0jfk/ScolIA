@@ -6,7 +6,7 @@ const FAMILY_ONLY_ROLES = new Set(["parent", "eleve"]);
 
 /**
  * MFA obligatoire uniquement pour la direction et le personnel administratif.
- * Professeurs, surveillants, CPE (et le reste du personnel de terrain) : facultative.
+ * Professeurs, surveillants, CPE, Accueil (et le reste du personnel de terrain) : facultative.
  * Ceux qui l’ont déjà activée la gardent à la connexion.
  */
 const MFA_REQUIRED_STAFF_ROLES = new Set([

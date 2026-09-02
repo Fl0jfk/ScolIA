@@ -28,6 +28,8 @@ import {
   MODULE_TOUR_ACTION_EVENT,
   MODULE_TOUR_STEP_EVENT,
 } from "@/app/lib/module-tour-actions";
+import { canEnterTravelsDetail } from "@/app/lib/accueil-access";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
 type TravelsMainTab = "dossiers" | "settings";
 
@@ -37,11 +39,21 @@ const TravelsTransportSettingsPanel = dynamic(
 );
 
 function TripDashboardContent() {
-  const { isLoaded, isSignedIn } = useSessionUser();
+  const { isLoaded, isSignedIn, user } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const isOrgAdmin = useIsOrgAdmin();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const roles = useMemo(() => rolesFromUserLike(user), [user]);
+  const canOpenTrip = useMemo(
+    () =>
+      canEnterTravelsDetail({
+        roles,
+        orgAdmin: isOrgAdmin,
+        platformAdmin: Boolean(appCtx?.session?.isGlobalAdmin),
+      }),
+    [roles, isOrgAdmin, appCtx?.session?.isGlobalAdmin],
+  );
   const [showModal, setShowModal] = useState(false);
   const [trips, setTrips] = useState<TravelsTrip[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,7 +74,7 @@ function TripDashboardContent() {
   useEffect(() => {
     const onAction = (e: Event) => {
       const action = (e as CustomEvent<{ action: string }>).detail?.action;
-      if (action === "travels:open-create-modal") setShowModal(true);
+      if (action === "travels:open-create-modal" && canOpenTrip) setShowModal(true);
       if (action === "travels:close-create-modal") setShowModal(false);
     };
     const onStep = (e: Event) => {
@@ -75,7 +87,7 @@ function TripDashboardContent() {
       window.removeEventListener(MODULE_TOUR_ACTION_EVENT, onAction);
       window.removeEventListener(MODULE_TOUR_STEP_EVENT, onStep);
     };
-  }, []);
+  }, [canOpenTrip]);
 
   const loadTrips = useCallback(async () => {
     try {
@@ -127,8 +139,8 @@ function TripDashboardContent() {
   }, [isLoaded, isSignedIn, loadTrips, loadDirectionDashboard, loadReminders]);
 
   useEffect(() => {
-    if (searchParams.get("new") === "1") setShowModal(true);
-  }, [searchParams]);
+    if (searchParams.get("new") === "1" && canOpenTrip) setShowModal(true);
+  }, [searchParams, canOpenTrip]);
 
   const etabFilterOptions = useMemo(() => {
     const establishments = (appCtx?.establishments || []).filter((e) => e.active !== false);
@@ -187,7 +199,7 @@ function TripDashboardContent() {
           </p>
         }
         actions={
-          mainTab === "dossiers" ? (
+          mainTab === "dossiers" && canOpenTrip ? (
             <ModuleButton data-tour="travels-create" onClick={() => setShowModal(true)}>
               + Nouvelle demande
             </ModuleButton>
@@ -261,12 +273,21 @@ function TripDashboardContent() {
             return (
               <div
                 key={trip.id}
-                onClick={() => router.push(`/travels/${trip.id}`)}
-                className={`group relative min-w-0 rounded-[2.5rem] overflow-hidden border transition-all duration-300 cursor-pointer transform-gpu ${
+                onClick={canOpenTrip ? () => router.push(`/travels/${trip.id}`) : undefined}
+                className={`group relative min-w-0 rounded-[2.5rem] overflow-hidden border transition-all duration-300 transform-gpu ${
+                  canOpenTrip ? "cursor-pointer" : "cursor-default"
+                } ${
                   isPast
                     ? "bg-slate-100/90 border-slate-200 opacity-60 grayscale hover:opacity-75 hover:grayscale-[0.85]"
-                    : "shadow-sm hover:shadow-xl hover:-translate-y-1"
+                    : canOpenTrip
+                      ? "shadow-sm hover:shadow-xl hover:-translate-y-1"
+                      : "shadow-sm"
                 }`}
+                title={
+                  canOpenTrip
+                    ? undefined
+                    : "Consultation liste uniquement — ouverture du dossier réservée à d’autres rôles"
+                }
                 style={
                   isPast
                     ? undefined

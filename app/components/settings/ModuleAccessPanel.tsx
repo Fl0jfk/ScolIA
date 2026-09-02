@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SettingsNotice } from "@/app/components/settings/SettingsChrome";
 import { dash } from "@/app/lib/dashboard-brand";
+import { roleHasDefaultPhotocopiesOps } from "@/app/lib/module-access-defaults";
 
 type RoleOpt = { slug: string; label: string };
 type PillarGroup = {
@@ -156,7 +157,11 @@ export default function ModuleAccessPanel() {
     return new Set(selected.baselineDossierSections);
   }, [selected, config.byUser]);
 
-  const photocopiesOps = Boolean(selected && config.byUser[selected.userId]?.photocopiesOps);
+  const photocopiesOpsByUser = Boolean(selected && config.byUser[selected.userId]?.photocopiesOps);
+  const photocopiesOpsByRole = Boolean(
+    selected?.roles.some((r) => roleHasDefaultPhotocopiesOps(r)),
+  );
+  const photocopiesOps = photocopiesOpsByUser || photocopiesOpsByRole;
   const profRoomAdmin = Boolean(selected && config.byUser[selected.userId]?.profRoomAdmin);
 
   const isCustomized = Boolean(selected && config.byUser[selected.userId]);
@@ -491,6 +496,9 @@ export default function ModuleAccessPanel() {
                                   <span className="mt-0.5 block font-medium text-slate-500">
                                     Voit la file d&apos;impression après validation direction et peut
                                     marquer « prête ».
+                                    {photocopiesOpsByRole && !photocopiesOpsByUser
+                                      ? " Inclus par défaut pour le rôle Accueil."
+                                      : ""}
                                   </span>
                                 </span>
                               </label>

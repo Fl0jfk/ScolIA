@@ -41,6 +41,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
+      "accueil",
       "admin",
       "professeur",
       "infirmerie",
@@ -93,6 +94,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
+      "accueil",
       "professeur",
       "cpe",
       "surveillant",
@@ -100,8 +102,6 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "maintenance",
       "infirmerie",
       "psychologue",
-      "surveillant",
-      "cpe",
       "admin",
     ],
     moduleIds: [
@@ -126,6 +126,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "cpe",
       "surveillant",
       "administratif",
+      "accueil",
       "admin",
       "professeur",
       "infirmerie",
@@ -147,6 +148,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       ...DIRECTIONS,
       "comptabilite",
       "administratif",
+      "accueil",
       "admin",
       "maintenance",
       "professeur",

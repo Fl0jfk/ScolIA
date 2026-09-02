@@ -165,6 +165,8 @@ export const MODULE_EMOJI: Record<string, string> = {
   "vs-calendrier": "📆",
   "accueil-absences": "☎️",
   "absences-accueil-consultation": "📋",
+  /** Absences RH (autorisations / calendrier personnel) — distinct de ☎️ accueil et 📋 consultation. */
+  absences: "🤒",
   "vs-appels": "✅",
   "vs-absences": "✅",
   "vs-sanctions": "⚠️",
@@ -182,6 +184,10 @@ export const MODULE_EMOJI: Record<string, string> = {
   "chatbot-knowledge": "🧠",
   "domain-planning": "🧭",
   "requests-staff": "📥",
+  /** Heures supp. exceptionnelles — chrono, distinct de 📥 demandes. */
+  "demandes-hse": "⏱️",
+  /** Impression couleur — distinct de ☁️ documents / 📄 bulletins. */
+  "photocopies-couleur": "🖨️",
   "prof-room": "🚪",
   documents: "☁️",
   qrcreator: "📱",
@@ -190,4 +196,6 @@ export const MODULE_EMOJI: Record<string, string> = {
   assistance: "🆘",
   "admin-settings": "⚙️",
   rh: "👥",
+  "fiches-dialogue": "🗣️",
+  "groupes-pedagogiques": "🧩",
 };

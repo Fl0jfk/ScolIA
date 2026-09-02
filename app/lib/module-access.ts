@@ -14,6 +14,7 @@ import { DASHBOARD_PILLARS, moduleIdToPillarId } from "@/app/lib/dashboard-pilla
 import {
   customDefaultDossierSectionsForRole,
   customDefaultModulesForRole,
+  roleHasDefaultPhotocopiesOps,
 } from "@/app/lib/module-access-defaults";
 
 /** Modules exclus de la matrice admin. */
@@ -192,8 +193,16 @@ export function findUserOverride(
 export function userHasPhotocopiesOpsFlag(
   config: ModuleAccessConfig | null | undefined,
   lookup?: ModuleAccessLookup | null,
+  roles?: string[] | null,
 ): boolean {
-  return findUserOverride(config, lookup)?.photocopiesOps === true;
+  if (findUserOverride(config, lookup)?.photocopiesOps === true) return true;
+  if (roles?.length) {
+    for (const role of roles) {
+      if (config?.byRole?.[role]?.photocopiesOps === true) return true;
+      if (roleHasDefaultPhotocopiesOps(role)) return true;
+    }
+  }
+  return false;
 }
 
 /** Droit extra Droits modules : admin réservation de salles. */

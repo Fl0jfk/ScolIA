@@ -128,6 +128,13 @@ export async function GET(_req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
   }
   const { userId: authUserId, businessUserId, roles, orgAdmin, platformAdmin } = viewer;
+  const { canOpenEleveDossierDetail } = await import("@/app/lib/accueil-access");
+  if (!canOpenEleveDossierDetail({ roles, orgAdmin, platformAdmin })) {
+    return NextResponse.json(
+      { error: "Consultation liste uniquement.", code: "DOSSIER_DETAIL_FORBIDDEN" },
+      { status: 403 },
+    );
+  }
   const { loadModuleAccess } = await import("@/app/lib/module-access-store");
   const { dossierSectionsForRolesWithAccess } = await import("@/app/lib/module-access");
   const access = await loadModuleAccess();
@@ -439,11 +446,17 @@ export async function GET(_req: Request, ctx: Ctx) {
 
   const absencesEleve = absencesRaw.map((r) => ({
     id: r.id,
-    dateDebut: r.dateDebut,
+    dateDebut: String(r.dateDebut),
+    dateFin: String(r.dateFin),
+    heureDebut: r.heureDebut,
+    heureFin: r.heureFin,
     type: r.type,
     statut: r.statut,
     justifie: r.justifie,
     motif: r.motif,
+    source: r.source,
+    canal: r.canal,
+    createdByNom: r.createdByNom,
   }));
   const sanctionsEleve = sanctionsRaw.map((r) => ({
     id: r.id,

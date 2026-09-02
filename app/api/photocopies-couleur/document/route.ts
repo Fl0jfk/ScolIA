@@ -49,6 +49,7 @@ export async function GET(req: Request) {
     opsEmails,
     moduleAccess,
     lookup: { userId, businessUserId: userId },
+    roles,
   });
 
   if (!canCreatePhotocopiesDemand(roles) && !isOps) {

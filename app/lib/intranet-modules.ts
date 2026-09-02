@@ -19,6 +19,14 @@ import {
   ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS,
   isProfesseurScopedDossierViewer,
 } from "./eleve-dossier-scope";
+import {
+  canEnterTravelsDetail,
+  canOpenEleveDossierDetail,
+  isEleveDossierDetailApiPath,
+  isEleveDossierDetailPath,
+  isTravelsDetailApiPath,
+  isTravelsDetailPath,
+} from "./accueil-access";
 
 const DIRECTIONS = [...INTRANET_DIRECTION_SLUGS];
 const ROLES_EXCEPT_PARENT = intranetRolesExceptParent();
@@ -156,6 +164,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
+      "accueil",
       "comptabilite",
       "surveillant",
       "cpe",
@@ -261,6 +270,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
+      "accueil",
       "comptabilite",
       "surveillant",
       "cpe",
@@ -295,6 +305,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
+      "accueil",
       "surveillant",
       "cpe",
       "comptabilite",
@@ -394,7 +405,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "photocopies-couleur",
     pathPrefixes: ["/photocopies-couleur", "/api/photocopies-couleur"],
-    allowedRoles: [...DIRECTIONS, "administratif", "professeur"],
+    allowedRoles: [...DIRECTIONS, "administratif", "accueil", "professeur"],
     dashboard: {
       id: 502,
       name: "Photocopies couleur",
@@ -454,6 +465,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
+      "accueil",
       "comptabilite",
       "surveillant",
       "cpe",
@@ -477,6 +489,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
+      "accueil",
       "comptabilite",
       "surveillant",
       "cpe",
@@ -529,7 +542,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "accueil-absences",
     pathPrefixes: ["/accueil/absences", "/api/accueil/absences"],
-    allowedRoles: [...DIRECTIONS, "administratif", "cpe", "comptabilite", "surveillant"],
+    allowedRoles: [...DIRECTIONS, "administratif", "accueil", "cpe", "comptabilite", "surveillant"],
     dashboard: {
       id: 243,
       name: "Absence accueil",
@@ -753,7 +766,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "pillar-administratif",
     pathPrefixes: ["/administratif"],
-    allowedRoles: [...DIRECTIONS, "administratif", "admin", "professeur"],
+    allowedRoles: [...DIRECTIONS, "administratif", "accueil", "admin", "professeur"],
   },
   {
     id: "pillar-etablissement",
@@ -766,6 +779,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
+      "accueil",
       "professeur",
       "cpe",
       "surveillant",
@@ -777,12 +791,20 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "pillar-vie-scolaire",
     pathPrefixes: ["/vie-scolaire"],
-    allowedRoles: [...DIRECTIONS, "cpe", "surveillant", "administratif", "admin", "professeur"],
+    allowedRoles: [...DIRECTIONS, "cpe", "surveillant", "administratif", "accueil", "admin", "professeur"],
   },
   {
     id: "pillar-compta-rh",
     pathPrefixes: ["/compta-rh"],
-    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin", "maintenance", "professeur"],
+    allowedRoles: [
+      ...DIRECTIONS,
+      "comptabilite",
+      "administratif",
+      "accueil",
+      "admin",
+      "maintenance",
+      "professeur",
+    ],
   },
   {
     id: "scolia-ai",
@@ -1097,7 +1119,24 @@ export function canAccessIntranetPath(
   const modules = findMatchingModules(normalized);
   if (modules.length === 0) return false;
 
-  return modules.some((m) => rolesAllowModule(roles, m, isOrgAdmin, access, userRef));
+  const allowed = modules.some((m) => rolesAllowModule(roles, m, isOrgAdmin, access, userRef));
+  if (!allowed) return false;
+
+  const scopeOpts = { roles, orgAdmin: isOrgAdmin };
+  if (
+    (isTravelsDetailPath(normalized) || isTravelsDetailApiPath(normalized)) &&
+    !canEnterTravelsDetail(scopeOpts)
+  ) {
+    return false;
+  }
+  if (
+    (isEleveDossierDetailPath(normalized) || isEleveDossierDetailApiPath(normalized)) &&
+    !canOpenEleveDossierDetail(scopeOpts)
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 export function getIntranetModuleById(moduleId: string): IntranetModule | undefined {

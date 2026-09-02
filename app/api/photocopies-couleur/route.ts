@@ -88,6 +88,7 @@ export async function GET() {
     opsEmails,
     moduleAccess,
     lookup: { userId: userId, businessUserId: userId },
+    roles,
   });
 
   if (!canCreatePhotocopiesDemand(roles) && !isOps) {
@@ -335,6 +336,7 @@ export async function PATCH(req: Request) {
       opsEmails,
       moduleAccess,
       lookup: { userId, businessUserId: userId },
+      roles,
     });
     const base = await tenantAbsolutePath("/photocopies-couleur");
 

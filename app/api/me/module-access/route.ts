@@ -42,6 +42,7 @@ export async function GET() {
             opsEmails: ops,
             moduleAccess: access,
             lookup,
+            roles: appUser.user.roles,
           }) &&
           !moduleIds.includes("photocopies-couleur")
         ) {

@@ -106,6 +106,20 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "absences",
     "mon-planning",
   ],
+  /**
+   * Standard / accueil : périmètre réduit.
+   * Dossiers élèves = liste seule ; sorties = visu globale (pas de fiche).
+   * Photocopies : réceptionnaire par défaut (voir ROLE_DEFAULT_PHOTOCOPIES_OPS).
+   */
+  accueil: [
+    "accueil-absences",
+    "eleve-dossier",
+    "travels",
+    "photocopies-couleur",
+    "rh",
+    "absences",
+    "mon-planning",
+  ],
   direction_ecole: DIRECTION_DEFAULT_MODULES,
   direction_college: DIRECTION_DEFAULT_MODULES,
   direction_lycee: DIRECTION_DEFAULT_MODULES,
@@ -211,8 +225,21 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
   ],
 };
 
+/** Rôles réceptionnaires photocopies couleur par défaut (file « à imprimer »). */
+export const ROLE_DEFAULT_PHOTOCOPIES_OPS: ReadonlySet<string> = new Set(["accueil"]);
+
+export function roleHasDefaultPhotocopiesOps(role: string): boolean {
+  return ROLE_DEFAULT_PHOTOCOPIES_OPS.has(role);
+}
+
+export function rolesHaveDefaultPhotocopiesOps(roles: string[]): boolean {
+  return roles.some((r) => ROLE_DEFAULT_PHOTOCOPIES_OPS.has(r));
+}
+
 export const ROLE_DEFAULT_DOSSIER_SECTIONS: Record<string, readonly DefaultDossierSection[]> = {
   professeur: ["identite", "scolarite", "notes"],
+  /** Accueil : pas d’ouverture de fiche ; sections vides si accès détail forcé. */
+  accueil: [],
   administratif: [
     "identite",
     "scolarite",

@@ -8,6 +8,7 @@ import {
   listAssignedClassesForTeacher,
   listElevesDossierFromDb,
 } from "@/app/lib/eleve-dossier-prof";
+import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
 import {
   buildEleveDossierClassCatalog,
   classOptionLabel,
@@ -43,6 +44,11 @@ export async function GET(req: NextRequest) {
     platformAdmin: user.platformAdmin,
   });
   const canManagePreinscriptions = canManageElevePreinscriptions({
+    roles: user.roles,
+    orgAdmin: user.orgAdmin,
+    platformAdmin: user.platformAdmin,
+  });
+  const canOpenDetail = canOpenEleveDossierDetail({
     roles: user.roles,
     orgAdmin: user.orgAdmin,
     platformAdmin: user.platformAdmin,
@@ -176,6 +182,7 @@ export async function GET(req: NextRequest) {
     assignedClasses: assignedClasses ?? [],
     canViewFullHub: fullHub,
     canManagePreinscriptions,
+    canOpenDetail,
     profScoped,
     sites: sites.map((s) => ({ siteId: s.siteId, label: s.label })),
     siteLabelById,

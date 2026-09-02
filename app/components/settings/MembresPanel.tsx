@@ -372,7 +372,7 @@ export default function MembresPanel() {
         <h3 className={`text-sm font-semibold ${dash.ink}`}>Lien d’invitation</h3>
         <p className={`mt-1 text-sm ${dash.textMid}`}>
           Envoie un e-mail pour créer le mot de passe (lien 24&nbsp;h). Pour les professeurs,
-          surveillants et CPE : connexion avec e-mail + mot de passe, sans double authentification
+          surveillants, CPE et Accueil : connexion avec e-mail + mot de passe, sans double authentification
           obligatoire. Direction et personnel administratif : MFA obligatoire. Ceux qui l’ont déjà
           activée la conservent lors d’un renvoi de lien. Après envoi, le bouton devient{" "}
           <strong>Réenvoyer le lien</strong> (ligne grisée) pendant 24&nbsp;h. Sur un

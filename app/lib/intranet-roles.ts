@@ -4,6 +4,7 @@ import { normRole } from "./intranet-role-utils";
 export const INTRANET_ROLE_OPTIONS: { slug: string; label: string }[] = [
   { slug: "admin", label: "Admin (gestion utilisateurs & paramètres)" },
   { slug: "administratif", label: "Administratif" },
+  { slug: "accueil", label: "Accueil" },
   { slug: "professeur", label: "Professeur" },
   { slug: "direction_ecole", label: "Direction école" },
   { slug: "direction_college", label: "Direction collège" },

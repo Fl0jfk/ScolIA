@@ -61,13 +61,17 @@ test("personnel administratif / admin / direction / compta : MFA obligatoire", (
   );
 });
 
-test("surveillant / CPE : MFA facultative", () => {
+test("surveillant / CPE / Accueil : MFA facultative", () => {
   assert.equal(
     roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["surveillant"] }),
     false,
   );
   assert.equal(
     roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["cpe"] }),
+    false,
+  );
+  assert.equal(
+    roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["accueil"] }),
     false,
   );
   assert.equal(

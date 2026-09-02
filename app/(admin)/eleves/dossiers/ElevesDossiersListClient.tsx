@@ -70,6 +70,7 @@ export default function ElevesDossiersListClient() {
   const [canDecideAccess, setCanDecideAccess] = useState(false);
   const [canViewFullHub, setCanViewFullHub] = useState(false);
   const [canManagePreinscriptions, setCanManagePreinscriptions] = useState(false);
+  const [canOpenDetail, setCanOpenDetail] = useState(true);
   const [profScoped, setProfScoped] = useState(false);
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [siteLabelById, setSiteLabelById] = useState<Record<string, string>>({});
@@ -110,8 +111,8 @@ export default function ElevesDossiersListClient() {
 
   useEffect(() => {
     if (tab === "preinscriptions" && !canManagePreinscriptions) setTab("dossiers");
-    if (tab === "acces" && !canViewFullHub) setTab("dossiers");
-  }, [tab, canManagePreinscriptions, canViewFullHub]);
+    if (tab === "acces" && (!canViewFullHub || !canOpenDetail)) setTab("dossiers");
+  }, [tab, canManagePreinscriptions, canViewFullHub, canOpenDetail]);
 
   const listQueryString = useMemo(() => {
     const p = new URLSearchParams();
@@ -152,6 +153,7 @@ export default function ElevesDossiersListClient() {
       eleves: EleveRow[];
       canViewFullHub: boolean;
       canManagePreinscriptions?: boolean;
+      canOpenDetail?: boolean;
       profScoped: boolean;
       assignedClasses: string[];
       sites: SiteOption[];
@@ -162,6 +164,7 @@ export default function ElevesDossiersListClient() {
     setEleves(j.eleves || []);
     setCanViewFullHub(Boolean(j.canViewFullHub));
     setCanManagePreinscriptions(Boolean(j.canManagePreinscriptions));
+    setCanOpenDetail(j.canOpenDetail !== false);
     setProfScoped(Boolean(j.profScoped));
     setSites(j.sites || []);
     setSiteLabelById(j.siteLabelById || {});
@@ -190,7 +193,7 @@ export default function ElevesDossiersListClient() {
         if (canManagePreinscriptions) {
           fetches.push(fetch("/api/eleves/preinscriptions?status=pending"));
         }
-        if (canViewFullHub) {
+        if (canViewFullHub && canOpenDetail) {
           fetches.push(fetch("/api/eleves/document-access-requests?status=pending"));
         }
         const results = await Promise.all(fetches);
@@ -202,7 +205,7 @@ export default function ElevesDossiersListClient() {
             setPreinsc(j.preinscriptions || []);
           }
         }
-        if (canViewFullHub) {
+        if (canViewFullHub && canOpenDetail) {
           const ar = results[idx++]!;
           if (ar.ok) {
             const j = (await ar.json()) as { requests: AccessReq[]; canDecide: boolean };
@@ -214,7 +217,7 @@ export default function ElevesDossiersListClient() {
         /* onglets admin secondaires */
       }
     })();
-  }, [canViewFullHub, canManagePreinscriptions]);
+  }, [canViewFullHub, canManagePreinscriptions, canOpenDetail]);
 
   const hasActiveSearch = Boolean(
     q.trim() || classeFilter || siteFilter || statusFilter,
@@ -343,7 +346,7 @@ export default function ElevesDossiersListClient() {
             Préinscriptions ({preFiltered.length})
           </button>
         ) : null}
-        {canViewFullHub ? (
+        {canViewFullHub && canOpenDetail ? (
           <button
             type="button"
             onClick={() => setTab("acces")}
@@ -450,12 +453,8 @@ export default function ElevesDossiersListClient() {
             <ul className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
               {filtered.slice(0, 200).map((e) => {
                 const initials = `${e.prenom.charAt(0)}${e.nom.charAt(0)}`.toUpperCase() || "?";
-                return (
-                  <li key={e.id} className="border-b border-slate-100 last:border-b-0">
-                    <Link
-                      href={dossierHref(e.id)}
-                      className="group flex items-center gap-3 px-3 py-3 transition hover:bg-slate-50/90 sm:gap-4 sm:px-4 sm:py-3.5"
-                    >
+                const rowBody = (
+                  <>
                       {e.photoUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -504,13 +503,33 @@ export default function ElevesDossiersListClient() {
                           ) : null}
                         </div>
                       </div>
-                      <span
-                        className="shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-600"
-                        aria-hidden
+                      {canOpenDetail ? (
+                        <span
+                          className="shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-600"
+                          aria-hidden
+                        >
+                          →
+                        </span>
+                      ) : null}
+                  </>
+                );
+                return (
+                  <li key={e.id} className="border-b border-slate-100 last:border-b-0">
+                    {canOpenDetail ? (
+                      <Link
+                        href={dossierHref(e.id)}
+                        className="group flex items-center gap-3 px-3 py-3 transition hover:bg-slate-50/90 sm:gap-4 sm:px-4 sm:py-3.5"
                       >
-                        →
-                      </span>
-                    </Link>
+                        {rowBody}
+                      </Link>
+                    ) : (
+                      <div
+                        className="flex items-center gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-3.5"
+                        title="Consultation liste uniquement — ouverture du dossier réservée à d’autres rôles"
+                      >
+                        {rowBody}
+                      </div>
+                    )}
                   </li>
                 );
               })}
@@ -594,7 +613,7 @@ export default function ElevesDossiersListClient() {
         </>
       ) : null}
 
-      {tab === "acces" && canViewFullHub ? (
+      {tab === "acces" && canViewFullHub && canOpenDetail ? (
         <ul className="space-y-2">
           {accessReqs.length === 0 ? (
             <p className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-500">

@@ -495,6 +495,7 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
           userId: betterAuthState.authUserId,
           businessUserId: betterAuthState.userId,
         },
+        roles,
       });
     } catch {
       photocopiesOpsBypass = false;

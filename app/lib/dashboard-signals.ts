@@ -15,6 +15,7 @@ import { absencesToday } from "@/app/lib/dashboard-absences";
 import { moduleIdToPillarId, type DashboardPillarId } from "@/app/lib/dashboard-pillars";
 import { tripsThisWeek, tripsToday, type TripIndexRow } from "@/app/lib/dashboard-trips";
 import { moduleHref } from "@/app/lib/pillar-module-routes";
+import { canEnterTravelsDetail } from "@/app/lib/accueil-access";
 import { pickExactCurrentWeekSheet } from "@/app/lib/dashboard-week-sheet-active";
 import type { WeekSheetData, WeekSheetEvent } from "@/app/lib/dashboard-week-sheet-types";
 import { WEEK_DAYS, type WeekDayKey } from "@/app/lib/dashboard-week-sheet-types";
@@ -235,10 +236,15 @@ function canSeeTodayTripHighlight(roles: string[]): boolean {
   if (isDirectionRole(roles) || isCompta(roles)) return false;
   return (
     hasRole(roles, "administratif") ||
+    hasRole(roles, "accueil") ||
     hasRole(roles, "surveillant") ||
     hasRole(roles, "cpe") ||
     hasRole(roles, "professeur")
   );
+}
+
+function travelsTripHref(roles: string[], tripId: string, listHref: string): string {
+  return canEnterTravelsDetail({ roles }) ? `/travels/${tripId}` : listHref;
 }
 
 function photocopiePendingForDirection(
@@ -392,7 +398,10 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "travels-today",
         pillarId: "vie_scolaire",
         moduleId: "travels",
-        href: todayTrips.length === 1 ? `/travels/${first.id}` : travelsHome,
+        href:
+          todayTrips.length === 1
+            ? travelsTripHref(roles, first.id, travelsHome)
+            : travelsHome,
         label: first.data?.title || "Sortie scolaire",
         rich: true,
         badge: todayTrips.length > 1 ? `${todayTrips.length} sorties` : "Aujourd'hui",
@@ -409,7 +418,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
                 detail: t.data?.etablissement || undefined,
                 badge: "Aujourd'hui",
                 colorHex: travelColors[i % travelColors.length],
-                href: `/travels/${t.id}`,
+                href: travelsTripHref(roles, t.id, travelsHome),
               }))
             : undefined,
       });
@@ -528,7 +537,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: `travels-up-${t.id}`,
           pillarId: "vie_scolaire",
           moduleId: "travels",
-          href: `/travels/${t.id}`,
+          href: travelsTripHref(roles, t.id, travelsHome),
           label: t.data?.title || "Sortie",
           rich: true,
           badge: isToday ? "Aujourd'hui" : when,

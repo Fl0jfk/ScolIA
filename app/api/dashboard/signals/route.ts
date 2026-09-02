@@ -177,6 +177,7 @@ export async function GET() {
       opsEmails: photocopiesOpsEmails,
       moduleAccess,
       lookup: { userId: authUserId, businessUserId },
+      roles,
     });
     if (isPhotoOps) accessibleModuleIds.add("photocopies-couleur");
 
