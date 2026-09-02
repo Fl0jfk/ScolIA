@@ -90,7 +90,10 @@ function pushHistory(
 }
 
 async function buildDefaultSignatures(convention: StageConvention): Promise<StageSignature[]> {
-  const directionEmail = await resolveStagesDirectionEmail(convention.student.level);
+  const directionEmail = await resolveStagesDirectionEmail(
+    convention.student.level,
+    convention.student.className,
+  );
 
   const sigs: Array<{ role: StageSignerRole; email?: string }> = [
     { role: "parent", email: resolveParent1Email(convention) },
@@ -117,7 +120,10 @@ async function buildDefaultSignatures(convention: StageConvention): Promise<Stag
 async function buildDepositedConventionSignatures(
   convention: StageConvention,
 ): Promise<StageSignature[]> {
-  const directionEmail = await resolveStagesDirectionEmail(convention.student.level);
+  const directionEmail = await resolveStagesDirectionEmail(
+    convention.student.level,
+    convention.student.className,
+  );
   const now = new Date().toISOString();
   const paperSigned: StageSignature[] = [
     {
@@ -524,12 +530,15 @@ export async function approveDepositedConvention(
         "Professeur référent introuvable pour cette classe — configurez les référents dans Stages & conventions.",
     };
   }
-  const directionEmail = await resolveStagesDirectionEmail(prepared.student.level);
+  const directionEmail = await resolveStagesDirectionEmail(
+    prepared.student.level,
+    prepared.student.className,
+  );
   if (!directionEmail) {
     return {
       ok: false,
       error:
-        "E-mail direction introuvable — renseignez stagesDirectionEmail ou l'e-mail du directeur dans les paramètres.",
+        "E-mail direction introuvable — renseignez la direction stages pour ce cycle (Paramètres → Notifications) ou l’e-mail du directeur de l’établissement.",
     };
   }
 

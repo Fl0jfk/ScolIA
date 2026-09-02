@@ -278,27 +278,88 @@ export default function SettingsNotificationsPanel({
         </SettingsSection>
       ) : null}
 
-      <SettingsSection icon="📄" title="Stages">
-        <SettingsField label="Administratif" as="div">
-          <DirectoryPeopleSelect
-            members={directoryMembers}
-            loading={membersLoading}
-            selectedEmails={emailsOf(notifications.stagesAdminEmails)}
-            onChange={(emails) => patch({ stagesAdminEmails: emails })}
-          />
-        </SettingsField>
-        <SettingsField
-          label="Direction (signature)"
-          hint="Sinon, e-mail du directeur de l’établissement de l’élève."
-          as="div"
-        >
-          <DirectoryPersonSelect
-            members={directoryMembers}
-            loading={membersLoading}
-            selectedEmail={String(notifications.stagesDirectionEmail || "")}
-            onChange={(member) => setPersonEmail("stagesDirectionEmail", member)}
-          />
-        </SettingsField>
+      <SettingsSection
+        icon="📄"
+        title="Stages"
+        description="Administratif et direction selon les établissements actifs (école, collège, lycée)."
+      >
+        {(["ecole", "college", "lycee"] as const)
+          .filter((kind) => activeEstablishmentKinds.has(kind))
+          .map((kind) => {
+            const kindLabel =
+              kind === "ecole" ? "École" : kind === "college" ? "Collège" : "Lycée";
+            const adminByKind =
+              (notifications.stagesAdminEmailsByKind as
+                | Partial<Record<"ecole" | "college" | "lycee", string[]>>
+                | undefined) || {};
+            const directionByKind =
+              (notifications.stagesDirectionEmailByKind as
+                | Partial<Record<"ecole" | "college" | "lycee", string>>
+                | undefined) || {};
+            const adminEmails =
+              emailsOf(adminByKind[kind]).length > 0
+                ? emailsOf(adminByKind[kind])
+                : emailsOf(notifications.stagesAdminEmails);
+            const directionEmail =
+              String(directionByKind[kind] || "").trim() ||
+              (!Object.keys(directionByKind).length
+                ? String(notifications.stagesDirectionEmail || "").trim()
+                : "");
+
+            return (
+              <div
+                key={kind}
+                className="space-y-3 rounded-2xl border border-slate-200/80 bg-slate-50/50 p-3"
+              >
+                <p className={`text-sm font-semibold ${dash.ink}`}>{kindLabel}</p>
+                <SettingsField
+                  label={`Administratif — ${kindLabel}`}
+                  hint="Personnes notifiées pour les préconventions / dépôts de ce cycle."
+                  as="div"
+                >
+                  <DirectoryPeopleSelect
+                    members={directoryMembers}
+                    loading={membersLoading}
+                    selectedEmails={adminEmails}
+                    onChange={(emails) =>
+                      patch({
+                        stagesAdminEmailsByKind: { ...adminByKind, [kind]: emails },
+                        stagesAdminEmails: undefined,
+                      })
+                    }
+                  />
+                </SettingsField>
+                <SettingsField
+                  label={`Direction (signature) — ${kindLabel}`}
+                  hint="Sinon : e-mail du directeur de cet établissement (Paramètres → Établissements)."
+                  as="div"
+                >
+                  <DirectoryPersonSelect
+                    members={directoryMembers}
+                    loading={membersLoading}
+                    selectedEmail={directionEmail}
+                    onChange={(member) =>
+                      patch({
+                        stagesDirectionEmailByKind: {
+                          ...directionByKind,
+                          [kind]: member?.email.trim() || undefined,
+                        },
+                        stagesDirectionEmail: undefined,
+                      })
+                    }
+                  />
+                </SettingsField>
+              </div>
+            );
+          })}
+        {!activeEstablishmentKinds.has("ecole") &&
+        !activeEstablishmentKinds.has("college") &&
+        !activeEstablishmentKinds.has("lycee") ? (
+          <p className={`text-xs ${dash.textMid}`}>
+            Activez au moins un établissement (école, collège ou lycée) dans Paramètres →
+            Établissements pour configurer les destinataires stages.
+          </p>
+        ) : null}
         <SettingsField label="Modèle de convention vierge (URL PDF)">
           <input
             className={settingsInputClass}

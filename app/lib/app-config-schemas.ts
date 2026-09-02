@@ -181,10 +181,20 @@ export type NotificationsConfig = {
   absencesNotifySurveillanceResponsables?: string[];
   internatRollCallRecipients?: InternatRollCallRecipients;
   internatEmergencyRecipients?: string[];
-  /** Préconventions / conventions de stage — file administratif. */
+  /**
+   * @deprecated Liste plate — préférer `stagesAdminEmailsByKind` (école / collège / lycée).
+   * Conservée en repli tant que les listes par cycle ne sont pas renseignées.
+   */
   stagesAdminEmails?: string[];
-  /** Signature direction (repli : e-mail directeur selon niveau élève). */
+  /** File administratif stages, par cycle (établissements actifs). */
+  stagesAdminEmailsByKind?: Partial<Record<"ecole" | "college" | "lycee", string[]>>;
+  /**
+   * @deprecated Un seul e-mail global — préférer `stagesDirectionEmailByKind`
+   * ou le directeur de chaque établissement (Paramètres → Établissements).
+   */
   stagesDirectionEmail?: string;
+  /** Override signature direction stages, par cycle. */
+  stagesDirectionEmailByKind?: Partial<Record<"ecole" | "college" | "lycee", string>>;
   /** PDF vierge remplissable — lien de téléchargement sur /stages/deposer */
   stagesConventionTemplateUrl?: string;
 };
@@ -524,9 +534,31 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
     internatRollCallRecipients: parseInternatRollCall(o.internatRollCallRecipients),
     internatEmergencyRecipients: strArr(o.internatEmergencyRecipients).filter(isEmail),
     stagesAdminEmails: strArr(o.stagesAdminEmails).filter(isEmail),
+    stagesAdminEmailsByKind: (() => {
+      const raw = o.stagesAdminEmailsByKind;
+      if (!raw || typeof raw !== "object") return undefined;
+      const src = raw as Record<string, unknown>;
+      const out: Partial<Record<"ecole" | "college" | "lycee", string[]>> = {};
+      for (const kind of ["ecole", "college", "lycee"] as const) {
+        const list = strArr(src[kind]).filter(isEmail);
+        if (list.length) out[kind] = list;
+      }
+      return Object.keys(out).length ? out : undefined;
+    })(),
     stagesDirectionEmail: (() => {
       const e = str(o.stagesDirectionEmail).trim();
       return e && isEmail(e) ? e : undefined;
+    })(),
+    stagesDirectionEmailByKind: (() => {
+      const raw = o.stagesDirectionEmailByKind;
+      if (!raw || typeof raw !== "object") return undefined;
+      const src = raw as Record<string, unknown>;
+      const out: Partial<Record<"ecole" | "college" | "lycee", string>> = {};
+      for (const kind of ["ecole", "college", "lycee"] as const) {
+        const e = str(src[kind]).trim();
+        if (e && isEmail(e)) out[kind] = e;
+      }
+      return Object.keys(out).length ? out : undefined;
     })(),
     stagesConventionTemplateUrl: (() => {
       const u = str(o.stagesConventionTemplateUrl).trim();

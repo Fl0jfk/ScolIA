@@ -1,7 +1,11 @@
 import type { StageConvention, StageSignature } from "@/app/lib/stage-types";
 import { STAGE_SIGNER_ROLE_LABELS } from "@/app/lib/stage-types";
 import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
-import { resolveStagesDirectionEmail } from "@/app/lib/stage-config";
+import { directionSecteursFromRoles } from "@/app/lib/pilotage-eleves-access";
+import {
+  resolveStagesDirectionEmail,
+  stageCycleKindFromStudent,
+} from "@/app/lib/stage-config";
 
 export type PendingStageSignature = {
   conventionId: string;
@@ -43,9 +47,28 @@ async function signatureAwaitingUser(
   }
 
   if (sig.role === "direction" && hasDirectionRole(roles)) {
-    const directionEmail = (await resolveStagesDirectionEmail(convention.student.level))?.toLowerCase();
-    if (!directionEmail || !email || directionEmail === email) return true;
-    if (sigEmail && email && sigEmail === email) return true;
+    const directionEmail = (
+      await resolveStagesDirectionEmail(
+        convention.student.level,
+        convention.student.className,
+      )
+    )?.toLowerCase();
+    if (directionEmail && email && directionEmail === email) return true;
+
+    const cycle = stageCycleKindFromStudent(
+      convention.student.level,
+      convention.student.className,
+    );
+    const userSecteurs = directionSecteursFromRoles(roles);
+    const roleMatchesCycle =
+      userSecteurs.length === 0
+        ? roles.includes("direction")
+        : userSecteurs.includes(cycle);
+
+    // Direction du bon cycle : autoriser si pas d’e-mail direction fixé, ou s’il correspond.
+    if (roleMatchesCycle && (!directionEmail || !email || directionEmail === email)) {
+      return true;
+    }
   }
 
   return false;

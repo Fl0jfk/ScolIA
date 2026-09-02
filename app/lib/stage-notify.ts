@@ -37,7 +37,10 @@ export async function notifyStagePreconventionSubmitted(convention: StageConvent
   const m = await mailer();
   if (!m) return { sent: false, reason: "smtp" as const };
 
-  const recipients = await resolveStagesAdminEmails();
+  const recipients = await resolveStagesAdminEmails(
+    convention.student.level,
+    convention.student.className,
+  );
   if (!recipients.length) return { sent: false, reason: "no_recipients" as const };
 
   const bundle = await loadAppConfig();
@@ -73,7 +76,10 @@ export async function notifyStageConventionDeposited(convention: StageConvention
   const m = await mailer();
   if (!m) return { sent: false, reason: "smtp" as const };
 
-  const recipients = await resolveStagesAdminEmails();
+  const recipients = await resolveStagesAdminEmails(
+    convention.student.level,
+    convention.student.className,
+  );
   if (!recipients.length) return { sent: false, reason: "no_recipients" as const };
 
   const bundle = await loadAppConfig();
@@ -539,8 +545,14 @@ export async function notifyStageFullySigned(convention: StageConvention) {
   if (isDepositFlow) {
     recipients = await resolveDepositFinalRecipients(convention);
   } else {
-    const directionEmail = await resolveStagesDirectionEmail(convention.student.level);
-    const admins = await resolveStagesAdminEmails();
+    const directionEmail = await resolveStagesDirectionEmail(
+      convention.student.level,
+      convention.student.className,
+    );
+    const admins = await resolveStagesAdminEmails(
+      convention.student.level,
+      convention.student.className,
+    );
     recipients = uniqueEmails(
       convention.student.email,
       convention.student.parentEmail,
