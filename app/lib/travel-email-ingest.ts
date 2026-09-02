@@ -622,14 +622,20 @@ async function runIngestJob(p: {
     });
 
     if (analysis.matchMotif && TRANSIENT_FAIL_REASONS.has(analysis.matchMotif)) {
-      return finish({
+      // completed: false → le prochain poll peut retenter (clé IA revenue, etc.).
+      const transient: IngestMarker = {
+        pending: false,
+        completed: false,
         failed: true,
         matched: false,
         reason: analysis.matchMotif,
         tripId: null,
         gmailMessageId,
         s3Key,
-      });
+        tenantSlug,
+      };
+      await writeIngestMarker(client, bucket, markerKey, transient);
+      return transient;
     }
 
     const now = new Date().toISOString();
@@ -928,7 +934,14 @@ export async function ingestTravelEmail(input: TravelEmailIngestInput): Promise<
   const existing = await readIngestMarker(client, bucket, markerKey);
 
   if (existing?.completed) {
-    return resultFromMarker(existing, "deja_traite");
+    const transientFail =
+      Boolean(existing.failed) &&
+      typeof existing.reason === "string" &&
+      TRANSIENT_FAIL_REASONS.has(existing.reason);
+    // Ex. missing_mistral_key : ne pas figer à vie — retenter après fix config / deploy.
+    if (!transientFail) {
+      return resultFromMarker(existing, "deja_traite");
+    }
   }
 
   if (existing?.pending) {
