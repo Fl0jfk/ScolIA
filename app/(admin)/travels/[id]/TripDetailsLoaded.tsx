@@ -1184,12 +1184,17 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           tripData: trip.data,
           providerEmail: transporteurEmail,
           signedQuoteUrl: fileUrl,
+          signedQuoteS3Key: uploadedKey,
           providerName: quote.providerName,
         })
       });
-      const orderPayload = (await orderRes.json()) as { error?: string };
+      const orderPayload = (await orderRes.json()) as { error?: string; details?: string };
       if (!orderRes.ok) {
-        throw new Error(orderPayload.error || `Envoi commande impossible (${orderRes.status}).`);
+        throw new Error(
+          orderPayload.error
+            ? `${orderPayload.error}${orderPayload.details ? ` — ${orderPayload.details}` : ""}`
+            : `Envoi commande impossible (${orderRes.status}).`,
+        );
       }
       const newAttachment = { name: `✅ ${fileName}`, url: fileUrl, s3Key: uploadedKey };
       handleAction("EN_ATTENTE_COMPTA", `Devis signé et commande envoyée`, {
