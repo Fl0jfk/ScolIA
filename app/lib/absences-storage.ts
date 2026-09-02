@@ -64,8 +64,17 @@ export async function saveOrMergeAbsenceRecord(
   incoming: AbsenceRecord,
   actor: string,
 ): Promise<{ index: AbsenceRecord[]; record: AbsenceRecord; merged: boolean; removedId?: string }> {
+  // Les saisies accueil doivent rester visibles (filtre source=accueil) :
+  // jamais de fusion silencieuse dans une absence self / PDF / manuelle.
+  if (incoming.source === "accueil") {
+    const saved = await saveAbsenceRecord(incoming);
+    const next = index.filter((item) => item.id !== saved.id);
+    next.push(saved);
+    return { index: next, record: saved, merged: false };
+  }
+
   const duplicate = findDuplicateAbsence(index, absenceCandidateFromRecord(incoming), incoming.id);
-  if (!duplicate) {
+  if (!duplicate || duplicate.source === "accueil") {
     const saved = await saveAbsenceRecord(incoming);
     const next = index.filter((item) => item.id !== saved.id);
     next.push(saved);
@@ -85,7 +94,12 @@ export async function saveOrMergeAbsenceRecord(
 export async function consolidatePendingAbsencesInIndex(
   fullIndex: AbsenceRecord[],
 ): Promise<AbsenceRecord[]> {
-  const pending = fullIndex.filter(isPendingAbsenceRecord);
+  const pending = fullIndex.filter(
+    (r) => isPendingAbsenceRecord(r) && r.source !== "accueil",
+  );
+  const accueilPending = fullIndex.filter(
+    (r) => isPendingAbsenceRecord(r) && r.source === "accueil",
+  );
   if (pending.length < 2) return fullIndex;
 
   const consolidated = consolidateDuplicateAbsencesSync(pending);
@@ -101,10 +115,11 @@ export async function consolidatePendingAbsencesInIndex(
   }
 
   const removed = new Set(consolidated.removedIds);
-  const others = fullIndex.filter((record) => !isPendingAbsenceRecord(record) && !removed.has(record.id));
-  const nextIndex = [...others, ...consolidated.index];
-  await saveAbsenceIndex(nextIndex);
-  return nextIndex;
+  const others = fullIndex.filter(
+    (record) => !isPendingAbsenceRecord(record) && !removed.has(record.id),
+  );
+  // Pas de saveAbsenceIndex (DELETE+réinsert) : les upserts unitaires ci-dessus suffisent.
+  return [...others, ...consolidated.index, ...accueilPending];
 }
 
 /** Conservé pour compatibilité : on ne supprime plus les absences (seules les pièces sensibles le sont). */

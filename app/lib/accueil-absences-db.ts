@@ -7,12 +7,7 @@ import { loadAppConfig } from "@/app/lib/app-config";
 import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
 import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 import { normalizeAbsencePeriodInput } from "@/app/lib/absence-period";
-import {
-  saveOrMergeAbsenceRecord,
-  getAbsenceIndex,
-  saveAbsenceRecord,
-  purgeExpiredAbsences,
-} from "@/app/lib/absences-storage";
+import { saveAbsenceRecord } from "@/app/lib/absences-storage";
 import { computeStartEndAt, type AbsenceRecord, type AbsenceScope } from "@/app/lib/absences-types";
 import { notifyAbsenceCreated } from "@/app/lib/absences-workflow-mail";
 import { getAbsenceSyncPort } from "@/app/lib/absences-sync/port";
@@ -214,25 +209,17 @@ async function createRhAccueilAbsence(input: {
     ],
   };
 
-  const index = await purgeExpiredAbsences(await getAbsenceIndex());
-  // Upsert unitaire déjà fait dans saveOrMergeAbsenceRecord — ne pas rappeler
-  // saveAbsenceIndex (DELETE + réinsert complet) : course critique qui efface
-  // des absences accueil juste après déclaration.
-  const { record: saved, merged } = await saveOrMergeAbsenceRecord(
-    index,
-    record,
-    input.actor.name,
-  );
-  if (!merged) {
-    try {
-      await notifyAbsenceCreated({
-        record: saved,
-        actorName: input.actor.name,
-        fromAccueil: true,
-      });
-    } catch (err) {
-      console.error("Accueil absences — mail direction:", err);
-    }
+  // Upsert unitaire uniquement — pas de saveAbsenceIndex (DELETE+réinsert)
+  // ni de fusion fuzzy avec self/PDF (sinon source ≠ accueil → board vide).
+  const saved = await saveAbsenceRecord(record);
+  try {
+    await notifyAbsenceCreated({
+      record: saved,
+      actorName: input.actor.name,
+      fromAccueil: true,
+    });
+  } catch (err) {
+    console.error("Accueil absences — mail direction:", err);
   }
   void getAbsenceSyncPort().pushAbsence({
     etablissementId: input.etablissementId,

@@ -11,7 +11,7 @@ import {
   parseLocalDateTime,
   type AbsenceScope,
 } from "@/app/lib/absences-types";
-import { getAbsenceIndex, purgeExpiredAbsences, saveAbsenceIndex, saveOrMergeAbsenceRecord } from "@/app/lib/absences-storage";
+import { getAbsenceIndex, purgeExpiredAbsences, saveOrMergeAbsenceRecord } from "@/app/lib/absences-storage";
 
 export async function POST(req: Request) {
   const gate = await requireAuth();
@@ -99,12 +99,11 @@ export async function POST(req: Request) {
     });
 
     const currentIndex = await purgeExpiredAbsences(await getAbsenceIndex());
-    const { index: nextIndex, record: saved, merged } = await saveOrMergeAbsenceRecord(
+    const { record: saved, merged } = await saveOrMergeAbsenceRecord(
       currentIndex,
       record,
       creatorName,
     );
-    await saveAbsenceIndex(nextIndex);
 
     return NextResponse.json({
       success: true,

@@ -9,7 +9,6 @@ import {
 import {
   getAbsenceIndex,
   purgeExpiredAbsences,
-  saveAbsenceIndex,
   saveOrMergeAbsenceRecord,
 } from "@/app/lib/absences-storage";
 import { loadAppConfig } from "@/app/lib/app-config";
@@ -316,12 +315,11 @@ export async function handleCreateAbsence(
   };
 
   const index = await purgeExpiredAbsences(await getAbsenceIndex());
-  const { index: nextIndex, record: saved, merged } = await saveOrMergeAbsenceRecord(
+  const { record: saved, merged } = await saveOrMergeAbsenceRecord(
     index,
     record,
     creatorName,
   );
-  await saveAbsenceIndex(nextIndex);
 
   return {
     ok: true,

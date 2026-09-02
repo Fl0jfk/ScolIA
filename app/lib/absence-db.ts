@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { absence, absenceHistory } from "@/db/schema";
 import type { AbsenceRecord } from "@/app/lib/absences-types";
@@ -293,8 +293,19 @@ export async function replaceAbsencesInDb(
   records: AbsenceRecord[],
 ): Promise<number> {
   const db = getDb();
-  await db.delete(absence).where(eq(absence.etablissementId, etablissementId));
+  // Ne jamais DELETE les absences source=accueil : un replace complet
+  // (ingest PDF, wizard, PATCH) en parallèle effaçait les déclarations standard.
+  await db
+    .delete(absence)
+    .where(
+      and(eq(absence.etablissementId, etablissementId), ne(absence.source, "accueil")),
+    );
+
   for (const r of records) {
+    if (r.source === "accueil") {
+      await upsertAbsenceInDb(etablissementId, r);
+      continue;
+    }
     const { main, history } = absenceRecordToRows(etablissementId, r);
     await db.insert(absence).values(main);
     if (history.length > 0) await db.insert(absenceHistory).values(history);

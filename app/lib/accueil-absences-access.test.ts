@@ -17,3 +17,9 @@ test("compta et direction voient l’OGEC", () => {
 test("admin établissement voit l’OGEC", () => {
   assert.equal(canSeeAccueilBoardKind("ogec", ["admin"]), true);
 });
+
+test("rôle accueil voit l’OGEC (sinon board vide après déclaration)", () => {
+  assert.equal(canSeeAccueilBoardKind("ogec", ["accueil"]), true);
+  assert.equal(canSeeAccueilBoardKind("eleve", ["accueil"]), true);
+  assert.equal(canSeeAccueilBoardKind("professeur", ["accueil"]), true);
+});

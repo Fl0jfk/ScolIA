@@ -6,7 +6,7 @@ import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getAbsenceDocumentKeys, isDocumentKeyReferenced } from "@/app/lib/absences-documents";
 import { isDocumentKeyReferencedInLegacy } from "@/app/lib/absences-legacy-convocations";
 import { canManageAbsenceAttachment } from "@/app/lib/absences-types";
-import { getAbsenceIndex, getAbsenceRecord, saveAbsenceIndex, saveAbsenceRecord } from "@/app/lib/absences-storage";
+import { getAbsenceIndex, getAbsenceRecord, saveAbsenceRecord } from "@/app/lib/absences-storage";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
@@ -92,16 +92,13 @@ export async function POST(req: Request) {
     ];
 
     await saveAbsenceRecord(record);
-    const indexList = await getAbsenceIndex();
-    await saveAbsenceIndex(indexList.map((r) => (r.id === id ? record : r)));
 
     const bucket = await getBucketName();
     const s3Client = await getTenantDataS3Client();
+    const indexList = await getAbsenceIndex();
     const stillUsed =
-      isDocumentKeyReferenced(
-        indexList.map((r) => (r.id === id ? record : r)),
-        keyToDelete,
-      ) || (await isDocumentKeyReferencedInLegacy(keyToDelete));
+      isDocumentKeyReferenced(indexList, keyToDelete) ||
+      (await isDocumentKeyReferencedInLegacy(keyToDelete));
     if (!stillUsed) {
       await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: s3Key(keyToDelete) }));
     }

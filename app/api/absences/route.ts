@@ -44,10 +44,10 @@ import {
   getAbsenceRecord,
   applyPostValidationPrivacy,
   purgeExpiredAbsences,
-  saveAbsenceIndex,
   saveAbsenceRecord,
   saveOrMergeAbsenceRecord,
 } from "@/app/lib/absences-storage";
+import { absencesDbReady, deleteAbsenceFromDb } from "@/app/lib/absence-db";
 import {
   deleteLegacyConvocation,
   getAbsenceOrLegacyRecord,
@@ -280,12 +280,11 @@ export async function POST(req: Request) {
     };
 
     const index = await purgeExpiredAbsences(await getAbsenceIndex());
-    const { index: nextIndex, record: saved, merged } = await saveOrMergeAbsenceRecord(
+    const { record: saved, merged } = await saveOrMergeAbsenceRecord(
       index,
       record,
       actorName,
     );
-    await saveAbsenceIndex(nextIndex);
 
     if (merged) {
       return NextResponse.json({ success: true, id: saved.id, merged: true });
@@ -668,10 +667,6 @@ export async function PATCH(req: Request) {
 
     await saveAbsenceRecord(updated);
 
-    const pos = index.findIndex((a) => a.id === id);
-    if (pos >= 0) index[pos] = updated;
-    await saveAbsenceIndex(index);
-
     return NextResponse.json({
       success: true,
       ...(action === "VALIDER"
@@ -721,8 +716,9 @@ export async function DELETE(req: Request) {
           Key: s3Key(recordKey(id)),
         }),
       );
+      const etabId = await absencesDbReady();
+      if (etabId) await deleteAbsenceFromDb(etabId, id);
       updated = updated.filter((r) => r.id !== id);
-      await saveAbsenceIndex(updated);
     } else {
       await deleteLegacyConvocation(id);
     }

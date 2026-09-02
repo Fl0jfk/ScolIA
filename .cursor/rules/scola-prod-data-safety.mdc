@@ -1,0 +1,31 @@
+---
+description: Interdit les suppressions massives / replace-table en prod — données métier sacrées
+alwaysApply: true
+---
+
+# Sécurité des données — production
+
+On travaille sur de la **production réelle** (établissement, absences, élèves, RH).  
+Une erreur qui **efface ou réécrit en masse** la base est **hors de question**.
+
+## Interdits absolus
+
+- `DELETE` sans filtre strict (table entière, ou tout un `etablissement_id` « pour resynchroniser »)
+- Patterns **replace index** : charger une liste → `DELETE` tout → réinsérer (ex. ancien `saveAbsenceIndex` / `replaceAbsencesInDb`)
+- Migrations / scripts qui tronquent ou droppent des tables métier sans demande **explicite** de l’utilisateur
+- « Nettoyage » opportuniste de lignes concurrentes (courses critiques entre upsert unitaire et replace global)
+
+## Obligatoire à la place
+
+- **Upsert unitaire** (`insert … onConflictDoUpdate` / update par `id`)
+- Si un index mémoire est utile : il ne doit **jamais** être la source d’un wipe SQL
+- Toute suppression : ciblée (`id` + `etablissement_id`), et idéalement soft-delete / statut plutôt que hard delete
+- Avant un changement qui touche l’écriture BDD : vérifier l’impact concurrent (autre flux qui lit/écrit la même table)
+
+## Incident de référence (à ne jamais reproduire)
+
+Absences déclarées à l’accueil : un `DELETE` total via `saveAbsenceIndex` a **détruit** les saisies `source=accueil` / a rendu le board vide en prod. Aucune récupération possible une fois les lignes parties.
+
+## En cas de doute
+
+Ne pas « simplifier » le stockage. Demander confirmation. Préférer laisser une ligne en trop plutôt que d’en effacer une de trop.

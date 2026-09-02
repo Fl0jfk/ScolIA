@@ -13,7 +13,7 @@ import {
   type AbsenceRecord,
   type Etablissement,
 } from "@/app/lib/absences-types";
-import { getAbsenceIndex, purgeExpiredAbsences, saveAbsenceIndex, saveOrMergeAbsenceRecord } from "@/app/lib/absences-storage";
+import { getAbsenceIndex, purgeExpiredAbsences, saveOrMergeAbsenceRecord } from "@/app/lib/absences-storage";
 import {
   listParisDateKeysFromTo,
   parisDateKey,
@@ -470,7 +470,8 @@ export async function runAbsenceIngestJob(jobId: string, documentKey: string, so
       workingIndex = nextIndex;
       createdRecords.push(saved);
     }
-    await saveAbsenceIndex(workingIndex);
+    // Pas de saveAbsenceIndex : chaque upsert est déjà persisté ; un DELETE+réinsert
+    // effaçait les absences accueil déclarées en parallèle.
 
     const created: IngestJobCreated[] = createdRecords.map((r) => ({
       id: r.id,
