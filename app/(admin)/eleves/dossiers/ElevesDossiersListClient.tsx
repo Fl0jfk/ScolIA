@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
+import { personMatchesSearchQuery } from "@/app/lib/person-name-search";
 import {
   DOCUMENT_ACCESS_DURATION_OPTIONS,
   documentAccessDurationLabel,
@@ -239,9 +240,14 @@ export default function ElevesDossiersListClient() {
       if (classeFilter && !schoolClassesMatch(e.classe, classeFilter)) return false;
       if (statusFilter && e.status !== statusFilter) return false;
       if (!needle) return true;
-      return `${e.nom} ${e.prenom} ${e.classe || ""} ${e.classeLabel || ""} ${e.ine || ""} ${e.siteLabel || ""}`
-        .toLowerCase()
-        .includes(needle);
+      return personMatchesSearchQuery(
+        {
+          nom: e.nom,
+          prenom: e.prenom,
+          extras: [e.classe, e.classeLabel, e.ine, e.siteLabel],
+        },
+        needle,
+      );
     });
   }, [eleves, q, siteFilter, classeFilter, statusFilter, hasActiveSearch]);
 

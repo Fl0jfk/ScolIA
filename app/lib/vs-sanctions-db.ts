@@ -3,6 +3,7 @@ import "server-only";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, vsSanction, vsSanctionType } from "@/db/schema";
+import { sqlPersonNameMatches } from "@/app/lib/person-name-search";
 
 const DEFAULT_TYPES: Array<{ code: string; libelle: string; gravite: number; ordre: number }> = [
   { code: "MOT_CARNET", libelle: "Observation / mot carnet", gravite: 1, ordre: 1 },
@@ -195,7 +196,7 @@ export async function searchElevesForSanction(
   q: string,
 ): Promise<Array<{ id: string; nom: string; prenom: string; classe: string | null }>> {
   const db = getDb();
-  const needle = q.trim().toLowerCase();
+  const needle = q.trim();
   if (needle.length < 2) return [];
   return db
     .select({
@@ -209,7 +210,12 @@ export async function searchElevesForSanction(
       and(
         eq(eleve.etablissementId, etablissementId),
         eq(eleve.status, "inscrit"),
-        sql`(lower(${eleve.nom}) like ${`%${needle}%`} or lower(${eleve.prenom}) like ${`%${needle}%`} or lower(coalesce(${eleve.classe}, '')) like ${`%${needle}%`})`,
+        sqlPersonNameMatches({
+          nom: eleve.nom,
+          prenom: eleve.prenom,
+          extras: [eleve.classe],
+          query: needle,
+        }),
       ),
     )
     .orderBy(asc(eleve.nom), asc(eleve.prenom))

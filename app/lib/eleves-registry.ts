@@ -10,6 +10,7 @@ import {
   upsertElevesInDb,
 } from "@/app/lib/ent-core-db";
 import { getJson, putJson } from "@/app/lib/s3-storage";
+import { personMatchesSearchQuery } from "@/app/lib/person-name-search";
 
 /** Référentiel élèves unique du tenant — partagé par tous les modules. */
 const ELEVES_REGISTRY_KEY = "eleves.json";
@@ -122,13 +123,15 @@ async function matchElevesByName(
 }
 
 async function searchElevesRegistry(q: string, limit = 50): Promise<EleveConfig[]> {
-  const query = q.trim().toLowerCase();
+  const query = q.trim();
   const eleves = await loadElevesRegistry();
   if (!query) return eleves.slice(0, limit);
   return eleves
-    .filter((e) => {
-      const label = `${e.nom} ${e.prenom} ${e.classe || ""} ${e.ine || ""}`.toLowerCase();
-      return label.includes(query);
-    })
+    .filter((e) =>
+      personMatchesSearchQuery(
+        { nom: e.nom, prenom: e.prenom, extras: [e.classe, e.ine] },
+        query,
+      ),
+    )
     .slice(0, limit);
 }

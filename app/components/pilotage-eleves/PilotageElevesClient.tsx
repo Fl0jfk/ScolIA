@@ -22,6 +22,7 @@ import type {
   PilotagePiece,
   PilotageSignal,
 } from "@/app/lib/pilotage-eleves-types";
+import { personMatchesSearchQuery } from "@/app/lib/person-name-search";
 
 const SECTEUR_LABEL: Record<Secteur, string> = {
   ecole: "École",
@@ -472,10 +473,10 @@ function RosterView({
   onQuery: (v: string) => void;
   onOpen: (i: number) => void;
 }) {
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
   const rows = roster
     .map((e, i) => ({ e, i }))
-    .filter(({ e }) => !q || `${e.nom} ${e.prenom}`.toLowerCase().includes(q));
+    .filter(({ e }) => !q || personMatchesSearchQuery({ nom: e.nom, prenom: e.prenom }, q));
 
   return (
     <div className="space-y-3">

@@ -1,16 +1,16 @@
 import "server-only";
 
-import { and, asc, eq, or, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, enseignant, personnel } from "@/db/schema";
 import { RH_CATEGORY_LABELS, type RhCategory } from "@/app/lib/rh/types";
 import {
   asCycle,
   cycleLabel,
-  escapeLike,
   type AccueilSearchHit,
   type AccueilStaffScope,
 } from "@/app/lib/accueil-absences-types";
+import { sqlPersonNameMatches, escapePersonSearchLike, personSearchTokens } from "@/app/lib/person-name-search";
 
 const MIN_QUERY = 3;
 const LIMIT_PER_KIND = 8;
@@ -40,8 +40,32 @@ export async function searchAccueilPersonnes(
 ): Promise<AccueilSearchHit[]> {
   const needle = q.trim().toLowerCase();
   if (needle.length < MIN_QUERY) return [];
-  const like = `%${escapeLike(needle)}%`;
+  const tokens = personSearchTokens(needle);
+  if (tokens.length === 0) return [];
   const db = getDb();
+  const eleveNameSql = sqlPersonNameMatches({
+    nom: eleve.nom,
+    prenom: eleve.prenom,
+    extras: [eleve.classe],
+    query: needle,
+  });
+  const ensNameSql = sqlPersonNameMatches({
+    nom: enseignant.nom,
+    prenom: enseignant.prenom,
+    query: needle,
+  });
+  // Personnel : first/last + displayName (tokenisation manuelle pour displayName).
+  const staffTokenAnd = sql.join(
+    tokens.map((t) => {
+      const like = `%${escapePersonSearchLike(t)}%`;
+      return sql`(
+        lower(${personnel.lastName}) like ${like} escape '\\'
+        or lower(${personnel.firstName}) like ${like} escape '\\'
+        or lower(${personnel.displayName}) like ${like} escape '\\'
+      )`;
+    }),
+    sql` and `,
+  );
 
   const [eleves, enseignants, staff] = await Promise.all([
     db
@@ -57,7 +81,7 @@ export async function searchAccueilPersonnes(
         and(
           eq(eleve.etablissementId, etablissementId),
           eq(eleve.status, "inscrit"),
-          sql`(lower(${eleve.nom}) like ${like} escape '\\' or lower(${eleve.prenom}) like ${like} escape '\\' or lower(coalesce(${eleve.classe}, '')) like ${like} escape '\\')`,
+          eleveNameSql,
         ),
       )
       .orderBy(asc(eleve.nom), asc(eleve.prenom))
@@ -72,15 +96,7 @@ export async function searchAccueilPersonnes(
         emailPro: enseignant.emailPro,
       })
       .from(enseignant)
-      .where(
-        and(
-          eq(enseignant.etablissementId, etablissementId),
-          or(
-            sql`lower(${enseignant.nom}) like ${like} escape '\\'`,
-            sql`lower(${enseignant.prenom}) like ${like} escape '\\'`,
-          ),
-        ),
-      )
+      .where(and(eq(enseignant.etablissementId, etablissementId), ensNameSql))
       .orderBy(asc(enseignant.nom), asc(enseignant.prenom))
       .limit(LIMIT_PER_KIND),
     db
@@ -100,11 +116,7 @@ export async function searchAccueilPersonnes(
         and(
           eq(personnel.etablissementId, etablissementId),
           eq(personnel.active, true),
-          or(
-            sql`lower(${personnel.lastName}) like ${like} escape '\\'`,
-            sql`lower(${personnel.firstName}) like ${like} escape '\\'`,
-            sql`lower(${personnel.displayName}) like ${like} escape '\\'`,
-          ),
+          staffTokenAnd,
         ),
       )
       .orderBy(asc(personnel.lastName), asc(personnel.firstName))

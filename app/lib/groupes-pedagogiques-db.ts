@@ -3,6 +3,7 @@ import "server-only";
 import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, groupePedagogique, groupePedagogiqueMembre } from "@/db/schema";
+import { sqlPersonNameMatches } from "@/app/lib/person-name-search";
 
 export type GroupeType = "option" | "lv2" | "sport" | "internat" | "autre";
 
@@ -325,7 +326,7 @@ export async function searchElevesForGroupe(
   limit = 20,
 ): Promise<GroupeMembreRow[]> {
   const db = getDb();
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
   if (!q || q.length < 2) return [];
 
   const rows = await db
@@ -340,12 +341,12 @@ export async function searchElevesForGroupe(
     .where(
       and(
         eq(eleve.etablissementId, etablissementId),
-        sql`(
-          lower(${eleve.nom}) like ${`%${q}%`}
-          or lower(${eleve.prenom}) like ${`%${q}%`}
-          or lower(coalesce(${eleve.ine}, '')) like ${`%${q}%`}
-          or lower(coalesce(${eleve.classe}, '')) like ${`%${q}%`}
-        )`,
+        sqlPersonNameMatches({
+          nom: eleve.nom,
+          prenom: eleve.prenom,
+          extras: [eleve.classe, eleve.ine],
+          query: q,
+        }),
       ),
     )
     .limit(limit);

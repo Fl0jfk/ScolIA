@@ -3,6 +3,7 @@ import "server-only";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, vsCarnetEntree } from "@/db/schema";
+import { sqlPersonNameMatches } from "@/app/lib/person-name-search";
 
 export const CARNET_CATEGORIES = [
   { id: "correspondance", label: "Correspondance" },
@@ -226,7 +227,7 @@ export async function searchElevesForCarnet(
   q: string,
 ): Promise<Array<{ id: string; nom: string; prenom: string; classe: string | null }>> {
   const db = getDb();
-  const needle = q.trim().toLowerCase();
+  const needle = q.trim();
   if (needle.length < 2) return [];
   return db
     .select({
@@ -240,7 +241,12 @@ export async function searchElevesForCarnet(
       and(
         eq(eleve.etablissementId, etablissementId),
         eq(eleve.status, "inscrit"),
-        sql`(lower(${eleve.nom}) like ${`%${needle}%`} or lower(${eleve.prenom}) like ${`%${needle}%`} or lower(coalesce(${eleve.classe}, '')) like ${`%${needle}%`})`,
+        sqlPersonNameMatches({
+          nom: eleve.nom,
+          prenom: eleve.prenom,
+          extras: [eleve.classe],
+          query: needle,
+        }),
       ),
     )
     .orderBy(asc(eleve.nom), asc(eleve.prenom))
