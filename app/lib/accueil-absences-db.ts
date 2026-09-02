@@ -25,6 +25,7 @@ import {
   type AccueilAbsenceCanal,
   type AccueilBoardKind,
   type AccueilBoardRow,
+  type AccueilEleveNature,
   type AccueilPeriodMode,
   type AccueilPersonKind,
 } from "@/app/lib/accueil-absences-types";
@@ -44,6 +45,8 @@ export type AccueilDeclareInput = {
   endTime?: string | null;
   motif?: string | null;
   canal?: AccueilAbsenceCanal;
+  /** Élèves uniquement : absence (défaut) ou retard. */
+  eleveNature?: AccueilEleveNature;
   actor: {
     userId: string;
     name: string;
@@ -273,14 +276,29 @@ export async function declareAccueilAbsence(
       .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.id, input.subjectId)))
       .limit(1);
     if (!row) throw new Error("Élève introuvable.");
+    const nature: AccueilEleveNature = input.eleveNature === "retard" ? "retard" : "absence";
+    const periodForEleve =
+      nature === "retard"
+        ? periodFromMode({
+            ...input,
+            mode: "hours",
+            startTime: input.startTime || "08:00",
+            endTime: input.endTime || "08:30",
+          })
+        : periodResult;
+    if (periodForEleve.error || !periodForEleve.data) {
+      throw new Error(periodForEleve.error || "Période invalide.");
+    }
+    const elevePeriod = periodForEleve.data;
     const created = await createAbsenceAccueilEleve(etablissementId, {
       eleveId: row.id,
-      dateDebut: period.startDate,
-      dateFin: period.endDate,
-      heureDebut: period.startTime,
-      heureFin: period.endTime,
+      dateDebut: elevePeriod.startDate,
+      dateFin: elevePeriod.endDate,
+      heureDebut: elevePeriod.startTime,
+      heureFin: elevePeriod.endTime,
       motif,
       canal: input.canal || "telephone",
+      type: nature,
       createdByUserId: input.actor.userId,
       createdByNom: input.actor.name,
     });
@@ -289,10 +307,10 @@ export async function declareAccueilAbsence(
       kind: "eleve",
       subjectId: row.id,
       displayName: `${row.prenom} ${row.nom}`.trim(),
-      dateDebut: period.startDate,
-      dateFin: period.endDate,
-      heureDebut: period.startTime,
-      heureFin: period.endTime,
+      dateDebut: elevePeriod.startDate,
+      dateFin: elevePeriod.endDate,
+      heureDebut: elevePeriod.startTime,
+      heureFin: elevePeriod.endTime,
       motif,
       source: "accueil",
     });
@@ -386,24 +404,34 @@ export async function listAccueilBoard(
   dateIso: string,
 ): Promise<AccueilBoardRow[]> {
   const eleves = await listAccueilEleveAbsencesForDate(etablissementId, dateIso);
-  const studentRows: AccueilBoardRow[] = eleves.map((r) => ({
-    id: r.id,
-    kind: "eleve",
-    displayName: `${r.elevePrenom} ${r.eleveNom}`.trim(),
-    subtitle: [r.eleveClasse, formatPeriodSubtitle({
+  const studentRows: AccueilBoardRow[] = eleves.map((r) => {
+    const nature: AccueilEleveNature = r.type === "retard" ? "retard" : "absence";
+    return {
+      id: r.id,
+      kind: "eleve" as const,
+      displayName: `${r.elevePrenom} ${r.eleveNom}`.trim(),
+      subtitle: [
+        nature === "retard" ? "Retard" : "Absence",
+        r.eleveClasse,
+        formatPeriodSubtitle({
+          dateDebut: String(r.dateDebut),
+          dateFin: String(r.dateFin),
+          heureDebut: r.heureDebut,
+          heureFin: r.heureFin,
+        }),
+      ]
+        .filter(Boolean)
+        .join(" · "),
       dateDebut: String(r.dateDebut),
       dateFin: String(r.dateFin),
       heureDebut: r.heureDebut,
       heureFin: r.heureFin,
-    })].filter(Boolean).join(" · "),
-    dateDebut: String(r.dateDebut),
-    dateFin: String(r.dateFin),
-    heureDebut: r.heureDebut,
-    heureFin: r.heureFin,
-    motif: r.motif,
-    createdByNom: r.createdByNom,
-    source: "accueil",
-  }));
+      motif: r.motif,
+      createdByNom: r.createdByNom,
+      source: "accueil",
+      eleveNature: nature,
+    };
+  });
 
   const db = getDb();
   const staff = await db

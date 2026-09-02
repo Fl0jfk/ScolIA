@@ -230,10 +230,16 @@ type DossierPayload = {
   absences?: Array<{
     id: string;
     dateDebut: string;
+    dateFin?: string;
+    heureDebut?: string | null;
+    heureFin?: string | null;
     type: string;
     statut: string;
     justifie: boolean;
     motif: string | null;
+    source?: string | null;
+    canal?: string | null;
+    createdByNom?: string | null;
   }>;
   sanctions?: Array<{
     id: string;
@@ -1626,9 +1632,17 @@ export default function EleveDossierClient() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-bold text-slate-900">Absences & retards</h2>
-              <p className="text-xs text-slate-500">Issus des appels de classe — suivi CPE.</p>
+              <p className="text-xs text-slate-500">
+                Appels de classe, déclarations à l’accueil et signalements famille.
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Link
+                href="/vie-scolaire/absences-accueil"
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+              >
+                Déclarés à l’accueil
+              </Link>
               <Link
                 href="/vie-scolaire/presence?tab=absences"
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
@@ -1659,35 +1673,77 @@ export default function EleveDossierClient() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Date / créneau</th>
                     <th className="px-4 py-3">Type</th>
+                    <th className="px-4 py-3">Source</th>
                     <th className="px-4 py-3">Statut</th>
                     <th className="px-4 py-3">Motif</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {(data.absences || []).map((a) => (
-                    <tr key={a.id}>
-                      <td className="px-4 py-3 text-slate-700">
-                        {a.dateDebut ? new Date(a.dateDebut).toLocaleDateString("fr-FR") : "—"}
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{a.type}</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-bold ${
-                            a.statut === "a_traiter"
-                              ? "bg-amber-50 text-amber-900"
-                              : a.justifie
-                                ? "bg-emerald-50 text-emerald-800"
-                                : "bg-slate-100 text-slate-700"
-                          }`}
-                        >
-                          {a.statut}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{a.motif || "—"}</td>
-                    </tr>
-                  ))}
+                  {(data.absences || []).map((a) => {
+                    const start = a.dateDebut
+                      ? new Date(a.dateDebut).toLocaleDateString("fr-FR")
+                      : "—";
+                    const end =
+                      a.dateFin && a.dateFin !== a.dateDebut
+                        ? new Date(a.dateFin).toLocaleDateString("fr-FR")
+                        : null;
+                    const slot =
+                      a.heureDebut && a.heureFin
+                        ? `${a.heureDebut}–${a.heureFin}`
+                        : null;
+                    const dateLabel = [end ? `${start} → ${end}` : start, slot]
+                      .filter(Boolean)
+                      .join(" · ");
+                    const sourceLabel =
+                      a.source === "accueil"
+                        ? "Accueil"
+                        : a.source === "appel"
+                          ? "Appel"
+                          : a.source === "famille"
+                            ? "Famille"
+                            : a.source === "charlemagne"
+                              ? "Charlemagne"
+                              : a.source || "—";
+                    const typeLabel = a.type === "retard" ? "Retard" : "Absence";
+                    return (
+                      <tr key={a.id}>
+                        <td className="px-4 py-3 text-slate-700">{dateLabel}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                              a.type === "retard"
+                                ? "bg-violet-50 text-violet-800"
+                                : "bg-sky-50 text-sky-800"
+                            }`}
+                          >
+                            {typeLabel}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {sourceLabel}
+                          {a.source === "accueil" && a.createdByNom
+                            ? ` · ${a.createdByNom}`
+                            : ""}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-bold ${
+                              a.statut === "a_traiter"
+                                ? "bg-amber-50 text-amber-900"
+                                : a.justifie
+                                  ? "bg-emerald-50 text-emerald-800"
+                                  : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {a.statut}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{a.motif || "—"}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

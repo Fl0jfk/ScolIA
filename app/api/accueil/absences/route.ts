@@ -20,6 +20,7 @@ const DeclareSchema = z.object({
   endTime: z.string().regex(/^\d{1,2}:\d{2}$/).optional().nullable(),
   motif: z.string().max(400).optional().nullable(),
   canal: z.enum(["telephone", "physique", "mail"]).optional(),
+  eleveNature: z.enum(["absence", "retard"]).optional(),
 });
 
 const CancelSchema = z.object({
@@ -66,6 +67,7 @@ export async function POST(req: Request) {
       endTime: body.endTime,
       motif: body.motif,
       canal: body.canal || "telephone",
+      eleveNature: body.kind === "eleve" ? body.eleveNature || "absence" : undefined,
       actor: {
         userId: gate.ctx.user.id,
         name:

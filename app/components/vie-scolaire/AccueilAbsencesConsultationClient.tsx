@@ -8,13 +8,14 @@ import type { AccueilBoardKind, AccueilBoardRow } from "@/app/lib/accueil-absenc
 
 type KindFilter = "tous" | AccueilBoardKind;
 
-function kindLabel(kind: AccueilBoardKind): string {
-  if (kind === "eleve") return "Élève";
+function kindLabel(kind: AccueilBoardKind, eleveNature?: string | null): string {
+  if (kind === "eleve") return eleveNature === "retard" ? "Retard" : "Élève";
   if (kind === "professeur") return "Professeur";
   return "Personnel OGEC";
 }
 
-function kindBadgeClass(kind: AccueilBoardKind): string {
+function kindBadgeClass(kind: AccueilBoardKind, eleveNature?: string | null): string {
+  if (kind === "eleve" && eleveNature === "retard") return "bg-violet-100 text-violet-800";
   if (kind === "eleve") return "bg-sky-100 text-sky-800";
   if (kind === "professeur") return "bg-violet-100 text-violet-800";
   return "bg-amber-100 text-amber-800";
@@ -170,9 +171,9 @@ export default function AccueilAbsencesConsultationClient() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-bold uppercase ${kindBadgeClass(r.kind)}`}
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-bold uppercase ${kindBadgeClass(r.kind, r.eleveNature)}`}
                     >
-                      {kindLabel(r.kind)}
+                      {kindLabel(r.kind, r.eleveNature)}
                     </span>
                     <p className="font-semibold text-slate-900">{r.displayName}</p>
                   </div>

@@ -512,13 +512,18 @@ export async function listAbsencesForEleve(
       id: vsAbsenceEleve.id,
       dateDebut: vsAbsenceEleve.dateDebut,
       dateFin: vsAbsenceEleve.dateFin,
+      heureDebut: vsAbsenceEleve.heureDebut,
+      heureFin: vsAbsenceEleve.heureFin,
       type: vsAbsenceEleve.type,
       statut: vsAbsenceEleve.statut,
       justifie: vsAbsenceEleve.justifie,
       motif: vsAbsenceEleve.motif,
       noteCpe: vsAbsenceEleve.noteCpe,
+      source: vsAbsenceEleve.source,
+      canal: vsAbsenceEleve.canal,
       appelId: vsAbsenceEleve.appelId,
       createdAt: vsAbsenceEleve.createdAt,
+      createdByNom: vsAbsenceEleve.createdByNom,
     })
     .from(vsAbsenceEleve)
     .where(
@@ -663,6 +668,8 @@ export type AccueilEleveAbsenceInput = {
   heureFin?: string | null;
   motif?: string | null;
   canal?: AccueilAbsenceCanal;
+  /** Défaut absence ; retard = signalement créneau (ex. arrivée tardive). */
+  type?: "absence" | "retard";
   createdByUserId: string;
   createdByNom: string;
 };
@@ -761,6 +768,12 @@ export async function createAbsenceAccueilEleve(
     throw new Error("Une absence accueil existe déjà sur cette période pour cet élève.");
   }
 
+  const nature = input.type === "retard" ? "retard" : "absence";
+  const defaultMotif =
+    nature === "retard"
+      ? "Retard signalé à l’accueil"
+      : "Parents ont appelé l’accueil";
+
   const [created] = await db
     .insert(vsAbsenceEleve)
     .values({
@@ -771,10 +784,10 @@ export async function createAbsenceAccueilEleve(
       dateFin: input.dateFin,
       heureDebut: input.heureDebut || null,
       heureFin: input.heureFin || null,
-      type: "absence",
+      type: nature,
       statut: "a_traiter",
       justifie: false,
-      motif: input.motif?.trim() || "Parents ont appelé l’accueil",
+      motif: input.motif?.trim() || defaultMotif,
       source: "accueil",
       canal: input.canal || "telephone",
       createdByUserId: input.createdByUserId,
@@ -798,6 +811,7 @@ export async function listAccueilEleveAbsencesForDate(etablissementId: string, d
       heureDebut: vsAbsenceEleve.heureDebut,
       heureFin: vsAbsenceEleve.heureFin,
       motif: vsAbsenceEleve.motif,
+      type: vsAbsenceEleve.type,
       statut: vsAbsenceEleve.statut,
       createdByNom: vsAbsenceEleve.createdByNom,
     })

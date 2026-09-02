@@ -103,7 +103,7 @@ function ShortcutSlidesCarousel({
   return (
     <motion.div
       layout
-      className="col-span-2"
+      className="col-span-1"
       initial={highlight ? { scale: 0.97, opacity: 0.45 } : false}
       animate={{ scale: 1, opacity: 1 }}
       transition={{ type: "spring", stiffness: 380, damping: 28 }}
@@ -120,59 +120,235 @@ function ShortcutSlidesCarousel({
             transition={{ duration: 1.4 }}
           />
         ) : null}
-        <div className="relative min-h-[3.25rem] overflow-hidden rounded-xl px-2.5 py-2" style={{ backgroundColor: bg, color: fg }}>
+        <div
+          className="relative min-h-[3.25rem] overflow-hidden rounded-xl px-2 py-2"
+          style={{ backgroundColor: bg, color: fg }}
+        >
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={slide.id}
-              initial={{ opacity: 0, y: 6 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
+              exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.28 }}
-              className="flex items-center gap-2"
+              className="flex items-center gap-1.5"
             >
               <span
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm leading-none"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs leading-none"
                 style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
                 aria-hidden
               >
                 {emoji}
               </span>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <p className="truncate text-[12px] font-semibold tracking-tight">{title}</p>
+                <div className="flex items-center gap-1">
+                  <p className="truncate text-[11px] font-semibold tracking-tight">{title}</p>
                   <NotificationCountBadge count={notifCount} />
-                  <span
-                    className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide"
-                    style={{ backgroundColor: "rgba(255,255,255,0.22)" }}
-                  >
-                    {chip}
-                  </span>
                 </div>
-                <p className="mt-0.5 truncate text-[10px] font-semibold leading-snug opacity-90">
+                <p className="mt-0.5 truncate text-[9px] font-semibold leading-snug opacity-90">
                   {[slide.label, slide.detail].filter(Boolean).join(" · ")}
                 </p>
               </div>
-              {slide.badge ? (
-                <span
-                  className="relative shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold"
-                  style={{ backgroundColor: "rgba(255,255,255,0.22)" }}
-                >
-                  {slide.badge}
-                </span>
-              ) : null}
             </motion.div>
           </AnimatePresence>
           {slides.length > 1 ? (
-            <div className="mt-1.5 flex items-center justify-center gap-1">
+            <div className="mt-1 flex items-center justify-center gap-1">
               {slides.map((s, i) => (
                 <span
                   key={s.id}
                   className="h-1 rounded-full transition-all"
                   style={{
-                    width: i === index ? 10 : 4,
+                    width: i === index ? 8 : 3,
                     backgroundColor: fg,
                     opacity: i === index ? 0.95 : 0.35,
                   }}
+                />
+              ))}
+            </div>
+          ) : (
+            <span className="sr-only">{chip}</span>
+          )}
+        </div>
+      </Link>
+    </motion.div>
+  );
+}
+
+function badgeCountFallback(item: DashboardShortcut, notifCount: number): number {
+  if (notifCount > 0) return notifCount;
+  const fromBadge = item.badge?.match(/^(\d+)/);
+  if (fromBadge) return Number(fromBadge[1]);
+  if (item.rich && item.tone && item.tone !== "neutral" && item.detail?.trim()) return 1;
+  return 0;
+}
+
+type TileFace = {
+  id: string;
+  line: string;
+  kind: "label" | "alert";
+};
+
+function buildSignalFaces(item: DashboardShortcut): TileFace[] {
+  const faces: TileFace[] = [{ id: "label", line: item.label, kind: "label" }];
+  const detail = item.detail?.trim();
+  const badge = item.badge?.trim();
+  if (detail) {
+    faces.push({ id: "detail", line: detail, kind: "alert" });
+  } else if (badge) {
+    faces.push({ id: "badge", line: badge, kind: "alert" });
+  }
+  return faces;
+}
+
+function SignalShortcutTile({
+  item,
+  highlight,
+  notifCount = 0,
+}: {
+  item: DashboardShortcut;
+  highlight?: boolean;
+  notifCount?: number;
+}) {
+  const displayCount = badgeCountFallback(item, notifCount);
+  const emoji = item.emoji || MODULE_EMOJI[item.moduleId] || "›";
+  const hasSignal =
+    Boolean(item.rich && item.tone && item.tone !== "neutral") ||
+    Boolean(item.detail?.trim()) ||
+    displayCount > 0;
+  const faces = hasSignal
+    ? buildSignalFaces(item)
+    : [{ id: "label", line: item.label, kind: "label" as const }];
+  const [faceIndex, setFaceIndex] = useState(0);
+  const faceKey = faces.map((f) => f.id).join("|");
+
+  useEffect(() => {
+    setFaceIndex(0);
+  }, [faceKey]);
+
+  useEffect(() => {
+    if (faces.length <= 1) return;
+    const id = window.setInterval(() => {
+      setFaceIndex((i) => (i + 1) % faces.length);
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [faces.length, faceKey]);
+
+  const face = faces[faceIndex] ?? faces[0]!;
+  const warnTone = item.tone === "warn";
+  const actionTone = item.tone === "action";
+  const signalRing = hasSignal
+    ? warnTone
+      ? "ring-1 ring-rose-300/80"
+      : actionTone
+        ? "ring-1 ring-amber-300/80"
+        : "ring-1 ring-sky-300/70"
+    : "";
+
+  return (
+    <motion.div
+      layout
+      className="col-span-1"
+      initial={highlight ? { scale: 0.97, opacity: 0.45 } : false}
+      animate={
+        hasSignal
+          ? {
+              scale: 1,
+              opacity: 1,
+              boxShadow: warnTone
+                ? [
+                    "0 0 0 0 rgba(244,63,94,0)",
+                    "0 0 0 4px rgba(244,63,94,0.18)",
+                    "0 0 0 0 rgba(244,63,94,0)",
+                  ]
+                : [
+                    "0 0 0 0 rgba(14,165,233,0)",
+                    "0 0 0 4px rgba(14,165,233,0.14)",
+                    "0 0 0 0 rgba(14,165,233,0)",
+                  ],
+            }
+          : { scale: 1, opacity: 1 }
+      }
+      transition={
+        hasSignal
+          ? {
+              boxShadow: { duration: 2.4, repeat: Infinity, ease: "easeInOut" },
+              scale: { type: "spring", stiffness: 380, damping: 28 },
+            }
+          : { type: "spring", stiffness: 380, damping: 28 }
+      }
+    >
+      <Link
+        href={item.href}
+        className={`group relative flex min-h-[3.25rem] cursor-pointer items-center gap-1.5 overflow-hidden rounded-xl border px-2 py-2 transition hover:-translate-y-0.5 ${signalRing} ${
+          hasSignal
+            ? "border-white/80 bg-white/90 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] hover:bg-white"
+            : "border-transparent bg-white/40 hover:border-white/70 hover:bg-white/70"
+        }`}
+      >
+        {highlight ? (
+          <motion.span
+            className="pointer-events-none absolute inset-0 bg-[color:var(--dash-bright)]/15"
+            initial={{ opacity: 0.8 }}
+            animate={{ opacity: 0 }}
+            transition={{ duration: 1.4 }}
+          />
+        ) : null}
+        <span
+          className={`relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg ring-1 ${
+            hasSignal
+              ? warnTone
+                ? "bg-rose-50 ring-rose-200/80"
+                : actionTone
+                  ? "bg-amber-50 ring-amber-200/80"
+                  : "bg-sky-50 ring-sky-200/80"
+              : "bg-[color:var(--dash-soft-muted)]/90 ring-[color:var(--dash-border)]/60"
+          }`}
+        >
+          <span className="text-xs leading-none" aria-hidden>
+            {emoji}
+          </span>
+        </span>
+        <div className="relative min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1">
+            <div className="relative min-h-[1.1rem] min-w-0 flex-1 overflow-hidden">
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.p
+                  key={face.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.28 }}
+                  className={`truncate text-[11px] font-semibold leading-tight tracking-tight ${
+                    face.kind === "alert"
+                      ? warnTone
+                        ? "text-rose-700"
+                        : actionTone
+                          ? "text-amber-800"
+                          : "text-sky-800"
+                      : "text-[var(--dash-ink)]"
+                  }`}
+                  title={face.line}
+                >
+                  {face.line}
+                </motion.p>
+              </AnimatePresence>
+            </div>
+            <NotificationCountBadge count={displayCount} />
+          </div>
+          {faces.length > 1 ? (
+            <div className="mt-1 flex items-center gap-1">
+              {faces.map((f, i) => (
+                <span
+                  key={f.id}
+                  className={`h-0.5 rounded-full transition-all ${
+                    i === faceIndex
+                      ? warnTone
+                        ? "w-2 bg-rose-500"
+                        : actionTone
+                          ? "w-2 bg-amber-500"
+                          : "w-2 bg-sky-500"
+                      : "w-1 bg-slate-300/80"
+                  }`}
                 />
               ))}
             </div>
@@ -186,12 +362,10 @@ function ShortcutSlidesCarousel({
 function ShortcutTile({
   item,
   highlight,
-  fullWidth,
   notifCount = 0,
 }: {
   item: DashboardShortcut;
   highlight?: boolean;
-  fullWidth?: boolean;
   notifCount?: number;
 }) {
   if (item.slides && item.slides.length > 0) {
@@ -205,63 +379,12 @@ function ShortcutTile({
         chip={isTravels ? "Aujourd'hui" : "En cours"}
         emoji={item.emoji || MODULE_EMOJI[item.moduleId] || (isTravels ? "🚌" : "🚪")}
         fallbackColor={isTravels ? "#0284c7" : "#475569"}
-        notifCount={notifCount}
+        notifCount={badgeCountFallback(item, notifCount)}
       />
     );
   }
 
-  const emoji = item.emoji || MODULE_EMOJI[item.moduleId] || "›";
-
-  return (
-    <motion.div
-      layout
-      className={fullWidth ? "col-span-2" : "col-span-1"}
-      initial={highlight ? { scale: 0.97, opacity: 0.45 } : false}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: "spring", stiffness: 380, damping: 28 }}
-    >
-      <Link
-        href={item.href}
-        className={`group relative flex cursor-pointer items-center gap-2 rounded-xl border transition hover:-translate-y-0.5 ${
-          item.rich
-            ? "border-white/70 bg-white/80 px-2.5 py-2.5 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] hover:bg-white"
-            : "border-transparent bg-white/40 px-2 py-2 hover:border-white/70 hover:bg-white/70"
-        }`}
-      >
-        {highlight ? (
-          <motion.span
-            className="pointer-events-none absolute inset-0 bg-[color:var(--dash-bright)]/15"
-            initial={{ opacity: 0.8 }}
-            animate={{ opacity: 0 }}
-            transition={{ duration: 1.4 }}
-          />
-        ) : null}
-        <span className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[color:var(--dash-soft-muted)]/90 ring-1 ring-[color:var(--dash-border)]/60">
-          <span className="text-sm leading-none" aria-hidden>
-            {emoji}
-          </span>
-        </span>
-        <div className="relative min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <p className="truncate text-[12px] font-semibold tracking-tight text-[var(--dash-ink)]">
-              {item.label}
-            </p>
-            <NotificationCountBadge count={notifCount} />
-          </div>
-          {item.detail ? (
-            <p className="mt-0.5 line-clamp-1 text-[10px] leading-snug text-[var(--dash-mid)]">
-              {item.detail}
-            </p>
-          ) : null}
-        </div>
-        {item.badge ? (
-          <span className="relative shrink-0 rounded-full bg-[var(--dash-primary)] px-2 py-0.5 text-[9px] font-bold text-white">
-            {item.badge}
-          </span>
-        ) : null}
-      </Link>
-    </motion.div>
-  );
+  return <SignalShortcutTile item={item} highlight={highlight} notifCount={notifCount} />;
 }
 
 function PillarCard({
@@ -291,8 +414,8 @@ function PillarCard({
 
   const pinned = plain.filter((s) => PINNED_ADMIN_MODULE_IDS.has(s.moduleId));
   const unpinned = plain.filter((s) => !PINNED_ADMIN_MODULE_IDS.has(s.moduleId));
-  // Budget : garder les raccourcis établissement, puis le reste.
-  const plainBudget = Math.max(pinned.length, Math.max(0, 8 - rich.length * 2));
+  // Chaque tuile = demi-ligne : on peut en montrer davantage (plus de modules visibles).
+  const plainBudget = Math.max(pinned.length, Math.max(0, 12 - rich.length));
   const visiblePlain = [...pinned, ...unpinned].slice(0, plainBudget);
   const visible = [...rich, ...visiblePlain];
 
@@ -354,7 +477,6 @@ function PillarCard({
                     ...s,
                     rich: Boolean(s.rich && s.tone !== "neutral"),
                   }}
-                  fullWidth={Boolean(s.rich && s.tone !== "neutral")}
                   notifCount={notificationCountForShortcut(s, notifications)}
                   highlight={Boolean(
                     pulseKey && s.rich && s.tone !== "neutral" && pulseKey.includes(s.id),

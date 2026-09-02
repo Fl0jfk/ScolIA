@@ -11,6 +11,8 @@ export type AccueilPersonKind = "eleve" | "enseignant" | "personnel";
 export type AccueilStaffScope = "professeur" | "ogec";
 export type AccueilAbsenceCanal = "telephone" | "physique" | "mail";
 export type AccueilPeriodMode = "today" | "hours" | "multi_day";
+/** Nature élève à l’accueil : journée / créneau (absence) ou retard signalé. */
+export type AccueilEleveNature = "absence" | "retard";
 export type AccueilVsSource = "appel" | "accueil" | "famille" | "charlemagne";
 
 export type AccueilSearchHit = {
@@ -40,6 +42,8 @@ export type AccueilBoardRow = {
   motif: string | null;
   createdByNom: string | null;
   source: "accueil";
+  /** Élèves : absence ou retard. */
+  eleveNature?: AccueilEleveNature | null;
 };
 
 function parseHm(raw: string | null | undefined): number | null {

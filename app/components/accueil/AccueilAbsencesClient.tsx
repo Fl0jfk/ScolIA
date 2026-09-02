@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
-import type { AccueilBoardRow, AccueilPeriodMode, AccueilSearchHit } from "@/app/lib/accueil-absences-types";
+import type {
+  AccueilBoardRow,
+  AccueilEleveNature,
+  AccueilPeriodMode,
+  AccueilSearchHit,
+} from "@/app/lib/accueil-absences-types";
 
 function todayIso(): string {
   const d = new Date();
@@ -21,6 +26,7 @@ export default function AccueilAbsencesClient() {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<AccueilSearchHit[]>([]);
   const [selected, setSelected] = useState<AccueilSearchHit | null>(null);
+  const [eleveNature, setEleveNature] = useState<AccueilEleveNature>("absence");
   const [mode, setMode] = useState<AccueilPeriodMode>("today");
   const [startDate, setStartDate] = useState(todayIso());
   const [endDate, setEndDate] = useState(todayIso());
@@ -85,6 +91,7 @@ export default function AccueilAbsencesClient() {
     setSelected(null);
     setQ("");
     setHits([]);
+    setEleveNature("absence");
     setMode("today");
     setStartDate(todayIso());
     setEndDate(todayIso());
@@ -100,6 +107,9 @@ export default function AccueilAbsencesClient() {
 
   const submit = async () => {
     if (!selected) return;
+    const isEleve = selected.kind === "eleve";
+    const effectiveMode: AccueilPeriodMode =
+      isEleve && eleveNature === "retard" ? "hours" : mode;
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -110,13 +120,14 @@ export default function AccueilAbsencesClient() {
         body: JSON.stringify({
           kind: selected.kind,
           subjectId: selected.id,
-          mode,
+          mode: effectiveMode,
           startDate,
-          endDate: mode === "multi_day" ? endDate : startDate,
-          startTime: mode === "hours" ? startTime : null,
-          endTime: mode === "hours" ? endTime : null,
+          endDate: effectiveMode === "multi_day" ? endDate : startDate,
+          startTime: effectiveMode === "hours" ? startTime : null,
+          endTime: effectiveMode === "hours" ? endTime : null,
           motif: motif.trim() || null,
           canal: "telephone",
+          eleveNature: isEleve ? eleveNature : undefined,
         }),
       });
       const data = (await res.json()) as {
@@ -133,6 +144,8 @@ export default function AccueilAbsencesClient() {
             ? `${name} — transmis à la direction. Vous pouvez en déclarer une autre.`
             : `${name} — transmis à la direction. Vous pouvez en déclarer une autre.`,
         );
+      } else if (isEleve && eleveNature === "retard") {
+        setMessage(`${name} — retard enregistré. Vous pouvez en déclarer un autre.`);
       } else {
         setMessage(`${name} — absence enregistrée. Vous pouvez en déclarer une autre.`);
       }
@@ -241,30 +254,76 @@ export default function AccueilAbsencesClient() {
 
           {selected ? (
             <>
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    ["today", "Aujourd’hui"],
-                    ["hours", "Horaires"],
-                    ["multi_day", "Plusieurs jours"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setMode(value)}
-                    className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                      mode === value
-                        ? "bg-indigo-600 text-white"
-                        : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              {selected.kind === "eleve" ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Nature
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {(
+                      [
+                        ["absence", "Absence"],
+                        ["retard", "Retard / créneau"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => {
+                          setEleveNature(value);
+                          if (value === "retard") {
+                            setMode("hours");
+                            setStartTime("08:00");
+                            setEndTime("08:30");
+                          } else if (mode === "hours") {
+                            setStartTime("08:00");
+                            setEndTime("12:00");
+                          }
+                        }}
+                        className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
+                          eleveNature === value
+                            ? "bg-indigo-600 text-white"
+                            : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {eleveNature === "retard"
+                      ? "Ex. arrivée à 8h30, ou absence du matin 8h–10h : précisez le créneau."
+                      : "Journée entière, créneau horaire (ex. 8h–10h) ou plusieurs jours."}
+                  </p>
+                </div>
+              ) : null}
 
-              {mode === "hours" ? (
+              {!(selected.kind === "eleve" && eleveNature === "retard") ? (
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      ["today", "Aujourd’hui"],
+                      ["hours", "Créneau (ex. matin)"],
+                      ["multi_day", "Plusieurs jours"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setMode(value)}
+                      className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
+                        mode === value
+                          ? "bg-indigo-600 text-white"
+                          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {mode === "hours" || (selected.kind === "eleve" && eleveNature === "retard") ? (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   <label className="text-sm">
                     Date
@@ -296,7 +355,8 @@ export default function AccueilAbsencesClient() {
                 </div>
               ) : null}
 
-              {mode === "multi_day" ? (
+              {mode === "multi_day" &&
+              !(selected.kind === "eleve" && eleveNature === "retard") ? (
                 <div className="grid grid-cols-2 gap-3">
                   <label className="text-sm">
                     Du
@@ -324,7 +384,11 @@ export default function AccueilAbsencesClient() {
                 <input
                   value={motif}
                   onChange={(e) => setMotif(e.target.value)}
-                  placeholder="RDV médical, parents ont appelé…"
+                  placeholder={
+                    selected.kind === "eleve" && eleveNature === "retard"
+                      ? "Retard bus, RDV…"
+                      : "RDV médical, parents ont appelé…"
+                  }
                   className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
                 />
               </label>
@@ -335,7 +399,11 @@ export default function AccueilAbsencesClient() {
                 onClick={() => void submit()}
                 className="w-full rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                {busy ? "Enregistrement…" : "Déclarer l’absence"}
+                {busy
+                  ? "Enregistrement…"
+                  : selected.kind === "eleve" && eleveNature === "retard"
+                    ? "Déclarer le retard"
+                    : "Déclarer l’absence"}
               </button>
               {selected.kind === "enseignant" || selected.scope === "professeur" ? (
                 <p className="text-xs text-slate-500">
@@ -348,7 +416,8 @@ export default function AccueilAbsencesClient() {
                 </p>
               ) : (
                 <p className="text-xs text-slate-500">
-                  Enregistré tout de suite pour la vie scolaire (pas de validation direction).
+                  Enregistré tout de suite dans le dossier élève (vie scolaire) — pas de validation
+                  direction.
                 </p>
               )}
             </>
