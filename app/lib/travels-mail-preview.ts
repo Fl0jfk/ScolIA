@@ -22,13 +22,27 @@ type MailPreviewResult = {
   attachments: { filename: string; description: string }[];
 };
 
+function resolveChefEmails(opts?: { chefEmail?: string; chefEmails?: string[] }): string[] {
+  if (opts?.chefEmails && opts.chefEmails.length > 0) {
+    return [...new Set(opts.chefEmails.map((e) => e.trim()).filter(Boolean))];
+  }
+  const single = opts?.chefEmail?.trim();
+  return single ? [single] : ["chef@restauration"];
+}
+
 function buildTravelsMailPreview(
   trip: TravelsTrip,
   type: MailPreviewType,
-  opts?: { userName?: string; chefEmail?: string; transportProviders?: TransportProvider[] },
+  opts?: {
+    userName?: string;
+    chefEmail?: string;
+    chefEmails?: string[];
+    transportProviders?: TransportProvider[];
+  },
 ): MailPreviewResult {
   const userName = opts?.userName || trip.ownerName || "Administration";
   const transportProviders = opts?.transportProviders ?? [];
+  const chefEmails = resolveChefEmails(opts);
   const data = trip.data;
   const dest = String(data.destination || "voyage");
   const dateRange = tripDateRangeLabel(data);
@@ -83,13 +97,12 @@ function buildTravelsMailPreview(
   }
 
   if (type === "cuisine_initial" || type === "cuisine_amendment") {
-    const chefEmail = opts?.chefEmail || "chef@restauration";
     const selectedDays = CUISINE_DAYS.filter((d) => details?.daysSelection?.[d.key]).map((d) => d.label);
     const isAmendment = type === "cuisine_amendment";
 
     return {
       type,
-      to: [chefEmail],
+      to: chefEmails,
       cc: [trip.ownerEmail].filter(Boolean) as string[],
       subject: isAmendment
         ? `ANNULE ET REMPLACE — Bon de commande cuisine — ${data.title}`
@@ -139,7 +152,7 @@ function buildTravelsMailPreview(
 
   return {
     type: "cancel_trip_cuisine",
-    to: [opts?.chefEmail || "chef@restauration"],
+    to: chefEmails,
     subject: `ANNULATION commande cuisine — ${data.title}`,
     text: [
       "Bonjour,",
@@ -157,7 +170,7 @@ function buildTravelsMailPreview(
 export async function buildTravelsMailPreviewFromConfig(
   trip: TravelsTrip,
   type: MailPreviewType,
-  opts?: { userName?: string; chefEmail?: string },
+  opts?: { userName?: string; chefEmail?: string; chefEmails?: string[] },
 ): Promise<MailPreviewResult> {
   const transportProviders = await getTransportProviders();
   return buildTravelsMailPreview(trip, type, { ...opts, transportProviders });

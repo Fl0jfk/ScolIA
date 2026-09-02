@@ -2,7 +2,7 @@ import { resolveSession, safeCurrentUser } from "@/app/lib/intranet-session";
 import { NextResponse } from "next/server";
 
 import { loadAppConfig } from "@/app/lib/app-config";
-import { defaultNotifications } from "@/app/lib/app-config-defaults";
+import { resolveTravelsCuisineEmails } from "@/app/lib/app-config-schemas";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { assertTravelsTripAccess } from "@/app/lib/travels-rbac-server";
 import type { TravelsTrip } from "@/app/lib/travels-types";
@@ -72,14 +72,12 @@ export async function POST(req: Request) {
     const organizerEmail = body.organizerEmail || trip.ownerEmail;
 
     const config = await loadAppConfig();
-    const chefEmail =
-      config.notifications.travelsCuisine?.trim() ||
-      defaultNotifications().travelsCuisine ||
-      "chef.0056isi@newrest.eu";
+    const chefEmails = resolveTravelsCuisineEmails(config.notifications);
+    const chefEmailLabel = chefEmails.join(" / ");
 
     const pdfBase64 = await buildCuisineOrderPdfBase64(trip, {
       userName,
-      chefEmail,
+      chefEmail: chefEmailLabel,
       amendment: mode === "amendment",
     });
 
@@ -137,7 +135,7 @@ export async function POST(req: Request) {
 
     await transporter.sendMail({
       from: `"Gestion Sorties La Providence" <${smtp.user}>`,
-      to: chefEmail,
+      to: chefEmails.join(", "),
       cc: ccRecipients.length > 0 ? ccRecipients.join(", ") : undefined,
       subject,
       text,

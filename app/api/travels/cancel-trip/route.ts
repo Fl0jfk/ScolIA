@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { loadAppConfig } from "@/app/lib/app-config";
-import { defaultNotifications } from "@/app/lib/app-config-defaults";
+import { resolveTravelsCuisineEmails } from "@/app/lib/app-config-schemas";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { buildTravelsMailPreviewFromConfig } from "@/app/lib/travels-mail-preview";
@@ -37,10 +37,7 @@ export async function POST(req: Request) {
     }
 
     const config = await loadAppConfig();
-    const chefEmail =
-      config.notifications.travelsCuisine?.trim() ||
-      defaultNotifications().travelsCuisine ||
-      "";
+    const chefEmails = resolveTravelsCuisineEmails(config.notifications, "");
 
     const now = new Date().toISOString();
     const actor = access.user.fullName || "Administration";
@@ -68,19 +65,19 @@ export async function POST(req: Request) {
       }
     }
 
-    if (notifyCuisine && trip.data.cuisineOrderSentAt) {
+    if (notifyCuisine && trip.data.cuisineOrderSentAt && chefEmails.length > 0) {
       const preview = await buildTravelsMailPreviewFromConfig(trip, "cancel_trip_cuisine", {
         userName: actor,
-        chefEmail,
+        chefEmails,
       });
       await transporter.sendMail({
         from: `"Gestion Sorties La Providence" <${smtp.user}>`,
-        to: chefEmail,
+        to: chefEmails.join(", "),
         cc: trip.ownerEmail || undefined,
         subject: preview.subject,
         text: reason ? `${preview.text}\n\nMotif : ${reason}` : preview.text,
       });
-      emailsSent.push(chefEmail);
+      emailsSent.push(...chefEmails);
     }
 
     const updatedTrip: TravelsTrip = {

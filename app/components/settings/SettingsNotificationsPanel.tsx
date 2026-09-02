@@ -25,6 +25,10 @@ function asNotify(value: unknown): NotifyPerson | undefined {
 }
 
 function emailsOf(value: unknown): string[] {
+  if (typeof value === "string") {
+    const e = value.trim();
+    return e ? [e] : [];
+  }
   return Array.isArray(value) ? value.map((s) => String(s).trim()).filter(Boolean) : [];
 }
 
@@ -105,12 +109,16 @@ export default function SettingsNotificationsPanel({
             onChange={(emails) => patch({ travelsCompta: emails })}
           />
         </SettingsField>
-        <SettingsField label="Cuisine / restauration" as="div">
-          <DirectoryPersonSelect
+        <SettingsField
+          label="Cuisine / restauration"
+          hint="Une ou plusieurs personnes reçoivent le bon de commande cuisine."
+          as="div"
+        >
+          <DirectoryPeopleSelect
             members={directoryMembers}
             loading={membersLoading}
-            selectedEmail={String(notifications.travelsCuisine || "")}
-            onChange={(member) => setPersonEmail("travelsCuisine", member)}
+            selectedEmails={emailsOf(notifications.travelsCuisine)}
+            onChange={(emails) => patch({ travelsCuisine: emails })}
           />
         </SettingsField>
         <SettingsField label="Zeendoc / envoi PDF" as="div">

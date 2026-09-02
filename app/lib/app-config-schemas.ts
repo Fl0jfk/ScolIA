@@ -160,7 +160,8 @@ export type AbsenceNotifyPerson = { label?: string; email: string; userId?: stri
 
 export type NotificationsConfig = {
   travelsCompta: string[];
-  travelsCuisine?: string;
+  /** Destinataires commande cuisine / restauration (1 ou plusieurs). */
+  travelsCuisine?: string[];
   travelsZeendoc?: string;
   hseOps?: string;
   /** @deprecated Préférer photocopiesOpsEmails */
@@ -344,6 +345,26 @@ function strArr(v: unknown): string[] {
   return v.map((x) => str(x).trim()).filter(Boolean);
 }
 
+/** Accepte un e-mail unique (legacy) ou une liste. */
+function emailsList(v: unknown): string[] {
+  if (typeof v === "string") {
+    const e = v.trim();
+    return e && isEmail(e) ? [e] : [];
+  }
+  return strArr(v).filter(isEmail);
+}
+
+/** Destinataires cuisine / restauration (dédupliqués). */
+export function resolveTravelsCuisineEmails(
+  notifications: Pick<NotificationsConfig, "travelsCuisine">,
+  fallback = "chef.0056isi@newrest.eu",
+): string[] {
+  const configured = [...new Set((notifications.travelsCuisine || []).map((e) => e.trim()).filter(Boolean))];
+  if (configured.length > 0) return configured;
+  const fb = fallback.trim();
+  return fb ? [fb] : [];
+}
+
 export function parseSiteIdentity(raw: unknown, opts?: { allowEmptyName?: boolean }): SiteIdentity {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const addr = o.address && typeof o.address === "object" ? (o.address as Record<string, unknown>) : {};
@@ -481,7 +502,10 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
 
   return {
     travelsCompta: compta,
-    travelsCuisine: str(o.travelsCuisine) || undefined,
+    travelsCuisine: (() => {
+      const list = emailsList(o.travelsCuisine);
+      return list.length > 0 ? list : undefined;
+    })(),
     travelsZeendoc: str(o.travelsZeendoc) || undefined,
     hseOps: str(o.hseOps) || undefined,
     photocopiesOps: str(o.photocopiesOps) || undefined,

@@ -155,12 +155,26 @@ export default function ChapterContacts(props: Props) {
             }
           />
         </OnboardingField>
-        <OnboardingField label="E-mail cuisine / restauration">
+        <OnboardingField label="E-mails cuisine / restauration (virgules)">
           <input
             className={onboardingInputClass}
-            type="email"
-            value={notifications.travelsCuisine || ""}
-            onChange={(e) => setNotifications({ ...notifications, travelsCuisine: e.target.value })}
+            value={
+              Array.isArray(notifications.travelsCuisine)
+                ? notifications.travelsCuisine.join(", ")
+                : typeof notifications.travelsCuisine === "string"
+                  ? notifications.travelsCuisine
+                  : ""
+            }
+            onChange={(e) =>
+              setNotifications({
+                ...notifications,
+                travelsCuisine: e.target.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              })
+            }
+            placeholder="chef@…, second@…"
           />
         </OnboardingField>
         <p className={`mb-2 text-sm font-medium ${dash.ink}`}>Transporteurs habituels</p>

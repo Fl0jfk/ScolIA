@@ -109,7 +109,7 @@ export function laprovidenceEstablishments(): Establishment[] {
 export function laprovidenceNotifications(): NotificationsConfig {
   return {
     travelsCompta: ["valerie.vasseur@laprovidence-nicolasbarre.fr", "cecile.douaglin@laprovidence-nicolasbarre.fr"],
-    travelsCuisine: "chef.0056isi@newrest.eu",
+    travelsCuisine: ["chef.0056isi@newrest.eu"],
     travelsZeendoc: "comptabilite@laprovidence-nicolasbarre.fr",
     hseOps: "sarah.buno@ac-normandie.fr",
     photocopiesOps: "carine.perier@ac-normandie.fr",

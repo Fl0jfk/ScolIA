@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { loadAppConfig } from "@/app/lib/app-config";
-import { defaultNotifications } from "@/app/lib/app-config-defaults";
+import { resolveTravelsCuisineEmails } from "@/app/lib/app-config-schemas";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson } from "@/app/lib/s3-storage";
 import { assertTravelsTripAccess } from "@/app/lib/travels-rbac-server";
@@ -36,14 +36,11 @@ export async function POST(req: Request) {
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
     const config = await loadAppConfig();
-    const chefEmail =
-      config.notifications.travelsCuisine?.trim() ||
-      defaultNotifications().travelsCuisine ||
-      "";
+    const chefEmails = resolveTravelsCuisineEmails(config.notifications, "");
 
     const preview = await buildTravelsMailPreviewFromConfig(trip, type, {
       userName: body.userName || trip.ownerName,
-      chefEmail,
+      chefEmails,
     });
 
     return NextResponse.json({ preview });
