@@ -9,7 +9,11 @@ import RhMoodPulseCard from "@/app/components/personnel/RhMoodPulseCard";
 import RhPersonnelOnboarding from "@/app/components/personnel/RhPersonnelOnboarding";
 import RhSelfDepositPanel from "@/app/components/personnel/RhSelfDepositPanel";
 import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback";
-import { canCreateHseDemand, canCreateHseOnBehalf } from "@/app/lib/demandes-hse-access";
+import {
+  canAccessHseModule,
+  canCreateHseDemand,
+  canCreateHseOnBehalf,
+} from "@/app/lib/demandes-hse-access";
 import { canAccessRhStaffRequest } from "@/app/lib/rh/rh-hub-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { formatAbsencePeriod } from "@/app/lib/absence-period";
@@ -107,6 +111,7 @@ export default function RhPersonnelHome({
   const roles = useMemo(() => rolesFromUserLike(user), [user]);
 
   const canCreateHse = canCreateHseDemand(roles) || canCreateHseOnBehalf(roles);
+  const canAccessHse = canAccessHseModule(roles);
   const canAccessDemandeRh = canAccessRhStaffRequest(roles);
 
   const [espace, setEspace] = useState<EspaceData | null>(null);
@@ -197,7 +202,7 @@ export default function RhPersonnelHome({
       </Suspense>
     );
   }
-  if (dashboardSection === "hse" && canCreateHse) {
+  if (dashboardSection === "hse" && canAccessHse) {
     return (
       <Suspense fallback={<ModuleTabFallback />}>
         <DemandesHsePanel embeddedInRh />

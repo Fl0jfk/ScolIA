@@ -4,6 +4,8 @@
  */
 
 export const ACCUEIL_ABSENCES_MODULE_ID = "accueil-absences";
+/** Consultation seule — absences déclarées à l’accueil (CPE, surveillants). */
+export const ABSENCES_ACCUEIL_CONSULTATION_MODULE_ID = "absences-accueil-consultation";
 
 export type AccueilPersonKind = "eleve" | "enseignant" | "personnel";
 export type AccueilStaffScope = "professeur" | "ogec";

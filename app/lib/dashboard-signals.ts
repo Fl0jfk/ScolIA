@@ -832,7 +832,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "absences-today",
           pillarId: "compta_rh",
           moduleId: "absences",
-          href: "/rh?tab=pilotage&section=overview",
+          href: "/rh?tab=dashboard&section=absences&view=calendrier",
           label: "Absences",
           rich: true,
           badge: String(count),
@@ -844,9 +844,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "absences",
           pillarId: "compta_rh",
           moduleId: "absences",
-          href: isDirectionRole(roles)
-            ? "/rh?tab=pilotage&section=overview"
-            : "/rh?tab=dashboard&section=absences",
+          href: "/rh?tab=dashboard&section=absences&view=calendrier",
           label: "Absences",
         });
       }

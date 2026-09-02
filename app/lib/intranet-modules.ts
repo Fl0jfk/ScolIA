@@ -540,6 +540,22 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "absences-accueil-consultation",
+    pathPrefixes: [
+      "/vie-scolaire/absences-accueil",
+      "/api/vie-scolaire/absences-accueil",
+    ],
+    allowedRoles: [...DIRECTIONS, "cpe", "surveillant", "administratif"],
+    dashboard: {
+      id: 244,
+      name: "Absences déclarées accueil",
+      img: "",
+      link: "/vie-scolaire/absences-accueil",
+      external: false,
+      description: "Consulter les élèves et professeurs absents signalés à l’accueil",
+    },
+  },
+  {
     id: "vs-appels",
     pathPrefixes: [
       "/vie-scolaire/presence",
@@ -897,6 +913,19 @@ export function rolesAllowModule(
   // Admin établissement (flag ou rôle) : tous les modules du tenant.
   if (isOrgAdmin || hasGlobalAdminRole(roles)) return true;
   if (module.orgAdminOnly) return false;
+
+  // Absences / HSE absorbés dans le hub RH : l’accès RH suffit si le rôle métier le permet.
+  if (module.id === "absences" || module.id === "demandes-hse") {
+    const rhModule = getIntranetModuleById("rh");
+    if (
+      rhModule &&
+      module.allowedRoles.some((r) => hasRole(roles, r)) &&
+      rolesAllowModule(roles, rhModule, isOrgAdmin, access, userRef)
+    ) {
+      return true;
+    }
+  }
+
   // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
   if (module.id === "pilotage-eleves") return false;
   // Vie scolaire (appels, absences, sanctions, carnet) : masqués en UI — modules en dev.
@@ -1025,6 +1054,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "internat",
     "vs-calendrier",
     "accueil-absences",
+    "absences-accueil-consultation",
     "groupes-pedagogiques",
   ],
   "pillar-compta-rh": ["rh", "mon-planning", "conformite-rgpd", "absences", "demandes-hse"],
