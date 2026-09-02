@@ -16,6 +16,7 @@ import {
   asDateKey,
   cycleLabel,
   datesOverlap,
+  resolveEleveCycle,
   timesOverlap,
   type AccueilAbsenceCanal,
   type AccueilBoardKind,
@@ -396,13 +397,19 @@ export async function listAccueilBoard(
   const eleves = await listAccueilEleveAbsencesForDate(etablissementId, day || dateIso);
   const studentRows: AccueilBoardRow[] = eleves.map((r) => {
     const nature: AccueilEleveNature = r.type === "retard" ? "retard" : "absence";
+    const classe = r.eleveClasse?.trim() || null;
+    const cycle = resolveEleveCycle({
+      secteur: r.eleveSecteur,
+      classe,
+    });
     return {
       id: r.id,
       kind: "eleve" as const,
       displayName: `${r.elevePrenom} ${r.eleveNom}`.trim(),
       subtitle: [
         nature === "retard" ? "Retard" : "Absence",
-        r.eleveClasse,
+        classe,
+        cycleLabel(cycle) || null,
         formatPeriodSubtitle({
           dateDebut: asDateKey(r.dateDebut),
           dateFin: asDateKey(r.dateFin),
@@ -420,6 +427,8 @@ export async function listAccueilBoard(
       createdByNom: r.createdByNom,
       source: "accueil",
       eleveNature: nature,
+      cycle,
+      classe,
     };
   });
 
@@ -473,8 +482,9 @@ export async function cancelAccueilAbsence(
   etablissementId: string,
   id: string,
   actorName: string,
+  noteCpe = "Annulée par l’accueil",
 ): Promise<boolean> {
-  const eleveOk = await cancelAccueilEleveAbsence(etablissementId, id);
+  const eleveOk = await cancelAccueilEleveAbsence(etablissementId, id, noteCpe);
   if (eleveOk) return true;
 
   const db = getDb();

@@ -3,6 +3,8 @@
  * Pas de I/O : utilisable client et tests.
  */
 
+import { guessClassLevelFromClasse } from "@/app/lib/class-allocation-level-heuristic";
+
 export const ACCUEIL_ABSENCES_MODULE_ID = "accueil-absences";
 /** Consultation seule — absences déclarées à l’accueil (CPE, surveillants). */
 export const ABSENCES_ACCUEIL_CONSULTATION_MODULE_ID = "absences-accueil-consultation";
@@ -44,6 +46,10 @@ export type AccueilBoardRow = {
   source: "accueil";
   /** Élèves : absence ou retard. */
   eleveNature?: AccueilEleveNature | null;
+  /** Élèves : école / collège / lycée (secteur ou heuristique classe). */
+  cycle?: "ecole" | "college" | "lycee" | null;
+  /** Élèves : libellé de classe. */
+  classe?: string | null;
 };
 
 function pad2(n: number) {
@@ -164,4 +170,14 @@ export function asCycle(value: unknown): "ecole" | "college" | "lycee" | null {
   if (s === "college") return "college";
   if (s === "lycee") return "lycee";
   return null;
+}
+
+/** Cycle élève : secteur SIECLE prioritaire, sinon heuristique sur le libellé de classe. */
+export function resolveEleveCycle(input: {
+  secteur?: string | null;
+  classe?: string | null;
+}): "ecole" | "college" | "lycee" | null {
+  const fromSecteur = asCycle(input.secteur);
+  if (fromSecteur) return fromSecteur;
+  return guessClassLevelFromClasse(input.classe ?? undefined);
 }

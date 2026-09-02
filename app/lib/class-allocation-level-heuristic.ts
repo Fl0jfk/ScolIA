@@ -9,13 +9,18 @@ function norm(classe: string): string {
 }
 
 /** Détection approximative du niveau à partir du libellé de classe (liste élèves). */
-function guessClassLevelFromClasse(classe: string | undefined): ClassLevel | null {
+export function guessClassLevelFromClasse(classe: string | undefined): ClassLevel | null {
   const c = norm(String(classe || ""));
   if (!c) return null;
 
   if (/^(ps|ms|gs|cp|ce1|ce2|cm1|cm2)\b/.test(c)) return "ecole";
   if (/^(6e|5e|4e|3e|6eme|5eme|4eme|3eme)\b/.test(c)) return "college";
   if (/^(2nde|seconde|1ere|1re|terminale|tle)\b/.test(c)) return "lycee";
+
+  // Codes courts type « 6A », « 3B », « 2A », « 1ES », « TS »
+  if (/^(6|5|4|3)[a-z0-9]*$/.test(c)) return "college";
+  if (/^(2|1)[a-z0-9]*$/.test(c)) return "lycee";
+  if (/^t[a-z0-9]*$/.test(c)) return "lycee";
 
   return null;
 }

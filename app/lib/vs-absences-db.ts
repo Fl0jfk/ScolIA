@@ -812,6 +812,7 @@ export async function listAccueilEleveAbsencesForDate(etablissementId: string, d
       eleveNom: eleve.nom,
       elevePrenom: eleve.prenom,
       eleveClasse: eleve.classe,
+      eleveSecteur: eleve.secteur,
       dateDebut: vsAbsenceEleve.dateDebut,
       dateFin: vsAbsenceEleve.dateFin,
       heureDebut: vsAbsenceEleve.heureDebut,
@@ -839,6 +840,7 @@ export async function listAccueilEleveAbsencesForDate(etablissementId: string, d
       eleveNom: r.eleveNom?.trim() || "Élève",
       elevePrenom: r.elevePrenom?.trim() || "inconnu",
       eleveClasse: r.eleveClasse ?? null,
+      eleveSecteur: r.eleveSecteur ?? null,
       dateDebut: asDateKey(r.dateDebut),
       dateFin: asDateKey(r.dateFin),
     }));
@@ -847,11 +849,12 @@ export async function listAccueilEleveAbsencesForDate(etablissementId: string, d
 export async function cancelAccueilEleveAbsence(
   etablissementId: string,
   absenceId: string,
+  noteCpe = "Annulée par l’accueil",
 ): Promise<boolean> {
   const db = getDb();
   const [row] = await db
     .update(vsAbsenceEleve)
-    .set({ statut: "classee", updatedAt: new Date(), noteCpe: "Annulée par l’accueil" })
+    .set({ statut: "classee", updatedAt: new Date(), noteCpe })
     .where(
       and(
         eq(vsAbsenceEleve.etablissementId, etablissementId),

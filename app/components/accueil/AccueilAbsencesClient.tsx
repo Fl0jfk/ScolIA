@@ -161,6 +161,10 @@ export default function AccueilAbsencesClient() {
   };
 
   const annuler = async (id: string) => {
+    const ok = window.confirm(
+      "Supprimer cette déclaration ?\nElle disparaîtra de la liste (erreur de saisie).",
+    );
+    if (!ok) return;
     setBusy(true);
     setError(null);
     try {
@@ -170,8 +174,8 @@ export default function AccueilAbsencesClient() {
         body: JSON.stringify({ action: "annuler", id }),
       });
       const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || "Annulation impossible");
-      setMessage("Absence annulée.");
+      if (!res.ok) throw new Error(data.error || "Suppression impossible");
+      setMessage("Déclaration supprimée.");
       await loadBoard();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -459,7 +463,7 @@ export default function AccueilAbsencesClient() {
                     onClick={() => void annuler(r.id)}
                     className="shrink-0 text-xs font-semibold text-rose-600 hover:underline disabled:opacity-50"
                   >
-                    Annuler
+                    Supprimer
                   </button>
                 </li>
               ))
