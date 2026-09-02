@@ -17,7 +17,9 @@ export async function getMistralApiKey(): Promise<string | undefined> {
   } catch {
     /* pas de contexte tenant (script, webhook sans host) */
   }
-  return process.env.MISTRAL_API_KEY?.trim() || undefined;
+  // Accès dynamique : évite l’inline webpack Next (`undefined` si absent au build Docker).
+  const fromEnv = (process.env["MISTRAL_API_KEY"] || process.env["MISTRAL_KEY"] || "").trim();
+  return fromEnv || undefined;
 }
 
 export async function requireMistralApiKey(): Promise<string> {
