@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import PasswordInput from "@/app/components/auth/PasswordInput";
 
 type TenantFormSecrets = {
   secretKey: string;
@@ -169,13 +170,12 @@ function SecretField({
         {label}
         {required ? " *" : ""}
       </span>
-      <input
-        type="password"
+      <PasswordInput
         autoComplete="off"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={hint || "—"}
-        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
+        className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-mono"
       />
       {hint && <span className="text-xs text-slate-500">{hint}</span>}
     </label>

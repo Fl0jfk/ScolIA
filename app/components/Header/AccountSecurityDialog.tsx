@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import UserSignaturePad from "@/app/components/account/UserSignaturePad";
+import PasswordInput from "@/app/components/auth/PasswordInput";
 import PasswordRequirementsChecklist from "@/app/components/auth/PasswordRequirementsChecklist";
 import SessionsManager from "@/app/components/account/SessionsManager";
 import { useAppUser } from "@/app/hooks/useAppUser";
@@ -268,37 +269,34 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                   <PasswordRequirementsChecklist password={newPassword} tone="slate" />
                   <label className="block space-y-1 text-sm">
                     <span className="font-medium text-slate-800">Mot de passe actuel</span>
-                    <input
-                      type="password"
+                    <PasswordInput
                       autoComplete="current-password"
                       required
                       value={currentPassword}
                       onChange={(e) => setCurrentPassword(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
+                      className="rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
                     />
                   </label>
                   <label className="block space-y-1 text-sm">
                     <span className="font-medium text-slate-800">Nouveau mot de passe</span>
-                    <input
-                      type="password"
+                    <PasswordInput
                       autoComplete="new-password"
                       required
                       minLength={12}
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
+                      className="rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
                     />
                   </label>
                   <label className="block space-y-1 text-sm">
                     <span className="font-medium text-slate-800">Confirmer</span>
-                    <input
-                      type="password"
+                    <PasswordInput
                       autoComplete="new-password"
                       required
                       minLength={12}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
+                      className="rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
                     />
                   </label>
                   {error ? <p className="text-sm text-red-600">{error}</p> : null}
@@ -341,13 +339,12 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
               </label>
               <label className="block space-y-1 text-sm">
                 <span className="font-medium text-slate-800">Mot de passe actuel (confirmation)</span>
-                <input
-                  type="password"
+                <PasswordInput
                   autoComplete="current-password"
                   required
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
+                  className="rounded-xl border border-slate-200 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
                 />
               </label>
               {error ? <p className="text-sm text-red-600">{error}</p> : null}

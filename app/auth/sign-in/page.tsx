@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import PasswordInput from "@/app/components/auth/PasswordInput";
 import { authClient, rememberMfaEmailHint } from "@/app/lib/auth-client";
 
 export default function BetterAuthSignInPage() {
@@ -125,13 +126,12 @@ export default function BetterAuthSignInPage() {
         </label>
         <label className="block space-y-1 text-sm">
           <span className="font-medium text-emerald-950">Mot de passe</span>
-          <input
-            type="password"
+          <PasswordInput
             autoComplete="current-password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-xl border border-emerald-100 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
+            className="rounded-xl border border-emerald-100 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
           />
         </label>
         <button

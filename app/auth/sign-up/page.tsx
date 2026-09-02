@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/app/lib/auth-client";
+import PasswordInput from "@/app/components/auth/PasswordInput";
 import PasswordRequirementsChecklist from "@/app/components/auth/PasswordRequirementsChecklist";
 import { validatePasswordPolicy } from "@/app/lib/password-policy";
 
@@ -153,14 +154,13 @@ export default function BetterAuthSignUpPage() {
         </label>
         <label className="block space-y-1 text-sm">
           <span className="font-medium text-emerald-950">Nouveau mot de passe</span>
-          <input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             required
             minLength={12}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-xl border border-emerald-100 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
+            className="rounded-xl border border-emerald-100 px-3 py-2 outline-none ring-emerald-200 focus:ring-2"
           />
         </label>
         <button

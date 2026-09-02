@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import MarketingShell from "@/app/components/landing/MarketingShell";
 import ConnexionPlatformSessionBanner from "@/app/components/ConnexionPlatformSessionBanner";
+import PasswordInput from "@/app/components/auth/PasswordInput";
 import { SCOLA_GRADIENT_TEXT } from "@/app/lib/marketing-theme";
 import { authClient, rememberMfaEmailHint } from "@/app/lib/auth-client";
 import { isBrowserLocalDev } from "@/app/lib/local-dev";
@@ -252,13 +253,12 @@ export default function ConnexionPage() {
             </label>
             <label className="block space-y-1 text-sm">
               <span className="font-medium text-[#14231A]">Mot de passe</span>
-              <input
-                type="password"
+              <PasswordInput
                 autoComplete="current-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-xl border border-stone-200 px-3 py-2 outline-none ring-[#2F6B4A]/30 focus:ring-2"
+                className="rounded-xl border border-stone-200 px-3 py-2 outline-none ring-[#2F6B4A]/30 focus:ring-2"
               />
             </label>
             <button

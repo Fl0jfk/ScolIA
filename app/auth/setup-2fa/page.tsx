@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
+import PasswordInput from "@/app/components/auth/PasswordInput";
 import SwitchAccountLink from "@/app/components/auth/SwitchAccountLink";
 import { authClient } from "@/app/lib/auth-client";
 import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
@@ -190,13 +191,12 @@ function Setup2faForm() {
           <form onSubmit={enable} className="space-y-3">
             <label className="block space-y-1 text-sm">
               <span className="font-medium text-slate-800">Mot de passe actuel</span>
-              <input
-                type="password"
+              <PasswordInput
                 autoComplete="current-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-amber-200 focus:ring-2"
+                className="rounded-xl border border-slate-200 px-3 py-2 outline-none ring-amber-200 focus:ring-2"
               />
             </label>
             <button

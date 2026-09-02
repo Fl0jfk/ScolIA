@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import PasswordInput from "@/app/components/auth/PasswordInput";
 import PasswordRequirementsChecklist from "@/app/components/auth/PasswordRequirementsChecklist";
 import SwitchAccountLink from "@/app/components/auth/SwitchAccountLink";
 import { validatePasswordPolicy } from "@/app/lib/password-policy";
@@ -93,37 +94,34 @@ function ChangePasswordRequiredForm() {
         ) : null}
         <label className="block space-y-1 text-sm">
           <span className="font-medium text-slate-800">Mot de passe actuel (provisoire)</span>
-          <input
-            type="password"
+          <PasswordInput
             autoComplete="current-password"
             required
             value={currentPassword}
             onChange={(e) => setCurrentPassword(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-amber-200 focus:ring-2"
+            className="rounded-xl border border-slate-200 px-3 py-2 outline-none ring-amber-200 focus:ring-2"
           />
         </label>
         <label className="block space-y-1 text-sm">
           <span className="font-medium text-slate-800">Nouveau mot de passe</span>
-          <input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             required
             minLength={12}
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-amber-200 focus:ring-2"
+            className="rounded-xl border border-slate-200 px-3 py-2 outline-none ring-amber-200 focus:ring-2"
           />
         </label>
         <label className="block space-y-1 text-sm">
           <span className="font-medium text-slate-800">Confirmer</span>
-          <input
-            type="password"
+          <PasswordInput
             autoComplete="new-password"
             required
             minLength={12}
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none ring-amber-200 focus:ring-2"
+            className="rounded-xl border border-slate-200 px-3 py-2 outline-none ring-amber-200 focus:ring-2"
           />
         </label>
         <button
