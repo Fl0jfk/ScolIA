@@ -55,9 +55,19 @@ Optionnel : `MAILER_IMAP_HOST` si l’IMAP diffère de `MAILER_HOST`.
 
 ## Cron
 
+Le polling **n’est pas** « une fois par jour » dans le code : il faut un **trigger cron**
+Scaleway (ou équivalent) qui appelle périodiquement :
+
 ```http
-POST https://scolia.fr/api/travels/poll-email
+POST https://www.scolia.fr/api/travels/poll-email
 x-travel-email-ingest-secret: <TRAVEL_EMAIL_INGEST_SECRET>
 ```
 
-Reply-To sorties : `mailer+{slug}@scolia.fr`
+Sans ce cron, les devis restent dans la boîte OVH (`mailer@scolia.fr`) jusqu’à un appel manuel.
+Le poller ne lit que les mails **UNSEEN** de cette boîte (Reply-To `mailer+{slug}@scolia.fr`),
+pas la Zimbra établissement.
+
+Fréquence recommandée : toutes les **5 minutes** (`*/5 * * * *`, timezone `Europe/Paris`).
+
+> IMAP port **993** doit être en TLS implicite (`secure: true`). Un `secure: false`
+> provoque `Failed to receive greeting… Maybe should use TLS?` depuis le conteneur.

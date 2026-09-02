@@ -123,9 +123,11 @@ export async function pollTravelImapInbox(options?: {
   const client = new ImapFlow({
     host: cfg.host,
     port: cfg.port,
-    secure: cfg.secure,
+    // 993 = IMAPS ; ne jamais laisser secure=false (greeting timeout OVH).
+    secure: cfg.port === 993 ? true : cfg.secure,
     auth: { user: cfg.user, pass: cfg.pass },
     logger: false,
+    greetingTimeout: 20_000,
   });
 
   await client.connect();

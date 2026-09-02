@@ -27,8 +27,8 @@ function parsePort(raw: string | undefined, fallback: number): number {
 
 function parseSecure(raw: string | undefined, port: number): boolean {
   if (raw?.trim()) return raw.trim() !== "false" && raw.trim() !== "0";
-  // 587 / 2587 = STARTTLS ; 465 / 2465 = TLS implicite
-  return port === 465 || port === 2465;
+  // TLS implicite : SMTP 465/2465, IMAP 993. STARTTLS (587…) → false.
+  return port === 465 || port === 2465 || port === 993;
 }
 
 /** Adresse unique plateforme : mailer@scolia.fr (From + boîte IMAP). */
