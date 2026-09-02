@@ -1,6 +1,7 @@
 import "server-only";
 
 import { loadAppConfig } from "@/app/lib/app-config";
+import { matchEstablishment } from "@/app/lib/establishment-catalog";
 import { getObjectBytes, getSignedReadUrl } from "@/app/lib/s3-storage";
 import { s3Key } from "@/app/lib/s3-path";
 import { parseTravelsS3KeyFromUrl } from "@/app/lib/travels-s3";
@@ -33,13 +34,16 @@ export function directionSignatureObjectKey(
 async function resolveDirectionSignatureObjectKey(
   establishmentId: string,
 ): Promise<string | null> {
-  const id = establishmentId.trim().toLowerCase();
+  const id = establishmentId.trim();
   if (!id) return null;
 
   const bundle = await loadAppConfig();
   const est =
+    matchEstablishment(bundle.establishments, id, { includeInactive: true }) ||
     bundle.establishments.find((e) => e.id === id) ||
-    bundle.establishments.find((e) => e.id.includes(id) || id.includes(e.id));
+    bundle.establishments.find(
+      (e) => e.id.toLowerCase().includes(id.toLowerCase()) || id.toLowerCase().includes(e.id.toLowerCase()),
+    );
 
   const fromEst = est?.signatureS3Key?.trim();
   if (fromEst) {
@@ -49,7 +53,8 @@ async function resolveDirectionSignatureObjectKey(
     return s3Key(fromEst.split("?")[0]);
   }
 
-  const legacy = bundle.travels?.signatureImageUrls?.[id]?.trim();
+  const legacyId = (est?.id || id).trim().toLowerCase();
+  const legacy = bundle.travels?.signatureImageUrls?.[legacyId]?.trim();
   if (legacy) {
     if (legacy.startsWith("http://") || legacy.startsWith("https://")) {
       return (await parseTravelsS3KeyFromUrl(legacy)) || null;
@@ -58,6 +63,47 @@ async function resolveDirectionSignatureObjectKey(
   }
 
   return null;
+}
+
+/** Type MIME pour un buffer image (signature direction). */
+export function sniffDirectionSignatureContentType(bytes: Uint8Array): string {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return "image/png";
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  return "image/png";
+}
+
+/** URL same-origin pour <img> (évite CORS / URLs S3 expirées). */
+export function directionSignaturePreviewApiPath(
+  establishmentId: string,
+  cacheBust?: number | string,
+): string {
+  const id = encodeURIComponent(establishmentId.trim());
+  const base = `/api/settings/upload-direction-signature?establishmentId=${id}&raw=1`;
+  if (cacheBust == null || cacheBust === "") return base;
+  return `${base}&t=${encodeURIComponent(String(cacheBust))}`;
 }
 
 export async function resolveDirectionSignatureBytes(

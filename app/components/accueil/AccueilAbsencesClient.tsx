@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import type { AccueilBoardRow, AccueilPeriodMode, AccueilSearchHit } from "@/app/lib/accueil-absences-types";
@@ -17,6 +17,7 @@ function kindBadge(kind: AccueilBoardRow["kind"] | AccueilSearchHit["kind"]): st
 }
 
 export default function AccueilAbsencesClient() {
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<AccueilSearchHit[]>([]);
   const [selected, setSelected] = useState<AccueilSearchHit | null>(null);
@@ -30,6 +31,11 @@ export default function AccueilAbsencesClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [focusSearchNonce, setFocusSearchNonce] = useState(0);
+
+  const focusSearch = useCallback(() => {
+    setFocusSearchNonce((n) => n + 1);
+  }, []);
 
   const loadBoard = useCallback(async () => {
     const res = await fetch("/api/accueil/absences", { cache: "no-store" });
@@ -42,7 +48,20 @@ export default function AccueilAbsencesClient() {
     void loadBoard().catch((e: unknown) => {
       setError(e instanceof Error ? e.message : "Erreur");
     });
-  }, [loadBoard]);
+    focusSearch();
+  }, [loadBoard, focusSearch]);
+
+  useEffect(() => {
+    if (selected) return;
+    if (focusSearchNonce === 0) return;
+    const id = window.requestAnimationFrame(() => {
+      const el = searchInputRef.current;
+      if (!el) return;
+      el.focus();
+      el.select();
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [focusSearchNonce, selected]);
 
   useEffect(() => {
     if (selected) return;
@@ -62,7 +81,7 @@ export default function AccueilAbsencesClient() {
     return () => clearTimeout(t);
   }, [q, selected]);
 
-  const resetForm = () => {
+  const resetForm = useCallback(() => {
     setSelected(null);
     setQ("");
     setHits([]);
@@ -72,7 +91,12 @@ export default function AccueilAbsencesClient() {
     setStartTime("08:00");
     setEndTime("12:00");
     setMotif("");
-  };
+  }, []);
+
+  const readyForNext = useCallback(() => {
+    resetForm();
+    focusSearch();
+  }, [resetForm, focusSearch]);
 
   const submit = async () => {
     if (!selected) return;
@@ -106,18 +130,20 @@ export default function AccueilAbsencesClient() {
       if (data.pendingDirection) {
         setMessage(
           isProf
-            ? `${name} — transmis à la direction. Après validation : calendrier absences professeurs + mail à la personne qui déclare au rectorat.`
-            : `${name} — transmis à la direction. Après validation : calendrier + comptabilité RH.`,
+            ? `${name} — transmis à la direction. Vous pouvez en déclarer une autre.`
+            : `${name} — transmis à la direction. Vous pouvez en déclarer une autre.`,
         );
       } else {
-        setMessage(`${name} — absence enregistrée.`);
+        setMessage(`${name} — absence enregistrée. Vous pouvez en déclarer une autre.`);
       }
-      resetForm();
+      readyForNext();
       await loadBoard();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
       setBusy(false);
+      // Le bouton garde le focus : on le rend au champ recherche après fin de busy.
+      focusSearch();
     }
   };
 
@@ -167,17 +193,21 @@ export default function AccueilAbsencesClient() {
                 <button
                   type="button"
                   className="text-sm font-semibold text-indigo-700 hover:underline"
-                  onClick={resetForm}
+                  onClick={() => {
+                    readyForNext();
+                  }}
                 >
                   Changer
                 </button>
               </div>
             ) : (
               <input
+                ref={searchInputRef}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Nom ou prénom (3 lettres)…"
                 autoComplete="off"
+                autoFocus
                 className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-base outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
             )}

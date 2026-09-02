@@ -5,10 +5,12 @@ import { requireModule } from "@/app/lib/intranet-auth";
 import { loadAppConfig, saveEstablishments } from "@/app/lib/app-config";
 import {
   directionSignatureObjectKey,
-  resolveDirectionSignatureDisplayUrl,
+  directionSignaturePreviewApiPath,
+  resolveDirectionSignatureBytes,
+  sniffDirectionSignatureContentType,
 } from "@/app/lib/direction-signature";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
-import { getBucketName, getSignedReadUrl } from "@/app/lib/s3-storage";
+import { getBucketName } from "@/app/lib/s3-storage";
 
 const ALLOWED = new Set(["image/png", "image/jpeg", "image/webp"]);
 
@@ -18,16 +20,47 @@ function extForType(type: string): "png" | "jpg" | "webp" {
   return "png";
 }
 
-/** Aperçu signé : ?establishmentId=ecole */
+/**
+ * Aperçu :
+ * - `?establishmentId=ecole&raw=1` → image binaire (same-origin, pour <img>)
+ * - `?establishmentId=ecole` → JSON `{ previewUrl }` (chemin API, pas d’URL S3)
+ */
 export async function GET(req: Request) {
   const gate = await requireModule("admin-settings");
   if (!gate.ok) return gate.response;
-  const establishmentId = new URL(req.url).searchParams.get("establishmentId")?.trim() || "";
+
+  const url = new URL(req.url);
+  const establishmentId = url.searchParams.get("establishmentId")?.trim() || "";
   if (!establishmentId) {
     return NextResponse.json({ error: "establishmentId requis." }, { status: 400 });
   }
-  const previewUrl = await resolveDirectionSignatureDisplayUrl(establishmentId);
-  return NextResponse.json({ establishmentId, previewUrl });
+
+  const wantRaw =
+    url.searchParams.get("raw") === "1" || url.searchParams.get("format") === "image";
+
+  const bytes = await resolveDirectionSignatureBytes(establishmentId);
+  if (!bytes?.length) {
+    if (wantRaw) {
+      return NextResponse.json({ error: "Signature introuvable." }, { status: 404 });
+    }
+    return NextResponse.json({ establishmentId, previewUrl: null });
+  }
+
+  if (wantRaw) {
+    const contentType = sniffDirectionSignatureContentType(bytes);
+    return new NextResponse(Buffer.from(bytes), {
+      status: 200,
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "private, max-age=120",
+      },
+    });
+  }
+
+  return NextResponse.json({
+    establishmentId,
+    previewUrl: directionSignaturePreviewApiPath(establishmentId),
+  });
 }
 
 export async function POST(req: Request) {
@@ -68,10 +101,11 @@ export async function POST(req: Request) {
     );
     await saveEstablishments(next);
 
+    // Pas d’URL S3 avant upload : le client affichera l’aperçu API après le PUT.
     return NextResponse.json({
       uploadUrl,
       fileKey,
-      previewUrl: (await getSignedReadUrl(fileKey, 3600)) || null,
+      previewUrl: directionSignaturePreviewApiPath(establishmentId, Date.now()),
     });
   } catch (error) {
     console.error("[settings/upload-direction-signature]", error);

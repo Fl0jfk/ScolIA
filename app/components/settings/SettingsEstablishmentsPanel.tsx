@@ -335,7 +335,17 @@ export default function SettingsEstablishmentsPanel({
                     src={est.signaturePreviewUrl}
                     alt={`Signature ${est.label || est.id}`}
                     className="h-14 max-w-[220px] rounded-xl border border-white/80 bg-white object-contain p-1"
+                    onError={(ev) => {
+                      ev.currentTarget.style.display = "none";
+                      const sibling = ev.currentTarget.nextElementSibling;
+                      if (sibling instanceof HTMLElement) sibling.hidden = false;
+                    }}
                   />
+                ) : null}
+                {est.signaturePreviewUrl ? (
+                  <p className="text-xs text-amber-700" hidden>
+                    Signature enregistrée (aperçu temporairement indisponible).
+                  </p>
                 ) : est.signatureS3Key ? (
                   <p className="text-xs text-amber-700">Signature enregistrée (aperçu indisponible).</p>
                 ) : (

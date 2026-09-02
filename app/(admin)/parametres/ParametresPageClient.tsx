@@ -177,35 +177,12 @@ export default function ParametresPage() {
             active: e.active !== false,
             grades: typeof e.grades === "string" ? e.grades : undefined,
             signatureS3Key: typeof e.signatureS3Key === "string" ? e.signatureS3Key : undefined,
-            signaturePreviewUrl: null,
+            signaturePreviewUrl:
+              typeof e.signatureS3Key === "string" && e.signatureS3Key && e.id
+                ? `/api/settings/upload-direction-signature?establishmentId=${encodeURIComponent(String(e.id))}&raw=1`
+                : null,
           })),
         );
-        // Aperçus signatures (URLs signées dataBucket)
-        void (async () => {
-          const list = (j.config?.establishments || []) as Record<string, unknown>[];
-          const withSig = list.filter((e) => e.id && e.signatureS3Key);
-          if (!withSig.length) return;
-          const previews = await Promise.all(
-            withSig.map(async (e) => {
-              const id = String(e.id);
-              try {
-                const pr = await fetch(
-                  `/api/settings/upload-direction-signature?establishmentId=${encodeURIComponent(id)}`,
-                );
-                const pj = await pr.json();
-                return { id, url: pr.ok ? (pj.previewUrl as string | null) : null };
-              } catch {
-                return { id, url: null };
-              }
-            }),
-          );
-          setEstablishments((prev) =>
-            prev.map((est) => {
-              const hit = previews.find((p) => p.id === est.id);
-              return hit ? { ...est, signaturePreviewUrl: hit.url } : est;
-            }),
-          );
-        })();
         setNotifications(j.config?.notifications || {});
         const profRoomCfg = j.config?.profRoom || {};
         const savedIds = Array.isArray(profRoomCfg.adminExternalUserIds) ? profRoomCfg.adminExternalUserIds : [];
@@ -345,13 +322,17 @@ export default function ParametresPage() {
       });
       if (!putRes.ok) throw new Error("Envoi de la signature sur S3 impossible.");
 
+      const previewUrl =
+        (typeof prepJson.previewUrl === "string" && prepJson.previewUrl) ||
+        `/api/settings/upload-direction-signature?establishmentId=${encodeURIComponent(establishmentId)}&raw=1&t=${Date.now()}`;
+
       setEstablishments((prev) =>
         prev.map((e) =>
           e.id === establishmentId
             ? {
                 ...e,
                 signatureS3Key: prepJson.fileKey as string,
-                signaturePreviewUrl: (prepJson.previewUrl as string) || null,
+                signaturePreviewUrl: previewUrl,
               }
             : e,
         ),
