@@ -151,23 +151,7 @@ function ShortcutSlidesCarousel({
               </div>
             </motion.div>
           </AnimatePresence>
-          {slides.length > 1 ? (
-            <div className="mt-1 flex items-center justify-center gap-1">
-              {slides.map((s, i) => (
-                <span
-                  key={s.id}
-                  className="h-1 rounded-full transition-all"
-                  style={{
-                    width: i === index ? 8 : 3,
-                    backgroundColor: fg,
-                    opacity: i === index ? 0.95 : 0.35,
-                  }}
-                />
-              ))}
-            </div>
-          ) : (
-            <span className="sr-only">{chip}</span>
-          )}
+          <span className="sr-only">{chip}</span>
         </div>
       </Link>
     </motion.div>
@@ -176,10 +160,17 @@ function ShortcutSlidesCarousel({
 
 function badgeCountFallback(item: DashboardShortcut, notifCount: number): number {
   if (notifCount > 0) return notifCount;
+  if (item.tone !== "warn" && item.tone !== "action") return 0;
   const fromBadge = item.badge?.match(/^(\d+)/);
-  if (fromBadge) return Number(fromBadge[1]);
-  if (item.rich && item.tone && item.tone !== "neutral" && item.detail?.trim()) return 1;
-  return 0;
+  return fromBadge ? Number(fromBadge[1]) : 0;
+}
+
+/** Vraie notif à traiter — pas un simple libellé marketing (Paramètres, QR, « demander une… »). */
+function isActionableSignal(item: DashboardShortcut, notifCount: number): boolean {
+  if (notifCount > 0) return true;
+  if (item.tone === "warn") return true;
+  if (item.tone === "action" && /^\d+/.test(item.badge?.trim() || "")) return true;
+  return false;
 }
 
 type TileFace = {
@@ -192,8 +183,12 @@ function buildSignalFaces(item: DashboardShortcut): TileFace[] {
   const faces: TileFace[] = [{ id: "label", line: item.label, kind: "label" }];
   const detail = item.detail?.trim();
   const badge = item.badge?.trim();
+  // Face alerte : le détail (qui / quoi) porte l’info ; le badge complète s’il ajoute du sens.
   if (detail) {
     faces.push({ id: "detail", line: detail, kind: "alert" });
+    if (badge && !detail.includes(badge) && !/^\d+\s/.test(detail)) {
+      faces.push({ id: "badge", line: badge, kind: "alert" });
+    }
   } else if (badge) {
     faces.push({ id: "badge", line: badge, kind: "alert" });
   }
@@ -210,97 +205,76 @@ function SignalShortcutTile({
   notifCount?: number;
 }) {
   const displayCount = badgeCountFallback(item, notifCount);
+  const actionable = isActionableSignal(item, notifCount);
   const emoji = item.emoji || MODULE_EMOJI[item.moduleId] || "›";
-  const hasSignal =
-    Boolean(item.rich && item.tone && item.tone !== "neutral") ||
-    Boolean(item.detail?.trim()) ||
-    displayCount > 0;
-  const faces = hasSignal
+  const staticDetail = !actionable ? item.detail?.trim() || null : null;
+  const faces = actionable
     ? buildSignalFaces(item)
     : [{ id: "label", line: item.label, kind: "label" as const }];
   const [faceIndex, setFaceIndex] = useState(0);
-  const faceKey = faces.map((f) => f.id).join("|");
+  const faceKey = faces.map((f) => `${f.id}:${f.line}`).join("|");
 
   useEffect(() => {
     setFaceIndex(0);
   }, [faceKey]);
 
   useEffect(() => {
-    if (faces.length <= 1) return;
+    if (!actionable || faces.length <= 1) return;
     const id = window.setInterval(() => {
       setFaceIndex((i) => (i + 1) % faces.length);
-    }, 3000);
+    }, 3200);
     return () => window.clearInterval(id);
-  }, [faces.length, faceKey]);
+  }, [actionable, faces.length, faceKey]);
 
   const face = faces[faceIndex] ?? faces[0]!;
   const warnTone = item.tone === "warn";
-  const actionTone = item.tone === "action";
-  const signalRing = hasSignal
-    ? warnTone
-      ? "ring-1 ring-rose-300/80"
-      : actionTone
-        ? "ring-1 ring-amber-300/80"
-        : "ring-1 ring-sky-300/70"
-    : "";
+  const alertFace = actionable && face.kind === "alert";
+  const solidAlert = warnTone ? "#f43f5e" : "#f59e0b"; // rose-500 / amber-500
+  const alertMuted = "text-white/90";
 
   return (
     <motion.div
       layout
       className="col-span-1"
       initial={highlight ? { scale: 0.97, opacity: 0.45 } : false}
-      animate={
-        hasSignal
-          ? {
-              scale: 1,
-              opacity: 1,
-              boxShadow: warnTone
-                ? [
-                    "0 0 0 0 rgba(244,63,94,0)",
-                    "0 0 0 4px rgba(244,63,94,0.18)",
-                    "0 0 0 0 rgba(244,63,94,0)",
-                  ]
-                : [
-                    "0 0 0 0 rgba(14,165,233,0)",
-                    "0 0 0 4px rgba(14,165,233,0.14)",
-                    "0 0 0 0 rgba(14,165,233,0)",
-                  ],
-            }
-          : { scale: 1, opacity: 1 }
-      }
-      transition={
-        hasSignal
-          ? {
-              boxShadow: { duration: 2.4, repeat: Infinity, ease: "easeInOut" },
-              scale: { type: "spring", stiffness: 380, damping: 28 },
-            }
-          : { type: "spring", stiffness: 380, damping: 28 }
-      }
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: "spring", stiffness: 380, damping: 28 }}
     >
       <Link
         href={item.href}
-        className={`group relative flex min-h-[3.25rem] cursor-pointer items-center gap-1.5 overflow-hidden rounded-xl border px-2 py-2 transition hover:-translate-y-0.5 ${signalRing} ${
-          hasSignal
-            ? "border-white/80 bg-white/90 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.45)] hover:bg-white"
+        className={`group relative flex min-h-[3.25rem] cursor-pointer items-center gap-1.5 overflow-hidden rounded-xl border px-2 py-2 transition hover:-translate-y-0.5 ${
+          actionable
+            ? "border-slate-200/80 shadow-[0_10px_28px_-20px_rgba(15,23,42,0.45)]"
             : "border-transparent bg-white/40 hover:border-white/70 hover:bg-white/70"
         }`}
       >
-        {highlight ? (
+        {actionable ? (
           <motion.span
-            className="pointer-events-none absolute inset-0 bg-[color:var(--dash-bright)]/15"
-            initial={{ opacity: 0.8 }}
+            aria-hidden
+            className="pointer-events-none absolute inset-0 rounded-xl"
+            initial={false}
+            animate={{
+              backgroundColor: alertFace ? solidAlert : "#ffffff",
+            }}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+          />
+        ) : null}
+        {highlight && actionable ? (
+          <motion.span
+            className="pointer-events-none absolute inset-0 z-[1] bg-white/35"
+            initial={{ opacity: 0.85 }}
             animate={{ opacity: 0 }}
-            transition={{ duration: 1.4 }}
+            transition={{ duration: 1.2 }}
           />
         ) : null}
         <span
-          className={`relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg ring-1 ${
-            hasSignal
-              ? warnTone
-                ? "bg-rose-50 ring-rose-200/80"
-                : actionTone
-                  ? "bg-amber-50 ring-amber-200/80"
-                  : "bg-sky-50 ring-sky-200/80"
+          className={`relative z-[1] flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg ring-1 ${
+            actionable
+              ? alertFace
+                ? "bg-white/20 ring-white/40"
+                : warnTone
+                  ? "bg-rose-50 ring-rose-200/90"
+                  : "bg-amber-50 ring-amber-200/90"
               : "bg-[color:var(--dash-soft-muted)]/90 ring-[color:var(--dash-border)]/60"
           }`}
         >
@@ -308,50 +282,48 @@ function SignalShortcutTile({
             {emoji}
           </span>
         </span>
-        <div className="relative min-w-0 flex-1">
+        <div className="relative z-[1] min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1">
-            <div className="relative min-h-[1.1rem] min-w-0 flex-1 overflow-hidden">
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.p
-                  key={face.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.28 }}
-                  className={`truncate text-[11px] font-semibold leading-tight tracking-tight ${
-                    face.kind === "alert"
-                      ? warnTone
-                        ? "text-rose-700"
-                        : actionTone
-                          ? "text-amber-800"
-                          : "text-sky-800"
-                      : "text-[var(--dash-ink)]"
-                  }`}
-                  title={face.line}
+            <div className="relative min-h-[1.15rem] min-w-0 flex-1 overflow-hidden">
+              {actionable ? (
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.p
+                    key={face.id}
+                    initial={{ opacity: 0, y: 10, filter: "blur(2px)" }}
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, y: -10, filter: "blur(2px)" }}
+                    transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+                    className={`truncate text-[11px] font-semibold leading-tight tracking-tight ${
+                      alertFace ? "text-white" : "text-[var(--dash-ink)]"
+                    }`}
+                    title={face.line}
+                  >
+                    {face.line}
+                  </motion.p>
+                </AnimatePresence>
+              ) : (
+                <p
+                  className="truncate text-[11px] font-semibold leading-tight tracking-tight text-[var(--dash-ink)]"
+                  title={item.label}
                 >
-                  {face.line}
-                </motion.p>
-              </AnimatePresence>
+                  {item.label}
+                </p>
+              )}
             </div>
             <NotificationCountBadge count={displayCount} />
           </div>
-          {faces.length > 1 ? (
-            <div className="mt-1 flex items-center gap-1">
-              {faces.map((f, i) => (
-                <span
-                  key={f.id}
-                  className={`h-0.5 rounded-full transition-all ${
-                    i === faceIndex
-                      ? warnTone
-                        ? "w-2 bg-rose-500"
-                        : actionTone
-                          ? "w-2 bg-amber-500"
-                          : "w-2 bg-sky-500"
-                      : "w-1 bg-slate-300/80"
-                  }`}
-                />
-              ))}
-            </div>
+          {actionable && item.detail?.trim() && face.kind === "label" ? (
+            <p className="mt-0.5 truncate text-[9px] font-medium leading-snug text-[var(--dash-mid)]" title={item.detail}>
+              {item.detail}
+            </p>
+          ) : actionable && face.kind === "alert" && item.label ? (
+            <p className={`mt-0.5 truncate text-[9px] font-medium leading-snug ${alertMuted}`} title={item.label}>
+              {item.label}
+            </p>
+          ) : staticDetail ? (
+            <p className="mt-0.5 truncate text-[9px] leading-snug text-[var(--dash-mid)]" title={staticDetail}>
+              {staticDetail}
+            </p>
           ) : null}
         </div>
       </Link>

@@ -26,7 +26,6 @@ import { directionRolesMatchEstablishmentRef, isAnyDirectionRole } from "@/app/l
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import { hasRole } from "@/app/lib/intranet-role-utils";
-import { isProfesseurScopedDossierViewer } from "@/app/lib/eleve-dossier-scope";
 import { canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
 import { resolveDirectionEtab } from "@/app/lib/travels-direction-dashboard";
 import { normalizeRequestEmail } from "@/app/lib/requests-board";
@@ -154,6 +153,7 @@ type DashboardSignalsInput = {
     id: string;
     status: string;
     subject?: string;
+    requesterName?: string;
     assignedTo?: {
       email?: string;
       claimedBy?: { email?: string; userId?: string | null } | null;
@@ -249,14 +249,35 @@ function travelsTripHref(roles: string[], tripId: string, listHref: string): str
 
 function photocopiePendingForDirection(
   roles: string[],
-  photocopies: Array<{ status: string; etablissement?: string }>,
+  photocopies: Array<{
+    status: string;
+    etablissement?: string;
+    createdBy?: { userId?: string; name?: string };
+  }>,
   establishments: Establishment[],
-): number {
+): Array<{
+  status: string;
+  etablissement?: string;
+  createdBy?: { userId?: string; name?: string };
+}> {
   return photocopies.filter(
     (p) =>
       p.status === "EN_ATTENTE" &&
       directionRolesMatchEstablishmentRef(roles, p.etablissement, establishments),
-  ).length;
+  );
+}
+
+function personLabelFromAbsence(a: {
+  displayName?: string;
+  createdBy?: { name?: string };
+  submittedBy?: { name?: string } | null;
+}): string {
+  return (
+    a.displayName?.trim() ||
+    a.submittedBy?.name?.trim() ||
+    a.createdBy?.name?.trim() ||
+    "Un agent"
+  );
 }
 
 function photocopiesReadyForUser(
@@ -520,7 +541,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         rich: true,
         badge: `${weekTrips.length} sortie${weekTrips.length > 1 ? "s" : ""}`,
         detail: titles + (weekTrips.length > 3 ? ` · +${weekTrips.length - 3}` : ""),
-        tone: "info",
+        // Info calendrier, pas une alerte à traiter.
+        tone: "neutral",
       });
 
       for (const t of weekTrips.slice(0, 6)) {
@@ -703,9 +725,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         moduleId: "mon-planning",
         href: "/mon-planning",
         label: "Mon planning",
-        rich: true,
-        detail: "Semaine type · absences · dossier RH",
-        tone: "info",
       });
     }
 
@@ -717,9 +736,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         href: "/mon-planning",
         label: input.planningNow.title,
         rich: true,
-        detail: input.planningNow.detail,
-        badge: `${input.planningNow.start}–${input.planningNow.end}`,
-        tone: "info",
+        detail: `${input.planningNow.detail} · ${input.planningNow.start}–${input.planningNow.end}`,
+        tone: "neutral",
       });
     }
 
@@ -730,9 +748,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         moduleId: "rh",
         href: "/rh/moi",
         label: "Mon dossier RH",
-        rich: true,
-        detail: "Documents personnels · absences",
-        tone: "info",
       });
       if (canCreateHseDemand(roles)) {
         shortcuts.push({
@@ -741,9 +756,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           moduleId: "demandes-hse",
           href: "/rh?tab=dashboard&section=hse",
           label: "Faire une demande de HSE",
-          rich: true,
-          detail: "Heures supplémentaires exceptionnelles",
-          tone: "action",
         });
       }
     }
@@ -781,6 +793,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       );
 
       if (pendingManager.length > 0) {
+        const firstName = personLabelFromAbsence(pendingManager[0]!);
+        const more = pendingManager.length - 1;
         shortcuts.push({
           id: "absences-pending",
           pillarId: "compta_rh",
@@ -791,8 +805,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           badge: `${pendingManager.length} à traiter`,
           detail:
             pendingManager.length === 1
-              ? "1 demande d'autorisation d'absence en attente"
-              : `${pendingManager.length} demandes d'autorisation d'absence en attente`,
+              ? `${firstName} — demande d'autorisation en attente`
+              : `${firstName} + ${more} autre${more > 1 ? "s" : ""} — autorisations en attente`,
           tone: "warn",
         });
         pushNotif({
@@ -803,12 +817,14 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           href: "/rh?tab=dashboard&section=absences&view=a-traiter",
           detail:
             pendingManager.length === 1
-              ? "1 demande d'autorisation d'absence en attente de votre décision"
-              : `${pendingManager.length} demandes d'autorisation d'absence en attente de votre décision`,
+              ? `${firstName} attend votre décision`
+              : `${pendingManager.length} demandes d'autorisation en attente de votre décision`,
         });
       }
 
       if (pendingProcessor.length > 0) {
+        const firstName = personLabelFromAbsence(pendingProcessor[0]!);
+        const more = pendingProcessor.length - 1;
         shortcuts.push({
           id: "absences-admin-queue",
           pillarId: "compta_rh",
@@ -819,8 +835,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           badge: `${pendingProcessor.length} à clôturer`,
           detail:
             pendingProcessor.length === 1
-              ? "1 absence validée par la direction, à traiter dans l’application"
-              : `${pendingProcessor.length} absences validées par la direction, à traiter dans l’application`,
+              ? `${firstName} — absence validée, à clôturer`
+              : `${firstName} + ${more} autre${more > 1 ? "s" : ""} — à clôturer (RH / rectorat)`,
           tone: "warn",
         });
         pushNotif({
@@ -831,7 +847,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           href: "/rh?tab=dashboard&section=absences&view=traitement",
           detail:
             pendingProcessor.length === 1
-              ? "1 dossier validé à traiter (pièces, rectorat / RH)"
+              ? `${firstName} — dossier validé à traiter`
               : `${pendingProcessor.length} dossiers validés à traiter (pièces, rectorat / RH)`,
         });
       }
@@ -844,9 +860,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           href: "/rh?tab=dashboard&section=absences&view=calendrier",
           label: "Absences",
           rich: true,
-          badge: String(count),
           detail: count === 1 ? `1 ${labelSingular} aujourd'hui` : `${count} ${labelPlural} aujourd'hui`,
-          tone: "info",
+          tone: "neutral",
         });
       } else if (pendingManager.length === 0 && pendingProcessor.length === 0) {
         shortcuts.push({
@@ -956,7 +971,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           liveNow.length === 1
             ? `${liveNow[0]!.roomName || roomNameById.get(liveNow[0]!.roomId) || "Salle"} · ${liveNow[0]!.subject || "Réservée"}`
             : `${liveNow.length} de vos salles en cours`,
-        tone: "info",
+        tone: "neutral",
         slides: liveNow.map((r) => {
           const name = r.roomName || roomNameById.get(r.roomId) || "Salle";
           const subject = (r.subject || "").trim();
@@ -989,7 +1004,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         rich: true,
         badge: slotTimeLabel(r.startsAt),
         detail: `${name}${r.subject ? ` · ${r.subject}` : ""}`,
-        tone: "info",
+        tone: "neutral",
       });
     } else if (activeToday.length > 1) {
       const next = activeToday[0]!;
@@ -1003,7 +1018,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         rich: true,
         badge: `${activeToday.length} créneaux`,
         detail: `Prochain : ${name} · ${slotTimeLabel(next.startsAt)}`,
-        tone: "info",
+        tone: "neutral",
       });
     } else {
       shortcuts.push({
@@ -1033,6 +1048,9 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     const unassigned = requestsBoard.filter((r) => !r.assignedTo?.claimedBy && r.status !== "TERMINEE");
 
     if (claimedMine.length > 0) {
+      const first = claimedMine[0]!;
+      const who = first.requesterName?.trim();
+      const topic = first.subject?.trim();
       shortcuts.push({
         id: "requests-claimed",
         pillarId: "administratif",
@@ -1043,7 +1061,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         badge: claimedMine.length === 1 ? "1 attribuée" : `${claimedMine.length} attribuées`,
         detail:
           claimedMine.length === 1
-            ? "Une demande vous a été attribuée"
+            ? [who ? `De ${who}` : "Demande attribuée", topic].filter(Boolean).join(" — ")
             : `${claimedMine.length} demandes vous ont été attribuées`,
         tone: "action",
       });
@@ -1055,11 +1073,16 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         href: requestsHome,
         detail:
           claimedMine.length === 1
-            ? "1 demande vous a été attribuée"
+            ? who
+              ? `Demande de ${who} à traiter`
+              : "1 demande vous a été attribuée"
             : `${claimedMine.length} demandes vous ont été attribuées`,
       });
     }
     if (unassigned.length > 0) {
+      const first = unassigned[0]!;
+      const who = first.requesterName?.trim();
+      const topic = first.subject?.trim();
       shortcuts.push({
         id: "requests-pool",
         pillarId: "administratif",
@@ -1070,8 +1093,12 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         badge: `${unassigned.length} non assignée${unassigned.length > 1 ? "s" : ""}`,
         detail:
           unassigned.length === 1
-            ? "1 demande non assignée dans votre file"
-            : `${unassigned.length} demandes non assignées dans votre file`,
+            ? [who ? `${who}` : "1 demande", topic || "non assignée dans votre file"]
+                .filter(Boolean)
+                .join(" — ")
+            : who
+              ? `${who} + ${unassigned.length - 1} autre${unassigned.length > 2 ? "s" : ""} — file non assignée`
+              : `${unassigned.length} demandes non assignées dans votre file`,
         tone: "warn",
       });
       pushNotif({
@@ -1082,7 +1109,9 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         href: requestsHome,
         detail:
           unassigned.length === 1
-            ? "1 demande non assignée dans votre file"
+            ? who
+              ? `${who} — demande non assignée`
+              : "1 demande non assignée dans votre file"
             : `${unassigned.length} demandes non assignées dans votre file`,
       });
     }
@@ -1112,7 +1141,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     const canSeePhoto = has("photocopies-couleur") || isOps;
     if (canSeePhoto) {
       const readyCount = photocopiesReadyForUser(userId, photocopies);
-      const pendingDir = photocopiePendingForDirection(roles, photocopies, establishments);
+      const pendingDirList = photocopiePendingForDirection(roles, photocopies, establishments);
+      const pendingDir = pendingDirList.length;
       const opsPending = isOps ? photocopiesOpsPendingCount(photocopies) : 0;
       const isProf = hasRole(roles, "professeur");
 
@@ -1130,9 +1160,11 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           detail:
             opsPending === 1
               ? who
-                ? `Demande de ${who} — à imprimer`
+                ? `${who} a une demande à imprimer`
                 : "1 demande de photocopies à imprimer"
-              : `${opsPending} demandes de photocopies à imprimer`,
+              : who
+                ? `${who} + ${opsPending - 1} autre${opsPending > 2 ? "s" : ""} — à imprimer`
+                : `${opsPending} demandes de photocopies à imprimer`,
           tone: "warn",
         });
         pushNotif({
@@ -1162,6 +1194,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       }
 
       if (isProf || canCreatePhotocopiesDemand(roles)) {
+        // Tuile d’entrée : pas de signal / animation — juste l’accès au formulaire.
         shortcuts.push({
           id: "photocopies-new",
           pillarId: "administratif",
@@ -1170,7 +1203,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           label: "Photocopies couleur",
           rich: true,
           detail: "Demander une impression couleur",
-          tone: "action",
+          tone: "neutral",
         });
       }
 
@@ -1187,7 +1220,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             readyCount === 1
               ? "Votre demande de photocopies est prête à retirer"
               : `${readyCount} demandes de photocopies prêtes à retirer`,
-          tone: "info",
+          tone: "warn",
         });
         pushNotif({
           id: "photocopies-ready",
@@ -1203,16 +1236,24 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       }
 
       if (pendingDir > 0) {
+        const first = pendingDirList[0]!;
+        const who = first.createdBy?.name?.trim();
         shortcuts.push({
           id: "photo-dir",
           pillarId: "administratif",
           moduleId: "photocopies-couleur",
           href: photoHome,
-          label: "Photocopies couleur",
+          label: "Photocopies à valider",
           rich: true,
           badge: `${pendingDir} à traiter`,
           detail:
-            pendingDir === 1 ? "1 photocopie à valider" : `${pendingDir} photocopies à valider`,
+            pendingDir === 1
+              ? who
+                ? `${who} a fait une demande à valider`
+                : "1 photocopie à valider"
+              : who
+                ? `${who} + ${pendingDir - 1} autre${pendingDir > 2 ? "s" : ""} — à valider`
+                : `${pendingDir} photocopies à valider`,
           tone: "warn",
         });
         pushNotif({
@@ -1222,7 +1263,11 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           count: pendingDir,
           href: photoHome,
           detail:
-            pendingDir === 1 ? "1 photocopie à valider" : `${pendingDir} photocopies à valider`,
+            pendingDir === 1
+              ? who
+                ? `Demande de ${who} à valider`
+                : "1 photocopie à valider"
+              : `${pendingDir} photocopies à valider`,
         });
       }
     }
@@ -1271,17 +1316,12 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— Dossier élève avant notes / santé ——
   if (has("eleve-dossier")) {
-    const profDossierOnly =
-      isProfesseurScopedDossierViewer({ roles }) && !hasRole(roles, "administratif");
     shortcuts.push({
       id: "eleve-dossier",
       pillarId: moduleIdToPillarId("eleve-dossier") ?? "administratif",
       moduleId: "eleve-dossier",
       href: moduleHref("eleve-dossier"),
       label: "Dossiers élèves",
-      rich: true,
-      detail: profDossierOnly ? "Vos classes · fiche pédagogique" : "Fiche unique · préinscriptions",
-      tone: "info",
     });
   }
   if (has("notes")) {
@@ -1291,15 +1331,14 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       moduleId: "notes",
       href: moduleHref("notes"),
       label: "Notes & bulletins",
-      rich: true,
-      detail: "Saisie, compétences LSU, bulletins PDF",
-      tone: "info",
     });
   }
   if (has("vs-appels") || has("vs-absences")) {
     const warnCount =
       (has("vs-appels") ? vsAppelsManquants : 0) +
-      (has("vs-absences") ? Math.max(vsAbsencesJustifFamille, vsAbsencesATraiter > 0 ? vsAbsencesATraiter : 0) : 0);
+      (has("vs-absences")
+        ? Math.max(vsAbsencesJustifFamille, vsAbsencesATraiter > 0 ? vsAbsencesATraiter : 0)
+        : 0);
     const detailParts: string[] = [];
     if (has("vs-appels") && vsAppelsManquants > 0) {
       detailParts.push(`${vsAppelsManquants} appel(s) manquant(s)`);
@@ -1309,23 +1348,33 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     } else if (has("vs-absences") && vsAbsencesATraiter > 0) {
       detailParts.push(`${vsAbsencesATraiter} absence(s) à traiter`);
     }
-    shortcuts.push({
-      id: "vs-presence",
-      pillarId: "vie_scolaire",
-      moduleId: "vs-appels",
-      href:
-        has("vs-absences") && vsAbsencesJustifFamille > 0
-          ? `${moduleHref("vs-absences")}&filtre=justif_famille`
-          : has("vs-appels") && vsAppelsManquants > 0
-            ? `${moduleHref("vs-appels")}?tab=appel`
-            : moduleHref("vs-appels"),
-      label: "Appels & absences",
-      rich: true,
-      detail: detailParts.length > 0 ? detailParts.join(" · ") : "Présence en classe · justificatifs",
-      badge: warnCount > 0 ? String(warnCount) : undefined,
-      tone: warnCount > 0 ? "warn" : "info",
-    });
-    if (has("vs-appels")) {
+    if (warnCount > 0) {
+      shortcuts.push({
+        id: "vs-presence",
+        pillarId: "vie_scolaire",
+        moduleId: "vs-appels",
+        href:
+          has("vs-absences") && vsAbsencesJustifFamille > 0
+            ? `${moduleHref("vs-absences")}&filtre=justif_famille`
+            : has("vs-appels") && vsAppelsManquants > 0
+              ? `${moduleHref("vs-appels")}?tab=appel`
+              : moduleHref("vs-appels"),
+        label: "Appels & absences",
+        rich: true,
+        detail: detailParts.join(" · "),
+        badge: String(warnCount),
+        tone: "warn",
+      });
+    } else {
+      shortcuts.push({
+        id: "vs-presence",
+        pillarId: "vie_scolaire",
+        moduleId: "vs-appels",
+        href: moduleHref("vs-appels"),
+        label: "Appels & absences",
+      });
+    }
+    if (has("vs-appels") && vsAppelsManquants > 0) {
       pushNotif({
         id: "vs-appels-manquants",
         moduleId: "vs-appels",
@@ -1335,7 +1384,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         detail: "Créneaux commencés sans appel clôturé",
       });
     }
-    if (has("vs-absences")) {
+    if (has("vs-absences") && vsAbsencesATraiter > 0) {
       pushNotif({
         id: "vs-absences-a-traiter",
         moduleId: "vs-absences",
@@ -1344,6 +1393,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         href: `${moduleHref("vs-absences")}`,
         detail: "Justificatifs et relances familles",
       });
+    }
+    if (has("vs-absences") && vsAbsencesJustifFamille > 0) {
       pushNotif({
         id: "vs-absences-justif-famille",
         moduleId: "vs-absences",
@@ -1355,52 +1406,66 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
   }
   if (has("vs-sanctions")) {
-    shortcuts.push({
-      id: "vs-sanctions",
-      pillarId: "vie_scolaire",
-      moduleId: "vs-sanctions",
-      href: moduleHref("vs-sanctions"),
-      label: "Sanctions",
-      rich: true,
-      detail:
-        vsSanctionsAujourdhui > 0
-          ? `${vsSanctionsAujourdhui} sanction(s) du jour`
-          : "Avertissement, colle, blâme",
-      badge: vsSanctionsAujourdhui > 0 ? String(vsSanctionsAujourdhui) : undefined,
-      tone: vsSanctionsAujourdhui > 0 ? "warn" : "info",
-    });
-    pushNotif({
-      id: "vs-sanctions-aujourdhui",
-      moduleId: "vs-sanctions",
-      label: "Sanctions du jour",
-      count: vsSanctionsAujourdhui,
-      href: moduleHref("vs-sanctions"),
-      detail: "Incidents et sanctions enregistrés aujourd'hui",
-    });
+    if (vsSanctionsAujourdhui > 0) {
+      shortcuts.push({
+        id: "vs-sanctions",
+        pillarId: "vie_scolaire",
+        moduleId: "vs-sanctions",
+        href: moduleHref("vs-sanctions"),
+        label: "Sanctions",
+        rich: true,
+        detail: `${vsSanctionsAujourdhui} sanction(s) enregistrée(s) aujourd'hui`,
+        badge: String(vsSanctionsAujourdhui),
+        tone: "warn",
+      });
+      pushNotif({
+        id: "vs-sanctions-aujourdhui",
+        moduleId: "vs-sanctions",
+        label: "Sanctions du jour",
+        count: vsSanctionsAujourdhui,
+        href: moduleHref("vs-sanctions"),
+        detail: "Incidents et sanctions enregistrés aujourd'hui",
+      });
+    } else {
+      shortcuts.push({
+        id: "vs-sanctions",
+        pillarId: "vie_scolaire",
+        moduleId: "vs-sanctions",
+        href: moduleHref("vs-sanctions"),
+        label: "Sanctions",
+      });
+    }
   }
   if (has("vs-carnet")) {
-    shortcuts.push({
-      id: "vs-carnet",
-      pillarId: "vie_scolaire",
-      moduleId: "vs-carnet",
-      href: moduleHref("vs-carnet"),
-      label: "Carnet",
-      rich: true,
-      detail:
-        vsCarnetNonSignees > 0
-          ? `${vsCarnetNonSignees} entrée(s) non signée(s)`
-          : "Correspondance → famille",
-      badge: vsCarnetNonSignees > 0 ? String(vsCarnetNonSignees) : undefined,
-      tone: vsCarnetNonSignees > 0 ? "warn" : "info",
-    });
-    pushNotif({
-      id: "vs-carnet-non-signees",
-      moduleId: "vs-carnet",
-      label: "Carnet non signé",
-      count: vsCarnetNonSignees,
-      href: moduleHref("vs-carnet"),
-      detail: "Entrées en attente d'accusé famille",
-    });
+    if (vsCarnetNonSignees > 0) {
+      shortcuts.push({
+        id: "vs-carnet",
+        pillarId: "vie_scolaire",
+        moduleId: "vs-carnet",
+        href: moduleHref("vs-carnet"),
+        label: "Carnet",
+        rich: true,
+        detail: `${vsCarnetNonSignees} entrée(s) en attente de signature famille`,
+        badge: String(vsCarnetNonSignees),
+        tone: "warn",
+      });
+      pushNotif({
+        id: "vs-carnet-non-signees",
+        moduleId: "vs-carnet",
+        label: "Carnet non signé",
+        count: vsCarnetNonSignees,
+        href: moduleHref("vs-carnet"),
+        detail: "Entrées en attente d'accusé famille",
+      });
+    } else {
+      shortcuts.push({
+        id: "vs-carnet",
+        pillarId: "vie_scolaire",
+        moduleId: "vs-carnet",
+        href: moduleHref("vs-carnet"),
+        label: "Carnet",
+      });
+    }
   }
   if (has("sante")) {
     shortcuts.push({
@@ -1409,9 +1474,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       moduleId: "sante",
       href: moduleHref("sante"),
       label: "Espace santé",
-      rich: true,
-      detail: "Infirmerie · PAP",
-      tone: "info",
     });
   }
 

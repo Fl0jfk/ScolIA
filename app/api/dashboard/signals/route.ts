@@ -318,6 +318,7 @@ export async function GET() {
       id: string;
       status: string;
       subject?: string;
+      requesterName?: string;
       assignedTo?: {
         email?: string;
         claimedBy?: { email?: string; userId?: string | null } | null;
@@ -345,6 +346,7 @@ export async function GET() {
               id: r.id,
               status: r.status,
               subject: r.subject,
+              requesterName: r.requester?.fullName || undefined,
               assignedTo: r.assignedTo,
             });
           }
