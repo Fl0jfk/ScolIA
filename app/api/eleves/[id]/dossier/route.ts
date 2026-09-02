@@ -31,6 +31,7 @@ import {
 import { normalizeDocumentAccessDurationDays } from "@/app/lib/eleve-document-access-duration";
 import { notifyDirectionPapAccessRequest } from "@/app/lib/eleve-pap-access-notify";
 import { isPapDocumentTitle } from "@/app/lib/eleve-pap";
+import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
 import {
   isProfesseurScopedDossierViewer,
   listAssignedClassesForTeacher,
@@ -436,7 +437,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     papPayload = {
       id: papDoc.id,
       title: papDoc.title,
-      fileUrl: canOpenPap ? papDoc.fileUrl : null,
+      fileUrl: canOpenPap ? eleveDocumentFileProxyPath(id, papDoc.id) : null,
       mimeType: papDoc.mimeType,
       createdAt:
         papDoc.createdAt instanceof Date

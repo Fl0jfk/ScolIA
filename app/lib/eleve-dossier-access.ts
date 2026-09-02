@@ -15,6 +15,7 @@ import {
   type EleveDocCategorie,
 } from "@/app/lib/eleve-doc-categories";
 import { isPapDocumentTitle } from "@/app/lib/eleve-pap";
+import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
 
 function isExactAdmin(roles: string[]): boolean {
   return roles.includes("admin") || hasGlobalAdminRole(roles);
@@ -393,7 +394,11 @@ export async function listEleveDocumentsForViewer(opts: {
       source: doc.source,
       anneeLabel: doc.anneeLabel,
       mimeType: doc.mimeType,
-      fileUrl: canOpen ? doc.fileUrl : null,
+      // Proxy pré-signé (bucket privé) — jamais l’URL S3 brute.
+      fileUrl:
+        canOpen && (doc.fileUrl || doc.s3Key)
+          ? eleveDocumentFileProxyPath(opts.eleveId, doc.id)
+          : null,
       createdAt: doc.createdAt,
       canOpen,
       lockedReason,
