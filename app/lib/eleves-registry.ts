@@ -9,11 +9,7 @@ import {
   resolveCurrentEtablissementId,
   upsertElevesInDb,
 } from "@/app/lib/ent-core-db";
-import { getJson, putJson } from "@/app/lib/s3-storage";
 import { personMatchesSearchQuery } from "@/app/lib/person-name-search";
-
-/** Référentiel élèves unique du tenant — partagé par tous les modules. */
-const ELEVES_REGISTRY_KEY = "eleves.json";
 
 function normalizeName(str: string): string {
   return str
@@ -24,39 +20,27 @@ function normalizeName(str: string): string {
     .trim();
 }
 
-async function loadElevesFromS3(): Promise<EleveConfig[]> {
-  const hit = await getJson<EleveConfig[]>(ELEVES_REGISTRY_KEY);
-  if (!Array.isArray(hit?.data)) return [];
-  const validated = validateElevesJson(hit.data);
-  return validated.ok ? validated.eleves : [];
-}
-
 export async function loadElevesRegistry(): Promise<EleveConfig[]> {
-  if (isEntCoreDbEnabled()) {
-    try {
-      const etabId = await resolveCurrentEtablissementId();
-      if (etabId && (await countElevesInDb(etabId)) > 0) {
-        return await listElevesFromDb(etabId);
-      }
-    } catch (error) {
-      console.error("[eleves-registry] lecture DB", error);
-    }
+  if (!isEntCoreDbEnabled()) {
+    throw new Error("[eleves] Postgres requis (ENT_CORE_DB) — plus de registre JSON");
   }
-  return loadElevesFromS3();
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) {
+    throw new Error("[eleves] établissement introuvable");
+  }
+  return listElevesFromDb(etabId);
 }
 
 export async function saveElevesRegistry(eleves: EleveConfig[]): Promise<EleveConfig[]> {
   const validated = validateElevesJson(eleves);
   if (!validated.ok) throw new Error(validated.error);
-  await putJson(ELEVES_REGISTRY_KEY, validated.eleves);
-  if (isEntCoreDbEnabled()) {
-    try {
-      const etabId = await resolveCurrentEtablissementId();
-      if (etabId) await upsertElevesInDb(etabId, validated.eleves);
-    } catch (error) {
-      console.error("[eleves-registry] écriture DB", error);
-    }
+  if (!isEntCoreDbEnabled()) {
+    throw new Error("[eleves] Postgres requis (ENT_CORE_DB) — plus de registre JSON");
   }
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) throw new Error("[eleves] établissement introuvable");
+  await upsertElevesInDb(etabId, validated.eleves);
+
   // Zéro friction : régimes connus → ajouts / sorties internat (fiche conservée).
   if (validated.eleves.some((e) => e.regime?.trim()) && process.env.ENT_IMPORT_SCRIPT !== "1") {
     try {
@@ -70,8 +54,10 @@ export async function saveElevesRegistry(eleves: EleveConfig[]): Promise<EleveCo
 }
 
 export async function countElevesRegistry(): Promise<number> {
-  const eleves = await loadElevesRegistry();
-  return eleves.length;
+  if (!isEntCoreDbEnabled()) return 0;
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) return 0;
+  return countElevesInDb(etabId);
 }
 
 export async function findEleveByIne(ine: string): Promise<EleveConfig | null> {
@@ -135,3 +121,5 @@ async function searchElevesRegistry(q: string, limit = 50): Promise<EleveConfig[
     )
     .slice(0, limit);
 }
+
+export { matchElevesByName, searchElevesRegistry };

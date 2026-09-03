@@ -56,6 +56,22 @@ async function tryTypedGet<T>(
       "[ent] Absences Postgres uniquement — ne pas lire absences/*.json via getJson",
     );
   }
+  if (/^requests\//i.test(key)) {
+    const { requestsDbReady, getRequestFromDb, ensureRequestsMigratedFromCollection } = await import(
+      "@/app/lib/request-db"
+    );
+    const etabId = await requestsDbReady();
+    if (!etabId) return undefined;
+    if (key === "requests/index.json") {
+      return { data: (await ensureRequestsMigratedFromCollection(etabId)) as T, key };
+    }
+    const match = /^requests\/([^/]+)\.json$/i.exec(key);
+    if (match && match[1] !== "index") {
+      const row = await getRequestFromDb(etabId, match[1]);
+      return row ? { data: row as T, key } : null;
+    }
+    throw new Error("[ent] Demandes Postgres uniquement — chemin requests/*.json invalide");
+  }
   const travelMatch = /^travels\/([^/]+)\.json$/i.exec(key);
   if (travelMatch && travelMatch[1] !== "index") {
     const { travelsDbReady, getTravelFromDb } = await import("@/app/lib/travel-db");
@@ -88,6 +104,22 @@ async function tryTypedGet<T>(
     const env = await getRequestsOrgEnvelopeFromDb(etabId);
     return env ? { data: env as T, key } : null;
   }
+  if (relativePath === "personnel-ogec/leave-requests.json") {
+    const { getPersonnelLeaveRequests } = await import("@/app/lib/personnel-leave-storage");
+    try {
+      return { data: (await getPersonnelLeaveRequests()) as T, key };
+    } catch {
+      return undefined;
+    }
+  }
+  if (relativePath === "personnel-ogec/shared-documents.json") {
+    const { getSharedPersonnelDocuments } = await import("@/app/lib/personnel-storage");
+    try {
+      return { data: (await getSharedPersonnelDocuments()) as T, key };
+    } catch {
+      return undefined;
+    }
+  }
   return undefined;
 }
 
@@ -97,6 +129,30 @@ async function tryTypedPut(relativePath: string, data: unknown): Promise<string 
     throw new Error(
       "[ent] Absences Postgres uniquement — ne pas écrire absences/*.json via putJson",
     );
+  }
+  if (/^requests\//i.test(key)) {
+    const { requestsDbReady, upsertRequestInDb } = await import("@/app/lib/request-db");
+    const etabId = await requestsDbReady();
+    if (!etabId) throw new Error("[ent] Postgres requis");
+    if (key === "requests/index.json" && Array.isArray(data)) {
+      // Comme travels : jamais de replace wipe — upsert unitaire uniquement.
+      for (const row of data) {
+        const rec = row as { id?: string };
+        if (rec?.id) {
+          await upsertRequestInDb(
+            etabId,
+            row as import("@/app/lib/requests").RequestRecord,
+          );
+        }
+      }
+      return key;
+    }
+    const match = /^requests\/([^/]+)\.json$/i.exec(key);
+    if (match && match[1] !== "index") {
+      await upsertRequestInDb(etabId, data as import("@/app/lib/requests").RequestRecord);
+      return key;
+    }
+    throw new Error("[ent] Demandes Postgres uniquement — chemin requests/*.json invalide");
   }
   const travelMatch = /^travels\/([^/]+)\.json$/i.exec(key);
   if (travelMatch && travelMatch[1] !== "index") {
@@ -127,6 +183,25 @@ async function tryTypedPut(relativePath: string, data: unknown): Promise<string 
     const etabId = await requestsConfigDbReady();
     if (!etabId) return null;
     await saveRequestsOrgEnvelopeToDb(etabId, data as { data: unknown });
+    return key;
+  }
+  if (relativePath === "personnel-ogec/leave-requests.json" && Array.isArray(data)) {
+    const { upsertPersonnelLeaveRequest } = await import("@/app/lib/personnel-leave-storage");
+    for (const row of data) {
+      const leave = row as { id?: string };
+      if (leave?.id) {
+        await upsertPersonnelLeaveRequest(
+          row as import("@/app/lib/personnel-types").PersonnelLeaveRequest,
+        );
+      }
+    }
+    return key;
+  }
+  if (relativePath === "personnel-ogec/shared-documents.json" && Array.isArray(data)) {
+    const { saveSharedPersonnelDocuments } = await import("@/app/lib/personnel-storage");
+    await saveSharedPersonnelDocuments(
+      data as import("@/app/lib/personnel-types").SharedPersonnelDocument[],
+    );
     return key;
   }
   return null;

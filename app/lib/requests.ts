@@ -1,5 +1,5 @@
-import { DeleteObjectCommand, DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand} from "@aws-sdk/client-s3";
-import { getJson, putJson, putObject, getS3Client, getBucketName, getObjectBytes } from "@/app/lib/s3-storage";
+import { DeleteObjectsCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { putObject, getS3Client, getBucketName, getObjectBytes } from "@/app/lib/s3-storage";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
 import {
   createTenantTransporter,
@@ -13,6 +13,12 @@ import type { RequestRouteDef } from "@/app/lib/requests-types";
 import { resolveRoutingFromCatalog } from "@/app/lib/requests-routing-config";
 import { isManualOnlyDirectionRoute } from "@/app/lib/requests-routing-defaults";
 import { getTenantAppUrl, tenantAbsolutePath } from "@/app/lib/tenant-context";
+import {
+  deleteRequestFromDb,
+  ensureRequestsMigratedFromCollection,
+  requestsDbReady,
+  upsertRequestInDb,
+} from "@/app/lib/request-db";
 
 export type RequestStatus = "NOUVELLE" | "EN_COURS" | "EN_ATTENTE" | "TERMINEE";
 export type RequestAttachment = {
@@ -192,7 +198,6 @@ type RequestCreateInput = {
   userId?: string | null;
 };
 
-const INDEX_KEY = "requests/index.json";
 const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
 export const REQUEST_STATUSES: RequestStatus[] = ["NOUVELLE", "EN_COURS", "EN_ATTENTE", "TERMINEE"];
 const REQUEST_TERMINATED_RETENTION_DAYS = 30;
@@ -220,31 +225,28 @@ function requestShouldBePurged(record: RequestRecord, now = new Date()): boolean
 export async function purgeExpiredRequests(): Promise<{ removed: number }> {
   const index = await getRequestsIndex();
   const now = new Date();
-  const keep: RequestRecord[] = [];
   const remove: RequestRecord[] = [];
   for (const r of index) {
     if (requestShouldBePurged(r, now)) remove.push(r);
-    else keep.push(r);
   }
   if (remove.length === 0) return { removed: 0 };
+  const etabId = await requestsDbReady();
+  if (!etabId) throw new Error("[requests] Postgres requis pour purge");
   const s3Client = await getS3Client();
   const bucket = await getBucketName();
   for (const r of remove) {
     try {
-      await s3Client.send(
-        new DeleteObjectCommand({
-          Bucket: bucket,
-          Key: s3Key( `requests/${r.id}.json`),
-        }),
-      );
+      await deleteRequestFromDb(etabId, r.id);
     } catch (e) {
-      console.error(`purge request file ${r.id}:`, e);
+      console.error(`purge request DB ${r.id}:`, e);
     }
     try {
       let token: string | undefined;
-      const prefix = s3Key( `requests/${r.id}/`);
+      const prefix = s3Key(`requests/${r.id}/`);
       do {
-        const list = await s3Client.send( new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }));
+        const list = await s3Client.send(
+          new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }),
+        );
         const keys = (list.Contents ?? []).map((c) => c.Key).filter(Boolean) as string[];
         if (keys.length > 0) {
           await s3Client.send(
@@ -260,7 +262,6 @@ export async function purgeExpiredRequests(): Promise<{ removed: number }> {
       console.error(`purge request folder ${r.id}:`, e);
     }
   }
-  await saveRequestsIndex(keep);
   return { removed: remove.length };
 }
 
@@ -337,16 +338,24 @@ export function validateParentPortalInput(input: {
 }
 
 export async function getRequestsIndex(): Promise<RequestRecord[]> {
-  const hit = await getJson<RequestRecord[]>( INDEX_KEY);
-  return hit?.data ?? [];
+  const etabId = await requestsDbReady();
+  if (!etabId) return [];
+  return ensureRequestsMigratedFromCollection(etabId);
 }
 
+/** Upsert unitaire de chaque fiche — ne supprime jamais les absents de la liste. */
 export async function saveRequestsIndex(index: RequestRecord[]) {
-  await putJson(INDEX_KEY, index);
+  const etabId = await requestsDbReady();
+  if (!etabId) throw new Error("[requests] Postgres requis");
+  for (const r of index) {
+    if (r?.id) await upsertRequestInDb(etabId, r);
+  }
 }
 
 export async function saveRequestFile(record: RequestRecord) {
-  await putJson(`requests/${record.id}.json`, record);
+  const etabId = await requestsDbReady();
+  if (!etabId) throw new Error("[requests] Postgres requis");
+  await upsertRequestInDb(etabId, record);
 }
 
 function normalizeForMatch(input: string) {

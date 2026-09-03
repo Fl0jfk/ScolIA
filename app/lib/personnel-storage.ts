@@ -1,4 +1,8 @@
-import { getJson, putJson } from "@/app/lib/s3-storage";
+import "server-only";
+
+import { and, eq, notInArray } from "drizzle-orm";
+import { getDb } from "@/db/index";
+import { personnelSharedDoc } from "@/db/schema";
 import {
   countPersonnelInDb,
   getPersonnelFromDb,
@@ -9,7 +13,6 @@ import {
 } from "@/app/lib/ent-core-db";
 import { computeNextEntretienDue, normalizeMedecineTravail } from "@/app/lib/personnel-rh-cycles";
 import {
-  PERSONNEL_SHARED_DOCS_KEY,
   normalizePersonnelRecord,
   toIndexEntry,
   type PersonnelIndexEntry,
@@ -66,12 +69,69 @@ export async function savePersonnelRecord(record: PersonnelRecord): Promise<Pers
 }
 
 export async function getSharedPersonnelDocuments(): Promise<SharedPersonnelDocument[]> {
-  const hit = await getJson<SharedPersonnelDocument[]>(PERSONNEL_SHARED_DOCS_KEY);
-  return Array.isArray(hit?.data) ? hit.data : [];
+  if (!isEntCoreDbEnabled()) {
+    throw new Error("[personnel] Postgres requis — plus de JSON docs partagés");
+  }
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) return [];
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(personnelSharedDoc)
+    .where(eq(personnelSharedDoc.etablissementId, etabId));
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    fileUrl: r.fileUrl,
+    uploadedAt: r.uploadedAt,
+    uploadedBy: r.uploadedBy,
+  }));
 }
 
 export async function saveSharedPersonnelDocuments(docs: SharedPersonnelDocument[]) {
-  await putJson(PERSONNEL_SHARED_DOCS_KEY, docs);
+  if (!isEntCoreDbEnabled()) {
+    throw new Error("[personnel] Postgres requis — plus de JSON docs partagés");
+  }
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) throw new Error("[personnel] établissement introuvable");
+  const db = getDb();
+  const ids = docs.map((d) => d.id);
+
+  for (const d of docs) {
+    await db
+      .insert(personnelSharedDoc)
+      .values({
+        id: d.id,
+        etablissementId: etabId,
+        name: d.name,
+        fileUrl: d.fileUrl || "",
+        uploadedAt: d.uploadedAt || "",
+        uploadedBy: d.uploadedBy || "",
+      })
+      .onConflictDoUpdate({
+        target: personnelSharedDoc.id,
+        set: {
+          name: d.name,
+          fileUrl: d.fileUrl || "",
+          uploadedAt: d.uploadedAt || "",
+          uploadedBy: d.uploadedBy || "",
+        },
+      });
+  }
+
+  if (ids.length === 0) {
+    await db.delete(personnelSharedDoc).where(eq(personnelSharedDoc.etablissementId, etabId));
+    return;
+  }
+
+  await db
+    .delete(personnelSharedDoc)
+    .where(
+      and(
+        eq(personnelSharedDoc.etablissementId, etabId),
+        notInArray(personnelSharedDoc.id, ids),
+      ),
+    );
 }
 
 export async function getAllPersonnelRecords(): Promise<PersonnelRecord[]> {

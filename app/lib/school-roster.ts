@@ -13,7 +13,6 @@ import {
   type StageClassReferentAssignment,
 } from "@/app/lib/stage-referents-config";
 import { currentStageSchoolYear } from "@/app/lib/stage-types";
-import { getJson, putJson } from "@/app/lib/s3-storage";
 import type { ClassAllocationTeacherAssignment } from "@/app/lib/class-allocation-teachers";
 
 export type SchoolRosterConfig = {
@@ -25,8 +24,6 @@ export type SchoolRosterConfig = {
   classAssignments: ClassAllocationTeacherAssignment[];
 };
 
-const ROSTER_KEY = "settings/school-roster.json";
-
 function defaultSchoolRoster(): SchoolRosterConfig {
   return {
     updatedAt: new Date().toISOString(),
@@ -36,36 +33,13 @@ function defaultSchoolRoster(): SchoolRosterConfig {
 }
 
 export async function loadSchoolRoster(): Promise<SchoolRosterConfig> {
-  if (isEntCoreDbEnabled()) {
-    try {
-      const etabId = await resolveCurrentEtablissementId();
-      if (etabId) {
-        const fromDb = await loadSchoolRosterFromDb(etabId);
-        if (fromDb) return fromDb;
-      }
-    } catch (error) {
-      console.error("[school-roster] lecture DB", error);
-    }
+  if (!isEntCoreDbEnabled()) {
+    throw new Error("[school-roster] Postgres requis — plus de JSON");
   }
-  const hit = await getJson<SchoolRosterConfig>(ROSTER_KEY);
-  if (!hit?.data) return defaultSchoolRoster();
-  return {
-    updatedAt: hit.data.updatedAt || new Date().toISOString(),
-    updatedBy: hit.data.updatedBy,
-    teacherCatalog: Array.isArray(hit.data.teacherCatalog)
-      ? hit.data.teacherCatalog.map(String).map((s) => s.trim()).filter(Boolean)
-      : [],
-    classAssignments: Array.isArray(hit.data.classAssignments)
-      ? hit.data.classAssignments
-          .map((a) => ({
-            className: String(a.className ?? "").trim(),
-            externalUserId: String(a.externalUserId ?? "").trim(),
-            name: String(a.name ?? "").trim(),
-            email: String(a.email ?? "").trim().toLowerCase(),
-          }))
-          .filter((a) => a.className && a.externalUserId && a.email)
-      : [],
-  };
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) return defaultSchoolRoster();
+  const fromDb = await loadSchoolRosterFromDb(etabId);
+  return fromDb ?? defaultSchoolRoster();
 }
 
 async function syncStageReferentsFromRoster(config: SchoolRosterConfig): Promise<void> {
@@ -100,15 +74,12 @@ export async function saveSchoolRoster(
       }))
       .filter((a) => a.className && a.externalUserId && a.name && a.email),
   };
-  await putJson(ROSTER_KEY, next);
-  if (isEntCoreDbEnabled()) {
-    try {
-      const etabId = await resolveCurrentEtablissementId();
-      if (etabId) await replaceSchoolRosterInDb(etabId, next);
-    } catch (error) {
-      console.error("[school-roster] écriture DB", error);
-    }
+  if (!isEntCoreDbEnabled()) {
+    throw new Error("[school-roster] Postgres requis — plus de JSON");
   }
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) throw new Error("[school-roster] établissement introuvable");
+  await replaceSchoolRosterInDb(etabId, next);
   await syncStageReferentsFromRoster(next);
   return next;
 }
