@@ -20,6 +20,7 @@ load_env_file() {
 
 load_env_file "$ENV_FILE"
 load_env_file "$DOTENV_LOCAL"
+load_env_file "$ROOT/.env"
 
 if [[ -n "$PRESERVED_MCP_DATABASE_URL" ]]; then
   MCP_DATABASE_URL="$PRESERVED_MCP_DATABASE_URL"
