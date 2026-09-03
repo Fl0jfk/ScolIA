@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import {
   anneeScolaire,
@@ -56,6 +56,57 @@ export function eleveSourceKey(e: { ine?: string; nom: string; prenom: string })
   const ine = e.ine?.trim().toUpperCase() ?? "";
   if (ine) return `ine:${ine}`;
   return `person:${normalizePersonName(e.nom)}§${normalizePersonName(e.prenom)}`;
+}
+
+/**
+ * Retrouve une fiche existante : sourceKey → INE → identité nom/prénom (1 seul candidat).
+ * Évite les doublons quand une fiche « person:… » reçoit ensuite un INE.
+ */
+async function findExistingEleveForUpsert(
+  etablissementId: string,
+  e: EleveConfig,
+  sourceKey: string,
+): Promise<{ id: string } | null> {
+  const db = getDb();
+  const [bySource] = await db
+    .select({ id: eleve.id })
+    .from(eleve)
+    .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.sourceKey, sourceKey)))
+    .limit(1);
+  if (bySource) return bySource;
+
+  const ine = e.ine?.trim().toUpperCase() ?? "";
+  if (ine) {
+    const [byIne] = await db
+      .select({ id: eleve.id })
+      .from(eleve)
+      .where(
+        and(
+          eq(eleve.etablissementId, etablissementId),
+          sql`upper(btrim(COALESCE(${eleve.ine}, ''))) = ${ine}`,
+        ),
+      )
+      .limit(1);
+    if (byIne) return byIne;
+  }
+
+  const nKey = normalizePersonName(e.nom);
+  const pKey = normalizePersonName(e.prenom);
+  if (!nKey || !pKey) return null;
+
+  const byPerson = await db
+    .select({ id: eleve.id })
+    .from(eleve)
+    .where(
+      and(
+        eq(eleve.etablissementId, etablissementId),
+        sql`translate(lower(btrim(${eleve.nom})), 'àâäéèêëïîôùûüç', 'aaaeeeeiioouuuc') = ${nKey}`,
+        sql`translate(lower(btrim(${eleve.prenom})), 'àâäéèêëïîôùûüç', 'aaaeeeeiioouuuc') = ${pKey}`,
+      ),
+    )
+    .limit(2);
+  if (byPerson.length === 1) return byPerson[0] ?? null;
+  return null;
 }
 
 export function currentSchoolYearLabel(now = new Date()): string {
@@ -192,13 +243,7 @@ export async function upsertElevesInDb(
     const slice = eleves.slice(i, i + chunk);
     for (const e of slice) {
       const values = eleveConfigToValues(etablissementId, e);
-      const [existing] = await db
-        .select({ id: eleve.id })
-        .from(eleve)
-        .where(
-          and(eq(eleve.etablissementId, etablissementId), eq(eleve.sourceKey, values.sourceKey)),
-        )
-        .limit(1);
+      const existing = await findExistingEleveForUpsert(etablissementId, e, values.sourceKey);
 
       if (existing) {
         const [cur] = await db
@@ -211,6 +256,8 @@ export async function upsertElevesInDb(
             parentPhone: eleve.parentPhone,
             parent1Phone: eleve.parent1Phone,
             parent2Phone: eleve.parent2Phone,
+            ine: eleve.ine,
+            sourceKey: eleve.sourceKey,
           })
           .from(eleve)
           .where(eq(eleve.id, existing.id))
@@ -231,6 +278,11 @@ export async function upsertElevesInDb(
         if (!patch.parentPhone && cur?.parentPhone) patch.parentPhone = cur.parentPhone;
         if (!patch.parent1Phone && cur?.parent1Phone) patch.parent1Phone = cur.parent1Phone;
         if (!patch.parent2Phone && cur?.parent2Phone) patch.parent2Phone = cur.parent2Phone;
+        // Conserver l’INE / sourceKey déjà posés si l’import n’en apporte pas.
+        if (!patch.ine && cur?.ine) patch.ine = cur.ine;
+        if (cur?.sourceKey?.startsWith("ine:") && !values.ine) {
+          patch.sourceKey = cur.sourceKey;
+        }
 
         await db.update(eleve).set(patch).where(eq(eleve.id, existing.id));
         updates += 1;
