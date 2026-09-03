@@ -27,6 +27,7 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/onboarding-rh(.*)",
   "/api/rh/onboarding/public(.*)",
   "/api/agentIAOCR/batch-job/internal-run",
+  "/api/internal/accueil-search-smoke",
   "/api/travels/ingest-from-email",
   "/api/travels/poll-email",
   "/api/requests/create",
