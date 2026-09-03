@@ -267,7 +267,7 @@ function getPersonnelRoleFlags(roles: string[]) {
 /** RH / compta : gestion complète des dossiers OGEC. */
 export function canManagePersonnel(_roles: string[]) {
   if (PERSONNEL_OPEN_ACCESS) return true;
-  if (getPersonnelRoleFlags(_roles).isTeacher && !canViewPersonnelDashboard(_roles)) return false;
+  // Ne pas appeler canViewPersonnelDashboard ici — récursion infinie (direction/prof).
   return (
     hasRole(_roles, "comptabilite") ||
     hasRole(_roles, "administratif") ||
@@ -279,9 +279,7 @@ export function canManagePersonnel(_roles: string[]) {
 export function canViewPersonnelDashboard(_roles: string[]) {
   if (PERSONNEL_OPEN_ACCESS) return true;
   const f = getPersonnelRoleFlags(_roles);
-  return (
-    canManagePersonnel(_roles) || f.isDirection
-  );
+  return canManagePersonnel(_roles) || f.isDirection;
 }
 
 export function canAccessPersonnelModule(_roles: string[]) {

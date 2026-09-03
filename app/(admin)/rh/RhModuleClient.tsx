@@ -116,11 +116,24 @@ export default function RhModuleClient() {
       ]);
       const dJson = await dRes.json().catch(() => ({}));
       const lJson = await lRes.json().catch(() => ({}));
-      if (!dRes.ok && dRes.status !== 403) throw new Error(dJson.error || "Dashboard indisponible");
-      if (!lRes.ok && lRes.status !== 403) throw new Error(lJson.error || "Liste indisponible");
-      setDashboard(dRes.ok ? dJson : null);
-      setIndex(lRes.ok ? lJson.index || [] : []);
-      setSharedDocs(lRes.ok ? lJson.sharedDocs || [] : []);
+      // 403 = pas le droit dashboard (ex. prof sur l’espace perso) — on continue avec la liste.
+      if (dRes.ok) {
+        setDashboard(dJson);
+      } else if (dRes.status !== 403) {
+        console.error("[rh] dashboard", dRes.status, dJson);
+        setDashboard(null);
+      } else {
+        setDashboard(null);
+      }
+      if (lRes.ok) {
+        setIndex(lJson.index || []);
+        setSharedDocs(lJson.sharedDocs || []);
+      } else if (lRes.status !== 403) {
+        throw new Error(lJson.error || "Liste personnel indisponible");
+      } else {
+        setIndex([]);
+        setSharedDocs([]);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
