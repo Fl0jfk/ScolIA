@@ -1,7 +1,9 @@
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { runTextractForPdfBytes } from "@/app/lib/ocr-textract";
 import {
+  acquireIngestJobLock,
   readIngestJob,
+  releaseIngestJobLock,
   writeIngestJob,
   type IngestJob,
   type IngestJobCreated,
@@ -22,7 +24,6 @@ import {
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getTenantBucketName, requireMistralApiKey } from "@/app/lib/tenant-config";
 
-const RUN_LOCK_PREFIX = "absences/ingest-locks/";
 const MISTRAL_TIMEOUT_MS = 120_000;
 const MISTRAL_OCR_SLICE = 16_000;
 
@@ -37,42 +38,14 @@ type ParsedConvocation = {
   slots: ParsedSlot[];
 };
 
-
-function runLockKey(jobId: string) {
-  return `${RUN_LOCK_PREFIX}${jobId}.lock`;
-}
-
-/** Un seul worker par jobId (S3 create-if-absent). */
+/** Un seul worker par jobId (verrou Postgres TTL). */
 async function acquireRunLock(jobId: string): Promise<boolean> {
-  const s3Client = await getTenantDataS3Client();
-  try {
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: (await getTenantBucketName()),
-        Key: runLockKey(jobId),
-        Body: JSON.stringify({ acquiredAt: new Date().toISOString() }),
-        ContentType: "application/json",
-        IfNoneMatch: "*",
-      }),
-    );
-    return true;
-  } catch (e: unknown) {
-    const meta = (e as { $metadata?: { httpStatusCode?: number } }).$metadata;
-    const name = (e as { name?: string }).name;
-    if (meta?.httpStatusCode === 412 || name === "PreconditionFailed") return false;
-    throw e;
-  }
+  const workerId = `worker_${process.pid}_${Date.now()}`;
+  return acquireIngestJobLock(jobId, workerId);
 }
 
 async function releaseRunLock(jobId: string) {
-  const s3Client = await getTenantDataS3Client();
-  try {
-    await s3Client.send(
-      new DeleteObjectCommand({ Bucket: (await getTenantBucketName()), Key: runLockKey(jobId) }),
-    );
-  } catch {
-    /* ignore */
-  }
+  await releaseIngestJobLock(jobId);
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

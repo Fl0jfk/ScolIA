@@ -875,3 +875,40 @@ export const platformDocumentAttr = pgTable(
     primaryKey({ columns: [t.docKey, t.path], name: "platform_document_attr_pk" }),
   ],
 );
+
+/**
+ * Jobs d’import PDF absences (ex-absences/ingest-jobs/*.json sur S3).
+ * Les PDF restent sur S3 (`document_key`) ; l’état du job est 100 % Postgres.
+ */
+export const absenceIngestJob = pgTable(
+  "absence_ingest_job",
+  {
+    jobId: text("job_id").primaryKey(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    creatorName: text("creator_name").notNull().default(""),
+    creatorEmail: text("creator_email").notNull().default(""),
+    creatorRoles: text("creator_roles").array().notNull().default([]),
+    status: text("status").notNull().default("pending"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+    sourceFileName: text("source_file_name").notNull().default(""),
+    /** Clé objet S3 du PDF source (binaire, pas une fiche métier). */
+    documentKey: text("document_key").notNull(),
+    processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
+    phase: text("phase"),
+    error: text("error"),
+    code: text("code"),
+    /** Sérialisation texte des absences créées (id, nom, dates). */
+    createdPayload: text("created_payload"),
+    parsedPayload: text("parsed_payload"),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    lockedBy: text("locked_by"),
+  },
+  (t) => [
+    index("absence_ingest_job_etab_idx").on(t.etablissementId),
+    index("absence_ingest_job_status_idx").on(t.etablissementId, t.status),
+  ],
+);

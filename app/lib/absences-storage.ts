@@ -19,7 +19,6 @@ import {
   deleteAbsenceFromDb,
   getAbsenceFromDb,
   listAbsencesFromDb,
-  replaceAbsencesInDb,
   upsertAbsenceInDb,
 } from "@/app/lib/absence-db";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
@@ -33,10 +32,11 @@ export async function getAbsenceIndex(): Promise<AbsenceRecord[]> {
   return listAbsencesFromDb(etabId);
 }
 
-export async function saveAbsenceIndex(index: AbsenceRecord[]) {
-  const etabId = await absencesDbReady();
-  if (!etabId) throw new Error("[absences] Postgres requis");
-  await replaceAbsencesInDb(etabId, index.map(normalizeAbsenceRecord));
+/** @deprecated Interdit — risque de wipe. Utiliser saveAbsenceRecord (upsert unitaire). */
+export async function saveAbsenceIndex(_index: AbsenceRecord[]): Promise<never> {
+  throw new Error(
+    "[absences] saveAbsenceIndex interdit — upsert unitaire via saveAbsenceRecord uniquement (Postgres).",
+  );
 }
 
 export async function getAbsenceRecord(id: string): Promise<AbsenceRecord | null> {
@@ -53,7 +53,7 @@ export async function saveAbsenceRecord(record: AbsenceRecord) {
   return normalized;
 }
 
-async function deleteAbsenceRecordJson(id: string) {
+async function deleteAbsenceRecordFromDb(id: string) {
   const etabId = await absencesDbReady();
   if (etabId) await deleteAbsenceFromDb(etabId, id);
 }
@@ -83,7 +83,7 @@ export async function saveOrMergeAbsenceRecord(
 
   const merged = mergeAbsenceRecordsSync(duplicate, incoming, actor);
   await saveAbsenceRecord(merged);
-  await deleteAbsenceRecordJson(incoming.id);
+  await deleteAbsenceRecordFromDb(incoming.id);
 
   const next = index.filter((item) => item.id !== incoming.id && item.id !== duplicate.id);
   next.push(merged);
@@ -106,7 +106,7 @@ export async function consolidatePendingAbsencesInIndex(
   if (consolidated.removedIds.length === 0) return fullIndex;
 
   for (const id of consolidated.removedIds) {
-    await deleteAbsenceRecordJson(id);
+    await deleteAbsenceRecordFromDb(id);
   }
 
   const updated = new Set(consolidated.updatedIds);

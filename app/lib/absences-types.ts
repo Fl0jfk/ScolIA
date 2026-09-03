@@ -80,8 +80,6 @@ export type AbsenceRecord = {
   }>;
 };
 
-export const ABSENCES_INDEX_KEY = "absences/index.json";
-
 function normRole(s: string) {
   return String(s || "")
     .toLowerCase()

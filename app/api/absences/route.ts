@@ -49,15 +49,10 @@ import {
 } from "@/app/lib/absences-storage";
 import { absencesDbReady, deleteAbsenceFromDb } from "@/app/lib/absence-db";
 import {
-  deleteLegacyConvocation,
   getAbsenceOrLegacyRecord,
   isDocumentKeyReferencedInLegacy,
   mergeLegacyConvocationsForCalendar,
 } from "@/app/lib/absences-legacy-convocations";
-
-function recordKey(id: string) {
-  return `absences/${id}.json`;
-}
 
 function isTodayOverlap(record: AbsenceRecord) {
   const today = new Date();
@@ -741,22 +736,12 @@ export async function DELETE(req: Request) {
     const bucket = await getBucketName();
     const s3Client = await getTenantDataS3Client();
 
-    const absenceFile = await getAbsenceRecord(id);
-    let updated = await getAbsenceIndex();
-
-    if (absenceFile) {
-      await s3Client.send(
-        new DeleteObjectCommand({
-          Bucket: bucket,
-          Key: s3Key(recordKey(id)),
-        }),
-      );
-      const etabId = await absencesDbReady();
-      if (etabId) await deleteAbsenceFromDb(etabId, id);
-      updated = updated.filter((r) => r.id !== id);
-    } else {
-      await deleteLegacyConvocation(id);
+    const etabId = await absencesDbReady();
+    if (!etabId) {
+      return NextResponse.json({ error: "[absences] Postgres requis" }, { status: 500 });
     }
+    await deleteAbsenceFromDb(etabId, id);
+    const updated = (await getAbsenceIndex()).filter((r) => r.id !== id);
 
     for (const docKey of docKeys) {
       const stillUsed =

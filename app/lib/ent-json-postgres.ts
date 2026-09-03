@@ -50,19 +50,11 @@ async function tryTypedGet<T>(
   relativePath: string,
 ): Promise<{ data: T; key: string } | null | undefined> {
   const key = s3Key(relativePath);
-  const absenceMatch = /^absences\/([^/]+)\.json$/i.exec(key);
-  if (absenceMatch && absenceMatch[1] !== "index") {
-    const { absencesDbReady, getAbsenceFromDb } = await import("@/app/lib/absence-db");
-    const etabId = await absencesDbReady();
-    if (!etabId) return undefined;
-    const row = await getAbsenceFromDb(etabId, absenceMatch[1]);
-    return row ? { data: row as T, key } : null;
-  }
-  if (key === "absences/index.json") {
-    const { absencesDbReady, listAbsencesFromDb } = await import("@/app/lib/absence-db");
-    const etabId = await absencesDbReady();
-    if (!etabId) return undefined;
-    return { data: (await listAbsencesFromDb(etabId)) as T, key };
+  // Absences : plus de pont via chemins *.json — utiliser absence-db / absences-storage.
+  if (/^absences\//i.test(key)) {
+    throw new Error(
+      "[ent] Absences Postgres uniquement — ne pas lire absences/*.json via getJson",
+    );
   }
   const travelMatch = /^travels\/([^/]+)\.json$/i.exec(key);
   if (travelMatch && travelMatch[1] !== "index") {
@@ -101,20 +93,10 @@ async function tryTypedGet<T>(
 
 async function tryTypedPut(relativePath: string, data: unknown): Promise<string | null> {
   const key = s3Key(relativePath);
-  const absenceMatch = /^absences\/([^/]+)\.json$/i.exec(key);
-  if (absenceMatch && absenceMatch[1] !== "index") {
-    const { absencesDbReady, upsertAbsenceInDb } = await import("@/app/lib/absence-db");
-    const etabId = await absencesDbReady();
-    if (!etabId) throw new Error("[ent] Postgres requis");
-    await upsertAbsenceInDb(etabId, data as import("@/app/lib/absences-types").AbsenceRecord);
-    return key;
-  }
-  if (key === "absences/index.json" && Array.isArray(data)) {
-    const { absencesDbReady, replaceAbsencesInDb } = await import("@/app/lib/absence-db");
-    const etabId = await absencesDbReady();
-    if (!etabId) throw new Error("[ent] Postgres requis");
-    await replaceAbsencesInDb(etabId, data as import("@/app/lib/absences-types").AbsenceRecord[]);
-    return key;
+  if (/^absences\//i.test(key)) {
+    throw new Error(
+      "[ent] Absences Postgres uniquement — ne pas écrire absences/*.json via putJson",
+    );
   }
   const travelMatch = /^travels\/([^/]+)\.json$/i.exec(key);
   if (travelMatch && travelMatch[1] !== "index") {
