@@ -229,7 +229,7 @@ export default function AbsencesPageClient({
     void (async () => {
       try {
         const res = await fetch("/api/absences/processors", { cache: "no-store" });
-        const data = (await res.json()) as {
+        const data = (await res.json().catch(() => null)) as {
           viewerIsProcessor?: boolean;
           processors?: {
             absencesNotifyProfEcole?: { email: string; userId?: string } | null;
@@ -237,8 +237,8 @@ export default function AbsencesPageClient({
             absencesNotifyProfLycee?: { email: string; userId?: string } | null;
             absencesNotifyOgecCompta?: string[];
           };
-        };
-        if (!res.ok || cancelled) return;
+        } | null;
+        if (!res.ok || cancelled || !data) return;
         setViewerIsProcessor(Boolean(data.viewerIsProcessor));
         if (data.processors) {
           setProcessorNotifications({
@@ -532,12 +532,18 @@ export default function AbsencesPageClient({
         `/api/absences/document-url?id=${encodeURIComponent(absenceId)}&index=${encodeURIComponent(String(docIndex))}`,
         { cache: "no-store" },
       );
-      const data = await res.json();
-      if (!res.ok || !data?.url) throw new Error(data?.error || "Impossible d'ouvrir le justificatif.");
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || typeof data !== "object" || !("url" in data) || !data?.url) {
+        throw new Error(
+          data && typeof data === "object" && data && "error" in data && typeof (data as { error?: unknown }).error === "string"
+            ? (data as { error: string }).error
+            : "Impossible d'ouvrir le justificatif.",
+        );
+      }
       if (newWindow) {
-        newWindow.location.href = data.url;
+        newWindow.location.href = String((data as { url: string }).url);
       } else {
-        window.location.href = data.url;
+        window.location.href = String((data as { url: string }).url);
       }
     } catch (e: unknown) {
       if (newWindow) newWindow.close();

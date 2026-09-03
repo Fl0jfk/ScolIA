@@ -83,21 +83,39 @@ export async function GET(req: Request) {
     let index = await purgeExpiredAbsences(await getAbsenceIndex());
 
     if (!calendarOnly && !todayOnly) {
-      index = await consolidatePendingAbsencesInIndex(index);
+      try {
+        index = await consolidatePendingAbsencesInIndex(index);
+      } catch (consolidateErr) {
+        console.error("[api/absences] consolidatePendingAbsencesInIndex", consolidateErr);
+      }
     }
 
     if (calendarOnly || todayOnly) {
       index = await mergeLegacyConvocationsForCalendar(index);
     }
-    const bundle = await loadAppConfig();
+    let establishments: Awaited<ReturnType<typeof loadAppConfig>>["establishments"] = [];
+    let notifications: Awaited<ReturnType<typeof loadAppConfig>>["notifications"] | null = null;
+    try {
+      const bundle = await loadAppConfig();
+      establishments = bundle.establishments;
+      notifications = bundle.notifications;
+    } catch (cfgErr) {
+      console.error("[api/absences] loadAppConfig", cfgErr);
+    }
     const viewerEmail = user?.primaryEmailAddress?.emailAddress || "";
-    const ctx = { establishments: bundle.establishments, userId };
+    const ctx = { establishments, userId };
     const viewer = { email: viewerEmail, userId, roles };
-    let visible = index.filter(
-      (a) =>
-        canViewAbsence(a, userId, roles, ctx) ||
-        processorMayAccessValidatedAbsence(a, viewer, bundle.notifications, bundle.establishments),
-    );
+    let visible = index.filter((a) => {
+      try {
+        return (
+          canViewAbsence(a, userId, roles, ctx) ||
+          processorMayAccessValidatedAbsence(a, viewer, notifications, establishments)
+        );
+      } catch (filterErr) {
+        console.error(`[api/absences] filter ${a.id}`, filterErr);
+        return false;
+      }
+    });
     if (calendarOnly) {
       visible = visible.filter((a) => isAbsenceVisibleOnCalendar(a, userId, roles));
     }
@@ -107,11 +125,26 @@ export async function GET(req: Request) {
 
     visible.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
     const payload = visible.map((abs) => {
-      if (processorMayAccessValidatedAbsence(abs, viewer, bundle.notifications, bundle.establishments)) {
+      try {
+        if (processorMayAccessValidatedAbsence(abs, viewer, notifications, establishments)) {
+          return abs;
+        }
+        return filterAbsenceForViewer(abs, userId, roles, ctx);
+      } catch (mapErr) {
+        console.error(`[api/absences] map ${abs.id}`, mapErr);
         return abs;
       }
-      return filterAbsenceForViewer(abs, userId, roles, ctx);
     });
+    // Sérialisation explicite : évite une 500 HTML opaque si une valeur non-JSON reste.
+    try {
+      JSON.stringify(payload);
+    } catch (serErr) {
+      console.error("[api/absences] JSON.stringify payload", serErr);
+      return NextResponse.json(
+        { error: "Erreur sérialisation absences (donnée invalide)." },
+        { status: 500 },
+      );
+    }
     return NextResponse.json(payload);
   } catch (error) {
     console.error("Absences list error:", error);
@@ -119,7 +152,7 @@ export async function GET(req: Request) {
     return NextResponse.json(
       {
         error:
-          detail && /toISOString|date|iso|postgres|absences/i.test(detail)
+          detail && /toISOString|date|iso|postgres|absences|stack|Maximum call/i.test(detail)
             ? `Erreur récupération absences (${detail})`
             : "Erreur récupération absences",
       },

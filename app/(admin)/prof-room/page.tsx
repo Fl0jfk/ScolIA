@@ -115,6 +115,10 @@ function ProfRoomPageContent() {
   const [activeTab, setActiveTab] = useState<"reservation" | "settings">("reservation");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [editingRes, setEditingRes] = useState<any>(null);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "warn" | "err"; text: string } | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState(false);
   const lastName = (user?.lastName || "").toUpperCase();
   const intranetRoles = intranetRolesFromMetadata(user?.publicMetadata);
   const isGlobalAdmin =
@@ -425,29 +429,33 @@ function ProfRoomPageContent() {
   }
 
   async function handleDelete() {
-    if (!editingRes) return;
+    if (!editingRes || deleting) return;
+    const target = editingRes;
     const reason = prompt("Motif de suppression :", "Annulation");
     if (reason === null) return;
     let deleteAllSeries = false;
-    if (editingRes.groupId) {
+    if (target.groupId) {
       deleteAllSeries = confirm("Supprimer TOUTE la série ?");
     }
-    const currentUserEmail = user?.primaryEmailAddress?.emailAddress || "";
+    const sessionEmail = user?.primaryEmailAddress?.emailAddress || "";
+    const notifyEmail = String(target.email || sessionEmail || "").trim();
     const payload = {
-      id: editingRes.id,
-      groupId: editingRes.groupId,
+      id: target.id,
+      groupId: target.groupId,
       deleteAllSeries,
       reason,
-      userEmail: currentUserEmail,
-      startsAt: editingRes.startsAt,
+      userEmail: notifyEmail,
+      startsAt: target.startsAt,
     };
 
     console.info("[prof-room] delete →", {
       id: payload.id,
-      email: currentUserEmail || "(vide)",
+      email: notifyEmail || "(vide)",
       deleteAllSeries,
     });
 
+    setDeleting(true);
+    setFeedback(null);
     try {
       const res = await fetch("/api/reservation-rooms/reservations/delete", {
         method: "POST",
@@ -461,6 +469,8 @@ function ProfRoomPageContent() {
         mailSent?: boolean;
         mailSkipReason?: string | null;
         cancelled?: number;
+        cancelledIds?: string[];
+        mailTo?: string[];
         success?: boolean;
       } = {};
       try {
@@ -475,27 +485,47 @@ function ProfRoomPageContent() {
         mailSent: j.mailSent,
         mailSkipReason: j.mailSkipReason,
         cancelled: j.cancelled,
+        mailTo: j.mailTo,
         error: j.error,
       });
 
       if (res.ok) {
-        let extra = "";
-        if (j.mailSent === true) {
-          extra = "\n📧 Mail d'annulation envoyé.";
-        } else {
-          extra = `\n⚠️ Mail non envoyé : ${j.mailSkipReason || "raison inconnue"}`;
-          console.warn("[prof-room] mail annulation KO:", j.mailSkipReason || j);
-        }
-        alert(`🗑️ Supprimé !${extra}`);
+        const cancelledIdSet = new Set<string>(
+          Array.isArray(j.cancelledIds) && j.cancelledIds.length > 0
+            ? j.cancelledIds
+            : [target.id],
+        );
+        // Mise à jour immédiate de la grille (sans attendre le refresh).
+        setReservations((prev) =>
+          prev.map((r) => {
+            const matchId = cancelledIdSet.has(r.id);
+            const matchSeries =
+              deleteAllSeries &&
+              Boolean(target.groupId) &&
+              r.groupId === target.groupId;
+            return matchId || matchSeries ? { ...r, status: "CANCELLED" } : r;
+          }),
+        );
         setIsEditing(false);
         setEditingRes(null);
-        setReservations((prev) =>
-          prev.map((r) =>
-            r.id === editingRes.id || (deleteAllSeries && editingRes.groupId && r.groupId === editingRes.groupId)
-              ? { ...r, status: "CANCELLED" }
-              : r,
-          ),
-        );
+        setSelectedHours([]);
+
+        let mailPart = "";
+        if (j.mailSent === true) {
+          const to = Array.isArray(j.mailTo) && j.mailTo.length ? j.mailTo.join(", ") : "destinataire";
+          mailPart = ` Mail d'annulation envoyé à ${to}.`;
+        } else {
+          mailPart = ` Mail non envoyé : ${j.mailSkipReason || "raison inconnue"}.`;
+          console.warn("[prof-room] mail annulation KO:", j.mailSkipReason || j);
+        }
+        const count = typeof j.cancelled === "number" ? j.cancelled : cancelledIdSet.size;
+        const okText = `Créneau${count > 1 ? "s" : ""} supprimé${count > 1 ? "s" : ""} (${count}).${mailPart}`;
+        setFeedback({
+          kind: j.mailSent === true ? "ok" : "warn",
+          text: okText,
+        });
+        alert(`🗑️ ${okText}`);
+
         try {
           const resRes = await fetch("/api/reservation-rooms/reservations");
           if (resRes.ok) {
@@ -507,15 +537,28 @@ function ProfRoomPageContent() {
         }
       } else {
         console.error("[prof-room] delete erreur", res.status, j);
-        alert(`❌ ${j.error || `Erreur HTTP ${res.status}`}`);
+        const errText = j.error || `Erreur HTTP ${res.status}`;
+        setFeedback({ kind: "err", text: errText });
+        alert(`❌ ${errText}`);
       }
     } catch (err) {
       console.error("[prof-room] delete réseau / Load failed", err);
-      alert(
-        `❌ Échec réseau à la suppression.\nDétail : ${
-          err instanceof Error ? err.message : String(err)
-        }\nLa suppression a peut‑être quand même eu lieu — recharge et regarde la console « prof-room ».`,
-      );
+      const errText = `Échec réseau à la suppression (${
+        err instanceof Error ? err.message : String(err)
+      }). Rechargez la page pour vérifier.`;
+      setFeedback({ kind: "err", text: errText });
+      alert(`❌ ${errText}`);
+      try {
+        const resRes = await fetch("/api/reservation-rooms/reservations");
+        if (resRes.ok) {
+          const body = await resRes.json();
+          setReservations(normalizeRoomReservationsList(body.reservations));
+        }
+      } catch {
+        /* ignore */
+      }
+    } finally {
+      setDeleting(false);
     }
   }
   if (!isLoaded || !user) {
@@ -567,6 +610,30 @@ function ProfRoomPageContent() {
           title="Réservation de salles"
           description="Planning des salles, créneaux et demandes du personnel."
         />
+
+        {feedback ? (
+          <div
+            role="status"
+            className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${
+              feedback.kind === "ok"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : feedback.kind === "warn"
+                  ? "border-amber-200 bg-amber-50 text-amber-950"
+                  : "border-red-200 bg-red-50 text-red-900"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p>{feedback.text}</p>
+              <button
+                type="button"
+                onClick={() => setFeedback(null)}
+                className="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-70 hover:opacity-100"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <ModuleTabNav
           className="mb-2"
@@ -838,8 +905,13 @@ function ProfRoomPageContent() {
                   </h2>
                 </div>
                 {isEditing ? (
-                  <ModuleButton variant="danger" onClick={handleDelete} className="w-full md:w-auto">
-                    🗑️ Supprimer ce créneau
+                  <ModuleButton
+                    variant="danger"
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="w-full md:w-auto"
+                  >
+                    {deleting ? "Suppression…" : "🗑️ Supprimer ce créneau"}
                   </ModuleButton>
                 ) : null}
               </div>

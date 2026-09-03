@@ -33,13 +33,13 @@ export default function AbsencesProcessorsPanel() {
     void (async () => {
       try {
         const res = await fetch("/api/absences/processors", { cache: "no-store" });
-        const data = (await res.json()) as {
+        const data = (await res.json().catch(() => null)) as {
           error?: string;
           processors?: ProcessorsPayload;
           members?: DirectoryMemberOption[];
           viewerCanConfigure?: boolean;
-        };
-        if (!res.ok) throw new Error(data.error || "Chargement impossible");
+        } | null;
+        if (!res.ok || !data) throw new Error(data?.error || "Chargement impossible");
         if (!data.viewerCanConfigure) {
           throw new Error("Paramétrage réservé à la direction.");
         }

@@ -182,7 +182,15 @@ export async function listAbsencesFromDb(etablissementId: string): Promise<Absen
     list.push(h);
     byAbsence.set(h.absenceId, list);
   }
-  return mains.map((m) => rowsToAbsenceRecord(m, byAbsence.get(m.id) ?? []));
+  const out: AbsenceRecord[] = [];
+  for (const m of mains) {
+    try {
+      out.push(rowsToAbsenceRecord(m, byAbsence.get(m.id) ?? []));
+    } catch (e) {
+      console.error(`[absence-db] skip row ${m.id}`, e);
+    }
+  }
+  return out;
 }
 
 export async function getAbsenceFromDb(

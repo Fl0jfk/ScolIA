@@ -62,7 +62,11 @@ export default function RequestsSettingsPanel({
 
       {routingMsg ? (
         <p
-          className={`text-sm ${routingMsg.includes("Erreur") || routingMsg.includes("Échec") ? "text-rose-600" : "text-emerald-700"}`}
+          className={`text-sm ${
+            /erreur|échec|impossible|échoué/i.test(routingMsg)
+              ? "text-rose-600"
+              : "text-emerald-700"
+          }`}
         >
           {routingMsg}
         </p>

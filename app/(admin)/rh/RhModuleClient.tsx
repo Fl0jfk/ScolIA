@@ -114,8 +114,8 @@ export default function RhModuleClient() {
         fetch("/api/personnel/dashboard", { cache: "no-store" }),
         fetch("/api/personnel", { cache: "no-store" }),
       ]);
-      const dJson = await dRes.json();
-      const lJson = await lRes.json();
+      const dJson = await dRes.json().catch(() => ({}));
+      const lJson = await lRes.json().catch(() => ({}));
       if (!dRes.ok && dRes.status !== 403) throw new Error(dJson.error || "Dashboard indisponible");
       if (!lRes.ok && lRes.status !== 403) throw new Error(lJson.error || "Liste indisponible");
       setDashboard(dRes.ok ? dJson : null);

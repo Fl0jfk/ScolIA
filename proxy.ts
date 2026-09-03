@@ -460,16 +460,24 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL(dest, request.url));
   }
 
-  const pathAllowed = canAccessIntranetPath(
-    pathname,
-    roles,
-    isOrgAdmin,
-    await loadModuleAccessForProxy(),
-    {
-      userId: betterAuthState.authUserId,
-      businessUserId: betterAuthState.userId,
-    },
-  );
+  let pathAllowed = false;
+  try {
+    pathAllowed = canAccessIntranetPath(
+      pathname,
+      roles,
+      isOrgAdmin,
+      await loadModuleAccessForProxy(),
+      {
+        userId: betterAuthState.authUserId,
+        businessUserId: betterAuthState.userId,
+      },
+    );
+  } catch (pathErr) {
+    console.error("[proxy] canAccessIntranetPath", pathname, pathErr);
+    // En cas de bug droits (ex. récursion), ne pas renvoyer une 500 HTML opaque :
+    // laisser passer uniquement si orgAdmin / admin, sinon refuser proprement.
+    pathAllowed = isOrgAdmin || roles.includes("admin") || hasMasterRole(roles);
+  }
   let photocopiesOpsBypass = false;
   if (
     !pathAllowed &&

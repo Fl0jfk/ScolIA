@@ -943,116 +943,126 @@ export function rolesAllowModule(
     byUser?: Record<string, { modules?: string[] }>;
   } | null,
   userRef?: string | { userId?: string | null; businessUserId?: string | null } | null,
+  /** Garde anti-cycle (absences→rh / pillar→enfants). */
+  _stack?: Set<string>,
 ): boolean {
   if (hasMasterRole(roles)) return true;
   // Admin établissement (flag ou rôle) : tous les modules du tenant.
   if (isOrgAdmin || hasGlobalAdminRole(roles)) return true;
   if (module.orgAdminOnly) return false;
 
-  // Absences / HSE absorbés dans le hub RH : l’accès RH suffit si le rôle métier le permet.
-  if (module.id === "absences" || module.id === "demandes-hse") {
-    const rhModule = getIntranetModuleById("rh");
+  const stack = _stack ?? new Set<string>();
+  if (stack.has(module.id)) return false;
+  stack.add(module.id);
+
+  try {
+    // Absences / HSE absorbés dans le hub RH : l’accès RH suffit si le rôle métier le permet.
+    if (module.id === "absences" || module.id === "demandes-hse") {
+      const rhModule = getIntranetModuleById("rh");
+      if (
+        rhModule &&
+        module.allowedRoles.some((r) => hasRole(roles, r)) &&
+        rolesAllowModule(roles, rhModule, isOrgAdmin, access, userRef, stack)
+      ) {
+        return true;
+      }
+    }
+
+    // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
+    if (module.id === "pilotage-eleves") return false;
+    // Vie scolaire (appels, absences, sanctions, carnet) : masqués en UI — modules en dev.
     if (
-      rhModule &&
-      module.allowedRoles.some((r) => hasRole(roles, r)) &&
-      rolesAllowModule(roles, rhModule, isOrgAdmin, access, userRef)
+      module.id === "vs-appels" ||
+      module.id === "vs-absences" ||
+      module.id === "vs-sanctions" ||
+      module.id === "vs-carnet"
     ) {
-      return true;
+      return false;
     }
-  }
 
-  // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
-  if (module.id === "pilotage-eleves") return false;
-  // Vie scolaire (appels, absences, sanctions, carnet) : masqués en UI — modules en dev.
-  if (
-    module.id === "vs-appels" ||
-    module.id === "vs-absences" ||
-    module.id === "vs-sanctions" ||
-    module.id === "vs-carnet"
-  ) {
-    return false;
-  }
-
-  // Dossiers élèves : masqué pour les profs jusqu’à réactivation (rentrée).
-  if (
-    module.id === "eleve-dossier" &&
-    isProfesseurScopedDossierViewer({ roles, orgAdmin: isOrgAdmin }) &&
-    !ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS
-  ) {
-    return false;
-  }
-
-  // Hubs piliers : accessible dès qu’un module du pilier l’est (matrice / defaults).
-  if (module.id.startsWith("pillar-")) {
-    const childIds = PILLAR_HUB_CHILD_MODULES[module.id];
-    if (childIds?.length) {
-      return childIds.some((id) => {
-        const child = getIntranetModuleById(id);
-        return child ? rolesAllowModule(roles, child, isOrgAdmin, access, userRef) : false;
-      });
+    // Dossiers élèves : masqué pour les profs jusqu’à réactivation (rentrée).
+    if (
+      module.id === "eleve-dossier" &&
+      isProfesseurScopedDossierViewer({ roles, orgAdmin: isOrgAdmin }) &&
+      !ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS
+    ) {
+      return false;
     }
-  }
 
-  if (!module.allowedRoles.length) return false;
+    // Hubs piliers : accessible dès qu’un module du pilier l’est (matrice / defaults).
+    if (module.id.startsWith("pillar-")) {
+      const childIds = PILLAR_HUB_CHILD_MODULES[module.id];
+      if (childIds?.length) {
+        return childIds.some((id) => {
+          const child = getIntranetModuleById(id);
+          return child ? rolesAllowModule(roles, child, isOrgAdmin, access, userRef, stack) : false;
+        });
+      }
+    }
 
-  // Infra / hors UI : uniquement le rôle métier natif (pas la fiche individuelle).
-  if (MODULES_IGNORE_ACCESS_OVERRIDES.has(module.id)) {
+    if (!module.allowedRoles.length) return false;
+
+    // Infra / hors UI : uniquement le rôle métier natif (pas la fiche individuelle).
+    if (MODULES_IGNORE_ACCESS_OVERRIDES.has(module.id)) {
+      return module.allowedRoles.some((r) => hasRole(roles, r));
+    }
+
+    const byRole = access?.byRole;
+    const byUser = access?.byUser;
+    const candidateIds =
+      typeof userRef === "string"
+        ? [userRef.trim()].filter(Boolean)
+        : [userRef?.userId, userRef?.businessUserId]
+            .map((x) => (typeof x === "string" ? x.trim() : ""))
+            .filter(Boolean);
+    let userOv: { modules?: string[] } | undefined;
+    if (byUser && candidateIds.length) {
+      for (const id of candidateIds) {
+        if (byUser[id]) {
+          userOv = byUser[id];
+          break;
+        }
+      }
+    }
+    if (userOv) {
+      return (userOv.modules ?? []).includes(module.id);
+    }
+
+    const hasRoleOverrides = Boolean(byRole && Object.keys(byRole).length > 0);
+    if (hasRoleOverrides) {
+      for (const role of roles) {
+        if (role === "admin") return true;
+        const override = byRole![role];
+        if (override) {
+          if ((override.modules ?? []).includes(module.id)) return true;
+          continue;
+        }
+        if (module.allowedRoles.some((r) => hasRole([role], r))) return true;
+      }
+      return false;
+    }
+
+    // Defaults métier explicites (ex. professeur) = source de vérité.
+    const fromCustom = new Set<string>();
+    let anyCustom = false;
+    for (const role of roles) {
+      if (!hasCustomRoleDefaults(role)) continue;
+      anyCustom = true;
+      for (const id of customDefaultModulesForRole(role) ?? []) fromCustom.add(id);
+    }
+    if (anyCustom) {
+      for (const role of roles) {
+        if (hasCustomRoleDefaults(role)) continue;
+        if (role === "admin") return true;
+        if (module.allowedRoles.some((r) => hasRole([role], r))) return true;
+      }
+      return fromCustom.has(module.id);
+    }
+
     return module.allowedRoles.some((r) => hasRole(roles, r));
+  } finally {
+    stack.delete(module.id);
   }
-
-  const byRole = access?.byRole;
-  const byUser = access?.byUser;
-  const candidateIds =
-    typeof userRef === "string"
-      ? [userRef.trim()].filter(Boolean)
-      : [userRef?.userId, userRef?.businessUserId]
-          .map((x) => (typeof x === "string" ? x.trim() : ""))
-          .filter(Boolean);
-  let userOv: { modules?: string[] } | undefined;
-  if (byUser && candidateIds.length) {
-    for (const id of candidateIds) {
-      if (byUser[id]) {
-        userOv = byUser[id];
-        break;
-      }
-    }
-  }
-  if (userOv) {
-    return (userOv.modules ?? []).includes(module.id);
-  }
-
-  const hasRoleOverrides = Boolean(byRole && Object.keys(byRole).length > 0);
-  if (hasRoleOverrides) {
-    for (const role of roles) {
-      if (role === "admin") return true;
-      const override = byRole![role];
-      if (override) {
-        if ((override.modules ?? []).includes(module.id)) return true;
-        continue;
-      }
-      if (module.allowedRoles.some((r) => hasRole([role], r))) return true;
-    }
-    return false;
-  }
-
-  // Defaults métier explicites (ex. professeur) = source de vérité.
-  const fromCustom = new Set<string>();
-  let anyCustom = false;
-  for (const role of roles) {
-    if (!hasCustomRoleDefaults(role)) continue;
-    anyCustom = true;
-    for (const id of customDefaultModulesForRole(role) ?? []) fromCustom.add(id);
-  }
-  if (anyCustom) {
-    for (const role of roles) {
-      if (hasCustomRoleDefaults(role)) continue;
-      if (role === "admin") return true;
-      if (module.allowedRoles.some((r) => hasRole([role], r))) return true;
-    }
-    return fromCustom.has(module.id);
-  }
-
-  return module.allowedRoles.some((r) => hasRole(roles, r));
 }
 
 /** Modules enfants des hubs piliers (alignés sur DASHBOARD_PILLARS.moduleIds). */

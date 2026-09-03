@@ -1005,6 +1005,28 @@ export function parseRequestsRouting(raw: unknown): RequestsRoutingConfig {
   };
 }
 
+/**
+ * putJson enregistre `{ version, updatedAt, data: <config> }`.
+ * Retourne la config métier si une enveloppe est détectée.
+ */
+export function unwrapRequestsSettingsPayload(stored: unknown): unknown | null {
+  if (stored == null) return null;
+  if (typeof stored !== "object" || Array.isArray(stored)) return stored;
+  const o = stored as Record<string, unknown>;
+  if (
+    "data" in o &&
+    o.data != null &&
+    typeof o.data === "object" &&
+    !Array.isArray(o.data) &&
+    !("units" in o) &&
+    !("services" in o) &&
+    !("tasks" in o)
+  ) {
+    return o.data;
+  }
+  return stored;
+}
+
 export function parseRequestsOrg(raw: unknown): RequestsOrgConfig {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const unitsRaw = Array.isArray(o.units) ? o.units : [];

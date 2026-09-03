@@ -22,52 +22,57 @@ function asPerson(value: unknown): AbsenceNotifyPerson | null {
 export async function GET() {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
-  const user = await safeCurrentUser();
-  const roles = rolesFromUserLike(user);
-  const viewer = {
-    email: user?.primaryEmailAddress?.emailAddress || "",
-    userId: user?.id || "",
-    roles,
-  };
-  const bundle = await loadAppConfig();
-  const n = bundle.notifications;
-  const canConfigure = viewerCanConfigureAbsenceProcessors(roles);
-  const canSeeQueue = viewerCanSeeProcessorQueue(viewer, n);
+  try {
+    const user = await safeCurrentUser();
+    const roles = rolesFromUserLike(user);
+    const viewer = {
+      email: user?.primaryEmailAddress?.emailAddress || "",
+      userId: user?.id || "",
+      roles,
+    };
+    const bundle = await loadAppConfig();
+    const n = bundle.notifications;
+    const canConfigure = viewerCanConfigureAbsenceProcessors(roles);
+    const canSeeQueue = viewerCanSeeProcessorQueue(viewer, n);
 
-  let members: Array<{
-    externalUserId: string;
-    email: string;
-    firstName?: string;
-    lastName?: string;
-    displayName?: string;
-  }> = [];
-  if (canConfigure) {
-    const rows = await listDirectoryMembers();
-    members = rows
-      .filter((u) => u.externalUserId && !u.pending)
-      .map((u) => ({
-        externalUserId: u.externalUserId,
-        email: u.email,
-        firstName: u.firstName,
-        lastName: u.lastName,
-        displayName: u.displayName,
-      }));
+    let members: Array<{
+      externalUserId: string;
+      email: string;
+      firstName?: string;
+      lastName?: string;
+      displayName?: string;
+    }> = [];
+    if (canConfigure) {
+      const rows = await listDirectoryMembers();
+      members = rows
+        .filter((u) => u.externalUserId && !u.pending)
+        .map((u) => ({
+          externalUserId: u.externalUserId,
+          email: u.email,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          displayName: u.displayName,
+        }));
+    }
+
+    return NextResponse.json({
+      viewerIsProcessor: canSeeQueue,
+      viewerCanConfigure: canConfigure,
+      processors:
+        canSeeQueue || canConfigure
+          ? {
+              absencesNotifyProfEcole: n.absencesNotifyProfEcole ?? null,
+              absencesNotifyProfCollege: n.absencesNotifyProfCollege ?? n.absencesNotifyProfCollegeLycee ?? null,
+              absencesNotifyProfLycee: n.absencesNotifyProfLycee ?? n.absencesNotifyProfCollegeLycee ?? null,
+              absencesNotifyOgecCompta: n.absencesNotifyOgecCompta ?? [],
+            }
+          : null,
+      members,
+    });
+  } catch (e) {
+    console.error("[api/absences/processors] GET", e);
+    return NextResponse.json({ error: "Impossible de charger les traiteurs d’absences." }, { status: 500 });
   }
-
-  return NextResponse.json({
-    viewerIsProcessor: canSeeQueue,
-    viewerCanConfigure: canConfigure,
-    processors:
-      canSeeQueue || canConfigure
-        ? {
-            absencesNotifyProfEcole: n.absencesNotifyProfEcole ?? null,
-            absencesNotifyProfCollege: n.absencesNotifyProfCollege ?? n.absencesNotifyProfCollegeLycee ?? null,
-            absencesNotifyProfLycee: n.absencesNotifyProfLycee ?? n.absencesNotifyProfCollegeLycee ?? null,
-            absencesNotifyOgecCompta: n.absencesNotifyOgecCompta ?? [],
-          }
-        : null,
-    members,
-  });
 }
 
 export async function PUT(req: Request) {

@@ -22,13 +22,18 @@ async function readSingletonFromAttrs(
   etablissementId: string,
   attrTable: typeof requestRoutingAttr | typeof requestOrgAttr,
 ): Promise<unknown | null> {
-  const db = getDb();
-  const rows = await db
-    .select()
-    .from(attrTable)
-    .where(eq(attrTable.etablissementId, etablissementId));
-  if (rows.length === 0) return null;
-  return inflateFromAttrs(rows.map((r) => ({ path: r.path, value: r.value })));
+  try {
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(attrTable)
+      .where(eq(attrTable.etablissementId, etablissementId));
+    if (rows.length === 0) return null;
+    return inflateFromAttrs(rows.map((r) => ({ path: r.path, value: r.value })));
+  } catch (e) {
+    console.error("[requests-config-db] readSingletonFromAttrs", e);
+    return null;
+  }
 }
 
 async function writeSingletonToAttrs(

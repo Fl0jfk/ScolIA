@@ -25,7 +25,19 @@ export function toAbsenceDateOnly(raw: string | Date | null | undefined): string
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
-  return toAbsenceDateOnly(d);
+  // Une seule récursion max (objet date-like → Date réelle) — jamais de boucle.
+  if (d instanceof Date) {
+    if (
+      d.getUTCHours() === 0 &&
+      d.getUTCMinutes() === 0 &&
+      d.getUTCSeconds() === 0 &&
+      d.getUTCMilliseconds() === 0
+    ) {
+      return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+    }
+    return d.toISOString().slice(0, 10);
+  }
+  return new Date().toISOString().slice(0, 10);
 }
 
 /** ISO-8601 instant — accepte Date ou string déjà ISO. */

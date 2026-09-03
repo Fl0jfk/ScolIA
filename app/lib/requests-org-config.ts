@@ -1,5 +1,10 @@
 import { getJson, putJson } from "@/app/lib/s3-storage";
-import { parseRequestsOrg, type RequestsOrgConfig, type RequestsRoutingConfig } from "@/app/lib/app-config-schemas";
+import {
+  parseRequestsOrg,
+  unwrapRequestsSettingsPayload,
+  type RequestsOrgConfig,
+  type RequestsRoutingConfig,
+} from "@/app/lib/app-config-schemas";
 import { saveStaffDirectory } from "@/app/lib/app-config";
 import { invalidateRequestRoutesCache } from "@/app/lib/requests-routes-cache";
 import { getRequestsRoutingConfig } from "@/app/lib/requests-routing-config";
@@ -35,12 +40,13 @@ export function invalidateRequestsOrgCache() {
 
 export async function getRequestsOrgConfig(): Promise<RequestsOrgConfig> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.config;
-  const raw = await getJson<{ data?: unknown }>(ORG_KEY);
   let config: RequestsOrgConfig;
   try {
-    config = raw?.data ? parseRequestsOrg(raw.data) : defaultRequestsOrg();
+    const raw = await getJson<{ data?: unknown }>(ORG_KEY);
+    const payload = unwrapRequestsSettingsPayload(raw?.data ?? null);
+    config = payload != null ? parseRequestsOrg(payload) : defaultRequestsOrg();
   } catch (e) {
-    console.error("[requests-org-config] parse fallback", e);
+    console.error("[requests-org-config] load fallback", e);
     config = defaultRequestsOrg();
   }
   cache = { at: Date.now(), config };

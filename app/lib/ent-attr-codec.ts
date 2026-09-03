@@ -111,8 +111,12 @@ export function dedupeAttrsByPath(attrs: AttrPair[]): AttrPair[] {
 export function inflateFromAttrs(attrs: AttrPair[]): Record<string, unknown> {
   const root: Record<string, unknown> = {};
 
-  function setPath(obj: Record<string, unknown>, parts: string[], value: unknown) {
+  function setPath(obj: Record<string, unknown>, parts: string[], value: unknown, depth: number) {
     if (parts.length === 0) return;
+    if (depth > MAX_DEPTH) {
+      obj[parts.join(".")] = value;
+      return;
+    }
     const [head, ...rest] = parts;
     if (rest.length === 0) {
       obj[head] = value;
@@ -129,7 +133,7 @@ export function inflateFromAttrs(attrs: AttrPair[]): Record<string, unknown> {
         return;
       }
       if (!arr[idx] || typeof arr[idx] !== "object") arr[idx] = {};
-      setPath(arr[idx] as Record<string, unknown>, rest.slice(1), value);
+      setPath(arr[idx] as Record<string, unknown>, rest.slice(1), value, depth + 1);
       return;
     }
     if (nextKey === "__len") {
@@ -138,27 +142,32 @@ export function inflateFromAttrs(attrs: AttrPair[]): Record<string, unknown> {
       return;
     }
     if (!isPlainObject(obj[head])) obj[head] = {};
-    setPath(obj[head] as Record<string, unknown>, rest, value);
+    setPath(obj[head] as Record<string, unknown>, rest, value, depth + 1);
   }
 
   for (const { path, value } of attrs) {
     if (path.endsWith(".__len")) continue;
     const parts = path.split(".");
-    setPath(root, parts, decodeLeaf(value));
+    if (parts.length > MAX_DEPTH + 2) {
+      console.error(`[ent-attr-codec] path trop profond ignoré (${parts.length}): ${path.slice(0, 120)}`);
+      continue;
+    }
+    setPath(root, parts, decodeLeaf(value), 0);
   }
 
   // Compacte les trous éventuels dans les tableaux
-  function compact(node: unknown): unknown {
+  function compact(node: unknown, depth: number): unknown {
+    if (depth > MAX_DEPTH) return node;
     if (Array.isArray(node)) {
-      return node.filter((x) => x !== undefined).map(compact);
+      return node.filter((x) => x !== undefined).map((x) => compact(x, depth + 1));
     }
     if (isPlainObject(node)) {
       const o: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(node)) o[k] = compact(v);
+      for (const [k, v] of Object.entries(node)) o[k] = compact(v, depth + 1);
       return o;
     }
     return node;
   }
 
-  return compact(root) as Record<string, unknown>;
+  return compact(root, 0) as Record<string, unknown>;
 }

@@ -87,22 +87,33 @@ async function tryTypedGet<T>(
     return { data: (await listTravelsFromDb(etabId)) as T, key };
   }
   if (relativePath === "settings/requests-routing.json") {
-    const { requestsConfigDbReady, getRequestsRoutingEnvelopeFromDb } = await import(
-      "@/app/lib/requests-config-db"
-    );
-    const etabId = await requestsConfigDbReady();
-    if (!etabId) return undefined;
-    const env = await getRequestsRoutingEnvelopeFromDb(etabId);
-    return env ? { data: env as T, key } : null;
+    try {
+      const { requestsConfigDbReady, getRequestsRoutingEnvelopeFromDb } = await import(
+        "@/app/lib/requests-config-db"
+      );
+      const etabId = await requestsConfigDbReady();
+      if (!etabId) return undefined;
+      const env = await getRequestsRoutingEnvelopeFromDb(etabId);
+      // undefined (pas null) → repli ent_collection si tables vides / non migrées
+      return env ? { data: env as T, key } : undefined;
+    } catch (e) {
+      console.error("[ent-json-postgres] requests-routing typed get", e);
+      return undefined;
+    }
   }
   if (relativePath === "settings/requests-org.json") {
-    const { requestsConfigDbReady, getRequestsOrgEnvelopeFromDb } = await import(
-      "@/app/lib/requests-config-db"
-    );
-    const etabId = await requestsConfigDbReady();
-    if (!etabId) return undefined;
-    const env = await getRequestsOrgEnvelopeFromDb(etabId);
-    return env ? { data: env as T, key } : null;
+    try {
+      const { requestsConfigDbReady, getRequestsOrgEnvelopeFromDb } = await import(
+        "@/app/lib/requests-config-db"
+      );
+      const etabId = await requestsConfigDbReady();
+      if (!etabId) return undefined;
+      const env = await getRequestsOrgEnvelopeFromDb(etabId);
+      return env ? { data: env as T, key } : undefined;
+    } catch (e) {
+      console.error("[ent-json-postgres] requests-org typed get", e);
+      return undefined;
+    }
   }
   if (relativePath === "personnel-ogec/leave-requests.json") {
     const { getPersonnelLeaveRequests } = await import("@/app/lib/personnel-leave-storage");
@@ -176,22 +187,32 @@ async function tryTypedPut(relativePath: string, data: unknown): Promise<string 
     return key;
   }
   if (relativePath === "settings/requests-routing.json") {
-    const { requestsConfigDbReady, saveRequestsRoutingEnvelopeToDb } = await import(
-      "@/app/lib/requests-config-db"
-    );
-    const etabId = await requestsConfigDbReady();
-    if (!etabId) return null;
-    await saveRequestsRoutingEnvelopeToDb(etabId, data as { data: unknown });
-    return key;
+    try {
+      const { requestsConfigDbReady, saveRequestsRoutingEnvelopeToDb } = await import(
+        "@/app/lib/requests-config-db"
+      );
+      const etabId = await requestsConfigDbReady();
+      if (!etabId) return null;
+      await saveRequestsRoutingEnvelopeToDb(etabId, data as { data: unknown });
+      return key;
+    } catch (e) {
+      console.error("[ent-json-postgres] requests-routing typed put", e);
+      return null;
+    }
   }
   if (relativePath === "settings/requests-org.json") {
-    const { requestsConfigDbReady, saveRequestsOrgEnvelopeToDb } = await import(
-      "@/app/lib/requests-config-db"
-    );
-    const etabId = await requestsConfigDbReady();
-    if (!etabId) return null;
-    await saveRequestsOrgEnvelopeToDb(etabId, data as { data: unknown });
-    return key;
+    try {
+      const { requestsConfigDbReady, saveRequestsOrgEnvelopeToDb } = await import(
+        "@/app/lib/requests-config-db"
+      );
+      const etabId = await requestsConfigDbReady();
+      if (!etabId) return null;
+      await saveRequestsOrgEnvelopeToDb(etabId, data as { data: unknown });
+      return key;
+    } catch (e) {
+      console.error("[ent-json-postgres] requests-org typed put", e);
+      return null;
+    }
   }
   if (relativePath === "personnel-ogec/leave-requests.json" && Array.isArray(data)) {
     const { upsertPersonnelLeaveRequest } = await import("@/app/lib/personnel-leave-storage");

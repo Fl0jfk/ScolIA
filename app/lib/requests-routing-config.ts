@@ -1,6 +1,7 @@
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   parseRequestsRouting,
+  unwrapRequestsSettingsPayload,
   type RequestsRoutingConfig,
   type RoutingAssignment,
   type RoutingTask,
@@ -93,10 +94,17 @@ function ensureBuiltinRhRouting(config: RequestsRoutingConfig): RequestsRoutingC
 
 export async function getRequestsRoutingConfig(): Promise<RequestsRoutingConfig> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.config;
-  const raw = await getJson<{ data?: unknown }>(ROUTING_KEY);
-  let config = ensureBuiltinRhRouting(
-    raw?.data ? parseRequestsRouting(raw.data) : defaultRequestsRouting(),
-  );
+  let config: RequestsRoutingConfig;
+  try {
+    const raw = await getJson<{ data?: unknown }>(ROUTING_KEY);
+    const payload = unwrapRequestsSettingsPayload(raw?.data ?? null);
+    config = ensureBuiltinRhRouting(
+      payload != null ? parseRequestsRouting(payload) : defaultRequestsRouting(),
+    );
+  } catch (e) {
+    console.error("[requests-routing-config] load fallback", e);
+    config = ensureBuiltinRhRouting(defaultRequestsRouting());
+  }
   const needsDirectionSync =
     config.directionQueues.length === 0 ||
     config.directionQueues.every((q) => !q.email?.trim());
