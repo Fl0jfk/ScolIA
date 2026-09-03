@@ -24,7 +24,10 @@ type EleveRow = {
   folderName: string;
   ine: string | null;
   photoUrl?: string | null;
+  accompagnementKinds?: Array<"pap" | "pai" | "pps">;
   hasPap?: boolean;
+  hasPai?: boolean;
+  hasPps?: boolean;
 };
 
 type SiteOption = { siteId: string; label: string };
@@ -493,11 +496,21 @@ export default function ElevesDossiersListClient() {
                           <p className="truncate text-base font-semibold text-slate-900">
                             {e.prenom} {e.nom}
                           </p>
-                          {e.hasPap ? (
-                            <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
-                              PAP
+                          {(e.accompagnementKinds?.length
+                            ? e.accompagnementKinds
+                            : [
+                                ...(e.hasPap ? (["pap"] as const) : []),
+                                ...(e.hasPai ? (["pai"] as const) : []),
+                                ...(e.hasPps ? (["pps"] as const) : []),
+                              ]
+                          ).map((kind) => (
+                            <span
+                              key={kind}
+                              className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white"
+                            >
+                              {kind.toUpperCase()}
                             </span>
-                          ) : null}
+                          ))}
                           {canViewFullHub && e.status ? (
                             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
                               {statusLabel(e.status)}

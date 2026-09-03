@@ -12,7 +12,13 @@ import {
   TIROIR_TO_CATEGORIE,
   type EleveDocCategorie,
 } from "@/app/lib/eleve-doc-categories";
-import { defaultPapDocumentTitle, isPapDocumentTitle } from "@/app/lib/eleve-pap";
+import {
+  ACCOMPAGNEMENT_KINDS,
+  accompagnementKindDef,
+  defaultAccompagnementDocumentTitle,
+  detectAccompagnementKind,
+  type AccompagnementKind,
+} from "@/app/lib/eleve-pap";
 import { DOCUMENT_ACCESS_DURATION_OPTIONS } from "@/app/lib/eleve-document-access-duration";
 import EleveFinancesPanel from "@/app/components/eleves/EleveFinancesPanel";
 import EleveDossierSidebar from "@/app/components/eleves/EleveDossierSidebar";
@@ -152,7 +158,19 @@ type DossierPayload = {
     fileUrl: string | null;
     confidentialite: string;
   }>;
-  /** PAP le plus récent (synthèse) — ouverture selon droits / grant. */
+  /** Derniers documents PAP / PAI / PPS (synthèse). */
+  accompagnements?: Array<{
+    kind: AccompagnementKind;
+    code: string;
+    label: string;
+    id: string;
+    title: string;
+    fileUrl: string | null;
+    mimeType: string | null;
+    createdAt: string;
+    canOpen?: boolean;
+  }>;
+  /** @deprecated Préférer `accompagnements`. */
   pap?: {
     id: string;
     title: string;
@@ -168,6 +186,7 @@ type DossierPayload = {
     canEditStructure: boolean;
     canDecideAccess: boolean;
     canUploadPap?: boolean;
+    canUploadAccompagnement?: boolean;
     profRestrictedView?: boolean;
     tiroirs: string[];
     docCategories?: Array<"administratif" | "financier" | "sante">;
@@ -326,6 +345,7 @@ export default function EleveDossierClient() {
     confidentialite: "standard",
     title: "",
   });
+  const [accompagnementKind, setAccompagnementKind] = useState<AccompagnementKind>("pap");
   const [docCategory, setDocCategory] = useState<EleveDocCategorie | "tous">("tous");
   const [accessForm, setAccessForm] = useState<{
     documentId: string;
@@ -450,6 +470,34 @@ export default function EleveDossierClient() {
     const tiroirs = new Set(CATEGORIE_TIROIRS[docCategory]);
     return data.documents.filter((d) => tiroirs.has(d.tiroir as keyof typeof TIROIR_TO_CATEGORIE));
   }, [data, docCategory]);
+
+  const synthesisAccompagnements = useMemo(() => {
+    if (!data) return [];
+    if (data.accompagnements && data.accompagnements.length > 0) return data.accompagnements;
+    if (data.pap) {
+      return [
+        {
+          kind: "pap" as const,
+          code: "PAP",
+          label: "Plan d’accompagnement personnalisé",
+          id: data.pap.id,
+          title: data.pap.title,
+          fileUrl: data.pap.fileUrl,
+          mimeType: data.pap.mimeType,
+          createdAt: data.pap.createdAt,
+          canOpen: data.pap.canOpen,
+        },
+      ];
+    }
+    return [];
+  }, [data]);
+
+  const canUploadAccompagnement = Boolean(
+    data?.meta.canUploadAccompagnement ?? data?.meta.canUploadPap,
+  );
+
+  const selectedAccompagnementDef = accompagnementKindDef(accompagnementKind);
+  const hasSelectedKind = synthesisAccompagnements.some((a) => a.kind === accompagnementKind);
 
   useEffect(() => {
     if (!uploadTiroirsForCategory.length) return;
@@ -591,12 +639,12 @@ export default function EleveDossierClient() {
     }
   }
 
-  async function uploadPapFile(file: File) {
+  async function uploadAccompagnementFile(file: File) {
     const annee = data?.meta.annees.find((a) => a.isCurrent)?.label ?? null;
     await uploadFiles([file], {
       tiroir: "sante",
       confidentialite: "standard",
-      title: defaultPapDocumentTitle(annee),
+      title: defaultAccompagnementDocumentTitle(accompagnementKind, annee),
     });
   }
 
@@ -927,40 +975,44 @@ export default function EleveDossierClient() {
                   </p>
                 ) : null}
               </div>
-              {data.pap ? (
-                <div className="flex w-full shrink-0 flex-col sm:ml-auto sm:w-44">
-                  {data.pap.canOpen && data.pap.fileUrl ? (
-                    <a
-                      href={data.pap.fileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex flex-col items-start gap-1 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-left shadow-sm transition hover:border-rose-400 hover:bg-rose-100"
-                      title="Ouvrir le PAP (PDF)"
-                    >
-                      <span className="rounded-lg bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
-                        PAP
-                      </span>
-                      <span className="text-sm font-bold text-rose-950">Ouvrir le PDF</span>
-                    </a>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTab("documents");
-                        setAccessForm({
-                          documentId: data.pap!.id,
-                          durationDays: 7,
-                          note: "Consultation pédagogique du PAP",
-                        });
-                      }}
-                      className="inline-flex flex-col items-start gap-1 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-left shadow-sm transition hover:border-rose-400 hover:bg-rose-100"
-                      title="Demander l’accès au PAP auprès de la direction"
-                    >
-                      <span className="rounded-lg bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
-                        PAP
-                      </span>
-                      <span className="text-sm font-bold text-rose-950">Demander l’accès</span>
-                    </button>
+              {synthesisAccompagnements.length > 0 ? (
+                <div className="flex w-full shrink-0 flex-col gap-2 sm:ml-auto sm:w-44">
+                  {synthesisAccompagnements.map((acc) =>
+                    acc.canOpen && acc.fileUrl ? (
+                      <a
+                        key={acc.id}
+                        href={acc.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex flex-col items-start gap-1 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-left shadow-sm transition hover:border-rose-400 hover:bg-rose-100"
+                        title={`Ouvrir le ${acc.code} (PDF)`}
+                      >
+                        <span className="rounded-lg bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                          {acc.code}
+                        </span>
+                        <span className="text-sm font-bold text-rose-950">Ouvrir le PDF</span>
+                      </a>
+                    ) : (
+                      <button
+                        key={acc.id}
+                        type="button"
+                        onClick={() => {
+                          setTab("documents");
+                          setAccessForm({
+                            documentId: acc.id,
+                            durationDays: 7,
+                            note: `Consultation pédagogique du ${acc.code}`,
+                          });
+                        }}
+                        className="inline-flex flex-col items-start gap-1 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-left shadow-sm transition hover:border-rose-400 hover:bg-rose-100"
+                        title={`Demander l’accès au ${acc.code} auprès de la direction`}
+                      >
+                        <span className="rounded-lg bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                          {acc.code}
+                        </span>
+                        <span className="text-sm font-bold text-rose-950">Demander l’accès</span>
+                      </button>
+                    ),
                   )}
                 </div>
               ) : null}
@@ -1998,19 +2050,42 @@ export default function EleveDossierClient() {
               </div>
             ) : null}
 
-            {data.meta.canUploadPap ? (
+            {canUploadAccompagnement ? (
               <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-bold text-rose-950">Plan d’accompagnement (PAP)</p>
-                    <p className="mt-1 text-xs text-rose-800/80">
-                      Déposez le PDF ici — il apparaît sur la synthèse et dans Documents → Santé.
-                      {data.pap ? " Un nouveau fichier remplace le PAP affiché sur la synthèse." : ""}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-rose-950">
+                      Dispositif d’accompagnement
                     </p>
+                    <p className="mt-1 text-xs text-rose-800/80">
+                      Choisissez PAP, PAI ou PPS, puis déposez le PDF — il apparaît sur la synthèse
+                      et dans Documents → Santé.
+                      {hasSelectedKind
+                        ? ` Un nouveau fichier remplace le ${selectedAccompagnementDef.code} affiché sur la synthèse.`
+                        : ""}
+                    </p>
+                    <label className="mt-3 block max-w-sm text-xs font-semibold text-rose-950">
+                      Type de dispositif
+                      <select
+                        value={accompagnementKind}
+                        onChange={(ev) =>
+                          setAccompagnementKind(ev.target.value as AccompagnementKind)
+                        }
+                        className="mt-1 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900"
+                      >
+                        {ACCOMPAGNEMENT_KINDS.map((k) => (
+                          <option key={k.kind} value={k.kind}>
+                            {k.code} — {k.fullLabel}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
                   <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-rose-700 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-rose-800">
                     <IconUpload className="h-3.5 w-3.5" />
-                    {data.pap ? "Remplacer le PAP" : "Déposer le PAP"}
+                    {hasSelectedKind
+                      ? `Remplacer le ${selectedAccompagnementDef.code}`
+                      : `Déposer le ${selectedAccompagnementDef.code}`}
                     <input
                       type="file"
                       accept="application/pdf,image/*"
@@ -2018,7 +2093,7 @@ export default function EleveDossierClient() {
                       disabled={busy}
                       onChange={(ev) => {
                         const f = ev.target.files?.[0];
-                        if (f) void uploadPapFile(f);
+                        if (f) void uploadAccompagnementFile(f);
                         ev.target.value = "";
                       }}
                     />
@@ -2119,12 +2194,13 @@ export default function EleveDossierClient() {
                     (d.mimeType?.startsWith("image/") ||
                       /\.(jpe?g|png|gif|webp)$/i.test(d.fileUrl || ""));
                   const cat = TIROIR_TO_CATEGORIE[d.tiroir as keyof typeof TIROIR_TO_CATEGORIE];
-                  const isPap = isPapDocumentTitle(d.title);
+                  const accKind = detectAccompagnementKind(d.title);
+                  const accCode = accKind ? accompagnementKindDef(accKind).code : null;
                   return (
                     <li
                       key={d.id}
                       className={`flex gap-3 rounded-2xl border p-3 text-sm ${
-                        isPap
+                        accCode
                           ? "border-rose-200 bg-rose-50/50"
                           : "border-slate-100 bg-white"
                       }`}
@@ -2144,9 +2220,9 @@ export default function EleveDossierClient() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="font-semibold text-slate-900 truncate">
-                          {isPap ? (
+                          {accCode ? (
                             <span className="mr-1.5 rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-black uppercase text-white">
-                              PAP
+                              {accCode}
                             </span>
                           ) : null}
                           {d.title}
@@ -2178,7 +2254,9 @@ export default function EleveDossierClient() {
                                 setAccessForm({
                                   documentId: d.id,
                                   durationDays: 7,
-                                  note: isPap ? "Consultation pédagogique du PAP" : "",
+                                  note: accCode
+                                    ? `Consultation pédagogique du ${accCode}`
+                                    : "",
                                 })
                               }
                             >

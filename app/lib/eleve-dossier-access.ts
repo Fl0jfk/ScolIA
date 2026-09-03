@@ -14,7 +14,11 @@ import {
   tiroirsForCategories,
   type EleveDocCategorie,
 } from "@/app/lib/eleve-doc-categories";
-import { isPapDocumentTitle } from "@/app/lib/eleve-pap";
+import {
+  detectAccompagnementKind,
+  isAccompagnementDocumentTitle,
+  type AccompagnementKind,
+} from "@/app/lib/eleve-pap";
 import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
 
 function isExactAdmin(roles: string[]): boolean {
@@ -58,7 +62,7 @@ export function eleveDocCategoriesForRoles(
   if (hasRole(roles, "administratif")) {
     out.add("administratif");
     out.add("financier");
-    out.add("sante"); // dépôt / consultation PAP (et docs santé standard)
+    out.add("sante"); // dépôt / consultation PAP·PAI·PPS (et docs santé standard)
   }
   if (hasRole(roles, "comptabilite")) {
     out.add("financier");
@@ -71,7 +75,7 @@ export function eleveDocCategoriesForRoles(
   }
   if (hasRole(roles, "professeur")) {
     out.add("administratif");
-    out.add("sante"); // PAP visible (filtré à la liste / ouverture)
+    out.add("sante"); // PAP·PAI·PPS visibles (filtrés à la liste / ouverture)
   }
   return out;
 }
@@ -152,7 +156,7 @@ export function eleveDocTiroirsForRoles(
 
   // Affinages métier dans la catégorie administratif
   if (hasRole(roles, "professeur") && !isDirection(roles) && !opts?.orgAdmin) {
-    // Prof : scolaire + voyages + santé (PAP uniquement à l’ouverture / liste).
+    // Prof : scolaire + voyages + santé (PAP·PAI·PPS uniquement à l’ouverture / liste).
     return new Set<EleveDocTiroir>(["scolaire", "voyages", "sante"]);
   }
   if (hasRole(roles, "cpe") || hasRole(roles, "surveillant")) {
@@ -194,7 +198,7 @@ export function canRegisterEleveDocument(
   if (confidentialite === "sante") {
     return hasRole(roles, "infirmerie");
   }
-  // PAP pédagogique (tiroir santé, confidentialité standard) : secrétariat / direction / infirmière.
+  // Accompagnement pédagogique PAP·PAI·PPS (tiroir santé, confidentialité standard).
   if (tiroir === "sante") {
     return (
       hasRole(roles, "administratif") ||
@@ -227,10 +231,10 @@ export function canOpenDocumentWithoutGrant(
     }
   }
   if (doc.confidentialite === "restreint") return false;
-  // PAP : même pour un professeur, pas d’ouverture directe — demande d’accès direction requise.
+  // PAP·PAI·PPS : même pour un professeur, pas d’ouverture directe — demande d’accès direction.
   if (
     doc.tiroir === "sante" &&
-    isPapDocumentTitle(doc.title) &&
+    isAccompagnementDocumentTitle(doc.title) &&
     hasRole(roles, "professeur") &&
     !isDirection(roles) &&
     !opts?.orgAdmin &&
@@ -240,7 +244,7 @@ export function canOpenDocumentWithoutGrant(
   ) {
     return false;
   }
-  // Prof : dans le tiroir santé, seul le PAP est listé (accès via grant) — pas le reste médical.
+  // Prof : dans le tiroir santé, seuls PAP·PAI·PPS sont listés (accès via grant) — pas le reste médical.
   if (
     doc.tiroir === "sante" &&
     hasRole(roles, "professeur") &&
@@ -250,7 +254,7 @@ export function canOpenDocumentWithoutGrant(
     !hasRole(roles, "infirmerie") &&
     !hasRole(roles, "administratif")
   ) {
-    return isPapDocumentTitle(doc.title);
+    return isAccompagnementDocumentTitle(doc.title);
   }
   return true;
 }
@@ -361,7 +365,7 @@ export async function listEleveDocumentsForViewer(opts: {
     !hasRole(opts.roles, "administratif");
 
   for (const doc of docs) {
-    if (profPapOnly && doc.tiroir === "sante" && !isPapDocumentTitle(doc.title)) {
+    if (profPapOnly && doc.tiroir === "sante" && !isAccompagnementDocumentTitle(doc.title)) {
       continue;
     }
     const tiroirAllowed = allowedTiroirs.has(doc.tiroir as EleveDocTiroir);
@@ -407,13 +411,22 @@ export async function listEleveDocumentsForViewer(opts: {
   return out;
 }
 
-/** Élèves ayant au moins un PAP (tiroir santé, titre PAP, fichier présent). */
-export async function listEleveIdsWithPap(opts: {
+export type EleveAccompagnementDoc = {
+  kind: AccompagnementKind;
+  id: string;
+  title: string;
+  fileUrl: string | null;
+  mimeType: string | null;
+  createdAt: Date;
+};
+
+/** Par élève : kinds PAP / PAI / PPS présents (tiroir santé, fichier présent). */
+export async function listEleveAccompagnementKinds(opts: {
   etablissementId: string;
   eleveIds: string[];
-}): Promise<Set<string>> {
+}): Promise<Map<string, Set<AccompagnementKind>>> {
   const ids = [...new Set(opts.eleveIds.filter(Boolean))];
-  const out = new Set<string>();
+  const out = new Map<string, Set<AccompagnementKind>>();
   if (ids.length === 0) return out;
 
   const db = getDb();
@@ -436,23 +449,35 @@ export async function listEleveIdsWithPap(opts: {
   for (const doc of docs) {
     if (doc.confidentialite === "restreint" || doc.confidentialite === "sante") continue;
     if (!doc.fileUrl) continue;
-    if (!isPapDocumentTitle(doc.title)) continue;
-    out.add(doc.eleveId);
+    const kind = detectAccompagnementKind(doc.title);
+    if (!kind) continue;
+    let set = out.get(doc.eleveId);
+    if (!set) {
+      set = new Set();
+      out.set(doc.eleveId, set);
+    }
+    set.add(kind);
   }
   return out;
 }
 
-/** Dernier PAP déposé (tiroir santé, titre PAP) — pour le badge synthèse. */
-export async function getLatestPapDocumentForEleve(opts: {
+/** Élèves ayant au moins un PAP / PAI / PPS. */
+export async function listEleveIdsWithPap(opts: {
+  etablissementId: string;
+  eleveIds: string[];
+}): Promise<Set<string>> {
+  const map = await listEleveAccompagnementKinds(opts);
+  return new Set(map.keys());
+}
+
+/**
+ * Dernier document par dispositif (PAP, PAI, PPS) — pour badges synthèse.
+ * Ordre de retour : pap, puis pai, puis pps (si présents).
+ */
+export async function getLatestAccompagnementDocumentsForEleve(opts: {
   etablissementId: string;
   eleveId: string;
-}): Promise<{
-  id: string;
-  title: string;
-  fileUrl: string | null;
-  mimeType: string | null;
-  createdAt: Date;
-} | null> {
+}): Promise<EleveAccompagnementDoc[]> {
   const db = getDb();
   const docs = await db
     .select({
@@ -472,19 +497,50 @@ export async function getLatestPapDocumentForEleve(opts: {
       ),
     )
     .orderBy(desc(eleveDocument.createdAt))
-    .limit(40);
+    .limit(80);
 
+  const latestByKind = new Map<AccompagnementKind, EleveAccompagnementDoc>();
   for (const doc of docs) {
     if (doc.confidentialite === "restreint" || doc.confidentialite === "sante") continue;
-    if (!isPapDocumentTitle(doc.title)) continue;
     if (!doc.fileUrl) continue;
-    return {
+    const kind = detectAccompagnementKind(doc.title);
+    if (!kind || latestByKind.has(kind)) continue;
+    latestByKind.set(kind, {
+      kind,
       id: doc.id,
       title: doc.title,
       fileUrl: doc.fileUrl,
       mimeType: doc.mimeType,
       createdAt: doc.createdAt,
-    };
+    });
   }
-  return null;
+
+  const order: AccompagnementKind[] = ["pap", "pai", "pps"];
+  return order.flatMap((k) => {
+    const row = latestByKind.get(k);
+    return row ? [row] : [];
+  });
+}
+
+/** @deprecated Préférer `getLatestAccompagnementDocumentsForEleve`. */
+export async function getLatestPapDocumentForEleve(opts: {
+  etablissementId: string;
+  eleveId: string;
+}): Promise<{
+  id: string;
+  title: string;
+  fileUrl: string | null;
+  mimeType: string | null;
+  createdAt: Date;
+} | null> {
+  const rows = await getLatestAccompagnementDocumentsForEleve(opts);
+  const pap = rows.find((r) => r.kind === "pap");
+  if (!pap) return null;
+  return {
+    id: pap.id,
+    title: pap.title,
+    fileUrl: pap.fileUrl,
+    mimeType: pap.mimeType,
+    createdAt: pap.createdAt,
+  };
 }

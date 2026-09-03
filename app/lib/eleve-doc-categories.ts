@@ -31,7 +31,7 @@ export const TIROIR_LABELS: Record<string, string> = {
   inscription: "Inscription",
   facturation: "Facturation",
   voyages: "Voyages",
-  sante: "Santé / PAP",
+  sante: "Santé / accompagnement",
   vie_scolaire: "Vie scolaire",
   orientation: "Orientation / fiches de dialogue",
 };

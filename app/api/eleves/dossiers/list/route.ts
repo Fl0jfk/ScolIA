@@ -9,7 +9,8 @@ import {
   listElevesDossierFromDb,
 } from "@/app/lib/eleve-dossier-prof";
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
-import { listEleveIdsWithPap } from "@/app/lib/eleve-dossier-access";
+import { listEleveAccompagnementKinds } from "@/app/lib/eleve-dossier-access";
+import { ACCOMPAGNEMENT_KINDS, type AccompagnementKind } from "@/app/lib/eleve-pap";
 import {
   buildEleveDossierClassCatalog,
   classOptionLabel,
@@ -135,14 +136,24 @@ export async function GET(req: NextRequest) {
     photoKey: undefined,
   }));
 
-  const papIds = await listEleveIdsWithPap({
+  const accompagnementByEleve = await listEleveAccompagnementKinds({
     etablissementId: tenant.ctx.etablissementId,
     eleveIds: eleves.map((e) => e.id),
-  }).catch(() => new Set<string>());
-  eleves = eleves.map((e) => ({
-    ...e,
-    hasPap: papIds.has(e.id),
-  }));
+  }).catch(() => new Map<string, Set<AccompagnementKind>>());
+  const kindOrder = ACCOMPAGNEMENT_KINDS.map((k) => k.kind);
+  eleves = eleves.map((e) => {
+    const set = accompagnementByEleve.get(e.id);
+    const accompagnementKinds = set
+      ? kindOrder.filter((k) => set.has(k))
+      : [];
+    return {
+      ...e,
+      accompagnementKinds,
+      hasPap: accompagnementKinds.includes("pap"),
+      hasPai: accompagnementKinds.includes("pai"),
+      hasPps: accompagnementKinds.includes("pps"),
+    };
+  });
 
   const extraClasses = [
     ...new Set(eleves.map((e) => e.classe).filter((c): c is string => Boolean(c?.trim()))),

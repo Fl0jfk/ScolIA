@@ -22,7 +22,7 @@ import {
   eleveDocCategoriesMetaForRoles,
   eleveDocTiroirsForRoles,
   listEleveDocumentsForViewer,
-  getLatestPapDocumentForEleve,
+  getLatestAccompagnementDocumentsForEleve,
   hasActiveDocumentGrant,
   recordEleveAccessAudit,
   type EleveDocConfidentialite,
@@ -30,7 +30,10 @@ import {
 } from "@/app/lib/eleve-dossier-access";
 import { normalizeDocumentAccessDurationDays } from "@/app/lib/eleve-document-access-duration";
 import { notifyDirectionPapAccessRequest } from "@/app/lib/eleve-pap-access-notify";
-import { isPapDocumentTitle } from "@/app/lib/eleve-pap";
+import {
+  accompagnementKindDef,
+  isAccompagnementDocumentTitle,
+} from "@/app/lib/eleve-pap";
 import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
 import {
   isProfesseurScopedDossierViewer,
@@ -213,7 +216,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     carnetRaw,
     financesSynthese,
     classmates,
-    papDoc,
+    accompagnementDocs,
   ] = await Promise.all([
     db
       .select()
@@ -330,7 +333,9 @@ export async function GET(_req: Request, ctx: Ctx) {
           assignedClasses: assignedClassesForProf,
         })
       : Promise.resolve([]),
-    getLatestPapDocumentForEleve({ etablissementId: etabId, eleveId: id }).catch(() => null),
+    getLatestAccompagnementDocumentsForEleve({ etablissementId: etabId, eleveId: id }).catch(
+      () => [],
+    ),
   ]);
 
   // Foyers : 2 requêtes max au lieu de N+1
@@ -409,43 +414,53 @@ export async function GET(_req: Request, ctx: Ctx) {
       d.createdAt instanceof Date ? d.createdAt.toISOString() : String(d.createdAt ?? ""),
   }));
 
-  let papPayload: {
+  type AccompagnementPayload = {
+    kind: "pap" | "pai" | "pps";
+    code: string;
+    label: string;
     id: string;
     title: string;
     fileUrl: string | null;
     mimeType: string | null;
     createdAt: string;
     canOpen: boolean;
-  } | null = null;
-  if (papDoc) {
-    const papAsDoc = {
+  };
+  const accompagnementsPayload: AccompagnementPayload[] = [];
+  for (const row of accompagnementDocs) {
+    const asDoc = {
       tiroir: "sante" as const,
       confidentialite: "standard" as const,
-      title: papDoc.title,
+      title: row.title,
     };
-    let canOpenPap = canOpenDocumentWithoutGrant(papAsDoc, roles, {
+    let canOpen = canOpenDocumentWithoutGrant(asDoc, roles, {
       orgAdmin,
       platformAdmin,
     });
-    if (!canOpenPap) {
-      canOpenPap = await hasActiveDocumentGrant({
+    if (!canOpen) {
+      canOpen = await hasActiveDocumentGrant({
         etablissementId: etabId,
-        documentId: papDoc.id,
+        documentId: row.id,
         userId: authUserId,
       });
     }
-    papPayload = {
-      id: papDoc.id,
-      title: papDoc.title,
-      fileUrl: canOpenPap ? eleveDocumentFileProxyPath(id, papDoc.id) : null,
-      mimeType: papDoc.mimeType,
+    const def = accompagnementKindDef(row.kind);
+    accompagnementsPayload.push({
+      kind: row.kind,
+      code: def.code,
+      label: def.fullLabel,
+      id: row.id,
+      title: row.title,
+      fileUrl: canOpen ? eleveDocumentFileProxyPath(id, row.id) : null,
+      mimeType: row.mimeType,
       createdAt:
-        papDoc.createdAt instanceof Date
-          ? papDoc.createdAt.toISOString()
-          : String(papDoc.createdAt ?? ""),
-      canOpen: canOpenPap,
-    };
+        row.createdAt instanceof Date
+          ? row.createdAt.toISOString()
+          : String(row.createdAt ?? ""),
+      canOpen,
+    });
   }
+  /** Compat : dernier PAP seul (clients qui lisent encore `pap`). */
+  const papPayload = accompagnementsPayload.find((a) => a.kind === "pap") ?? null;
 
   // Audit non bloquant
   after(() => {
@@ -586,6 +601,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     sanctions: needVs ? sanctionsEleve : [],
     carnet: needVs ? carnetEleve : [],
     documents,
+    accompagnements: accompagnementsPayload,
     pap: papPayload,
     meta: {
       sites,
@@ -593,6 +609,10 @@ export async function GET(_req: Request, ctx: Ctx) {
       canEditStructure: canEditStructure(roles, { orgAdmin, platformAdmin }),
       canDecideAccess: canDecide,
       canUploadPap: canRegisterEleveDocument("sante", "standard", roles, {
+        orgAdmin,
+        platformAdmin,
+      }),
+      canUploadAccompagnement: canRegisterEleveDocument("sante", "standard", roles, {
         orgAdmin,
         platformAdmin,
       }),
@@ -1073,7 +1093,7 @@ export async function POST(req: Request, ctx: Ctx) {
       metadata: { requestId: created.id, durationDays },
     });
 
-    if (isPapDocumentTitle(doc.title)) {
+    if (isAccompagnementDocumentTitle(doc.title)) {
       after(async () => {
         try {
           const session = await getAppSession();
@@ -1094,7 +1114,7 @@ export async function POST(req: Request, ctx: Ctx) {
             note: body.note,
           });
         } catch (err) {
-          console.error("[eleves/dossier] notify PAP access", err);
+          console.error("[eleves/dossier] notify accompagnement access", err);
         }
       });
     }

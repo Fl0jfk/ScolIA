@@ -9,6 +9,11 @@ import {
   stageCycleLabel,
 } from "@/app/lib/stage-config";
 import { documentAccessDurationLabel } from "@/app/lib/eleve-document-access-duration";
+import {
+  accompagnementKindDef,
+  detectAccompagnementKind,
+  type AccompagnementKind,
+} from "@/app/lib/eleve-pap";
 
 async function mailer() {
   const smtp = await getTenantSmtpConfig();
@@ -18,7 +23,7 @@ async function mailer() {
   return { smtp, transporter };
 }
 
-/** Notifie la direction du cycle (école / collège / lycée) d’une demande d’accès PAP. */
+/** Notifie la direction du cycle d’une demande d’accès PAP / PAI / PPS. */
 export async function notifyDirectionPapAccessRequest(input: {
   eleveNom: string;
   elevePrenom: string;
@@ -29,6 +34,8 @@ export async function notifyDirectionPapAccessRequest(input: {
   requesterEmail?: string | null;
   durationDays: number;
   note?: string | null;
+  /** Si omis, déduit du titre du document. */
+  kind?: AccompagnementKind | null;
 }): Promise<{ sent: boolean; to?: string; reason?: string }> {
   const levelHint = String(input.level || input.classe || "").trim() || "lycee";
   const to = await resolveStagesDirectionEmail(levelHint, input.classe || undefined);
@@ -42,10 +49,13 @@ export async function notifyDirectionPapAccessRequest(input: {
   const cycle = stageCycleLabel(stageCycleKindFromStudent(levelHint, input.classe || undefined));
   const link = await tenantAbsolutePath("/eleves/dossiers?tab=acces");
   const eleve = `${input.elevePrenom} ${input.eleveNom}`.trim();
+  const kind =
+    input.kind ?? detectAccompagnementKind(input.documentTitle) ?? ("pap" as AccompagnementKind);
+  const def = accompagnementKindDef(kind);
   const text = [
     `Bonjour,`,
     ``,
-    `${input.requesterName}${input.requesterEmail ? ` (${input.requesterEmail})` : ""} souhaite consulter le PAP de :`,
+    `${input.requesterName}${input.requesterEmail ? ` (${input.requesterEmail})` : ""} souhaite consulter le ${def.code} (${def.fullLabel}) de :`,
     ``,
     `Élève : ${eleve}`,
     input.classe ? `Classe : ${input.classe}` : null,
@@ -66,7 +76,7 @@ export async function notifyDirectionPapAccessRequest(input: {
   await m.transporter.sendMail({
     from: `"Dossiers élèves ${school}" <${m.smtp.user}>`,
     to,
-    subject: `[PAP] Demande d’accès — ${eleve} (${cycle})`,
+    subject: `[${def.code}] Demande d’accès — ${eleve} (${cycle})`,
     text,
   });
 
