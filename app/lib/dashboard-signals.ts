@@ -34,6 +34,13 @@ import { subjectColorToHex } from "@/app/lib/prof-room-subject-colors";
 
 export type DashboardShortcutTone = "neutral" | "info" | "action" | "warn";
 
+/**
+ * Notifs dashboard vie scolaire (absences / justificatifs / appels manquants).
+ * Désactivé temporairement — remettre à `true` pour les réafficher.
+ */
+export const ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS = false;
+export const ENABLE_VS_APPELS_MANQUANTS_DASHBOARD_NOTIFS = false;
+
 /** Slide d’un carrousel (salles en cours, sorties du jour, …). */
 export type DashboardShortcutSlide = {
   id: string;
@@ -1334,19 +1341,22 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     });
   }
   if (has("vs-appels") || has("vs-absences")) {
+    const vsJustifCount = ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS ? vsAbsencesJustifFamille : 0;
+    const vsATraiterCount = ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS ? vsAbsencesATraiter : 0;
+    const vsAppelsCount = ENABLE_VS_APPELS_MANQUANTS_DASHBOARD_NOTIFS ? vsAppelsManquants : 0;
     const warnCount =
-      (has("vs-appels") ? vsAppelsManquants : 0) +
+      (has("vs-appels") ? vsAppelsCount : 0) +
       (has("vs-absences")
-        ? Math.max(vsAbsencesJustifFamille, vsAbsencesATraiter > 0 ? vsAbsencesATraiter : 0)
+        ? Math.max(vsJustifCount, vsATraiterCount > 0 ? vsATraiterCount : 0)
         : 0);
     const detailParts: string[] = [];
-    if (has("vs-appels") && vsAppelsManquants > 0) {
-      detailParts.push(`${vsAppelsManquants} appel(s) manquant(s)`);
+    if (has("vs-appels") && vsAppelsCount > 0) {
+      detailParts.push(`${vsAppelsCount} appel(s) manquant(s)`);
     }
-    if (has("vs-absences") && vsAbsencesJustifFamille > 0) {
-      detailParts.push(`${vsAbsencesJustifFamille} justificatif(s) famille`);
-    } else if (has("vs-absences") && vsAbsencesATraiter > 0) {
-      detailParts.push(`${vsAbsencesATraiter} absence(s) à traiter`);
+    if (has("vs-absences") && vsJustifCount > 0) {
+      detailParts.push(`${vsJustifCount} justificatif(s) famille`);
+    } else if (has("vs-absences") && vsATraiterCount > 0) {
+      detailParts.push(`${vsATraiterCount} absence(s) à traiter`);
     }
     if (warnCount > 0) {
       shortcuts.push({
@@ -1354,9 +1364,9 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         pillarId: "vie_scolaire",
         moduleId: "vs-appels",
         href:
-          has("vs-absences") && vsAbsencesJustifFamille > 0
+          has("vs-absences") && vsJustifCount > 0
             ? `${moduleHref("vs-absences")}&filtre=justif_famille`
-            : has("vs-appels") && vsAppelsManquants > 0
+            : has("vs-appels") && vsAppelsCount > 0
               ? `${moduleHref("vs-appels")}?tab=appel`
               : moduleHref("vs-appels"),
         label: "Appels & absences",
@@ -1374,32 +1384,32 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         label: "Appels & absences",
       });
     }
-    if (has("vs-appels") && vsAppelsManquants > 0) {
+    if (ENABLE_VS_APPELS_MANQUANTS_DASHBOARD_NOTIFS && has("vs-appels") && vsAppelsCount > 0) {
       pushNotif({
         id: "vs-appels-manquants",
         moduleId: "vs-appels",
         label: "Appels manquants",
-        count: vsAppelsManquants,
+        count: vsAppelsCount,
         href: `${moduleHref("vs-appels")}?tab=appel`,
         detail: "Créneaux commencés sans appel clôturé",
       });
     }
-    if (has("vs-absences") && vsAbsencesATraiter > 0) {
+    if (ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS && has("vs-absences") && vsATraiterCount > 0) {
       pushNotif({
         id: "vs-absences-a-traiter",
         moduleId: "vs-absences",
         label: "Absences à traiter",
-        count: vsAbsencesATraiter,
+        count: vsATraiterCount,
         href: `${moduleHref("vs-absences")}`,
         detail: "Justificatifs et relances familles",
       });
     }
-    if (has("vs-absences") && vsAbsencesJustifFamille > 0) {
+    if (ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS && has("vs-absences") && vsJustifCount > 0) {
       pushNotif({
         id: "vs-absences-justif-famille",
         moduleId: "vs-absences",
         label: "Justificatifs famille",
-        count: vsAbsencesJustifFamille,
+        count: vsJustifCount,
         href: `${moduleHref("vs-absences")}&filtre=justif_famille`,
         detail: "Motifs parents à valider côté CPE",
       });
