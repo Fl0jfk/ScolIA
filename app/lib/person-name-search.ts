@@ -5,6 +5,11 @@
 
 import { sql, type AnyColumn, type SQL } from "drizzle-orm";
 
+const SQL_ACCENTS_FROM =
+  "àáâãäåāăąèéêëěēęėìíîïīįòóôõöøōőùúûüůūűýÿćčçńňñśšşţźžżďğłřťÀÁÂÃÄÅĀĂĄÈÉÊËĚĒĘĖÌÍÎÏĪĮÒÓÔÕÖØŌŐÙÚÛÜŮŪŰÝŸĆČÇŃŇÑŚŠŞŢŹŽŻĎĞŁŘŤ";
+const SQL_ACCENTS_TO =
+  "aaaaaaaaaeeeeeeeeiiiiiiiooooooooouuuuuuuyyccccnnnssstzzzdgglrtaaaaaaaaaeeeeeeeeiiiiiiiooooooooouuuuuuuyyccccnnnssstzzzdgglrt";
+
 export function normalizePersonSearchText(str: string): string {
   return String(str || "")
     .normalize("NFD")
@@ -54,6 +59,11 @@ export function escapePersonSearchLike(raw: string): string {
   return raw.replace(/[%_\\]/g, (ch) => `\\${ch}`);
 }
 
+/** lower() + suppression des accents pour comparer à des tokens déjà normalisés. */
+export function sqlFoldPersonText(col: AnyColumn | SQL): SQL {
+  return sql`translate(lower(coalesce(${col}, '')), ${SQL_ACCENTS_FROM}, ${SQL_ACCENTS_TO})`;
+}
+
 /**
  * Clause SQL : match prénom+nom dans les deux ordres, ou tous les tokens
  * présents dans nom / prénom / extras (classe, INE…).
@@ -68,18 +78,20 @@ export function sqlPersonNameMatches(opts: {
   if (tokens.length === 0) return sql`false`;
 
   const fullLike = `%${escapePersonSearchLike(tokens.join(" "))}%`;
+  const foldedPrenom = sqlFoldPersonText(opts.prenom);
+  const foldedNom = sqlFoldPersonText(opts.nom);
   const bothOrders = sql`(
-    lower(${opts.prenom} || ' ' || ${opts.nom}) like ${fullLike} escape '\\'
-    or lower(${opts.nom} || ' ' || ${opts.prenom}) like ${fullLike} escape '\\'
+    (${foldedPrenom} || ' ' || ${foldedNom}) like ${fullLike} escape '\\'
+    or (${foldedNom} || ' ' || ${foldedPrenom}) like ${fullLike} escape '\\'
   )`;
 
   const fieldMatch = (like: string): SQL => {
     const parts: SQL[] = [
-      sql`lower(${opts.nom}) like ${like} escape '\\'`,
-      sql`lower(${opts.prenom}) like ${like} escape '\\'`,
+      sql`${foldedNom} like ${like} escape '\\'`,
+      sql`${foldedPrenom} like ${like} escape '\\'`,
     ];
     for (const col of opts.extras || []) {
-      parts.push(sql`lower(coalesce(${col}, '')) like ${like} escape '\\'`);
+      parts.push(sql`${sqlFoldPersonText(col)} like ${like} escape '\\'`);
     }
     return sql`(${sql.join(parts, sql` or `)})`;
   };

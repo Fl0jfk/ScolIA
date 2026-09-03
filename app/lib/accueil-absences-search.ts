@@ -10,13 +10,22 @@ import {
   type AccueilSearchHit,
   type AccueilStaffScope,
 } from "@/app/lib/accueil-absences-types";
-import { sqlPersonNameMatches, escapePersonSearchLike, personSearchTokens } from "@/app/lib/person-name-search";
+import {
+  sqlPersonNameMatches,
+  escapePersonSearchLike,
+  personSearchTokens,
+  sqlFoldPersonText,
+} from "@/app/lib/person-name-search";
 
 const MIN_QUERY = 3;
-const LIMIT_PER_KIND = 8;
+const LIMIT_PER_KIND = 12;
 
 function personnelScope(category: string): AccueilStaffScope {
-  return category === "professeur" ? "professeur" : "ogec";
+  const c = String(category || "")
+    .trim()
+    .toLowerCase();
+  if (c === "professeur" || c === "enseignant" || c === "teacher") return "professeur";
+  return "ogec";
 }
 
 function personnelCategoryLabel(category: string): string {
@@ -59,13 +68,27 @@ export async function searchAccueilPersonnes(
     tokens.map((t) => {
       const like = `%${escapePersonSearchLike(t)}%`;
       return sql`(
-        lower(${personnel.lastName}) like ${like} escape '\\'
-        or lower(${personnel.firstName}) like ${like} escape '\\'
-        or lower(${personnel.displayName}) like ${like} escape '\\'
+        ${sqlFoldPersonText(personnel.lastName)} like ${like} escape '\\'
+        or ${sqlFoldPersonText(personnel.firstName)} like ${like} escape '\\'
+        or ${sqlFoldPersonText(personnel.displayName)} like ${like} escape '\\'
       )`;
     }),
     sql` and `,
   );
+
+  const ensQuery = db
+    .select({
+      id: enseignant.id,
+      nom: enseignant.nom,
+      prenom: enseignant.prenom,
+      secteur: enseignant.secteur,
+      email: enseignant.email,
+      emailPro: enseignant.emailPro,
+    })
+    .from(enseignant)
+    .where(and(eq(enseignant.etablissementId, etablissementId), ensNameSql))
+    .orderBy(asc(enseignant.nom), asc(enseignant.prenom))
+    .limit(LIMIT_PER_KIND);
 
   const [eleves, enseignants, staff] = await Promise.all([
     db
@@ -86,19 +109,13 @@ export async function searchAccueilPersonnes(
       )
       .orderBy(asc(eleve.nom), asc(eleve.prenom))
       .limit(LIMIT_PER_KIND),
-    db
-      .select({
-        id: enseignant.id,
-        nom: enseignant.nom,
-        prenom: enseignant.prenom,
-        secteur: enseignant.secteur,
-        email: enseignant.email,
-        emailPro: enseignant.emailPro,
-      })
-      .from(enseignant)
-      .where(and(eq(enseignant.etablissementId, etablissementId), ensNameSql))
-      .orderBy(asc(enseignant.nom), asc(enseignant.prenom))
-      .limit(LIMIT_PER_KIND),
+    ensQuery.then(
+      (rows) => rows,
+      (err: unknown) => {
+        console.error("[accueil-absences-search] enseignant", err);
+        return [] as Awaited<typeof ensQuery>;
+      },
+    ),
     db
       .select({
         id: personnel.id,
@@ -124,7 +141,7 @@ export async function searchAccueilPersonnes(
   ]);
 
   const hits: AccueilSearchHit[] = [];
-  const seenStaff = new Set<string>();
+  const seen = new Set<string>();
 
   for (const e of eleves) {
     const cycle = asCycle(e.secteur);
@@ -142,11 +159,32 @@ export async function searchAccueilPersonnes(
     });
   }
 
+  // Professeurs du catalogue enseignant en priorité (badge / circuit direction).
+  for (const ens of enseignants) {
+    const key = hitKey(ens.nom, ens.prenom, ens.emailPro || ens.email);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const cycle = asCycle(ens.secteur);
+    hits.push({
+      kind: "enseignant",
+      id: ens.id,
+      nom: ens.nom,
+      prenom: ens.prenom,
+      displayName: `${ens.prenom} ${ens.nom}`.trim(),
+      subtitle: ["Professeur", cycleLabel(cycle)].filter(Boolean).join(" · "),
+      cycle,
+      scope: "professeur",
+    });
+  }
+
   for (const p of staff) {
     const nom = p.lastName || p.displayName;
     const prenom = p.firstName;
-    seenStaff.add(hitKey(nom, prenom, p.email));
+    const key = hitKey(nom, prenom, p.email);
     const scope = personnelScope(p.category);
+    // Déjà présent via le catalogue enseignant → ne pas doublonner en OGEC.
+    if (seen.has(key)) continue;
+    seen.add(key);
     const cycle = asCycle(p.establishmentLabel);
     const cat = personnelCategoryLabel(p.category);
     const job = p.jobTitle?.trim();
@@ -166,21 +204,5 @@ export async function searchAccueilPersonnes(
     });
   }
 
-  for (const ens of enseignants) {
-    const key = hitKey(ens.nom, ens.prenom, ens.emailPro || ens.email);
-    if (seenStaff.has(key)) continue;
-    const cycle = asCycle(ens.secteur);
-    hits.push({
-      kind: "enseignant",
-      id: ens.id,
-      nom: ens.nom,
-      prenom: ens.prenom,
-      displayName: `${ens.prenom} ${ens.nom}`.trim(),
-      subtitle: ["Professeur", cycleLabel(cycle)].filter(Boolean).join(" · "),
-      cycle,
-      scope: "professeur",
-    });
-  }
-
-  return hits.slice(0, 24);
+  return hits.slice(0, 30);
 }

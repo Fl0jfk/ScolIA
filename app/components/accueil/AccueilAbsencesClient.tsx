@@ -15,9 +15,13 @@ function todayIso(): string {
   return parisDateKey(new Date());
 }
 
-function kindBadge(kind: AccueilBoardRow["kind"] | AccueilSearchHit["kind"]): string {
+function kindBadge(
+  kind: AccueilBoardRow["kind"] | AccueilSearchHit["kind"],
+  scope?: AccueilSearchHit["scope"],
+): string {
   if (kind === "eleve") return "Élève";
   if (kind === "enseignant" || kind === "professeur") return "Professeur";
+  if (scope === "professeur") return "Professeur";
   return "Personnel OGEC";
 }
 
@@ -203,7 +207,7 @@ export default function AccueilAbsencesClient() {
                 <div>
                   <p className="font-semibold text-slate-900">{selected.displayName}</p>
                   <p className="text-sm text-slate-600">
-                    {kindBadge(selected.kind)}
+                    {kindBadge(selected.kind, selected.scope)}
                     {selected.subtitle ? ` · ${selected.subtitle}` : ""}
                   </p>
                 </div>
@@ -244,7 +248,7 @@ export default function AccueilAbsencesClient() {
                     }}
                   >
                     <span className="mt-0.5 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold uppercase text-slate-600">
-                      {kindBadge(h.kind)}
+                      {kindBadge(h.kind, h.scope)}
                     </span>
                     <span>
                       <span className="block font-semibold text-slate-900">{h.displayName}</span>
