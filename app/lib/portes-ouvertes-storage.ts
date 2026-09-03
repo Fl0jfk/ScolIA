@@ -1,22 +1,63 @@
 import { getJson, putJson } from "@/app/lib/s3-storage";
-
-type PortesOuvertesRegistration = {
-  id: string;
-  slotId: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone?: string;
-  childrenInfo?: string;
-  consent: boolean;
-  createdAt: string;
-};
+import type { PortesOuvertesRegistration } from "@/app/lib/portes-ouvertes-types";
+import { isPortesOuvertesCycle } from "@/app/lib/portes-ouvertes-types";
 
 const KEY = "toolbox/portes-ouvertes/registrations.json";
 
+function parseActor(raw: unknown): { userId: string; name: string } | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const userId = String(o.userId || "").trim();
+  if (!userId) return undefined;
+  return {
+    userId,
+    name: String(o.name || "").trim() || "Accueil",
+  };
+}
+
+function parseRegistration(raw: unknown): PortesOuvertesRegistration | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const id = String(o.id || "").trim();
+  const slotId = String(o.slotId || "").trim();
+  const firstName = String(o.firstName || "").trim();
+  const lastName = String(o.lastName || "").trim();
+  const email = String(o.email || "").trim().toLowerCase();
+  if (!id || !slotId || !firstName || !lastName || !email) return null;
+  const phone = String(o.phone || "").trim() || undefined;
+  const childrenInfo = String(o.childrenInfo || "").trim() || undefined;
+  const cycle = isPortesOuvertesCycle(o.cycle) ? o.cycle : undefined;
+  const classeSouhaitee = String(o.classeSouhaitee || "").trim() || undefined;
+  const source =
+    o.source === "accueil" || o.source === "public" ? o.source : undefined;
+  return {
+    id,
+    slotId,
+    slotLabel: String(o.slotLabel || "").trim() || undefined,
+    slotStartAt: String(o.slotStartAt || "").trim() || undefined,
+    slotEndAt: String(o.slotEndAt || "").trim() || undefined,
+    firstName,
+    lastName,
+    email,
+    phone,
+    childrenInfo,
+    cycle,
+    classeSouhaitee,
+    consent: o.consent === true || o.consent === undefined,
+    source,
+    recordedBy: parseActor(o.recordedBy),
+    lastModifiedBy: parseActor(o.lastModifiedBy),
+    createdAt: String(o.createdAt || new Date().toISOString()),
+    updatedAt: String(o.updatedAt || "").trim() || undefined,
+  };
+}
+
+export type { PortesOuvertesRegistration };
+
 export async function listPortesOuvertesRegistrations(): Promise<PortesOuvertesRegistration[]> {
-  const raw = await getJson<PortesOuvertesRegistration[]>(KEY);
-  return Array.isArray(raw?.data) ? raw.data : [];
+  const raw = await getJson<unknown[]>(KEY);
+  if (!Array.isArray(raw?.data)) return [];
+  return raw.data.map(parseRegistration).filter((r): r is PortesOuvertesRegistration => Boolean(r));
 }
 
 async function savePortesOuvertesRegistrations(rows: PortesOuvertesRegistration[]): Promise<void> {
@@ -36,6 +77,31 @@ export async function addPortesOuvertesRegistration(
   list.push(entry);
   await savePortesOuvertesRegistrations(list);
   return entry;
+}
+
+export async function updatePortesOuvertesRegistration(
+  id: string,
+  patch: Partial<
+    Omit<PortesOuvertesRegistration, "id" | "createdAt" | "consent" | "source" | "recordedBy">
+  >,
+  existing?: PortesOuvertesRegistration[],
+): Promise<PortesOuvertesRegistration | null> {
+  const list = existing ? [...existing] : await listPortesOuvertesRegistrations();
+  const idx = list.findIndex((r) => r.id === id);
+  if (idx < 0) return null;
+  const updated: PortesOuvertesRegistration = {
+    ...list[idx],
+    ...patch,
+    id: list[idx].id,
+    createdAt: list[idx].createdAt,
+    consent: list[idx].consent,
+    source: list[idx].source,
+    recordedBy: list[idx].recordedBy,
+    updatedAt: new Date().toISOString(),
+  };
+  list[idx] = updated;
+  await savePortesOuvertesRegistrations(list);
+  return updated;
 }
 
 export function countRegistrationsBySlot(

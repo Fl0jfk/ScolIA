@@ -11,6 +11,10 @@ import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback"
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import { EVENEMENTS_TOOLS_META, type EvenementToolId } from "@/app/lib/evenements-tools";
+import {
+  generatePortesOuvertesSlots,
+  type PortesOuvertesSlotIntervalMinutes,
+} from "@/app/lib/portes-ouvertes-slots";
 import type { PortesOuvertesSlot, ToolboxConfig } from "@/app/lib/toolbox-types";
 
 const RentreeEditor = dynamic(() => import("@/app/components/toolbox/RentreeEditor"), {
@@ -67,6 +71,15 @@ export default function EvenementsHubClient() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [slotDay, setSlotDay] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 14);
+    return d.toISOString().slice(0, 10);
+  });
+  const [slotStartTime, setSlotStartTime] = useState("08:30");
+  const [slotEndTime, setSlotEndTime] = useState("12:00");
+  const [slotInterval, setSlotInterval] = useState<PortesOuvertesSlotIntervalMinutes>(30);
+  const [slotMaxPlaces, setSlotMaxPlaces] = useState(20);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -384,9 +397,125 @@ export default function EvenementsHubClient() {
                 onClick={() => patchTool("portes-ouvertes", { slots: [...po.slots, emptySlot()] })}
                 className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white"
               >
-                + Créneau
+                + Créneau manuel
               </button>
             </div>
+
+            <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-4 space-y-3">
+              <p className="text-sm font-semibold text-violet-950">
+                Générer une journée (quart d&apos;heure / demi-heure / heure)
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <label className="block">
+                  <span className="text-[11px] font-bold uppercase text-violet-800">Jour</span>
+                  <input
+                    type="date"
+                    className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
+                    value={slotDay}
+                    onChange={(e) => setSlotDay(e.target.value)}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[11px] font-bold uppercase text-violet-800">Début</span>
+                  <input
+                    type="time"
+                    className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
+                    value={slotStartTime}
+                    onChange={(e) => setSlotStartTime(e.target.value)}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[11px] font-bold uppercase text-violet-800">Fin</span>
+                  <input
+                    type="time"
+                    className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
+                    value={slotEndTime}
+                    onChange={(e) => setSlotEndTime(e.target.value)}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[11px] font-bold uppercase text-violet-800">Pas</span>
+                  <select
+                    className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm font-semibold"
+                    value={slotInterval}
+                    onChange={(e) =>
+                      setSlotInterval(Number(e.target.value) as PortesOuvertesSlotIntervalMinutes)
+                    }
+                  >
+                    <option value={15}>15 min</option>
+                    <option value={30}>30 min</option>
+                    <option value={60}>1 h</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-[11px] font-bold uppercase text-violet-800">Places / créneau</span>
+                  <input
+                    type="number"
+                    min={1}
+                    className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
+                    value={slotMaxPlaces}
+                    onChange={(e) => setSlotMaxPlaces(Number(e.target.value) || 0)}
+                  />
+                </label>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-bold text-white"
+                  onClick={() => {
+                    const generated = generatePortesOuvertesSlots({
+                      date: slotDay,
+                      startTime: slotStartTime,
+                      endTime: slotEndTime,
+                      intervalMinutes: slotInterval,
+                      maxPlaces: slotMaxPlaces > 0 ? slotMaxPlaces : undefined,
+                    });
+                    if (generated.length === 0) {
+                      setError("Impossible de générer des créneaux (vérifiez jour / horaires).");
+                      return;
+                    }
+                    setError(null);
+                    patchTool("portes-ouvertes", { slots: [...po.slots, ...generated] });
+                    setMsg(`${generated.length} créneau(x) ajouté(s). Pensez à Enregistrer.`);
+                  }}
+                >
+                  Ajouter la grille
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-xs font-bold text-violet-900"
+                  onClick={() => {
+                    const generated = generatePortesOuvertesSlots({
+                      date: slotDay,
+                      startTime: slotStartTime,
+                      endTime: slotEndTime,
+                      intervalMinutes: slotInterval,
+                      maxPlaces: slotMaxPlaces > 0 ? slotMaxPlaces : undefined,
+                    });
+                    if (generated.length === 0) {
+                      setError("Impossible de générer des créneaux (vérifiez jour / horaires).");
+                      return;
+                    }
+                    setError(null);
+                    patchTool("portes-ouvertes", { slots: generated });
+                    setMsg(`${generated.length} créneau(x) — grille remplacée. Pensez à Enregistrer.`);
+                  }}
+                >
+                  Remplacer tous les créneaux
+                </button>
+              </div>
+              <p className="text-xs text-violet-800">
+                Exemple : 8 h 30 → 12 h par 30 min crée 8 h 30–9 h, 9 h–9 h 30, etc. La page Accueil
+                consomme ces créneaux (même si la page publique est désactivée).
+              </p>
+              <a
+                href="/accueil/portes-ouvertes"
+                className="inline-block text-xs font-bold text-violet-800 underline"
+              >
+                Ouvrir la saisie Accueil →
+              </a>
+            </div>
+
             {po.slots.length === 0 ? (
               <p className="text-sm text-slate-500">
                 Ajoutez au moins un créneau pour ouvrir les inscriptions.

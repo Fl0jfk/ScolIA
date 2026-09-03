@@ -553,6 +553,19 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "accueil-portes-ouvertes",
+    pathPrefixes: ["/accueil/portes-ouvertes", "/api/accueil/portes-ouvertes"],
+    allowedRoles: [...DIRECTIONS, "administratif", "accueil"],
+    dashboard: {
+      id: 244,
+      name: "Portes ouvertes (accueil)",
+      img: "",
+      link: "/accueil/portes-ouvertes",
+      external: false,
+      description: "Inscrire un visiteur au téléphone — créneau, classe, mail + .ics",
+    },
+  },
+  {
     id: "absences-accueil-consultation",
     pathPrefixes: [
       "/vie-scolaire/absences-accueil",
@@ -1076,6 +1089,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "internat",
     "vs-calendrier",
     "accueil-absences",
+    "accueil-portes-ouvertes",
     "absences-accueil-consultation",
     "vs-appels",
     "vs-absences",
