@@ -25,6 +25,11 @@
       "type": "stdio",
       "command": "node",
       "args": ["${workspaceFolder}/.cursor/run-postgres-mcp.mjs"]
+    },
+    "github": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/.cursor/run-github-mcp.mjs"]
     }
   }
 }

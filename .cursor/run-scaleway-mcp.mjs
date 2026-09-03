@@ -3,12 +3,10 @@
  * Lanceur cross-platform du MCP Scaleway (scw mcp server serve).
  */
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
-import { readFileSync } from "node:fs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -37,6 +35,32 @@ function loadEnvFile(filePath) {
 loadEnvFile(join(root, ".cursor", "mcp.local.env"));
 loadEnvFile(join(root, ".env.local"));
 loadEnvFile(join(root, ".env"));
+
+/** Charge SCW_* depuis ~/.config/scw/config.yaml si `scw login` a déjà tourné. */
+function loadScwConfigYaml() {
+  const home = process.env.USERPROFILE || process.env.HOME || homedir();
+  const configPath = join(home, ".config", "scw", "config.yaml");
+  if (!existsSync(configPath)) return;
+  const text = readFileSync(configPath, "utf8");
+  const map = {
+    "access_key": "SCW_ACCESS_KEY",
+    "secret_key": "SCW_SECRET_KEY",
+    "default_organization_id": "SCW_DEFAULT_ORGANIZATION_ID",
+    "default_project_id": "SCW_DEFAULT_PROJECT_ID",
+    "default_region": "SCW_DEFAULT_REGION",
+  };
+  for (const rawLine of text.split(/\r?\n/)) {
+    const m = rawLine.match(/^\s*([a-z_]+):\s*(.+)\s*$/);
+    if (!m) continue;
+    const envKey = map[m[1]];
+    if (!envKey) continue;
+    let value = m[2].trim().replace(/^["']|["']$/g, "");
+    if (value.startsWith("${") || value === "") continue;
+    if (!process.env[envKey]) process.env[envKey] = value;
+  }
+}
+
+loadScwConfigYaml();
 
 function findInWinGetPackages() {
   const local = process.env.LOCALAPPDATA;
@@ -91,10 +115,10 @@ const required = [
 const missing = required.filter((k) => !process.env[k]);
 if (missing.length > 0) {
   console.error(
-    `[scaleway-mcp] Variables manquantes dans .cursor/mcp.local.env : ${missing.join(", ")}`,
+    `[scaleway-mcp] Variables manquantes : ${missing.join(", ")}`,
   );
   console.error(
-    "[scaleway-mcp] Console Scaleway → IAM → API keys (+ org/project UUID). REGION typique : fr-par",
+    "[scaleway-mcp] Lance `scw login` (navigateur), ou renseigne SCW_* dans .cursor/mcp.local.env",
   );
   process.exit(1);
 }
