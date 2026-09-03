@@ -1,6 +1,6 @@
 /**
- * Applique uniquement la migration 0030 (absence_ingest_job) + vérifie la table.
- * Retry réseau (Scaleway parfois timeout depuis le poste local).
+ * Applique les migrations 0030 (absence_ingest_job) + 0031 (booked_by_user_id)
+ * + vérifie les tables. Retry réseau (Scaleway parfois timeout depuis le poste local).
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -35,8 +35,10 @@ if (!url) {
   process.exit(1);
 }
 
-const sqlFile = path.resolve(import.meta.dirname, "../drizzle/0030_absence_ingest_job.sql");
-const sqlText = readFileSync(sqlFile, "utf8");
+const sqlFiles = [
+  "../drizzle/0030_absence_ingest_job.sql",
+  "../drizzle/0031_reservation_booked_by_user.sql",
+].map((rel) => path.resolve(import.meta.dirname, rel));
 
 async function once() {
   const sql = postgres(url, {
@@ -46,7 +48,11 @@ async function once() {
     ssl: { rejectUnauthorized: false },
   });
   try {
-    await sql.unsafe(sqlText);
+    for (const sqlFile of sqlFiles) {
+      const sqlText = readFileSync(sqlFile, "utf8");
+      console.log("apply", path.basename(sqlFile));
+      await sql.unsafe(sqlText);
+    }
     const rows = await sql`
       SELECT column_name, data_type
       FROM information_schema.columns
@@ -55,6 +61,13 @@ async function once() {
     `;
     console.log("OK absence_ingest_job columns:", rows.length);
     for (const r of rows) console.log(" -", r.column_name, r.data_type);
+    const bookedCol = await sql`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'reservation_room_booking'
+        AND column_name = 'booked_by_user_id'
+    `;
+    console.log("OK booked_by_user_id:", bookedCol.length === 1);
     const nAbs = await sql`SELECT count(*)::int AS n FROM absence`;
     console.log("absence rows:", nAbs[0]?.n);
   } finally {
