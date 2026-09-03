@@ -25,21 +25,49 @@ export function resolveEleveFolderName(eleve: {
   return buildEleveFolderName(eleve.nom, eleve.prenom);
 }
 
+function expandTwoDigitYear(yy: number): number {
+  // Élèves / personnels : 00–50 → 2000–2050, sinon 1900+.
+  return yy <= 50 ? 2000 + yy : 1900 + yy;
+}
+
+function ymd(y: number, m: number, d: number): string {
+  if (m < 1 || m > 12 || d < 1 || d > 31 || y < 1900 || y > 2100) return "";
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
 /** Normalise une date de naissance vers AAAA-MM-JJ (Excel / Pronote / OCR). */
 export function normalizeEleveDateNaissance(raw: unknown): string {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 20000 && raw < 60000) {
+    const excelEpoch = Date.UTC(1899, 11, 30);
+    const ms = excelEpoch + Math.round(raw) * 86400000;
+    const dt = new Date(ms);
+    if (!Number.isNaN(dt.getTime())) {
+      return ymd(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+    }
+  }
   if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
-    const y = raw.getFullYear();
-    const m = String(raw.getMonth() + 1).padStart(2, "0");
-    const d = String(raw.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
+    return ymd(raw.getFullYear(), raw.getMonth() + 1, raw.getDate());
   }
   const s = String(raw ?? "").trim();
   if (!s) return "";
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  if (iso) return ymd(Number(iso[1]), Number(iso[2]), Number(iso[3]));
   const fr = s.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/);
   if (fr) {
-    return `${fr[3]}-${fr[2].padStart(2, "0")}-${fr[1].padStart(2, "0")}`;
+    // JJ/MM/AAAA (export FR)
+    return ymd(Number(fr[3]), Number(fr[2]), Number(fr[1]));
+  }
+  // Excel locale US avec raw:false → M/D/YY ou M/D/YYYY
+  const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+  if (us) {
+    const a = Number(us[1]);
+    const b = Number(us[2]);
+    const yRaw = Number(us[3]);
+    const y = us[3].length === 2 ? expandTwoDigitYear(yRaw) : yRaw;
+    if (a > 12 && b <= 12) return ymd(y, b, a); // D/M
+    if (b > 12 && a <= 12) return ymd(y, a, b); // M/D
+    // Ambigu : privilégier M/D (format produit par SheetJS raw:false en locale US)
+    return ymd(y, a, b);
   }
   const serial = Number(s.replace(",", "."));
   if (Number.isFinite(serial) && serial > 20000 && serial < 60000) {
@@ -47,10 +75,7 @@ export function normalizeEleveDateNaissance(raw: unknown): string {
     const ms = excelEpoch + Math.round(serial) * 86400000;
     const dt = new Date(ms);
     if (!Number.isNaN(dt.getTime())) {
-      const y = dt.getUTCFullYear();
-      const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
-      const d = String(dt.getUTCDate()).padStart(2, "0");
-      return `${y}-${m}-${d}`;
+      return ymd(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
     }
   }
   return "";

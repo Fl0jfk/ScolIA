@@ -322,6 +322,14 @@ function cellStr(row: unknown[], index?: number): string {
   return String(v).trim();
 }
 
+/** Valeur cellule telle quelle (nombre Excel, Date, ou texte) pour les dates. */
+function cellRaw(row: unknown[], index?: number): unknown {
+  if (index === undefined || index < 0) return "";
+  const v = row[index];
+  if (v === null || v === undefined) return "";
+  return v;
+}
+
 function normalizePersonPart(value: string): string {
   return String(value || "")
     .trim()
@@ -453,7 +461,7 @@ function parseRowsToEleves(
     if (p1Tel) entry.parent1Phone = p1Tel;
     const p2Tel = cellStr(row, colMap.parent2Phone);
     if (p2Tel) entry.parent2Phone = p2Tel;
-    const dateNaissance = normalizeEleveDateNaissance(cellStr(row, colMap.dateNaissance));
+    const dateNaissance = normalizeEleveDateNaissance(cellRaw(row, colMap.dateNaissance));
     if (dateNaissance) entry.dateNaissance = dateNaissance;
     const lieuNaissance = cellStr(row, colMap.lieuNaissance);
     if (lieuNaissance) entry.lieuNaissance = lieuNaissance;
@@ -497,6 +505,8 @@ export function parseElevesExcelBuffer(
 ): ElevesImportResult {
   let workbook: XLSX.WorkBook;
   try {
+    // cellDates:false + raw:true → numéros de série Excel (fiables pour date de naissance).
+    // raw:false produit souvent « M/D/YY » US illisible / ambigu.
     workbook = XLSX.read(buffer, { type: "array", cellDates: false });
   } catch {
     return { ok: false, error: "Fichier Excel illisible." };
@@ -509,7 +519,7 @@ export function parseElevesExcelBuffer(
   const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
     defval: "",
-    raw: false,
+    raw: true,
   }) as unknown[][];
 
   let resolvedSource = source;
