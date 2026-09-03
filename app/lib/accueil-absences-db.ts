@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { absence, eleve, enseignant, personnel } from "@/db/schema";
 import { loadAppConfig } from "@/app/lib/app-config";
@@ -11,6 +11,9 @@ import { saveAbsenceRecord } from "@/app/lib/absences-storage";
 import { computeStartEndAt, type AbsenceRecord, type AbsenceScope } from "@/app/lib/absences-types";
 import { notifyAbsenceCreated } from "@/app/lib/absences-workflow-mail";
 import { getAbsenceSyncPort } from "@/app/lib/absences-sync/port";
+import { listMembersFromDb } from "@/app/lib/members-db";
+import { normalizeIntranetRoles } from "@/app/lib/intranet-roles";
+import { hasRole } from "@/app/lib/intranet-role-utils";
 import {
   asCycle,
   asDateKey,
@@ -314,17 +317,76 @@ export async function declareAccueilAbsence(
 
   if (input.kind === "enseignant") {
     const db = getDb();
-    const [ens] = await db
+    const [ensById] = await db
       .select()
       .from(enseignant)
       .where(and(eq(enseignant.etablissementId, etablissementId), eq(enseignant.id, input.subjectId)))
       .limit(1);
-    if (!ens) throw new Error("Professeur introuvable.");
-    const displayName = `${ens.prenom} ${ens.nom}`.trim();
-    const siteLabel = await resolveProfSiteLabel(ens.secteur);
+
+    let enseignantId: string | null = ensById?.id ?? null;
+    let personnelId: string | null = null;
+    let displayName = ensById ? `${ensById.prenom} ${ensById.nom}`.trim() : "";
+    let siteLabel = ensById ? await resolveProfSiteLabel(ensById.secteur) : await resolveProfSiteLabel(null);
+    let subjectUserId: string | undefined;
+    let subjectEmail = ensById ? ensById.emailPro || ensById.email || "" : "";
+
+    if (!ensById) {
+      // Id = utilisateur Better-Auth (annuaire), pas une ligne du catalogue enseignant.
+      const members = await listMembersFromDb(etablissementId);
+      const member = members.find(
+        (m) =>
+          (m.externalUserId === input.subjectId || m.userId === input.subjectId) &&
+          hasRole(normalizeIntranetRoles(m.roles), "professeur"),
+      );
+      if (!member) throw new Error("Professeur introuvable.");
+
+      subjectUserId = member.externalUserId;
+      subjectEmail = member.email || "";
+      displayName =
+        (member.displayName || "").trim() ||
+        `${member.firstName || ""} ${member.lastName || ""}`.trim() ||
+        member.email;
+
+      const email = member.email.trim().toLowerCase();
+      if (email) {
+        const [ensByEmail] = await db
+          .select()
+          .from(enseignant)
+          .where(
+            and(
+              eq(enseignant.etablissementId, etablissementId),
+              sql`(lower(coalesce(${enseignant.email}, '')) = ${email} or lower(coalesce(${enseignant.emailPro}, '')) = ${email})`,
+            ),
+          )
+          .limit(1);
+        if (ensByEmail) {
+          enseignantId = ensByEmail.id;
+          siteLabel = await resolveProfSiteLabel(ensByEmail.secteur);
+          if (!subjectEmail) subjectEmail = ensByEmail.emailPro || ensByEmail.email || "";
+        }
+      }
+
+      const [pers] = await db
+        .select()
+        .from(personnel)
+        .where(
+          and(
+            eq(personnel.etablissementId, etablissementId),
+            eq(personnel.externalUserId, member.externalUserId),
+            eq(personnel.active, true),
+          ),
+        )
+        .limit(1);
+      if (pers) {
+        personnelId = pers.id;
+        if (!subjectEmail) subjectEmail = pers.email || pers.emailPro || "";
+      }
+    }
+
     const clash = await findRhOverlap({
       etablissementId,
-      enseignantId: ens.id,
+      enseignantId,
+      personnelId,
       displayName,
       startDate: period.startDate,
       endDate: period.endDate,
@@ -337,8 +399,11 @@ export async function declareAccueilAbsence(
       scope: "professeur",
       displayName,
       siteLabel,
-      enseignantId: ens.id,
-      subjectEmail: ens.emailPro || ens.email || "",
+      enseignantId,
+      personnelId,
+      subjectUserId,
+      subjectEmail,
+      subjectRoles: ["professeur"],
       period,
       motif,
       actor: input.actor,
@@ -355,7 +420,13 @@ export async function declareAccueilAbsence(
   if (!pers) throw new Error("Personnel introuvable.");
   const displayName =
     pers.displayName?.trim() || `${pers.firstName} ${pers.lastName}`.trim();
-  const isProf = pers.category === "professeur";
+  const categoryNorm = String(pers.category || "")
+    .trim()
+    .toLowerCase();
+  const isProf =
+    categoryNorm === "professeur" ||
+    categoryNorm === "enseignant" ||
+    categoryNorm === "teacher";
   const scope: AbsenceScope = isProf ? "professeur" : "ogec";
   const siteLabel = isProf ? await resolveProfSiteLabel(pers.establishmentLabel) : null;
   const clash = await findRhOverlap({

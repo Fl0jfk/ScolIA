@@ -58,6 +58,9 @@ function canonicalIntranetRole(raw: string): string | null {
     return "surveillant";
   }
   if (n.includes("internat")) return "internat";
+  if (n.includes("enseign") || n === "teacher" || n.includes("professeur") || n === "prof") {
+    return "professeur";
+  }
   return null;
 }
 

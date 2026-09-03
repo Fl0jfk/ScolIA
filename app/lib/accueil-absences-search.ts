@@ -14,8 +14,12 @@ import {
   sqlPersonNameMatches,
   escapePersonSearchLike,
   personSearchTokens,
+  personMatchesSearchQuery,
   sqlFoldPersonText,
 } from "@/app/lib/person-name-search";
+import { listMembersFromDb } from "@/app/lib/members-db";
+import { normalizeIntranetRoles } from "@/app/lib/intranet-roles";
+import { hasRole } from "@/app/lib/intranet-role-utils";
 
 const MIN_QUERY = 3;
 const LIMIT_PER_KIND = 12;
@@ -90,7 +94,32 @@ export async function searchAccueilPersonnes(
     .orderBy(asc(enseignant.nom), asc(enseignant.prenom))
     .limit(LIMIT_PER_KIND);
 
-  const [eleves, enseignants, staff] = await Promise.all([
+  const membersQuery = listMembersFromDb(etablissementId).then(
+    (rows) =>
+      rows
+        .filter(
+          (m) =>
+            Boolean(m.externalUserId) &&
+            hasRole(normalizeIntranetRoles(m.roles), "professeur"),
+        )
+        .filter((m) =>
+          personMatchesSearchQuery(
+            {
+              nom: m.lastName,
+              prenom: m.firstName,
+              extras: [m.displayName, m.email],
+            },
+            needle,
+          ),
+        )
+        .slice(0, LIMIT_PER_KIND),
+    (err: unknown) => {
+      console.error("[accueil-absences-search] members", err);
+      return [] as Awaited<ReturnType<typeof listMembersFromDb>>;
+    },
+  );
+
+  const [eleves, enseignants, staff, profMembers] = await Promise.all([
     db
       .select({
         id: eleve.id,
@@ -138,6 +167,7 @@ export async function searchAccueilPersonnes(
       )
       .orderBy(asc(personnel.lastName), asc(personnel.firstName))
       .limit(LIMIT_PER_KIND),
+    membersQuery,
   ]);
 
   const hits: AccueilSearchHit[] = [];
@@ -159,7 +189,7 @@ export async function searchAccueilPersonnes(
     });
   }
 
-  // Professeurs du catalogue enseignant en priorité (badge / circuit direction).
+  // 1) Catalogue enseignant (OneDrive / référentiel).
   for (const ens of enseignants) {
     const key = hitKey(ens.nom, ens.prenom, ens.emailPro || ens.email);
     if (seen.has(key)) continue;
@@ -177,12 +207,33 @@ export async function searchAccueilPersonnes(
     });
   }
 
+  // 2) Annuaire Better-Auth (source réelle des professeurs en établissement).
+  for (const m of profMembers) {
+    const nom = (m.lastName || "").trim() || (m.displayName || "").trim() || m.email;
+    const prenom = (m.firstName || "").trim();
+    const key = hitKey(nom, prenom, m.email);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const displayName =
+      (m.displayName || "").trim() || `${prenom} ${nom}`.trim() || m.email;
+    hits.push({
+      kind: "enseignant",
+      id: m.externalUserId,
+      nom,
+      prenom,
+      displayName,
+      subtitle: "Professeur",
+      cycle: null,
+      scope: "professeur",
+    });
+  }
+
+  // 3) Personnel RH — OGEC ; professeurs RH seulement s’ils n’étaient pas déjà trouvés.
   for (const p of staff) {
     const nom = p.lastName || p.displayName;
     const prenom = p.firstName;
     const key = hitKey(nom, prenom, p.email);
     const scope = personnelScope(p.category);
-    // Déjà présent via le catalogue enseignant → ne pas doublonner en OGEC.
     if (seen.has(key)) continue;
     seen.add(key);
     const cycle = asCycle(p.establishmentLabel);
