@@ -7,8 +7,8 @@
     },
     "fetch": {
       "type": "stdio",
-      "command": "uvx",
-      "args": ["mcp-server-fetch"]
+      "command": "node",
+      "args": ["${workspaceFolder}/.cursor/run-fetch-mcp.mjs"]
     },
     "mistral": {
       "type": "stdio",
@@ -18,13 +18,8 @@
     },
     "scaleway": {
       "type": "stdio",
-      "command": "scw",
-      "args": [
-        "mcp",
-        "server",
-        "serve",
-        "namespaces=container,registry,object,rdb,tem,cockpit,iam"
-      ]
+      "command": "node",
+      "args": ["${workspaceFolder}/.cursor/run-scaleway-mcp.mjs"]
     },
     "postgres": {
       "type": "stdio",
