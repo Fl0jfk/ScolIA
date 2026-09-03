@@ -220,15 +220,31 @@ export async function ensureReservationBookingsMigratedFromCollection(
 ): Promise<RoomReservationRow[]> {
   const existing = await listReservationBookingsFromDb(etablissementId);
   if (existing.length > 0) return existing;
-  const { getCollectionSingleton } = await import("@/app/lib/ent-collection-db");
-  const legacy = await getCollectionSingleton<RoomReservationRow[] | Record<string, unknown>>(
+  const { getCollectionRecord, getCollectionSingleton } = await import(
+    "@/app/lib/ent-collection-db"
+  );
+  const legacySingleton = await getCollectionSingleton<RoomReservationRow[] | Record<string, unknown>>(
     etablissementId,
     "reservation-rooms__reservations",
+  );
+  const legacyRecord = await getCollectionRecord<RoomReservationRow[] | Record<string, unknown>>(
+    etablissementId,
+    "reservation-rooms",
+    "reservations",
   );
   const { normalizeRoomReservationsList } = await import(
     "@/app/lib/prof-room-reservations-normalize"
   );
-  const rows = normalizeRoomReservationsList(legacy);
+  const rows = [
+    ...normalizeRoomReservationsList(legacySingleton),
+    ...normalizeRoomReservationsList(
+      Array.isArray(legacyRecord)
+        ? legacyRecord
+        : legacyRecord && "__root" in legacyRecord
+          ? (legacyRecord as { __root: unknown }).__root
+          : legacyRecord,
+    ),
+  ];
   if (rows.length === 0) return [];
   await upsertReservationBookingsInDb(etablissementId, rows);
   return listReservationBookingsFromDb(etablissementId);

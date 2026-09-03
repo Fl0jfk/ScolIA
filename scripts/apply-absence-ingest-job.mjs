@@ -1,6 +1,6 @@
 /**
- * Applique les migrations 0030 (absence_ingest_job) + 0031 (booked_by_user_id)
- * + vérifie les tables. Retry réseau (Scaleway parfois timeout depuis le poste local).
+ * Applique 0025 (tables salles) + 0030 (absence_ingest_job) + 0031 (booked_by_user_id).
+ * Idempotent. Retry réseau.
  */
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -36,9 +36,14 @@ if (!url) {
 }
 
 const sqlFiles = [
+  "../drizzle/0025_reservation_rooms_typed.sql",
   "../drizzle/0030_absence_ingest_job.sql",
   "../drizzle/0031_reservation_booked_by_user.sql",
 ].map((rel) => path.resolve(import.meta.dirname, rel));
+
+function stripBreakpoints(sqlText) {
+  return sqlText.replace(/-->\s*statement-breakpoint\s*/g, "\n");
+}
 
 async function once() {
   const sql = postgres(url, {
@@ -49,27 +54,47 @@ async function once() {
   });
   try {
     for (const sqlFile of sqlFiles) {
-      const sqlText = readFileSync(sqlFile, "utf8");
+      const sqlText = stripBreakpoints(readFileSync(sqlFile, "utf8"));
       console.log("apply", path.basename(sqlFile));
       await sql.unsafe(sqlText);
     }
-    const rows = await sql`
-      SELECT column_name, data_type
+    const ingestCols = await sql`
+      SELECT count(*)::int AS n
       FROM information_schema.columns
       WHERE table_name = 'absence_ingest_job'
-      ORDER BY ordinal_position
     `;
-    console.log("OK absence_ingest_job columns:", rows.length);
-    for (const r of rows) console.log(" -", r.column_name, r.data_type);
     const bookedCol = await sql`
       SELECT column_name
       FROM information_schema.columns
       WHERE table_name = 'reservation_room_booking'
         AND column_name = 'booked_by_user_id'
     `;
-    console.log("OK booked_by_user_id:", bookedCol.length === 1);
+    const tables = await sql`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN ('absence_ingest_job', 'reservation_room', 'reservation_room_booking')
+      ORDER BY table_name
+    `;
     const nAbs = await sql`SELECT count(*)::int AS n FROM absence`;
-    console.log("absence rows:", nAbs[0]?.n);
+    const nJobs = await sql`SELECT count(*)::int AS n FROM absence_ingest_job`;
+    const nRooms = await sql`SELECT count(*)::int AS n FROM reservation_room`;
+    const nBook = await sql`SELECT count(*)::int AS n FROM reservation_room_booking`;
+    console.log(
+      JSON.stringify(
+        {
+          tables: tables.map((t) => t.table_name),
+          absence_ingest_job_columns: ingestCols[0]?.n,
+          booked_by_user_id: bookedCol.length === 1,
+          absence_rows: nAbs[0]?.n,
+          ingest_jobs: nJobs[0]?.n,
+          reservation_room_rows: nRooms[0]?.n,
+          reservation_room_booking_rows: nBook[0]?.n,
+        },
+        null,
+        2,
+      ),
+    );
   } finally {
     await sql.end({ timeout: 5 });
   }
