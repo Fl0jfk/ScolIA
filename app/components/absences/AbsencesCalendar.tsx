@@ -128,9 +128,15 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
     try {
       setLoading(true);
       const res = await fetch("/api/absences?calendar=true", { cache: "no-store" });
-      if (!res.ok) throw new Error("Chargement des absences impossible.");
-      const data = (await res.json()) as AbsenceRecord[];
-      setItems(data || []);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          data && typeof data === "object" && data && "error" in data && typeof (data as { error?: unknown }).error === "string"
+            ? (data as { error: string }).error
+            : "Chargement des absences impossible.",
+        );
+      }
+      setItems(Array.isArray(data) ? data : []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur de chargement.");
     } finally {
