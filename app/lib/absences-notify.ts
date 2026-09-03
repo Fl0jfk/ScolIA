@@ -36,11 +36,15 @@ export async function loadAbsenceValidationAttachments(
     const key = docKeys[i]!;
     if (seen.has(key)) continue;
     seen.add(key);
-    const buf = await getObjectBytes(key);
-    if (!buf?.length) continue;
-    const basename = key.split("/").pop() || `document-${i + 1}.pdf`;
-    const filename = safeFilename(basename, `document-${i + 1}.pdf`);
-    out.push({ filename, content: buf, contentType: guessContentType(filename) });
+    try {
+      const buf = await getObjectBytes(key);
+      if (!buf?.length) continue;
+      const basename = key.split("/").pop() || `document-${i + 1}.pdf`;
+      const filename = safeFilename(basename, `document-${i + 1}.pdf`);
+      out.push({ filename, content: buf, contentType: guessContentType(filename) });
+    } catch (e) {
+      console.error(`Absences mail attachment (doc ${key}):`, e);
+    }
   }
 
   const justUrl = record.justification?.fileUrl?.trim();

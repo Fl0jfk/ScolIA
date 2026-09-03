@@ -120,7 +120,16 @@ export async function GET(req: Request) {
     return NextResponse.json(payload);
   } catch (error) {
     console.error("Absences list error:", error);
-    return NextResponse.json({ error: "Erreur récupération absences" }, { status: 500 });
+    const detail = error instanceof Error ? error.message : "";
+    return NextResponse.json(
+      {
+        error:
+          detail && /toISOString|date|iso|postgres|absences/i.test(detail)
+            ? `Erreur récupération absences (${detail})`
+            : "Erreur récupération absences",
+      },
+      { status: 500 },
+    );
   }
 }
 
@@ -302,7 +311,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, id: saved.id });
   } catch (error) {
     console.error("Absences create error:", error);
-    return NextResponse.json({ error: "Erreur création absence" }, { status: 500 });
+    const detail = error instanceof Error ? error.message : "";
+    return NextResponse.json(
+      {
+        error:
+          detail && /postgres|absences|établi|etablissement|date|iso|requis/i.test(detail)
+            ? detail
+            : "Erreur création absence",
+      },
+      { status: 500 },
+    );
   }
 }
 
@@ -448,14 +466,7 @@ export async function PATCH(req: Request) {
           },
         ],
       };
-
-      const { recipients } = await notifyAbsenceValidated(updated);
-      validationRecipients = recipients;
-      try {
-        await notifyAbsenceCreatorValidated(updated);
-      } catch (mailErr) {
-        console.error("Absences creator validation mail error:", mailErr);
-      }
+      // Mails après persistance — un échec SMTP / config ne doit pas bloquer la validation.
     } else if (action === "REFUSER") {
       const closedAt = new Date().toISOString();
       updated = {
@@ -667,6 +678,21 @@ export async function PATCH(req: Request) {
 
     await saveAbsenceRecord(updated);
 
+    if (action === "VALIDER") {
+      try {
+        const { recipients } = await notifyAbsenceValidated(updated);
+        validationRecipients = recipients;
+      } catch (mailErr) {
+        console.error("Absences validation mail error:", mailErr);
+        validationRecipients = [];
+      }
+      try {
+        await notifyAbsenceCreatorValidated(updated);
+      } catch (mailErr) {
+        console.error("Absences creator validation mail error:", mailErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       ...(action === "VALIDER"
@@ -678,7 +704,16 @@ export async function PATCH(req: Request) {
     });
   } catch (error) {
     console.error("Absences patch error:", error);
-    return NextResponse.json({ error: "Erreur mise à jour absence" }, { status: 500 });
+    const detail = error instanceof Error ? error.message : "";
+    return NextResponse.json(
+      {
+        error:
+          detail && /postgres|absences|établi|etablissement|date|iso/i.test(detail)
+            ? detail
+            : "Erreur mise à jour absence",
+      },
+      { status: 500 },
+    );
   }
 }
 

@@ -210,9 +210,15 @@ export default function AbsencesPageClient({
     try {
       setLoading(true);
       const res = await fetch("/api/absences");
-      if (!res.ok) throw new Error("Chargement impossible");
-      const data = await res.json();
-      setItems(data || []);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(
+          data && typeof data === "object" && "error" in data && typeof data.error === "string"
+            ? data.error
+            : "Chargement impossible",
+        );
+      }
+      setItems(Array.isArray(data) ? data : []);
     } catch (e: any) { setError(e?.message || "Erreur de chargement.");
     } finally { setLoading(false);
     }
@@ -305,8 +311,14 @@ export default function AbsencesPageClient({
             fileType: justificationFile.type || "application/octet-stream",
           }),
         });
-        const presignPayload = await presignRes.json();
-        if (!presignRes.ok || !presignPayload?.uploadUrl || !presignPayload?.fileUrl) { throw new Error("Impossible de préparer l'upload du justificatif.")}
+        const presignPayload = (await presignRes.json().catch(() => null)) as {
+          uploadUrl?: string;
+          fileUrl?: string;
+          error?: string;
+        } | null;
+        if (!presignRes.ok || !presignPayload?.uploadUrl || !presignPayload?.fileUrl) {
+          throw new Error(presignPayload?.error || "Impossible de préparer l'upload du justificatif.");
+        }
         await fetch(presignPayload.uploadUrl, {
           method: "PUT",
           body: justificationFile,
@@ -435,8 +447,14 @@ export default function AbsencesPageClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fileName: file.name, fileType: file.type || "application/octet-stream" }),
       });
-      const presignPayload = await presignRes.json();
-      if (!presignRes.ok || !presignPayload?.uploadUrl || !presignPayload?.fileUrl) { throw new Error("Impossible de préparer l'upload du justificatif.")}
+      const presignPayload = (await presignRes.json().catch(() => null)) as {
+        uploadUrl?: string;
+        fileUrl?: string;
+        error?: string;
+      } | null;
+      if (!presignRes.ok || !presignPayload?.uploadUrl || !presignPayload?.fileUrl) {
+        throw new Error(presignPayload?.error || "Impossible de préparer l'upload du justificatif.");
+      }
       await fetch(presignPayload.uploadUrl, {
         method: "PUT",
         body: file,

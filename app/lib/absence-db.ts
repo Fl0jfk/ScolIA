@@ -6,6 +6,11 @@ import { absence, absenceHistory } from "@/db/schema";
 import type { AbsenceRecord } from "@/app/lib/absences-types";
 import { normalizeAbsenceRecord } from "@/app/lib/absences-types";
 import {
+  toAbsenceDateOnly,
+  toAbsenceIsoTimestamp,
+  toAbsenceIsoTimestampOrNull,
+} from "@/app/lib/absence-db-dates";
+import {
   isEntCoreDbEnabled,
   resolveCurrentEtablissementId,
 } from "@/app/lib/ent-core-db";
@@ -14,28 +19,6 @@ function parseTs(raw: string | null | undefined): Date | null {
   if (!raw) return null;
   const d = new Date(raw);
   return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function toDateOnly(raw: string | Date | null | undefined): string {
-  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
-    if (
-      raw.getUTCHours() === 0 &&
-      raw.getUTCMinutes() === 0 &&
-      raw.getUTCSeconds() === 0 &&
-      raw.getUTCMilliseconds() === 0
-    ) {
-      const y = raw.getUTCFullYear();
-      const m = String(raw.getUTCMonth() + 1).padStart(2, "0");
-      const d = String(raw.getUTCDate()).padStart(2, "0");
-      return `${y}-${m}-${d}`;
-    }
-    return raw.toISOString().slice(0, 10);
-  }
-  const s = String(raw ?? "").trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
-  return toDateOnly(d);
 }
 
 export function absenceRecordToRows(etablissementId: string, record: AbsenceRecord) {
@@ -61,8 +44,8 @@ export function absenceRecordToRows(etablissementId: string, record: AbsenceReco
     scope: r.data.scope,
     siteLabel: r.data.etablissement ?? null,
     periodType: r.data.periodType ?? null,
-    startDate: toDateOnly(r.data.startDate),
-    endDate: toDateOnly(r.data.endDate),
+    startDate: toAbsenceDateOnly(r.data.startDate),
+    endDate: toAbsenceDateOnly(r.data.endDate),
     startTime: r.data.startTime ?? null,
     endTime: r.data.endTime ?? null,
     startAt,
@@ -107,10 +90,12 @@ export function rowsToAbsenceRecord(
   historyRows: (typeof absenceHistory.$inferSelect)[],
 ): AbsenceRecord {
   const sorted = [...historyRows].sort((a, b) => a.sortOrder - b.sortOrder);
+  const createdAt = toAbsenceIsoTimestamp(main.createdAt as string | Date);
+  const updatedAt = toAbsenceIsoTimestamp(main.updatedAt as string | Date, createdAt);
   return normalizeAbsenceRecord({
     id: main.id,
-    createdAt: main.createdAt.toISOString(),
-    updatedAt: main.updatedAt.toISOString(),
+    createdAt,
+    updatedAt,
     source: main.source as AbsenceRecord["source"],
     displayName: main.displayName,
     calendarVisible: main.calendarVisible,
@@ -124,12 +109,12 @@ export function rowsToAbsenceRecord(
       scope: main.scope as AbsenceRecord["data"]["scope"],
       etablissement: main.siteLabel,
       periodType: main.periodType as AbsenceRecord["data"]["periodType"],
-      startDate: toDateOnly(main.startDate),
-      endDate: toDateOnly(main.endDate),
+      startDate: toAbsenceDateOnly(main.startDate as string | Date),
+      endDate: toAbsenceDateOnly(main.endDate as string | Date),
       startTime: main.startTime,
       endTime: main.endTime,
-      startAt: main.startAt.toISOString(),
-      endAt: main.endAt.toISOString(),
+      startAt: toAbsenceIsoTimestamp(main.startAt as string | Date, createdAt),
+      endAt: toAbsenceIsoTimestamp(main.endAt as string | Date, createdAt),
       reason: main.reason,
       details: main.details,
       sourceDocument: main.sourceDocument ?? undefined,
@@ -138,28 +123,35 @@ export function rowsToAbsenceRecord(
     },
     workflowStatus: main.workflowStatus as AbsenceRecord["workflowStatus"],
     managerDecision: main.managerDecision as AbsenceRecord["managerDecision"],
-    closedAt: main.closedAt?.toISOString() ?? null,
+    closedAt: toAbsenceIsoTimestampOrNull(main.closedAt as string | Date | null),
     justification:
       main.justificationFileName || main.justificationFileUrl
         ? {
             fileName: main.justificationFileName ?? "",
             fileUrl: main.justificationFileUrl ?? "",
-            uploadedAt: main.justificationUploadedAt?.toISOString() ?? "",
+            uploadedAt:
+              toAbsenceIsoTimestampOrNull(
+                main.justificationUploadedAt as string | Date | null,
+              ) ?? "",
             uploadedBy: main.justificationUploadedBy ?? "",
           }
         : null,
     managerNote: main.managerNote ?? undefined,
     hoursTreatment: (main.hoursTreatment as AbsenceRecord["hoursTreatment"]) ?? null,
-    justificatifRelanceAt: main.justificatifRelanceAt?.toISOString() ?? null,
+    justificatifRelanceAt: toAbsenceIsoTimestampOrNull(
+      main.justificatifRelanceAt as string | Date | null,
+    ),
     privacyReasonRedacted: main.privacyReasonRedacted,
-    privacyDocumentsPurgedAt: main.privacyDocumentsPurgedAt?.toISOString() ?? null,
+    privacyDocumentsPurgedAt: toAbsenceIsoTimestampOrNull(
+      main.privacyDocumentsPurgedAt as string | Date | null,
+    ),
     personnelId: main.personnelId ?? null,
     enseignantId: main.enseignantId ?? null,
-    adminTreatedAt: main.adminTreatedAt?.toISOString() ?? null,
+    adminTreatedAt: toAbsenceIsoTimestampOrNull(main.adminTreatedAt as string | Date | null),
     adminTreatedBy: main.adminTreatedBy ?? null,
     adminNote: main.adminNote ?? null,
     history: sorted.map((h) => ({
-      at: h.at.toISOString(),
+      at: toAbsenceIsoTimestamp(h.at as string | Date, updatedAt),
       by: h.by,
       action: h.action,
       ...(h.note ? { note: h.note } : {}),
@@ -301,14 +293,9 @@ export async function replaceAbsencesInDb(
       and(eq(absence.etablissementId, etablissementId), ne(absence.source, "accueil")),
     );
 
+  // Upsert unitaire pour tout le monde (évite conflit PK si une ligne survit au DELETE).
   for (const r of records) {
-    if (r.source === "accueil") {
-      await upsertAbsenceInDb(etablissementId, r);
-      continue;
-    }
-    const { main, history } = absenceRecordToRows(etablissementId, r);
-    await db.insert(absence).values(main);
-    if (history.length > 0) await db.insert(absenceHistory).values(history);
+    await upsertAbsenceInDb(etablissementId, r);
   }
   return records.length;
 }

@@ -119,7 +119,13 @@ export async function notifyAbsenceCreated(input: {
 export async function notifyAbsenceValidated(
   record: AbsenceRecord,
 ): Promise<{ sent: boolean; recipients: string[] }> {
-  const recipients = await resolveAbsenceValidationRecipients(record);
+  let recipients: string[] = [];
+  try {
+    recipients = await resolveAbsenceValidationRecipients(record);
+  } catch (err) {
+    console.error("Absences validation recipients error:", err);
+    return { sent: false, recipients: [] };
+  }
   const scope = resolveAbsenceScope(record);
   if (recipients.length === 0) {
     if (scope === "professeur") {
@@ -130,7 +136,13 @@ export async function notifyAbsenceValidated(
     return { sent: false, recipients };
   }
 
-  const mail = await getMailer();
+  let mail: Awaited<ReturnType<typeof getMailer>> = null;
+  try {
+    mail = await getMailer();
+  } catch (err) {
+    console.error("Absences validation mailer error:", err);
+    return { sent: false, recipients };
+  }
   if (!mail) return { sent: false, recipients };
 
   const fromAccueil = record.source === "accueil";
