@@ -2,16 +2,18 @@ import { NextResponse, NextRequest } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { isListedProfRoomAdmin, isProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
-import { getJson, putJson } from "@/app/lib/s3-storage";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { reservationWhoLabel } from "@/app/lib/prof-room-reservation-label";
+import {
+  listReservationBookings,
+  saveReservationBookings,
+} from "@/app/lib/reservation-rooms-storage";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
   sendMailWithTimeout,
 } from "@/app/lib/tenant-mail";
-
-const RESERVATIONS_KEY = "reservation-rooms/reservations.json";
+import type { RoomReservationRow } from "@/app/lib/prof-room-reservations-normalize";
 
 function ymdLocal(d: Date): string {
   const y = d.getFullYear();
@@ -55,12 +57,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const hit = await getJson<unknown[]>(RESERVATIONS_KEY);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let existing: any[] = Array.isArray(hit?.data) ? hit.data : [];
+    const existing: RoomReservationRow[] = await listReservationBookings();
     const profCfg = (await loadAppConfig()).profRoom;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const newReservationsAdded: any[] = [];
+    const newReservationsAdded: RoomReservationRow[] = [];
     const conflictLabels: string[] = [];
     let skippedBeyondHorizon = 0;
     const sessionUser = await safeCurrentUser();
@@ -176,7 +175,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await putJson(RESERVATIONS_KEY, existing);
+    await saveReservationBookings(newReservationsAdded);
 
     let mailSent = false;
     let mailSkipReason: string | null = null;

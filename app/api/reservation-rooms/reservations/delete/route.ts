@@ -1,14 +1,16 @@
 import { NextResponse, NextRequest } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { resolveTenantCurrentUser } from "@/app/lib/tenant-session";
-import { getJson, putJson } from "@/app/lib/s3-storage";
+import {
+  listReservationBookings,
+  saveReservationBookings,
+} from "@/app/lib/reservation-rooms-storage";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
   sendMailWithTimeout,
 } from "@/app/lib/tenant-mail";
-
-const RESERVATIONS_KEY = "reservation-rooms/reservations.json";
+import type { RoomReservationRow } from "@/app/lib/prof-room-reservations-normalize";
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,11 +22,8 @@ export async function POST(req: NextRequest) {
     const firstNameAdmin = user?.firstName ?? "";
     const { id, groupId, deleteAllSeries, reason, userEmail, startsAt } = await req.json();
 
-    const hit = await getJson<unknown[]>(RESERVATIONS_KEY);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let existing: any[] = Array.isArray(hit?.data) ? hit.data : [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const targetReservations: any[] = [];
+    let existing: RoomReservationRow[] = await listReservationBookings();
+    const targetReservations: RoomReservationRow[] = [];
     const cancelledBy = `${firstNameAdmin} ${lastNameAdmin}`.trim() || "admin";
     const cancelReason = String(reason || "Annulation").trim() || "Annulation";
 
@@ -61,7 +60,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Persistance d’abord — la réponse ne dépend pas du mail.
-    await putJson(RESERVATIONS_KEY, existing);
+    await saveReservationBookings(existing);
 
     // Mail en best-effort (ne doit jamais faire échouer la suppression côté client).
     let mailSent = false;

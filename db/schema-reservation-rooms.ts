@@ -46,6 +46,7 @@ export const reservationRoomBooking = pgTable(
     lastName: text("last_name").notNull().default(""),
     bookedByFirstName: text("booked_by_first_name").notNull().default(""),
     bookedByLastName: text("booked_by_last_name").notNull().default(""),
+    bookedByUserId: text("booked_by_user_id"),
     bookedForOther: boolean("booked_for_other").notNull().default(false),
     email: text("email"),
     subject: text("subject"),

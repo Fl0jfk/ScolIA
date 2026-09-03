@@ -3,7 +3,11 @@ import { loadAppConfig } from "@/app/lib/app-config";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { isListedProfRoomAdmin, isProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
 import { reservationWhoLabel } from "@/app/lib/prof-room-reservation-label";
-import { getJson, putJson } from "@/app/lib/s3-storage";
+import {
+  listReservationBookings,
+  listReservationRooms,
+  saveReservationBookings,
+} from "@/app/lib/reservation-rooms-storage";
 import {
   choicesResult,
   loadRoomCatalog,
@@ -16,9 +20,6 @@ import {
   WIZARD_DATE_OTHER,
 } from "@/app/lib/brain-ai/wizard";
 import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
-
-const ROOMS_KEY = "reservation-rooms/rooms.json";
-const RESERVATIONS_KEY = "reservation-rooms/reservations.json";
 
 type RoomRow = { id?: string; name?: string; label?: string; capacity?: number; [k: string]: unknown };
 type ReservationRow = {
@@ -82,15 +83,11 @@ function assertFutureOrTodayDate(date: string): BrainToolResult | null {
 }
 
 async function loadRooms(): Promise<RoomRow[]> {
-  const hit = await getJson<{ rooms?: RoomRow[] } | RoomRow[]>(ROOMS_KEY);
-  const data = hit?.data;
-  if (Array.isArray(data)) return data;
-  return (data as { rooms?: RoomRow[] })?.rooms || [];
+  return listReservationRooms() as Promise<RoomRow[]>;
 }
 
 async function loadReservations(): Promise<ReservationRow[]> {
-  const hit = await getJson<ReservationRow[]>(RESERVATIONS_KEY);
-  return Array.isArray(hit?.data) ? hit.data : [];
+  return (await listReservationBookings()) as ReservationRow[];
 }
 
 function normalizeHours(raw: unknown): number[] {
@@ -583,7 +580,7 @@ export async function handleCreateReservation(
     return { ok: false, error: parts.join(" ") || "Aucun créneau disponible." };
   }
 
-  await putJson(RESERVATIONS_KEY, existing);
+  await saveReservationBookings(newReservationsAdded as import("@/app/lib/prof-room-reservations-normalize").RoomReservationRow[]);
   return {
     ok: true,
     data: {

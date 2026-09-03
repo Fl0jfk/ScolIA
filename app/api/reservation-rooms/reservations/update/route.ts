@@ -2,29 +2,13 @@ import { NextResponse, NextRequest } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { isListedProfRoomAdmin } from "@/app/lib/prof-room-auth";
-import { getJson, putJson } from "@/app/lib/s3-storage";
+import {
+  listReservationBookings,
+  saveReservationBookings,
+} from "@/app/lib/reservation-rooms-storage";
+import type { RoomReservationRow } from "@/app/lib/prof-room-reservations-normalize";
 
-const RESERVATIONS_KEY = "reservation-rooms/reservations.json";
-
-type ReservationRow = {
-  id: string;
-  roomId?: string;
-  groupId?: string;
-  status?: string;
-  startsAt: string;
-  endsAt: string;
-  subject?: string;
-  className?: string;
-  comment?: string;
-  userId?: string;
-  email?: string;
-  firstName?: string;
-  lastName?: string;
-  bookedByUserId?: string;
-  bookedByFirstName?: string;
-  bookedByLastName?: string;
-  bookedForOther?: boolean;
-};
+type ReservationRow = RoomReservationRow;
 
 export async function POST(req: NextRequest) {
   try {
@@ -65,8 +49,7 @@ export async function POST(req: NextRequest) {
     }
 
     const hour = Number(newHour);
-    const hit = await getJson<ReservationRow[]>(RESERVATIONS_KEY);
-    const existing: ReservationRow[] = Array.isArray(hit?.data) ? hit.data : [];
+    const existing: ReservationRow[] = await listReservationBookings();
     const originalRes = existing.find((r) => r.id === id);
     if (!originalRes) {
       return NextResponse.json({ error: "Réservation introuvable." }, { status: 404 });
@@ -175,7 +158,7 @@ export async function POST(req: NextRequest) {
       };
     }
 
-    await putJson(RESERVATIONS_KEY, existing);
+    await saveReservationBookings(existing);
     return NextResponse.json({
       success: true,
       reassigned: Boolean(ownershipPatch),

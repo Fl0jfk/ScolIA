@@ -120,6 +120,14 @@ async function tryTypedGet<T>(
       return undefined;
     }
   }
+  if (relativePath === "reservation-rooms/rooms.json") {
+    const { listReservationRooms } = await import("@/app/lib/reservation-rooms-storage");
+    return { data: { rooms: await listReservationRooms() } as T, key };
+  }
+  if (relativePath === "reservation-rooms/reservations.json") {
+    const { listReservationBookings } = await import("@/app/lib/reservation-rooms-storage");
+    return { data: (await listReservationBookings()) as T, key };
+  }
   return undefined;
 }
 
@@ -201,6 +209,23 @@ async function tryTypedPut(relativePath: string, data: unknown): Promise<string 
     const { saveSharedPersonnelDocuments } = await import("@/app/lib/personnel-storage");
     await saveSharedPersonnelDocuments(
       data as import("@/app/lib/personnel-types").SharedPersonnelDocument[],
+    );
+    return key;
+  }
+  if (relativePath === "reservation-rooms/rooms.json") {
+    const { saveReservationRooms } = await import("@/app/lib/reservation-rooms-storage");
+    const rooms = Array.isArray(data)
+      ? data
+      : Array.isArray((data as { rooms?: unknown[] })?.rooms)
+        ? (data as { rooms: unknown[] }).rooms
+        : [];
+    await saveReservationRooms(rooms as import("@/app/lib/reservation-rooms-db").ReservationRoomRow[]);
+    return key;
+  }
+  if (relativePath === "reservation-rooms/reservations.json" && Array.isArray(data)) {
+    const { saveReservationBookings } = await import("@/app/lib/reservation-rooms-storage");
+    await saveReservationBookings(
+      data as import("@/app/lib/prof-room-reservations-normalize").RoomReservationRow[],
     );
     return key;
   }

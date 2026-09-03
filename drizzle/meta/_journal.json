@@ -218,6 +218,13 @@
       "when": 1787585000000,
       "tag": "0030_absence_ingest_job",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1787590000000,
+      "tag": "0031_reservation_booked_by_user",
+      "breakpoints": true
     }
   ]
 }
