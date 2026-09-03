@@ -227,7 +227,7 @@ export async function ensureReservationBookingsMigratedFromCollection(
     etablissementId,
     "reservation-rooms__reservations",
   );
-  const legacyRecord = await getCollectionRecord<RoomReservationRow[] | Record<string, unknown>>(
+  const legacyRecord = await getCollectionRecord<Record<string, unknown>>(
     etablissementId,
     "reservation-rooms",
     "reservations",
