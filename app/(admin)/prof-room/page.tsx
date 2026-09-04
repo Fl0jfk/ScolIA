@@ -38,6 +38,28 @@ const FALLBACK_CLASSES: Record<string, string[]> = {
 const HOURS = Array.from({ length: 10 }, (_, i) => 8 + i);
 const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
 
+type EdtOccupancyCell = {
+  date: string;
+  hour: number;
+  start: string;
+  end: string;
+  subject: string;
+  classes: string[];
+  teacherName: string;
+  weekType: "A" | "B" | "replacement";
+  room: string;
+  source: "edt" | "replacement";
+};
+
+type EdtOccupancyPayload = {
+  from: string;
+  to: string;
+  roomId: string;
+  roomName: string;
+  weekABByDate: Record<string, "A" | "B">;
+  cells: EdtOccupancyCell[];
+};
+
 function localYmd(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -94,6 +116,7 @@ function ProfRoomPageContent() {
   const [rooms, setRooms] = useState<any[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [reservations, setReservations] = useState<any[]>([]);
+  const [edtOccupancy, setEdtOccupancy] = useState<EdtOccupancyPayload | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedRoom, setSelectedRoom] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
@@ -248,8 +271,52 @@ function ProfRoomPageContent() {
     if (!bookForOther) setBeneficiary(null);
   }, [bookForOther]);
 
+  useEffect(() => {
+    if (!selectedRoom) {
+      setEdtOccupancy(null);
+      return;
+    }
+    const from = localYmd(weekDays[0] || startOfWeek);
+    const to = localYmd(weekDays[4] || startOfWeek);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/reservation-rooms/edt-occupancy?roomId=${encodeURIComponent(selectedRoom)}&from=${from}&to=${to}`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) return;
+        const j = await res.json();
+        if (!cancelled && j.occupancy) setEdtOccupancy(j.occupancy as EdtOccupancyPayload);
+      } catch (err) {
+        console.error("[prof-room] edt-occupancy", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRoom, startOfWeek, weekDays]);
+
+  const edtCellAt = (dateStr: string, hour: number): EdtOccupancyCell | undefined =>
+    edtOccupancy?.cells.find((c) => c.date === dateStr && c.hour === hour);
+
+  const weekParityLabel = useMemo(() => {
+    const mid = weekDays[2] || startOfWeek;
+    const iso = localYmd(mid);
+    return edtOccupancy?.weekABByDate?.[iso] || null;
+  }, [edtOccupancy, weekDays, startOfWeek]);
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleCellClick = (dateStr: string, hour: number, resExist?: any) => {
+    if (!resExist && edtCellAt(dateStr, hour)) {
+      const edt = edtCellAt(dateStr, hour)!;
+      alert(
+        `Créneau occupé par l’emploi du temps (${edt.teacherName} — ${edt.subject}${
+          edt.classes.length ? `, ${edt.classes.join(", ")}` : ""
+        }, sem. ${edt.weekType}). Non réservable.`,
+      );
+      return;
+    }
     setUpdateAllSeries(false);
     if (resExist) {
       if (isAdmin || resExist.userId === user?.id) {
@@ -307,6 +374,11 @@ function ProfRoomPageContent() {
   };
   const pasteReservation = (dateStr: string, hour: number) => {
     if (!clipboard) return;
+    if (edtCellAt(dateStr, hour)) {
+      alert("Ce créneau est occupé par l’emploi du temps — collage impossible.");
+      setContextMenu(null);
+      return;
+    }
     setIsEditing(false);
     setEditingRes(null);
     setSelectedDate(dateStr);
@@ -737,6 +809,11 @@ function ProfRoomPageContent() {
                     Mode admin
                   </span>
                 ) : null}
+                {weekParityLabel ? (
+                  <span className="shrink-0 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-bold text-indigo-800">
+                    Semaine {weekParityLabel}
+                  </span>
+                ) : null}
               </div>
             </ProfRoomGlassCard>
 
@@ -780,6 +857,7 @@ function ProfRoomPageContent() {
                       const res = reservations.find((r) =>
                         reservationMatchesHourPrefix(r, selectedRoom, hourPrefix),
                       );
+                      const edt = !res ? edtCellAt(dateStr, h) : undefined;
                       const isOwn = res?.userId === user.id;
                       const canModify = isAdmin || isOwn;
                       const colorValue = res ? SUBJECT_COLORS[res.subject] || "bg-slate-600 text-white" : "";
@@ -788,10 +866,16 @@ function ProfRoomPageContent() {
                         <div
                           key={i}
                           onClick={() => handleCellClick(dateStr, h, res)}
-                          onContextMenu={(e) => handleContextMenu(e, dateStr, h, res)}
+                          onContextMenu={(e) => {
+                            if (edt && !res) {
+                              e.preventDefault();
+                              return;
+                            }
+                            handleContextMenu(e, dateStr, h, res);
+                          }}
                           className={`group relative cursor-pointer border-l border-[color:var(--dash-border)] p-1 transition-all sm:h-[120px] ${
-                            !res ? "hover:bg-[color:var(--dash-soft)]/45" : ""
-                          }`}
+                            !res && !edt ? "hover:bg-[color:var(--dash-soft)]/45" : ""
+                          } ${edt ? "cursor-not-allowed" : ""}`}
                         >
                           {res ? (
                             <>
@@ -844,6 +928,25 @@ function ProfRoomPageContent() {
                                 />
                               </div>
                             </>
+                          ) : edt ? (
+                            <div className="flex h-full w-full flex-col justify-between rounded-xl border border-slate-300/80 bg-slate-100/90 p-2 text-[11px] text-slate-700">
+                              <div>
+                                <p className="truncate font-bold uppercase leading-none tracking-wide text-slate-800">
+                                  {edt.subject}
+                                </p>
+                                <p className="mt-1 truncate text-[10px] font-semibold text-slate-600">
+                                  {(edt.classes || []).join(", ") || "EDT"}
+                                </p>
+                              </div>
+                              <div className="mt-1 flex items-end justify-between gap-1">
+                                <span className="line-clamp-2 font-semibold uppercase leading-tight text-slate-500">
+                                  {edt.teacherName}
+                                </span>
+                                <span className="shrink-0 rounded bg-slate-200 px-1 text-[9px] font-black uppercase text-slate-600">
+                                  EDT {edt.weekType === "replacement" ? "R" : edt.weekType}
+                                </span>
+                              </div>
+                            </div>
                           ) : (
                             <div className="flex h-full w-full items-center justify-center rounded-lg opacity-0 transition-opacity group-hover:bg-[color:var(--dash-soft)]/60 group-hover:opacity-100">
                               <span className={`text-[10px] font-semibold ${dash.textPrimary}`}>+ Libre</span>

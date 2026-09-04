@@ -74,6 +74,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const { loadEdtRoomOccupancy } = await import("@/app/lib/rh/planning-room-occupancy");
+    const datesToCheck = new Set<string>();
+    for (const hour of selectedHours as number[]) {
+      void hour;
+      const currentLoopDate = new Date(`${date}T12:00:00`);
+      const stopDate =
+        recurrence !== "none" && untilDate
+          ? new Date(`${untilDate}T23:59:59`)
+          : new Date(`${date}T23:59:59`);
+      while (currentLoopDate <= stopDate) {
+        datesToCheck.add(ymdLocal(currentLoopDate));
+        if (recurrence === "weekly") currentLoopDate.setDate(currentLoopDate.getDate() + 7);
+        else if (recurrence === "biweekly") currentLoopDate.setDate(currentLoopDate.getDate() + 14);
+        else break;
+      }
+    }
+    const occupancyFrom = [...datesToCheck].sort()[0] || String(date);
+    const occupancyTo = [...datesToCheck].sort().at(-1) || String(date);
+    const edtOccupancy = await loadEdtRoomOccupancy({
+      room: targetRoom,
+      from: occupancyFrom,
+      to: occupancyTo,
+    });
+
     const existing: RoomReservationRow[] = await listReservationBookings();
     const profCfg = (await loadAppConfig()).profRoom;
     const newReservationsAdded: RoomReservationRow[] = [];
@@ -141,6 +165,16 @@ export async function POST(req: NextRequest) {
             `${slotLabel(startsAt)} déjà pris${who ? ` (${who}${subj})` : subj}`,
           );
         } else {
+          const edtHit = edtOccupancy.cells.find(
+            (c) => c.date === dateStr && c.hour === Number(hour),
+          );
+          if (edtHit) {
+            conflictLabels.push(
+              `${slotLabel(startsAt)} occupé par l’EDT (${edtHit.teacherName} — ${edtHit.subject}${
+                edtHit.classes.length ? `, ${edtHit.classes.join(", ")}` : ""
+              }, sem. ${edtHit.weekType})`,
+            );
+          } else {
           const resObj = {
             id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             groupId,
@@ -163,6 +197,7 @@ export async function POST(req: NextRequest) {
           };
           newReservationsAdded.push(resObj);
           existing.push(resObj);
+          }
         }
         if (recurrence === "weekly") {
           currentLoopDate.setDate(currentLoopDate.getDate() + 7);
