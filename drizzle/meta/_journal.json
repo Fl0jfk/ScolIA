@@ -232,6 +232,13 @@
       "when": 1787595000000,
       "tag": "0032_absence_makeup_preference",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1787600000000,
+      "tag": "0033_absence_makeup_slots_relance",
+      "breakpoints": true
     }
   ]
 }

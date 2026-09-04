@@ -1,8 +1,11 @@
 import type { AbsencePeriodType } from "@/app/lib/absence-period";
 import {
   formatTransmissionSummary,
+  needsMakeupSlotsFromStaff,
   type AbsenceHoursTreatment,
 } from "@/app/lib/absence-hours-treatment";
+
+export { needsMakeupSlotsFromStaff };
 
 export type AbsenceScope = "professeur" | "ogec";
 export type Etablissement = string;
@@ -42,6 +45,7 @@ export type AbsenceItem = {
   managerNote?: string;
   hoursTreatment?: AbsenceHoursTreatment | null;
   justificatifRelanceAt?: string | null;
+  makeupSlotsRelanceAt?: string | null;
   adminTreatedAt?: string | null;
   adminTreatedBy?: string | null;
   adminNote?: string | null;

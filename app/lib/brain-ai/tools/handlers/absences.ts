@@ -303,6 +303,7 @@ export async function handleCreateAbsence(
     managerDecision: "EN_ATTENTE",
     closedAt: null,
     justificatifRelanceAt: null,
+    makeupSlotsRelanceAt: null,
     justification: null,
     history: [
       {

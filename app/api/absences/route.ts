@@ -9,7 +9,11 @@ import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 import { s3Key } from "@/app/lib/s3-path";
 import { normalizeAbsencePeriodInput } from "@/app/lib/absence-period";
-import { validateHoursTreatmentForAbsence } from "@/app/lib/absence-hours-treatment";
+import {
+  hasMakeupSlotsInfo,
+  isRattrapageTreatment,
+  validateHoursTreatmentForAbsence,
+} from "@/app/lib/absence-hours-treatment";
 import {
   canDeclareAbsenceOnBehalf,
   canManageAbsence,
@@ -33,6 +37,8 @@ import {
   notifyAbsenceJustificatifRequested,
   notifyAbsenceJustificatifDeposited,
   notifyAbsenceAdminTreated,
+  notifyAbsenceMakeupSlotsRequested,
+  notifyAbsenceMakeupSlotsProvided,
 } from "@/app/lib/absences-workflow-mail";
 import {
   processorMayAccessValidatedAbsence,
@@ -289,6 +295,7 @@ export async function POST(req: Request) {
       },
       staffPreferredTreatment,
       staffPreferredMakeupSlots,
+      makeupSlotsRelanceAt: null,
       workflowStatus: justificationPayload?.fileName && justificationPayload?.fileUrl ? "JUSTIFICATIF_DEPOSE" : "OUVERTE",
       managerDecision: "EN_ATTENTE",
       closedAt: null,
@@ -379,6 +386,8 @@ export async function PATCH(req: Request) {
         "VALIDER",
         "REFUSER",
         "RELANCER_JUSTIFICATIF",
+        "RELANCER_CRENEAUX_RATTRAPAGE",
+        "RENSEIGNER_CRENEAUX_RATTRAPAGE",
         "DEPOSER_JUSTIFICATIF",
         "CLOTURER",
         "REOUVRIR",
@@ -419,10 +428,17 @@ export async function PATCH(req: Request) {
     ) {
       return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
     }
+    if (action === "RENSEIGNER_CRENEAUX_RATTRAPAGE" && !isOwner && !isSubmitter) {
+      return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
+    }
     if (action === "TRAITER_ADMIN" && !canProcess) {
       return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
     }
-    if (action === "RELANCER_JUSTIFICATIF" && !canManage && !canProcess) {
+    if (
+      (action === "RELANCER_JUSTIFICATIF" || action === "RELANCER_CRENEAUX_RATTRAPAGE") &&
+      !canManage &&
+      !canProcess
+    ) {
       return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
     }
     if (
@@ -489,6 +505,12 @@ export async function PATCH(req: Request) {
           ? String(body.directionConfirmedMakeupSlots).trim() || null
           : null;
       const decidedAt = new Date().toISOString();
+      const needsMakeupRelance =
+        isRattrapageTreatment(hoursTreatment) &&
+        !hasMakeupSlotsInfo({
+          staffPreferredMakeupSlots: current.staffPreferredMakeupSlots,
+          directionConfirmedMakeupSlots,
+        });
       updated = {
         ...updated,
         managerDecision: "VALIDEE",
@@ -497,6 +519,14 @@ export async function PATCH(req: Request) {
         closedAt: null,
         hoursTreatment,
         directionConfirmedMakeupSlots,
+        makeupSlotsRelanceAt: needsMakeupRelance
+          ? decidedAt
+          : hasMakeupSlotsInfo({
+                staffPreferredMakeupSlots: current.staffPreferredMakeupSlots,
+                directionConfirmedMakeupSlots,
+              })
+            ? null
+            : current.makeupSlotsRelanceAt ?? null,
         history: [
           ...(current.history || []),
           {
@@ -505,6 +535,16 @@ export async function PATCH(req: Request) {
             action: "DECISION_VALIDEE",
             note: managerNote || undefined,
           },
+          ...(needsMakeupRelance
+            ? [
+                {
+                  at: decidedAt,
+                  by: actor,
+                  action: "RELANCE_CRENEAUX_RATTRAPAGE",
+                  note: "Relance automatique : créneaux de rattrapage non indiqués.",
+                },
+              ]
+            : []),
         ],
       };
       // Mails après persistance — un échec SMTP / config ne doit pas bloquer la validation.
@@ -517,6 +557,7 @@ export async function PATCH(req: Request) {
         calendarVisible: false,
         closedAt,
         justificatifRelanceAt: null,
+        makeupSlotsRelanceAt: null,
         history: [
           ...(current.history || []),
           {
@@ -551,6 +592,82 @@ export async function PATCH(req: Request) {
       } catch (mailErr) {
         console.error("Absences relance mail error:", mailErr);
       }
+    } else if (action === "RELANCER_CRENEAUX_RATTRAPAGE") {
+      const treatmentHint =
+        current.hoursTreatment ||
+        current.staffPreferredTreatment ||
+        (current.data.scope === "ogec" ? "RATTRAPAGE" : "RATTRAPAGE_INTERNE");
+      if (!isRattrapageTreatment(String(treatmentHint)) && current.managerDecision === "VALIDEE") {
+        return NextResponse.json(
+          { error: "Cette absence n’est pas en rattrapage d’heures." },
+          { status: 400 },
+        );
+      }
+      if (hasMakeupSlotsInfo(current)) {
+        return NextResponse.json(
+          { error: "Les créneaux de rattrapage sont déjà renseignés." },
+          { status: 400 },
+        );
+      }
+      const relanceAt = new Date().toISOString();
+      updated = {
+        ...updated,
+        makeupSlotsRelanceAt: relanceAt,
+        history: [
+          ...(current.history || []),
+          {
+            at: relanceAt,
+            by: actor,
+            action: "RELANCE_CRENEAUX_RATTRAPAGE",
+            note: managerNote || undefined,
+          },
+        ],
+      };
+      try {
+        await notifyAbsenceMakeupSlotsRequested({
+          record: updated,
+          fromProcessor: current.managerDecision === "VALIDEE" && !canManage,
+          note: managerNote,
+        });
+      } catch (mailErr) {
+        console.error("Absences makeup slots relance mail error:", mailErr);
+      }
+    } else if (action === "RENSEIGNER_CRENEAUX_RATTRAPAGE") {
+      const slots = body?.staffPreferredMakeupSlots
+        ? String(body.staffPreferredMakeupSlots).trim()
+        : "";
+      if (!slots) {
+        return NextResponse.json(
+          { error: "Indiquez au moins un créneau (jour et horaires)." },
+          { status: 400 },
+        );
+      }
+      if (current.workflowStatus === "CLOTUREE" || current.managerDecision === "REFUSEE") {
+        return NextResponse.json(
+          { error: "Cette absence est clôturée ; les créneaux ne peuvent plus être modifiés." },
+          { status: 400 },
+        );
+      }
+      const at = new Date().toISOString();
+      updated = {
+        ...updated,
+        staffPreferredMakeupSlots: slots,
+        makeupSlotsRelanceAt: null,
+        history: [
+          ...(current.history || []),
+          {
+            at,
+            by: actor,
+            action: "CRENEAUX_RATTRAPAGE_RENSEIGNES",
+            note: slots,
+          },
+        ],
+      };
+      try {
+        await notifyAbsenceMakeupSlotsProvided(updated);
+      } catch (mailErr) {
+        console.error("Absences makeup slots provided mail error:", mailErr);
+      }
     } else if (action === "TRAITER_ADMIN") {
       if (current.managerDecision !== "VALIDEE") {
         return NextResponse.json(
@@ -567,6 +684,7 @@ export async function PATCH(req: Request) {
         adminTreatedBy: actor,
         adminNote: managerNote || null,
         justificatifRelanceAt: null,
+        makeupSlotsRelanceAt: null,
         history: [
           ...(current.history || []),
           {
@@ -731,6 +849,20 @@ export async function PATCH(req: Request) {
         await notifyAbsenceCreatorValidated(updated);
       } catch (mailErr) {
         console.error("Absences creator validation mail error:", mailErr);
+      }
+      if (
+        isRattrapageTreatment(updated.hoursTreatment) &&
+        !hasMakeupSlotsInfo(updated) &&
+        updated.makeupSlotsRelanceAt
+      ) {
+        try {
+          await notifyAbsenceMakeupSlotsRequested({
+            record: updated,
+            fromProcessor: false,
+          });
+        } catch (mailErr) {
+          console.error("Absences auto makeup slots relance mail error:", mailErr);
+        }
       }
     }
 

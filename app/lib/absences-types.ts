@@ -62,6 +62,8 @@ export type AbsenceRecord = {
   managerNote?: string;
   hoursTreatment?: AbsenceHoursTreatment | null;
   justificatifRelanceAt?: string | null;
+  /** Relance pour indiquer les créneaux de rattrapage. */
+  makeupSlotsRelanceAt?: string | null;
   /** Motif masqué au calendrier (RGPD). */
   privacyReasonRedacted?: boolean;
   /** Date de suppression des pièces jointes sensibles. */
@@ -497,6 +499,7 @@ export function buildAdminAbsenceRecord(params: {
     closedAt: now,
     justification: null,
     justificatifRelanceAt: null,
+    makeupSlotsRelanceAt: null,
     history: [
       {
         at: now,

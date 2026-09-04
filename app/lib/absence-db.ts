@@ -65,6 +65,7 @@ export function absenceRecordToRows(etablissementId: string, record: AbsenceReco
     managerNote: r.managerNote ?? null,
     hoursTreatment: r.hoursTreatment ? String(r.hoursTreatment) : null,
     justificatifRelanceAt: parseTs(r.justificatifRelanceAt ?? null),
+    makeupSlotsRelanceAt: parseTs(r.makeupSlotsRelanceAt ?? null),
     privacyReasonRedacted: !!r.privacyReasonRedacted,
     privacyDocumentsPurgedAt: parseTs(r.privacyDocumentsPurgedAt ?? null),
     personnelId: r.personnelId?.trim() || null,
@@ -143,6 +144,9 @@ export function rowsToAbsenceRecord(
     hoursTreatment: (main.hoursTreatment as AbsenceRecord["hoursTreatment"]) ?? null,
     justificatifRelanceAt: toAbsenceIsoTimestampOrNull(
       main.justificatifRelanceAt as string | Date | null,
+    ),
+    makeupSlotsRelanceAt: toAbsenceIsoTimestampOrNull(
+      main.makeupSlotsRelanceAt as string | Date | null,
     ),
     privacyReasonRedacted: main.privacyReasonRedacted,
     privacyDocumentsPurgedAt: toAbsenceIsoTimestampOrNull(
@@ -265,6 +269,7 @@ export async function upsertAbsenceInDb(
         managerNote: main.managerNote,
         hoursTreatment: main.hoursTreatment,
         justificatifRelanceAt: main.justificatifRelanceAt,
+        makeupSlotsRelanceAt: main.makeupSlotsRelanceAt,
         privacyReasonRedacted: main.privacyReasonRedacted,
         privacyDocumentsPurgedAt: main.privacyDocumentsPurgedAt,
         personnelId: main.personnelId,

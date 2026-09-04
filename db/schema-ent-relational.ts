@@ -86,6 +86,8 @@ export const absence = pgTable(
     staffPreferredMakeupSlots: text("staff_preferred_makeup_slots"),
     /** Créneaux de rattrapage confirmés par la direction. */
     directionConfirmedMakeupSlots: text("direction_confirmed_makeup_slots"),
+    /** Relance envoyée au déclarant pour indiquer quand rattraper les heures. */
+    makeupSlotsRelanceAt: timestamp("makeup_slots_relance_at", { withTimezone: true }),
     justificatifRelanceAt: timestamp("justificatif_relance_at", { withTimezone: true }),
     privacyReasonRedacted: boolean("privacy_reason_redacted").notNull().default(false),
     privacyDocumentsPurgedAt: timestamp("privacy_documents_purged_at", { withTimezone: true }),

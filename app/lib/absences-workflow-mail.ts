@@ -295,6 +295,80 @@ export async function notifyAbsenceJustificatifRequested(input: {
   });
 }
 
+/** Relance : le déclarant n’a pas indiqué quand il compte rattraper les heures. */
+export async function notifyAbsenceMakeupSlotsRequested(input: {
+  record: AbsenceRecord;
+  fromProcessor?: boolean;
+  note?: string;
+}): Promise<void> {
+  const email = input.record.createdBy.email?.trim();
+  if (!email) return;
+  const mail = await getMailer();
+  if (!mail) return;
+  const link = await absenceAppLink("se-declarer");
+  const who = input.fromProcessor
+    ? "La personne en charge du traitement administratif"
+    : "La direction";
+  await mail.transporter.sendMail({
+    from: `"Absences" <${mail.smtp.user}>`,
+    to: email,
+    subject: "Quand souhaitez-vous rattraper vos heures ?",
+    text: [
+      `Bonjour ${input.record.createdBy.name},`,
+      ``,
+      `${who} a retenu un rattrapage de vos heures d’absence.`,
+      `Vous n’avez pas encore indiqué à quel moment vous comptez les rattraper.`,
+      ``,
+      `Merci d’indiquer le(s) jour(s) et horaire(s) prévus (vous pouvez en saisir plusieurs) dans l’application :`,
+      link,
+      ``,
+      `Période d’absence : ${formatAbsencePeriod(input.record.data)}`,
+      `Motif : ${input.record.data.reason}`,
+      input.note ? `Message : ${input.note}` : "",
+      ``,
+      `Cordialement,`,
+      `L'établissement`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  });
+}
+
+/** Le déclarant a renseigné ses créneaux de rattrapage → informer la direction. */
+export async function notifyAbsenceMakeupSlotsProvided(record: AbsenceRecord): Promise<void> {
+  const scope = resolveAbsenceScope(record);
+  const etablissement = record.data.etablissement;
+  const target = await resolveAbsenceDecisionTarget(scope, scope === "ogec" ? null : etablissement);
+  if (!target.email.trim()) return;
+  const mail = await getMailer();
+  if (!mail) return;
+  const link = await absenceAppLink(
+    record.managerDecision === "VALIDEE" ? "traitement" : "a-traiter",
+  );
+  await mail.transporter.sendMail({
+    from: `"Absences" <${mail.smtp.user}>`,
+    to: target.email,
+    subject: `Créneaux de rattrapage indiqués — ${record.displayName || record.createdBy.name}`,
+    text: [
+      `Bonjour ${target.name},`,
+      ``,
+      `${record.createdBy.name} a indiqué les moments prévus pour rattraper les heures d’absence.`,
+      ``,
+      `Personne : ${record.displayName || record.createdBy.name}`,
+      `Période d’absence : ${formatAbsencePeriod(record.data)}`,
+      `Motif : ${record.data.reason}`,
+      record.staffPreferredMakeupSlots
+        ? `Créneaux proposés : ${record.staffPreferredMakeupSlots}`
+        : "",
+      ``,
+      `Voir dans l’application :`,
+      link,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  });
+}
+
 export async function notifyAbsenceJustificatifDeposited(record: AbsenceRecord): Promise<void> {
   const recipients = await resolveAbsenceValidationRecipients(record);
   if (recipients.length === 0) return;

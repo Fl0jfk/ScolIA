@@ -32,10 +32,15 @@ import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils
 import { formatAbsencePeriod, type AbsencePeriodType } from "@/app/lib/absence-period";
 import {
   formatAbsenceHoursTreatment,
+  formatMakeupSlotsText,
   formatStaffPreferredTreatment,
   getHoursTreatmentOptions,
   hoursTreatmentFieldLabel,
+  emptyMakeupSlotDraft,
+  isRattrapageTreatment,
+  needsMakeupSlotsFromStaff,
   validateHoursTreatmentForAbsence,
+  type MakeupSlotDraft,
 } from "@/app/lib/absence-hours-treatment";
 import { compareAbsenceRecordsAlphabetically } from "@/app/lib/absences-shared-utils";
 import {
@@ -52,6 +57,7 @@ import {
   type AbsenceWorkflowStatus,
   type Etablissement,
 } from "@/app/lib/absences-page-model";
+import AbsenceMakeupSlotsEditor from "@/app/components/absences/AbsenceMakeupSlotsEditor";
 
 const AbsencesDeclareOther = dynamic(
   () => import("@/app/components/absences/AbsencesDeclareOther"),
@@ -93,7 +99,11 @@ export default function AbsencesPageClient({
   const [details, setDetails] = useState("");
   const [justificationFile, setJustificationFile] = useState<File | null>(null);
   const [staffPreferredTreatment, setStaffPreferredTreatment] = useState<string>("");
-  const [staffPreferredMakeupSlots, setStaffPreferredMakeupSlots] = useState<string>("");
+  const [staffPreferredMakeupSlots, setStaffPreferredMakeupSlots] = useState<MakeupSlotDraft[]>([
+    emptyMakeupSlotDraft(),
+  ]);
+  const [replyMakeupSlots, setReplyMakeupSlots] = useState<Record<string, MakeupSlotDraft[]>>({});
+  const [savingMakeupSlotsId, setSavingMakeupSlotsId] = useState<string | null>(null);
   const [managerNotes, setManagerNotes] = useState<Record<string, string>>({});
   const [managerHoursTreatment, setManagerHoursTreatment] = useState<Record<string, string>>({});
   const [directionConfirmedSlots, setDirectionConfirmedSlots] = useState<Record<string, string>>({});
@@ -352,7 +362,10 @@ export default function AbsencesPageClient({
             details: details.trim(),
             justification,
             staffPreferredTreatment: staffPreferredTreatment || null,
-            staffPreferredMakeupSlots: staffPreferredMakeupSlots.trim() || null,
+            staffPreferredMakeupSlots:
+              isRattrapageTreatment(staffPreferredTreatment)
+                ? formatMakeupSlotsText(staffPreferredMakeupSlots) || null
+                : null,
           },
         }),
       });
@@ -367,7 +380,7 @@ export default function AbsencesPageClient({
       setReason("");
       setDetails("");
       setStaffPreferredTreatment("");
-      setStaffPreferredMakeupSlots("");
+      setStaffPreferredMakeupSlots([emptyMakeupSlotDraft()]);
       setJustificationFile(null);
       if (forOther) setColleague(null);
       await fetchItems();
@@ -383,7 +396,12 @@ export default function AbsencesPageClient({
     });
   const updateWorkflow = async (
     id: string,
-    action: "VALIDER" | "REFUSER" | "RELANCER_JUSTIFICATIF" | "TRAITER_ADMIN",
+    action:
+      | "VALIDER"
+      | "REFUSER"
+      | "RELANCER_JUSTIFICATIF"
+      | "RELANCER_CRENEAUX_RATTRAPAGE"
+      | "TRAITER_ADMIN",
     item?: AbsenceItem,
   ) => {
     if (action === "VALIDER" && item) {
@@ -404,6 +422,14 @@ export default function AbsencesPageClient({
       item?.justification?.fileUrl &&
       !confirm(
         "Un justificatif a déjà été déposé. Relancer quand même pour demander un complément ou un autre document ?",
+      )
+    ) {
+      return;
+    }
+    if (
+      action === "RELANCER_CRENEAUX_RATTRAPAGE" &&
+      !confirm(
+        "Envoyer une relance pour demander à la personne d’indiquer quand elle compte rattraper ses heures ?",
       )
     ) {
       return;
@@ -437,6 +463,11 @@ export default function AbsencesPageClient({
       if (action === "RELANCER_JUSTIFICATIF") {
         alert("Demande de pièce envoyée. La personne peut la déposer dans l’application.");
       }
+      if (action === "RELANCER_CRENEAUX_RATTRAPAGE") {
+        alert(
+          "Relance envoyée. La personne peut indiquer ses créneaux de rattrapage dans « Se déclarer ».",
+        );
+      }
       if (action === "VALIDER" && item?.data.scope !== "ogec") {
         const emails = Array.isArray(payload?.validationRecipients)
           ? (payload.validationRecipients as unknown[]).filter((e) => typeof e === "string")
@@ -449,6 +480,40 @@ export default function AbsencesPageClient({
       }
       await fetchItems();
     } catch (e: any) { alert(e?.message || "Erreur mise à jour.")}
+  };
+
+  const submitMakeupSlots = async (item: AbsenceItem) => {
+    const drafts = replyMakeupSlots[item.id] ?? [emptyMakeupSlotDraft()];
+    const text = formatMakeupSlotsText(drafts);
+    if (!text) {
+      alert("Indiquez au moins un créneau complet (jour, heure de début et heure de fin).");
+      return;
+    }
+    try {
+      setSavingMakeupSlotsId(item.id);
+      const res = await fetch("/api/absences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          action: "RENSEIGNER_CRENEAUX_RATTRAPAGE",
+          staffPreferredMakeupSlots: text,
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Échec enregistrement des créneaux");
+      setReplyMakeupSlots((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+      await fetchItems();
+      alert("Créneaux de rattrapage enregistrés. La direction en a été informée.");
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Erreur lors de l’enregistrement.");
+    } finally {
+      setSavingMakeupSlotsId(null);
+    }
   };
   const uploadJustification = async (id: string, file: File) => {
     try {
@@ -866,7 +931,7 @@ export default function AbsencesPageClient({
                       const next = e.target.value;
                       setStaffPreferredTreatment(next);
                       if (next !== "RATTRAPAGE" && next !== "RATTRAPAGE_INTERNE") {
-                        setStaffPreferredMakeupSlots("");
+                        setStaffPreferredMakeupSlots([emptyMakeupSlotDraft()]);
                       }
                     }}
                     className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white text-sm"
@@ -890,14 +955,15 @@ export default function AbsencesPageClient({
                 {(staffPreferredTreatment === "RATTRAPAGE" || staffPreferredTreatment === "RATTRAPAGE_INTERNE") && (
                   <div>
                     <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1">
-                      Avez-vous déjà une idée du moment où rattraper ?
+                      Quand comptez-vous rattraper vos heures ?
                     </label>
-                    <textarea
-                      value={staffPreferredMakeupSlots}
-                      onChange={(e) => setStaffPreferredMakeupSlots(e.target.value)}
-                      rows={2}
-                      placeholder="Ex : Jeudi 12 mars de 10h à 12h, ou vendredi après-midi… (laissez vide si pas encore d’idée)"
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    <p className="text-xs text-slate-500 mb-2">
+                      Indiquez un ou plusieurs créneaux (jour + horaires). Vous pourrez aussi les préciser plus tard si la direction valide un rattrapage.
+                    </p>
+                    <AbsenceMakeupSlotsEditor
+                      idPrefix="declare-makeup"
+                      slots={staffPreferredMakeupSlots}
+                      onChange={setStaffPreferredMakeupSlots}
                     />
                   </div>
                 )}
@@ -986,6 +1052,33 @@ export default function AbsencesPageClient({
                   <p className="text-sm text-indigo-700 mt-1 font-semibold">
                     Décision direction : {formatAbsenceHoursTreatment(item.hoursTreatment)}
                   </p>
+                ) : null}
+                {needsMakeupSlotsFromStaff(item) && item.createdBy.userId === user?.id ? (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 space-y-2">
+                    <p className="text-sm font-bold text-amber-900">
+                      {item.makeupSlotsRelanceAt
+                        ? "On vous a demandé d’indiquer quand vous comptez rattraper vos heures."
+                        : "Indiquez quand vous comptez rattraper vos heures."}
+                    </p>
+                    <p className="text-xs text-amber-800">
+                      Saisissez un ou plusieurs créneaux (jour + plage horaire). La direction en sera informée.
+                    </p>
+                    <AbsenceMakeupSlotsEditor
+                      idPrefix={`reply-makeup-${item.id}`}
+                      slots={replyMakeupSlots[item.id] ?? [emptyMakeupSlotDraft()]}
+                      onChange={(slots) =>
+                        setReplyMakeupSlots((prev) => ({ ...prev, [item.id]: slots }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void submitMakeupSlots(item)}
+                      disabled={savingMakeupSlotsId === item.id}
+                      className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm disabled:opacity-60"
+                    >
+                      {savingMakeupSlotsId === item.id ? "Enregistrement…" : "Enregistrer mes créneaux"}
+                    </button>
+                  </div>
                 ) : null}
                 {item.justification?.fileUrl && canViewJustificatif(item) ? (
                   <p className="text-sm text-slate-700 mt-2">
@@ -1275,6 +1368,19 @@ export default function AbsencesPageClient({
                       >
                         {item.justification?.fileUrl ? "Demander un complément" : "Relancer pour justificatif"}
                       </button>
+                      {!item.staffPreferredMakeupSlots &&
+                      !item.directionConfirmedMakeupSlots &&
+                      (isRattrapageTreatment(resolvedHoursTreatment(item, managerHoursTreatment)) ||
+                        isRattrapageTreatment(item.staffPreferredTreatment) ||
+                        !resolvedHoursTreatment(item, managerHoursTreatment)) ? (
+                        <button
+                          type="button"
+                          onClick={() => updateWorkflow(item.id, "RELANCER_CRENEAUX_RATTRAPAGE", item)}
+                          className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm"
+                        >
+                          Relancer pour créneaux de rattrapage
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 )}
@@ -1317,6 +1423,17 @@ export default function AbsencesPageClient({
                     {formatAbsenceHoursTreatment(item.hoursTreatment)}
                   </p>
                 ) : null}
+                {item.staffPreferredMakeupSlots ? (
+                  <p className="text-sm text-slate-700 mt-1">
+                    <span className="font-bold">Créneaux proposés : </span>
+                    {item.staffPreferredMakeupSlots}
+                  </p>
+                ) : null}
+                {item.directionConfirmedMakeupSlots ? (
+                  <p className="text-sm text-emerald-700 mt-1 font-semibold">
+                    Rattrapage confirmé : {item.directionConfirmedMakeupSlots}
+                  </p>
+                ) : null}
                 {item.justification?.fileUrl && canViewJustificatif(item) ? (
                   <p className="text-sm text-slate-700 mt-2">
                     <span className="font-bold">Pièce :</span>{" "}
@@ -1333,6 +1450,11 @@ export default function AbsencesPageClient({
                 )}
                 {item.justificatifRelanceAt ? (
                   <p className="text-sm text-amber-700 mt-2 font-semibold">Pièce demandée à la personne.</p>
+                ) : null}
+                {item.makeupSlotsRelanceAt && !item.staffPreferredMakeupSlots && !item.directionConfirmedMakeupSlots ? (
+                  <p className="text-sm text-violet-700 mt-2 font-semibold">
+                    Créneaux de rattrapage demandés (relance envoyée).
+                  </p>
                 ) : null}
                 <label className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold cursor-pointer hover:bg-slate-50">
                   {uploadingJustificationId === item.id
@@ -1365,6 +1487,17 @@ export default function AbsencesPageClient({
                   >
                     {item.justification?.fileUrl ? "Demander un complément" : "Demander une pièce jointe"}
                   </button>
+                  {isRattrapageTreatment(item.hoursTreatment) &&
+                  !item.staffPreferredMakeupSlots &&
+                  !item.directionConfirmedMakeupSlots ? (
+                    <button
+                      type="button"
+                      onClick={() => updateWorkflow(item.id, "RELANCER_CRENEAUX_RATTRAPAGE", item)}
+                      className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm"
+                    >
+                      Relancer pour créneaux de rattrapage
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => updateWorkflow(item.id, "TRAITER_ADMIN", item)}

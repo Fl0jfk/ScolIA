@@ -143,9 +143,98 @@ export function formatMakeupPreferenceMailLines(record: {
     record.hoursTreatment === "RATTRAPAGE" ||
     record.hoursTreatment === "RATTRAPAGE_INTERNE"
   ) {
-    lines.push("Moment de rattrapage : à préciser avec la direction / le service.");
+    lines.push(
+      "Moment de rattrapage : à préciser par le déclarant dans l’application (relance envoyée si nécessaire).",
+    );
   }
   return lines;
+}
+
+/** Un créneau de rattrapage saisi (jour + plage horaire). */
+export type MakeupSlotDraft = {
+  date: string;
+  startTime: string;
+  endTime: string;
+};
+
+export function emptyMakeupSlotDraft(): MakeupSlotDraft {
+  return { date: "", startTime: "", endTime: "" };
+}
+
+function formatMakeupSlotDayFr(isoDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate.trim());
+  if (!m) return isoDate.trim();
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0));
+  if (Number.isNaN(d.getTime())) return isoDate.trim();
+  return d.toLocaleDateString("fr-FR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function formatMakeupSlotTimeFr(hhmm: string): string {
+  const raw = hhmm.trim();
+  const m = /^(\d{1,2}):(\d{2})$/.exec(raw);
+  if (!m) return raw;
+  const h = Number(m[1]);
+  const min = m[2];
+  return min === "00" ? `${h}h` : `${h}h${min}`;
+}
+
+/** Transforme les créneaux structurés en texte lisible (stockage + e-mails). */
+export function formatMakeupSlotsText(slots: MakeupSlotDraft[]): string {
+  const lines = slots
+    .map((slot) => {
+      const date = slot.date.trim();
+      const start = slot.startTime.trim();
+      const end = slot.endTime.trim();
+      if (!date || !start || !end) return null;
+      return `${formatMakeupSlotDayFr(date)} de ${formatMakeupSlotTimeFr(start)} à ${formatMakeupSlotTimeFr(end)}`;
+    })
+    .filter((line): line is string => Boolean(line));
+  return lines.join(" ; ");
+}
+
+export function isRattrapageTreatment(value?: string | null): boolean {
+  return value === "RATTRAPAGE" || value === "RATTRAPAGE_INTERNE";
+}
+
+export function hasMakeupSlotsInfo(record: {
+  staffPreferredMakeupSlots?: string | null;
+  directionConfirmedMakeupSlots?: string | null;
+}): boolean {
+  return Boolean(
+    record.staffPreferredMakeupSlots?.trim() || record.directionConfirmedMakeupSlots?.trim(),
+  );
+}
+
+/** Absence en rattrapage sans moment indiqué → le déclarant doit préciser les créneaux. */
+export function needsMakeupSlotsFromStaff(record: {
+  workflowStatus?: string | null;
+  managerDecision?: string | null;
+  hoursTreatment?: string | null;
+  staffPreferredTreatment?: string | null;
+  staffPreferredMakeupSlots?: string | null;
+  directionConfirmedMakeupSlots?: string | null;
+  makeupSlotsRelanceAt?: string | null;
+}): boolean {
+  if (record.workflowStatus === "CLOTUREE") return false;
+  if (record.managerDecision === "REFUSEE") return false;
+  if (hasMakeupSlotsInfo(record)) return false;
+  if (record.makeupSlotsRelanceAt) return true;
+  if (record.managerDecision === "VALIDEE" && isRattrapageTreatment(record.hoursTreatment)) {
+    return true;
+  }
+  if (
+    record.managerDecision === "EN_ATTENTE" &&
+    isRattrapageTreatment(record.staffPreferredTreatment)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export function formatTransmissionSummary(
