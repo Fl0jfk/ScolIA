@@ -123,6 +123,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     ...trip.data,
     piqueNiqueDetails: trip.data?.piqueNiqueDetails || emptyCuisineDetails(),
   }));
+  const [pendingRemovedAttachmentKeys, setPendingRemovedAttachmentKeys] = useState<string[]>([]);
   const [showCuisineModal, setShowCuisineModal] = useState(false);
   const [showEffectifModal, setShowEffectifModal] = useState(false);
   const [effectifFollowUp, setEffectifFollowUp] = useState<{
@@ -262,16 +263,46 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       setZeendocSendingUrl(null);
     }
   };
-  const saveUpdates = async (updatedTrip: any): Promise<boolean> => {
+  const saveUpdates = async (
+    updatedTrip: any,
+    opts?: { removedAttachmentKeys?: string[] },
+  ): Promise<boolean> => {
     try {
+      const removedAttachmentKeys = [
+        ...new Set([
+          ...pendingRemovedAttachmentKeys,
+          ...(opts?.removedAttachmentKeys || []),
+        ]),
+      ].filter(Boolean);
       const res = await fetch('/api/travels/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: trip.id, data: updatedTrip })
+        body: JSON.stringify({
+          id: trip.id,
+          data: updatedTrip,
+          ...(removedAttachmentKeys.length ? { removedAttachmentKeys } : {}),
+        }),
       });
       if (res.ok) {
-        setTrip(updatedTrip);
-        setEditedData(updatedTrip.data);
+        const payload = (await res.json().catch(() => ({}))) as {
+          trip?: typeof updatedTrip;
+          attachments?: NonNullable<typeof updatedTrip.data.attachments>;
+        };
+        const nextTrip =
+          payload.trip && typeof payload.trip === "object"
+            ? payload.trip
+            : {
+                ...updatedTrip,
+                data: {
+                  ...updatedTrip.data,
+                  ...(payload.attachments
+                    ? { attachments: payload.attachments }
+                    : {}),
+                },
+              };
+        setTrip(nextTrip);
+        setEditedData(nextTrip.data);
+        setPendingRemovedAttachmentKeys([]);
         return true;
       }
       return false;
@@ -321,7 +352,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     setLoadingAction("regenerate-circular");
     try {
       const circular = await generateCircularAttachment();
-      const updatedAttachments = mergeCircularIntoAttachments(trip.data.attachments || [], circular);
+      const previous = trip.data.attachments || [];
+      const removedCircularKeys = previous
+        .filter(isCircularAttachment)
+        .map((f: { s3Key?: string; url?: string }) => String(f.s3Key || f.url || "").trim())
+        .filter(Boolean);
+      const updatedAttachments = mergeCircularIntoAttachments(previous, circular);
       const updatedTrip = {
         ...trip,
         data: { ...trip.data, attachments: updatedAttachments },
@@ -335,7 +371,9 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           },
         ],
       };
-      const saved = await saveUpdates(updatedTrip);
+      const saved = await saveUpdates(updatedTrip, {
+        removedAttachmentKeys: removedCircularKeys,
+      });
       if (!saved) throw new Error("Impossible d'enregistrer la circulaire dans le dossier.");
       alert("Circulaire régénérée et ajoutée aux documents.");
     } catch (err) {
@@ -431,12 +469,24 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const removeFile = async (index: number) => {
     if (!canManageFiles) return;
     const currentAttachments = isEditing ? (editedData.attachments || []) : (trip.data.attachments || []);
-    const updatedFiles = currentAttachments.filter((_: any, i: number) => i !== index);
+    const removed = currentAttachments[index] as
+      | { name?: string; url?: string; s3Key?: string }
+      | undefined;
+    if (!removed) return;
+    const updatedFiles = currentAttachments.filter((_: unknown, i: number) => i !== index);
+    const removedKey = String(removed.s3Key || removed.url || "").trim();
     if (isEditing) {
       setEditedData({ ...editedData, attachments: updatedFiles });
+      if (removedKey) {
+        setPendingRemovedAttachmentKeys((prev) =>
+          prev.includes(removedKey) ? prev : [...prev, removedKey],
+        );
+      }
     } else {
       const updatedTrip = { ...trip, data: { ...trip.data, attachments: updatedFiles } };
-      await saveUpdates(updatedTrip);
+      await saveUpdates(updatedTrip, {
+        removedAttachmentKeys: removedKey ? [removedKey] : [],
+      });
     }
   };
   const postInternalMessage = async () => {
@@ -484,7 +534,11 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         { date: new Date().toISOString(), user: user?.fullName ?? undefined, action: newStatus, note: note },
       ],
     };
-    const saved = await saveUpdates(updatedTrip);
+    const removedKeys = [...pendingRemovedAttachmentKeys];
+    const saved = await saveUpdates(updatedTrip, {
+      removedAttachmentKeys: removedKeys.length ? removedKeys : undefined,
+    });
+    if (saved) setPendingRemovedAttachmentKeys([]);
     setIsEditing(false);
     setLoadingAction(null);
     if (!saved) alert("Impossible d'enregistrer la modification. Réessayez.");

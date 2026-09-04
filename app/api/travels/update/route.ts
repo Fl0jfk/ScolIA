@@ -13,6 +13,7 @@ import { applyTravelsOwnerAssignment } from "@/app/lib/travels-owner-server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { canSignTravelsDirectionForEtab, resolveDirectorForEstablishment } from "@/app/lib/establishments";
+import { mergeTravelAttachments } from "@/app/lib/travels-attachments-merge";
 
 /** Le client fait foi (suppressions incluses) ; on n'ajoute depuis S3 que si le client n'envoie pas la liste. */
 function mergeReceivedDevis(fromClient: unknown, fromS3: unknown): unknown[] {
@@ -79,6 +80,13 @@ export async function POST(req: Request) {
       }
       objectToSave.data = saveInner;
     }
+    // Pièces jointes : union serveur ∪ client ; retrait seulement si explicitement demandé.
+    saveInner.attachments = mergeTravelAttachments({
+      fromClient: saveInner.attachments,
+      fromServer: existingInner.attachments,
+      removedKeys: body.removedAttachmentKeys,
+    });
+    objectToSave.data = saveInner;
     if (Array.isArray(saveInner.participantEleves)) {
       const { applyParticipantElevesToTripData } = await import("@/app/lib/travels-eleves-list");
       const participants = saveInner.participantEleves as import("@/app/lib/travels-types").TravelsParticipantEleve[];
@@ -220,6 +228,8 @@ export async function POST(req: Request) {
       success: true,
       imageUrl: objectToSave.imageUrl,
       imageConfigId: objectToSave.imageConfigId,
+      trip: objectToSave,
+      attachments: saveInner.attachments,
     });
   } catch (error) {
     console.error("ERREUR S3:", error);
