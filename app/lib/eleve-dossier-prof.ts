@@ -15,6 +15,17 @@ import {
 import { isExcludedFromDossierList } from "@/app/lib/eleve-dossier-catalog";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 
+function identityPersonKey(nom: string, prenom: string): string {
+  const norm = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[-\s]+/g, " ")
+      .trim();
+  return `${norm(nom)}§${norm(prenom)}`;
+}
+
 export {
   canViewFullElevesDossierHub,
   canManageElevePreinscriptions,
@@ -161,6 +172,19 @@ export async function listElevesDossierFromDb(
       teacherCanAccessEleveClasse(r.classe, filters.assignedClasses!),
     );
   }
+
+  // Défense anti-doublons import : stub person: masqué s’il existe déjà une fiche ine: même identité.
+  const hasIneTwin = new Set<string>();
+  for (const r of filtered) {
+    if (r.ine?.trim() || r.sourceKey.startsWith("ine:")) {
+      hasIneTwin.add(identityPersonKey(r.nom, r.prenom));
+    }
+  }
+  filtered = filtered.filter((r) => {
+    if (!r.sourceKey.startsWith("person:")) return true;
+    if (r.ine?.trim()) return true;
+    return !hasIneTwin.has(identityPersonKey(r.nom, r.prenom));
+  });
 
   const siteByEleve = await latestSiteByEleveId(
     etablissementId,

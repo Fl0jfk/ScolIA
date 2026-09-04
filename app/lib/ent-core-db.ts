@@ -42,7 +42,7 @@ export type EntSchoolRosterConfig = {
   classAssignments: ClassAllocationTeacherAssignment[];
 };
 
-function normalizePersonName(str: string): string {
+export function normalizePersonName(str: string): string {
   return str
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -58,9 +58,20 @@ export function eleveSourceKey(e: { ine?: string; nom: string; prenom: string })
   return `person:${normalizePersonName(e.nom)}§${normalizePersonName(e.prenom)}`;
 }
 
+/** Aligné sur normalizePersonName (accents FR + tirets/espaces). */
+function sqlNormalizedPersonPart(column: typeof eleve.nom | typeof eleve.prenom) {
+  return sql`btrim(regexp_replace(
+    translate(lower(btrim(${column})), 'àâäéèêëïîôùûüç', 'aaaeeeeiioouuuc'),
+    '[-[:space:]]+',
+    ' ',
+    'g'
+  ))`;
+}
+
 /**
- * Retrouve une fiche existante : sourceKey → INE → identité nom/prénom (1 seul candidat).
+ * Retrouve une fiche existante : sourceKey → INE → identité nom/prénom.
  * Évite les doublons quand une fiche « person:… » reçoit ensuite un INE.
+ * Si plusieurs homonymes existent déjà, privilégie la fiche avec INE.
  */
 async function findExistingEleveForUpsert(
   etablissementId: string,
@@ -95,18 +106,39 @@ async function findExistingEleveForUpsert(
   if (!nKey || !pKey) return null;
 
   const byPerson = await db
-    .select({ id: eleve.id })
+    .select({
+      id: eleve.id,
+      ine: eleve.ine,
+      sourceKey: eleve.sourceKey,
+      createdAt: eleve.createdAt,
+    })
     .from(eleve)
     .where(
       and(
         eq(eleve.etablissementId, etablissementId),
-        sql`translate(lower(btrim(${eleve.nom})), 'àâäéèêëïîôùûüç', 'aaaeeeeiioouuuc') = ${nKey}`,
-        sql`translate(lower(btrim(${eleve.prenom})), 'àâäéèêëïîôùûüç', 'aaaeeeeiioouuuc') = ${pKey}`,
+        sql`${sqlNormalizedPersonPart(eleve.nom)} = ${nKey}`,
+        sql`${sqlNormalizedPersonPart(eleve.prenom)} = ${pKey}`,
       ),
     )
-    .limit(2);
-  if (byPerson.length === 1) return byPerson[0] ?? null;
-  return null;
+    .limit(8);
+
+  if (byPerson.length === 0) return null;
+  if (byPerson.length === 1) return { id: byPerson[0]!.id };
+
+  const withIne = byPerson.filter(
+    (row) => Boolean(row.ine?.trim()) || row.sourceKey.startsWith("ine:"),
+  );
+  if (withIne.length === 1) return { id: withIne[0]!.id };
+  if (withIne.length > 1) {
+    // Plusieurs fiches INE homonymes : ne pas fusionner automatiquement.
+    return null;
+  }
+
+  // Uniquement des stubs person: → garder le plus ancien.
+  const oldest = [...byPerson].sort(
+    (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+  )[0];
+  return oldest ? { id: oldest.id } : null;
 }
 
 export function currentSchoolYearLabel(now = new Date()): string {
