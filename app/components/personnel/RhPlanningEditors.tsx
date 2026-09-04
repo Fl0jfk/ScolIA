@@ -21,6 +21,7 @@ import {
   snapToLessonStart,
   type TimetableGrid,
 } from "@/app/lib/rh/timetable-grids";
+import { suggestRoomForClasses } from "@/app/lib/rh/planning-room-suggest";
 
 export function newId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -437,7 +438,17 @@ export function TeacherSlotQuickModal({
                           const current = new Set(slot.classes || []);
                           if (checked) current.delete(className);
                           else current.add(className);
-                          onChange({ ...slot, classes: [...current] });
+                          const classes = [...current];
+                          const suggested = suggestRoomForClasses(
+                            classes,
+                            rooms,
+                            slot.room,
+                          );
+                          onChange({
+                            ...slot,
+                            classes,
+                            ...(suggested ? { room: suggested } : {}),
+                          });
                         }}
                       />
                       {className}
@@ -450,15 +461,18 @@ export function TeacherSlotQuickModal({
                 className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white mt-0.5"
                 placeholder="6A, 5B…"
                 value={(slot.classes || []).join(", ")}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const classes = e.target.value
+                    .split(",")
+                    .map((c) => c.trim())
+                    .filter(Boolean);
+                  const suggested = suggestRoomForClasses(classes, rooms, slot.room);
                   onChange({
                     ...slot,
-                    classes: e.target.value
-                      .split(",")
-                      .map((c) => c.trim())
-                      .filter(Boolean),
-                  })
-                }
+                    classes,
+                    ...(suggested ? { room: suggested } : {}),
+                  });
+                }}
               />
             )}
           </Field>

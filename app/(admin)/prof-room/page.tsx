@@ -203,8 +203,16 @@ function ProfRoomPageContent() {
         ]);
         if (roomsRes.ok) {
           const data = await roomsRes.json();
-          setRooms(data.rooms || []);
-          if (data.rooms?.length > 0) setSelectedRoom(data.rooms[0].id);
+          const allRooms = (data.rooms || []) as Array<{
+            id: string;
+            name: string;
+            bookable?: boolean;
+            kind?: string;
+          }>;
+          setRooms(allRooms);
+          const bookable = allRooms.filter((r) => r.bookable !== false);
+          const initial = bookable[0] || allRooms[0];
+          if (initial) setSelectedRoom(initial.id);
         }
         if (resRes.ok) {
           const body = await resRes.json();
@@ -660,13 +668,21 @@ function ProfRoomPageContent() {
                     onChange={(e) => setSelectedRoom(e.target.value)}
                     className={`${selectClass} text-center`}
                   >
-                    {rooms.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
+                    {rooms
+                      .filter((r) => r.bookable !== false)
+                      .map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))}
                   </select>
                 </SelectShell>
+                {rooms.some((r) => r.bookable === false) ? (
+                  <p className={`text-[11px] ${dash.textMid} sm:max-w-[14rem]`}>
+                    {rooms.filter((r) => r.bookable === false).length} salle(s) de classe
+                    visibles au catalogue, pas encore réservables.
+                  </p>
+                ) : null}
                 <div className="flex w-full items-center justify-between rounded-xl border border-[color:var(--dash-border)] bg-white/60">
                   <button
                     type="button"

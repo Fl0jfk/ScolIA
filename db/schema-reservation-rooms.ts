@@ -13,6 +13,9 @@ import {
 } from "drizzle-orm/pg-core";
 import { etablissement } from "./etablissement-table";
 
+/** facility = salle réservable (labo, CDI…) ; classroom = salle de classe. */
+export type ReservationRoomKind = "facility" | "classroom";
+
 export const reservationRoom = pgTable(
   "reservation_room",
   {
@@ -22,6 +25,10 @@ export const reservationRoom = pgTable(
     id: text("id").notNull(),
     name: text("name").notNull(),
     building: text("building"),
+    /** facility (défaut) | classroom */
+    kind: text("kind").notNull().default("facility"),
+    /** Phase 1 : false pour les salles de classe ; true pour les salles spéciales. */
+    bookable: boolean("bookable").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -9,10 +9,14 @@ import {
 } from "@/app/lib/ent-core-db";
 import type { RoomReservationRow } from "@/app/lib/prof-room-reservations-normalize";
 
+export type ReservationRoomKind = "facility" | "classroom";
+
 export type ReservationRoomRow = {
   id: string;
   name: string;
   building?: string | null;
+  kind?: ReservationRoomKind;
+  bookable?: boolean;
   sortOrder?: number;
   [key: string]: unknown;
 };
@@ -20,6 +24,28 @@ export type ReservationRoomRow = {
 export async function reservationRoomsDbReady(): Promise<string | null> {
   if (!isEntCoreDbEnabled()) return null;
   return resolveCurrentEtablissementId();
+}
+
+function normalizeKind(raw: unknown): ReservationRoomKind {
+  return raw === "classroom" ? "classroom" : "facility";
+}
+
+function normalizeBookable(raw: unknown, kind: ReservationRoomKind): boolean {
+  if (typeof raw === "boolean") return raw;
+  // Défaut phase 1 : salles de classe non réservables.
+  return kind !== "classroom";
+}
+
+function mapRoomRow(r: typeof reservationRoom.$inferSelect): ReservationRoomRow {
+  const kind = normalizeKind(r.kind);
+  return {
+    id: r.id,
+    name: r.name,
+    ...(r.building ? { building: r.building } : {}),
+    kind,
+    bookable: Boolean(r.bookable),
+    sortOrder: r.sortOrder,
+  };
 }
 
 function rowToBooking(r: typeof reservationRoomBooking.$inferSelect): RoomReservationRow {
@@ -58,12 +84,18 @@ export async function listReservationRoomsFromDb(
     .where(eq(reservationRoom.etablissementId, etablissementId));
   return [...rows]
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "fr"))
-    .map((r) => ({
-      id: r.id,
-      name: r.name,
-      ...(r.building ? { building: r.building } : {}),
-      sortOrder: r.sortOrder,
-    }));
+    .map(mapRoomRow);
+}
+
+function slugifyRoomId(name: string): string {
+  const base =
+    name
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || `salle-${Date.now()}`;
+  return base;
 }
 
 /** Remplace le catalogue salles du tenant : upsert + suppression ciblée des absents. */
@@ -74,14 +106,19 @@ export async function replaceReservationRoomsInDb(
   const db = getDb();
   const now = new Date();
   const normalized = rooms
-    .map((r, i) => ({
-      etablissementId,
-      id: String(r.id || "").trim(),
-      name: String(r.name || "").trim(),
-      building: r.building ? String(r.building) : null,
-      sortOrder: typeof r.sortOrder === "number" ? r.sortOrder : i,
-      updatedAt: now,
-    }))
+    .map((r, i) => {
+      const kind = normalizeKind(r.kind);
+      return {
+        etablissementId,
+        id: String(r.id || "").trim(),
+        name: String(r.name || "").trim(),
+        building: r.building ? String(r.building) : null,
+        kind,
+        bookable: normalizeBookable(r.bookable, kind),
+        sortOrder: typeof r.sortOrder === "number" ? r.sortOrder : i,
+        updatedAt: now,
+      };
+    })
     .filter((r) => r.id && r.name);
 
   for (const row of normalized) {
@@ -93,6 +130,8 @@ export async function replaceReservationRoomsInDb(
         set: {
           name: row.name,
           building: row.building,
+          kind: row.kind,
+          bookable: row.bookable,
           sortOrder: row.sortOrder,
           updatedAt: row.updatedAt,
         },
@@ -109,6 +148,65 @@ export async function replaceReservationRoomsInDb(
     .where(
       and(eq(reservationRoom.etablissementId, etablissementId), notInArray(reservationRoom.id, ids)),
     );
+}
+
+/**
+ * Upsert unitaire sans supprimer les autres salles (OCR / EDT).
+ * Ne rétrograde pas une salle facility déjà bookable.
+ */
+export async function ensureReservationRoomsExistInDb(
+  etablissementId: string,
+  rooms: Array<{ name: string; kind?: ReservationRoomKind; bookable?: boolean }>,
+): Promise<ReservationRoomRow[]> {
+  const db = getDb();
+  const existing = await listReservationRoomsFromDb(etablissementId);
+  const byName = new Map(existing.map((r) => [r.name.trim().toLowerCase(), r]));
+  const byId = new Map(existing.map((r) => [r.id, r]));
+  const now = new Date();
+  let sortBase = existing.reduce((m, r) => Math.max(m, r.sortOrder ?? 0), 0);
+
+  for (const incoming of rooms) {
+    const name = String(incoming.name || "").trim();
+    if (!name) continue;
+    const kind = normalizeKind(incoming.kind ?? "classroom");
+    const bookable = normalizeBookable(incoming.bookable, kind);
+    const hit = byName.get(name.toLowerCase());
+    if (hit) {
+      // Ne pas écraser une salle déjà bookable / facility avec un import classroom.
+      if (hit.kind === "facility" || hit.bookable) continue;
+      continue;
+    }
+    let id = slugifyRoomId(name);
+    if (byId.has(id)) {
+      let n = 2;
+      while (byId.has(`${id}-${n}`)) n++;
+      id = `${id}-${n}`;
+    }
+    sortBase += 1;
+    const row = {
+      etablissementId,
+      id,
+      name,
+      building: null as string | null,
+      kind,
+      bookable,
+      sortOrder: sortBase,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await db.insert(reservationRoom).values(row).onConflictDoNothing();
+    const mapped: ReservationRoomRow = {
+      id,
+      name,
+      kind,
+      bookable,
+      sortOrder: sortBase,
+    };
+    byId.set(id, mapped);
+    byName.set(name.toLowerCase(), mapped);
+  }
+
+  return listReservationRoomsFromDb(etablissementId);
 }
 
 export async function listReservationBookingsFromDb(

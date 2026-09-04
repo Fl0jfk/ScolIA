@@ -289,6 +289,16 @@ export async function PUT(req: Request) {
   }
 
   const saved = await writeRhPlanning(next);
+  if (saved.kind === "teacher") {
+    try {
+      const { syncClassroomRoomsFromTeacherPlanning } = await import(
+        "@/app/lib/rh/planning-rooms-sync"
+      );
+      await syncClassroomRoomsFromTeacherPlanning(saved);
+    } catch (err) {
+      console.warn("[rh/planning] sync salles de classe", err);
+    }
+  }
   let conflicts: ReturnType<typeof conflictsForTeacher> = [];
   if (kind === "teacher") {
     invalidateTeacherPlanningIndex();

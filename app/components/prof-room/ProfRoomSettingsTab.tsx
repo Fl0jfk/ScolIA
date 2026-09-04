@@ -9,7 +9,13 @@ import ProfRoomGlassCard from "@/app/components/prof-room/ProfRoomGlassCard";
 import { dash } from "@/app/lib/dashboard-brand";
 import SubjectColorEditor from "./SubjectColorEditor";
 
-type Room = { id: string; name: string; building?: string };
+type Room = {
+  id: string;
+  name: string;
+  building?: string;
+  kind?: "facility" | "classroom";
+  bookable?: boolean;
+};
 
 type ModuleConfig = {
   classesByPole: Record<string, string[]>;
@@ -110,10 +116,15 @@ export default function ProfRoomSettingsTab() {
         .map((room, idx) => {
           const name = room.name.trim();
           const isNew = !room.id || /^salle-\d+$/.test(room.id);
+          const kind: "facility" | "classroom" =
+            room.kind === "classroom" ? "classroom" : "facility";
           return {
             ...room,
             name,
             id: isNew ? uniqueRoomId(name, rooms, idx) : room.id.trim(),
+            kind,
+            bookable:
+              typeof room.bookable === "boolean" ? room.bookable : kind !== "classroom",
           };
         });
       const res = await fetch("/api/reservation-rooms/rooms", {
@@ -295,12 +306,15 @@ export default function ProfRoomSettingsTab() {
 
       <ProfRoomGlassCard bodyClassName="space-y-4 p-5 sm:p-6">
         <h2 className={`text-lg font-semibold tracking-tight ${dash.ink}`}>Salles</h2>
-        <p className={`text-sm ${dash.textMid}`}>Ajoutez ou modifiez les salles disponibles à la réservation.</p>
+        <p className={`text-sm ${dash.textMid}`}>
+          Salles spéciales (réservables) et salles de classe (visibles, non réservables pour
+          l’instant — alimentées aussi par les EDT).
+        </p>
         {rooms.map((room, idx) => (
-          <div key={room.id || idx} className="flex gap-2">
+          <div key={room.id || idx} className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <input
               className={`${fieldClass} flex-1`}
-              placeholder="Nom de la salle (ex: Salle informatique)"
+              placeholder="Nom de la salle (ex: Salle informatique ou 1A)"
               value={room.name}
               onChange={(e) => {
                 const next = [...rooms];
@@ -308,6 +322,35 @@ export default function ProfRoomSettingsTab() {
                 setRooms(next);
               }}
             />
+            <select
+              className={`${fieldClass} sm:w-40`}
+              value={room.kind === "classroom" ? "classroom" : "facility"}
+              onChange={(e) => {
+                const kind = e.target.value === "classroom" ? "classroom" : "facility";
+                const next = [...rooms];
+                next[idx] = {
+                  ...room,
+                  kind,
+                  bookable: kind === "facility" ? true : room.bookable === true,
+                };
+                setRooms(next);
+              }}
+            >
+              <option value="facility">Spéciale</option>
+              <option value="classroom">Classe</option>
+            </select>
+            <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 shrink-0">
+              <input
+                type="checkbox"
+                checked={room.bookable !== false}
+                onChange={(e) => {
+                  const next = [...rooms];
+                  next[idx] = { ...room, bookable: e.target.checked };
+                  setRooms(next);
+                }}
+              />
+              Réservable
+            </label>
             <button
               type="button"
               onClick={() => setRooms(rooms.filter((_, i) => i !== idx))}
@@ -321,9 +364,36 @@ export default function ProfRoomSettingsTab() {
           <button
             type="button"
             className={`cursor-pointer text-sm font-semibold ${dash.textPrimary}`}
-            onClick={() => setRooms([...rooms, { id: `salle-${Date.now()}`, name: "" }])}
+            onClick={() =>
+              setRooms([
+                ...rooms,
+                {
+                  id: `salle-${Date.now()}`,
+                  name: "",
+                  kind: "facility",
+                  bookable: true,
+                },
+              ])
+            }
           >
-            + Ajouter une salle
+            + Salle spéciale
+          </button>
+          <button
+            type="button"
+            className={`cursor-pointer text-sm font-semibold ${dash.textPrimary}`}
+            onClick={() =>
+              setRooms([
+                ...rooms,
+                {
+                  id: `salle-${Date.now()}`,
+                  name: "",
+                  kind: "classroom",
+                  bookable: false,
+                },
+              ])
+            }
+          >
+            + Salle de classe
           </button>
           <ModuleButton disabled={saving} onClick={saveRooms}>
             Enregistrer les salles

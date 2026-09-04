@@ -57,6 +57,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const { listReservationRooms } = await import("@/app/lib/reservation-rooms-storage");
+    const roomCatalog = await listReservationRooms();
+    const targetRoom = roomCatalog.find((r) => r.id === roomId);
+    if (!targetRoom) {
+      return NextResponse.json({ error: "Salle introuvable." }, { status: 404 });
+    }
+    if (targetRoom.bookable === false) {
+      return NextResponse.json(
+        {
+          error:
+            "Cette salle de classe n’est pas encore réservable. Seules les salles spéciales peuvent être réservées pour l’instant.",
+          code: "ROOM_NOT_BOOKABLE",
+        },
+        { status: 403 },
+      );
+    }
+
     const existing: RoomReservationRow[] = await listReservationBookings();
     const profCfg = (await loadAppConfig()).profRoom;
     const newReservationsAdded: RoomReservationRow[] = [];

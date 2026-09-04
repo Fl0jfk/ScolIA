@@ -3,13 +3,17 @@ import "server-only";
 import type { RoomReservationRow } from "@/app/lib/prof-room-reservations-normalize";
 import {
   ensureReservationBookingsMigratedFromCollection,
+  ensureReservationRoomsExistInDb,
   ensureReservationRoomsMigratedFromCollection,
   replaceReservationRoomsInDb,
   reservationRoomsDbReady,
+  type ReservationRoomKind,
   type ReservationRoomRow,
   upsertReservationBookingInDb,
   upsertReservationBookingsInDb,
 } from "@/app/lib/reservation-rooms-db";
+
+export type { ReservationRoomKind, ReservationRoomRow };
 
 export async function listReservationRooms(): Promise<ReservationRoomRow[]> {
   const etabId = await reservationRoomsDbReady();
@@ -22,6 +26,15 @@ export async function saveReservationRooms(rooms: ReservationRoomRow[]): Promise
   if (!etabId) throw new Error("[reservation-rooms] Postgres requis");
   await replaceReservationRoomsInDb(etabId, rooms);
   return listReservationRooms();
+}
+
+/** Crée les salles manquantes (EDT/OCR) sans toucher au reste du catalogue. */
+export async function ensureReservationRoomsExist(
+  rooms: Array<{ name: string; kind?: ReservationRoomKind; bookable?: boolean }>,
+): Promise<ReservationRoomRow[]> {
+  const etabId = await reservationRoomsDbReady();
+  if (!etabId) return [];
+  return ensureReservationRoomsExistInDb(etabId, rooms);
 }
 
 export async function listReservationBookings(): Promise<RoomReservationRow[]> {
