@@ -127,7 +127,7 @@ async function listRecentAccompagnementDocsForClasses(opts: {
 }
 
 /**
- * PAP / PAI / PPS récemment ajoutés sur les élèves des classes du prof,
+ * PAP / PAI / PPS / GEVASCO récemment ajoutés sur les élèves des classes du prof,
  * non encore consultés (ouverture de la fiche).
  */
 export async function listUnseenAccompagnementAlertsForTeacher(opts: {

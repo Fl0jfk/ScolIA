@@ -11,6 +11,17 @@ import {
   DOCUMENT_ACCESS_DURATION_OPTIONS,
   documentAccessDurationLabel,
 } from "@/app/lib/eleve-document-access-duration";
+import {
+  accompagnementKindDef,
+  type AccompagnementKind,
+} from "@/app/lib/eleve-pap";
+
+type EleveAccompagnementListDoc = {
+  kind: AccompagnementKind;
+  id: string;
+  canOpen: boolean;
+  fileUrl: string | null;
+};
 
 type EleveRow = {
   id: string;
@@ -24,10 +35,12 @@ type EleveRow = {
   folderName: string;
   ine: string | null;
   photoUrl?: string | null;
-  accompagnementKinds?: Array<"pap" | "pai" | "pps">;
+  accompagnements?: EleveAccompagnementListDoc[];
+  accompagnementKinds?: AccompagnementKind[];
   hasPap?: boolean;
   hasPai?: boolean;
   hasPps?: boolean;
+  hasGevasco?: boolean;
 };
 
 type SiteOption = { siteId: string; label: string };
@@ -474,7 +487,25 @@ export default function ElevesDossiersListClient() {
             <ul className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
               {filtered.slice(0, 200).map((e) => {
                 const initials = `${e.prenom.charAt(0)}${e.nom.charAt(0)}`.toUpperCase() || "?";
-                const rowBody = (
+                const accompagnementDocs: EleveAccompagnementListDoc[] =
+                  e.accompagnements?.length
+                    ? e.accompagnements
+                    : (
+                        e.accompagnementKinds?.length
+                          ? e.accompagnementKinds
+                          : ([
+                              ...(e.hasPap ? (["pap"] as const) : []),
+                              ...(e.hasPai ? (["pai"] as const) : []),
+                              ...(e.hasPps ? (["pps"] as const) : []),
+                              ...(e.hasGevasco ? (["gevasco"] as const) : []),
+                            ] as AccompagnementKind[])
+                      ).map((kind) => ({
+                        kind,
+                        id: "",
+                        canOpen: false,
+                        fileUrl: null,
+                      }));
+                const rowMain = (
                   <>
                       {e.photoUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -496,21 +527,6 @@ export default function ElevesDossiersListClient() {
                           <p className="truncate text-base font-semibold text-slate-900">
                             {e.prenom} {e.nom}
                           </p>
-                          {(e.accompagnementKinds?.length
-                            ? e.accompagnementKinds
-                            : [
-                                ...(e.hasPap ? (["pap"] as const) : []),
-                                ...(e.hasPai ? (["pai"] as const) : []),
-                                ...(e.hasPps ? (["pps"] as const) : []),
-                              ]
-                          ).map((kind) => (
-                            <span
-                              key={kind}
-                              className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white"
-                            >
-                              {kind.toUpperCase()}
-                            </span>
-                          ))}
                           {canViewFullHub && e.status ? (
                             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-600">
                               {statusLabel(e.status)}
@@ -539,31 +555,82 @@ export default function ElevesDossiersListClient() {
                           ) : null}
                         </div>
                       </div>
-                      {canOpenDetail ? (
-                        <span
-                          className="shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-600"
-                          aria-hidden
-                        >
-                          →
-                        </span>
-                      ) : null}
                   </>
                 );
+                const badges = accompagnementDocs.length > 0 ? (
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                    {accompagnementDocs.map((acc) => {
+                      const code = accompagnementKindDef(acc.kind).code;
+                      const className =
+                        "rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white transition hover:bg-rose-700";
+                      if (acc.canOpen && acc.fileUrl) {
+                        return (
+                          <a
+                            key={`${acc.kind}-${acc.id || code}`}
+                            href={acc.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={className}
+                            title={`Ouvrir / télécharger le ${code}`}
+                            onClick={(ev) => ev.stopPropagation()}
+                          >
+                            {code}
+                          </a>
+                        );
+                      }
+                      if (canOpenDetail) {
+                        return (
+                          <Link
+                            key={`${acc.kind}-${acc.id || code}`}
+                            href={dossierHref(e.id)}
+                            className={className}
+                            title={`Voir le dossier — ${code}`}
+                            onClick={(ev) => ev.stopPropagation()}
+                          >
+                            {code}
+                          </Link>
+                        );
+                      }
+                      return (
+                        <span
+                          key={`${acc.kind}-${acc.id || code}`}
+                          className={className}
+                          title={code}
+                        >
+                          {code}
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : null;
                 return (
                   <li key={e.id} className="border-b border-slate-100 last:border-b-0">
                     {canOpenDetail ? (
-                      <Link
-                        href={dossierHref(e.id)}
-                        className="group flex items-center gap-3 px-3 py-3 transition hover:bg-slate-50/90 sm:gap-4 sm:px-4 sm:py-3.5"
-                      >
-                        {rowBody}
-                      </Link>
+                      <div className="group flex items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 sm:py-3.5">
+                        <Link
+                          href={dossierHref(e.id)}
+                          className="flex min-w-0 flex-1 items-center gap-3 transition hover:opacity-90 sm:gap-4"
+                        >
+                          {rowMain}
+                        </Link>
+                        {badges}
+                        <Link
+                          href={dossierHref(e.id)}
+                          className="shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-600"
+                          aria-label={`Ouvrir le dossier de ${e.prenom} ${e.nom}`}
+                        >
+                          →
+                        </Link>
+                      </div>
                     ) : (
                       <div
-                        className="flex items-center gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-3.5"
+                        className="flex items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 sm:py-3.5"
                         title="Consultation liste uniquement — ouverture du dossier réservée à d’autres rôles"
                       >
-                        {rowBody}
+                        <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
+                          {rowMain}
+                        </div>
+                        {badges}
                       </div>
                     )}
                   </li>

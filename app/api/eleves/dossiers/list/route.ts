@@ -10,8 +10,15 @@ import {
 } from "@/app/lib/eleve-dossier-prof";
 import { PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY } from "@/app/lib/eleve-dossier-scope";
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
-import { listEleveAccompagnementKinds } from "@/app/lib/eleve-dossier-access";
-import { ACCOMPAGNEMENT_KINDS, type AccompagnementKind } from "@/app/lib/eleve-pap";
+import {
+  canOpenDocumentWithoutGrant,
+  listEleveLatestAccompagnementByKind,
+} from "@/app/lib/eleve-dossier-access";
+import {
+  ACCOMPAGNEMENT_KINDS,
+  type AccompagnementKind,
+} from "@/app/lib/eleve-pap";
+import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
 import {
   buildEleveDossierClassCatalog,
   classOptionLabel,
@@ -143,22 +150,41 @@ export async function GET(req: NextRequest) {
     photoKey: undefined,
   }));
 
-  const accompagnementByEleve = await listEleveAccompagnementKinds({
+  const accompagnementByEleve = await listEleveLatestAccompagnementByKind({
     etablissementId: tenant.ctx.etablissementId,
     eleveIds: eleves.map((e) => e.id),
-  }).catch(() => new Map<string, Set<AccompagnementKind>>());
+  }).catch(() => new Map<string, Array<{ kind: AccompagnementKind; documentId: string }>>());
   const kindOrder = ACCOMPAGNEMENT_KINDS.map((k) => k.kind);
   eleves = eleves.map((e) => {
-    const set = accompagnementByEleve.get(e.id);
-    const accompagnementKinds = set
-      ? kindOrder.filter((k) => set.has(k))
-      : [];
+    const items = accompagnementByEleve.get(e.id) ?? [];
+    const accompagnementKinds = kindOrder.filter((k) => items.some((i) => i.kind === k));
+    const asDoc = {
+      tiroir: "sante" as const,
+      confidentialite: "standard" as const,
+      title: "PAP",
+    };
+    const accompagnements = items.map((item) => {
+      const titleHint = ACCOMPAGNEMENT_KINDS.find((k) => k.kind === item.kind)?.code ?? "PAP";
+      const canOpen = canOpenDocumentWithoutGrant(
+        { ...asDoc, title: titleHint },
+        user.roles,
+        { orgAdmin: user.orgAdmin, platformAdmin: user.platformAdmin },
+      );
+      return {
+        kind: item.kind,
+        id: item.documentId,
+        canOpen,
+        fileUrl: canOpen ? eleveDocumentFileProxyPath(e.id, item.documentId) : null,
+      };
+    });
     return {
       ...e,
       accompagnementKinds,
+      accompagnements,
       hasPap: accompagnementKinds.includes("pap"),
       hasPai: accompagnementKinds.includes("pai"),
       hasPps: accompagnementKinds.includes("pps"),
+      hasGevasco: accompagnementKinds.includes("gevasco"),
     };
   });
 

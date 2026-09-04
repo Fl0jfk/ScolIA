@@ -215,7 +215,7 @@ type DashboardSignalsInput = {
     eleveNom: string;
     elevePrenom: string;
     classe: string | null;
-    kind: "pap" | "pai" | "pps";
+    kind: "pap" | "pai" | "pps" | "gevasco";
     title: string;
     detail: string;
   }>;

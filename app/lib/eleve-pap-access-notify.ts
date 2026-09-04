@@ -23,7 +23,7 @@ async function mailer() {
   return { smtp, transporter };
 }
 
-/** Notifie la direction du cycle d’une demande d’accès PAP / PAI / PPS. */
+/** Notifie la direction du cycle d’une demande d’accès PAP / PAI / PPS / GEVASCO. */
 export async function notifyDirectionPapAccessRequest(input: {
   eleveNom: string;
   elevePrenom: string;

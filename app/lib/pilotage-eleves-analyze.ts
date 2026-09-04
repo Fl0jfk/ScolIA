@@ -242,6 +242,7 @@ function applyFlags(pieces: PilotagePiece[]) {
     hasPap: pieces.some((p) => p.kind === "pap"),
     hasPai: pieces.some((p) => p.kind === "pai"),
     hasPps: pieces.some((p) => p.kind === "pps"),
+    hasGevasco: pieces.some((p) => p.kind === "gevasco"),
     hasTap: pieces.some((p) => p.kind === "tap"),
     emptyDossier: pieces.length === 0,
   };

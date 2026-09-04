@@ -158,7 +158,7 @@ type DossierPayload = {
     fileUrl: string | null;
     confidentialite: string;
   }>;
-  /** Derniers documents PAP / PAI / PPS (synthèse). */
+  /** Derniers documents PAP / PAI / PPS / GEVASCO (synthèse). */
   accompagnements?: Array<{
     kind: AccompagnementKind;
     code: string;
@@ -187,6 +187,7 @@ type DossierPayload = {
     canDecideAccess: boolean;
     canUploadPap?: boolean;
     canUploadAccompagnement?: boolean;
+    canDeleteAccompagnement?: boolean;
     profRestrictedView?: boolean;
     tiroirs: string[];
     docCategories?: Array<"administratif" | "financier" | "sante">;
@@ -496,6 +497,7 @@ export default function EleveDossierClient() {
   const canUploadAccompagnement = Boolean(
     data?.meta.canUploadAccompagnement ?? data?.meta.canUploadPap,
   );
+  const canDeleteAccompagnement = Boolean(data?.meta.canDeleteAccompagnement);
 
   const selectedAccompagnementDef = accompagnementKindDef(accompagnementKind);
   const hasSelectedKind = synthesisAccompagnements.some((a) => a.kind === accompagnementKind);
@@ -676,6 +678,20 @@ export default function EleveDossierClient() {
       requestId,
       decision,
       durationDays,
+    });
+  }
+
+  async function deleteAccompagnementDocument(documentId: string, code: string) {
+    if (
+      !window.confirm(
+        `Supprimer définitivement le document ${code} ? Cette action est irréversible.`,
+      )
+    ) {
+      return;
+    }
+    await postAction({
+      action: "delete_accompagnement_document",
+      documentId,
     });
   }
 
@@ -1000,42 +1016,64 @@ export default function EleveDossierClient() {
                 ) : null}
               </div>
               {synthesisAccompagnements.length > 0 ? (
-                <div className="flex w-full shrink-0 flex-col gap-2 sm:ml-auto sm:w-44">
+                <div className="flex w-full shrink-0 flex-col gap-2 sm:ml-auto sm:w-48">
                   {synthesisAccompagnements.map((acc) =>
                     acc.canOpen && acc.fileUrl ? (
-                      <a
-                        key={acc.id}
-                        href={acc.fileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex flex-col items-start gap-1 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-left shadow-sm transition hover:border-rose-400 hover:bg-rose-100"
-                        title={`Ouvrir le ${acc.code} (PDF)`}
-                      >
-                        <span className="rounded-lg bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
-                          {acc.code}
-                        </span>
-                        <span className="text-sm font-bold text-rose-950">Ouvrir le PDF</span>
-                      </a>
+                      <div key={acc.id} className="flex flex-col gap-1">
+                        <a
+                          href={acc.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex flex-col items-start gap-1 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-left shadow-sm transition hover:border-rose-400 hover:bg-rose-100"
+                          title={`Ouvrir le ${acc.code} (PDF)`}
+                        >
+                          <span className="rounded-lg bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                            {acc.code}
+                          </span>
+                          <span className="text-sm font-bold text-rose-950">Ouvrir le PDF</span>
+                        </a>
+                        {canDeleteAccompagnement ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void deleteAccompagnementDocument(acc.id, acc.code)}
+                            className="text-left text-[11px] font-semibold text-rose-800/80 underline-offset-2 hover:underline disabled:opacity-50"
+                          >
+                            Supprimer
+                          </button>
+                        ) : null}
+                      </div>
                     ) : (
-                      <button
-                        key={acc.id}
-                        type="button"
-                        onClick={() => {
-                          setTab("documents");
-                          setAccessForm({
-                            documentId: acc.id,
-                            durationDays: 7,
-                            note: `Consultation pédagogique du ${acc.code}`,
-                          });
-                        }}
-                        className="inline-flex flex-col items-start gap-1 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-left shadow-sm transition hover:border-rose-400 hover:bg-rose-100"
-                        title={`Demander l’accès au ${acc.code} auprès de la direction`}
-                      >
-                        <span className="rounded-lg bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
-                          {acc.code}
-                        </span>
-                        <span className="text-sm font-bold text-rose-950">Demander l’accès</span>
-                      </button>
+                      <div key={acc.id} className="flex flex-col gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTab("documents");
+                            setAccessForm({
+                              documentId: acc.id,
+                              durationDays: 7,
+                              note: `Consultation pédagogique du ${acc.code}`,
+                            });
+                          }}
+                          className="inline-flex flex-col items-start gap-1 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-left shadow-sm transition hover:border-rose-400 hover:bg-rose-100"
+                          title={`Demander l’accès au ${acc.code} auprès de la direction`}
+                        >
+                          <span className="rounded-lg bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white">
+                            {acc.code}
+                          </span>
+                          <span className="text-sm font-bold text-rose-950">Demander l’accès</span>
+                        </button>
+                        {canDeleteAccompagnement ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void deleteAccompagnementDocument(acc.id, acc.code)}
+                            className="text-left text-[11px] font-semibold text-rose-800/80 underline-offset-2 hover:underline disabled:opacity-50"
+                          >
+                            Supprimer
+                          </button>
+                        ) : null}
+                      </div>
                     ),
                   )}
                 </div>
@@ -2082,7 +2120,8 @@ export default function EleveDossierClient() {
                       Dispositif d’accompagnement
                     </p>
                     <p className="mt-1 text-xs text-rose-800/80">
-                      Choisissez PAP, PAI ou PPS, puis déposez le PDF — il apparaît sur la synthèse
+                      Choisissez PAP, PAI, PPS ou GEVASCO, puis déposez le PDF — il apparaît sur la synthèse
+                      et dans la liste des élèves. Plusieurs dispositifs peuvent coexister.
                       et dans Documents → Santé.
                       {hasSelectedKind
                         ? ` Un nouveau fichier remplace le ${selectedAccompagnementDef.code} affiché sur la synthèse.`
@@ -2256,7 +2295,7 @@ export default function EleveDossierClient() {
                           {TIROIR_LABELS[d.tiroir] || d.tiroir} · {d.confidentialite}
                           {d.anneeLabel ? ` · ${d.anneeLabel}` : ""}
                         </p>
-                        <div className="mt-2">
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
                           {d.canOpen ? (
                             d.fileUrl ? (
                               <a
@@ -2287,6 +2326,16 @@ export default function EleveDossierClient() {
                               Présent — demander l’accès
                             </button>
                           )}
+                          {accCode && canDeleteAccompagnement ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void deleteAccompagnementDocument(d.id, accCode)}
+                              className="text-xs font-bold text-rose-700 hover:underline disabled:opacity-50"
+                            >
+                              Supprimer
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                     </li>

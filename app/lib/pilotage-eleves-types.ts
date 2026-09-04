@@ -5,6 +5,7 @@ export type PilotagePieceKind =
   | "pap"
   | "pai"
   | "pps"
+  | "gevasco"
   | "tap"
   | "certificat"
   | "convention"
@@ -98,6 +99,7 @@ export type PilotageEleveDossier = {
     hasPap: boolean;
     hasPai: boolean;
     hasPps: boolean;
+    hasGevasco: boolean;
     hasTap: boolean;
     emptyDossier: boolean;
   };

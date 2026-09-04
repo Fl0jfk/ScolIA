@@ -116,6 +116,7 @@ export const PIECE_KIND_LABEL: Record<PilotagePieceKind, string> = {
   pap: "PAP",
   pai: "PAI",
   pps: "PPS",
+  gevasco: "GEVASCO",
   tap: "TAP",
   certificat: "Certificat",
   convention: "Convention",
@@ -127,6 +128,9 @@ export function classifyPieceKind(fileName: string): PilotagePieceKind {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+  if (/\bgevasco\b/.test(n) || /\bgevas[\s._-]?co\b/.test(n)) {
+    return "gevasco";
+  }
   if (/\b(pap)\b/.test(n) || n.includes("plan d'accompagnement") || n.includes("plan d accompagnement")) {
     return "pap";
   }
@@ -571,7 +575,7 @@ export function buildEleveSignals(d: {
   if (d.flags.emptyDossier) return [];
 
   if (d.drop.kind === "drop") ids.add("drop");
-  if (d.flags.hasPap || d.flags.hasPai || d.flags.hasPps) ids.add("pap");
+  if (d.flags.hasPap || d.flags.hasPai || d.flags.hasPps || d.flags.hasGevasco) ids.add("pap");
   for (const id of detectBehaviorSignals(d.bulletins)) ids.add(id);
   for (const id of d.extraIds ?? []) ids.add(id);
 
@@ -706,7 +710,7 @@ export function summaryFromDossier(d: PilotageEleveDossier): PilotageEleveSummar
     folderName: d.folderName,
     emptyDossier: d.flags.emptyDossier || d.pieces.length === 0,
     hasBulletin: d.bulletins.length > 0 || d.pieces.some((p) => p.kind === "bulletin"),
-    hasPapPaiPps: d.flags.hasPap || d.flags.hasPai || d.flags.hasPps,
+    hasPapPaiPps: d.flags.hasPap || d.flags.hasPai || d.flags.hasPps || d.flags.hasGevasco,
     dropSignal: focus.drop.kind === "drop",
     lastMoyenne: display?.moyenne ?? last?.moyenneGenerale ?? null,
     lastPeriode: display

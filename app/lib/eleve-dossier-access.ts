@@ -15,6 +15,7 @@ import {
   type EleveDocCategorie,
 } from "@/app/lib/eleve-doc-categories";
 import {
+  ACCOMPAGNEMENT_KINDS,
   detectAccompagnementKind,
   isAccompagnementDocumentTitle,
   type AccompagnementKind,
@@ -194,7 +195,7 @@ export function canRegisterEleveDocument(
   if (confidentialite === "sante") {
     return hasRole(roles, "infirmerie");
   }
-  // Accompagnement pédagogique PAP·PAI·PPS (tiroir santé, confidentialité standard).
+  // Accompagnement pédagogique PAP·PAI·PPS·GEVASCO (tiroir santé, confidentialité standard).
   if (tiroir === "sante") {
     return (
       hasRole(roles, "administratif") ||
@@ -204,6 +205,20 @@ export function canRegisterEleveDocument(
     );
   }
   return true;
+}
+
+/** Suppression PAP / PAI / PPS / GEVASCO : direction, admin, administratif. */
+export function canDeleteEleveAccompagnementDocument(
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  return Boolean(
+    opts?.orgAdmin ||
+      opts?.platformAdmin ||
+      isExactAdmin(roles) ||
+      isDirection(roles) ||
+      hasRole(roles, "administratif"),
+  );
 }
 
 export function canOpenDocumentWithoutGrant(
@@ -227,7 +242,7 @@ export function canOpenDocumentWithoutGrant(
     }
   }
   if (doc.confidentialite === "restreint") return false;
-  // PAP·PAI·PPS : même pour un professeur, pas d’ouverture directe — demande d’accès direction.
+  // PAP·PAI·PPS·GEVASCO : même pour un professeur, pas d’ouverture directe — demande d’accès direction.
   if (
     doc.tiroir === "sante" &&
     isAccompagnementDocumentTitle(doc.title) &&
@@ -240,7 +255,7 @@ export function canOpenDocumentWithoutGrant(
   ) {
     return false;
   }
-  // Prof : dans le tiroir santé, seuls PAP·PAI·PPS sont listés (accès via grant) — pas le reste médical.
+  // Prof : dans le tiroir santé, seuls PAP·PAI·PPS·GEVASCO sont listés (accès via grant) — pas le reste médical.
   if (
     doc.tiroir === "sante" &&
     hasRole(roles, "professeur") &&
@@ -416,22 +431,33 @@ export type EleveAccompagnementDoc = {
   createdAt: Date;
 };
 
-/** Par élève : kinds PAP / PAI / PPS présents (tiroir santé, fichier présent). */
-export async function listEleveAccompagnementKinds(opts: {
+/** Dernier document id par kind d’accompagnement, pour la liste élèves. */
+export type EleveAccompagnementListItem = {
+  kind: AccompagnementKind;
+  documentId: string;
+};
+
+/**
+ * Par élève : dernier document par dispositif (PAP / PAI / PPS / GEVASCO).
+ * Ordre de retour aligné sur `ACCOMPAGNEMENT_KINDS`.
+ */
+export async function listEleveLatestAccompagnementByKind(opts: {
   etablissementId: string;
   eleveIds: string[];
-}): Promise<Map<string, Set<AccompagnementKind>>> {
+}): Promise<Map<string, EleveAccompagnementListItem[]>> {
   const ids = [...new Set(opts.eleveIds.filter(Boolean))];
-  const out = new Map<string, Set<AccompagnementKind>>();
+  const out = new Map<string, EleveAccompagnementListItem[]>();
   if (ids.length === 0) return out;
 
   const db = getDb();
   const docs = await db
     .select({
+      id: eleveDocument.id,
       eleveId: eleveDocument.eleveId,
       title: eleveDocument.title,
       fileUrl: eleveDocument.fileUrl,
       confidentialite: eleveDocument.confidentialite,
+      createdAt: eleveDocument.createdAt,
     })
     .from(eleveDocument)
     .where(
@@ -440,24 +466,51 @@ export async function listEleveAccompagnementKinds(opts: {
         eq(eleveDocument.tiroir, "sante"),
         inArray(eleveDocument.eleveId, ids),
       ),
-    );
+    )
+    .orderBy(desc(eleveDocument.createdAt));
 
+  const latestByEleve = new Map<string, Map<AccompagnementKind, string>>();
   for (const doc of docs) {
     if (doc.confidentialite === "restreint" || doc.confidentialite === "sante") continue;
     if (!doc.fileUrl) continue;
     const kind = detectAccompagnementKind(doc.title);
     if (!kind) continue;
-    let set = out.get(doc.eleveId);
-    if (!set) {
-      set = new Set();
-      out.set(doc.eleveId, set);
+    let byKind = latestByEleve.get(doc.eleveId);
+    if (!byKind) {
+      byKind = new Map();
+      latestByEleve.set(doc.eleveId, byKind);
     }
-    set.add(kind);
+    if (byKind.has(kind)) continue;
+    byKind.set(kind, doc.id);
+  }
+
+  const kindOrder = ACCOMPAGNEMENT_KINDS.map((k) => k.kind);
+  for (const [eleveId, byKind] of latestByEleve) {
+    out.set(
+      eleveId,
+      kindOrder.flatMap((kind) => {
+        const documentId = byKind.get(kind);
+        return documentId ? [{ kind, documentId }] : [];
+      }),
+    );
   }
   return out;
 }
 
-/** Élèves ayant au moins un PAP / PAI / PPS. */
+/** Par élève : kinds PAP / PAI / PPS / GEVASCO présents (tiroir santé, fichier présent). */
+export async function listEleveAccompagnementKinds(opts: {
+  etablissementId: string;
+  eleveIds: string[];
+}): Promise<Map<string, Set<AccompagnementKind>>> {
+  const rich = await listEleveLatestAccompagnementByKind(opts);
+  const out = new Map<string, Set<AccompagnementKind>>();
+  for (const [eleveId, items] of rich) {
+    out.set(eleveId, new Set(items.map((i) => i.kind)));
+  }
+  return out;
+}
+
+/** Élèves ayant au moins un PAP / PAI / PPS / GEVASCO. */
 export async function listEleveIdsWithPap(opts: {
   etablissementId: string;
   eleveIds: string[];
@@ -467,8 +520,8 @@ export async function listEleveIdsWithPap(opts: {
 }
 
 /**
- * Dernier document par dispositif (PAP, PAI, PPS) — pour badges synthèse.
- * Ordre de retour : pap, puis pai, puis pps (si présents).
+ * Dernier document par dispositif (PAP, PAI, PPS, GEVASCO) — pour badges synthèse.
+ * Ordre de retour : pap, puis pai, puis pps, puis gevasco (si présents).
  */
 export async function getLatestAccompagnementDocumentsForEleve(opts: {
   etablissementId: string;
@@ -511,7 +564,7 @@ export async function getLatestAccompagnementDocumentsForEleve(opts: {
     });
   }
 
-  const order: AccompagnementKind[] = ["pap", "pai", "pps"];
+  const order: AccompagnementKind[] = ACCOMPAGNEMENT_KINDS.map((k) => k.kind);
   return order.flatMap((k) => {
     const row = latestByKind.get(k);
     return row ? [row] : [];

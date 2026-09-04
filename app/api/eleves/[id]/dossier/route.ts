@@ -17,6 +17,7 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId, syncEleveScolariteFromEleveRow, ensureEleveFoyerFromParentContacts } from "@/app/lib/ent-core-db";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import {
+  canDeleteEleveAccompagnementDocument,
   canOpenDocumentWithoutGrant,
   canRegisterEleveDocument,
   eleveDocCategoriesMetaForRoles,
@@ -32,9 +33,17 @@ import { normalizeDocumentAccessDurationDays } from "@/app/lib/eleve-document-ac
 import { notifyDirectionPapAccessRequest } from "@/app/lib/eleve-pap-access-notify";
 import {
   accompagnementKindDef,
+  detectAccompagnementKind,
   isAccompagnementDocumentTitle,
 } from "@/app/lib/eleve-pap";
-import { eleveDocumentFileProxyPath } from "@/app/lib/eleve-document-file";
+import {
+  eleveDocumentFileProxyPath,
+  resolveEleveDocumentS3Key,
+} from "@/app/lib/eleve-document-file";
+import { getTenantDataS3Client } from "@/app/lib/s3-clients";
+import { getBucketName } from "@/app/lib/s3-storage";
+import { DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { s3Key } from "@/app/lib/s3-path";
 import {
   isProfesseurScopedDossierViewer,
   listAssignedClassesForTeacher,
@@ -430,7 +439,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   }));
 
   type AccompagnementPayload = {
-    kind: "pap" | "pai" | "pps";
+    kind: "pap" | "pai" | "pps" | "gevasco";
     code: string;
     label: string;
     id: string;
@@ -628,6 +637,10 @@ export async function GET(_req: Request, ctx: Ctx) {
         platformAdmin,
       }),
       canUploadAccompagnement: canRegisterEleveDocument("sante", "standard", roles, {
+        orgAdmin,
+        platformAdmin,
+      }),
+      canDeleteAccompagnement: canDeleteEleveAccompagnementDocument(roles, {
         orgAdmin,
         platformAdmin,
       }),
@@ -1197,6 +1210,82 @@ export async function POST(req: Request, ctx: Ctx) {
       },
     });
     return NextResponse.json({ success: true, request: updated });
+  }
+
+  if (action === "delete_accompagnement_document") {
+    if (!canDeleteEleveAccompagnementDocument(roles, { orgAdmin, platformAdmin })) {
+      return NextResponse.json(
+        { error: "Suppression réservée à la direction, l’admin et l’administratif." },
+        { status: 403 },
+      );
+    }
+    if (!sections.has("documents")) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+    }
+    const documentId = String(body.documentId || "").trim();
+    if (!documentId) {
+      return NextResponse.json({ error: "documentId requis." }, { status: 400 });
+    }
+    const [doc] = await db
+      .select()
+      .from(eleveDocument)
+      .where(
+        and(
+          eq(eleveDocument.etablissementId, etabId),
+          eq(eleveDocument.eleveId, id),
+          eq(eleveDocument.id, documentId),
+        ),
+      )
+      .limit(1);
+    if (!doc) {
+      return NextResponse.json({ error: "Document introuvable." }, { status: 404 });
+    }
+    if (doc.tiroir !== "sante" || !isAccompagnementDocumentTitle(doc.title)) {
+      return NextResponse.json(
+        { error: "Seuls les documents PAP / PAI / PPS / GEVASCO peuvent être supprimés ici." },
+        { status: 400 },
+      );
+    }
+
+    const s3KeyResolved = await resolveEleveDocumentS3Key(doc).catch(() => null);
+    await db
+      .delete(eleveDocument)
+      .where(
+        and(
+          eq(eleveDocument.etablissementId, etabId),
+          eq(eleveDocument.eleveId, id),
+          eq(eleveDocument.id, documentId),
+        ),
+      );
+
+    if (s3KeyResolved) {
+      try {
+        const s3Client = await getTenantDataS3Client();
+        await s3Client.send(
+          new DeleteObjectCommand({
+            Bucket: await getBucketName(),
+            Key: s3Key(s3KeyResolved),
+          }),
+        );
+      } catch (s3Err) {
+        console.warn("[eleves/dossier] delete S3 accompagnement", s3Err);
+      }
+    }
+
+    await recordEleveAccessAudit({
+      etablissementId: etabId,
+      actorUserId: authUserId,
+      resourceType: "document",
+      resourceId: documentId,
+      eleveId: id,
+      action: "delete",
+      metadata: {
+        title: doc.title,
+        tiroir: doc.tiroir,
+        kind: detectAccompagnementKind(doc.title),
+      },
+    });
+    return NextResponse.json({ success: true, deletedId: documentId });
   }
 
   return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
