@@ -20,9 +20,15 @@ import {
   FixedSlotEditor,
   MissionSlotEditor,
   TeacherSlotEditor,
+  TeacherSlotQuickModal,
   WeekGrid,
+  applyTeacherSlotQuickEdit,
+  detectTeacherSlotWeekMode,
   newId,
+  removeTeacherSlotEverywhere,
+  type TeacherSlotWeekMode,
 } from "@/app/components/personnel/RhPlanningEditors";
+import type { PlanningWeekday } from "@/app/lib/rh/planning-types";
 import {
   downloadStaffFixedPlanningPdf,
   downloadStaffMissionPlanningPdf,
@@ -99,6 +105,10 @@ export default function RhPlanningPanel() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [focusDate, setFocusDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [catalog, setCatalog] = useState<TeacherPlanningCatalog | null>(null);
+  const [quickSlot, setQuickSlot] = useState<TeacherPlanningSlot | null>(null);
+  const [quickSlotPreviousId, setQuickSlotPreviousId] = useState<string | null>(null);
+  const [quickWeekMode, setQuickWeekMode] = useState<TeacherSlotWeekMode>("A");
+  const [showDetailedList, setShowDetailedList] = useState(false);
 
   const updatedMeta = formatPlanningUpdatedAt(
     kind === "teacher" ? teacher?.updatedAt : staff?.updatedAt,
@@ -306,6 +316,64 @@ export default function RhPlanningPanel() {
   };
 
   const teacherSlots = weekView === "A" ? teacher?.weekA || [] : teacher?.weekB || [];
+
+  const openQuickEdit = (slotId: string) => {
+    if (!teacher) return;
+    const slot =
+      teacherSlots.find((s) => s.id === slotId) ||
+      teacher.weekA.find((s) => s.id === slotId) ||
+      teacher.weekB.find((s) => s.id === slotId);
+    if (!slot) return;
+    setQuickSlot({ ...slot, classes: [...(slot.classes || [])] });
+    setQuickSlotPreviousId(slot.id);
+    setQuickWeekMode(detectTeacherSlotWeekMode(teacher, slot, weekView));
+    setEditMode(true);
+  };
+
+  const openQuickCreate = (day: PlanningWeekday, start: string, end: string) => {
+    setQuickSlot({
+      id: newId("slot"),
+      day,
+      start,
+      end,
+      subject: "",
+      classes: [],
+      room: "",
+    });
+    setQuickSlotPreviousId(null);
+    setQuickWeekMode(weekView === "B" ? "B" : "A");
+    setEditMode(true);
+  };
+
+  const applyQuickSlot = () => {
+    if (!teacher || !quickSlot) return;
+    if (!quickSlot.subject.trim()) {
+      setError("Indiquez une matière pour le créneau.");
+      return;
+    }
+    if (quickSlot.start >= quickSlot.end) {
+      setError("L’heure de fin doit être après l’heure de début.");
+      return;
+    }
+    setError(null);
+    setTeacher(applyTeacherSlotQuickEdit(teacher, quickSlot, quickWeekMode, quickSlotPreviousId));
+    if (quickWeekMode === "A" || quickWeekMode === "both") setWeekView("A");
+    else setWeekView("B");
+    setQuickSlot(null);
+    setQuickSlotPreviousId(null);
+    setMsg("Créneau mis à jour sur la grille — pensez à enregistrer.");
+  };
+
+  const deleteQuickSlot = () => {
+    if (!teacher || !quickSlotPreviousId) {
+      setQuickSlot(null);
+      return;
+    }
+    setTeacher(removeTeacherSlotEverywhere(teacher, quickSlotPreviousId));
+    setQuickSlot(null);
+    setQuickSlotPreviousId(null);
+    setMsg("Créneau supprimé — pensez à enregistrer.");
+  };
 
   const activeRotation = useMemo(() => {
     if (!staff) return null;
@@ -666,8 +734,34 @@ export default function RhPlanningPanel() {
 
             {kind === "teacher" && teacher ? (
               <>
+                {canEdit ? (
+                  <p className="text-xs text-slate-600 rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2">
+                    <span className="font-bold text-indigo-900">Édition visuelle :</span> cliquez un
+                    créneau pour changer classe / horaires / semaine A ou B. Cliquez dans une zone
+                    vide du calendrier pour ajouter un créneau
+                    {editMode || previewMode ? "" : " (passe en mode édition automatiquement)"}.
+                  </p>
+                ) : null}
                 <WeekGrid
                   slots={teacherSlots}
+                  editable={Boolean(canEdit)}
+                  selectedSlotId={quickSlotPreviousId}
+                  onSlotClick={
+                    canEdit
+                      ? (slotId) => {
+                          if (!editMode && !previewMode) setEditMode(true);
+                          openQuickEdit(slotId);
+                        }
+                      : undefined
+                  }
+                  onEmptyClick={
+                    canEdit
+                      ? (day, start, end) => {
+                          if (!editMode && !previewMode) setEditMode(true);
+                          openQuickCreate(day, start, end);
+                        }
+                      : undefined
+                  }
                   renderCard={(slot) => {
                     const full = teacherSlots.find((s) => s.id === slot.id) as TeacherPlanningSlot;
                     const colorKey = full.subject || "cours";
@@ -686,19 +780,32 @@ export default function RhPlanningPanel() {
                   }}
                 />
                 {editMode ? (
-                  <TeacherSlotEditor
-                    slots={teacherSlots}
-                    catalog={catalog}
-                    onChange={(slots) => {
-                      setTeacher((prev) =>
-                        prev
-                          ? weekView === "A"
-                            ? { ...prev, weekA: slots }
-                            : { ...prev, weekB: slots }
-                          : prev,
-                      );
-                    }}
-                  />
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowDetailedList((v) => !v)}
+                      className="text-xs font-bold text-slate-500 hover:text-indigo-700"
+                    >
+                      {showDetailedList
+                        ? "Masquer la liste détaillée"
+                        : "Afficher la liste détaillée (tous les champs)"}
+                    </button>
+                    {showDetailedList ? (
+                      <TeacherSlotEditor
+                        slots={teacherSlots}
+                        catalog={catalog}
+                        onChange={(slots) => {
+                          setTeacher((prev) =>
+                            prev
+                              ? weekView === "A"
+                                ? { ...prev, weekA: slots }
+                                : { ...prev, weekB: slots }
+                              : prev,
+                          );
+                        }}
+                      />
+                    ) : null}
+                  </div>
                 ) : null}
                 <TeacherReplacementsPanel
                   teacher={teacher}
@@ -900,6 +1007,24 @@ export default function RhPlanningPanel() {
           </>
         )}
       </div>
+
+      {quickSlot ? (
+        <TeacherSlotQuickModal
+          open
+          title={quickSlotPreviousId ? "Modifier le créneau" : "Nouveau créneau"}
+          slot={quickSlot}
+          weekMode={quickWeekMode}
+          catalog={catalog}
+          onWeekModeChange={setQuickWeekMode}
+          onChange={setQuickSlot}
+          onClose={() => {
+            setQuickSlot(null);
+            setQuickSlotPreviousId(null);
+          }}
+          onSave={applyQuickSlot}
+          onDelete={quickSlotPreviousId ? deleteQuickSlot : undefined}
+        />
+      ) : null}
     </div>
   );
 }
