@@ -224,6 +224,7 @@ type DossierPayload = {
     ine?: string | null;
     groupesAcademiques?: Array<{ code: string; libelle: string; type: string }>;
     groupesInternes?: Array<{ code: string; libelle: string; type: string }>;
+    groupesEdt?: Array<{ id: string; label: string; classNames: string[] }>;
     restauration: {
       regime: "externe" | "demi_pension" | "interne";
       days: Array<{
@@ -927,8 +928,31 @@ export default function EleveDossierClient() {
                     </div>
                   ) : null}
                 </dl>
-                {(synth?.groupesAcademiques?.length || synth?.groupesInternes?.length) ? (
+                {(synth?.groupesAcademiques?.length ||
+                synth?.groupesInternes?.length ||
+                synth?.groupesEdt?.length) ? (
                   <div className="mt-4 space-y-3">
+                    {synth.groupesEdt && synth.groupesEdt.length > 0 ? (
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                          Groupes EDT
+                        </p>
+                        <ul className="mt-2 flex flex-wrap gap-2">
+                          {synth.groupesEdt.map((g) => (
+                            <li
+                              key={g.id}
+                              className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-950"
+                              title={g.classNames.join(", ")}
+                            >
+                              {g.label}
+                              <span className="ml-1 font-normal text-violet-700/80">
+                                ({g.classNames.join(", ")})
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                     {synth.groupesAcademiques && synth.groupesAcademiques.length > 0 ? (
                       <div>
                         <p className="text-xs font-bold uppercase tracking-wide text-slate-400">

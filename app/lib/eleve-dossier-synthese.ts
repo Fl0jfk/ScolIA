@@ -16,6 +16,9 @@ import {
   type EleveGrilleRepas,
 } from "@/app/lib/eleve-grille-repas";
 import { eleveStatusLabel } from "@/app/lib/eleve-dossier-labels";
+import { loadAppConfig } from "@/app/lib/app-config";
+import { teachingGroupsForClasse } from "@/app/lib/rh/teaching-groups";
+import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 
 export type EleveRegimeRestauration = "externe" | "demi_pension" | "interne";
 
@@ -48,6 +51,8 @@ export type EleveSyntheseSnapshot = {
   ine: string | null;
   groupesAcademiques: Array<{ code: string; libelle: string; type: string }>;
   groupesInternes: Array<{ code: string; libelle: string; type: string }>;
+  /** Groupes multi-classes EDT (Paramètres → Groupes EDT). */
+  groupesEdt: Array<{ id: string; label: string; classNames: string[] }>;
   restauration: EleveMealWeek;
   internat: {
     actif: boolean;
@@ -304,6 +309,18 @@ export async function buildEleveSyntheseSnapshot(params: {
 
   const { groupesAcademiques, groupesInternes } = splitGroupesForSynthese(params.groupes ?? []);
 
+  let groupesEdt: EleveSyntheseSnapshot["groupesEdt"] = [];
+  try {
+    const cfg = await loadAppConfig();
+    groupesEdt = teachingGroupsForClasse(
+      params.eleve.classe,
+      cfg.teachingGroups.groups,
+      schoolClassesMatch,
+    );
+  } catch {
+    groupesEdt = [];
+  }
+
   return {
     statusLabel: eleveStatusLabel(params.eleve.status),
     classeLabel,
@@ -314,6 +331,7 @@ export async function buildEleveSyntheseSnapshot(params: {
     ine: params.eleve.ine?.trim() || null,
     groupesAcademiques,
     groupesInternes,
+    groupesEdt,
     restauration,
     internat: {
       actif: interne,

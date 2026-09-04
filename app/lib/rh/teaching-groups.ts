@@ -95,3 +95,20 @@ export function slotAudienceLabel(slot: {
   const classes = (slot.classes || []).map((c) => c.trim()).filter(Boolean);
   return classes.join(", ") || "Classe ?";
 }
+
+/** Groupes EDT dont fait partie une classe élève. */
+export function teachingGroupsForClasse(
+  classe: string | null | undefined,
+  groups: TeachingGroup[],
+  classesMatch: (a: string | null | undefined, b: string) => boolean,
+): Array<{ id: string; label: string; classNames: string[] }> {
+  const cls = (classe || "").trim();
+  if (!cls || groups.length === 0) return [];
+  return groups
+    .filter((g) => g.classNames.some((c) => classesMatch(cls, c)))
+    .map((g) => ({
+      id: g.id,
+      label: g.label,
+      classNames: [...g.classNames],
+    }));
+}
