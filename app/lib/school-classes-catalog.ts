@@ -92,15 +92,36 @@ export const DEFAULT_CLASSES_BY_POLE: Record<string, string[]> = {
 const BARE_ELEMENTAIRE = new Set(["CP", "CE1", "CE2", "CM1", "CM2"]);
 const BARE_MATERNELLE = new Set(["TPS", "PS", "MS", "GS"]);
 
-/** Compacte un libellé de classe pour comparaison (PS A ≡ PSA, CE1-B ≡ CE1B). */
+/** Compacte un libellé de classe pour comparaison (PS A ≡ PSA, 6ème A ≡ 6A, CE1-B ≡ CE1B). */
 export function foldSchoolClass(raw: string): string {
-  return raw
+  let s = raw
     .trim()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[°º]/g, "")
-    .replace(/[\s._\-/]+/g, "")
+    .replace(/[()[\]]/g, " ")
     .toUpperCase();
+
+  // Niveaux écrits en toutes lettres / ordinals Pronote → formes compactes.
+  s = s
+    .replace(/\bPREMIERE\b/g, "1RE")
+    .replace(/\b1ERE\b/g, "1RE")
+    .replace(/\bSECONDE\b/g, "2NDE")
+    .replace(/\b2DE\b/g, "2NDE")
+    .replace(/\bTERMINALE\b/g, "TLE")
+    .replace(/\bTALE\b/g, "TLE")
+    .replace(/\b([3-6])EME\b/g, "$1E")
+    .replace(/\b([3-6])E\b/g, "$1E");
+
+  s = s.replace(/[\s._\-/]+/g, "");
+
+  // 6EA (depuis 6ème A) → 6A ; 1REA → 1A ; 2NDEA → 2A ; TLEA → TA
+  s = s.replace(/^([3-6])E([A-Z0-9]+)$/, "$1$2");
+  s = s.replace(/^1RE([A-Z0-9]+)$/, "1$1");
+  s = s.replace(/^2NDE([A-Z0-9]+)$/, "2$1");
+  s = s.replace(/^TLE([A-Z0-9]+)$/, "T$1");
+
+  return s;
 }
 
 export function schoolClassesMatch(
@@ -110,7 +131,12 @@ export function schoolClassesMatch(
   const fa = foldSchoolClass(String(a || ""));
   const fb = foldSchoolClass(String(b || ""));
   if (!fa || !fb) return false;
-  return fa === fb;
+  if (fa === fb) return true;
+  // Préfixe prudent (évite « 1 » ≡ « 1A ») : au moins 3 caractères utiles.
+  if (fa.length >= 3 && fb.length >= 3 && (fa.startsWith(fb) || fb.startsWith(fa))) {
+    return true;
+  }
+  return false;
 }
 
 function foldClass(raw: string): string {

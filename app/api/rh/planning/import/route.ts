@@ -89,7 +89,16 @@ export async function POST(req: Request) {
     });
 
     let planning = extracted.planning;
-    if (planning.kind === "staff" && planning.mode === "rotation") {
+    const warnings = [...extracted.warnings];
+    if (planning.kind === "teacher") {
+      const {
+        alignTeacherPlanningClasses,
+        formatPlanningClassAlignWarnings,
+      } = await import("@/app/lib/rh/planning-class-align");
+      const aligned = await alignTeacherPlanningClasses(planning);
+      planning = aligned.planning;
+      warnings.push(...formatPlanningClassAlignWarnings(aligned));
+    } else if (planning.kind === "staff" && planning.mode === "rotation") {
       const existing = (await readRhPlanning("staff", personnelId)) as StaffPlanningDoc;
       planning = mergeStaffImport(existing, planning, mergeStrategy);
     }
@@ -98,7 +107,7 @@ export async function POST(req: Request) {
       ok: true,
       kind: extracted.kind,
       planning,
-      warnings: extracted.warnings,
+      warnings,
       ocrChars: extracted.ocrChars,
       personHint: extracted.personHint || null,
       mergeStrategy,

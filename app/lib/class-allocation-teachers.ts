@@ -12,6 +12,7 @@ import {
   loadSchoolRoster,
   type SchoolRosterConfig,
 } from "@/app/lib/school-roster";
+import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 
 export type ClassAllocationTeacherAssignment = {
   className: string;
@@ -21,10 +22,16 @@ export type ClassAllocationTeacherAssignment = {
 };
 
 function studentMatchesClass(studentClasse: string | undefined, className: string): boolean {
+  if (schoolClassesMatch(studentClasse, className)) return true;
+  // Repli historique classKey (stages) — préfixe prudent uniquement.
   const student = classKey(String(studentClasse ?? ""));
   const target = classKey(className);
   if (!student || !target) return false;
-  return student === target || student.startsWith(target) || target.startsWith(student);
+  if (student === target) return true;
+  if (student.length >= 3 && target.length >= 3 && (student.startsWith(target) || target.startsWith(student))) {
+    return true;
+  }
+  return false;
 }
 
 export function studentInAssignedClasses(

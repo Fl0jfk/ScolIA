@@ -278,10 +278,17 @@ export default function RhPlanningPanel() {
       setImportWarnings(Array.isArray(j.warnings) ? j.warnings : []);
       setPreviewMode(true);
       setEditMode(true);
+      const classHint = Array.isArray(j.warnings)
+        ? (j.warnings as string[]).find((w) => /Classes reconnues/i.test(w))
+        : null;
       setMsg(
-        j.personHint
-          ? `Prévisualisation IA (détecté : ${j.personHint}). Vérifiez puis validez.`
-          : "Prévisualisation IA prête. Vérifiez puis validez pour enregistrer.",
+        [
+          j.personHint ? `Prévisualisation (détecté : ${j.personHint}).` : "Prévisualisation prête.",
+          classHint || null,
+          "Vérifiez les créneaux puis validez pour enregistrer — les classes nourrissent automatiquement les dossiers élèves.",
+        ]
+          .filter(Boolean)
+          .join(" "),
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur import");

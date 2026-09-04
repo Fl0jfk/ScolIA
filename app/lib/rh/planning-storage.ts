@@ -103,10 +103,21 @@ export async function readRhPlanning(
 
 export async function writeRhPlanning(doc: RhPlanningDoc): Promise<RhPlanningDoc> {
   const key = planningKeyFor(doc.kind, doc.personnelId);
-  const normalized =
+  let normalized =
     doc.kind === "teacher"
       ? normalizeTeacherPlanning(doc, doc.personnelId)
       : normalizeStaffPlanning(doc, doc.personnelId);
+
+  if (normalized.kind === "teacher") {
+    try {
+      const { alignTeacherPlanningClasses } = await import("@/app/lib/rh/planning-class-align");
+      const aligned = await alignTeacherPlanningClasses(normalized);
+      normalized = aligned.planning;
+    } catch (error) {
+      console.warn("[planning] alignement classes", error);
+    }
+  }
+
   const next = {
     ...normalized,
     updatedAt: new Date().toISOString(),
