@@ -172,12 +172,12 @@ export function asCycle(value: unknown): "ecole" | "college" | "lycee" | null {
   return null;
 }
 
-/** Cycle élève : secteur SIECLE prioritaire, sinon heuristique sur le libellé de classe. */
+/** Cycle élève : heuristique classe prioritaire (libellés SIECLE type « JE3 MME… », « 5°B »), sinon secteur. */
 export function resolveEleveCycle(input: {
   secteur?: string | null;
   classe?: string | null;
 }): "ecole" | "college" | "lycee" | null {
-  const fromSecteur = asCycle(input.secteur);
-  if (fromSecteur) return fromSecteur;
-  return guessClassLevelFromClasse(input.classe ?? undefined);
+  const fromClasse = guessClassLevelFromClasse(input.classe ?? undefined);
+  if (fromClasse) return fromClasse;
+  return asCycle(input.secteur);
 }

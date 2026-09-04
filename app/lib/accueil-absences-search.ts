@@ -7,6 +7,7 @@ import { RH_CATEGORY_LABELS, type RhCategory } from "@/app/lib/rh/types";
 import {
   asCycle,
   cycleLabel,
+  resolveEleveCycle,
   type AccueilSearchHit,
   type AccueilStaffScope,
 } from "@/app/lib/accueil-absences-types";
@@ -174,7 +175,7 @@ export async function searchAccueilPersonnes(
   const seen = new Set<string>();
 
   for (const e of eleves) {
-    const cycle = asCycle(e.secteur);
+    const cycle = resolveEleveCycle({ secteur: e.secteur, classe: e.classe });
     const cycleTxt = cycleLabel(cycle);
     const classe = e.classe?.trim() || "";
     hits.push({
