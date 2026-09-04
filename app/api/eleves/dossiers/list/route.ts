@@ -8,6 +8,7 @@ import {
   listAssignedClassesForTeacher,
   listElevesDossierFromDb,
 } from "@/app/lib/eleve-dossier-prof";
+import { PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY } from "@/app/lib/eleve-dossier-scope";
 import { canOpenEleveDossierDetail } from "@/app/lib/accueil-access";
 import { listEleveAccompagnementKinds } from "@/app/lib/eleve-dossier-access";
 import { ACCOMPAGNEMENT_KINDS, type AccompagnementKind } from "@/app/lib/eleve-pap";
@@ -64,7 +65,10 @@ export async function GET(req: NextRequest) {
   let assignedClasses: string[] | undefined;
   if (profScoped) {
     assignedClasses = await listAssignedClassesForTeacher(user.businessUserId);
-    if (assignedClasses.length === 0) {
+    if (
+      assignedClasses.length === 0 &&
+      !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
+    ) {
       return NextResponse.json({
         eleves: [],
         assignedClasses: [],
@@ -100,7 +104,10 @@ export async function GET(req: NextRequest) {
   const elevesRaw = await listElevesDossierFromDb(tenant.ctx.etablissementId, {
     classe: profScoped && classe ? classe : fullHub ? classe : undefined,
     status: fullHub ? status : undefined,
-    assignedClasses: profScoped ? assignedClasses : undefined,
+    assignedClasses:
+      profScoped && !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
+        ? assignedClasses
+        : undefined,
   });
 
   const db = getDb();
@@ -158,24 +165,29 @@ export async function GET(req: NextRequest) {
   const extraClasses = [
     ...new Set(eleves.map((e) => e.classe).filter((c): c is string => Boolean(c?.trim()))),
   ];
-  const classOptions = profScoped
-    ? (assignedClasses ?? [])
-        .map((cls) => {
-          const fromCatalog = catalog.classOptions.find((o) => o.value === cls);
-          if (fromCatalog) return fromCatalog;
-          const clsSiteId = resolveSiteIdForClass(cls, catalog);
-          const clsSiteLabel = resolveSiteLabel(clsSiteId, catalog);
-          return {
-            value: cls,
-            label: classOptionLabel(cls, clsSiteLabel),
-            siteId: clsSiteId,
-            siteLabel: clsSiteLabel,
-          };
-        })
-        .sort((a, b) =>
-          a.label.localeCompare(b.label, "fr", { sensitivity: "base", numeric: true }),
-        )
-    : dossierClassOptionsForSite(catalog, fullHub ? siteId : undefined, extraClasses);
+  const classOptions =
+    profScoped && !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
+      ? (assignedClasses ?? [])
+          .map((cls) => {
+            const fromCatalog = catalog.classOptions.find((o) => o.value === cls);
+            if (fromCatalog) return fromCatalog;
+            const clsSiteId = resolveSiteIdForClass(cls, catalog);
+            const clsSiteLabel = resolveSiteLabel(clsSiteId, catalog);
+            return {
+              value: cls,
+              label: classOptionLabel(cls, clsSiteLabel),
+              siteId: clsSiteId,
+              siteLabel: clsSiteLabel,
+            };
+          })
+          .sort((a, b) =>
+            a.label.localeCompare(b.label, "fr", { sensitivity: "base", numeric: true }),
+          )
+      : dossierClassOptionsForSite(
+          catalog,
+          fullHub || PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY ? siteId : undefined,
+          extraClasses,
+        );
 
   const siteLabelById = Object.fromEntries(catalog.siteLabelById.entries());
 

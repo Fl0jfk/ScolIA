@@ -10,6 +10,7 @@ import {
 import {
   canViewFullElevesDossierHub,
   isProfesseurScopedDossierViewer,
+  PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY,
 } from "@/app/lib/eleve-dossier-scope";
 import { isExcludedFromDossierList } from "@/app/lib/eleve-dossier-catalog";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
@@ -19,6 +20,7 @@ export {
   canManageElevePreinscriptions,
   isProfesseurScopedDossierViewer,
   ADMINISTRATIF_PROF_MODULE_IDS,
+  PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY,
 } from "@/app/lib/eleve-dossier-scope";
 
 export type EleveDossierListItem = {
@@ -48,6 +50,7 @@ export function teacherCanAccessEleveClasse(
   eleveClasse: string | null | undefined,
   assignedClasses: string[],
 ): boolean {
+  if (PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY) return true;
   return studentInAssignedClasses(eleveClasse ?? undefined, assignedClasses);
 }
 
@@ -111,13 +114,20 @@ export async function listClassmatesForEleve(
 ): Promise<Array<{ id: string; nom: string; prenom: string }>> {
   const cls = classe.trim();
   if (!cls) return [];
-  if (opts?.assignedClasses?.length && !studentInAssignedClasses(cls, opts.assignedClasses)) {
+  if (
+    opts?.assignedClasses?.length &&
+    !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY &&
+    !studentInAssignedClasses(cls, opts.assignedClasses)
+  ) {
     return [];
   }
   const rows = await listElevesDossierFromDb(etablissementId, {
     classe: cls,
     status: "inscrit",
-    assignedClasses: opts?.assignedClasses,
+    assignedClasses:
+      PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
+        ? undefined
+        : opts?.assignedClasses,
   });
   return rows
     .filter((r) => r.id !== opts?.excludeEleveId)

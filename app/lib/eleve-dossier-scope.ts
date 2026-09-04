@@ -13,6 +13,14 @@ import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 export const ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS = true;
 
 /**
+ * TEMPORAIRE — démarrage établissement : les profs voient tous les élèves
+ * (pas seulement leurs classes roster / EDT / stages).
+ * Sections toujours limitées à Synthèse + Scolarité.
+ * Remettre à `false` dès que l’affectation classes ↔ profs est fiable.
+ */
+export const PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY = true;
+
+/**
  * Onglets / sections autorisés pour un professeur « pur »
  * (pas direction / admin / administratif…) : Synthèse (= identité) + Scolarité.
  */
