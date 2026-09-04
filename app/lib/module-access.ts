@@ -16,6 +16,10 @@ import {
   customDefaultModulesForRole,
   roleHasDefaultPhotocopiesOps,
 } from "@/app/lib/module-access-defaults";
+import {
+  isProfesseurScopedDossierViewer,
+  PROFESSEUR_DOSSIER_SECTIONS,
+} from "@/app/lib/eleve-dossier-scope";
 
 /** Modules exclus de la matrice admin. */
 const SKIP_MODULE_IDS = new Set([
@@ -365,7 +369,12 @@ export function dossierSectionsForRolesWithAccess(
     return new Set(ALL_DOSSIER_SECTIONS);
   }
   // Defaults métier (ROLE_DEFAULT_DOSSIER_SECTIONS) + overrides personne/rôle.
-  return new Set(effectiveDossierSectionsForUser(roles, access, lookup));
+  const sections = new Set(effectiveDossierSectionsForUser(roles, access, lookup));
+  // Prof « pur » : plafond dur Synthèse + Scolarité (même si un override rôle élargit).
+  if (isProfesseurScopedDossierViewer({ roles, ...opts })) {
+    return new Set<EleveDossierSection>([...PROFESSEUR_DOSSIER_SECTIONS]);
+  }
+  return sections;
 }
 
 export { getIntranetModuleById };

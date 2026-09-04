@@ -240,7 +240,8 @@ export function rolesHaveDefaultPhotocopiesOps(roles: string[]): boolean {
 }
 
 export const ROLE_DEFAULT_DOSSIER_SECTIONS: Record<string, readonly DefaultDossierSection[]> = {
-  professeur: ["identite", "scolarite", "notes", "documents", "vie_scolaire"],
+  /** Synthèse (identité) + scolarité uniquement — pas famille / notes / docs / VS. */
+  professeur: ["identite", "scolarite"],
   /** Accueil : pas d’ouverture de fiche ; sections vides si accès détail forcé. */
   accueil: [],
   administratif: [

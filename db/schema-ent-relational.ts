@@ -80,6 +80,12 @@ export const absence = pgTable(
     justificationUploadedBy: text("justification_uploaded_by"),
     managerNote: text("manager_note"),
     hoursTreatment: text("hours_treatment"),
+    /** Préférence déclarant : RATTRAPAGE / RATTRAPAGE_INTERNE / DEDUCTION_SALAIRE / DECLARATION_INSTANCE… */
+    staffPreferredTreatment: text("staff_preferred_treatment"),
+    /** Créneaux de rattrapage proposés par le déclarant. */
+    staffPreferredMakeupSlots: text("staff_preferred_makeup_slots"),
+    /** Créneaux de rattrapage confirmés par la direction. */
+    directionConfirmedMakeupSlots: text("direction_confirmed_makeup_slots"),
     justificatifRelanceAt: timestamp("justificatif_relance_at", { withTimezone: true }),
     privacyReasonRedacted: boolean("privacy_reason_redacted").notNull().default(false),
     privacyDocumentsPurgedAt: timestamp("privacy_documents_purged_at", { withTimezone: true }),

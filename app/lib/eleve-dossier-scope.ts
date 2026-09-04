@@ -8,11 +8,15 @@ import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
 import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 
 /**
- * Accès professeurs au module Dossiers élèves.
- * `false` jusqu’à la rentrée : évite d’afficher les classes / listes élèves aux profs.
- * Remettre à `true` pour réactiver.
+ * Accès professeurs au module Dossiers élèves (classes assignées, fiche limitée).
  */
-export const ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS = false;
+export const ELEVE_DOSSIER_ENABLED_FOR_PROFESSEURS = true;
+
+/**
+ * Onglets / sections autorisés pour un professeur « pur »
+ * (pas direction / admin / administratif…) : Synthèse (= identité) + Scolarité.
+ */
+export const PROFESSEUR_DOSSIER_SECTIONS = ["identite", "scolarite"] as const;
 
 /** Accès hub dossiers complet (accès docs, tous les élèves, filtres établissement). */
 export function canViewFullElevesDossierHub(opts: {
@@ -47,7 +51,7 @@ export function canManageElevePreinscriptions(opts: {
 
 /**
  * Professeur sans rôle staff élargi :
- * - Administratif réduit (dossiers de ses classes + notes)
+ * - Dossiers élèves de ses classes (Synthèse + Scolarité)
  * - Pas de préinscriptions / réglages admin
  */
 export function isProfesseurScopedDossierViewer(opts: {
@@ -59,7 +63,7 @@ export function isProfesseurScopedDossierViewer(opts: {
   return !canViewFullElevesDossierHub(opts);
 }
 
-/** Le viewer prof a-t-il le droit d’ouvrir Dossiers élèves (flag rentrée) ? */
+/** Le viewer prof a-t-il le droit d’ouvrir Dossiers élèves ? */
 export function professeurMayAccessEleveDossier(opts: {
   roles: string[];
   orgAdmin?: boolean;

@@ -505,6 +505,16 @@ export async function GET() {
     let vsCarnetNonSignees = 0;
     let facturesEnRetard = 0;
     let anneeScolaireLabel: string | null = null;
+    let unseenAccompagnementAlerts: Array<{
+      documentId: string;
+      eleveId: string;
+      eleveNom: string;
+      elevePrenom: string;
+      classe: string | null;
+      kind: "pap" | "pai" | "pps";
+      title: string;
+      detail: string;
+    }> = [];
 
     try {
       const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
@@ -512,6 +522,44 @@ export async function GET() {
       const etabId = await resolveCurrentEtablissementId();
       if (etabId) {
         anneeScolaireLabel = (await resolveAnneeCouranteMeta(etabId)).label;
+        if (
+          accessibleModuleIds.has("eleve-dossier") &&
+          businessUserId &&
+          hasRole(roles, "professeur")
+        ) {
+          try {
+            const { isProfesseurScopedDossierViewer } = await import(
+              "@/app/lib/eleve-dossier-scope"
+            );
+            if (
+              isProfesseurScopedDossierViewer({
+                roles,
+                orgAdmin: isOrgAdmin,
+              })
+            ) {
+              const {
+                listUnseenAccompagnementAlertsForTeacher,
+                formatAccompagnementAlertDetail,
+              } = await import("@/app/lib/eleve-accompagnement-alerts");
+              const alerts = await listUnseenAccompagnementAlertsForTeacher({
+                etablissementId: etabId,
+                businessUserId,
+              });
+              unseenAccompagnementAlerts = alerts.map((a) => ({
+                documentId: a.documentId,
+                eleveId: a.eleveId,
+                eleveNom: a.eleveNom,
+                elevePrenom: a.elevePrenom,
+                classe: a.classe,
+                kind: a.kind,
+                title: a.title,
+                detail: formatAccompagnementAlertDetail(a),
+              }));
+            }
+          } catch (err) {
+            console.warn("[dashboard/signals] accompagnement alerts", err);
+          }
+        }
       }
     } catch {
       anneeScolaireLabel = null;
@@ -613,6 +661,7 @@ export async function GET() {
         vsCarnetNonSignees,
         facturesEnRetard,
         anneeScolaireLabel,
+        unseenAccompagnementAlerts,
       });
       return NextResponse.json(signals);
     } catch (err) {

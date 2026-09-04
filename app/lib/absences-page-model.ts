@@ -45,6 +45,9 @@ export type AbsenceItem = {
   adminTreatedAt?: string | null;
   adminTreatedBy?: string | null;
   adminNote?: string | null;
+  staffPreferredTreatment?: string | null;
+  staffPreferredMakeupSlots?: string | null;
+  directionConfirmedMakeupSlots?: string | null;
 };
 
 export function itemDecision(item: AbsenceItem): AbsenceDecision {

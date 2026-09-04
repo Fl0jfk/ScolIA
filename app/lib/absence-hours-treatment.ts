@@ -113,6 +113,41 @@ export function hoursTreatmentFieldLabel(scope: AbsenceScope) {
   return scope === "ogec" ? "Traitement des heures" : "Traitement de l'absence";
 }
 
+/** Libellé de la préférence exprimée par le déclarant (pas la décision direction). */
+export function formatStaffPreferredTreatment(value?: string | null): string | null {
+  if (!value) return null;
+  if (value === "RATTRAPAGE" || value === "RATTRAPAGE_INTERNE") return "Rattrapage des heures";
+  if (value === "DEDUCTION_SALAIRE") return "Déduction / perte de rémunération";
+  if (value === "DECLARATION_INSTANCE" || value === "DECLARATION_ONISE" || value === "DECLARATION_RECTORAT") {
+    return "Sans rattrapage (déclaration instance — impact service / rémunération)";
+  }
+  return value;
+}
+
+/** Lignes e-mail : préférence déclarant + créneaux confirmés direction. */
+export function formatMakeupPreferenceMailLines(record: {
+  staffPreferredTreatment?: string | null;
+  staffPreferredMakeupSlots?: string | null;
+  directionConfirmedMakeupSlots?: string | null;
+  hoursTreatment?: AbsenceHoursTreatment | null;
+}): string[] {
+  const lines: string[] = [];
+  const pref = formatStaffPreferredTreatment(record.staffPreferredTreatment);
+  if (pref) lines.push(`Préférence du déclarant : ${pref}`);
+  const preferredSlots = record.staffPreferredMakeupSlots?.trim();
+  if (preferredSlots) lines.push(`Créneaux envisagés par le déclarant : ${preferredSlots}`);
+  const confirmed = record.directionConfirmedMakeupSlots?.trim();
+  if (confirmed) {
+    lines.push(`Moment de rattrapage confirmé par la direction : ${confirmed}`);
+  } else if (
+    record.hoursTreatment === "RATTRAPAGE" ||
+    record.hoursTreatment === "RATTRAPAGE_INTERNE"
+  ) {
+    lines.push("Moment de rattrapage : à préciser avec la direction / le service.");
+  }
+  return lines;
+}
+
 export function formatTransmissionSummary(
   scope: AbsenceScope,
   etablissement: Etablissement | null,

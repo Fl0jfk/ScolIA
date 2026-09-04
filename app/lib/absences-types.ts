@@ -72,6 +72,12 @@ export type AbsenceRecord = {
   adminTreatedAt?: string | null;
   adminTreatedBy?: string | null;
   adminNote?: string | null;
+  /** Préférence de traitement exprimée par le déclarant lors de la demande. */
+  staffPreferredTreatment?: string | null;
+  /** Créneaux de rattrapage souhaités par le déclarant (texte libre). */
+  staffPreferredMakeupSlots?: string | null;
+  /** Créneaux de rattrapage confirmés par la direction (texte libre). */
+  directionConfirmedMakeupSlots?: string | null;
   history: Array<{
     at: string;
     by: string;

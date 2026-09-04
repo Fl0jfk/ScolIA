@@ -238,6 +238,12 @@ export async function POST(req: Request) {
     const reason = String(payload.reason || "").trim();
     const details = String(payload.details || "").trim();
     const justificationPayload = payload?.justification || null;
+    const staffPreferredTreatment = payload.staffPreferredTreatment
+      ? String(payload.staffPreferredTreatment).trim() || null
+      : null;
+    const staffPreferredMakeupSlots = payload.staffPreferredMakeupSlots
+      ? String(payload.staffPreferredMakeupSlots).trim() || null
+      : null;
 
     if (!reason) {
       return NextResponse.json({ error: "Champs obligatoires manquants." }, { status: 400 });
@@ -281,6 +287,8 @@ export async function POST(req: Request) {
         reason,
         details,
       },
+      staffPreferredTreatment,
+      staffPreferredMakeupSlots,
       workflowStatus: justificationPayload?.fileName && justificationPayload?.fileUrl ? "JUSTIFICATIF_DEPOSE" : "OUVERTE",
       managerDecision: "EN_ATTENTE",
       closedAt: null,
@@ -476,6 +484,10 @@ export async function PATCH(req: Request) {
         return NextResponse.json({ error: treatmentResult.error }, { status: 400 });
       }
       const hoursTreatment = treatmentResult.treatment;
+      const directionConfirmedMakeupSlots =
+        body?.directionConfirmedMakeupSlots
+          ? String(body.directionConfirmedMakeupSlots).trim() || null
+          : null;
       const decidedAt = new Date().toISOString();
       updated = {
         ...updated,
@@ -484,6 +496,7 @@ export async function PATCH(req: Request) {
         calendarVisible: true,
         closedAt: null,
         hoursTreatment,
+        directionConfirmedMakeupSlots,
         history: [
           ...(current.history || []),
           {

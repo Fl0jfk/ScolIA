@@ -225,6 +225,13 @@
       "when": 1787590000000,
       "tag": "0031_reservation_booked_by_user",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1787595000000,
+      "tag": "0032_absence_makeup_preference",
+      "breakpoints": true
     }
   ]
 }

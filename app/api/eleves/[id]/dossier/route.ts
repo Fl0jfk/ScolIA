@@ -175,6 +175,21 @@ export async function GET(_req: Request, ctx: Ctx) {
     if (!teacherCanAccessEleveClasse(row.classe, assignedClassesForProf)) {
       return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
     }
+    // Consulter la fiche = acquitter les alertes PAP/PAI/PPS de cet élève.
+    after(async () => {
+      try {
+        const { markAccompagnementAlertsSeenForEleve } = await import(
+          "@/app/lib/eleve-accompagnement-alerts"
+        );
+        await markAccompagnementAlertsSeenForEleve({
+          etablissementId: etabId,
+          businessUserId,
+          eleveId: id,
+        });
+      } catch (err) {
+        console.warn("[eleves/dossier] mark accompagnement alerts seen", err);
+      }
+    });
   }
 
   await ensureEleveScolariteGrilleRepasColumn();

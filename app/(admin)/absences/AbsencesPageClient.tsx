@@ -32,6 +32,7 @@ import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils
 import { formatAbsencePeriod, type AbsencePeriodType } from "@/app/lib/absence-period";
 import {
   formatAbsenceHoursTreatment,
+  formatStaffPreferredTreatment,
   getHoursTreatmentOptions,
   hoursTreatmentFieldLabel,
   validateHoursTreatmentForAbsence,
@@ -91,8 +92,11 @@ export default function AbsencesPageClient({
   const [reason, setReason] = useState("");
   const [details, setDetails] = useState("");
   const [justificationFile, setJustificationFile] = useState<File | null>(null);
+  const [staffPreferredTreatment, setStaffPreferredTreatment] = useState<string>("");
+  const [staffPreferredMakeupSlots, setStaffPreferredMakeupSlots] = useState<string>("");
   const [managerNotes, setManagerNotes] = useState<Record<string, string>>({});
   const [managerHoursTreatment, setManagerHoursTreatment] = useState<Record<string, string>>({});
+  const [directionConfirmedSlots, setDirectionConfirmedSlots] = useState<Record<string, string>>({});
   const [uploadingJustificationId, setUploadingJustificationId] = useState<string | null>(null);
   const roles = rolesFromUserLike(user);
   const [declareScope, setDeclareScope] = useState<AbsenceScope>("ogec");
@@ -347,6 +351,8 @@ export default function AbsencesPageClient({
             reason: reason.trim(),
             details: details.trim(),
             justification,
+            staffPreferredTreatment: staffPreferredTreatment || null,
+            staffPreferredMakeupSlots: staffPreferredMakeupSlots.trim() || null,
           },
         }),
       });
@@ -360,6 +366,8 @@ export default function AbsencesPageClient({
       setEndDate("");
       setReason("");
       setDetails("");
+      setStaffPreferredTreatment("");
+      setStaffPreferredMakeupSlots("");
       setJustificationFile(null);
       if (forOther) setColleague(null);
       await fetchItems();
@@ -417,7 +425,10 @@ export default function AbsencesPageClient({
           action,
           managerNote: managerNotes[id] || "",
           ...(action === "VALIDER"
-            ? { hoursTreatment: resolvedHoursTreatment(item!, managerHoursTreatment) }
+            ? {
+                hoursTreatment: resolvedHoursTreatment(item!, managerHoursTreatment),
+                directionConfirmedMakeupSlots: directionConfirmedSlots[id]?.trim() || null,
+              }
             : {}),
         }),
       });
@@ -839,6 +850,59 @@ export default function AbsencesPageClient({
                 className="w-full rounded-xl border border-slate-200 px-3 py-2"
               />
             </div>
+            {!(forOther && !colleague) && (
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 space-y-3">
+                <p className="text-xs font-black uppercase tracking-wider text-indigo-700">Votre préférence (optionnel)</p>
+                <p className="text-xs text-slate-600">
+                  Ce n&apos;est qu&apos;une indication : la décision finale appartient à la direction.
+                </p>
+                <div>
+                  <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1">
+                    Préférez-vous plutôt…
+                  </label>
+                  <select
+                    value={staffPreferredTreatment}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setStaffPreferredTreatment(next);
+                      if (next !== "RATTRAPAGE" && next !== "RATTRAPAGE_INTERNE") {
+                        setStaffPreferredMakeupSlots("");
+                      }
+                    }}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white text-sm"
+                  >
+                    <option value="">— Aucune préférence —</option>
+                    {effectiveScope === "ogec" ? (
+                      <>
+                        <option value="RATTRAPAGE">Un rattrapage des heures</option>
+                        <option value="DEDUCTION_SALAIRE">Une déduction / perte de rémunération</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="RATTRAPAGE_INTERNE">Un rattrapage des heures</option>
+                        <option value="DECLARATION_INSTANCE">
+                          Sans rattrapage (déclaration instance — impact service / rémunération)
+                        </option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                {(staffPreferredTreatment === "RATTRAPAGE" || staffPreferredTreatment === "RATTRAPAGE_INTERNE") && (
+                  <div>
+                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1">
+                      Avez-vous déjà une idée du moment où rattraper ?
+                    </label>
+                    <textarea
+                      value={staffPreferredMakeupSlots}
+                      onChange={(e) => setStaffPreferredMakeupSlots(e.target.value)}
+                      rows={2}
+                      placeholder="Ex : Jeudi 12 mars de 10h à 12h, ou vendredi après-midi… (laissez vide si pas encore d’idée)"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">
                 Pièce justificative (optionnel)
@@ -895,6 +959,34 @@ export default function AbsencesPageClient({
                 <p className="text-sm text-slate-700 mt-1">
                   <span className="font-bold">Motif :</span> {item.data.reason}
                 </p>
+                {(item.staffPreferredTreatment || item.staffPreferredMakeupSlots) && (
+                  <div className="mt-2 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm">
+                    <p className="text-[11px] font-black uppercase tracking-wider text-indigo-600 mb-1">
+                      Votre préférence (indication)
+                    </p>
+                    {item.staffPreferredTreatment && (
+                      <p className="text-slate-700">
+                        {formatStaffPreferredTreatment(item.staffPreferredTreatment)}
+                      </p>
+                    )}
+                    {item.staffPreferredMakeupSlots && (
+                      <p className="text-slate-700 mt-1">
+                        <span className="font-bold">Moment envisagé : </span>
+                        {item.staffPreferredMakeupSlots}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {item.directionConfirmedMakeupSlots && (
+                  <p className="text-sm text-emerald-700 mt-2 font-semibold">
+                    Rattrapage confirmé : {item.directionConfirmedMakeupSlots}
+                  </p>
+                )}
+                {item.hoursTreatment && itemDecision(item) === "VALIDEE" ? (
+                  <p className="text-sm text-indigo-700 mt-1 font-semibold">
+                    Décision direction : {formatAbsenceHoursTreatment(item.hoursTreatment)}
+                  </p>
+                ) : null}
                 {item.justification?.fileUrl && canViewJustificatif(item) ? (
                   <p className="text-sm text-slate-700 mt-2">
                     <span className="font-bold">Justificatif :</span>{" "}
@@ -1089,6 +1181,28 @@ export default function AbsencesPageClient({
                     <p className="text-xs text-slate-500 mb-2">
                       Valider ou refuser même sans pièce jointe. « Relancer » invite le demandeur à déposer un justificatif — ou un complément si le premier ne suffit pas.
                     </p>
+                    {(item.staffPreferredTreatment || item.staffPreferredMakeupSlots) && (
+                      <div className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm">
+                        <p className="text-[11px] font-black uppercase tracking-wider text-indigo-600 mb-1">
+                          Préférence du déclarant (indication, pas une décision)
+                        </p>
+                        {item.staffPreferredTreatment && (
+                          <p className="text-slate-700">
+                            <span className="font-bold">Souhait : </span>
+                            {formatStaffPreferredTreatment(item.staffPreferredTreatment)}
+                          </p>
+                        )}
+                        {item.staffPreferredMakeupSlots ? (
+                          <p className="text-slate-700 mt-1">
+                            <span className="font-bold">Moment envisagé pour rattraper : </span>
+                            {item.staffPreferredMakeupSlots}
+                          </p>
+                        ) : item.staffPreferredTreatment === "RATTRAPAGE" ||
+                          item.staffPreferredTreatment === "RATTRAPAGE_INTERNE" ? (
+                          <p className="text-slate-500 mt-1 text-xs">Aucun créneau proposé pour l&apos;instant.</p>
+                        ) : null}
+                      </div>
+                    )}
                     <div className="mb-2">
                       <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1">
                         {hoursTreatmentFieldLabel(item.data.scope)} <span className="text-rose-600">*</span>
@@ -1110,10 +1224,28 @@ export default function AbsencesPageClient({
                       </select>
                       <p className="text-xs text-slate-400 mt-1">
                         {item.data.scope === "ogec"
-                          ? "Obligatoire — heures rattrapées ou déduites du salaire."
-                          : "Obligatoire — rattrapage en interne ou déclaration ONISE / rectorat."}
+                          ? "Décision direction — heures rattrapées ou déduites du salaire."
+                          : "Décision direction — rattrapage en interne ou déclaration ONISE / rectorat."}
                       </p>
                     </div>
+                    {(resolvedHoursTreatment(item, managerHoursTreatment) === "RATTRAPAGE_INTERNE" ||
+                      resolvedHoursTreatment(item, managerHoursTreatment) === "RATTRAPAGE") && (
+                      <div className="mb-2">
+                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1">
+                          À quel moment souhaitez-vous qu&apos;ils rattrapent leurs heures ?
+                        </label>
+                        <textarea
+                          rows={2}
+                          placeholder="Ex : Jeudi 19 mars de 10h à 12h — à communiquer au professeur"
+                          value={directionConfirmedSlots[item.id] ?? item.directionConfirmedMakeupSlots ?? ""}
+                          onChange={(e) => setDirectionConfirmedSlots((p) => ({ ...p, [item.id]: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                        />
+                        <p className="text-xs text-slate-400 mt-1">
+                          Ces créneaux seront transmis au demandeur dans l&apos;e-mail de confirmation.
+                        </p>
+                      </div>
+                    )}
                     <textarea
                       rows={2}
                       placeholder="Note interne (optionnel)"

@@ -110,11 +110,7 @@ export function eleveDossierSectionsForRoles(
       "facturation",
     ]);
   }
-  if (hasRole(roles, "professeur")) {
-    out.add("notes");
-    out.add("documents");
-    out.add("vie_scolaire");
-  }
+  // Professeur : identité (synthèse) + scolarité uniquement — pas notes / docs / VS.
   if (hasRole(roles, "cpe")) {
     out.add("vie_scolaire");
     out.add("documents");

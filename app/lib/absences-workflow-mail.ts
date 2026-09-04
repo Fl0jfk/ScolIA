@@ -14,6 +14,7 @@ import { collectAbsenceValidationEmails } from "@/app/lib/absences-validation-re
 import {
   formatHoursTreatmentCreatorMailLine,
   formatHoursTreatmentMailLine,
+  formatMakeupPreferenceMailLines,
 } from "@/app/lib/absence-hours-treatment";
 import {
   formatJustificatifMailLine,
@@ -101,8 +102,10 @@ export async function notifyAbsenceCreated(input: {
       `Période : ${formatAbsencePeriod(input.record.data)}`,
       `Motif : ${input.record.data.reason}`,
       input.record.data.details ? `Détails : ${input.record.data.details}` : "",
+      ...formatMakeupPreferenceMailLines(input.record),
       ``,
       `Action attendue : Valider / Refuser dans l’application.`,
+      `Si rattrapage : indiquer à quel moment les heures doivent être rattrapées.`,
       `Après votre accord, le calendrier est mis à jour et le dossier passe à la personne qui traite (rectorat / RH) dans l’intranet.`,
       ``,
       `Espace Absences: ${absencesLink}`,
@@ -189,6 +192,7 @@ export async function notifyAbsenceValidated(
         record.data.details ? `Détails : ${record.data.details}` : "",
         justificatifLine,
         treatmentLine,
+        ...formatMakeupPreferenceMailLines(record),
         mailAttachments.length > 0 ? `` : undefined,
         mailAttachments.length > 0
           ? `Les justificatifs et documents sont en pièce(s) jointe(s) à ce message.`
@@ -235,6 +239,7 @@ export async function notifyAbsenceCreatorValidated(record: AbsenceRecord): Prom
       `Motif : ${record.data.reason}`,
       record.data.details ? `Détails : ${record.data.details}` : "",
       treatment,
+      ...formatMakeupPreferenceMailLines(record),
       ``,
       `Le dossier est maintenant chez la personne qui assure le traitement administratif (rectorat / RH). Vous pouvez suivre l’avancement et déposer une pièce si elle vous est demandée :`,
       link,

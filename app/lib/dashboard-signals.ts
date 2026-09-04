@@ -208,6 +208,17 @@ type DashboardSignalsInput = {
   facturesEnRetard?: number;
   /** Libellé année scolaire courante (ex. 2025-2026). */
   anneeScolaireLabel?: string | null;
+  /** PAP / PAI / PPS non vus pour un prof (classes assignées). */
+  unseenAccompagnementAlerts?: Array<{
+    documentId: string;
+    eleveId: string;
+    eleveNom: string;
+    elevePrenom: string;
+    classe: string | null;
+    kind: "pap" | "pai" | "pps";
+    title: string;
+    detail: string;
+  }>;
 };
 
 function weekDayFromDateKey(dateKey: string): WeekDayKey | null {
@@ -401,6 +412,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     vsCarnetNonSignees = 0,
     facturesEnRetard = 0,
     anneeScolaireLabel = null,
+    unseenAccompagnementAlerts = [],
   } = input;
 
   const shortcuts: DashboardShortcut[] = [];
@@ -1323,13 +1335,56 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
   // —— Dossier élève avant notes / santé ——
   if (has("eleve-dossier")) {
-    shortcuts.push({
-      id: "eleve-dossier",
-      pillarId: moduleIdToPillarId("eleve-dossier") ?? "administratif",
-      moduleId: "eleve-dossier",
-      href: moduleHref("eleve-dossier"),
-      label: "Dossiers élèves",
-    });
+    const accompagnementCount = unseenAccompagnementAlerts.length;
+    if (accompagnementCount > 0) {
+      const first = unseenAccompagnementAlerts[0]!;
+      const href =
+        accompagnementCount === 1
+          ? `/eleves/dossier/${encodeURIComponent(first.eleveId)}`
+          : moduleHref("eleve-dossier");
+      shortcuts.push({
+        id: "eleve-dossier",
+        pillarId: moduleIdToPillarId("eleve-dossier") ?? "administratif",
+        moduleId: "eleve-dossier",
+        href,
+        label: "Dossiers élèves",
+        rich: true,
+        badge: String(accompagnementCount),
+        detail:
+          accompagnementCount === 1
+            ? first.detail
+            : `${accompagnementCount} dispositifs d’accompagnement ajoutés`,
+        tone: "info",
+      });
+      for (const alert of unseenAccompagnementAlerts.slice(0, 8)) {
+        pushNotif({
+          id: `eleve-accompagnement-${alert.documentId}`,
+          moduleId: "eleve-dossier",
+          label: alert.kind.toUpperCase(),
+          count: 1,
+          href: `/eleves/dossier/${encodeURIComponent(alert.eleveId)}`,
+          detail: alert.detail,
+        });
+      }
+      if (accompagnementCount > 8) {
+        pushNotif({
+          id: "eleve-accompagnement-more",
+          moduleId: "eleve-dossier",
+          label: "Accompagnements",
+          count: accompagnementCount - 8,
+          href: moduleHref("eleve-dossier"),
+          detail: `${accompagnementCount - 8} autre(s) dispositif(s) à consulter`,
+        });
+      }
+    } else {
+      shortcuts.push({
+        id: "eleve-dossier",
+        pillarId: moduleIdToPillarId("eleve-dossier") ?? "administratif",
+        moduleId: "eleve-dossier",
+        href: moduleHref("eleve-dossier"),
+        label: "Dossiers élèves",
+      });
+    }
   }
   if (has("notes")) {
     shortcuts.push({

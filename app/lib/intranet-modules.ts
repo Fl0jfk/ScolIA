@@ -980,7 +980,7 @@ export function rolesAllowModule(
       return false;
     }
 
-    // Dossiers élèves : masqué pour les profs jusqu’à réactivation (rentrée).
+    // Dossiers élèves : masqué pour les profs si le flag d’accès est désactivé.
     if (
       module.id === "eleve-dossier" &&
       isProfesseurScopedDossierViewer({ roles, orgAdmin: isOrgAdmin }) &&

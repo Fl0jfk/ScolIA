@@ -72,6 +72,9 @@ export function absenceRecordToRows(etablissementId: string, record: AbsenceReco
     adminTreatedAt: parseTs(r.adminTreatedAt ?? null),
     adminTreatedBy: r.adminTreatedBy?.trim() || null,
     adminNote: r.adminNote?.trim() || null,
+    staffPreferredTreatment: r.staffPreferredTreatment?.trim() || null,
+    staffPreferredMakeupSlots: r.staffPreferredMakeupSlots?.trim() || null,
+    directionConfirmedMakeupSlots: r.directionConfirmedMakeupSlots?.trim() || null,
   };
   const history = (r.history ?? []).map((h, i) => ({
     etablissementId,
@@ -150,6 +153,9 @@ export function rowsToAbsenceRecord(
     adminTreatedAt: toAbsenceIsoTimestampOrNull(main.adminTreatedAt as string | Date | null),
     adminTreatedBy: main.adminTreatedBy ?? null,
     adminNote: main.adminNote ?? null,
+    staffPreferredTreatment: main.staffPreferredTreatment ?? null,
+    staffPreferredMakeupSlots: main.staffPreferredMakeupSlots ?? null,
+    directionConfirmedMakeupSlots: main.directionConfirmedMakeupSlots ?? null,
     history: sorted.map((h) => ({
       at: toAbsenceIsoTimestamp(h.at as string | Date, updatedAt),
       by: h.by,
@@ -266,6 +272,9 @@ export async function upsertAbsenceInDb(
         adminTreatedAt: main.adminTreatedAt,
         adminTreatedBy: main.adminTreatedBy,
         adminNote: main.adminNote,
+        staffPreferredTreatment: main.staffPreferredTreatment,
+        staffPreferredMakeupSlots: main.staffPreferredMakeupSlots,
+        directionConfirmedMakeupSlots: main.directionConfirmedMakeupSlots,
       },
     });
   await db
