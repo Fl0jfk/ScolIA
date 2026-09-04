@@ -16,6 +16,10 @@ import {
   defaultTimetableGridsConfig,
   type TimetableGridsConfig,
 } from "@/app/lib/rh/timetable-grids";
+import {
+  defaultTeachingGroupsConfig,
+  type TeachingGroupsConfig,
+} from "@/app/lib/rh/teaching-groups";
 
 export function defaultSiteIdentity(): SiteIdentity {
   return {
@@ -96,6 +100,10 @@ export function defaultProfRoomModule(): ProfRoomModuleConfig {
 
 export function defaultTimetableGrids(): TimetableGridsConfig {
   return defaultTimetableGridsConfig();
+}
+
+export function defaultTeachingGroups(): TeachingGroupsConfig {
+  return defaultTeachingGroupsConfig();
 }
 
 export function defaultClassAllocationSettings() {

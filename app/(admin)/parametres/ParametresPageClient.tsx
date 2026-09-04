@@ -86,6 +86,10 @@ const TimetableGridsSettingsPanel = dynamic(
   () => import("@/app/components/settings/TimetableGridsSettingsPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
+const TeachingGroupsSettingsPanel = dynamic(
+  () => import("@/app/components/settings/TeachingGroupsSettingsPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
   { id: "site", label: "Établissement", icon: "🏫" },
@@ -99,6 +103,7 @@ const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
   { id: "mef", label: "Formations MEF", icon: "📚" },
   { id: "notifications", label: "Notifications", icon: "✉️" },
   { id: "grilles-horaires", label: "Grilles horaires", icon: "🔔" },
+  { id: "groupes-edt", label: "Groupes EDT", icon: "🧩" },
   { id: "integrations", label: "Intégrations", icon: "🔌" },
   { id: "dashboard-links", label: "Raccourcis tableau de bord", icon: "🔗" },
 ];
@@ -139,6 +144,7 @@ export default function ParametresPage() {
       t === "establishments" ||
       t === "notifications" ||
       t === "grilles-horaires" ||
+      t === "groupes-edt" ||
       t === "mef" ||
       t === "prof-room" ||
       t === "requests-routing" ||
@@ -559,6 +565,18 @@ export default function ParametresPage() {
 
         {tab === "grilles-horaires" && (
           <TimetableGridsSettingsPanel establishments={establishments} />
+        )}
+
+        {tab === "groupes-edt" && (
+          <TeachingGroupsSettingsPanel
+            establishments={establishments}
+            classCatalog={establishments.flatMap((e) =>
+              String(e.grades || "")
+                .split(/[,;\n]/)
+                .map((c) => c.trim())
+                .filter(Boolean),
+            )}
+          />
         )}
 
         {tab === "travels" && (

@@ -28,6 +28,8 @@ function rowToSlot(row: {
   subject: string;
   classes: string[] | null;
   room: string | null;
+  groupId?: string | null;
+  groupLabel?: string | null;
 }): TeacherPlanningSlot {
   return {
     id: row.id,
@@ -37,6 +39,8 @@ function rowToSlot(row: {
     subject: row.subject,
     classes: row.classes ?? [],
     room: row.room || undefined,
+    groupId: row.groupId || undefined,
+    groupLabel: row.groupLabel || undefined,
   };
 }
 
@@ -187,6 +191,8 @@ export async function writeTeacherPlanningToDb(
       subject: s.subject,
       classes: s.classes,
       room: s.room ?? null,
+      groupId: s.groupId ?? null,
+      groupLabel: s.groupLabel ?? null,
     })),
     ...normalized.weekB.map((s) => ({
       id: allocSlotId(s.id),
@@ -199,6 +205,8 @@ export async function writeTeacherPlanningToDb(
       subject: s.subject,
       classes: s.classes,
       room: s.room ?? null,
+      groupId: s.groupId ?? null,
+      groupLabel: s.groupLabel ?? null,
     })),
   ];
   if (slotRows.length) {

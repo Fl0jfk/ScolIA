@@ -63,5 +63,6 @@ export async function loadTeacherPlanningCatalog(
     rooms,
     assignedClasses,
     timetableGrid: pickDefaultTimetableGrid(appCfg.timetableGrids),
+    teachingGroups: appCfg.teachingGroups.groups,
   };
 }

@@ -653,6 +653,8 @@ export const teacherPlanningSlot = pgTable(
     subject: text("subject").notNull(),
     classes: text("classes").array().notNull().default([]),
     room: text("room"),
+    groupId: text("group_id"),
+    groupLabel: text("group_label"),
   },
   (t) => [
     index("teacher_planning_slot_planning_idx").on(t.planningId, t.weekType),

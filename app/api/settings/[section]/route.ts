@@ -11,6 +11,7 @@ import {
   saveSiteIdentity,
   saveTravelsModule,
   saveTimetableGrids,
+  saveTeachingGroups,
   saveOnboardingStep,
 } from "@/app/lib/app-config";
 import {
@@ -21,6 +22,7 @@ import {
   parseTravelsModule,
 } from "@/app/lib/app-config-schemas";
 import { parseTimetableGridsConfig } from "@/app/lib/rh/timetable-grids";
+import { parseTeachingGroupsConfig } from "@/app/lib/rh/teaching-groups";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { normalizeProfRoomAdminIds } from "@/app/lib/prof-room-auth";
 import { ensureSiteAddressCoordinates } from "@/app/lib/site-address-coordinates";
@@ -37,6 +39,7 @@ const ALLOWED = new Set([
   "integrations",
   "travels",
   "timetable-grids",
+  "teaching-groups",
 ]);
 
 export async function PUT(req: Request, ctx: { params: Promise<{ section: string }> }) {
@@ -88,6 +91,8 @@ export async function PUT(req: Request, ctx: { params: Promise<{ section: string
       await saveTravelsModule(parseTravelsModule(body));
     } else if (section === "timetable-grids") {
       await saveTimetableGrids(parseTimetableGridsConfig(body));
+    } else if (section === "teaching-groups") {
+      await saveTeachingGroups(parseTeachingGroupsConfig(body));
     }
 
     const config = await loadAppConfig();

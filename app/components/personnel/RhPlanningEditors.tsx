@@ -22,6 +22,11 @@ import {
   type TimetableGrid,
 } from "@/app/lib/rh/timetable-grids";
 import { suggestRoomForClasses } from "@/app/lib/rh/planning-room-suggest";
+import {
+  applyTeachingGroupToSlotFields,
+  findTeachingGroupByClasses,
+  slotAudienceLabel,
+} from "@/app/lib/rh/teaching-groups";
 
 export function newId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -49,6 +54,7 @@ export function teacherSlotFingerprint(slot: TeacherPlanningSlot): string {
     slot.subject.trim().toLowerCase(),
     [...(slot.classes || [])].map((c) => c.trim()).filter(Boolean).sort().join(","),
     (slot.room || "").trim().toLowerCase(),
+    (slot.groupId || "").trim(),
   ].join("|");
 }
 
@@ -100,6 +106,8 @@ export function applyTeacherSlotQuickEdit(
     subject: draft.subject.trim(),
     classes: [...new Set((draft.classes || []).map((c) => c.trim()).filter(Boolean))],
     room: draft.room?.trim() || undefined,
+    groupId: draft.groupId?.trim() || undefined,
+    groupLabel: draft.groupLabel?.trim() || undefined,
   };
 
   if (weekMode === "A" || weekMode === "both") {
@@ -416,6 +424,61 @@ export function TeacherSlotQuickModal({
             </datalist>
           ) : null}
 
+          <Field label="Groupe (optionnel)">
+            {(catalog?.teachingGroups?.length ?? 0) > 0 ? (
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChange({
+                      ...slot,
+                      groupId: undefined,
+                      groupLabel: undefined,
+                    })
+                  }
+                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border ${
+                    !slot.groupId
+                      ? "bg-slate-900 text-white border-slate-900"
+                      : "bg-white text-slate-600 border-slate-200"
+                  }`}
+                >
+                  Aucun
+                </button>
+                {(catalog?.teachingGroups || []).map((g) => (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => {
+                      const fields = applyTeachingGroupToSlotFields(g);
+                      const suggested = suggestRoomForClasses(
+                        fields.classes,
+                        rooms,
+                        slot.room,
+                      );
+                      onChange({
+                        ...slot,
+                        ...fields,
+                        ...(suggested ? { room: suggested } : {}),
+                      });
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border ${
+                      slot.groupId === g.id
+                        ? "bg-violet-700 text-white border-violet-700"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-violet-50"
+                    }`}
+                    title={g.classNames.join(", ")}
+                  >
+                    {g.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-500 mt-1">
+                Créez des groupes dans Paramètres → Groupes EDT.
+              </p>
+            )}
+          </Field>
+
           <Field label="Classe(s)">
             {classOptions.length > 0 ? (
               <div className="flex flex-wrap gap-1.5 mt-1 max-h-40 overflow-y-auto">
@@ -439,6 +502,10 @@ export function TeacherSlotQuickModal({
                           if (checked) current.delete(className);
                           else current.add(className);
                           const classes = [...current];
+                          const matched = findTeachingGroupByClasses(
+                            catalog?.teachingGroups || [],
+                            classes,
+                          );
                           const suggested = suggestRoomForClasses(
                             classes,
                             rooms,
@@ -447,6 +514,8 @@ export function TeacherSlotQuickModal({
                           onChange({
                             ...slot,
                             classes,
+                            groupId: matched?.id,
+                            groupLabel: matched?.label,
                             ...(suggested ? { room: suggested } : {}),
                           });
                         }}
@@ -466,15 +535,26 @@ export function TeacherSlotQuickModal({
                     .split(",")
                     .map((c) => c.trim())
                     .filter(Boolean);
+                  const matched = findTeachingGroupByClasses(
+                    catalog?.teachingGroups || [],
+                    classes,
+                  );
                   const suggested = suggestRoomForClasses(classes, rooms, slot.room);
                   onChange({
                     ...slot,
                     classes,
+                    groupId: matched?.id,
+                    groupLabel: matched?.label,
                     ...(suggested ? { room: suggested } : {}),
                   });
                 }}
               />
             )}
+            {slot.groupLabel ? (
+              <p className="text-[11px] text-violet-800 mt-1.5 font-semibold">
+                Affichage calendrier : {slot.groupLabel}
+              </p>
+            ) : null}
           </Field>
         </div>
 

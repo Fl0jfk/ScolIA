@@ -334,6 +334,8 @@ export type AppConfigBundle = {
   externalLinks: ExternalQuickLinkConfig[];
   /** Grilles horaires (sonneries) — multi-sites / multi-cycles. */
   timetableGrids: import("@/app/lib/rh/timetable-grids").TimetableGridsConfig;
+  /** Groupes multi-classes pour l’EDT. */
+  teachingGroups: import("@/app/lib/rh/teaching-groups").TeachingGroupsConfig;
   requestsRouting?: RequestsRoutingConfig;
   classAllocation?: {
     levels: {

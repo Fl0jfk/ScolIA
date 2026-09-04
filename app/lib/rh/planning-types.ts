@@ -41,6 +41,9 @@ export type TeacherPlanningSlot = PlanningTimeSlot & {
   subject: string;
   classes: string[];
   room?: string;
+  /** Groupe multi-classes (Paramètres) — affichage libellé sur le calendrier. */
+  groupId?: string;
+  groupLabel?: string;
 };
 
 /** Créneau de remplacement daté (en plus des semaines types A/B). */
@@ -133,6 +136,8 @@ export type TeacherPlanningCatalog = {
   assignedClasses: string[];
   /** Grille horaire active (sonneries) pour l’édition rapide. */
   timetableGrid?: import("@/app/lib/rh/timetable-grids").TimetableGrid | null;
+  /** Groupes multi-classes (latinistes, LV…). */
+  teachingGroups?: import("@/app/lib/rh/teaching-groups").TeachingGroup[];
 };
 
 export type AnnualBalanceEstimate = {
@@ -274,7 +279,9 @@ function normalizeTeacherSlot(raw: unknown): TeacherPlanningSlot | null {
     ? o.classes.map((c) => str(c, 40)).filter(Boolean).slice(0, 12)
     : [];
   const room = str(o.room, 40) || undefined;
-  return { ...base, subject, classes, room };
+  const groupId = str(o.groupId, 64) || undefined;
+  const groupLabel = str(o.groupLabel, 80) || undefined;
+  return { ...base, subject, classes, room, groupId, groupLabel };
 }
 
 function normalizeStaffFixedSlot(raw: unknown): StaffFixedSlot | null {

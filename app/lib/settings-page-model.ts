@@ -15,7 +15,8 @@ export type Tab =
   | "utilisateurs"
   | "identite"
   | "module-access"
-  | "grilles-horaires";
+  | "grilles-horaires"
+  | "groupes-edt";
 
 export type SettingsEstablishmentForm = {
   id: string;

@@ -43,11 +43,16 @@ import {
   defaultStaffDirectory,
   defaultTravelsModule,
   defaultTimetableGrids,
+  defaultTeachingGroups,
 } from "@/app/lib/app-config-defaults";
 import {
   parseTimetableGridsConfig,
   type TimetableGridsConfig,
 } from "@/app/lib/rh/timetable-grids";
+import {
+  parseTeachingGroupsConfig,
+  type TeachingGroupsConfig,
+} from "@/app/lib/rh/teaching-groups";
 import {
   laprovidenceEstablishments,
   laprovidenceExternalLinks,
@@ -224,6 +229,7 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
     integrationsRaw,
     externalLinksRaw,
     timetableRaw,
+    teachingGroupsRaw,
   ] = await Promise.all([
     getJson<unknown>("settings/site.json"),
     getJson<unknown>("settings/establishments.json"),
@@ -236,6 +242,7 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
     getJson<unknown>("settings/integrations.json"),
     getJson<unknown>("settings/external-links.json"),
     getJson<unknown>("settings/modules/timetable-grids.json"),
+    getJson<unknown>("settings/modules/teaching-groups.json"),
   ]);
 
   let identity = identityRaw?.data
@@ -273,6 +280,9 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
   const timetableGrids = timetableRaw?.data
     ? parseTimetableGridsConfig(timetableRaw.data)
     : defaultTimetableGrids();
+  const teachingGroups = teachingGroupsRaw?.data
+    ? parseTeachingGroupsConfig(teachingGroupsRaw.data)
+    : defaultTeachingGroups();
 
   const activeEstablishments = getActiveEstablishments(allEstablishments);
   travels = {
@@ -292,6 +302,7 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
     integrations,
     externalLinks,
     timetableGrids,
+    teachingGroups,
     classAllocation: defaultClassAllocationSettings(),
   };
   cache = { at: Date.now(), bundle, allEstablishments };
@@ -365,6 +376,12 @@ export async function saveDomainPlanningModule(data: DomainPlanningModuleConfig)
 export async function saveTimetableGrids(data: TimetableGridsConfig) {
   const parsed = parseTimetableGridsConfig(data);
   await putJson("settings/modules/timetable-grids.json", parsed);
+  invalidateAppConfigCache();
+}
+
+export async function saveTeachingGroups(data: TeachingGroupsConfig) {
+  const parsed = parseTeachingGroupsConfig(data);
+  await putJson("settings/modules/teaching-groups.json", parsed);
   invalidateAppConfigCache();
 }
 

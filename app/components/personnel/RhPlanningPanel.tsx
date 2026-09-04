@@ -41,6 +41,7 @@ import {
   planningSlotTitleTextClass,
   planningWeekTabClass,
 } from "@/app/lib/rh/planning-slot-colors";
+import { slotAudienceLabel } from "@/app/lib/rh/teaching-groups";
 
 type Audience = "teachers" | "staff";
 
@@ -773,7 +774,7 @@ export default function RhPlanningPanel() {
                         </p>
                         <p className={planningSlotTitleTextClass(colorKey)}>{full.subject || "—"}</p>
                         <p className={planningSlotMetaTextClass(colorKey)}>
-                          {(full.classes || []).join(", ") || "Classe ?"}
+                          {slotAudienceLabel(full)}
                           {full.room ? ` · ${full.room}` : ""}
                         </p>
                       </div>
