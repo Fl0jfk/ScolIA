@@ -746,6 +746,7 @@ export default function RhPlanningPanel() {
                   slots={teacherSlots}
                   editable={Boolean(canEdit)}
                   selectedSlotId={quickSlotPreviousId}
+                  timetableGrid={catalog?.timetableGrid ?? null}
                   onSlotClick={
                     canEdit
                       ? (slotId) => {

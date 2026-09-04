@@ -42,7 +42,12 @@ import {
   defaultSiteIdentity,
   defaultStaffDirectory,
   defaultTravelsModule,
+  defaultTimetableGrids,
 } from "@/app/lib/app-config-defaults";
+import {
+  parseTimetableGridsConfig,
+  type TimetableGridsConfig,
+} from "@/app/lib/rh/timetable-grids";
 import {
   laprovidenceEstablishments,
   laprovidenceExternalLinks,
@@ -218,6 +223,7 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
     internatRaw,
     integrationsRaw,
     externalLinksRaw,
+    timetableRaw,
   ] = await Promise.all([
     getJson<unknown>("settings/site.json"),
     getJson<unknown>("settings/establishments.json"),
@@ -229,6 +235,7 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
     getJson<unknown>("settings/modules/internat.json"),
     getJson<unknown>("settings/integrations.json"),
     getJson<unknown>("settings/external-links.json"),
+    getJson<unknown>("settings/modules/timetable-grids.json"),
   ]);
 
   let identity = identityRaw?.data
@@ -263,6 +270,9 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
   const externalLinks = externalLinksRaw?.data
     ? parseExternalLinksFile(externalLinksRaw.data)
     : defaultExternalLinks();
+  const timetableGrids = timetableRaw?.data
+    ? parseTimetableGridsConfig(timetableRaw.data)
+    : defaultTimetableGrids();
 
   const activeEstablishments = getActiveEstablishments(allEstablishments);
   travels = {
@@ -281,6 +291,7 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
     internat,
     integrations,
     externalLinks,
+    timetableGrids,
     classAllocation: defaultClassAllocationSettings(),
   };
   cache = { at: Date.now(), bundle, allEstablishments };
@@ -348,6 +359,12 @@ export async function saveProfRoomModule(data: ProfRoomModuleConfig) {
 export async function saveDomainPlanningModule(data: DomainPlanningModuleConfig) {
   const parsed = normalizeDomainPlanningModule(parseDomainPlanningModule(data));
   await putJson("settings/modules/domain-planning.json", parsed);
+  invalidateAppConfigCache();
+}
+
+export async function saveTimetableGrids(data: TimetableGridsConfig) {
+  const parsed = parseTimetableGridsConfig(data);
+  await putJson("settings/modules/timetable-grids.json", parsed);
   invalidateAppConfigCache();
 }
 

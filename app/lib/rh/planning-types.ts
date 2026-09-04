@@ -131,6 +131,8 @@ export type TeacherPlanningCatalog = {
   rooms: string[];
   /** Classes affectées au prof (roster + référents). */
   assignedClasses: string[];
+  /** Grille horaire active (sonneries) pour l’édition rapide. */
+  timetableGrid?: import("@/app/lib/rh/timetable-grids").TimetableGrid | null;
 };
 
 export type AnnualBalanceEstimate = {

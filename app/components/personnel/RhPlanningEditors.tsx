@@ -13,6 +13,14 @@ import {
   type TeacherPlanningSlot,
 } from "@/app/lib/rh/planning-types";
 import { planningDayHeaderClass } from "@/app/lib/rh/planning-slot-colors";
+import {
+  inferLessonCount,
+  lessonPeriods,
+  lessonStartTimes,
+  resolveSlotRangeFromDuration,
+  snapToLessonStart,
+  type TimetableGrid,
+} from "@/app/lib/rh/timetable-grids";
 
 export function newId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -22,8 +30,8 @@ function emptyTeacherSlot(day: PlanningWeekday = 1): TeacherPlanningSlot {
   return {
     id: newId("slot"),
     day,
-    start: "08:00",
-    end: "09:00",
+    start: "08:30",
+    end: "09:25",
     subject: "",
     classes: [],
     room: "",
@@ -149,6 +157,10 @@ export function TeacherSlotQuickModal({
 }) {
   const subjects = catalog?.subjects ?? [];
   const rooms = catalog?.rooms ?? [];
+  const grid = catalog?.timetableGrid ?? null;
+  const [freeTime, setFreeTime] = useState(false);
+  const [lessonCount, setLessonCount] = useState(1);
+
   const classOptions = useMemo(() => {
     if (!catalog) return [];
     const assigned = new Set(catalog.assignedClasses);
@@ -156,6 +168,31 @@ export function TeacherSlotQuickModal({
     const rest = catalog.classes.filter((c) => !assigned.has(c));
     return [...mine, ...rest];
   }, [catalog]);
+
+  const starts = useMemo(() => (grid ? lessonStartTimes(grid) : []), [grid]);
+  const maxLessons = useMemo(() => {
+    if (!grid) return 4;
+    const lessons = lessonPeriods(grid);
+    const idx = lessons.findIndex((p) => p.start === slot.start);
+    if (idx < 0) return Math.min(4, lessons.length);
+    return Math.max(1, lessons.length - idx);
+  }, [grid, slot.start]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!grid) {
+      setFreeTime(true);
+      return;
+    }
+    const inferred = inferLessonCount(grid, slot.start, slot.end);
+    setLessonCount(inferred);
+    const snapped = snapToLessonStart(grid, slot.start);
+    const range = resolveSlotRangeFromDuration(grid, snapped, inferred);
+    const aligned = Boolean(range && range.start === slot.start && range.end === slot.end);
+    setFreeTime(!aligned && !starts.includes(slot.start));
+    // Sync grille uniquement à l’ouverture.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, grid]);
 
   useEffect(() => {
     if (!open) return;
@@ -170,6 +207,14 @@ export function TeacherSlotQuickModal({
 
   const subjectListId = "teacher-slot-quick-subjects";
   const roomListId = "teacher-slot-quick-rooms";
+
+  const applyStartAndDuration = (startHhmm: string, count: number) => {
+    if (!grid) return;
+    const range = resolveSlotRangeFromDuration(grid, startHhmm, count);
+    if (!range) return;
+    setLessonCount(range.lessonCount);
+    onChange({ ...slot, start: range.start, end: range.end });
+  };
 
   return (
     <div
@@ -228,7 +273,7 @@ export function TeacherSlotQuickModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <Field label="Jour">
               <select
                 className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
@@ -244,22 +289,6 @@ export function TeacherSlotQuickModal({
                 ))}
               </select>
             </Field>
-            <Field label="Début">
-              <input
-                type="time"
-                className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
-                value={slot.start}
-                onChange={(e) => onChange({ ...slot, start: e.target.value })}
-              />
-            </Field>
-            <Field label="Fin">
-              <input
-                type="time"
-                className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
-                value={slot.end}
-                onChange={(e) => onChange({ ...slot, end: e.target.value })}
-              />
-            </Field>
             <Field label="Matière">
               <input
                 className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
@@ -269,16 +298,107 @@ export function TeacherSlotQuickModal({
                 onChange={(e) => onChange({ ...slot, subject: e.target.value })}
               />
             </Field>
-            <Field label="Salle">
-              <input
-                className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
-                list={rooms.length ? roomListId : undefined}
-                placeholder="Salle…"
-                value={slot.room || ""}
-                onChange={(e) => onChange({ ...slot, room: e.target.value })}
-              />
-            </Field>
           </div>
+
+          {grid && !freeTime ? (
+            <div className="space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-wide text-slate-500 mb-1.5">
+                  Heure de début
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {starts.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => applyStartAndDuration(t, lessonCount)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border ${
+                        slot.start === t
+                          ? "bg-indigo-700 text-white border-indigo-700"
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-white"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-wide text-slate-500 mb-1.5">
+                  Durée (heures de cours)
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {Array.from({ length: Math.min(6, maxLessons) }, (_, i) => i + 1).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => applyStartAndDuration(slot.start, n)}
+                      className={`min-w-[2.5rem] px-2.5 py-1.5 rounded-lg text-xs font-bold border ${
+                        lessonCount === n
+                          ? "bg-indigo-700 text-white border-indigo-700"
+                          : "bg-white text-slate-700 border-slate-200 hover:bg-white"
+                      }`}
+                    >
+                      {n}h
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-600 mt-2">
+                  Fin calculée : <span className="font-bold text-slate-900">{slot.end}</span>
+                  {" · "}
+                  les pauses / midi sont enjambées, pas comptées.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="text-[11px] font-semibold text-indigo-800 hover:underline"
+                onClick={() => setFreeTime(true)}
+              >
+                Horaires libres (OCR / exception)…
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Début">
+                <input
+                  type="time"
+                  className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
+                  value={slot.start}
+                  onChange={(e) => onChange({ ...slot, start: e.target.value })}
+                />
+              </Field>
+              <Field label="Fin">
+                <input
+                  type="time"
+                  className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
+                  value={slot.end}
+                  onChange={(e) => onChange({ ...slot, end: e.target.value })}
+                />
+              </Field>
+              {grid ? (
+                <button
+                  type="button"
+                  className="col-span-2 text-[11px] font-semibold text-indigo-800 hover:underline text-left"
+                  onClick={() => {
+                    setFreeTime(false);
+                    applyStartAndDuration(snapToLessonStart(grid, slot.start), lessonCount || 1);
+                  }}
+                >
+                  Revenir à la grille ({grid.label})
+                </button>
+              ) : null}
+            </div>
+          )}
+
+          <Field label="Salle">
+            <input
+              className="w-full border rounded-lg px-2 py-1.5 text-sm bg-white"
+              list={rooms.length ? roomListId : undefined}
+              placeholder="Salle…"
+              value={slot.room || ""}
+              onChange={(e) => onChange({ ...slot, room: e.target.value })}
+            />
+          </Field>
 
           {subjects.length > 0 ? (
             <datalist id={subjectListId}>
@@ -404,6 +524,7 @@ export function WeekGrid({
   selectedSlotId = null,
   onSlotClick,
   onEmptyClick,
+  timetableGrid = null,
 }: {
   slots: { id: string; day: PlanningWeekday; start: string; end: string }[];
   renderCard: (slot: (typeof slots)[number]) => ReactNode;
@@ -413,6 +534,7 @@ export function WeekGrid({
   onSlotClick?: (slotId: string) => void;
   /** Clic sur une zone vide de la journée (heure arrondie). */
   onEmptyClick?: (day: PlanningWeekday, start: string, end: string) => void;
+  timetableGrid?: TimetableGrid | null;
 }) {
   const DAY_START_MIN = 7 * 60;
   const DAY_END_MIN = 19 * 60;
@@ -466,6 +588,14 @@ export function WeekGrid({
     const rect = e.currentTarget.getBoundingClientRect();
     const y = e.clientY - rect.top;
     const rawMin = DAY_START_MIN + y / PX_PER_MIN;
+    if (timetableGrid) {
+      const approx = minToHhmm(Math.round(rawMin));
+      const start = snapToLessonStart(timetableGrid, approx);
+      const range = resolveSlotRangeFromDuration(timetableGrid, start, 1);
+      if (!range || range.start >= range.end) return;
+      onEmptyClick(day, range.start, range.end);
+      return;
+    }
     const snapped = Math.round(rawMin / 30) * 30;
     const start = minToHhmm(snapped);
     const end = minToHhmm(snapped + 60);

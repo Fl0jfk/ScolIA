@@ -12,6 +12,10 @@ import type {
 } from "@/app/lib/app-config-schemas";
 import { DEFAULT_DOMAIN_PLANNING_ACTIVITY_COLORS } from "@/app/lib/domain-planning-defaults";
 import { DEFAULT_PROF_ROOM_SUBJECT_COLORS } from "@/app/lib/prof-room-defaults";
+import {
+  defaultTimetableGridsConfig,
+  type TimetableGridsConfig,
+} from "@/app/lib/rh/timetable-grids";
 
 export function defaultSiteIdentity(): SiteIdentity {
   return {
@@ -88,6 +92,10 @@ export function defaultProfRoomModule(): ProfRoomModuleConfig {
     bookingHorizonDays: 56,
     adminExternalUserIds: [],
   };
+}
+
+export function defaultTimetableGrids(): TimetableGridsConfig {
+  return defaultTimetableGridsConfig();
 }
 
 export function defaultClassAllocationSettings() {

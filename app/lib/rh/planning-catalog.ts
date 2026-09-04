@@ -5,6 +5,7 @@ import { listClassesForTeacherUser } from "@/app/lib/class-allocation-teachers";
 import { loadSchoolRoster } from "@/app/lib/school-roster";
 import { getJson } from "@/app/lib/s3-storage";
 import type { TeacherPlanningCatalog } from "@/app/lib/rh/planning-types";
+import { pickDefaultTimetableGrid } from "@/app/lib/rh/timetable-grids";
 
 export type { TeacherPlanningCatalog };
 
@@ -61,5 +62,6 @@ export async function loadTeacherPlanningCatalog(
     classes,
     rooms,
     assignedClasses,
+    timetableGrid: pickDefaultTimetableGrid(appCfg.timetableGrids),
   };
 }

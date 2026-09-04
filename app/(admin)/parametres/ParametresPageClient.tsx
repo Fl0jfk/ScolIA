@@ -82,6 +82,10 @@ const ModuleAccessPanel = dynamic(
   () => import("@/app/components/settings/ModuleAccessPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
+const TimetableGridsSettingsPanel = dynamic(
+  () => import("@/app/components/settings/TimetableGridsSettingsPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
   { id: "site", label: "Établissement", icon: "🏫" },
@@ -94,6 +98,7 @@ const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
   { id: "siecle", label: "Éducation nationale", icon: "🇫🇷" },
   { id: "mef", label: "Formations MEF", icon: "📚" },
   { id: "notifications", label: "Notifications", icon: "✉️" },
+  { id: "grilles-horaires", label: "Grilles horaires", icon: "🔔" },
   { id: "integrations", label: "Intégrations", icon: "🔌" },
   { id: "dashboard-links", label: "Raccourcis tableau de bord", icon: "🔗" },
 ];
@@ -133,6 +138,7 @@ export default function ParametresPage() {
       t === "site" ||
       t === "establishments" ||
       t === "notifications" ||
+      t === "grilles-horaires" ||
       t === "mef" ||
       t === "prof-room" ||
       t === "requests-routing" ||
@@ -549,6 +555,10 @@ export default function ParametresPage() {
             saving={saving}
             saveSection={saveSection}
           />
+        )}
+
+        {tab === "grilles-horaires" && (
+          <TimetableGridsSettingsPanel establishments={establishments} />
         )}
 
         {tab === "travels" && (

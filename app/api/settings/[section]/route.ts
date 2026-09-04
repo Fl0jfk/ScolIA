@@ -10,6 +10,7 @@ import {
   saveProfRoomModule,
   saveSiteIdentity,
   saveTravelsModule,
+  saveTimetableGrids,
   saveOnboardingStep,
 } from "@/app/lib/app-config";
 import {
@@ -19,6 +20,7 @@ import {
   parseSiteIdentity,
   parseTravelsModule,
 } from "@/app/lib/app-config-schemas";
+import { parseTimetableGridsConfig } from "@/app/lib/rh/timetable-grids";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { normalizeProfRoomAdminIds } from "@/app/lib/prof-room-auth";
 import { ensureSiteAddressCoordinates } from "@/app/lib/site-address-coordinates";
@@ -34,6 +36,7 @@ const ALLOWED = new Set([
   "prof-room",
   "integrations",
   "travels",
+  "timetable-grids",
 ]);
 
 export async function PUT(req: Request, ctx: { params: Promise<{ section: string }> }) {
@@ -83,6 +86,8 @@ export async function PUT(req: Request, ctx: { params: Promise<{ section: string
       await saveIntegrations(parseIntegrations(body));
     } else if (section === "travels") {
       await saveTravelsModule(parseTravelsModule(body));
+    } else if (section === "timetable-grids") {
+      await saveTimetableGrids(parseTimetableGridsConfig(body));
     }
 
     const config = await loadAppConfig();

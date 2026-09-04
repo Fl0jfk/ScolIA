@@ -332,6 +332,8 @@ export type AppConfigBundle = {
   internat: InternatModuleConfig;
   integrations: IntegrationsConfig;
   externalLinks: ExternalQuickLinkConfig[];
+  /** Grilles horaires (sonneries) — multi-sites / multi-cycles. */
+  timetableGrids: import("@/app/lib/rh/timetable-grids").TimetableGridsConfig;
   requestsRouting?: RequestsRoutingConfig;
   classAllocation?: {
     levels: {
