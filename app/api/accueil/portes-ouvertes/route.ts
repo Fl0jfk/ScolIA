@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { loadAppConfig } from "@/app/lib/app-config";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { getToolboxConfig } from "@/app/lib/toolbox-config";
 import {
@@ -12,9 +13,10 @@ import {
 } from "@/app/lib/portes-ouvertes-storage";
 import {
   classesForPortesOuvertesCycle,
+  cyclesFromActiveEstablishments,
   isPortesOuvertesRegistrationUpcoming,
   PORTES_OUVERTES_CYCLE_LABELS,
-  PORTES_OUVERTES_CYCLES,
+  type PortesOuvertesCycle,
 } from "@/app/lib/portes-ouvertes-types";
 
 const RegisterSchema = z.object({
@@ -38,12 +40,19 @@ const UpdateSchema = z.object({
   classeSouhaitee: z.string().min(1).max(40).optional(),
 });
 
-function actorFromGate(gate: { ctx: { user: { id: string; firstName?: string; lastName?: string; name?: string } } }) {
+function actorFromGate(gate: {
+  ctx: { user: { id: string; firstName?: string; lastName?: string; name?: string } };
+}) {
   const name =
     [gate.ctx.user.firstName, gate.ctx.user.lastName].filter(Boolean).join(" ") ||
     gate.ctx.user.name ||
     "Accueil";
   return { userId: gate.ctx.user.id, name };
+}
+
+async function allowedCycles(): Promise<PortesOuvertesCycle[]> {
+  const bundle = await loadAppConfig();
+  return cyclesFromActiveEstablishments(bundle.establishments);
 }
 
 export async function GET() {
@@ -55,6 +64,7 @@ export async function GET() {
   const registrations = await listPortesOuvertesRegistrations();
   const counts = countRegistrationsBySlot(registrations);
   const now = Date.now();
+  const availableCycles = await allowedCycles();
 
   const slots = po.slots.map((s) => ({
     ...s,
@@ -65,8 +75,12 @@ export async function GET() {
   }));
 
   const classesByCycle = Object.fromEntries(
-    PORTES_OUVERTES_CYCLES.map((c) => [c, classesForPortesOuvertesCycle(c)]),
-  );
+    availableCycles.map((c) => [c, classesForPortesOuvertesCycle(c)]),
+  ) as Partial<Record<PortesOuvertesCycle, string[]>>;
+
+  const cycleLabels = Object.fromEntries(
+    availableCycles.map((c) => [c, PORTES_OUVERTES_CYCLE_LABELS[c]]),
+  ) as Partial<Record<PortesOuvertesCycle, string>>;
 
   const enriched = registrations
     .map((r) => {
@@ -95,7 +109,8 @@ export async function GET() {
     publicEnabled: po.enabled,
     slots,
     registrations: enriched,
-    cycleLabels: PORTES_OUVERTES_CYCLE_LABELS,
+    availableCycles,
+    cycleLabels,
     classesByCycle,
   });
 }
@@ -123,6 +138,14 @@ export async function POST(req: Request) {
   }
 
   const body = parsed.data;
+  const availableCycles = await allowedCycles();
+  if (!availableCycles.includes(body.cycle)) {
+    return NextResponse.json(
+      { error: "Ce cycle n’est pas proposé pour cet établissement." },
+      { status: 400 },
+    );
+  }
+
   const allowedClasses = classesForPortesOuvertesCycle(body.cycle);
   if (!allowedClasses.includes(body.classeSouhaitee)) {
     return NextResponse.json({ error: "Classe invalide pour ce cycle." }, { status: 400 });
@@ -166,6 +189,15 @@ export async function PATCH(req: Request) {
   }
 
   const body = parsed.data;
+  if (body.cycle) {
+    const availableCycles = await allowedCycles();
+    if (!availableCycles.includes(body.cycle)) {
+      return NextResponse.json(
+        { error: "Ce cycle n’est pas proposé pour cet établissement." },
+        { status: 400 },
+      );
+    }
+  }
   if (body.cycle && body.classeSouhaitee) {
     const allowed = classesForPortesOuvertesCycle(body.cycle);
     if (!allowed.includes(body.classeSouhaitee)) {

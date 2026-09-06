@@ -26,7 +26,9 @@ type BoardPayload = {
   publicEnabled: boolean;
   slots: SlotWithCount[];
   registrations: RegistrationRow[];
-  classesByCycle: Record<PortesOuvertesCycle, string[]>;
+  availableCycles: PortesOuvertesCycle[];
+  cycleLabels: Partial<Record<PortesOuvertesCycle, string>>;
+  classesByCycle: Partial<Record<PortesOuvertesCycle, string[]>>;
   error?: string;
 };
 
@@ -80,6 +82,10 @@ export default function AccueilPortesOuvertesClient() {
     const data = (await res.json()) as BoardPayload;
     if (!res.ok) throw new Error(data.error || "Chargement impossible");
     setBoard(data);
+    const cycles = data.availableCycles?.length
+      ? data.availableCycles
+      : (["college"] as PortesOuvertesCycle[]);
+    setCycle((prev) => (cycles.includes(prev) ? prev : cycles[0]));
     setSlotId((prev) => {
       if (prev && data.slots.some((s) => s.id === prev && !s.isPast)) return prev;
       const open = data.slots.find(
@@ -95,6 +101,9 @@ export default function AccueilPortesOuvertesClient() {
       .finally(() => setLoading(false));
   }, [load]);
 
+  const availableCycles = board?.availableCycles?.length
+    ? board.availableCycles
+    : (["college"] as PortesOuvertesCycle[]);
   const classes = board?.classesByCycle[cycle] || [];
   const editClasses = edit && board ? board.classesByCycle[edit.cycle] || [] : [];
 
@@ -259,7 +268,20 @@ export default function AccueilPortesOuvertesClient() {
                   {variant === "autre" ? r.childrenInfo || "—" : r.classeSouhaitee || "—"}
                 </td>
                 <td className="px-4 py-2">
-                  {r.firstName} {r.lastName}
+                  {r.childFirstName || r.childLastName ? (
+                    <span>
+                      <span className="font-semibold text-slate-900">
+                        {[r.childFirstName, r.childLastName].filter(Boolean).join(" ")}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-slate-500">
+                        Contact : {r.firstName} {r.lastName}
+                      </span>
+                    </span>
+                  ) : (
+                    <span>
+                      {r.firstName} {r.lastName}
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-2">{r.phone || "—"}</td>
                 <td className="px-4 py-2">{r.email}</td>
@@ -406,9 +428,9 @@ export default function AccueilPortesOuvertesClient() {
                     value={cycle}
                     onChange={(e) => setCycle(e.target.value as PortesOuvertesCycle)}
                   >
-                    {PORTES_OUVERTES_CYCLES.map((c) => (
+                    {availableCycles.map((c) => (
                       <option key={c} value={c}>
-                        {PORTES_OUVERTES_CYCLE_LABELS[c]}
+                        {board?.cycleLabels[c] || PORTES_OUVERTES_CYCLE_LABELS[c]}
                       </option>
                     ))}
                   </select>
@@ -530,9 +552,11 @@ export default function AccueilPortesOuvertesClient() {
                       setEdit({ ...edit, cycle: e.target.value as PortesOuvertesCycle })
                     }
                   >
-                    {PORTES_OUVERTES_CYCLES.map((c) => (
+                    {Array.from(
+                      new Set<PortesOuvertesCycle>([...availableCycles, edit.cycle]),
+                    ).map((c) => (
                       <option key={c} value={c}>
-                        {PORTES_OUVERTES_CYCLE_LABELS[c]}
+                        {board?.cycleLabels[c] || PORTES_OUVERTES_CYCLE_LABELS[c]}
                       </option>
                     ))}
                   </select>

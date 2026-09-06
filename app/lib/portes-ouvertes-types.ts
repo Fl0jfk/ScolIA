@@ -18,6 +18,10 @@ export type PortesOuvertesRegistration = {
   phone?: string;
   /** Texte libre legacy (inscription publique). */
   childrenInfo?: string;
+  /** Prénom de l’enfant concerné par la visite. */
+  childFirstName?: string;
+  /** Nom de l’enfant concerné par la visite. */
+  childLastName?: string;
   /** Cycle demandé (école / collège / lycée). */
   cycle?: PortesOuvertesCycle;
   /** Classe / niveau souhaité pour la visite. */
@@ -53,6 +57,40 @@ export function classesForPortesOuvertesCycle(cycle: PortesOuvertesCycle): strin
 
 export function isPortesOuvertesCycle(v: unknown): v is PortesOuvertesCycle {
   return v === "ecole" || v === "college" || v === "lycee";
+}
+
+/**
+ * Cycles proposés selon les établissements actifs (kind ecole/college/lycee).
+ * Si aucun kind standard n’est trouvé (ex. uniquement « custom »), les 3 cycles restent proposés.
+ */
+export function cyclesFromActiveEstablishments(
+  establishments: ReadonlyArray<{ kind?: string | null; active?: boolean | null }>,
+): PortesOuvertesCycle[] {
+  const active = establishments.filter((e) => e.active !== false);
+  const found = new Set<PortesOuvertesCycle>();
+  for (const e of active) {
+    if (e.kind === "ecole" || e.kind === "college" || e.kind === "lycee") {
+      found.add(e.kind);
+    }
+  }
+  const ordered = PORTES_OUVERTES_CYCLES.filter((c) => found.has(c));
+  return ordered.length > 0 ? ordered : [...PORTES_OUVERTES_CYCLES];
+}
+
+/** Libellé visite (cycle + enfant + classe) pour mails / listes. */
+export function portesOuvertesVisitLine(params: {
+  cycle?: PortesOuvertesCycle;
+  childFirstName?: string;
+  childLastName?: string;
+  classeSouhaitee?: string;
+  childrenInfo?: string;
+}): string {
+  const cycleLabel = params.cycle ? PORTES_OUVERTES_CYCLE_LABELS[params.cycle] : "";
+  const childName = [params.childFirstName, params.childLastName].filter(Boolean).join(" ").trim();
+  const classe = (params.classeSouhaitee || "").trim();
+  const structured = [cycleLabel, childName, classe].filter(Boolean).join(" — ");
+  if (structured) return structured;
+  return (params.childrenInfo || "").trim();
 }
 
 /** Créneau encore à venir (modifiable). */

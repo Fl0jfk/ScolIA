@@ -15,7 +15,7 @@ import type {
 } from "@/app/lib/portes-ouvertes-types";
 import {
   isPortesOuvertesRegistrationUpcoming,
-  PORTES_OUVERTES_CYCLE_LABELS,
+  portesOuvertesVisitLine,
 } from "@/app/lib/portes-ouvertes-types";
 import type { PortesOuvertesSlot, PortesOuvertesToolConfig } from "@/app/lib/toolbox-types";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
@@ -43,9 +43,14 @@ export async function sendPortesOuvertesMail(params: {
   return true;
 }
 
-function visitLineOf(cycle?: PortesOuvertesCycle, classeSouhaitee?: string): string {
-  const cycleLabel = cycle ? PORTES_OUVERTES_CYCLE_LABELS[cycle] : "";
-  return [cycleLabel, classeSouhaitee].filter(Boolean).join(" — ");
+function visitLineOf(entry: {
+  cycle?: PortesOuvertesCycle;
+  childFirstName?: string;
+  childLastName?: string;
+  classeSouhaitee?: string;
+  childrenInfo?: string;
+}): string {
+  return portesOuvertesVisitLine(entry);
 }
 
 function slotSnapshot(slot: PortesOuvertesSlot): {
@@ -67,7 +72,7 @@ async function sendVisitorConfirmationMail(params: {
   kind: "create" | "update";
 }): Promise<boolean> {
   const { po, entry, slot, kind } = params;
-  const visitLine = visitLineOf(entry.cycle, entry.classeSouhaitee);
+  const visitLine = visitLineOf(entry);
   const icsDescription = [
     po.intro,
     visitLine ? `Visite souhaitée : ${visitLine}` : "",
@@ -122,6 +127,8 @@ export type RegisterPortesOuvertesInput = {
   email: string;
   phone?: string;
   childrenInfo?: string;
+  childFirstName?: string;
+  childLastName?: string;
   cycle?: PortesOuvertesCycle;
   classeSouhaitee?: string;
   consent: boolean;
@@ -151,6 +158,19 @@ export async function registerPortesOuvertesVisitor(
   }
 
   const snap = slotSnapshot(slot);
+  const childFirstName = input.childFirstName?.trim() || undefined;
+  const childLastName = input.childLastName?.trim() || undefined;
+  const classeSouhaitee = input.classeSouhaitee?.trim() || undefined;
+  const childrenInfo =
+    input.childrenInfo?.trim() ||
+    portesOuvertesVisitLine({
+      cycle: input.cycle,
+      childFirstName,
+      childLastName,
+      classeSouhaitee,
+    }) ||
+    undefined;
+
   const entry = await addPortesOuvertesRegistration(
     {
       slotId: input.slotId,
@@ -159,9 +179,11 @@ export async function registerPortesOuvertesVisitor(
       lastName: input.lastName,
       email: input.email,
       phone: input.phone,
-      childrenInfo: input.childrenInfo,
+      childrenInfo,
+      childFirstName,
+      childLastName,
       cycle: input.cycle,
-      classeSouhaitee: input.classeSouhaitee,
+      classeSouhaitee,
       consent: input.consent,
       source: input.source,
       recordedBy: input.recordedBy,
@@ -177,7 +199,7 @@ export async function registerPortesOuvertesVisitor(
   });
 
   if (po.notifyEmail) {
-    const visitLine = visitLineOf(input.cycle, input.classeSouhaitee);
+    const visitLine = visitLineOf(entry);
     await sendPortesOuvertesMail({
       to: po.notifyEmail,
       subject: `Nouvelle inscription — ${po.title}`,
@@ -275,7 +297,7 @@ export async function updatePortesOuvertesVisitor(
   });
 
   if (po.notifyEmail) {
-    const visitLine = visitLineOf(entry.cycle, entry.classeSouhaitee);
+    const visitLine = visitLineOf(entry);
     await sendPortesOuvertesMail({
       to: po.notifyEmail,
       subject: `Créneau modifié — ${po.title}`,

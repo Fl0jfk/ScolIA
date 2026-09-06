@@ -26,6 +26,8 @@ function parseRegistration(raw: unknown): PortesOuvertesRegistration | null {
   if (!id || !slotId || !firstName || !lastName || !email) return null;
   const phone = String(o.phone || "").trim() || undefined;
   const childrenInfo = String(o.childrenInfo || "").trim() || undefined;
+  const childFirstName = String(o.childFirstName || "").trim() || undefined;
+  const childLastName = String(o.childLastName || "").trim() || undefined;
   const cycle = isPortesOuvertesCycle(o.cycle) ? o.cycle : undefined;
   const classeSouhaitee = String(o.classeSouhaitee || "").trim() || undefined;
   const source =
@@ -41,6 +43,8 @@ function parseRegistration(raw: unknown): PortesOuvertesRegistration | null {
     email,
     phone,
     childrenInfo,
+    childFirstName,
+    childLastName,
     cycle,
     classeSouhaitee,
     consent: o.consent === true || o.consent === undefined,
