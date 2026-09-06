@@ -31,6 +31,7 @@ export * from "./schema-charlemagne-p3";
 export * from "./schema-charlemagne-p4";
 export * from "./schema-charlemagne-p5";
 export * from "./schema-fiches-dialogue";
+export * from "./schema-portes-ouvertes";
 
 /** Utilisateur Better-Auth (multi-tenant via etablissement_id). */
 export const user = pgTable(

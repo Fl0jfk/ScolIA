@@ -36,6 +36,10 @@ export type PortesOuvertesRegistration = {
     userId: string;
     name: string;
   };
+  /** Check-in Accueil : visite physiquement effectuée. */
+  visitedAt?: string;
+  followUpDueAt?: string;
+  followUpEmailSentAt?: string;
   createdAt: string;
   updatedAt?: string;
 };

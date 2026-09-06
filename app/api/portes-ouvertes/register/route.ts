@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getToolboxConfig } from "@/app/lib/toolbox-config";
 import { registerPortesOuvertesVisitor } from "@/app/lib/portes-ouvertes-mail";
+import { buildPortesOuvertesToolPayload } from "@/app/lib/portes-ouvertes-db";
 import {
   cyclesFromActiveEstablishments,
   isPortesOuvertesCycle,
@@ -23,10 +24,12 @@ export async function POST(req: Request) {
     }
 
     const toolbox = await getToolboxConfig();
-    const po = toolbox.tools["portes-ouvertes"];
-    if (!po.enabled) {
+    if (!toolbox.tools["portes-ouvertes"].enabled) {
       return NextResponse.json({ error: "Les portes ouvertes ne sont pas activées." }, { status: 403 });
     }
+
+    const payload = await buildPortesOuvertesToolPayload();
+    const po = { enabled: true, ...payload };
 
     const body = await req.json();
     const honeypot = String(body.website || body.company || "").trim();
@@ -48,7 +51,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Créneau, nom, prénom et e-mail requis." }, { status: 400 });
     }
     if (!isPortesOuvertesCycle(cycleRaw)) {
-      return NextResponse.json({ error: "Veuillez sélectionner un cycle (école, collège ou lycée)." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Veuillez sélectionner un cycle (école, collège ou lycée)." },
+        { status: 400 },
+      );
     }
     if (!childFirstName || !childLastName || !classeSouhaitee) {
       return NextResponse.json(
@@ -66,7 +72,18 @@ export async function POST(req: Request) {
     const bundle = await loadAppConfig();
     const allowedCycles = cyclesFromActiveEstablishments(bundle.establishments);
     if (!allowedCycles.includes(cycleRaw)) {
-      return NextResponse.json({ error: "Ce cycle n’est pas proposé pour cet établissement." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Ce cycle n’est pas proposé pour cet établissement." },
+        { status: 400 },
+      );
+    }
+
+    const slot = po.slots.find((s) => s.id === slotId);
+    if (slot?.cycle && slot.cycle !== cycleRaw) {
+      return NextResponse.json(
+        { error: "Ce créneau n’est pas proposé pour cet établissement." },
+        { status: 400 },
+      );
     }
 
     const result = await registerPortesOuvertesVisitor(po, {

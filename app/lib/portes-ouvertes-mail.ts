@@ -5,9 +5,13 @@ import { buildPortesOuvertesIcs } from "@/app/lib/calendar-ics";
 import {
   addPortesOuvertesRegistration,
   countRegistrationsBySlot,
+  countRegistrationsForSlot,
+  getPortesOuvertesConfig,
+  listDuePortesOuvertesFollowUps,
   listPortesOuvertesRegistrations,
+  markPortesOuvertesFollowUpSent,
   updatePortesOuvertesRegistration,
-} from "@/app/lib/portes-ouvertes-storage";
+} from "@/app/lib/portes-ouvertes-db";
 import type {
   PortesOuvertesCycle,
   PortesOuvertesRegistration,
@@ -148,12 +152,18 @@ export async function registerPortesOuvertesVisitor(
   if (!slot) {
     return { ok: false, status: 400, error: "Créneau invalide." };
   }
+  if (slot.cycle && input.cycle && slot.cycle !== input.cycle) {
+    return { ok: false, status: 400, error: "Ce créneau n’est pas proposé pour cet établissement." };
+  }
 
-  const registrations = await listPortesOuvertesRegistrations();
   if (slot.maxPlaces) {
-    const counts = countRegistrationsBySlot(registrations);
-    if ((counts[input.slotId] || 0) >= slot.maxPlaces) {
-      return { ok: false, status: 409, error: "Ce créneau est complet." };
+    const used = await countRegistrationsForSlot(input.slotId);
+    if (used >= slot.maxPlaces) {
+      return {
+        ok: false,
+        status: 409,
+        error: "Ce créneau est complet pour cet établissement.",
+      };
     }
   }
 
@@ -171,25 +181,22 @@ export async function registerPortesOuvertesVisitor(
     }) ||
     undefined;
 
-  const entry = await addPortesOuvertesRegistration(
-    {
-      slotId: input.slotId,
-      ...snap,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      email: input.email,
-      phone: input.phone,
-      childrenInfo,
-      childFirstName,
-      childLastName,
-      cycle: input.cycle,
-      classeSouhaitee,
-      consent: input.consent,
-      source: input.source,
-      recordedBy: input.recordedBy,
-    },
-    registrations,
-  );
+  const entry = await addPortesOuvertesRegistration({
+    slotId: input.slotId,
+    ...snap,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    email: input.email,
+    phone: input.phone,
+    childrenInfo,
+    childFirstName,
+    childLastName,
+    cycle: input.cycle || slot.cycle,
+    classeSouhaitee,
+    consent: input.consent,
+    source: input.source,
+    recordedBy: input.recordedBy,
+  });
 
   const mailSent = await sendVisitorConfirmationMail({
     po,
@@ -261,29 +268,34 @@ export async function updatePortesOuvertesVisitor(
     return { ok: false, status: 400, error: "Impossible d’affecter un créneau déjà passé." };
   }
 
+  const nextCycle = input.cycle ?? current.cycle ?? slot.cycle;
+  if (slot.cycle && nextCycle && slot.cycle !== nextCycle) {
+    return { ok: false, status: 400, error: "Ce créneau n’est pas proposé pour cet établissement." };
+  }
+
   if (slot.maxPlaces && nextSlotId !== current.slotId) {
-    const counts = countRegistrationsBySlot(registrations);
-    if ((counts[nextSlotId] || 0) >= slot.maxPlaces) {
-      return { ok: false, status: 409, error: "Ce créneau est complet." };
+    const used = await countRegistrationsForSlot(nextSlotId);
+    if (used >= slot.maxPlaces) {
+      return {
+        ok: false,
+        status: 409,
+        error: "Ce créneau est complet pour cet établissement.",
+      };
     }
   }
 
   const snap = slotSnapshot(slot);
-  const entry = await updatePortesOuvertesRegistration(
-    input.id,
-    {
-      slotId: nextSlotId,
-      ...snap,
-      firstName: input.firstName?.trim() || current.firstName,
-      lastName: input.lastName?.trim() || current.lastName,
-      email: (input.email?.trim().toLowerCase() || current.email).toLowerCase(),
-      phone: input.phone !== undefined ? input.phone.trim() || undefined : current.phone,
-      cycle: input.cycle ?? current.cycle,
-      classeSouhaitee: input.classeSouhaitee ?? current.classeSouhaitee,
-      lastModifiedBy: input.actor,
-    },
-    registrations,
-  );
+  const entry = await updatePortesOuvertesRegistration(input.id, {
+    slotId: nextSlotId,
+    ...snap,
+    firstName: input.firstName?.trim() || current.firstName,
+    lastName: input.lastName?.trim() || current.lastName,
+    email: (input.email?.trim().toLowerCase() || current.email).toLowerCase(),
+    phone: input.phone !== undefined ? input.phone.trim() || undefined : current.phone,
+    cycle: nextCycle,
+    classeSouhaitee: input.classeSouhaitee ?? current.classeSouhaitee,
+    lastModifiedBy: input.actor,
+  });
 
   if (!entry) {
     return { ok: false, status: 404, error: "Inscription introuvable." };
@@ -309,3 +321,57 @@ export async function updatePortesOuvertesVisitor(
 
   return { ok: true, entry, mailSent };
 }
+
+export async function sendPortesOuvertesFollowUpMail(params: {
+  entry: PortesOuvertesRegistration;
+  title: string;
+  preinscriptionUrl?: string;
+}): Promise<boolean> {
+  const { entry, title, preinscriptionUrl } = params;
+  const linkBlock = preinscriptionUrl
+    ? `<p>Pour poursuivre votre démarche, vous pouvez déposer une préinscription ici :<br/>
+       <a href="${preinscriptionUrl}">${preinscriptionUrl}</a></p>`
+    : "";
+  return sendPortesOuvertesMail({
+    to: entry.email,
+    subject: `Suite à votre visite — ${title}`,
+    html: `
+      <p>Bonjour ${entry.firstName} ${entry.lastName},</p>
+      <p>Merci d’avoir participé aux <strong>${title}</strong>.</p>
+      <p>Comment s’est passée votre visite ? N’hésitez pas à nous répondre à cet e-mail.</p>
+      ${linkBlock}
+      <p>À bientôt,</p>
+    `,
+  });
+}
+
+/** Traite les mails de suivi dus (appel cron). */
+export async function processPortesOuvertesFollowUps(): Promise<{
+  sent: number;
+  errors: number;
+}> {
+  const due = await listDuePortesOuvertesFollowUps(40);
+  let sent = 0;
+  let errors = 0;
+  for (const entry of due) {
+    try {
+      const config = await getPortesOuvertesConfig(entry.etablissementId);
+      const ok = await sendPortesOuvertesFollowUpMail({
+        entry,
+        title: config.title,
+        preinscriptionUrl: config.preinscriptionUrl,
+      });
+      if (ok) {
+        await markPortesOuvertesFollowUpSent(entry.id, entry.etablissementId);
+        sent += 1;
+      } else {
+        errors += 1;
+      }
+    } catch {
+      errors += 1;
+    }
+  }
+  return { sent, errors };
+}
+
+export { countRegistrationsBySlot };

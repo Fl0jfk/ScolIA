@@ -8,14 +8,18 @@ import {
   updatePortesOuvertesVisitor,
 } from "@/app/lib/portes-ouvertes-mail";
 import {
+  buildPortesOuvertesToolPayload,
   countRegistrationsBySlot,
   listPortesOuvertesRegistrations,
-} from "@/app/lib/portes-ouvertes-storage";
+  listPortesOuvertesStaff,
+  markPortesOuvertesVisited,
+} from "@/app/lib/portes-ouvertes-db";
 import {
   classesForPortesOuvertesCycle,
   cyclesFromActiveEstablishments,
   isPortesOuvertesRegistrationUpcoming,
   PORTES_OUVERTES_CYCLE_LABELS,
+  PORTES_OUVERTES_CYCLES,
   type PortesOuvertesCycle,
 } from "@/app/lib/portes-ouvertes-types";
 
@@ -26,7 +30,7 @@ const RegisterSchema = z.object({
   email: z.string().email().max(200),
   phone: z.string().min(6).max(40),
   cycle: z.enum(["ecole", "college", "lycee"]),
-  classeSouhaitee: z.string().min(1).max(40),
+  classeSouhaitee: z.string().min(1).max(80),
 });
 
 const UpdateSchema = z.object({
@@ -37,7 +41,12 @@ const UpdateSchema = z.object({
   email: z.string().email().max(200).optional(),
   phone: z.string().min(6).max(40).optional(),
   cycle: z.enum(["ecole", "college", "lycee"]).optional(),
-  classeSouhaitee: z.string().min(1).max(40).optional(),
+  classeSouhaitee: z.string().min(1).max(80).optional(),
+});
+
+const VisitSchema = z.object({
+  id: z.string().min(1),
+  visited: z.boolean(),
 });
 
 function actorFromGate(gate: {
@@ -50,41 +59,61 @@ function actorFromGate(gate: {
   return { userId: gate.ctx.user.id, name };
 }
 
-async function allowedCycles(): Promise<PortesOuvertesCycle[]> {
-  const bundle = await loadAppConfig();
-  return cyclesFromActiveEstablishments(bundle.establishments);
-}
-
 export async function GET() {
   const gate = await requireModule("accueil-portes-ouvertes");
   if (!gate.ok) return gate.response;
 
   const toolbox = await getToolboxConfig();
-  const po = toolbox.tools["portes-ouvertes"];
-  const registrations = await listPortesOuvertesRegistrations();
+  const [payload, registrations, staff, bundle] = await Promise.all([
+    buildPortesOuvertesToolPayload(),
+    listPortesOuvertesRegistrations(),
+    listPortesOuvertesStaff(),
+    loadAppConfig(),
+  ]);
   const counts = countRegistrationsBySlot(registrations);
   const now = Date.now();
-  const availableCycles = await allowedCycles();
+  const availableCycles = cyclesFromActiveEstablishments(bundle.establishments);
 
-  const slots = po.slots.map((s) => ({
-    ...s,
-    registeredCount: counts[s.id] || 0,
-    remaining:
-      typeof s.maxPlaces === "number" ? Math.max(0, s.maxPlaces - (counts[s.id] || 0)) : null,
-    isPast: Date.parse(s.endAt) <= now,
-  }));
+  const cycleLabels: Partial<Record<PortesOuvertesCycle, string>> = {
+    ...PORTES_OUVERTES_CYCLE_LABELS,
+  };
+  for (const e of bundle.establishments) {
+    if (e.kind === "ecole" || e.kind === "college" || e.kind === "lycee") {
+      cycleLabels[e.kind] = e.label || cycleLabels[e.kind];
+    }
+  }
+
+  const slots = payload.slots.map((s) => {
+    const registeredCount = counts[s.id] || 0;
+    const remaining =
+      typeof s.maxPlaces === "number" ? Math.max(0, s.maxPlaces - registeredCount) : null;
+    return {
+      ...s,
+      registeredCount,
+      remaining,
+      remainingByCycle: Object.fromEntries(
+        PORTES_OUVERTES_CYCLES.map((c) => [
+          c,
+          !s.cycle || s.cycle === c ? remaining : null,
+        ]),
+      ) as Record<PortesOuvertesCycle, number | null>,
+      registeredByCycle: Object.fromEntries(
+        PORTES_OUVERTES_CYCLES.map((c) => [
+          c,
+          !s.cycle || s.cycle === c ? registeredCount : 0,
+        ]),
+      ) as Record<PortesOuvertesCycle, number>,
+      isPast: Date.parse(s.endAt) <= now,
+    };
+  });
 
   const classesByCycle = Object.fromEntries(
     availableCycles.map((c) => [c, classesForPortesOuvertesCycle(c)]),
   ) as Partial<Record<PortesOuvertesCycle, string[]>>;
 
-  const cycleLabels = Object.fromEntries(
-    availableCycles.map((c) => [c, PORTES_OUVERTES_CYCLE_LABELS[c]]),
-  ) as Partial<Record<PortesOuvertesCycle, string>>;
-
   const enriched = registrations
     .map((r) => {
-      const fromConfig = po.slots.find((s) => s.id === r.slotId);
+      const fromConfig = payload.slots.find((s) => s.id === r.slotId);
       const withSnap = {
         ...r,
         slotLabel: r.slotLabel || fromConfig?.label,
@@ -103,12 +132,15 @@ export async function GET() {
     });
 
   return NextResponse.json({
-    title: po.title,
-    address: po.address,
-    mapsUrl: po.mapsUrl || null,
-    publicEnabled: po.enabled,
+    title: payload.title,
+    address: payload.address,
+    mapsUrl: payload.mapsUrl || null,
+    preinscriptionUrl: payload.preinscriptionUrl || null,
+    followUpDelayMinutes: payload.followUpDelayMinutes,
+    publicEnabled: toolbox.tools["portes-ouvertes"].enabled,
     slots,
     registrations: enriched,
+    staff,
     availableCycles,
     cycleLabels,
     classesByCycle,
@@ -119,8 +151,11 @@ export async function POST(req: Request) {
   const gate = await requireModule("accueil-portes-ouvertes");
   if (!gate.ok) return gate.response;
 
-  const toolbox = await getToolboxConfig();
-  const po = toolbox.tools["portes-ouvertes"];
+  const payload = await buildPortesOuvertesToolPayload();
+  const po = {
+    enabled: true,
+    ...payload,
+  };
 
   if (po.slots.length === 0) {
     return NextResponse.json(
@@ -129,7 +164,22 @@ export async function POST(req: Request) {
     );
   }
 
-  const parsed = RegisterSchema.safeParse(await req.json().catch(() => null));
+  const bodyJson = await req.json().catch(() => null);
+  if (bodyJson && typeof bodyJson === "object" && "visited" in (bodyJson as object)) {
+    const visitParsed = VisitSchema.safeParse(bodyJson);
+    if (!visitParsed.success) {
+      return NextResponse.json({ error: "Check-in invalide." }, { status: 400 });
+    }
+    const entry = await markPortesOuvertesVisited(visitParsed.data.id, visitParsed.data.visited);
+    if (!entry) return NextResponse.json({ error: "Inscription introuvable." }, { status: 404 });
+    return NextResponse.json({
+      success: true,
+      entry,
+      followUpDelayMinutes: payload.followUpDelayMinutes,
+    });
+  }
+
+  const parsed = RegisterSchema.safeParse(bodyJson);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Nom, prénom, e-mail, téléphone, cycle, classe et créneau sont requis." },
@@ -138,17 +188,13 @@ export async function POST(req: Request) {
   }
 
   const body = parsed.data;
-  const availableCycles = await allowedCycles();
+  const bundle = await loadAppConfig();
+  const availableCycles = cyclesFromActiveEstablishments(bundle.establishments);
   if (!availableCycles.includes(body.cycle)) {
     return NextResponse.json(
       { error: "Ce cycle n’est pas proposé pour cet établissement." },
       { status: 400 },
     );
-  }
-
-  const allowedClasses = classesForPortesOuvertesCycle(body.cycle);
-  if (!allowedClasses.includes(body.classeSouhaitee)) {
-    return NextResponse.json({ error: "Classe invalide pour ce cycle." }, { status: 400 });
   }
 
   const result = await registerPortesOuvertesVisitor(po, {
@@ -180,8 +226,8 @@ export async function PATCH(req: Request) {
   const gate = await requireModule("accueil-portes-ouvertes");
   if (!gate.ok) return gate.response;
 
-  const toolbox = await getToolboxConfig();
-  const po = toolbox.tools["portes-ouvertes"];
+  const payload = await buildPortesOuvertesToolPayload();
+  const po = { enabled: true, ...payload };
 
   const parsed = UpdateSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
@@ -190,18 +236,13 @@ export async function PATCH(req: Request) {
 
   const body = parsed.data;
   if (body.cycle) {
-    const availableCycles = await allowedCycles();
+    const bundle = await loadAppConfig();
+    const availableCycles = cyclesFromActiveEstablishments(bundle.establishments);
     if (!availableCycles.includes(body.cycle)) {
       return NextResponse.json(
         { error: "Ce cycle n’est pas proposé pour cet établissement." },
         { status: 400 },
       );
-    }
-  }
-  if (body.cycle && body.classeSouhaitee) {
-    const allowed = classesForPortesOuvertesCycle(body.cycle);
-    if (!allowed.includes(body.classeSouhaitee)) {
-      return NextResponse.json({ error: "Classe invalide pour ce cycle." }, { status: 400 });
     }
   }
 

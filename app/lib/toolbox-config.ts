@@ -46,12 +46,18 @@ function parseSlots(raw: unknown) {
       const endAt = String(o.endAt || "").trim();
       if (!startAt) return null;
       const maxPlaces = Number(o.maxPlaces);
+      const cycleRaw = String(o.cycle || "").trim();
+      const cycle =
+        cycleRaw === "ecole" || cycleRaw === "college" || cycleRaw === "lycee"
+          ? cycleRaw
+          : undefined;
       return {
         id,
         label,
         startAt,
         endAt: endAt || startAt,
         maxPlaces: Number.isFinite(maxPlaces) && maxPlaces > 0 ? maxPlaces : undefined,
+        cycle,
       };
     })
     .filter((x): x is NonNullable<typeof x> => Boolean(x));

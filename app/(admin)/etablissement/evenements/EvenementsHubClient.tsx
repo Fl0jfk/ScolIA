@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import RequireOrgAdmin from "@/app/components/RequireOrgAdmin";
@@ -15,6 +15,10 @@ import {
   generatePortesOuvertesSlots,
   type PortesOuvertesSlotIntervalMinutes,
 } from "@/app/lib/portes-ouvertes-slots";
+import {
+  PORTES_OUVERTES_CYCLE_LABELS,
+  type PortesOuvertesCycle,
+} from "@/app/lib/portes-ouvertes-types";
 import type { PortesOuvertesSlot, ToolboxConfig } from "@/app/lib/toolbox-types";
 
 const RentreeEditor = dynamic(() => import("@/app/components/toolbox/RentreeEditor"), {
@@ -27,6 +31,30 @@ const FournituresEditor = dynamic(() => import("@/app/components/toolbox/Fournit
 });
 
 type Tab = "overview" | EvenementToolId;
+
+type PoAdminPayload = {
+  enabled: boolean;
+  title: string;
+  intro: string;
+  address: string;
+  mapsUrl?: string;
+  notifyEmail?: string;
+  preinscriptionUrl?: string;
+  followUpDelayMinutes: number;
+  consentLabel: string;
+  slots: PortesOuvertesSlot[];
+  stats: Record<string, number>;
+  registrationsCount: number;
+  error?: string;
+};
+
+type CycleGridForm = {
+  day: string;
+  startTime: string;
+  endTime: string;
+  interval: PortesOuvertesSlotIntervalMinutes;
+  maxPlaces: number;
+};
 
 function Toggle({
   checked,
@@ -45,19 +73,47 @@ function Toggle({
   );
 }
 
-function emptySlot(): PortesOuvertesSlot {
+function defaultGridDay(): string {
   const d = new Date();
   d.setDate(d.getDate() + 14);
-  d.setHours(10, 0, 0, 0);
-  const end = new Date(d);
-  end.setHours(12, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
+}
+
+function emptyCycleGrid(): CycleGridForm {
   return {
-    id: `slot-${Date.now()}`,
-    label: "Matin",
-    startAt: d.toISOString(),
-    endAt: end.toISOString(),
-    maxPlaces: 30,
+    day: defaultGridDay(),
+    startTime: "08:30",
+    endTime: "12:00",
+    interval: 30,
+    maxPlaces: 20,
   };
+}
+
+function applyPoResponse(j: PoAdminPayload): PoAdminPayload {
+  return {
+    enabled: Boolean(j.enabled),
+    title: j.title || "Portes ouvertes",
+    intro: j.intro || "",
+    address: j.address || "",
+    mapsUrl: j.mapsUrl || "",
+    notifyEmail: j.notifyEmail || "",
+    preinscriptionUrl: j.preinscriptionUrl || "",
+    followUpDelayMinutes:
+      typeof j.followUpDelayMinutes === "number" && j.followUpDelayMinutes > 0
+        ? j.followUpDelayMinutes
+        : 60,
+    consentLabel: j.consentLabel || "",
+    slots: Array.isArray(j.slots) ? j.slots : [],
+    stats: j.stats && typeof j.stats === "object" ? j.stats : {},
+    registrationsCount: typeof j.registrationsCount === "number" ? j.registrationsCount : 0,
+  };
+}
+
+function toDatetimeLocalValue(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export default function EvenementsHubClient() {
@@ -65,21 +121,29 @@ export default function EvenementsHubClient() {
   const [config, setConfig] = useState<ToolboxConfig | null>(null);
   const [establishments, setEstablishments] = useState<Establishment[]>([]);
   const [publicOrigin, setPublicOrigin] = useState("");
-  const [stats, setStats] = useState<Record<string, number>>({});
-  const [regCount, setRegCount] = useState(0);
+  const [po, setPo] = useState<PoAdminPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const [poLoading, setPoLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [slotDay, setSlotDay] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 14);
-    return d.toISOString().slice(0, 10);
-  });
-  const [slotStartTime, setSlotStartTime] = useState("08:30");
-  const [slotEndTime, setSlotEndTime] = useState("12:00");
-  const [slotInterval, setSlotInterval] = useState<PortesOuvertesSlotIntervalMinutes>(30);
-  const [slotMaxPlaces, setSlotMaxPlaces] = useState(20);
+  const [cycleGrids, setCycleGrids] = useState<Partial<Record<PortesOuvertesCycle, CycleGridForm>>>(
+    {},
+  );
+
+  const loadPo = useCallback(async () => {
+    setPoLoading(true);
+    try {
+      const res = await fetch("/api/toolbox/portes-ouvertes", { cache: "no-store" });
+      const j = (await res.json()) as PoAdminPayload;
+      if (!res.ok) throw new Error(j.error || "Erreur portes ouvertes");
+      setPo(applyPoResponse(j));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur portes ouvertes");
+    } finally {
+      setPoLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,14 +155,13 @@ export default function EvenementsHubClient() {
       setConfig(j.config);
       setEstablishments(j.establishments || []);
       setPublicOrigin(typeof j.publicOrigin === "string" ? j.publicOrigin.replace(/\/$/, "") : "");
-      setStats(j.portesOuvertesStats || {});
-      setRegCount(j.registrationsCount || 0);
+      await loadPo();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadPo]);
 
   useEffect(() => {
     void load();
@@ -111,7 +174,80 @@ export default function EvenementsHubClient() {
     }
   }, []);
 
-  async function save() {
+  useEffect(() => {
+    if (tab === "portes-ouvertes" && !po && !poLoading) {
+      void loadPo();
+    }
+  }, [tab, po, poLoading, loadPo]);
+
+  const activeCycles = useMemo(() => {
+    const found = new Set<PortesOuvertesCycle>();
+    for (const e of establishments) {
+      if (e.active === false) continue;
+      if (e.kind === "ecole" || e.kind === "college" || e.kind === "lycee") {
+        found.add(e.kind);
+      }
+    }
+    const ordered: PortesOuvertesCycle[] = ["ecole", "college", "lycee"].filter((c) =>
+      found.has(c),
+    );
+    return ordered.length > 0 ? ordered : (["ecole", "college", "lycee"] as PortesOuvertesCycle[]);
+  }, [establishments]);
+
+  const cycleLabel = useCallback(
+    (cycle: PortesOuvertesCycle) => {
+      const est = establishments.find((e) => e.kind === cycle && e.active !== false);
+      return est?.label || PORTES_OUVERTES_CYCLE_LABELS[cycle];
+    },
+    [establishments],
+  );
+
+  function gridFor(cycle: PortesOuvertesCycle): CycleGridForm {
+    return cycleGrids[cycle] || emptyCycleGrid();
+  }
+
+  function patchGrid(cycle: PortesOuvertesCycle, patch: Partial<CycleGridForm>) {
+    setCycleGrids((prev) => ({
+      ...prev,
+      [cycle]: { ...(prev[cycle] || emptyCycleGrid()), ...patch },
+    }));
+  }
+
+  async function putPo(body: Record<string, unknown>, successMsg?: string) {
+    setSaving(true);
+    setMsg(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/toolbox/portes-ouvertes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = (await res.json()) as PoAdminPayload & { success?: boolean };
+      if (!res.ok) throw new Error(j.error || "Erreur");
+      setPo(applyPoResponse(j));
+      if (config) {
+        setConfig({
+          ...config,
+          tools: {
+            ...config.tools,
+            "portes-ouvertes": {
+              ...config.tools["portes-ouvertes"],
+              enabled: Boolean(j.enabled),
+              slots: [],
+            },
+          },
+        });
+      }
+      if (successMsg) setMsg(successMsg);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveToolbox() {
     if (!config) return;
     setSaving(true);
     setMsg(null);
@@ -132,6 +268,32 @@ export default function EvenementsHubClient() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function savePortesOuvertesMeta() {
+    if (!po) return;
+    await putPo(
+      {
+        enabled: po.enabled,
+        title: po.title,
+        intro: po.intro,
+        address: po.address,
+        mapsUrl: po.mapsUrl || null,
+        notifyEmail: po.notifyEmail || null,
+        preinscriptionUrl: po.preinscriptionUrl || null,
+        followUpDelayMinutes: po.followUpDelayMinutes,
+        consentLabel: po.consentLabel,
+      },
+      "Portes ouvertes enregistrées (SQL).",
+    );
+  }
+
+  async function save() {
+    if (tab === "portes-ouvertes") {
+      await savePortesOuvertesMeta();
+      return;
+    }
+    await saveToolbox();
   }
 
   function patchTool<K extends keyof ToolboxConfig["tools"]>(
@@ -160,6 +322,66 @@ export default function EvenementsHubClient() {
     });
   }
 
+  function patchPoLocal(patch: Partial<PoAdminPayload>) {
+    setPo((prev) => (prev ? { ...prev, ...patch } : prev));
+  }
+
+  async function generateSlots(cycle: PortesOuvertesCycle, mode: "append" | "replace") {
+    const g = gridFor(cycle);
+    const generated = generatePortesOuvertesSlots({
+      date: g.day,
+      startTime: g.startTime,
+      endTime: g.endTime,
+      intervalMinutes: g.interval,
+      maxPlaces: g.maxPlaces > 0 ? g.maxPlaces : undefined,
+      cycle,
+    });
+    if (generated.length === 0) {
+      setError("Impossible de générer des créneaux (vérifiez jour / horaires).");
+      return;
+    }
+    const slotsWithCycle = generated.map((s) => ({ ...s, cycle }));
+    if (mode === "append") {
+      await putPo(
+        { slotsAppend: slotsWithCycle },
+        `${generated.length} créneau(x) ajouté(s) pour ${cycleLabel(cycle)}.`,
+      );
+    } else {
+      await putPo(
+        { slotsReplaceCycle: { cycle, slots: slotsWithCycle } },
+        `${generated.length} créneau(x) — grille ${cycleLabel(cycle)} remplacée.`,
+      );
+    }
+  }
+
+  async function upsertSlot(slot: PortesOuvertesSlot & { cycle: PortesOuvertesCycle }) {
+    await putPo({ slotUpsert: slot }, "Créneau mis à jour.");
+  }
+
+  async function deleteSlot(id: string) {
+    await putPo({ slotDeleteId: id }, "Créneau supprimé.");
+  }
+
+  const slotsByCycle = useMemo(() => {
+    const groups: Record<PortesOuvertesCycle, PortesOuvertesSlot[]> = {
+      ecole: [],
+      college: [],
+      lycee: [],
+    };
+    for (const s of po?.slots || []) {
+      if (s.cycle === "ecole" || s.cycle === "college" || s.cycle === "lycee") {
+        groups[s.cycle].push(s);
+      } else {
+        // Créneaux legacy sans cycle : affichés sous le premier cycle actif
+        groups[activeCycles[0] || "college"].push(s);
+      }
+    }
+    for (const c of Object.keys(groups) as PortesOuvertesCycle[]) {
+      groups[c].sort((a, b) => a.startAt.localeCompare(b.startAt));
+    }
+    return groups;
+  }, [po?.slots, activeCycles]);
+
   if (loading || !config) {
     return (
       <ModulePageShell maxWidthClass="max-w-[1280px]">
@@ -168,7 +390,7 @@ export default function EvenementsHubClient() {
     );
   }
 
-  const po = config.tools["portes-ouvertes"];
+  const poEnabled = po?.enabled ?? config.tools["portes-ouvertes"].enabled;
 
   return (
     <RequireOrgAdmin>
@@ -179,7 +401,7 @@ export default function EvenementsHubClient() {
           description="Portes ouvertes, rentrée digitale et Secret Santa — configuration ici, plus dans la boîte à outils."
           actions={
             tab !== "overview" ? (
-              <ModuleButton onClick={() => void save()} disabled={saving}>
+              <ModuleButton onClick={() => void save()} disabled={saving || (tab === "portes-ouvertes" && !po)}>
                 {saving ? "Enregistrement…" : "Enregistrer"}
               </ModuleButton>
             ) : null
@@ -218,7 +440,12 @@ export default function EvenementsHubClient() {
           <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-3">
             {EVENEMENTS_TOOLS_META.map((ev) => {
               const tool = config.tools[ev.id];
-              const enabled = "enabled" in tool ? tool.enabled : false;
+              const enabled =
+                ev.id === "portes-ouvertes"
+                  ? poEnabled
+                  : "enabled" in tool
+                    ? tool.enabled
+                    : false;
               return (
                 <article
                   key={ev.id}
@@ -338,275 +565,256 @@ export default function EvenementsHubClient() {
         ) : null}
 
         {tab === "portes-ouvertes" ? (
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
-            <Toggle
-              checked={po.enabled}
-              onChange={(v) => patchTool("portes-ouvertes", { enabled: v })}
-              label="Activer la page publique /portes-ouvertes"
-            />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block">
-                <span className="text-xs font-bold text-slate-500 uppercase">Titre</span>
-                <input
-                  className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-                  value={po.title}
-                  onChange={(e) => patchTool("portes-ouvertes", { title: e.target.value })}
-                />
-              </label>
-              <label className="block">
-                <span className="text-xs font-bold text-slate-500 uppercase">E-mail notifications</span>
-                <input
-                  className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-                  value={po.notifyEmail || ""}
-                  onChange={(e) => patchTool("portes-ouvertes", { notifyEmail: e.target.value })}
-                />
-              </label>
-            </div>
-            <label className="block">
-              <span className="text-xs font-bold text-slate-500 uppercase">Introduction</span>
-              <textarea
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm min-h-[80px]"
-                value={po.intro}
-                onChange={(e) => patchTool("portes-ouvertes", { intro: e.target.value })}
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-bold text-slate-500 uppercase">Adresse</span>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-                value={po.address}
-                onChange={(e) => patchTool("portes-ouvertes", { address: e.target.value })}
-                placeholder="12 rue …, 75000 Paris"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-bold text-slate-500 uppercase">
-                Lien Google Maps (optionnel)
-              </span>
-              <input
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
-                value={po.mapsUrl || ""}
-                onChange={(e) => patchTool("portes-ouvertes", { mapsUrl: e.target.value })}
-              />
-            </label>
-
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-slate-900">Créneaux</h3>
-              <button
-                type="button"
-                onClick={() => patchTool("portes-ouvertes", { slots: [...po.slots, emptySlot()] })}
-                className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white"
-              >
-                + Créneau manuel
-              </button>
-            </div>
-
-            <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-4 space-y-3">
-              <p className="text-sm font-semibold text-violet-950">
-                Générer une journée (quart d&apos;heure / demi-heure / heure)
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                <label className="block">
-                  <span className="text-[11px] font-bold uppercase text-violet-800">Jour</span>
-                  <input
-                    type="date"
-                    className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
-                    value={slotDay}
-                    onChange={(e) => setSlotDay(e.target.value)}
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-[11px] font-bold uppercase text-violet-800">Début</span>
-                  <input
-                    type="time"
-                    className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
-                    value={slotStartTime}
-                    onChange={(e) => setSlotStartTime(e.target.value)}
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-[11px] font-bold uppercase text-violet-800">Fin</span>
-                  <input
-                    type="time"
-                    className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
-                    value={slotEndTime}
-                    onChange={(e) => setSlotEndTime(e.target.value)}
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-[11px] font-bold uppercase text-violet-800">Pas</span>
-                  <select
-                    className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm font-semibold"
-                    value={slotInterval}
-                    onChange={(e) =>
-                      setSlotInterval(Number(e.target.value) as PortesOuvertesSlotIntervalMinutes)
-                    }
-                  >
-                    <option value={15}>15 min</option>
-                    <option value={30}>30 min</option>
-                    <option value={60}>1 h</option>
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="text-[11px] font-bold uppercase text-violet-800">Places / créneau</span>
-                  <input
-                    type="number"
-                    min={1}
-                    className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
-                    value={slotMaxPlaces}
-                    onChange={(e) => setSlotMaxPlaces(Number(e.target.value) || 0)}
-                  />
-                </label>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-bold text-white"
-                  onClick={() => {
-                    const generated = generatePortesOuvertesSlots({
-                      date: slotDay,
-                      startTime: slotStartTime,
-                      endTime: slotEndTime,
-                      intervalMinutes: slotInterval,
-                      maxPlaces: slotMaxPlaces > 0 ? slotMaxPlaces : undefined,
-                    });
-                    if (generated.length === 0) {
-                      setError("Impossible de générer des créneaux (vérifiez jour / horaires).");
-                      return;
-                    }
-                    setError(null);
-                    patchTool("portes-ouvertes", { slots: [...po.slots, ...generated] });
-                    setMsg(`${generated.length} créneau(x) ajouté(s). Pensez à Enregistrer.`);
-                  }}
-                >
-                  Ajouter la grille
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-xs font-bold text-violet-900"
-                  onClick={() => {
-                    const generated = generatePortesOuvertesSlots({
-                      date: slotDay,
-                      startTime: slotStartTime,
-                      endTime: slotEndTime,
-                      intervalMinutes: slotInterval,
-                      maxPlaces: slotMaxPlaces > 0 ? slotMaxPlaces : undefined,
-                    });
-                    if (generated.length === 0) {
-                      setError("Impossible de générer des créneaux (vérifiez jour / horaires).");
-                      return;
-                    }
-                    setError(null);
-                    patchTool("portes-ouvertes", { slots: generated });
-                    setMsg(`${generated.length} créneau(x) — grille remplacée. Pensez à Enregistrer.`);
-                  }}
-                >
-                  Remplacer tous les créneaux
-                </button>
-              </div>
-              <p className="text-xs text-violet-800">
-                Exemple : 8 h 30 → 12 h par 30 min crée 8 h 30–9 h, 9 h–9 h 30, etc. La page Accueil
-                consomme ces créneaux (même si la page publique est désactivée).
-              </p>
-              <a
-                href="/accueil/portes-ouvertes"
-                className="inline-block text-xs font-bold text-violet-800 underline"
-              >
-                Ouvrir la saisie Accueil →
-              </a>
-            </div>
-
-            {po.slots.length === 0 ? (
-              <p className="text-sm text-slate-500">
-                Ajoutez au moins un créneau pour ouvrir les inscriptions.
-              </p>
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 space-y-5">
+            {poLoading && !po ? (
+              <p className="text-sm text-slate-500">Chargement des créneaux SQL…</p>
             ) : null}
-            {po.slots.map((slot, idx) => (
-              <div key={slot.id} className="rounded-xl border border-slate-100 bg-slate-50 p-4 space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-black uppercase text-slate-500">Créneau {idx + 1}</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      patchTool("portes-ouvertes", {
-                        slots: po.slots.filter((s) => s.id !== slot.id),
-                      })
-                    }
-                    className="text-xs text-rose-600 font-bold"
+            {po ? (
+              <>
+                <Toggle
+                  checked={po.enabled}
+                  onChange={(v) => patchPoLocal({ enabled: v })}
+                  label="Activer la page publique /portes-ouvertes"
+                />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-xs font-bold text-slate-500 uppercase">Titre</span>
+                    <input
+                      className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                      value={po.title}
+                      onChange={(e) => patchPoLocal({ title: e.target.value })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-bold text-slate-500 uppercase">
+                      E-mail notifications
+                    </span>
+                    <input
+                      className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                      value={po.notifyEmail || ""}
+                      onChange={(e) => patchPoLocal({ notifyEmail: e.target.value })}
+                    />
+                  </label>
+                </div>
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Introduction</span>
+                  <textarea
+                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm min-h-[80px]"
+                    value={po.intro}
+                    onChange={(e) => patchPoLocal({ intro: e.target.value })}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-500 uppercase">Adresse</span>
+                  <input
+                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                    value={po.address}
+                    onChange={(e) => patchPoLocal({ address: e.target.value })}
+                    placeholder="12 rue …, 75000 Paris"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-500 uppercase">
+                    Lien Google Maps (optionnel)
+                  </span>
+                  <input
+                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                    value={po.mapsUrl || ""}
+                    onChange={(e) => patchPoLocal({ mapsUrl: e.target.value })}
+                  />
+                </label>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-xs font-bold text-slate-500 uppercase">
+                      Lien préinscription (mail de suivi)
+                    </span>
+                    <input
+                      className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                      value={po.preinscriptionUrl || ""}
+                      onChange={(e) => patchPoLocal({ preinscriptionUrl: e.target.value })}
+                      placeholder="https://…"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-bold text-slate-500 uppercase">
+                      Délai mail de suivi (min)
+                    </span>
+                    <input
+                      type="number"
+                      min={5}
+                      max={1440}
+                      className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                      value={po.followUpDelayMinutes}
+                      onChange={(e) =>
+                        patchPoLocal({
+                          followUpDelayMinutes: Math.max(5, Number(e.target.value) || 60),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-500 uppercase">
+                    Libellé consentement
+                  </span>
+                  <textarea
+                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm min-h-[60px]"
+                    value={po.consentLabel}
+                    onChange={(e) => patchPoLocal({ consentLabel: e.target.value })}
+                  />
+                </label>
+
+                <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-4 space-y-2">
+                  <p className="text-sm text-violet-950">
+                    Les créneaux sont stockés en SQL (par établissement / cycle). L’enregistrement
+                    meta ne pousse plus les slots dans le JSON toolbox.
+                  </p>
+                  <a
+                    href="/accueil/portes-ouvertes"
+                    className="inline-block text-xs font-bold text-violet-800 underline"
                   >
-                    Supprimer
-                  </button>
+                    Ouvrir la saisie Accueil →
+                  </a>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <input
-                    className="rounded-lg border px-3 py-2 text-sm"
-                    placeholder="Libellé"
-                    value={slot.label}
-                    onChange={(e) => {
-                      const slots = po.slots.map((s) =>
-                        s.id === slot.id ? { ...s, label: e.target.value } : s,
-                      );
-                      patchTool("portes-ouvertes", { slots });
-                    }}
-                  />
-                  <input
-                    type="number"
-                    className="rounded-lg border px-3 py-2 text-sm"
-                    placeholder="Places max"
-                    value={slot.maxPlaces || ""}
-                    onChange={(e) => {
-                      const slots = po.slots.map((s) =>
-                        s.id === slot.id
-                          ? { ...s, maxPlaces: Number(e.target.value) || undefined }
-                          : s,
-                      );
-                      patchTool("portes-ouvertes", { slots });
-                    }}
-                  />
-                  <input
-                    type="datetime-local"
-                    className="rounded-lg border px-3 py-2 text-sm"
-                    value={slot.startAt.slice(0, 16)}
-                    onChange={(e) => {
-                      const slots = po.slots.map((s) =>
-                        s.id === slot.id
-                          ? { ...s, startAt: new Date(e.target.value).toISOString() }
-                          : s,
-                      );
-                      patchTool("portes-ouvertes", { slots });
-                    }}
-                  />
-                  <input
-                    type="datetime-local"
-                    className="rounded-lg border px-3 py-2 text-sm"
-                    value={slot.endAt.slice(0, 16)}
-                    onChange={(e) => {
-                      const slots = po.slots.map((s) =>
-                        s.id === slot.id
-                          ? { ...s, endAt: new Date(e.target.value).toISOString() }
-                          : s,
-                      );
-                      patchTool("portes-ouvertes", { slots });
-                    }}
-                  />
-                </div>
-                <p className="text-xs text-slate-500">
-                  Inscrits : {stats[slot.id] || 0}
-                  {slot.maxPlaces ? ` / ${slot.maxPlaces}` : ""}
+
+                {activeCycles.map((cycle) => {
+                  const g = gridFor(cycle);
+                  const cycleSlots = slotsByCycle[cycle];
+                  return (
+                    <div
+                      key={cycle}
+                      className="rounded-2xl border border-violet-100 bg-violet-50/40 p-4 space-y-4"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="font-bold text-violet-950">{cycleLabel(cycle)}</h3>
+                        <span className="text-xs font-semibold text-violet-800">
+                          {cycleSlots.length} créneau(x)
+                        </span>
+                      </div>
+                      <p className="text-xs text-violet-900">
+                        Générer une grille pour ce cycle uniquement (quart / demi-heure / heure).
+                      </p>
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                        <label className="block">
+                          <span className="text-[11px] font-bold uppercase text-violet-800">
+                            Jour
+                          </span>
+                          <input
+                            type="date"
+                            className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
+                            value={g.day}
+                            onChange={(e) => patchGrid(cycle, { day: e.target.value })}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="text-[11px] font-bold uppercase text-violet-800">
+                            Début
+                          </span>
+                          <input
+                            type="time"
+                            className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
+                            value={g.startTime}
+                            onChange={(e) => patchGrid(cycle, { startTime: e.target.value })}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="text-[11px] font-bold uppercase text-violet-800">
+                            Fin
+                          </span>
+                          <input
+                            type="time"
+                            className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
+                            value={g.endTime}
+                            onChange={(e) => patchGrid(cycle, { endTime: e.target.value })}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="text-[11px] font-bold uppercase text-violet-800">
+                            Pas
+                          </span>
+                          <select
+                            className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm font-semibold"
+                            value={g.interval}
+                            onChange={(e) =>
+                              patchGrid(cycle, {
+                                interval: Number(e.target.value) as PortesOuvertesSlotIntervalMinutes,
+                              })
+                            }
+                          >
+                            <option value={15}>15 min</option>
+                            <option value={30}>30 min</option>
+                            <option value={60}>1 h</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className="text-[11px] font-bold uppercase text-violet-800">
+                            Places / créneau
+                          </span>
+                          <input
+                            type="number"
+                            min={1}
+                            className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
+                            value={g.maxPlaces}
+                            onChange={(e) =>
+                              patchGrid(cycle, { maxPlaces: Number(e.target.value) || 0 })
+                            }
+                          />
+                        </label>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={saving}
+                          className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                          onClick={() => void generateSlots(cycle, "append")}
+                        >
+                          Ajouter la grille
+                        </button>
+                        <button
+                          type="button"
+                          disabled={saving}
+                          className="rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-xs font-bold text-violet-900 disabled:opacity-50"
+                          onClick={() => void generateSlots(cycle, "replace")}
+                        >
+                          Remplacer les créneaux de ce cycle
+                        </button>
+                      </div>
+
+                      {cycleSlots.length === 0 ? (
+                        <p className="text-sm text-slate-500">Aucun créneau pour ce cycle.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {cycleSlots.map((slot, idx) => (
+                            <SlotEditorRow
+                              key={slot.id}
+                              slot={slot}
+                              cycle={cycle}
+                              index={idx}
+                              registered={po.stats[slot.id] || 0}
+                              saving={saving}
+                              onDelete={() => void deleteSlot(slot.id)}
+                              onSave={(next) => void upsertSlot({ ...next, cycle })}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <p className="text-sm text-slate-600">
+                  Total inscriptions : <strong>{po.registrationsCount}</strong>
                 </p>
-              </div>
-            ))}
-            <p className="text-sm text-slate-600">
-              Total inscriptions : <strong>{regCount}</strong>
-            </p>
-            <a
-              href="/portes-ouvertes"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-bold text-violet-700 underline"
-            >
-              Page publique →
-            </a>
+                <a
+                  href="/portes-ouvertes"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-bold text-violet-700 underline"
+                >
+                  Page publique →
+                </a>
+              </>
+            ) : null}
           </section>
         ) : null}
 
@@ -675,5 +883,103 @@ export default function EvenementsHubClient() {
         </p>
       </ModulePageShell>
     </RequireOrgAdmin>
+  );
+}
+
+function SlotEditorRow({
+  slot,
+  cycle,
+  index,
+  registered,
+  saving,
+  onDelete,
+  onSave,
+}: {
+  slot: PortesOuvertesSlot;
+  cycle: PortesOuvertesCycle;
+  index: number;
+  registered: number;
+  saving: boolean;
+  onDelete: () => void;
+  onSave: (slot: PortesOuvertesSlot & { cycle: PortesOuvertesCycle }) => void;
+}) {
+  const [label, setLabel] = useState(slot.label);
+  const [maxPlaces, setMaxPlaces] = useState(slot.maxPlaces ?? 0);
+  const [startLocal, setStartLocal] = useState(toDatetimeLocalValue(slot.startAt));
+  const [endLocal, setEndLocal] = useState(toDatetimeLocalValue(slot.endAt));
+
+  useEffect(() => {
+    setLabel(slot.label);
+    setMaxPlaces(slot.maxPlaces ?? 0);
+    setStartLocal(toDatetimeLocalValue(slot.startAt));
+    setEndLocal(toDatetimeLocalValue(slot.endAt));
+  }, [slot.id, slot.label, slot.maxPlaces, slot.startAt, slot.endAt]);
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white p-4 space-y-3">
+      <div className="flex justify-between items-center">
+        <span className="text-xs font-black uppercase text-slate-500">Créneau {index + 1}</span>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={onDelete}
+          className="text-xs text-rose-600 font-bold disabled:opacity-50"
+        >
+          Supprimer
+        </button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <input
+          className="rounded-lg border px-3 py-2 text-sm"
+          placeholder="Libellé"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+        />
+        <input
+          type="number"
+          className="rounded-lg border px-3 py-2 text-sm"
+          placeholder="Places max"
+          value={maxPlaces || ""}
+          onChange={(e) => setMaxPlaces(Number(e.target.value) || 0)}
+        />
+        <input
+          type="datetime-local"
+          className="rounded-lg border px-3 py-2 text-sm"
+          value={startLocal}
+          onChange={(e) => setStartLocal(e.target.value)}
+        />
+        <input
+          type="datetime-local"
+          className="rounded-lg border px-3 py-2 text-sm"
+          value={endLocal}
+          onChange={(e) => setEndLocal(e.target.value)}
+        />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-slate-500">
+          Inscrits : {registered}
+          {maxPlaces > 0 ? ` — plafond ${maxPlaces}` : ""}
+        </p>
+        <button
+          type="button"
+          disabled={saving}
+          className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+          onClick={() => {
+            const startAt = new Date(startLocal).toISOString();
+            const endAt = new Date(endLocal).toISOString();
+            onSave({
+              id: slot.id,
+              label: label.trim() || slot.label,
+              startAt,
+              endAt,
+              maxPlaces: maxPlaces > 0 ? maxPlaces : undefined,
+              cycle,
+            });
+          }}
+        >
+          Enregistrer ce créneau
+        </button>
+      </div>
+    </div>
   );
 }

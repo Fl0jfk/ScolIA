@@ -42,6 +42,8 @@ export type PortesOuvertesSlot = {
   startAt: string;
   endAt: string;
   maxPlaces?: number;
+  /** Établissement pédagogique rattaché au créneau. */
+  cycle?: "ecole" | "college" | "lycee";
 };
 
 export type PortesOuvertesToolConfig = {
@@ -51,6 +53,10 @@ export type PortesOuvertesToolConfig = {
   address: string;
   mapsUrl?: string;
   notifyEmail?: string;
+  /** Lien vers le formulaire de préinscription (mail de suivi). */
+  preinscriptionUrl?: string;
+  /** Délai minutes après check-in avant le mail de suivi. */
+  followUpDelayMinutes?: number;
   slots: PortesOuvertesSlot[];
   consentLabel: string;
 };

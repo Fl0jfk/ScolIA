@@ -554,7 +554,11 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "accueil-portes-ouvertes",
-    pathPrefixes: ["/accueil/portes-ouvertes", "/api/accueil/portes-ouvertes"],
+    pathPrefixes: [
+      "/accueil/portes-ouvertes",
+      "/api/accueil/portes-ouvertes",
+      "/api/portes-ouvertes/follow-up",
+    ],
     allowedRoles: [...DIRECTIONS, "administratif", "accueil"],
     dashboard: {
       id: 244,

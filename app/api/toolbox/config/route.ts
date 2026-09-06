@@ -8,7 +8,8 @@ import {
   resolveToolboxRentreePages,
   saveToolboxConfig,
 } from "@/app/lib/toolbox-config";
-import { listPortesOuvertesRegistrations, countRegistrationsBySlot } from "@/app/lib/portes-ouvertes-storage";
+import { listPortesOuvertesRegistrations, countRegistrationsBySlotAndCycle } from "@/app/lib/portes-ouvertes-storage";
+import { PORTES_OUVERTES_CYCLES, PORTES_OUVERTES_CYCLE_LABELS } from "@/app/lib/portes-ouvertes-types";
 
 export async function GET() {
   const gate = await requireAdmin();
@@ -20,11 +21,27 @@ export async function GET() {
       getTenantAppUrl(),
     ]);
     const registrations = await listPortesOuvertesRegistrations();
+    const bySlotCycle = countRegistrationsBySlotAndCycle(registrations);
+    const portesOuvertesStats: Record<string, number> = {};
+    const portesOuvertesStatsByCycle: Record<
+      string,
+      Partial<Record<"ecole" | "college" | "lycee", number>>
+    > = {};
+    for (const slot of config.tools["portes-ouvertes"].slots) {
+      const byCycle = bySlotCycle[slot.id] || {};
+      portesOuvertesStatsByCycle[slot.id] = byCycle;
+      portesOuvertesStats[slot.id] = PORTES_OUVERTES_CYCLES.reduce(
+        (sum, c) => sum + (byCycle[c] || 0),
+        0,
+      );
+    }
     return NextResponse.json({
       config,
       publicOrigin,
       establishments: app.establishments.filter((e) => e.active !== false),
-      portesOuvertesStats: countRegistrationsBySlot(registrations),
+      portesOuvertesStats,
+      portesOuvertesStatsByCycle,
+      cycleLabels: PORTES_OUVERTES_CYCLE_LABELS,
       registrationsCount: registrations.length,
     });
   } catch (e) {

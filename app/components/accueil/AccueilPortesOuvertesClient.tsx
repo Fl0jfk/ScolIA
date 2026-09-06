@@ -11,9 +11,31 @@ import {
 } from "@/app/lib/portes-ouvertes-types";
 import type { PortesOuvertesSlot } from "@/app/lib/toolbox-types";
 
+type PortesOuvertesStaffRole = "ambassadeur" | "enseignant" | "personnel";
+
+type StaffRow = {
+  id: string;
+  slotId: string;
+  role: PortesOuvertesStaffRole;
+  refId: string;
+  displayName: string;
+  meta?: Record<string, string>;
+  createdAt: string;
+};
+
+type SearchKind = "eleve" | "enseignant" | "personnel";
+
+type SearchHit = {
+  refId: string;
+  displayName: string;
+  meta?: Record<string, string>;
+};
+
 type SlotWithCount = PortesOuvertesSlot & {
   registeredCount: number;
   remaining: number | null;
+  registeredByCycle?: Record<PortesOuvertesCycle, number>;
+  remainingByCycle?: Record<PortesOuvertesCycle, number | null>;
   isPast?: boolean;
 };
 
@@ -23,9 +45,12 @@ type BoardPayload = {
   title: string;
   address: string;
   mapsUrl: string | null;
+  preinscriptionUrl: string | null;
+  followUpDelayMinutes: number;
   publicEnabled: boolean;
   slots: SlotWithCount[];
   registrations: RegistrationRow[];
+  staff: StaffRow[];
   availableCycles: PortesOuvertesCycle[];
   cycleLabels: Partial<Record<PortesOuvertesCycle, string>>;
   classesByCycle: Partial<Record<PortesOuvertesCycle, string[]>>;
@@ -43,7 +68,27 @@ type EditDraft = {
   slotId: string;
 };
 
+const ROLE_LABELS: Record<PortesOuvertesStaffRole, string> = {
+  ambassadeur: "Ambassadeur (élève)",
+  enseignant: "Enseignant",
+  personnel: "Personnel",
+};
+
+const SEARCH_KIND_TO_ROLE: Record<SearchKind, PortesOuvertesStaffRole> = {
+  eleve: "ambassadeur",
+  enseignant: "enseignant",
+  personnel: "personnel",
+};
+
 function formatSlotWhen(iso: string): string {
+  return new Date(iso).toLocaleString("fr-FR", {
+    timeZone: "Europe/Paris",
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+}
+
+function formatVisitedAt(iso: string): string {
   return new Date(iso).toLocaleString("fr-FR", {
     timeZone: "Europe/Paris",
     dateStyle: "short",
@@ -60,6 +105,10 @@ function displaySlot(reg: PortesOuvertesRegistration, slots: SlotWithCount[]): s
   return `${s.label} (${formatSlotWhen(s.startAt)})`;
 }
 
+function slotMatchesCycle(s: SlotWithCount, forCycle: PortesOuvertesCycle): boolean {
+  return !s.cycle || s.cycle === forCycle;
+}
+
 export default function AccueilPortesOuvertesClient() {
   const [board, setBoard] = useState<BoardPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,6 +117,7 @@ export default function AccueilPortesOuvertesClient() {
   const [message, setMessage] = useState<string | null>(null);
   const [listFilter, setListFilter] = useState<"all" | "upcoming" | "past">("all");
   const [edit, setEdit] = useState<EditDraft | null>(null);
+  const [staffOpenSlotId, setStaffOpenSlotId] = useState<string | null>(null);
 
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -81,17 +131,37 @@ export default function AccueilPortesOuvertesClient() {
     const res = await fetch("/api/accueil/portes-ouvertes", { cache: "no-store" });
     const data = (await res.json()) as BoardPayload;
     if (!res.ok) throw new Error(data.error || "Chargement impossible");
-    setBoard(data);
+    setBoard({
+      ...data,
+      staff: Array.isArray(data.staff) ? data.staff : [],
+      followUpDelayMinutes:
+        typeof data.followUpDelayMinutes === "number" && data.followUpDelayMinutes > 0
+          ? data.followUpDelayMinutes
+          : 60,
+      preinscriptionUrl: data.preinscriptionUrl ?? null,
+    });
     const cycles = data.availableCycles?.length
       ? data.availableCycles
       : (["college"] as PortesOuvertesCycle[]);
-    setCycle((prev) => (cycles.includes(prev) ? prev : cycles[0]));
-    setSlotId((prev) => {
-      if (prev && data.slots.some((s) => s.id === prev && !s.isPast)) return prev;
-      const open = data.slots.find(
-        (s) => !s.isPast && (s.remaining === null || s.remaining > 0),
-      );
-      return open?.id || data.slots.find((s) => !s.isPast)?.id || "";
+    setCycle((prev) => {
+      const next = cycles.includes(prev) ? prev : cycles[0];
+      setSlotId((prevSlot) => {
+        if (
+          prevSlot &&
+          data.slots.some((s) => s.id === prevSlot && !s.isPast && slotMatchesCycle(s, next))
+        ) {
+          const slot = data.slots.find((s) => s.id === prevSlot);
+          const rem = slot?.remainingByCycle?.[next];
+          if (rem === null || rem === undefined || rem > 0) return prevSlot;
+        }
+        const open = data.slots.find((s) => {
+          if (s.isPast || !slotMatchesCycle(s, next)) return false;
+          const rem = s.remainingByCycle?.[next];
+          return rem === null || rem === undefined || rem > 0;
+        });
+        return open?.id || data.slots.find((s) => !s.isPast && slotMatchesCycle(s, next))?.id || "";
+      });
+      return next;
     });
   }, []);
 
@@ -107,6 +177,28 @@ export default function AccueilPortesOuvertesClient() {
   const classes = board?.classesByCycle[cycle] || [];
   const editClasses = edit && board ? board.classesByCycle[edit.cycle] || [] : [];
 
+  function remainingForSlot(s: SlotWithCount, forCycle: PortesOuvertesCycle): number | null {
+    if (s.remainingByCycle && forCycle in s.remainingByCycle) {
+      return s.remainingByCycle[forCycle];
+    }
+    return s.remaining;
+  }
+
+  function startManualAdd(forCycle: PortesOuvertesCycle) {
+    setCycle(forCycle);
+    const open = (board?.slots || []).find((s) => {
+      if (s.isPast || !slotMatchesCycle(s, forCycle)) return false;
+      const rem = remainingForSlot(s, forCycle);
+      return rem === null || rem > 0;
+    });
+    if (open) setSlotId(open.id);
+    setMessage(null);
+    setError(null);
+    requestAnimationFrame(() => {
+      document.getElementById("po-saisie")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   useEffect(() => {
     if (!classes.length) {
       setClasseSouhaitee("");
@@ -114,6 +206,25 @@ export default function AccueilPortesOuvertesClient() {
     }
     setClasseSouhaitee((prev) => (classes.includes(prev) ? prev : classes[0]));
   }, [cycle, classes]);
+
+  useEffect(() => {
+    if (!board) return;
+    const current = board.slots.find((s) => s.id === slotId);
+    const rem =
+      current && !current.isPast && slotMatchesCycle(current, cycle)
+        ? remainingForSlot(current, cycle)
+        : null;
+    if (current && !current.isPast && slotMatchesCycle(current, cycle) && (rem === null || rem > 0)) {
+      return;
+    }
+    const open = board.slots.find((s) => {
+      if (s.isPast || !slotMatchesCycle(s, cycle)) return false;
+      const r = remainingForSlot(s, cycle);
+      return r === null || r > 0;
+    });
+    if (open && open.id !== slotId) setSlotId(open.id);
+    else if (!open) setSlotId("");
+  }, [board, cycle, slotId]);
 
   useEffect(() => {
     if (!edit) return;
@@ -159,6 +270,21 @@ export default function AccueilPortesOuvertesClient() {
   const upcomingSlots = useMemo(
     () => (board?.slots || []).filter((s) => !s.isPast),
     [board?.slots],
+  );
+
+  const upcomingSlotsForCycle = useMemo(
+    () => upcomingSlots.filter((s) => slotMatchesCycle(s, cycle)),
+    [upcomingSlots, cycle],
+  );
+
+  const editUpcomingSlots = useMemo(() => {
+    if (!edit) return upcomingSlotsForCycle;
+    return upcomingSlots.filter((s) => slotMatchesCycle(s, edit.cycle));
+  }, [edit, upcomingSlots, upcomingSlotsForCycle]);
+
+  const staffingSlots = useMemo(
+    () => upcomingSlots.filter((s) => availableCycles.some((c) => slotMatchesCycle(s, c))),
+    [upcomingSlots, availableCycles],
   );
 
   async function submit(e: React.FormEvent) {
@@ -243,6 +369,79 @@ export default function AccueilPortesOuvertesClient() {
     }
   }
 
+  async function toggleVisited(r: RegistrationRow, visited: boolean) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/accueil/portes-ouvertes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: r.id, visited }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        followUpDelayMinutes?: number;
+      };
+      if (!res.ok) throw new Error(data.error || "Check-in impossible");
+      const delay = data.followUpDelayMinutes ?? board?.followUpDelayMinutes ?? 60;
+      setMessage(
+        visited
+          ? `Visite enregistrée. Un mail de suivi est prévu dans environ ${delay} min.`
+          : "Visite décochée.",
+      );
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addStaff(params: {
+    slotId: string;
+    role: PortesOuvertesStaffRole;
+    refId: string;
+    displayName: string;
+    meta?: Record<string, string>;
+  }) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/accueil/portes-ouvertes/staffing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Ajout staffing impossible");
+      setMessage(`${params.displayName} ajouté(e) au créneau.`);
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeStaff(id: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/accueil/portes-ouvertes/staffing?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data.error || "Suppression impossible");
+      setMessage("Personne retirée du staffing.");
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function renderTable(rows: RegistrationRow[], variant: "cycle" | "autre") {
     if (rows.length === 0) {
       return <p className="px-4 py-6 text-sm text-slate-500">Aucune inscription.</p>;
@@ -258,6 +457,7 @@ export default function AccueilPortesOuvertesClient() {
               <th className="px-4 py-2 font-bold">E-mail</th>
               <th className="px-4 py-2 font-bold">Créneau</th>
               <th className="px-4 py-2 font-bold">Statut</th>
+              <th className="px-4 py-2 font-bold">Visite</th>
               <th className="px-4 py-2 font-bold">Actions</th>
             </tr>
           </thead>
@@ -298,6 +498,27 @@ export default function AccueilPortesOuvertesClient() {
                   )}
                 </td>
                 <td className="px-4 py-2">
+                  <label className="flex flex-col gap-1 text-xs">
+                    <span className="inline-flex items-center gap-2 font-semibold text-slate-700">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={Boolean(r.visitedAt)}
+                        disabled={busy}
+                        onChange={(e) => void toggleVisited(r, e.target.checked)}
+                      />
+                      Visite effectuée
+                    </span>
+                    {r.visitedAt ? (
+                      <span className="text-emerald-700">Check-in {formatVisitedAt(r.visitedAt)}</span>
+                    ) : board?.followUpDelayMinutes ? (
+                      <span className="text-slate-400">
+                        Suivi e-mail ~{board.followUpDelayMinutes} min après check-in
+                      </span>
+                    ) : null}
+                  </label>
+                </td>
+                <td className="px-4 py-2">
                   {r.upcoming ? (
                     <button
                       type="button"
@@ -322,7 +543,17 @@ export default function AccueilPortesOuvertesClient() {
     <ModulePageShell>
       <ModulePageHeader
         title="Portes ouvertes — Accueil"
-        description="Saisie téléphone / présentiel, historique de toutes les sessions, modification de créneau avec renvoi .ics."
+        description="Saisie téléphone / présentiel, staffing, check-in visite, historique et export planning PDF."
+        actions={
+          <a
+            href="/api/accueil/portes-ouvertes/planning-pdf"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex rounded-xl bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800"
+          >
+            Exporter PDF
+          </a>
+        }
       />
 
       {loading ? <p className="text-sm text-slate-500">Chargement…</p> : null}
@@ -354,10 +585,15 @@ export default function AccueilPortesOuvertesClient() {
             </p>
           ) : (
             <form
+              id="po-saisie"
               onSubmit={(ev) => void submit(ev)}
-              className="rounded-2xl border border-slate-200 bg-white p-5 md:p-6 space-y-4 shadow-sm"
+              className="rounded-2xl border border-slate-200 bg-white p-5 md:p-6 space-y-4 shadow-sm scroll-mt-4"
             >
               <h2 className="text-lg font-bold text-slate-900">{board.title || "Nouvelle inscription"}</h2>
+              <p className="text-sm text-slate-600">
+                Saisie manuelle (téléphone / présentiel). Les places sont comptées{" "}
+                <strong>par établissement</strong> sur chaque créneau.
+              </p>
               {board.address ? (
                 <p className="text-sm text-slate-600">
                   {board.address}
@@ -422,7 +658,7 @@ export default function AccueilPortesOuvertesClient() {
                   />
                 </label>
                 <label className="block">
-                  <span className="text-xs font-bold uppercase text-slate-500">Cycle</span>
+                  <span className="text-xs font-bold uppercase text-slate-500">Établissement</span>
                   <select
                     className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold"
                     value={cycle}
@@ -437,18 +673,28 @@ export default function AccueilPortesOuvertesClient() {
                 </label>
                 <label className="block">
                   <span className="text-xs font-bold uppercase text-slate-500">Classe souhaitée</span>
-                  <select
-                    required
-                    className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold"
-                    value={classeSouhaitee}
-                    onChange={(e) => setClasseSouhaitee(e.target.value)}
-                  >
-                    {classes.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                  {classes.length > 0 ? (
+                    <select
+                      required
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold"
+                      value={classeSouhaitee}
+                      onChange={(e) => setClasseSouhaitee(e.target.value)}
+                    >
+                      {classes.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      required
+                      className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+                      value={classeSouhaitee}
+                      onChange={(e) => setClasseSouhaitee(e.target.value)}
+                      placeholder="Classe / niveau"
+                    />
+                  )}
                 </label>
               </div>
 
@@ -460,12 +706,13 @@ export default function AccueilPortesOuvertesClient() {
                   value={slotId}
                   onChange={(e) => setSlotId(e.target.value)}
                 >
-                  {upcomingSlots.map((s) => {
-                    const full = s.remaining === 0;
+                  {upcomingSlotsForCycle.map((s) => {
+                    const rem = remainingForSlot(s, cycle);
+                    const full = rem === 0;
                     const places =
-                      s.remaining === null
-                        ? `${s.registeredCount} inscrit(s)`
-                        : `${s.remaining} place(s) restante(s)`;
+                      rem === null
+                        ? `${s.registeredByCycle?.[cycle] ?? s.registeredCount} inscrit(s)`
+                        : `${rem} place(s) restante(s)`;
                     return (
                       <option key={s.id} value={s.id} disabled={full}>
                         {s.label} — {formatSlotWhen(s.startAt)} ({places})
@@ -544,7 +791,7 @@ export default function AccueilPortesOuvertesClient() {
                   />
                 </label>
                 <label className="block">
-                  <span className="text-xs font-bold uppercase text-slate-500">Cycle</span>
+                  <span className="text-xs font-bold uppercase text-slate-500">Établissement</span>
                   <select
                     className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold"
                     value={edit.cycle}
@@ -563,18 +810,27 @@ export default function AccueilPortesOuvertesClient() {
                 </label>
                 <label className="block">
                   <span className="text-xs font-bold uppercase text-slate-500">Classe</span>
-                  <select
-                    required
-                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold"
-                    value={edit.classeSouhaitee}
-                    onChange={(e) => setEdit({ ...edit, classeSouhaitee: e.target.value })}
-                  >
-                    {editClasses.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                  {editClasses.length > 0 ? (
+                    <select
+                      required
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold"
+                      value={edit.classeSouhaitee}
+                      onChange={(e) => setEdit({ ...edit, classeSouhaitee: e.target.value })}
+                    >
+                      {editClasses.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      required
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+                      value={edit.classeSouhaitee}
+                      onChange={(e) => setEdit({ ...edit, classeSouhaitee: e.target.value })}
+                    />
+                  )}
                 </label>
               </div>
               <label className="block">
@@ -585,8 +841,9 @@ export default function AccueilPortesOuvertesClient() {
                   value={edit.slotId}
                   onChange={(e) => setEdit({ ...edit, slotId: e.target.value })}
                 >
-                  {upcomingSlots.map((s) => {
-                    const full = s.remaining === 0 && s.id !== edit.slotId;
+                  {editUpcomingSlots.map((s) => {
+                    const rem = remainingForSlot(s, edit.cycle);
+                    const full = rem === 0 && s.id !== edit.slotId;
                     return (
                       <option key={s.id} value={s.id} disabled={full}>
                         {s.label} — {formatSlotWhen(s.startAt)}
@@ -604,6 +861,103 @@ export default function AccueilPortesOuvertesClient() {
                 {busy ? "Envoi…" : "Enregistrer et renvoyer le .ics"}
               </button>
             </form>
+          ) : null}
+
+          {staffingSlots.length > 0 ? (
+            <section className="space-y-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Staffing des créneaux</h2>
+                <p className="text-sm text-slate-600">
+                  Ambassadeurs (élèves), enseignants et personnel par créneau à venir — exportés
+                  dans le planning PDF.
+                </p>
+              </div>
+              {staffingSlots.map((s) => {
+                const open = staffOpenSlotId === s.id;
+                const slotStaff = (board.staff || []).filter((x) => x.slotId === s.id);
+                return (
+                  <div
+                    key={s.id}
+                    className="rounded-2xl border border-slate-200 bg-white overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      className="w-full flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 text-left"
+                      onClick={() => setStaffOpenSlotId(open ? null : s.id)}
+                    >
+                      <div>
+                        <h3 className="font-bold text-slate-900">
+                          {s.label}
+                          {s.cycle
+                            ? ` — ${board.cycleLabels[s.cycle] || PORTES_OUVERTES_CYCLE_LABELS[s.cycle]}`
+                            : ""}
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          {formatSlotWhen(s.startAt)} · {slotStaff.length} personne(s)
+                        </p>
+                      </div>
+                      <span className="text-xs font-bold text-violet-700">
+                        {open ? "Replier" : "Gérer"}
+                      </span>
+                    </button>
+                    {open ? (
+                      <div className="p-4 space-y-4">
+                        {(["eleve", "enseignant", "personnel"] as const).map((kind) => (
+                          <StaffSearchPicker
+                            key={kind}
+                            kind={kind}
+                            disabled={busy}
+                            onPick={(hit) =>
+                              void addStaff({
+                                slotId: s.id,
+                                role: SEARCH_KIND_TO_ROLE[kind],
+                                refId: hit.refId,
+                                displayName: hit.displayName,
+                                meta: hit.meta,
+                              })
+                            }
+                          />
+                        ))}
+                        {slotStaff.length === 0 ? (
+                          <p className="text-sm text-slate-500">Personne assignée pour l’instant.</p>
+                        ) : (
+                          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100">
+                            {slotStaff.map((row) => (
+                              <li
+                                key={row.id}
+                                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                              >
+                                <div>
+                                  <span className="font-semibold text-slate-900">
+                                    {row.displayName}
+                                  </span>
+                                  <span className="ml-2 text-xs font-semibold text-violet-700">
+                                    {ROLE_LABELS[row.role]}
+                                  </span>
+                                  {row.meta?.classe ? (
+                                    <span className="ml-2 text-xs text-slate-500">
+                                      {row.meta.classe}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  className="text-xs font-bold text-rose-600 disabled:opacity-50"
+                                  onClick={() => void removeStaff(row.id)}
+                                >
+                                  Retirer
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </section>
           ) : null}
 
           <section className="space-y-4">
@@ -635,29 +989,65 @@ export default function AccueilPortesOuvertesClient() {
               </div>
             </div>
             <p className="text-sm text-slate-600">
-              Historique conservé même après la session — utile pour recontacter. Modification
-              possible uniquement sur les créneaux encore à venir.
+              Historique conservé même après la session — utile pour recontacter. Cochez « Visite
+              effectuée » pour déclencher le suivi (délai {board.followUpDelayMinutes} min).
             </p>
 
-            {PORTES_OUVERTES_CYCLES.map((c) => {
+            {availableCycles.map((c) => {
               const rows = byCycle[c];
+              const cycleUpcoming = upcomingSlots.filter((s) => slotMatchesCycle(s, c));
               return (
                 <div key={c} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-                  <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 flex items-center justify-between">
-                    <h3 className="font-bold text-slate-900">{PORTES_OUVERTES_CYCLE_LABELS[c]}</h3>
-                    <span className="text-xs font-semibold text-slate-500">
-                      {rows.length} inscription(s)
-                    </span>
+                  <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="font-bold text-slate-900">
+                        {board.cycleLabels[c] || PORTES_OUVERTES_CYCLE_LABELS[c]}
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        {rows.length} inscription(s)
+                        {cycleUpcoming[0]?.maxPlaces
+                          ? ` — plafond ${cycleUpcoming[0].maxPlaces} places / créneau`
+                          : ""}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => startManualAdd(c)}
+                      disabled={cycleUpcoming.length === 0}
+                      className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+                    >
+                      Ajouter une inscription
+                    </button>
                   </div>
                   {renderTable(rows, "cycle")}
                 </div>
               );
             })}
 
+            {PORTES_OUVERTES_CYCLES.filter((c) => !availableCycles.includes(c) && byCycle[c].length > 0).map(
+              (c) => {
+                const rows = byCycle[c];
+                return (
+                  <div key={`hist-${c}`} className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                    <div className="border-b border-slate-100 bg-slate-50 px-4 py-3 flex items-center justify-between">
+                      <h3 className="font-bold text-slate-900">
+                        {board.cycleLabels[c] || PORTES_OUVERTES_CYCLE_LABELS[c]}{" "}
+                        <span className="text-xs font-semibold text-slate-500">(historique)</span>
+                      </h3>
+                      <span className="text-xs font-semibold text-slate-500">
+                        {rows.length} inscription(s)
+                      </span>
+                    </div>
+                    {renderTable(rows, "cycle")}
+                  </div>
+                );
+              },
+            )}
+
             {byCycle.autre.length > 0 ? (
               <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
                 <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
-                  <h3 className="font-bold text-slate-900">Autres (sans cycle)</h3>
+                  <h3 className="font-bold text-slate-900">Autres (sans établissement)</h3>
                 </div>
                 {renderTable(byCycle.autre, "autre")}
               </div>
@@ -666,5 +1056,94 @@ export default function AccueilPortesOuvertesClient() {
         </div>
       ) : null}
     </ModulePageShell>
+  );
+}
+
+function StaffSearchPicker({
+  kind,
+  disabled,
+  onPick,
+}: {
+  kind: SearchKind;
+  disabled: boolean;
+  onPick: (hit: SearchHit) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<SearchHit[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    const needle = q.trim();
+    if (needle.length < 2) {
+      setResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      void fetch(
+        `/api/accueil/portes-ouvertes/search?kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(needle)}`,
+        { cache: "no-store" },
+      )
+        .then(async (res) => {
+          const data = (await res.json()) as { results?: SearchHit[]; error?: string };
+          if (!res.ok) throw new Error(data.error || "Recherche impossible");
+          if (!cancelled) setResults(Array.isArray(data.results) ? data.results : []);
+        })
+        .catch(() => {
+          if (!cancelled) setResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [q, kind]);
+
+  const title =
+    kind === "eleve" ? "Ambassadeur (élève)" : kind === "enseignant" ? "Enseignant" : "Personnel";
+
+  return (
+    <div className="space-y-2">
+      <label className="block">
+        <span className="text-xs font-bold uppercase text-slate-500">{title}</span>
+        <input
+          className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+          placeholder="Rechercher (2 caractères min.)"
+          value={q}
+          disabled={disabled}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </label>
+      {searching ? <p className="text-xs text-slate-400">Recherche…</p> : null}
+      {results.length > 0 ? (
+        <ul className="max-h-40 overflow-y-auto rounded-xl border border-violet-100 bg-violet-50/40">
+          {results.map((hit) => (
+            <li key={`${hit.refId}-${hit.displayName}`}>
+              <button
+                type="button"
+                disabled={disabled}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-violet-100 disabled:opacity-50"
+                onClick={() => {
+                  onPick(hit);
+                  setQ("");
+                  setResults([]);
+                }}
+              >
+                <span className="font-semibold text-slate-900">{hit.displayName}</span>
+                {hit.meta?.classe ? (
+                  <span className="ml-2 text-xs text-slate-500">{hit.meta.classe}</span>
+                ) : hit.meta?.email ? (
+                  <span className="ml-2 text-xs text-slate-500">{hit.meta.email}</span>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }

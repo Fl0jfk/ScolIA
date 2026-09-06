@@ -39,6 +39,7 @@ export function generatePortesOuvertesSlots(params: {
   endTime: string;
   intervalMinutes: PortesOuvertesSlotIntervalMinutes;
   maxPlaces?: number;
+  cycle?: "ecole" | "college" | "lycee";
 }): PortesOuvertesSlot[] {
   const date = params.date.trim();
   const startTime = params.startTime.trim();
@@ -54,19 +55,21 @@ export function generatePortesOuvertesSlots(params: {
   const slots: PortesOuvertesSlot[] = [];
   let cursor = startMin;
   let i = 0;
+  const cycleSuffix = params.cycle ? `-${params.cycle}` : "";
   while (cursor + interval <= endMin) {
     const startHm = `${pad2(Math.floor(cursor / 60))}:${pad2(cursor % 60)}`;
     const endHm = addMinutesToHm(startHm, interval);
     const startDate = parseParisDateTime(date, startHm);
     const endDate = parseParisDateTime(date, endHm);
     if (!startDate || !endDate) break;
-    const id = `slot-${date.replace(/-/g, "")}-${startHm.replace(":", "")}-${i}-${Date.now().toString(36)}`;
+    const id = `slot-${date.replace(/-/g, "")}-${startHm.replace(":", "")}${cycleSuffix}-${i}-${Date.now().toString(36)}`;
     slots.push({
       id,
       label: formatSlotLabel(startHm, endHm),
       startAt: startDate.toISOString(),
       endAt: endDate.toISOString(),
       maxPlaces: params.maxPlaces && params.maxPlaces > 0 ? params.maxPlaces : undefined,
+      cycle: params.cycle,
     });
     cursor += interval;
     i += 1;
