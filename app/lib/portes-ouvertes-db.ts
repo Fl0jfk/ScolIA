@@ -535,21 +535,21 @@ export async function listPortesOuvertesStaff(
         .select()
         .from(portesOuvertesSlotStaff)
         .where(eq(portesOuvertesSlotStaff.etablissementId, etabId));
-  return rows
-    .map((r) => {
-      const role = parseStaffRole(r.role);
-      if (!role) return null;
-      return {
-        id: r.id,
-        slotId: r.slotId,
-        role,
-        refId: r.refId,
-        displayName: r.displayName,
-        meta: r.meta || undefined,
-        createdAt: r.createdAt.toISOString(),
-      };
-    })
-    .filter((r): r is PortesOuvertesStaffRow => Boolean(r));
+  const out: PortesOuvertesStaffRow[] = [];
+  for (const r of rows) {
+    const role = parseStaffRole(r.role);
+    if (!role) continue;
+    out.push({
+      id: r.id,
+      slotId: r.slotId,
+      role,
+      refId: r.refId,
+      displayName: r.displayName,
+      meta: r.meta || undefined,
+      createdAt: r.createdAt.toISOString(),
+    });
+  }
+  return out;
 }
 
 export async function addPortesOuvertesStaff(

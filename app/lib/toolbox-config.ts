@@ -35,32 +35,33 @@ function numArr(v: unknown, len = 5): number[] {
   return v.map((x) => Number(x)).filter((n) => Number.isFinite(n)).slice(0, len);
 }
 
-function parseSlots(raw: unknown) {
+function parseSlots(raw: unknown): import("@/app/lib/toolbox-types").PortesOuvertesSlot[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item, i) => {
-      const o = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
-      const id = String(o.id || `slot-${i + 1}`).trim();
-      const label = String(o.label || `Créneau ${i + 1}`).trim();
-      const startAt = String(o.startAt || "").trim();
-      const endAt = String(o.endAt || "").trim();
-      if (!startAt) return null;
-      const maxPlaces = Number(o.maxPlaces);
-      const cycleRaw = String(o.cycle || "").trim();
-      const cycle =
-        cycleRaw === "ecole" || cycleRaw === "college" || cycleRaw === "lycee"
-          ? cycleRaw
-          : undefined;
-      return {
-        id,
-        label,
-        startAt,
-        endAt: endAt || startAt,
-        maxPlaces: Number.isFinite(maxPlaces) && maxPlaces > 0 ? maxPlaces : undefined,
-        cycle,
-      };
-    })
-    .filter((x): x is NonNullable<typeof x> => Boolean(x));
+  const out: import("@/app/lib/toolbox-types").PortesOuvertesSlot[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    const o = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const id = String(o.id || `slot-${i + 1}`).trim();
+    const label = String(o.label || `Créneau ${i + 1}`).trim();
+    const startAt = String(o.startAt || "").trim();
+    const endAt = String(o.endAt || "").trim();
+    if (!startAt) continue;
+    const maxPlaces = Number(o.maxPlaces);
+    const cycleRaw = String(o.cycle || "").trim();
+    const cycle =
+      cycleRaw === "ecole" || cycleRaw === "college" || cycleRaw === "lycee"
+        ? cycleRaw
+        : undefined;
+    out.push({
+      id,
+      label,
+      startAt,
+      endAt: endAt || startAt,
+      maxPlaces: Number.isFinite(maxPlaces) && maxPlaces > 0 ? maxPlaces : undefined,
+      cycle,
+    });
+  }
+  return out;
 }
 
 export function parseToolboxConfig(raw: unknown): ToolboxConfig {

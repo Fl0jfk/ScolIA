@@ -188,10 +188,8 @@ export default function EvenementsHubClient() {
         found.add(e.kind);
       }
     }
-    const ordered: PortesOuvertesCycle[] = ["ecole", "college", "lycee"].filter((c) =>
-      found.has(c),
-    );
-    return ordered.length > 0 ? ordered : (["ecole", "college", "lycee"] as PortesOuvertesCycle[]);
+    const ordered = (["ecole", "college", "lycee"] as const).filter((c) => found.has(c));
+    return ordered.length > 0 ? [...ordered] : (["ecole", "college", "lycee"] as PortesOuvertesCycle[]);
   }, [establishments]);
 
   const cycleLabel = useCallback(

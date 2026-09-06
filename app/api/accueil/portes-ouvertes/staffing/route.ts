@@ -12,7 +12,7 @@ const AddSchema = z.object({
   role: z.enum(["ambassadeur", "enseignant", "personnel"]),
   refId: z.string().min(1).max(120),
   displayName: z.string().min(1).max(200),
-  meta: z.record(z.string()).optional(),
+  meta: z.record(z.string(), z.string()).optional(),
 });
 
 export async function GET(req: Request) {
