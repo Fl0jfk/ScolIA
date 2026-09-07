@@ -385,26 +385,30 @@ function TripDashboardContent() {
                       Dossier du {formatDate(trip, 'created')}
                     </span>
                   </div>
+                  <h3
+                    className="mb-4 text-2xl font-black leading-snug text-slate-800 break-words group-hover:text-indigo-600 transition-colors line-clamp-2"
+                    title={trip.data?.title || "Sans titre"}
+                  >
+                    {trip.data?.title || "Sans titre"}
+                  </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-3">
-                      <h3 className="text-2xl font-black text-slate-800 group-hover:text-indigo-600 transition-colors line-clamp-1">{trip.data?.title || "Sans titre"}</h3>
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium text-slate-500 flex items-center gap-2">
-                          <span className="text-lg">📍</span> {trip.data?.destination || "Non définie"}
-                        </p>
-                        <p className="text-sm text-slate-500">
-                          {trip.type === "COMPLEX" ? (
-                            <span>
-                              Du {formatDate(trip, "travel")} au{" "}
-                              {trip.data?.endDate
-                                ? new Date(trip.data.endDate).toLocaleDateString("fr-FR")
-                                : "—"}
-                            </span>
-                          ) : (
-                            <span>Le {formatDate(trip, "travel")}</span>
-                          )}
-                        </p>
-                      </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-slate-500 flex items-start gap-2">
+                        <span className="text-lg shrink-0">📍</span>
+                        <span className="min-w-0 break-words">{trip.data?.destination || "Non définie"}</span>
+                      </p>
+                      <p className="text-sm text-slate-500">
+                        {trip.type === "COMPLEX" ? (
+                          <span>
+                            Du {formatDate(trip, "travel")} au{" "}
+                            {trip.data?.endDate
+                              ? new Date(trip.data.endDate).toLocaleDateString("fr-FR")
+                              : "—"}
+                          </span>
+                        ) : (
+                          <span>Le {formatDate(trip, "travel")}</span>
+                        )}
+                      </p>
                     </div>
                     <div className="flex items-center gap-3 md:justify-end">
                       <div className="bg-slate-50 px-4 py-3 rounded-2xl text-center min-w-[70px] border border-slate-100">
