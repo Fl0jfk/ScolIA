@@ -97,15 +97,42 @@ export function TripDetailsModals(p: TripDetailsModalsProps) {
                 value={draftNbEleves}
                 onChange={(e) => setDraftNbEleves(e.target.value)}
               />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Chiffre pour le transport — la liste nominative peut être complétée plus tard.
+              </p>
+            </div>
+            <div className="mb-4">
+              <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                Nombre d&apos;accompagnateurs
+              </label>
+              <TripInput
+                type="number"
+                min={0}
+                value={draftNbAccompagnateurs}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setDraftNbAccompagnateurs(next);
+                  const n = Number(next);
+                  if (Number.isFinite(n) && n >= 0 && n < draftAccompagnateurs.length) {
+                    // Ne pas tronquer la sélection nominative : on remonte le chiffre.
+                    setDraftNbAccompagnateurs(String(draftAccompagnateurs.length));
+                  }
+                }}
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Vous pouvez indiquer 7 accompagnateurs sans connaître encore les noms.
+              </p>
             </div>
             <div className="mb-6">
               <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
-                Accompagnateurs ({draftNbAccompagnateurs || "0"})
+                Noms des accompagnateurs (optionnel pour l&apos;instant)
               </label>
               <TripAccompagnateursSelect
                 value={draftAccompagnateurs}
                 onChange={(items) => {
-                  const fields = accompagnateursToFormFields(items);
+                  const fields = accompagnateursToFormFields(items, {
+                    declaredNb: draftNbAccompagnateurs,
+                  });
                   setDraftAccompagnateurs(fields.accompagnateurs);
                   setDraftNomsAccompagnateurs(fields.nomsAccompagnateurs);
                   setDraftNbAccompagnateurs(String(fields.nbAccompagnateurs));

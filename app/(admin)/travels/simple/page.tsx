@@ -117,7 +117,9 @@ function SimpleTripFormContent() {
               nomsAccompagnateurs: nomsStr,
               accompagnateurs: trip.data.accompagnateurs,
             });
-            const escortFields = accompagnateursToFormFields(accompagnateurs);
+            const escortFields = accompagnateursToFormFields(accompagnateurs, {
+              declaredNb: trip.data.nbAccompagnateurs,
+            });
             setFormData({
               ...trip.data,
               nomsAccompagnateurs: escortFields.nomsAccompagnateurs || nomsStr,
@@ -188,8 +190,8 @@ function SimpleTripFormContent() {
       alert("Sélectionnez au moins une classe (catalogue ou Autres).");
       return;
     }
-    if (formData.accompagnateurs.length === 0) {
-      alert("Sélectionnez au moins un accompagnateur (annuaire ou Autre).");
+    if (Number(formData.nbAccompagnateurs) < 1 && formData.accompagnateurs.length === 0) {
+      alert("Indiquez au moins 1 accompagnateur (nombre ou nom — les noms peuvent être précisés plus tard).");
       return;
     }
     const ownerFields =
@@ -491,14 +493,38 @@ function SimpleTripFormContent() {
           <label className="block text-sm font-semibold mb-2">Nombre d&apos;élèves total</label>
           <input type="number" value={formData.nbEleves} className="w-full p-3 bg-slate-50 border rounded-xl outline-indigo-500" onChange={e => setFormData({...formData, nbEleves: e.target.value})} />
         </div>
+        <div>
+          <label className="block text-sm font-semibold mb-2">Nombre d&apos;accompagnateurs</label>
+          <input
+            type="number"
+            min={0}
+            value={formData.nbAccompagnateurs}
+            className="w-full p-3 bg-slate-50 border rounded-xl outline-indigo-500"
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              const named = formData.accompagnateurs.length;
+              const safe =
+                Number.isFinite(n) && n >= 0 ? Math.max(Math.floor(n), named) : named;
+              setFormData({ ...formData, nbAccompagnateurs: safe });
+            }}
+          />
+          <p className="mt-1 text-[11px] text-slate-500">
+            Chiffre pour le transport — les noms peuvent être précisés plus tard.
+          </p>
+        </div>
         <div className="md:col-span-2">
-          <label className="block text-sm font-semibold mb-2">Accompagnateurs</label>
+          <label className="block text-sm font-semibold mb-2">
+            Noms des accompagnateurs{" "}
+            <span className="font-normal text-slate-400">(optionnel)</span>
+          </label>
           <TripAccompagnateursSelect
             value={formData.accompagnateurs}
             onChange={(accompagnateurs) =>
               setFormData({
                 ...formData,
-                ...accompagnateursToFormFields(accompagnateurs),
+                ...accompagnateursToFormFields(accompagnateurs, {
+                  declaredNb: formData.nbAccompagnateurs,
+                }),
               })
             }
           />

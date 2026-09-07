@@ -169,8 +169,8 @@ function ComplexTripFormContent() {
       alert("Sélectionnez au moins une classe (catalogue ou Autres).");
       return;
     }
-    if (formData.accompagnateurs.length === 0) {
-      alert("Sélectionnez au moins un accompagnateur (annuaire ou Autre).");
+    if (Number(formData.nbAccompagnateurs) < 1 && formData.accompagnateurs.length === 0) {
+      alert("Indiquez au moins 1 accompagnateur (nombre ou nom — les noms peuvent être précisés plus tard).");
       return;
     }
     if (formData.needsBus) {
@@ -248,15 +248,39 @@ function ComplexTripFormContent() {
                 </p>
               ) : null}
             </div>
-            <div className="md:col-span-3">
-              <label className="block text-sm font-semibold mb-2">Accompagnateurs</label>
-              <TripAccompagnateursSelect
+            <div>
+              <label className="block text-sm font-semibold mb-2">Nombre d&apos;accompagnateurs</label>
+              <input
+                type="number"
+                min={0}
                 required
+                value={formData.nbAccompagnateurs}
+                className="w-full p-3 bg-slate-50 border rounded-xl"
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  const named = formData.accompagnateurs.length;
+                  const safe =
+                    Number.isFinite(n) && n >= 0 ? Math.max(Math.floor(n), named) : named;
+                  setFormData({ ...formData, nbAccompagnateurs: safe });
+                }}
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Chiffre pour le devis transport — les noms peuvent venir ensuite.
+              </p>
+            </div>
+            <div className="md:col-span-3">
+              <label className="block text-sm font-semibold mb-2">
+                Noms des accompagnateurs{" "}
+                <span className="font-normal text-slate-400">(optionnel pour l&apos;instant)</span>
+              </label>
+              <TripAccompagnateursSelect
                 value={formData.accompagnateurs}
                 onChange={(accompagnateurs) =>
                   setFormData({
                     ...formData,
-                    ...accompagnateursToFormFields(accompagnateurs),
+                    ...accompagnateursToFormFields(accompagnateurs, {
+                      declaredNb: formData.nbAccompagnateurs,
+                    }),
                   })
                 }
               />

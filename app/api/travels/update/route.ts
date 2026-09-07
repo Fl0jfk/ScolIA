@@ -90,14 +90,37 @@ export async function POST(req: Request) {
     if (Array.isArray(saveInner.participantEleves)) {
       const { applyParticipantElevesToTripData } = await import("@/app/lib/travels-eleves-list");
       const participants = saveInner.participantEleves as import("@/app/lib/travels-types").TravelsParticipantEleve[];
+      // Mode « max » : ne pas écraser un effectif déclaré (ex. 113) quand la liste nominative est encore vide.
       const synced = applyParticipantElevesToTripData(
         saveInner as import("@/app/lib/travels-types").TravelsTripData,
         participants,
+        { syncNbEleves: "max" },
       );
       saveInner.participantEleves = synced.participantEleves;
       saveInner.nbEleves = synced.nbEleves;
       saveInner.classes = synced.classes;
       if (!saveInner.listeElevesStatus) saveInner.listeElevesStatus = "draft";
+      objectToSave.data = saveInner;
+    }
+    // Accompagnateurs : le chiffre déclaré peut dépasser le nominatif (noms à préciser plus tard).
+    {
+      const { resolveNbAccompagnateurs, parseAccompagnateursFromTrip } = await import(
+        "@/app/lib/travels-accompagnateurs"
+      );
+      const named = parseAccompagnateursFromTrip({
+        nomsAccompagnateurs: saveInner.nomsAccompagnateurs as string | string[] | null | undefined,
+        accompagnateurs: saveInner.accompagnateurs as
+          | import("@/app/lib/travels-accompagnateurs").TravelsAccompagnateur[]
+          | null
+          | undefined,
+      });
+      saveInner.nbAccompagnateurs = resolveNbAccompagnateurs(
+        named.length,
+        saveInner.nbAccompagnateurs as number | string | null | undefined,
+      );
+      if (named.length > 0 && !saveInner.accompagnateurs) {
+        saveInner.accompagnateurs = named;
+      }
       objectToSave.data = saveInner;
     }
     const previousStatus = existingOnS3 && typeof existingOnS3.status === "string" ? existingOnS3.status : null;
@@ -136,10 +159,10 @@ export async function POST(req: Request) {
         title: title,
         destination: destination,
         imageUrl: objectToSave.imageUrl,
-        nbEleves: innerData.nbEleves,
-        nbAccompagnateurs: innerData.nbAccompagnateurs,
-        nomsAccompagnateurs: innerData.nomsAccompagnateurs || [],
-        classes: innerData.classes || [],
+        nbEleves: saveInner.nbEleves ?? innerData.nbEleves,
+        nbAccompagnateurs: saveInner.nbAccompagnateurs ?? innerData.nbAccompagnateurs,
+        nomsAccompagnateurs: (saveInner.nomsAccompagnateurs ?? innerData.nomsAccompagnateurs) || [],
+        classes: (saveInner.classes ?? innerData.classes) || [],
         piqueNique: innerData.piqueNique || false,
         piqueNiqueDetails: innerData.piqueNiqueDetails || null,
         date: innerData.date || null, 

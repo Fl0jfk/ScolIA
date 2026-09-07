@@ -306,7 +306,7 @@ export default function TripAccompagnateursSelect({
 
       {required && value.length === 0 ? (
         <p className="text-[11px] text-rose-600 font-semibold">
-          Sélectionnez au moins un accompagnateur (annuaire ou Autre).
+          Sélectionnez au moins un accompagnateur, ou indiquez seulement le nombre plus haut.
         </p>
       ) : null}
     </div>

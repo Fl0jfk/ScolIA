@@ -843,7 +843,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     });
     setDraftAccompagnateurs(escorts);
     setDraftNomsAccompagnateurs(escorts.map((a) => a.name).join(", "));
-    setDraftNbAccompagnateurs(String(escorts.length || trip.data?.nbAccompagnateurs || 0));
+    const declaredAcc = Number(trip.data?.nbAccompagnateurs) || 0;
+    setDraftNbAccompagnateurs(String(Math.max(escorts.length, declaredAcc)));
     setShowEffectifModal(true);
   };
 
@@ -975,10 +976,22 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
 
   const saveEffectifChange = async () => {
     const nbEleves = Number(draftNbEleves);
-    const nbAcc = draftAccompagnateurs.length;
-    const nomsAccompagnateurs = draftNomsAccompagnateurs.trim() || draftAccompagnateurs.map((a) => a.name).join(", ");
+    const declaredAcc = Number(draftNbAccompagnateurs);
+    const namedCount = draftAccompagnateurs.length;
+    const nbAcc = Math.max(
+      namedCount,
+      Number.isFinite(declaredAcc) && declaredAcc >= 0 ? Math.floor(declaredAcc) : 0,
+    );
+    const nomsAccompagnateurs =
+      draftNomsAccompagnateurs.trim() || draftAccompagnateurs.map((a) => a.name).join(", ");
     if (!Number.isFinite(nbEleves) || nbEleves < 0) {
       return alert("Indiquez un nombre d’élèves valide.");
+    }
+    if (!Number.isFinite(nbAcc) || nbAcc < 0) {
+      return alert("Indiquez un nombre d’accompagnateurs valide.");
+    }
+    if (nbAcc < 1) {
+      return alert("Indiquez au moins 1 accompagnateur (le nom pourra être précisé plus tard).");
     }
     const prevEleves = Number(trip.data?.nbEleves) || 0;
     const prevAcc = Number(trip.data?.nbAccompagnateurs) || 0;
@@ -1003,7 +1016,13 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           date: new Date().toISOString(),
           user: user?.fullName ?? undefined,
           action: "EFFECTIF_MODIFIE",
-          note: `Effectif : ${prevEleves}+${prevAcc} → ${nbEleves}+${nbAcc} (élèves + accomp.)${nomsAccompagnateurs !== prevNoms ? " · noms accomp. mis à jour" : ""}`,
+          note: `Effectif : ${prevEleves}+${prevAcc} → ${nbEleves}+${nbAcc} (élèves + accomp.)${
+            namedCount < nbAcc
+              ? ` · ${nbAcc - namedCount} accomp. à nommer plus tard`
+              : nomsAccompagnateurs !== prevNoms
+                ? " · noms accomp. mis à jour"
+                : ""
+          }`,
         },
       ],
     };

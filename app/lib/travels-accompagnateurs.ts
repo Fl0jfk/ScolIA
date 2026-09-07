@@ -83,8 +83,25 @@ export function parseAccompagnateursFromTrip(opts: {
     .map((name) => ({ name, source: "autre" as const }));
 }
 
+/**
+ * Nombre d’accompagnateurs pour le transport / l’effectif :
+ * au moins le nominatif, sinon le chiffre déclaré (noms à préciser plus tard).
+ */
+export function resolveNbAccompagnateurs(
+  namedCount: number,
+  declared?: number | string | null,
+): number {
+  const raw = Number(declared);
+  const declaredSafe = Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
+  const named = Number.isFinite(namedCount) && namedCount >= 0 ? Math.floor(namedCount) : 0;
+  return Math.max(named, declaredSafe);
+}
+
 /** Branche le sélecteur sur les champs legacy du formulaire voyage. */
-export function accompagnateursToFormFields(items: TravelsAccompagnateur[]): {
+export function accompagnateursToFormFields(
+  items: TravelsAccompagnateur[],
+  opts?: { declaredNb?: number | string | null },
+): {
   accompagnateurs: TravelsAccompagnateur[];
   nomsAccompagnateurs: string;
   nbAccompagnateurs: number;
@@ -92,7 +109,7 @@ export function accompagnateursToFormFields(items: TravelsAccompagnateur[]): {
   return {
     accompagnateurs: items,
     nomsAccompagnateurs: serializeAccompagnateursNames(items),
-    nbAccompagnateurs: items.length,
+    nbAccompagnateurs: resolveNbAccompagnateurs(items.length, opts?.declaredNb),
   };
 }
 

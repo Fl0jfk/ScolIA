@@ -59,19 +59,32 @@ export function toParticipantEleve(
   };
 }
 
-/** Sync nbEleves + libellé classes depuis la liste nominative. */
+/**
+ * Sync liste nominative → classes / nbEleves.
+ * Par défaut (« max ») : on ne descend jamais en dessous de l’effectif déclaré
+ * (les noms peuvent arriver après le chiffre, comme pour le transport).
+ * Mode « exact » : à la confirmation de liste, le compte suit le nominatif.
+ */
 export function applyParticipantElevesToTripData(
   data: TravelsTripData,
   participants: TravelsParticipantEleve[],
-  opts?: { resetConfirmation?: boolean },
+  opts?: { resetConfirmation?: boolean; syncNbEleves?: "max" | "exact" },
 ): TravelsTripData {
   const classes = [...new Set(participants.map((p) => p.classe).filter(Boolean) as string[])].sort(
     (a, b) => a.localeCompare(b, "fr"),
   );
+  const declaredRaw = Number(data.nbEleves);
+  const declared =
+    Number.isFinite(declaredRaw) && declaredRaw >= 0 ? Math.floor(declaredRaw) : 0;
+  const syncMode = opts?.syncNbEleves ?? "max";
+  const nbEleves =
+    syncMode === "exact"
+      ? participants.length
+      : Math.max(declared, participants.length);
   const next: TravelsTripData = {
     ...data,
     participantEleves: participants,
-    nbEleves: participants.length,
+    nbEleves,
     classes: classes.length > 0 ? classes.join(", ") : data.classes,
   };
   if (opts?.resetConfirmation) {

@@ -85,7 +85,9 @@ export async function POST(req: Request) {
       access.user.primaryEmailAddress?.emailAddress ||
       access.user.emailAddresses?.[0]?.emailAddress;
 
-    let data = applyParticipantElevesToTripData(trip.data, participants);
+    let data = applyParticipantElevesToTripData(trip.data, participants, {
+      syncNbEleves: "exact",
+    });
     const parentCalendar = sanitizeParentCalendar(
       (body.parentCalendar as TravelsParentCalendar | undefined) || data.parentCalendar,
       data,

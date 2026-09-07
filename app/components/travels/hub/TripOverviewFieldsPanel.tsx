@@ -86,21 +86,54 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
           </TripField>
           <TripField label="Accompagnateurs" span={2}>
             {isEditing ? (
-              <TripAccompagnateursSelect
-                value={formFieldsToAccompagnateurs({
-                  nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
-                  accompagnateurs: editedData.accompagnateurs,
-                })}
-                onChange={(accompagnateurs) =>
-                  setEditedData({
-                    ...editedData,
-                    ...accompagnateursToFormFields(accompagnateurs),
-                  })
-                }
-              />
+              <div className="space-y-3">
+                <div>
+                  <span className="text-[9px] text-slate-400">Nombre (noms optionnels)</span>
+                  <TripInput
+                    type="number"
+                    min={0}
+                    value={editedData.nbAccompagnateurs}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const named = formFieldsToAccompagnateurs({
+                        nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
+                        accompagnateurs: editedData.accompagnateurs,
+                      }).length;
+                      const n = Number(raw);
+                      const safe =
+                        Number.isFinite(n) && n >= 0
+                          ? Math.max(Math.floor(n), named)
+                          : named;
+                      setEditedData({ ...editedData, nbAccompagnateurs: safe });
+                    }}
+                  />
+                </div>
+                <TripAccompagnateursSelect
+                  value={formFieldsToAccompagnateurs({
+                    nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
+                    accompagnateurs: editedData.accompagnateurs,
+                  })}
+                  onChange={(accompagnateurs) =>
+                    setEditedData({
+                      ...editedData,
+                      ...accompagnateursToFormFields(accompagnateurs, {
+                        declaredNb: editedData.nbAccompagnateurs,
+                      }),
+                    })
+                  }
+                />
+              </div>
             ) : (
               <>
-                <TripFieldValue value={trip.data.nomsAccompagnateurs || "—"} />
+                <TripFieldValue
+                  value={
+                    trip.data.nomsAccompagnateurs
+                      ? `${trip.data.nbAccompagnateurs || 0} — ${trip.data.nomsAccompagnateurs}`
+                      : `${trip.data.nbAccompagnateurs || 0} accompagnateur(s)${
+                          Number(trip.data.nbAccompagnateurs || 0) > 0 ? " (noms à préciser)" : ""
+                        }`
+                  }
+                />
                 {canEditEffectif && (
                   <TripFieldActions>
                     <button
@@ -126,11 +159,22 @@ export function TripOverviewFieldsPanel(p: TripOverviewFieldsPanelProps) {
                   <span className="text-[9px] text-slate-400">Accomp.</span>
                   <TripInput
                     type="number"
+                    min={0}
                     value={editedData.nbAccompagnateurs}
-                    readOnly
-                    title="Calculé automatiquement depuis la sélection des accompagnateurs"
-                    className="bg-slate-100"
-                    onChange={() => undefined}
+                    title="Nombre déclaré pour le transport — les noms peuvent être ajoutés ensuite"
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const named = formFieldsToAccompagnateurs({
+                        nomsAccompagnateurs: String(editedData.nomsAccompagnateurs || ""),
+                        accompagnateurs: editedData.accompagnateurs,
+                      }).length;
+                      const n = Number(raw);
+                      const safe =
+                        Number.isFinite(n) && n >= 0
+                          ? Math.max(Math.floor(n), named)
+                          : named;
+                      setEditedData({ ...editedData, nbAccompagnateurs: safe });
+                    }}
                   />
                 </div>
               </div>
