@@ -637,6 +637,7 @@ export async function GET() {
       const signals = getDashboardSignals({
         roles,
         userId,
+        authUserId,
         email,
         firstName: user.firstName ?? undefined,
         lastName: user.lastName ?? undefined,

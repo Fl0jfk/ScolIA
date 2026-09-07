@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { AppUser } from "@/app/lib/app-session";
+import { requireAppUser, requireViewUser } from "@/app/lib/app-session";
 import type { ModuleAccessConfig, ModuleAccessLookup } from "@/app/lib/module-access";
 import {
   findUserOverride,
@@ -17,7 +19,17 @@ import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
 import { getTenant } from "@/app/lib/tenant-context";
 import { listMembersFromDb } from "@/app/lib/members-db";
 import { isDatabaseConfigured } from "@/db/index";
-import { requireAppUser } from "@/app/lib/app-session";
+
+export type PhotocopiesOpsContext = {
+  authUserId: string | null;
+  businessUserId: string | null;
+  email: string;
+  roles: string[];
+  lookup: ModuleAccessLookup;
+  moduleAccess: ModuleAccessConfig | null;
+  opsEmails: string[];
+  isOps: boolean;
+};
 
 /** E-mails legacy OU flag Droits modules OU rôle Accueil (réceptionnaire par défaut). */
 export function isPhotocopiesOpsHandlerResolved(opts: {
@@ -34,59 +46,53 @@ export function isPhotocopiesOpsHandlerResolved(opts: {
   return userHasPhotocopiesOpsFlag(opts.moduleAccess, opts.lookup, opts.roles);
 }
 
-/**
- * Contexte session pour la file impressions.
- * Important : `lookup.userId` = Better-Auth id (clés Droits modules),
- * `lookup.businessUserId` = id métier (createdBy / gate.ctx).
- */
-export async function resolvePhotocopiesOpsViewer(): Promise<{
-  authUserId: string | null;
-  businessUserId: string | null;
-  email: string;
-  roles: string[];
-  lookup: ModuleAccessLookup;
-  moduleAccess: ModuleAccessConfig | null;
-  opsEmails: string[];
-  isOps: boolean;
-}> {
+async function buildOpsContext(user: AppUser): Promise<PhotocopiesOpsContext> {
   const moduleAccess = await loadModuleAccess().catch(() => null);
   const bundle = await loadAppConfig().catch(() => null);
   const legacyEmails = resolvePhotocopiesOpsEmails(bundle?.notifications ?? null);
+  const lookup: ModuleAccessLookup = {
+    userId: user.id,
+    businessUserId: user.businessUserId,
+  };
+  const opsEmails = await resolvePhotocopiesOpsEmailsWithHandlers({
+    notifications: bundle?.notifications ?? null,
+    moduleAccess,
+    legacyEmails,
+  });
+  const isOps = isPhotocopiesOpsHandlerResolved({
+    email: user.email,
+    opsEmails,
+    moduleAccess,
+    lookup,
+    roles: user.roles,
+  });
+  return {
+    authUserId: user.id,
+    businessUserId: user.businessUserId,
+    email: user.email,
+    roles: user.roles,
+    lookup,
+    moduleAccess,
+    opsEmails,
+    isOps,
+  };
+}
 
-  const appUser = await requireAppUser();
-  if (appUser.ok) {
-    const lookup: ModuleAccessLookup = {
-      userId: appUser.user.id,
-      businessUserId: appUser.user.businessUserId,
-    };
-    const opsEmails = await resolvePhotocopiesOpsEmailsWithHandlers({
-      notifications: bundle?.notifications ?? null,
-      moduleAccess,
-      legacyEmails,
-    });
-    const isOps = isPhotocopiesOpsHandlerResolved({
-      email: appUser.user.email,
-      opsEmails,
-      moduleAccess,
-      lookup,
-      roles: appUser.user.roles,
-    });
-    return {
-      authUserId: appUser.user.id,
-      businessUserId: appUser.user.businessUserId,
-      email: appUser.user.email,
-      roles: appUser.user.roles,
-      lookup,
-      moduleAccess,
-      opsEmails,
-      isOps,
-    };
-  }
+/**
+ * Contexte « vu » (cible de supervision si active, sinon acteur).
+ * À utiliser pour GET / listes « mes demandes » / PDF.
+ */
+export async function resolvePhotocopiesOpsViewer(): Promise<PhotocopiesOpsContext> {
+  const viewUser = await requireViewUser();
+  if (viewUser.ok) return buildOpsContext(viewUser.user);
 
-  // Repli session compat (sans Better-Auth AppUser complet)
+  // Repli session compat
   try {
     const { safeCurrentUser } = await import("@/app/lib/intranet-session");
     const { rolesFromUserLike } = await import("@/app/lib/intranet-roles");
+    const moduleAccess = await loadModuleAccess().catch(() => null);
+    const bundle = await loadAppConfig().catch(() => null);
+    const legacyEmails = resolvePhotocopiesOpsEmails(bundle?.notifications ?? null);
     const user = await safeCurrentUser();
     if (user) {
       const roles = rolesFromUserLike(user);
@@ -122,6 +128,8 @@ export async function resolvePhotocopiesOpsViewer(): Promise<{
     /* ignore */
   }
 
+  const moduleAccess = await loadModuleAccess().catch(() => null);
+  const bundle = await loadAppConfig().catch(() => null);
   return {
     authUserId: null,
     businessUserId: null,
@@ -129,13 +137,24 @@ export async function resolvePhotocopiesOpsViewer(): Promise<{
     roles: [],
     lookup: {},
     moduleAccess,
-    opsEmails: legacyEmails,
+    opsEmails: resolvePhotocopiesOpsEmails(bundle?.notifications ?? null),
     isOps: false,
   };
 }
 
 /**
- * Destinataires mail « à imprimer » : liste legacy + flag réceptionnaire + rôle Accueil.
+ * Acteur réel authentifié (ignore la supervision).
+ * À utiliser pour marquer « imprimée / prête » et les décisions direction.
+ */
+export async function resolvePhotocopiesOpsActor(): Promise<PhotocopiesOpsContext> {
+  const actor = await requireAppUser();
+  if (actor.ok) return buildOpsContext(actor.user);
+  // Même repli que le viewer si pas d’AppUser (dev / session dégradée)
+  return resolvePhotocopiesOpsViewer();
+}
+
+/**
+ * Destinataires mail « à imprimer » : liste legacy + flag réceptionnaire explicite.
  */
 export async function resolvePhotocopiesOpsEmailsWithHandlers(opts?: {
   notifications?: Pick<NotificationsConfig, "photocopiesOps" | "photocopiesOpsEmails"> | null;
@@ -172,8 +191,6 @@ export async function resolvePhotocopiesOpsEmailsWithHandlers(opts?: {
         userId: m.userId,
         businessUserId: m.externalUserId,
       };
-      // Mail : uniquement flag explicite (Droits modules), pas le défaut rôle Accueil
-      // (sinon tous les comptes Accueil recevraient chaque validation).
       const byUserFlag =
         (m.userId ? flaggedIds.has(m.userId) : false) ||
         (m.externalUserId ? flaggedIds.has(m.externalUserId) : false) ||

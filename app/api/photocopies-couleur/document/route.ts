@@ -53,7 +53,12 @@ export async function GET(req: Request) {
     if (!record) {
       return NextResponse.json({ error: "Demande introuvable." }, { status: 404 });
     }
-    if (!canViewPhotocopiesDemand(record, userId, roles, bundle.establishments, { isOpsHandler: isOps })) {
+    if (
+      !canViewPhotocopiesDemand(record, userId, roles, bundle.establishments, {
+        isOpsHandler: isOps,
+        altUserIds: [viewer.authUserId],
+      })
+    ) {
       return NextResponse.json({ error: "Accès refusé à cette demande." }, { status: 403 });
     }
     if (!record.documentKey || !isValidDocumentKey(record.documentKey)) {

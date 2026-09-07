@@ -21,6 +21,7 @@ import {
 } from "@/app/lib/photocopies-couleur-access";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
 import {
+  resolvePhotocopiesOpsActor,
   resolvePhotocopiesOpsEmailsWithHandlers,
   resolvePhotocopiesOpsViewer,
 } from "@/app/lib/photocopies-couleur-ops-server";
@@ -95,12 +96,16 @@ export async function GET() {
   try {
     const all = await getIndex();
     const filtered = all.filter((r) =>
-      canViewPhotocopiesDemand(r, userId, roles, bundle.establishments, { isOpsHandler: isOps }),
+      canViewPhotocopiesDemand(r, userId, roles, bundle.establishments, {
+        isOpsHandler: isOps,
+        altUserIds: [viewer.authUserId],
+      }),
     );
     filtered.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
     return NextResponse.json({
       items: filtered,
       isOpsHandler: isOps,
+      currentUserId: userId,
       opsPendingCount: filtered.filter((r) => r.status === "ACCEPTEE").length,
     });
   } catch (e) {
@@ -299,19 +304,23 @@ export async function PATCH(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
 
-  const viewer = await resolvePhotocopiesOpsViewer();
-  const userId = viewer.businessUserId || gate.ctx.userId;
-  const user = await safeCurrentUser();
-  const roles = viewer.roles.length ? viewer.roles : rolesFromUserLike(user);
-  const actorName =
-    user?.fullName ||
-    user?.firstName ||
-    viewer.email.split("@")[0] ||
+  // Mutations : acteur réel (pas la cible de supervision)
+  const actor = await resolvePhotocopiesOpsActor();
+  const userId = actor.businessUserId || gate.ctx.userId;
+  const roles = actor.roles;
+  const actorApp = await (await import("@/app/lib/app-session")).requireAppUser();
+  const readyByName =
+    (actorApp.ok
+      ? actorApp.user.name?.trim() ||
+        `${actorApp.user.firstName ?? ""} ${actorApp.user.lastName ?? ""}`.trim() ||
+        actorApp.user.email
+      : "") ||
+    actor.email.split("@")[0] ||
     "Utilisateur";
-  const isOps = viewer.isOps;
+  const isOps = actor.isOps;
   const opsEmails =
-    viewer.opsEmails.length > 0
-      ? viewer.opsEmails
+    actor.opsEmails.length > 0
+      ? actor.opsEmails
       : await resolvePhotocopiesOpsEmailsWithHandlers();
 
   let body: { id?: string; status?: string; directionNote?: string };
@@ -361,7 +370,7 @@ export async function PATCH(req: Request) {
         status: "PRETE",
         updatedAt: new Date().toISOString(),
         readyAt: new Date().toISOString(),
-        readyBy: actorName,
+        readyBy: readyByName,
       };
       all[idx] = updated;
       await saveIndex(all);
@@ -383,7 +392,7 @@ export async function PATCH(req: Request) {
               `Établissement : ${updated.etablissement}`,
               `Nombre : ${updated.nombrePhotocopies}`,
               `Classes / matière : ${updated.classesOuMatiere}`,
-              `Marqué prêt par : ${actorName}`,
+              `Marqué prêt par : ${readyByName}`,
               ``,
               `Consulter vos demandes : ${base}`,
               ``,
@@ -419,7 +428,7 @@ export async function PATCH(req: Request) {
       ...current,
       status: statusRaw as "ACCEPTEE" | "REFUSEE",
       updatedAt: new Date().toISOString(),
-      decidedBy: { userId, name: actorName },
+      decidedBy: { userId, name: readyByName },
       decidedAt: new Date().toISOString(),
       directionNote: directionNote || undefined,
     };

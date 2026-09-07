@@ -15,6 +15,7 @@ import {
   canDeclarePhotocopiesOnBehalf,
   canManagePhotocopiesDemand,
   getPhotocopiesRoleFlags,
+  isPhotocopiesDemandOwnedBy,
 } from "@/app/lib/photocopies-couleur-access";
 import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
 import DirectoryPersonSelect, {
@@ -106,6 +107,7 @@ export default function PhotocopiesCouleurPage() {
   const [directoryMembers, setDirectoryMembers] = useState<DirectoryMemberOption[]>([]);
   const [loadingDirectory, setLoadingDirectory] = useState(false);
   const [isOpsHandler, setIsOpsHandler] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const roles = rolesFromUserLike(user);
   const creator = canCreatePhotocopiesDemand(roles);
@@ -126,6 +128,7 @@ export default function PhotocopiesCouleurPage() {
       if (res.status === 403) {
         setItems([]);
         setIsOpsHandler(false);
+        setCurrentUserId(null);
         setError("Accès réservé à l'administratif, la vie scolaire, aux enseignants et aux directions.");
         return;
       }
@@ -136,7 +139,11 @@ export default function PhotocopiesCouleurPage() {
       const list = Array.isArray(data?.items) ? (data.items as PhotoCopieRecord[]) : [];
       setItems(list);
       setIsOpsHandler(Boolean(data?.isOpsHandler));
-    } catch (e: unknown) {
+      setCurrentUserId(
+        typeof data?.currentUserId === "string" && data.currentUserId.trim()
+          ? data.currentUserId.trim()
+          : null,
+      );    } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Erreur de chargement.";
       setError(msg);
     } finally {
@@ -174,9 +181,9 @@ export default function PhotocopiesCouleurPage() {
   const mine = useMemo(
     () =>
       [...items]
-        .filter((i) => i.createdBy.userId === user?.id)
+        .filter((i) => isPhotocopiesDemandOwnedBy(i, currentUserId, user?.id))
         .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
-    [items, user?.id],
+    [items, currentUserId, user?.id],
   );
 
   const readyMine = useMemo(() => mine.filter((i) => i.status === "PRETE"), [mine]);

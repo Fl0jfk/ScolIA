@@ -130,6 +130,8 @@ export type DashboardSignals = {
 type DashboardSignalsInput = {
   roles: string[];
   userId: string;
+  /** Better-Auth id — pour matcher createdBy historiques / supervision. */
+  authUserId?: string | null;
   email: string;
   firstName?: string;
   lastName?: string;
@@ -302,8 +304,14 @@ function personLabelFromAbsence(a: {
 function photocopiesReadyForUser(
   userId: string,
   photocopies: Array<{ status: string; createdBy?: { userId?: string } }>,
+  altUserIds: Array<string | null | undefined> = [],
 ): number {
-  return photocopies.filter((p) => p.status === "PRETE" && p.createdBy?.userId === userId).length;
+  const ids = new Set(
+    [userId, ...altUserIds].map((x) => String(x || "").trim()).filter(Boolean),
+  );
+  return photocopies.filter(
+    (p) => p.status === "PRETE" && p.createdBy?.userId && ids.has(p.createdBy.userId),
+  ).length;
 }
 
 function slotTimeLabel(startsAt: string): string {
@@ -386,6 +394,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   const {
     roles,
     userId,
+    authUserId = null,
     email,
     firstName,
     lastName,
@@ -1204,7 +1213,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       photocopiesOpsHandler || isPhotocopiesOpsHandler(email, photocopiesOpsEmails);
     const canSeePhoto = has("photocopies-couleur") || isOps;
     if (canSeePhoto) {
-      const readyCount = photocopiesReadyForUser(userId, photocopies);
+      const readyCount = photocopiesReadyForUser(userId, photocopies, [authUserId]);
       const pendingDirList = photocopiePendingForDirection(roles, photocopies, establishments);
       const pendingDir = pendingDirList.length;
       const opsPending = isOps ? photocopiesOpsPendingCount(photocopies) : 0;

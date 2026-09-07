@@ -62,14 +62,29 @@ export function canViewPhotocopiesDemand(
   userId: string,
   roles: string[],
   establishments: Establishment[] = [],
-  opts?: { isOpsHandler?: boolean },
+  opts?: { isOpsHandler?: boolean; altUserIds?: Array<string | null | undefined> },
 ) {
-  if (rec.createdBy.userId === userId) return true;
+  const ids = new Set(
+    [userId, ...(opts?.altUserIds ?? [])]
+      .map((x) => String(x || "").trim())
+      .filter(Boolean),
+  );
+  if (ids.has(rec.createdBy.userId)) return true;
   if (opts?.isOpsHandler) {
     // File impressions : acceptées (à imprimer) + déjà marquées prêtes
     return rec.status === "ACCEPTEE" || rec.status === "PRETE";
   }
   return canManagePhotocopiesDemand(rec, roles, establishments, userId);
+}
+
+/** La demande appartient-elle à l’utilisateur (id métier et/ou Better-Auth) ? */
+export function isPhotocopiesDemandOwnedBy(
+  rec: PhotocopiesRecordLike,
+  ...candidateIds: Array<string | null | undefined>
+): boolean {
+  const owner = String(rec.createdBy.userId || "").trim();
+  if (!owner) return false;
+  return candidateIds.some((id) => String(id || "").trim() === owner);
 }
 
 /** Réceptionnaire impressions : marquer ACCEPTEE → PRETE. */
