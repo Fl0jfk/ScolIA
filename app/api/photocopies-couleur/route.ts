@@ -20,9 +20,10 @@ import {
   getPhotocopiesRoleFlags,
 } from "@/app/lib/photocopies-couleur-access";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
-import { resolvePhotocopiesOpsEmails } from "@/app/lib/photocopies-couleur-ops";
-import { isPhotocopiesOpsHandlerResolved } from "@/app/lib/photocopies-couleur-ops-server";
-import { loadModuleAccess } from "@/app/lib/module-access-store";
+import {
+  resolvePhotocopiesOpsEmailsWithHandlers,
+  resolvePhotocopiesOpsViewer,
+} from "@/app/lib/photocopies-couleur-ops-server";
 import type { PhotoCopieRecord } from "@/app/lib/photocopies-couleur-types";
 
 const INDEX_KEY = "photocopies-couleur/index.json";
@@ -75,21 +76,14 @@ function isValidEtab(v: string, establishments: Establishment[]): boolean {
 export async function GET() {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
-  const { userId } = gate.ctx;
 
-  const user = await safeCurrentUser();
-  const roles = rolesFromUserLike(user);
-  const email = user?.primaryEmailAddress?.emailAddress?.trim() || "";
+  const viewer = await resolvePhotocopiesOpsViewer();
+  const userId = viewer.businessUserId || gate.ctx.userId;
+  const roles = viewer.roles.length
+    ? viewer.roles
+    : rolesFromUserLike(await safeCurrentUser());
+  const isOps = viewer.isOps;
   const bundle = await loadAppConfig();
-  const opsEmails = resolvePhotocopiesOpsEmails(bundle.notifications);
-  const moduleAccess = await loadModuleAccess().catch(() => null);
-  const isOps = isPhotocopiesOpsHandlerResolved({
-    email,
-    opsEmails,
-    moduleAccess,
-    lookup: { userId: userId, businessUserId: userId },
-    roles,
-  });
 
   if (!canCreatePhotocopiesDemand(roles) && !isOps) {
     const f = getPhotocopiesRoleFlags(roles);
@@ -104,7 +98,11 @@ export async function GET() {
       canViewPhotocopiesDemand(r, userId, roles, bundle.establishments, { isOpsHandler: isOps }),
     );
     filtered.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-    return NextResponse.json({ items: filtered, isOpsHandler: isOps });
+    return NextResponse.json({
+      items: filtered,
+      isOpsHandler: isOps,
+      opsPendingCount: filtered.filter((r) => r.status === "ACCEPTEE").length,
+    });
   } catch (e) {
     console.error("[photocopies-couleur] GET", e);
     return NextResponse.json({ error: "Impossible de charger les demandes." }, { status: 500 });
@@ -300,12 +298,21 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
-  const { userId } = gate.ctx;
 
+  const viewer = await resolvePhotocopiesOpsViewer();
+  const userId = viewer.businessUserId || gate.ctx.userId;
   const user = await safeCurrentUser();
-  const roles = rolesFromUserLike(user);
-  const actorEmail = user?.primaryEmailAddress?.emailAddress?.trim() || "";
-  const actorName = user?.fullName || user?.firstName || "Utilisateur";
+  const roles = viewer.roles.length ? viewer.roles : rolesFromUserLike(user);
+  const actorName =
+    user?.fullName ||
+    user?.firstName ||
+    viewer.email.split("@")[0] ||
+    "Utilisateur";
+  const isOps = viewer.isOps;
+  const opsEmails =
+    viewer.opsEmails.length > 0
+      ? viewer.opsEmails
+      : await resolvePhotocopiesOpsEmailsWithHandlers();
 
   let body: { id?: string; status?: string; directionNote?: string };
   try {
@@ -329,15 +336,6 @@ export async function PATCH(req: Request) {
 
     const current = all[idx];
     const bundle = await loadAppConfig();
-    const opsEmails = resolvePhotocopiesOpsEmails(bundle.notifications);
-    const moduleAccess = await loadModuleAccess().catch(() => null);
-    const isOps = isPhotocopiesOpsHandlerResolved({
-      email: actorEmail,
-      opsEmails,
-      moduleAccess,
-      lookup: { userId, businessUserId: userId },
-      roles,
-    });
     const base = await tenantAbsolutePath("/photocopies-couleur");
 
     // —— Ops : marquer imprimée (ACCEPTEE → PRETE) ——
@@ -484,6 +482,7 @@ export async function PATCH(req: Request) {
 
       if (updated.status === "ACCEPTEE" && opsEmails.length > 0) {
         const opsAttachment = await loadDocumentAttachment(updated);
+        const opsLink = `${base}#file-impression`;
         try {
           await transporter.sendMail({
             from: `"Demandes photocopies" <${smtp.user}>`,
@@ -508,7 +507,7 @@ export async function PATCH(req: Request) {
                 ? `Le document à imprimer est joint à cet e-mail (${updated.documentFileName}).`
                 : `Aucun PDF joint : voir l'intranet ou contacter le demandeur.`,
               ``,
-              `Ouvrir la file d'impression : ${base}`,
+              `Ouvrir la file d'impression : ${opsLink}`,
               ``,
               `Cordialement,`,
               `Plateforme La Providence Nicolas Barré`,
@@ -525,7 +524,7 @@ ${updated.submittedBy ? `<li>Déposée par : ${updated.submittedBy.name}</li>` :
 <li>Classes / matière : ${updated.classesOuMatiere}</li>
 </ul>
 <p style="margin:1.5rem 0;">
-  <a href="${base}" style="display:inline-block;padding:12px 24px;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">
+  <a href="${opsLink}" style="display:inline-block;padding:12px 24px;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">
     Ouvrir la file d'impression
   </a>
 </p>`,

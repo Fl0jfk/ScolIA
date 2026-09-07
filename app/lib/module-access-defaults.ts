@@ -232,7 +232,20 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
 export const ROLE_DEFAULT_PHOTOCOPIES_OPS: ReadonlySet<string> = new Set(["accueil"]);
 
 export function roleHasDefaultPhotocopiesOps(role: string): boolean {
-  return ROLE_DEFAULT_PHOTOCOPIES_OPS.has(role);
+  const n = String(role || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[_\s-]+/g, "");
+  if (ROLE_DEFAULT_PHOTOCOPIES_OPS.has(role)) return true;
+  return [...ROLE_DEFAULT_PHOTOCOPIES_OPS].some(
+    (r) =>
+      r
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[_\s-]+/g, "") === n,
+  );
 }
 
 export function rolesHaveDefaultPhotocopiesOps(roles: string[]): boolean {

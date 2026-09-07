@@ -197,6 +197,17 @@ export default function PhotocopiesCouleurPage() {
     [items],
   );
 
+  useEffect(() => {
+    if (loading || !isOpsHandler) return;
+    if (typeof window === "undefined") return;
+    if (window.location.hash !== "#file-impression") return;
+    const el = document.getElementById("file-impression");
+    if (!el) return;
+    window.requestAnimationFrame(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [loading, isOpsHandler, opsPrintQueue.length]);
+
   const directionPending = useMemo(
     () =>
       [...items]
@@ -460,6 +471,20 @@ export default function PhotocopiesCouleurPage() {
         </div>
       )}
 
+      {isOpsHandler && opsPrintQueue.length > 0 ? (
+        <div className="mb-6 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+          <span className="font-bold">
+            {opsPrintQueue.length === 1
+              ? "1 photocopie couleur à imprimer"
+              : `${opsPrintQueue.length} photocopies couleur à imprimer`}
+          </span>
+          <span className="block text-xs text-sky-800 mt-1">
+            Ouvrez le PDF ci-dessous, imprimez, puis marquez « imprimée / prête » — le demandeur reçoit un
+            e-mail.
+          </span>
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
         {creator ? (
           <ModuleCard data-tour="photocopies-new" className="xl:col-span-1 h-fit" bodyClassName="p-6">
@@ -590,27 +615,12 @@ export default function PhotocopiesCouleurPage() {
         )}
 
         <div className={`space-y-5 ${creator ? "xl:col-span-2" : "xl:col-span-3"}`}>
-          {creator && (
-            <ModuleCard data-tour="photocopies-mine" bodyClassName="p-5 sm:p-6">
-              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-                <h3 className={`text-lg font-semibold ${dash.ink}`}>Mes demandes</h3>
-                {!loading ? (
-                  <span className="text-xs font-medium text-slate-500">{mine.length} au total</span>
-                ) : null}
-              </div>
-              <p className="text-xs text-slate-500 mb-4">Suivi de vos demandes, y compris en attente.</p>
-              {loading ? (
-                <p className="text-sm text-slate-500 py-6 text-center">Chargement…</p>
-              ) : mine.length === 0 ? (
-                <EmptyHint>Aucune demande pour le moment.</EmptyHint>
-              ) : (
-                <div className="space-y-3">{mine.map((item) => renderItemCard(item, { showReadyBanner: true }))}</div>
-              )}
-            </ModuleCard>
-          )}
-
           {isOpsHandler && (
-            <ModuleCard data-tour="photocopies-ops-queue" bodyClassName="p-5 sm:p-6">
+            <ModuleCard
+              id="file-impression"
+              data-tour="photocopies-ops-queue"
+              bodyClassName="p-5 sm:p-6"
+            >
               <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
                 <h3 className={`text-lg font-semibold ${dash.ink}`}>File d&apos;impression</h3>
                 {!loading ? (
@@ -620,8 +630,8 @@ export default function PhotocopiesCouleurPage() {
                 ) : null}
               </div>
               <p className="text-xs text-slate-500 mb-4">
-                Demandes acceptées par la direction. Une validation « prête » notifie le demandeur pour tous les
-                réceptionnaires.
+                Demandes acceptées par la direction. Ouvrez le PDF, imprimez, puis marquez « imprimée /
+                prête » pour prévenir le demandeur par e-mail.
               </p>
 
               {loading ? (
@@ -656,6 +666,11 @@ export default function PhotocopiesCouleurPage() {
                                     ? new Date(item.decidedAt).toLocaleString("fr-FR")
                                     : new Date(item.createdAt).toLocaleString("fr-FR")}
                                 </p>
+                                {item.submittedBy ? (
+                                  <p className="text-xs text-slate-600 mt-0.5">
+                                    Déposée par {item.submittedBy.name}
+                                  </p>
+                                ) : null}
                               </div>
                               <span
                                 className={`shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-lg border ${photoCopieStatusBadgeClass("ACCEPTEE")}`}
@@ -703,6 +718,25 @@ export default function PhotocopiesCouleurPage() {
                     </div>
                   ) : null}
                 </div>
+              )}
+            </ModuleCard>
+          )}
+
+          {creator && (
+            <ModuleCard data-tour="photocopies-mine" bodyClassName="p-5 sm:p-6">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+                <h3 className={`text-lg font-semibold ${dash.ink}`}>Mes demandes</h3>
+                {!loading ? (
+                  <span className="text-xs font-medium text-slate-500">{mine.length} au total</span>
+                ) : null}
+              </div>
+              <p className="text-xs text-slate-500 mb-4">Suivi de vos demandes, y compris en attente.</p>
+              {loading ? (
+                <p className="text-sm text-slate-500 py-6 text-center">Chargement…</p>
+              ) : mine.length === 0 ? (
+                <EmptyHint>Aucune demande pour le moment.</EmptyHint>
+              ) : (
+                <div className="space-y-3">{mine.map((item) => renderItemCard(item, { showReadyBanner: true }))}</div>
               )}
             </ModuleCard>
           )}

@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { safeCurrentUser } from "@/app/lib/intranet-session";
-import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getJson, getBucketName } from "@/app/lib/s3-storage";
@@ -13,9 +11,7 @@ import {
   canViewPhotocopiesDemand,
   getPhotocopiesRoleFlags,
 } from "@/app/lib/photocopies-couleur-access";
-import { resolvePhotocopiesOpsEmails } from "@/app/lib/photocopies-couleur-ops";
-import { isPhotocopiesOpsHandlerResolved } from "@/app/lib/photocopies-couleur-ops-server";
-import { loadModuleAccess } from "@/app/lib/module-access-store";
+import { resolvePhotocopiesOpsViewer } from "@/app/lib/photocopies-couleur-ops-server";
 import type { PhotoCopieRecord } from "@/app/lib/photocopies-couleur-types";
 
 const INDEX_KEY = "photocopies-couleur/index.json";
@@ -31,26 +27,17 @@ function isValidDocumentKey(key: string): boolean {
 export async function GET(req: Request) {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
-  const { userId } = gate.ctx;
 
   const id = new URL(req.url).searchParams.get("id")?.trim() || "";
   if (!id) {
     return NextResponse.json({ error: "Identifiant manquant." }, { status: 400 });
   }
 
-  const user = await safeCurrentUser();
-  const roles = rolesFromUserLike(user);
-  const email = user?.primaryEmailAddress?.emailAddress?.trim() || "";
+  const viewer = await resolvePhotocopiesOpsViewer();
+  const userId = viewer.businessUserId || gate.ctx.userId;
+  const roles = viewer.roles;
+  const isOps = viewer.isOps;
   const bundle = await loadAppConfig();
-  const opsEmails = resolvePhotocopiesOpsEmails(bundle.notifications);
-  const moduleAccess = await loadModuleAccess().catch(() => null);
-  const isOps = isPhotocopiesOpsHandlerResolved({
-    email,
-    opsEmails,
-    moduleAccess,
-    lookup: { userId, businessUserId: userId },
-    roles,
-  });
 
   if (!canCreatePhotocopiesDemand(roles) && !isOps) {
     const f = getPhotocopiesRoleFlags(roles);
