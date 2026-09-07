@@ -659,8 +659,14 @@ export default function AbsencesPageClient({
       if (myEmail && i.createdBy.email && i.createdBy.email.toLowerCase() === myEmail) return true;
       return false;
     });
-    const pending = mine.filter((i) => isPendingAbsence(i) || isWaitingAdminTreatment(i));
-    const rest = mine.filter((i) => !isPendingAbsence(i) && !isWaitingAdminTreatment(i));
+    const pending = mine.filter(
+      (i) =>
+        isPendingAbsence(i) || isWaitingAdminTreatment(i) || needsMakeupSlotsFromStaff(i),
+    );
+    const rest = mine.filter(
+      (i) =>
+        !isPendingAbsence(i) && !isWaitingAdminTreatment(i) && !needsMakeupSlotsFromStaff(i),
+    );
     pending.sort((a, b) => compareAbsenceRecordsAlphabetically(asRecord(a), asRecord(b)));
     return [...pending, ...rest];
   }, [sorted, user?.id, user?.primaryEmailAddress?.emailAddress]);
@@ -698,7 +704,9 @@ export default function AbsencesPageClient({
     [sorted, processorNotifications, viewerIsProcessor, canTreat, user, roles, establishments],
   );
   const treatedItems = selfItems.filter((i) => i.workflowStatus === "CLOTUREE");
-  const pendingSelfCount = selfItems.filter((i) => isPendingAbsence(i) || isWaitingAdminTreatment(i)).length;
+  const pendingSelfCount = selfItems.filter(
+    (i) => isPendingAbsence(i) || isWaitingAdminTreatment(i) || needsMakeupSlotsFromStaff(i),
+  ).length;
   const showTraitementTab = viewerIsProcessor || adminQueue.length > 0;
   const tabs = [
     { id: "calendrier", label: "Calendrier", show: showCalendar },
@@ -1064,7 +1072,11 @@ export default function AbsencesPageClient({
                     Décision direction : {formatAbsenceHoursTreatment(item.hoursTreatment)}
                   </p>
                 ) : null}
-                {needsMakeupSlotsFromStaff(item) && item.createdBy.userId === user?.id ? (
+                {needsMakeupSlotsFromStaff(item) &&
+                (item.createdBy.userId === user?.id ||
+                  (user?.primaryEmailAddress?.emailAddress &&
+                    item.createdBy.email?.toLowerCase() ===
+                      user.primaryEmailAddress.emailAddress.toLowerCase())) ? (
                   <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 space-y-2">
                     <p className="text-sm font-bold text-amber-900">
                       {item.makeupSlotsRelanceAt

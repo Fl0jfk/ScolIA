@@ -1,20 +1,17 @@
 import { NextResponse } from "next/server";
-import { safeCurrentUser, isOrgAdminFromPublicMetadata } from "@/app/lib/intranet-session";
 import { requireAuth } from "@/app/lib/intranet-auth";
+import { isOrgAdminFromAppUser } from "@/app/lib/auth-roles-db";
 import { getDashboardSignals } from "@/app/lib/dashboard-signals";
 import {
-  canViewCalendar,
   isAbsencePendingForManager,
   isAbsenceVisibleOnCalendar,
   type AbsenceRecord,
 } from "@/app/lib/absences-types";
 import {
   isAbsencePendingForProcessor,
-  viewerCanSeeProcessorQueue,
   viewerIsAbsenceProcessor,
 } from "@/app/lib/absences-admin-access";
 import { getAbsenceIndex } from "@/app/lib/absences-storage";
-import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import { getJson } from "@/app/lib/s3-storage";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { loadWeekSheetData } from "@/app/lib/dashboard-week-sheet-storage";
@@ -22,7 +19,6 @@ import { listPendingSignaturesForUser } from "@/app/lib/stage-pending-signatures
 import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import { resolveStageViewerRole } from "@/app/lib/stage-access";
-import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { INTRANET_MODULES, rolesAllowModule } from "@/app/lib/intranet-modules";
 import { canAccessHseModule, canViewHseDemand } from "@/app/lib/demandes-hse-access";
 import { canAccessRequestsStaffBoardForUser } from "@/app/lib/requests-staff-access";
@@ -132,26 +128,21 @@ export async function GET() {
   if (!gate.ok) return gate.response;
 
   try {
-    const user = await safeCurrentUser();
-    const roles = intranetRolesFromMetadata(user?.publicMetadata);
-    const userId = gate.ctx.userId;
-    const email = user?.primaryEmailAddress?.emailAddress ?? "";
-    const isOrgAdmin = isOrgAdminFromPublicMetadata(user?.publicMetadata);
+    const { requireViewUser } = await import("@/app/lib/app-session");
+    const viewUser = await requireViewUser();
+    if (!viewUser.ok) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
+    }
+    const user = viewUser.user;
+    const roles = user.roles;
+    const userId = user.businessUserId;
+    const authUserId = user.id;
+    const businessUserId = user.businessUserId;
+    const email = user.email ?? "";
+    const isOrgAdmin = isOrgAdminFromAppUser(user);
 
     const { loadModuleAccess } = await import("@/app/lib/module-access-store");
     const moduleAccess = await loadModuleAccess();
-    let authUserId: string | null = null;
-    let businessUserId: string | null = userId;
-    try {
-      const { requireAppUser } = await import("@/app/lib/app-session");
-      const appUser = await requireAppUser();
-      if (appUser.ok) {
-        authUserId = appUser.user.id;
-        businessUserId = appUser.user.businessUserId;
-      }
-    } catch {
-      /* repli gate.ctx */
-    }
     const accessibleModuleIds = new Set(
       INTRANET_MODULES.filter((m) =>
         rolesAllowModule(roles, m, isOrgAdmin, moduleAccess, {
@@ -195,16 +186,9 @@ export async function GET() {
       ? safeJson<TripIndexRow[]>("travels/index.json")
       : Promise.resolve(null);
 
-    const absencesPromise =
-      accessibleModuleIds.has("rh") &&
-      (canViewCalendar(roles) ||
-        isAnyDirectionRole(roles) ||
-        viewerCanSeeProcessorQueue(
-          { email, userId, roles },
-          appBundle?.notifications ?? null,
-        ))
-        ? getAbsenceIndex().catch(() => [] as AbsenceRecord[])
-        : Promise.resolve([] as AbsenceRecord[]);
+    const absencesPromise = accessibleModuleIds.has("rh")
+      ? getAbsenceIndex().catch(() => [] as AbsenceRecord[])
+      : Promise.resolve([] as AbsenceRecord[]);
 
     const roomsPromise = accessibleModuleIds.has("prof-room")
       ? safeJson<{ rooms?: { id: string; name: string }[] } | { id: string; name: string }[]>(
@@ -300,6 +284,8 @@ export async function GET() {
     try {
       absences = absencesRaw.filter(
         (a) =>
+          a.createdBy.userId === userId ||
+          a.createdBy.userId === authUserId ||
           isAbsenceVisibleOnCalendar(a, userId, roles) ||
           isAbsencePendingForManager(a, userId, roles, absenceDirCtx) ||
           (isAbsencePendingForProcessor(a) &&
@@ -335,7 +321,21 @@ export async function GET() {
 
     if (
       accessibleModuleIds.has("requests-staff") &&
-      (await canAccessRequestsStaffBoardForUser(user))
+      (await canAccessRequestsStaffBoardForUser({
+        id: businessUserId,
+        firstName: user.firstName ?? null,
+        lastName: user.lastName ?? null,
+        fullName: user.name?.trim() || null,
+        imageUrl: user.imageUrl ?? "",
+        primaryEmailAddressId: "primary",
+        primaryEmailAddress: email ? { emailAddress: email } : null,
+        emailAddresses: email ? [{ id: "primary", emailAddress: email }] : [],
+        publicMetadata: {
+          role: roles,
+          org_admin: isOrgAdmin,
+          platform_admin: user.platformAdmin,
+        },
+      }))
     ) {
       try {
         const index = await getRequestsIndex();
@@ -638,8 +638,8 @@ export async function GET() {
         roles,
         userId,
         email,
-        firstName: user?.firstName ?? undefined,
-        lastName: user?.lastName ?? undefined,
+        firstName: user.firstName ?? undefined,
+        lastName: user.lastName ?? undefined,
         accessibleModuleIds,
         trips: Array.isArray(tripsRaw) ? tripsRaw : [],
         absences,

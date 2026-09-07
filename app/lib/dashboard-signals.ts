@@ -5,6 +5,7 @@ import {
   resolveAbsenceScope,
   type AbsenceRecord,
 } from "@/app/lib/absences-types";
+import { needsMakeupSlotsFromStaff } from "@/app/lib/absence-hours-treatment";
 import {
   isAbsencePendingForProcessor,
   viewerCanSeeProcessorQueue,
@@ -904,6 +905,45 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         href: "/rh?tab=dashboard&section=absences",
         label: "Mes absences",
       });
+    }
+
+    if (has("rh")) {
+      const ownMakeupNeeded = absences.filter(
+        (a) =>
+          (a.createdBy.userId === userId ||
+            (email && a.createdBy.email?.toLowerCase() === email.toLowerCase())) &&
+          needsMakeupSlotsFromStaff(a),
+      );
+      if (ownMakeupNeeded.length > 0) {
+        shortcuts.push({
+          id: "absences-makeup-slots",
+          pillarId: "compta_rh",
+          moduleId: "absences",
+          href: "/rh?tab=absences&view=se-declarer",
+          label: "Créneaux de rattrapage",
+          rich: true,
+          badge:
+            ownMakeupNeeded.length === 1
+              ? "1 à indiquer"
+              : `${ownMakeupNeeded.length} à indiquer`,
+          detail:
+            ownMakeupNeeded.length === 1
+              ? "Indiquez quand vous comptez rattraper vos heures d’absence"
+              : `Indiquez les créneaux de rattrapage pour ${ownMakeupNeeded.length} absences`,
+          tone: "warn",
+        });
+        pushNotif({
+          id: "absences-makeup-slots",
+          moduleId: "absences",
+          label: "Créneaux de rattrapage",
+          count: ownMakeupNeeded.length,
+          href: "/rh?tab=absences&view=se-declarer",
+          detail:
+            ownMakeupNeeded.length === 1
+              ? "Complétez votre absence : quand rattrapez-vous vos heures ?"
+              : `${ownMakeupNeeded.length} absences attendent vos créneaux de rattrapage`,
+        });
+      }
     }
 
     // HSE
