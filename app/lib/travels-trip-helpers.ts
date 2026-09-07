@@ -334,3 +334,45 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
 
   return out;
 }
+
+/** Normalise une requête / un champ pour recherche (casse + accents). */
+export function normalizeTravelsSearchText(raw: string): string {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+}
+
+/**
+ * Texte indexé pour la liste des dossiers : titre, lieu, prof responsable,
+ * accompagnateurs (prénom/nom).
+ */
+export function travelsTripSearchHaystack(trip: TravelsTrip): string {
+  const data = trip.data;
+  const accompagnateurNames = (data?.accompagnateurs || [])
+    .map((a) => String(a?.name || "").trim())
+    .filter(Boolean);
+  return normalizeTravelsSearchText(
+    [
+      data?.title,
+      data?.destination,
+      trip.ownerName,
+      data?.nomsAccompagnateurs,
+      ...accompagnateurNames,
+      data?.classes,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
+/** Chaque mot de la requête doit apparaître quelque part (titre, lieu, prof…). */
+export function travelsTripMatchesSearch(trip: TravelsTrip, query: string): boolean {
+  const needle = normalizeTravelsSearchText(query);
+  if (!needle) return true;
+  const haystack = travelsTripSearchHaystack(trip);
+  const tokens = needle.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  return tokens.every((token) => haystack.includes(token));
+}
