@@ -545,7 +545,7 @@ export async function syncComptaSheetWithDocuments(
       ...sheet,
       depenses: applyBusQuoteAmountFallback(
         trip,
-        depensesFromDocumentSync(trip, newScans, sheet.depenses),
+        depensesFromDocumentSync(trip, newScans, sheet.depenses, sheet.excludedDepenseSources),
         sheet,
       ),
       documentScans: newScans,
@@ -560,7 +560,12 @@ export async function syncComptaSheetWithDocuments(
       ...base,
       depenses: applyBusQuoteAmountFallback(
         trip,
-        depensesFromDocumentSync(trip, newScans, existing?.depenses),
+        depensesFromDocumentSync(
+          trip,
+          newScans,
+          existing?.depenses,
+          existing?.excludedDepenseSources ?? base.excludedDepenseSources,
+        ),
         base,
       ),
       documentScans: newScans,
@@ -688,7 +693,7 @@ async function extractComptaSheetWithAi(
         source: row.source ? String(row.source) : null,
       };
     });
-    const depenses = resolveComptaDepenses(trip, depensesMapped);
+    const depenses = resolveComptaDepenses(trip, depensesMapped, baseSheet.excludedDepenseSources);
 
     const individuellesRaw = Array.isArray(parsed.aides_individuelles) ? parsed.aides_individuelles : [];
     const aidesIndividuelles: TravelsComptaIndividualAid[] = individuellesRaw.map((a) => {

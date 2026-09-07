@@ -15,6 +15,7 @@ import {
   perStudentEuroCeilAdjusted,
   suggestComptaMargeFromPreset,
   withoutBlankRecettesLignes,
+  withExcludedDepenseSource,
   type ComptaMargePresetId,
   type TravelsComptaExpenseLine,
   type TravelsComptaRecetteLine,
@@ -297,6 +298,7 @@ export default function TravelsComptaSheetForm({
       facturations: finalSheet.facturations,
       recettesElevesFigees: finalSheet.recettesElevesFigees,
       margeFigeeEuro: finalSheet.margeFigeeEuro,
+      excludedDepenseSources: finalSheet.excludedDepenseSources,
     });
     setSaveState("saving");
     setError(null);
@@ -338,6 +340,7 @@ export default function TravelsComptaSheetForm({
         facturations: local.facturations,
         recettesElevesFigees: local.recettesElevesFigees,
         margeFigeeEuro: local.margeFigeeEuro,
+        excludedDepenseSources: local.excludedDepenseSources,
       });
       if (localSnapshot !== snapshot) {
         setSaveState("saved");
@@ -346,6 +349,7 @@ export default function TravelsComptaSheetForm({
 
       const merged = computeComptaSheetDerived({
         ...saved,
+        excludedDepenseSources: local.excludedDepenseSources ?? saved.excludedDepenseSources,
         depenses: mergeSavedDepensesWithDrafts(saved.depenses, local.depenses),
         recettesLignes: mergeSavedRecettesWithDrafts(
           saved.recettesLignes ?? [],
@@ -544,8 +548,14 @@ export default function TravelsComptaSheetForm({
   }
 
   function removeDepense(index: number) {
+    const line = sheet.depenses[index];
+    if (!line) return;
     syncRowKeys(depenseKeysRef, sheet.depenses.length - 1, index);
-    patch({ depenses: sheet.depenses.filter((_, i) => i !== index) });
+    const nextDepenses = sheet.depenses.filter((_, i) => i !== index);
+    patch({
+      depenses: nextDepenses.length > 0 ? nextDepenses : [{ label: "", amount: null }],
+      excludedDepenseSources: withExcludedDepenseSource(sheet.excludedDepenseSources, line),
+    });
   }
 
   function pruneBlankDepense(index: number) {
@@ -738,7 +748,9 @@ export default function TravelsComptaSheetForm({
                   <tr className="border-b border-slate-100 text-left text-xs text-slate-400">
                     <th className="p-3 font-bold">Libellé</th>
                     <th className="p-3 font-bold w-44 min-w-[11rem]">Montant</th>
-                    {!readOnly ? <th className="p-3 w-10" aria-label="Actions" /> : null}
+                    {!readOnly ? (
+                      <th className="p-3 w-28 text-right font-bold">Actions</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -772,15 +784,15 @@ export default function TravelsComptaSheetForm({
                         />
                       </td>
                       {!readOnly ? (
-                        <td className="p-2 text-center">
+                        <td className="p-2 text-right">
                           <button
                             type="button"
                             onClick={() => removeDepense(i)}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
-                            title="Supprimer la ligne"
-                            aria-label="Supprimer la ligne"
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                            title="Supprimer cette ligne de dépense"
+                            aria-label="Supprimer cette ligne de dépense"
                           >
-                            ✕
+                            Supprimer
                           </button>
                         </td>
                       ) : null}

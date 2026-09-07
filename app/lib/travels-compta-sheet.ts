@@ -255,6 +255,8 @@ export type TravelsComptaSheet = {
   /** Empreinte des documents du dossier (URLs + libellés) pour sync auto. */
   syncedDocumentsFingerprint?: string | null;
   syncedAt?: string | null;
+  /** Sources de dépenses retirées manuellement — ne pas les réinjecter au sync documents. */
+  excludedDepenseSources?: string[] | null;
   /** Cache OCR par document — évite de relire les fichiers inchangés. */
   documentScans?: TravelsComptaDocumentScan[];
   /** Date de validation du budget par la comptabilité. */
@@ -448,6 +450,7 @@ export function emptyComptaSheet(): TravelsComptaSheet {
     prixParEleveAvecSubventions: null,
     coutPrevisionnelParEleve: null,
     excedentOuDeficit: null,
+    excludedDepenseSources: [],
   };
 }
 
@@ -1092,21 +1095,63 @@ function depenseSourceKey(line: TravelsComptaExpenseLine): string {
   return line.label.trim().toLowerCase();
 }
 
+export function normalizeExcludedDepenseSources(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map((x) => String(x || "").trim()).filter(Boolean))];
+}
+
+/** Clé stable d'une ligne de dépense (source document ou libellé). */
+export function comptaDepenseSourceKey(line: TravelsComptaExpenseLine): string {
+  return depenseSourceKey(line);
+}
+
+/** Ajoute la source d'une ligne aux exclusions (suppression manuelle durable). */
+export function withExcludedDepenseSource(
+  excluded: string[] | null | undefined,
+  line: TravelsComptaExpenseLine,
+): string[] {
+  const key = depenseSourceKey(line);
+  const base = normalizeExcludedDepenseSources(excluded);
+  if (!key) return base;
+  if (base.includes(key)) return base;
+  return [...base, key];
+}
+
+function isExcludedDepenseKey(excluded: Set<string>, line: TravelsComptaExpenseLine): boolean {
+  const key = depenseSourceKey(line);
+  return Boolean(key) && excluded.has(key);
+}
+
 /** Applique le cache OCR + saisie existante sur la structure canonique du dossier. */
 export function depensesFromDocumentSync(
   trip: TravelsTrip,
   scans: TravelsComptaDocumentScan[],
   savedDepenses?: TravelsComptaExpenseLine[] | null,
+  excludedSources?: string[] | null,
 ): TravelsComptaExpenseLine[] {
+  const excluded = new Set(normalizeExcludedDepenseSources(excludedSources));
   const scanByKey = new Map(scans.map((s) => [s.key, s]));
   const savedByKey = new Map(
     (savedDepenses || []).map((d) => [depenseSourceKey(d), d]),
   );
-  const refs = listComptaDocumentRefs(trip);
+  const refs = listComptaDocumentRefs(trip).filter((ref) => {
+    const sourceKey =
+      ref.role === "devis_signe"
+        ? "devis_signe"
+        : ref.role === "budget_previsionnel"
+          ? "budget_previsionnel"
+          : ref.key;
+    return !excluded.has(sourceKey) && !excluded.has(ref.key);
+  });
   const lines: TravelsComptaExpenseLine[] = refs.map((ref) => {
     const scan = scanByKey.get(ref.key);
     const saved = savedByKey.get(ref.key);
-    const source = ref.role === "devis_signe" ? "devis_signe" : ref.role === "budget_previsionnel" ? "budget_previsionnel" : ref.fileUrl;
+    const source =
+      ref.role === "devis_signe"
+        ? "devis_signe"
+        : ref.role === "budget_previsionnel"
+          ? "budget_previsionnel"
+          : ref.fileUrl;
     return {
       label: saved?.label?.trim() ? saved.label : ref.label,
       amount: resolveDepenseLineAmount(ref, saved, scan, trip),
@@ -1116,6 +1161,7 @@ export function depensesFromDocumentSync(
 
   for (const saved of savedDepenses || []) {
     if (!isManualComptaDepenseLine(saved, trip)) continue;
+    if (isExcludedDepenseKey(excluded, saved)) continue;
     const key = depenseSourceKey(saved);
     if (lines.some((l) => depenseSourceKey(l) === key)) continue;
     lines.push(saved);
@@ -1225,13 +1271,19 @@ export function filterComptaDepenses(
 export function resolveComptaDepenses(
   trip: TravelsTrip,
   incoming?: TravelsComptaExpenseLine[] | null,
+  excludedSources?: string[] | null,
 ): TravelsComptaExpenseLine[] {
-  const canonical = buildDefaultComptaDepenses(trip);
+  const excluded = new Set(normalizeExcludedDepenseSources(excludedSources));
+  const canonical = buildDefaultComptaDepenses(trip).filter(
+    (line) => !isExcludedDepenseKey(excluded, line),
+  );
   if (!incoming?.some((d) => d.label.trim() || d.amount != null)) {
     return filterComptaDepenses(canonical, trip);
   }
 
-  const filtered = filterComptaDepenses(incoming, trip);
+  const filtered = filterComptaDepenses(incoming, trip).filter(
+    (line) => !isExcludedDepenseKey(excluded, line),
+  );
   const merged: TravelsComptaExpenseLine[] = canonical.map((line) => {
     const key = normalizeDepenseKey(line);
     const hit =
@@ -1264,7 +1316,7 @@ export function comptaSheetFromTrip(trip: TravelsTrip, existing?: TravelsComptaS
   const nbAcc = tripNbAccompagnateurs(trip);
   const depenses = applyBusQuoteAmountFallback(
     trip,
-    resolveComptaDepenses(trip, base.depenses),
+    resolveComptaDepenses(trip, base.depenses, base.excludedDepenseSources),
     base,
   );
   const depensesTotal = depenses.reduce((sum, line) => sum + (line?.amount ?? 0), 0);
@@ -1295,11 +1347,12 @@ export function readComptaSheetFromTrip(trip: TravelsTrip): TravelsComptaSheet |
   if (!raw || typeof raw !== "object") return null;
   const rawSheet = raw as TravelsComptaSheet;
   const sheet = computeComptaSheetDerived({ ...emptyComptaSheet(), ...rawSheet }, trip);
+  const excluded = normalizeExcludedDepenseSources(sheet.excludedDepenseSources);
   const depenses =
     sheet.documentScans && sheet.documentScans.length > 0
-      ? depensesFromDocumentSync(trip, sheet.documentScans, sheet.depenses)
-      : resolveComptaDepenses(trip, sheet.depenses);
-  return computeComptaSheetDerived({ ...sheet, depenses }, trip);
+      ? depensesFromDocumentSync(trip, sheet.documentScans, sheet.depenses, excluded)
+      : resolveComptaDepenses(trip, sheet.depenses, excluded);
+  return computeComptaSheetDerived({ ...sheet, excludedDepenseSources: excluded, depenses }, trip);
 }
 
 /** Met à jour le cache documentaire quand la compta modifie un montant à la main. */
