@@ -181,14 +181,15 @@ async function resolveModuleUser():
   > {
   const gate = await requireAuth();
   if (!gate.ok) return gate;
-  const appUser = await requireAppUser();
+  const { requireViewUser } = await import("@/app/lib/app-session");
+  const appUser = await requireViewUser();
   if (!appUser.ok) {
     return {
       ok: false,
       response: NextResponse.json({ error: "Non autorisé.", code: "AUTH_REQUIRED" }, { status: 401 }),
     };
   }
-  return { ok: true, user: appUser.user, userId: gate.ctx.userId };
+  return { ok: true, user: appUser.user, userId: appUser.user.businessUserId };
 }
 
 /** Garde RBAC explicite sur un module intranet (fail-closed). */

@@ -308,8 +308,50 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
     return unauthorizedResponse(request, tenant, host);
   }
 
+  const method = request.method.toUpperCase();
+  const isSafeMethod = method === "GET" || method === "HEAD" || method === "OPTIONS";
+
+  const {
+    readSupervisionCookieFromRequest,
+    resolveActiveSupervision,
+    isSupervisionApiPath,
+    isSupervisionWriteAllowedPath,
+  } = await import("@/app/lib/supervision");
+
+  const supervisionCookie = readSupervisionCookieFromRequest(request);
+  let supervisionActive:
+    | Awaited<ReturnType<typeof resolveActiveSupervision>>
+    | null = null;
+  if (supervisionCookie) {
+    supervisionActive = await resolveActiveSupervision({
+      actorUserId: betterAuthState.authUserId,
+      cookie: supervisionCookie,
+    });
+  }
+
+  if (supervisionActive && !isSafeMethod && !isSupervisionWriteAllowedPath(pathname)) {
+    return withTenantHeaders(
+      NextResponse.json(
+        {
+          error: "Mode supervision : lecture seule. Quittez la supervision pour modifier.",
+          code: "SUPERVISION_READ_ONLY",
+        },
+        { status: 403 },
+      ),
+      tenant,
+    );
+  }
+
+  const viewRoles = supervisionActive?.target.roles ?? betterAuthState.roles;
+  const viewIsOrgAdmin = supervisionActive
+    ? supervisionActive.target.orgAdmin || supervisionActive.target.platformAdmin
+    : betterAuthState.orgAdmin || betterAuthState.platformAdmin;
+  const viewUserId = supervisionActive?.target.userId ?? betterAuthState.authUserId;
+  const viewBusinessUserId =
+    supervisionActive?.target.businessUserId ?? betterAuthState.userId;
+  const viewEmail = supervisionActive?.target.email ?? betterAuthState.email;
+
   const roles = betterAuthState.roles;
-  const isOrgAdmin = betterAuthState.orgAdmin || betterAuthState.platformAdmin;
 
   const tenantGate = await assertUserBelongsToTenant({
     userId: betterAuthState.authUserId,
@@ -460,23 +502,27 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL(dest, request.url));
   }
 
+  if (isSupervisionApiPath(pathname)) {
+    return withOptionalDevTenantCookie(nextWithTenant(request, tenant), request, host);
+  }
+
   let pathAllowed = false;
   try {
     pathAllowed = canAccessIntranetPath(
       pathname,
-      roles,
-      isOrgAdmin,
+      viewRoles,
+      viewIsOrgAdmin,
       await loadModuleAccessForProxy(),
       {
-        userId: betterAuthState.authUserId,
-        businessUserId: betterAuthState.userId,
+        userId: viewUserId,
+        businessUserId: viewBusinessUserId,
       },
     );
   } catch (pathErr) {
     console.error("[proxy] canAccessIntranetPath", pathname, pathErr);
     // En cas de bug droits (ex. récursion), ne pas renvoyer une 500 HTML opaque :
     // laisser passer uniquement si orgAdmin / admin, sinon refuser proprement.
-    pathAllowed = isOrgAdmin || roles.includes("admin") || hasMasterRole(roles);
+    pathAllowed = viewIsOrgAdmin || viewRoles.includes("admin") || hasMasterRole(viewRoles);
   }
   let photocopiesOpsBypass = false;
   if (
@@ -496,14 +542,14 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
       const bundle = await loadAppConfig();
       const access = await loadModuleAccess().catch(() => null);
       photocopiesOpsBypass = isPhotocopiesOpsHandlerResolved({
-        email: betterAuthState.email,
+        email: viewEmail,
         opsEmails: resolvePhotocopiesOpsEmails(bundle.notifications),
         moduleAccess: access,
         lookup: {
-          userId: betterAuthState.authUserId,
-          businessUserId: betterAuthState.userId,
+          userId: viewUserId,
+          businessUserId: viewBusinessUserId,
         },
-        roles,
+        roles: viewRoles,
       });
     } catch {
       photocopiesOpsBypass = false;

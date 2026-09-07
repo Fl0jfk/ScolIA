@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { isOrgAdminFromAppUser } from "@/app/lib/auth-roles-db";
-import { requireAppUser } from "@/app/lib/app-session";
+import { requireViewUser } from "@/app/lib/app-session";
 import {
   accessibleModuleIdsForRoles,
   dossierSectionsForRolesWithAccess,
@@ -17,7 +17,7 @@ export async function GET() {
 
   try {
     const access = await loadModuleAccess();
-    const appUser = await requireAppUser();
+    const appUser = await requireViewUser();
 
     if (appUser.ok) {
       const isOrgAdmin = isOrgAdminFromAppUser(appUser.user);
@@ -62,7 +62,7 @@ export async function GET() {
       return NextResponse.json({ moduleIds, dossierSections });
     }
 
-    // Repli session compat : évite un dashboard sans aucun module si requireAppUser échoue.
+    // Repli session compat : évite un dashboard sans aucun module si requireViewUser échoue.
     const user = await safeCurrentUser();
     if (!user) {
       return NextResponse.json({ error: "Non autorisé." }, { status: 401 });

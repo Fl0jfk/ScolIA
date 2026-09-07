@@ -444,6 +444,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/api/admin/auth",
       "/membres",
       "/api/members",
+      "/api/supervision",
       "/api/nomenclature",
       "/api/annees-scolaires",
       "/api/identite",

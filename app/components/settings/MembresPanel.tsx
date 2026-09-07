@@ -17,6 +17,7 @@ import SessionsManager from "@/app/components/account/SessionsManager";
 type RoleOption = { slug: string; label: string };
 
 type RegistryUserRow = {
+  userId?: string;
   externalUserId: string;
   email: string;
   firstName?: string;
@@ -110,6 +111,7 @@ export default function MembresPanel() {
   const [roleFilter, setRoleFilter] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("name");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [supervisingKey, setSupervisingKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -252,6 +254,29 @@ export default function MembresPanel() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
+    }
+  };
+
+  const startSupervision = async (u: RegistryUserRow) => {
+    const key = u.externalUserId || u.email;
+    setSupervisingKey(key);
+    setError(null);
+    try {
+      const res = await fetch("/api/supervision/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: u.userId || undefined,
+          externalUserId: u.externalUserId || undefined,
+          email: u.email,
+        }),
+      });
+      const j = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(j.error || "Impossible de démarrer la supervision.");
+      window.location.assign("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+      setSupervisingKey(null);
     }
   };
 
@@ -563,6 +588,17 @@ export default function MembresPanel() {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-3 shrink-0">
+                    {editingKey !== key && (
+                      <button
+                        type="button"
+                        onClick={() => void startSupervision(u)}
+                        disabled={supervisingKey === key}
+                        className={`text-sm font-semibold disabled:opacity-50 ${dash.textPrimary}`}
+                        title="Ouvrir l’intranet comme cet utilisateur (lecture seule)"
+                      >
+                        {supervisingKey === key ? "Ouverture…" : "Voir son espace"}
+                      </button>
+                    )}
                     {canManageRoles && editingKey !== key && (
                       <>
                         <button

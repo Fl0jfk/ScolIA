@@ -13,7 +13,9 @@ export type SecurityAuditAction =
   | "account_claimed"
   | "session_revoked"
   | "sessions_revoked_others"
-  | "sessions_revoked_all_admin";
+  | "sessions_revoked_all_admin"
+  | "supervision_start"
+  | "supervision_stop";
 
 export async function writeSecurityAudit(opts: {
   userId: string | null;

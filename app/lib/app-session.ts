@@ -96,16 +96,35 @@ async function betterAuthSessionToAppUser(): Promise<AppUser | null> {
   }
 }
 
-/** Session applicative (Better-Auth). */
+/** Session applicative (Better-Auth) — toujours l’acteur réel authentifié. */
 export async function getAppSession(): Promise<AppSession | null> {
   const betterAuthUser = await betterAuthSessionToAppUser();
   return betterAuthUser ? { user: betterAuthUser } : null;
 }
 
-export async function resolveAppSessionIds(): Promise<{ userId: string } | null> {
+/**
+ * Utilisateur « vu » : cible de supervision lecture seule si active, sinon l’acteur.
+ * À utiliser pour modules, menus, listes « mon espace ». Pas pour les gardes admin / audit acteur.
+ */
+export async function getEffectiveViewUser(): Promise<AppUser | null> {
   const session = await getAppSession();
   if (!session) return null;
-  return { userId: session.user.businessUserId };
+  try {
+    const { resolveActiveSupervision, supervisionTargetToAppUser } = await import(
+      "@/app/lib/supervision"
+    );
+    const active = await resolveActiveSupervision({ actorUserId: session.user.id });
+    if (active) return supervisionTargetToAppUser(active.target);
+  } catch (error) {
+    console.error("[getEffectiveViewUser]", error);
+  }
+  return session.user;
+}
+
+export async function resolveAppSessionIds(): Promise<{ userId: string } | null> {
+  const user = await getEffectiveViewUser();
+  if (!user) return null;
+  return { userId: user.businessUserId };
 }
 
 export async function requireAppUser(): Promise<
@@ -121,14 +140,25 @@ export async function requireAppUser(): Promise<
   }
 }
 
+/** Comme requireAppUser mais avec la vue supervision (cible) si active. */
+export async function requireViewUser(): Promise<
+  { ok: true; user: AppUser } | { ok: false; reason: "unauthorized" | "unavailable" }
+> {
+  try {
+    const user = await getEffectiveViewUser();
+    if (!user) return { ok: false, reason: "unauthorized" };
+    return { ok: true, user };
+  } catch (error) {
+    console.error("[requireViewUser]", error);
+    return { ok: false, reason: "unavailable" };
+  }
+}
+
 export async function resolveSession(): Promise<{ userId: string } | null> {
   return resolveAppSessionIds();
 }
 
-export async function safeCurrentUser(): Promise<CompatAuthUser | null> {
-  const session = await getAppSession();
-  if (!session) return null;
-  const u = session.user;
+function appUserToCompat(u: AppUser): CompatAuthUser {
   const fullName =
     u.name?.trim() ||
     `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() ||
@@ -149,4 +179,11 @@ export async function safeCurrentUser(): Promise<CompatAuthUser | null> {
       platform_admin: u.platformAdmin,
     },
   };
+}
+
+/** Profil compat pour l’UI / signaux — vue effective (supervision). */
+export async function safeCurrentUser(): Promise<CompatAuthUser | null> {
+  const user = await getEffectiveViewUser();
+  if (!user) return null;
+  return appUserToCompat(user);
 }

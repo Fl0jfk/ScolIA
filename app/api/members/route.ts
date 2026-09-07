@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { isDatabaseConfigured } from "@/db/index";
 import { INTRANET_ROLE_OPTIONS, hasMasterRole, normalizeIntranetRoles } from "@/app/lib/intranet-roles";
 import { requireAdmin, requireTenantAdminRole } from "@/app/lib/intranet-auth";
+import { requireAppUser } from "@/app/lib/app-session";
+import { canStartSupervision } from "@/app/lib/supervision";
 import { writeDataAccessAudit } from "@/app/lib/data-access-audit";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 import { setUserRolesInDb, syncUserAdminFlagsInDb } from "@/app/lib/auth-roles-db";
@@ -15,8 +17,16 @@ import { getDb } from "@/db/index";
 import { session, user } from "@/db/schema";
 
 export async function GET(req: Request) {
-  const gate = await requireAdmin();
-  if (!gate.ok) return gate.response;
+  const actor = await requireAppUser();
+  if (!actor.ok) {
+    return NextResponse.json({ error: "Non autorisé.", code: "AUTH_REQUIRED" }, { status: 401 });
+  }
+  if (!canStartSupervision(actor.user)) {
+    return NextResponse.json(
+      { error: "Réservé aux administrateurs et à la direction.", code: "ADMIN_REQUIRED" },
+      { status: 403 },
+    );
+  }
 
   const tenantScope = await requireTenantId();
   if (!tenantScope.ok) return tenantScope.response;
