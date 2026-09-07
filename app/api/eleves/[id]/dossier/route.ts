@@ -18,6 +18,8 @@ import { resolveCurrentEtablissementId, syncEleveScolariteFromEleveRow, ensureEl
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import {
   canDeleteEleveAccompagnementDocument,
+  canDeleteEleveDocument,
+  canDeleteSpecificEleveDocument,
   canOpenDocumentWithoutGrant,
   canRegisterEleveDocument,
   eleveDocCategoriesMetaForRoles,
@@ -644,6 +646,10 @@ export async function GET(_req: Request, ctx: Ctx) {
         orgAdmin,
         platformAdmin,
       }),
+      canDeleteDocuments: canDeleteEleveDocument(roles, {
+        orgAdmin,
+        platformAdmin,
+      }),
       profRestrictedView,
       tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),
@@ -1212,8 +1218,8 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ success: true, request: updated });
   }
 
-  if (action === "delete_accompagnement_document") {
-    if (!canDeleteEleveAccompagnementDocument(roles, { orgAdmin, platformAdmin })) {
+  if (action === "delete_document" || action === "delete_accompagnement_document") {
+    if (!canDeleteEleveDocument(roles, { orgAdmin, platformAdmin })) {
       return NextResponse.json(
         { error: "Suppression réservée à la direction, l’admin et l’administratif." },
         { status: 403 },
@@ -1240,10 +1246,33 @@ export async function POST(req: Request, ctx: Ctx) {
     if (!doc) {
       return NextResponse.json({ error: "Document introuvable." }, { status: 404 });
     }
-    if (doc.tiroir !== "sante" || !isAccompagnementDocumentTitle(doc.title)) {
+
+    const tiroir = doc.tiroir as EleveDocTiroir;
+    const confidentialite = doc.confidentialite as EleveDocConfidentialite;
+    const isAccompagnement =
+      tiroir === "sante" && isAccompagnementDocumentTitle(doc.title);
+
+    // Ancienne action : restreinte aux PAP / PAI / PPS / GEVASCO.
+    if (action === "delete_accompagnement_document" && !isAccompagnement) {
       return NextResponse.json(
         { error: "Seuls les documents PAP / PAI / PPS / GEVASCO peuvent être supprimés ici." },
         { status: 400 },
+      );
+    }
+
+    if (
+      !canDeleteSpecificEleveDocument(
+        { tiroir, confidentialite },
+        roles,
+        { orgAdmin, platformAdmin },
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Vous n’avez pas le droit de supprimer une pièce de ce tiroir / cette confidentialité.",
+        },
+        { status: 403 },
       );
     }
 
@@ -1268,7 +1297,7 @@ export async function POST(req: Request, ctx: Ctx) {
           }),
         );
       } catch (s3Err) {
-        console.warn("[eleves/dossier] delete S3 accompagnement", s3Err);
+        console.warn("[eleves/dossier] delete S3 document", s3Err);
       }
     }
 
@@ -1282,7 +1311,8 @@ export async function POST(req: Request, ctx: Ctx) {
       metadata: {
         title: doc.title,
         tiroir: doc.tiroir,
-        kind: detectAccompagnementKind(doc.title),
+        confidentialite: doc.confidentialite,
+        kind: isAccompagnement ? detectAccompagnementKind(doc.title) : null,
       },
     });
     return NextResponse.json({ success: true, deletedId: documentId });

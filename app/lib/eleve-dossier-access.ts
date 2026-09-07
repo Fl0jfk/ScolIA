@@ -207,8 +207,11 @@ export function canRegisterEleveDocument(
   return true;
 }
 
-/** Suppression PAP / PAI / PPS / GEVASCO : direction, admin, administratif. */
-export function canDeleteEleveAccompagnementDocument(
+/**
+ * Suppression d’une pièce du dossier élève (classique ou accompagnement) :
+ * direction, admin, administratif.
+ */
+export function canDeleteEleveDocument(
   roles: string[],
   opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
 ): boolean {
@@ -219,6 +222,27 @@ export function canDeleteEleveAccompagnementDocument(
       isDirection(roles) ||
       hasRole(roles, "administratif"),
   );
+}
+
+/** Suppression PAP / PAI / PPS / GEVASCO : même périmètre que les pièces classiques. */
+export function canDeleteEleveAccompagnementDocument(
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  return canDeleteEleveDocument(roles, opts);
+}
+
+/**
+ * Peut supprimer cette pièce précise : droit global de suppression + droit
+ * d’enregistrement sur le tiroir / la confidentialité du document.
+ */
+export function canDeleteSpecificEleveDocument(
+  doc: { tiroir: EleveDocTiroir; confidentialite: EleveDocConfidentialite },
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  if (!canDeleteEleveDocument(roles, opts)) return false;
+  return canRegisterEleveDocument(doc.tiroir, doc.confidentialite, roles, opts);
 }
 
 export function canOpenDocumentWithoutGrant(
@@ -333,6 +357,7 @@ export async function listEleveDocumentsForViewer(opts: {
     fileUrl: string | null;
     createdAt: Date;
     canOpen: boolean;
+    canDelete: boolean;
     lockedReason: "tiroir" | "confidentialite" | null;
   }>
 > {
@@ -359,6 +384,7 @@ export async function listEleveDocumentsForViewer(opts: {
     fileUrl: string | null;
     createdAt: Date;
     canOpen: boolean;
+    canDelete: boolean;
     lockedReason: "tiroir" | "confidentialite" | null;
   }> = [];
 
@@ -401,6 +427,14 @@ export async function listEleveDocumentsForViewer(opts: {
         lockedReason = "confidentialite";
       }
     }
+    const canDelete = canDeleteSpecificEleveDocument(
+      {
+        tiroir: doc.tiroir as EleveDocTiroir,
+        confidentialite: doc.confidentialite as EleveDocConfidentialite,
+      },
+      opts.roles,
+      { orgAdmin: opts.orgAdmin, platformAdmin: opts.platformAdmin },
+    );
     out.push({
       id: doc.id,
       tiroir: doc.tiroir,
@@ -416,6 +450,7 @@ export async function listEleveDocumentsForViewer(opts: {
           : null,
       createdAt: doc.createdAt,
       canOpen,
+      canDelete,
       lockedReason,
     });
   }

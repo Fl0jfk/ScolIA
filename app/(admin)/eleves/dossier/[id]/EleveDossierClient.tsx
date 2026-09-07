@@ -151,6 +151,7 @@ type DossierPayload = {
     tiroir: string;
     title: string;
     canOpen: boolean;
+    canDelete?: boolean;
     lockedReason: string | null;
     source: string;
     anneeLabel: string | null;
@@ -188,6 +189,7 @@ type DossierPayload = {
     canUploadPap?: boolean;
     canUploadAccompagnement?: boolean;
     canDeleteAccompagnement?: boolean;
+    canDeleteDocuments?: boolean;
     profRestrictedView?: boolean;
     tiroirs: string[];
     docCategories?: Array<"administratif" | "financier" | "sante">;
@@ -498,6 +500,9 @@ export default function EleveDossierClient() {
     data?.meta.canUploadAccompagnement ?? data?.meta.canUploadPap,
   );
   const canDeleteAccompagnement = Boolean(data?.meta.canDeleteAccompagnement);
+  const canDeleteDocuments = Boolean(
+    data?.meta.canDeleteDocuments ?? data?.meta.canDeleteAccompagnement,
+  );
 
   const selectedAccompagnementDef = accompagnementKindDef(accompagnementKind);
   const hasSelectedKind = synthesisAccompagnements.some((a) => a.kind === accompagnementKind);
@@ -690,7 +695,22 @@ export default function EleveDossierClient() {
       return;
     }
     await postAction({
-      action: "delete_accompagnement_document",
+      action: "delete_document",
+      documentId,
+    });
+  }
+
+  async function deleteDocument(documentId: string, title: string) {
+    const label = title.trim() || "cette pièce";
+    if (
+      !window.confirm(
+        `Supprimer définitivement « ${label} » ? Cette action est irréversible.`,
+      )
+    ) {
+      return;
+    }
+    await postAction({
+      action: "delete_document",
       documentId,
     });
   }
@@ -2326,11 +2346,15 @@ export default function EleveDossierClient() {
                               Présent — demander l’accès
                             </button>
                           )}
-                          {accCode && canDeleteAccompagnement ? (
+                          {d.canDelete ?? canDeleteDocuments ? (
                             <button
                               type="button"
                               disabled={busy}
-                              onClick={() => void deleteAccompagnementDocument(d.id, accCode)}
+                              onClick={() =>
+                                void (accCode
+                                  ? deleteAccompagnementDocument(d.id, accCode)
+                                  : deleteDocument(d.id, d.title))
+                              }
                               className="text-xs font-bold text-rose-700 hover:underline disabled:opacity-50"
                             >
                               Supprimer
