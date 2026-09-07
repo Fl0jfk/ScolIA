@@ -25,6 +25,8 @@ import {
   isValidEmailLoose,
   getModificationRequestNote,
   tripEffectifTotal,
+  travelsListBudget,
+  travelsListNbEleves,
 } from "@/app/lib/travels-trip-helpers";
 import type { TravelsHubTab, TravelsTrip } from "@/app/lib/travels-types";
 import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
@@ -568,17 +570,19 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   };
 
   const onComptaSheetSaved = useCallback((sheet: TravelsComptaSheet) => {
-    setTrip((prev) =>
-      prev
-        ? {
-            ...prev,
-            data: {
-              ...prev.data,
-              comptaSheet: sheet,
-            },
-          }
-        : prev,
-    );
+    setTrip((prev) => {
+      if (!prev) return prev;
+      const nextNb =
+        sheet.nbEleves != null && sheet.nbEleves > 0 ? sheet.nbEleves : prev.data.nbEleves;
+      return {
+        ...prev,
+        data: {
+          ...prev.data,
+          comptaSheet: sheet,
+          ...(nextNb != null ? { nbEleves: nextNb } : {}),
+        },
+      };
+    });
   }, []);
 
   const onComptaValidateBudget = useCallback(
@@ -605,6 +609,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           ...finalSheet,
           budgetValidatedAt: new Date().toISOString(),
         },
+        nbEleves: finalSheet.nbEleves,
         finalTotalCost: total,
         costPerStudent: perStudent ?? "",
       });
@@ -1530,7 +1535,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           { label: "Dates", value: dateLabel, icon: "📅" },
           {
             label: "Effectif",
-            value: `${trip.data.nbEleves || 0} él. · ${trip.data.nbAccompagnateurs || 0} acc.`,
+            value: `${travelsListNbEleves(trip) ?? 0} él. · ${trip.data.nbAccompagnateurs || 0} acc.`,
             icon: "👥",
             action: canEditEffectif ? (
               <button
@@ -1544,9 +1549,13 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           },
           {
             label: "Budget",
-            value: trip.data.finalTotalCost
-              ? `${trip.data.finalTotalCost} € validé`
-              : `${Math.round(Number(trip.data.coutTotal) || 0)} € prévu`,
+            value: (() => {
+              const budget = travelsListBudget(trip);
+              if (budget.amount == null) return "—";
+              return budget.kind === "valide"
+                ? `${Math.round(budget.amount)} € validé`
+                : `${Math.round(budget.amount)} € prévu`;
+            })(),
             icon: "💶",
           },
         ]}

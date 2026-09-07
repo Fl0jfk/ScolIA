@@ -11,7 +11,7 @@ import {
   type TravelsReminderRow,
 } from "@/app/components/travels/TravelsRemindersModal";
 import type { TravelsDirectionDashboard } from "@/app/lib/travels-direction-dashboard";
-import { isTripTravelDatePast, travelsTripMatchesSearch } from "@/app/lib/travels-trip-helpers";
+import { isTripTravelDatePast, travelsListBudget, travelsListNbEleves, travelsTripMatchesSearch } from "@/app/lib/travels-trip-helpers";
 import { TRAVELS_STATUS_LABELS, type TravelsTrip } from "@/app/lib/travels-types";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
 import { useAppContext } from "@/app/hooks/useAppContext";
@@ -411,14 +411,28 @@ function TripDashboardContent() {
                       </p>
                     </div>
                     <div className="flex items-center gap-3 md:justify-end">
-                      <div className="bg-slate-50 px-4 py-3 rounded-2xl text-center min-w-[70px] border border-slate-100">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Élèves</p>
-                        <p className="text-md font-black text-slate-700">{trip.data?.nbEleves || 0}</p>
-                      </div>
-                      <div className="bg-slate-50 px-4 py-3 rounded-2xl text-center min-w-[80px] border border-slate-100">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase">Budget</p>
-                        <p className="text-md font-black text-slate-700">{Math.round(trip.data?.coutTotal || 0)}€</p>
-                      </div>
+                      {(() => {
+                        const nbEleves = travelsListNbEleves(trip);
+                        const budget = travelsListBudget(trip);
+                        return (
+                          <>
+                            <div className="bg-slate-50 px-4 py-3 rounded-2xl text-center min-w-[70px] border border-slate-100">
+                              <p className="text-[10px] text-slate-400 font-bold uppercase">Élèves</p>
+                              <p className="text-md font-black text-slate-700">
+                                {nbEleves != null ? nbEleves : "—"}
+                              </p>
+                            </div>
+                            <div className="bg-slate-50 px-4 py-3 rounded-2xl text-center min-w-[90px] border border-slate-100">
+                              <p className="text-[10px] text-slate-400 font-bold uppercase">
+                                {budget.kind === "valide" ? "Budget" : "Prévisionnel"}
+                              </p>
+                              <p className="text-md font-black text-slate-700">
+                                {budget.amount != null ? `${Math.round(budget.amount)}€` : "—"}
+                              </p>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                   <div className="mt-8 pt-6 border-t border-slate-50 flex justify-between items-center">

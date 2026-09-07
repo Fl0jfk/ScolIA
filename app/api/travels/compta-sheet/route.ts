@@ -29,6 +29,10 @@ async function persistComptaSheet(tripId: string, trip: TravelsTrip, sheet: Trav
   const busAmount = sheet.depenses.find((d) => d.source === "devis_signe")?.amount;
   const selected = trip.data?.selectedBusQuote as Record<string, unknown> | undefined;
   const data: Record<string, unknown> = { ...trip.data, comptaSheet: sheet };
+  // Aligner l'effectif dossier sur la fiche compta (sinon la liste d'accueil reste à 0).
+  if (sheet.nbEleves != null && sheet.nbEleves > 0) {
+    data.nbEleves = sheet.nbEleves;
+  }
   if (isUsableComptaAmount(busAmount) && selected) {
     data.selectedBusQuote = {
       ...selected,

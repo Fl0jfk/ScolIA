@@ -376,3 +376,73 @@ export function travelsTripMatchesSearch(trip: TravelsTrip, query: string): bool
   if (tokens.length === 0) return true;
   return tokens.every((token) => haystack.includes(token));
 }
+
+function positiveIntOrNull(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(String(raw).replace(/\s/g, "").replace(",", "."));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n);
+}
+
+function positiveEuroOrNull(raw: unknown): number | null {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.round(raw * 100) / 100;
+  const s = String(raw)
+    .trim()
+    .replace(/\u00a0/g, " ")
+    .replace(/\s/g, "")
+    .replace(/€/gi, "")
+    .replace(",", ".");
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
+/** Effectif élèves pour la liste d'accueil (dossier + fiche compta + liste nominative). */
+export function travelsListNbEleves(trip: TravelsTrip): number | null {
+  const fromData = positiveIntOrNull(trip.data?.nbEleves);
+  if (fromData != null && fromData > 0) return fromData;
+
+  const sheet = trip.data?.comptaSheet;
+  const fromCompta = positiveIntOrNull(sheet?.nbEleves);
+  if (fromCompta != null && fromCompta > 0) return fromCompta;
+
+  const fromFactures = positiveIntOrNull(sheet?.nbElevesFactures);
+  if (fromFactures != null && fromFactures > 0) return fromFactures;
+
+  const participants = trip.data?.participantEleves;
+  if (Array.isArray(participants) && participants.length > 0) return participants.length;
+
+  return fromData;
+}
+
+export type TravelsListBudget = {
+  amount: number | null;
+  kind: "previsionnel" | "valide";
+};
+
+/**
+ * Budget carte liste : prévisionnel (`coutTotal`) tant que la compta n'a pas validé ;
+ * total dépenses compta / `finalTotalCost` après validation.
+ */
+export function travelsListBudget(trip: TravelsTrip): TravelsListBudget {
+  const sheet = trip.data?.comptaSheet;
+  const validated = Boolean(
+    sheet?.budgetValidatedAt ||
+      (trip.data?.finalTotalCost != null && String(trip.data.finalTotalCost).trim() !== ""),
+  );
+
+  if (validated) {
+    const amount =
+      positiveEuroOrNull(trip.data?.finalTotalCost) ??
+      positiveEuroOrNull(sheet?.depensesTotal) ??
+      null;
+    return { amount, kind: "valide" };
+  }
+
+  return {
+    amount: positiveEuroOrNull(trip.data?.coutTotal),
+    kind: "previsionnel",
+  };
+}
