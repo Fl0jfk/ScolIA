@@ -1,4 +1,8 @@
-import type { Establishment, NotificationsConfig } from "@/app/lib/app-config-schemas";
+import type {
+  AbsenceNotifyPerson,
+  Establishment,
+  NotificationsConfig,
+} from "@/app/lib/app-config-schemas";
 import type { AbsenceRecord } from "@/app/lib/absences-types";
 import { isEducationSurveillanceStaff } from "@/app/lib/absences-types";
 import { matchEstablishment } from "@/app/lib/establishment-catalog";
@@ -9,6 +13,45 @@ export type AbsenceProcessorRef = {
   userId?: string;
   label?: string;
 };
+
+export function viewerMatchesAbsencePeople(
+  people: Array<Pick<AbsenceNotifyPerson, "email" | "userId"> | null | undefined>,
+  viewer: { email?: string | null; userId?: string | null },
+): boolean {
+  const email = String(viewer.email || "")
+    .trim()
+    .toLowerCase();
+  const userId = String(viewer.userId || "").trim();
+  return people.some((p) => {
+    if (!p) return false;
+    if (email && p.email && p.email.trim().toLowerCase() === email) return true;
+    if (userId && p.userId && p.userId === userId) return true;
+    return false;
+  });
+}
+
+/** Validateurs nominatifs OGEC (GEC). Liste vide = pas de restriction nominative. */
+export function collectAbsenceOgecValidators(
+  notifications: NotificationsConfig | null | undefined,
+): AbsenceNotifyPerson[] {
+  if (!notifications) return [];
+  const list = notifications.absencesValidatorsOgec;
+  if (!Array.isArray(list) || list.length === 0) return [];
+  return list.filter((p) => String(p?.email || "").trim());
+}
+
+export function hasConfiguredOgecAbsenceValidators(
+  notifications: NotificationsConfig | null | undefined,
+): boolean {
+  return collectAbsenceOgecValidators(notifications).length > 0;
+}
+
+export function viewerIsConfiguredOgecAbsenceValidator(
+  viewer: { email?: string | null; userId?: string | null },
+  notifications: NotificationsConfig | null | undefined,
+): boolean {
+  return viewerMatchesAbsencePeople(collectAbsenceOgecValidators(notifications), viewer);
+}
 
 function addProcessor(
   list: AbsenceProcessorRef[],

@@ -786,7 +786,12 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         viewerCanSeeProcessorQueue({ email, userId, roles }, absenceNotifications))
     ) {
       const flags = getRoleFlags(roles);
-      const dirCtx = { establishments, userId };
+      const dirCtx = {
+        establishments,
+        userId,
+        email,
+        notifications: absenceNotifications,
+      };
       let scoped = absences;
       let labelSingular = "personne absente";
       let labelPlural = "personnes absentes";
@@ -1172,7 +1177,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "photocopies-ops-queue",
           pillarId: "administratif",
           moduleId: "photocopies-couleur",
-          href: photoHome,
+          href: `${photoHome}#file-impression`,
           label: "Photocopies à imprimer",
           rich: true,
           badge: `${opsPending} à faire`,
@@ -1191,7 +1196,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           moduleId: "photocopies-couleur",
           label: "Photocopies à imprimer",
           count: opsPending,
-          href: photoHome,
+          href: `${photoHome}#file-impression`,
           detail:
             opsPending === 1
               ? who
@@ -1204,7 +1209,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           id: "photocopies-ops-empty",
           pillarId: "administratif",
           moduleId: "photocopies-couleur",
-          href: photoHome,
+          href: `${photoHome}#file-impression`,
           label: "Photocopies couleur",
           rich: true,
           detail: "File d'impression — rien en attente",

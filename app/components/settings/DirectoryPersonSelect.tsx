@@ -266,3 +266,131 @@ export function DirectoryPeopleSelect({
     </div>
   );
 }
+
+/** Multi-sélection d’utilisateurs authentifiés (e-mail + userId + label). */
+export function DirectoryPeoplePersonSelect({
+  members,
+  selected,
+  onChange,
+  loading,
+}: {
+  members: DirectoryMemberOption[];
+  selected: Array<{ email: string; userId?: string; label?: string }>;
+  onChange: (people: Array<{ email: string; userId?: string; label?: string }>) => void;
+  loading?: boolean;
+}) {
+  const activeMembers = useMemo(
+    () => members.filter((m) => m.externalUserId && !m.pending),
+    [members],
+  );
+  const selectedNorm = useMemo(
+    () =>
+      selected
+        .map((p) => ({
+          email: normEmail(p.email),
+          userId: String(p.userId || "").trim(),
+          label: String(p.label || "").trim() || undefined,
+          rawEmail: String(p.email || "").trim(),
+        }))
+        .filter((p) => p.email),
+    [selected],
+  );
+  const selectedEmailSet = useMemo(
+    () => new Set(selectedNorm.map((p) => p.email)),
+    [selectedNorm],
+  );
+  const selectedIdSet = useMemo(
+    () => new Set(selectedNorm.map((p) => p.userId).filter(Boolean)),
+    [selectedNorm],
+  );
+  const matched = activeMembers.filter(
+    (m) => selectedIdSet.has(m.externalUserId) || selectedEmailSet.has(normEmail(m.email)),
+  );
+  const unmatched = selectedNorm.filter(
+    (p) =>
+      !activeMembers.some(
+        (m) =>
+          (p.userId && m.externalUserId === p.userId) || normEmail(m.email) === p.email,
+      ),
+  );
+  const selectedIds = new Set(matched.map((m) => m.externalUserId));
+
+  if (loading) {
+    return <p className={`text-sm ${dash.textMid}`}>Chargement des utilisateurs du directory…</p>;
+  }
+
+  const emit = (next: Array<{ email: string; userId?: string; label?: string }>) => {
+    const seen = new Set<string>();
+    onChange(
+      next.filter((p) => {
+        const email = normEmail(p.email);
+        if (!email || seen.has(email)) return false;
+        seen.add(email);
+        return true;
+      }),
+    );
+  };
+
+  return (
+    <div className="space-y-2">
+      {matched.length === 0 && unmatched.length === 0 ? (
+        <p className={`text-xs italic ${dash.textMid}`}>Aucune personne sélectionnée.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {matched.map((m) => (
+            <SelectedChip
+              key={m.externalUserId}
+              name={directoryMemberLabel(m)}
+              email={m.email}
+              onRemove={() =>
+                emit(
+                  selected.filter(
+                    (p) =>
+                      normEmail(p.email) !== normEmail(m.email) &&
+                      String(p.userId || "").trim() !== m.externalUserId,
+                  ),
+                )
+              }
+            />
+          ))}
+          {unmatched.map((p) => (
+            <SelectedChip
+              key={p.email}
+              name={p.label || p.rawEmail}
+              email={p.rawEmail}
+              unmatched
+              onRemove={() => emit(selected.filter((x) => normEmail(x.email) !== p.email))}
+            />
+          ))}
+        </div>
+      )}
+      <MemberSearchList
+        members={activeMembers}
+        selectedIds={selectedIds}
+        onPick={(member) => {
+          const email = member.email.trim();
+          if (!email) return;
+          const key = normEmail(email);
+          if (selectedEmailSet.has(key) || selectedIdSet.has(member.externalUserId)) {
+            emit(
+              selected.filter(
+                (p) =>
+                  normEmail(p.email) !== key &&
+                  String(p.userId || "").trim() !== member.externalUserId,
+              ),
+            );
+            return;
+          }
+          emit([
+            ...selected,
+            {
+              email,
+              userId: member.externalUserId,
+              label: directoryMemberLabel(member),
+            },
+          ]);
+        }}
+      />
+    </div>
+  );
+}

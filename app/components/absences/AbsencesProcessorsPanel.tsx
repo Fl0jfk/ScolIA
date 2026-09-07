@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import DirectoryPersonSelect, {
   DirectoryPeopleSelect,
+  DirectoryPeoplePersonSelect,
   directoryMemberLabel,
 } from "@/app/components/settings/DirectoryPersonSelect";
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import type { AbsenceNotifyPerson } from "@/app/lib/app-config-schemas";
 
 type ProcessorsPayload = {
+  absencesValidatorsOgec: AbsenceNotifyPerson[];
   absencesNotifyProfEcole: AbsenceNotifyPerson | null;
   absencesNotifyProfCollege: AbsenceNotifyPerson | null;
   absencesNotifyProfLycee: AbsenceNotifyPerson | null;
@@ -22,6 +24,7 @@ export default function AbsencesProcessorsPanel() {
   const [message, setMessage] = useState<string | null>(null);
   const [members, setMembers] = useState<DirectoryMemberOption[]>([]);
   const [processors, setProcessors] = useState<ProcessorsPayload>({
+    absencesValidatorsOgec: [],
     absencesNotifyProfEcole: null,
     absencesNotifyProfCollege: null,
     absencesNotifyProfLycee: null,
@@ -45,6 +48,7 @@ export default function AbsencesProcessorsPanel() {
         }
         if (!cancelled) {
           setProcessors({
+            absencesValidatorsOgec: data.processors?.absencesValidatorsOgec ?? [],
             absencesNotifyProfEcole: data.processors?.absencesNotifyProfEcole ?? null,
             absencesNotifyProfCollege: data.processors?.absencesNotifyProfCollege ?? null,
             absencesNotifyProfLycee: data.processors?.absencesNotifyProfLycee ?? null,
@@ -64,7 +68,7 @@ export default function AbsencesProcessorsPanel() {
   }, []);
 
   const setPerson = (key: keyof ProcessorsPayload, member: DirectoryMemberOption | null) => {
-    if (key === "absencesNotifyOgecCompta") return;
+    if (key === "absencesNotifyOgecCompta" || key === "absencesValidatorsOgec") return;
     setProcessors((p) => ({
       ...p,
       [key]: member
@@ -85,7 +89,7 @@ export default function AbsencesProcessorsPanel() {
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error || "Enregistrement impossible");
-      setMessage("Personnes enregistrées. Elles recevront un mail avec un lien pour traiter dans l’application.");
+      setMessage("Paramétrage enregistré.");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -100,11 +104,26 @@ export default function AbsencesProcessorsPanel() {
   return (
     <div className="space-y-4">
       <div className="rounded-3xl border border-slate-200 bg-white p-5">
-        <h3 className="font-black text-slate-900">Qui traite après la direction ?</h3>
+        <h3 className="font-black text-slate-900">Qui valide les absences du personnel OGEC ?</h3>
         <p className="mt-1 text-sm text-slate-600">
-          Choisissez les personnes dans l’annuaire. Après validation direction, elles reçoivent un e-mail
-          avec un lien vers l’intranet pour demander une pièce (sans repasser par la direction) puis
-          clôturer le dossier.
+          Choisissez une ou plusieurs personnes déjà authentifiées sur la plateforme. Seules elles
+          pourront accepter ou refuser les absences OGEC (en plus des administrateurs). Si la liste
+          est vide, le comportement historique s’applique (toute direction).
+        </p>
+        <div className="mt-3">
+          <DirectoryPeoplePersonSelect
+            members={members}
+            selected={processors.absencesValidatorsOgec}
+            onChange={(people) => setProcessors((p) => ({ ...p, absencesValidatorsOgec: people }))}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-slate-200 bg-white p-5">
+        <h3 className="font-black text-slate-900">Qui traite après validation ?</h3>
+        <p className="mt-1 text-sm text-slate-600">
+          Après validation, ces personnes reçoivent un e-mail avec un lien vers l’intranet pour
+          demander une pièce (sans repasser par la validation) puis clôturer le dossier.
         </p>
       </div>
 

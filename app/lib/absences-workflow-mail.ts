@@ -27,28 +27,54 @@ export type AbsenceDecisionTarget = {
   email: string;
 };
 
+export async function resolveAbsenceDecisionTargets(
+  scope: AbsenceScope,
+  etablissement: Etablissement | null,
+): Promise<AbsenceDecisionTarget[]> {
+  const bundle = await loadAppConfig();
+  if (scope === "ogec") {
+    const validators = (bundle.notifications.absencesValidatorsOgec || []).filter((p) =>
+      String(p.email || "").trim(),
+    );
+    if (validators.length > 0) {
+      return validators.map((p) => ({
+        roleLabel: "Validation absences OGEC",
+        name: p.label || p.email,
+        email: p.email.trim(),
+      }));
+    }
+    const dirs = bundle.establishments.filter((e) => e.active !== false);
+    const fallback = dirs[dirs.length - 1];
+    const email = fallback?.directorEmail || "";
+    if (!email.trim()) return [];
+    return [
+      {
+        roleLabel: fallback ? `Direction ${fallback.label}` : "Direction",
+        name: fallback?.directorName || bundle.identity.name,
+        email,
+      },
+    ];
+  }
+  const est = etablissement ? matchEstablishment(bundle.establishments, etablissement) : null;
+  if (est?.directorEmail?.trim()) {
+    return [
+      {
+        roleLabel: `Direction ${est.label}`,
+        name: est.directorName || est.label,
+        email: est.directorEmail,
+      },
+    ];
+  }
+  return [];
+}
+
 export async function resolveAbsenceDecisionTarget(
   scope: AbsenceScope,
   etablissement: Etablissement | null,
 ): Promise<AbsenceDecisionTarget> {
+  const targets = await resolveAbsenceDecisionTargets(scope, etablissement);
+  if (targets[0]) return targets[0];
   const bundle = await loadAppConfig();
-  if (scope === "ogec") {
-    const dirs = bundle.establishments.filter((e) => e.active !== false);
-    const fallback = dirs[dirs.length - 1];
-    return {
-      roleLabel: fallback ? `Direction ${fallback.label}` : "Direction",
-      name: fallback?.directorName || bundle.identity.name,
-      email: fallback?.directorEmail || "",
-    };
-  }
-  const est = etablissement ? matchEstablishment(bundle.establishments, etablissement) : null;
-  if (est) {
-    return {
-      roleLabel: `Direction ${est.label}`,
-      name: est.directorName || est.label,
-      email: est.directorEmail || "",
-    };
-  }
   return { roleLabel: "Direction", name: bundle.identity.name, email: "" };
 }
 
@@ -78,41 +104,44 @@ export async function notifyAbsenceCreated(input: {
 }): Promise<void> {
   const scope = input.record.data.scope;
   const etablissement = input.record.data.etablissement;
-  const target = await resolveAbsenceDecisionTarget(scope, scope === "ogec" ? null : etablissement);
-  if (!target.email.trim()) return;
+  const targets = await resolveAbsenceDecisionTargets(scope, scope === "ogec" ? null : etablissement);
+  if (targets.length === 0) return;
   const mail = await getMailer();
   if (!mail) return;
   const absencesLink = await absenceAppLink("a-traiter");
   const origin = input.fromAccueil ? "saisie à l'accueil (standard)" : "demande d'autorisation";
-  await mail.transporter.sendMail({
-    from: `"Absences" <${mail.smtp.user}>`,
-    to: target.email,
-    subject: `Nouvelle ${origin} — ${scope === "ogec" ? "Personnel OGEC" : `Professeur ${etablissement || ""}`}`.trim(),
-    text: [
-      `Bonjour ${target.name},`,
-      ``,
-      input.fromAccueil
-        ? `L’accueil a déclaré une absence qui nécessite votre validation.`
-        : `Une nouvelle demande d'autorisation d'absence nécessite votre décision.`,
-      ``,
-      `Type : ${scope === "ogec" ? "Personnel OGEC" : "Professeur"}`,
-      `Établissement : ${scope === "ogec" ? "OGEC" : etablissement || "—"}`,
-      `Personne concernée : ${input.record.displayName}`,
-      `Saisie par : ${input.actorName}`,
-      `Période : ${formatAbsencePeriod(input.record.data)}`,
-      `Motif : ${input.record.data.reason}`,
-      input.record.data.details ? `Détails : ${input.record.data.details}` : "",
-      ...formatMakeupPreferenceMailLines(input.record),
-      ``,
-      `Action attendue : Valider / Refuser dans l’application.`,
-      `Si rattrapage : indiquer à quel moment les heures doivent être rattrapées.`,
-      `Après votre accord, le calendrier est mis à jour et le dossier passe à la personne qui traite (rectorat / RH) dans l’intranet.`,
-      ``,
-      `Espace Absences: ${absencesLink}`,
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  });
+  for (const target of targets) {
+    if (!target.email.trim()) continue;
+    await mail.transporter.sendMail({
+      from: `"Absences" <${mail.smtp.user}>`,
+      to: target.email,
+      subject: `Nouvelle ${origin} — ${scope === "ogec" ? "Personnel OGEC" : `Professeur ${etablissement || ""}`}`.trim(),
+      text: [
+        `Bonjour ${target.name},`,
+        ``,
+        input.fromAccueil
+          ? `L’accueil a déclaré une absence qui nécessite votre validation.`
+          : `Une nouvelle demande d'autorisation d'absence nécessite votre décision.`,
+        ``,
+        `Type : ${scope === "ogec" ? "Personnel OGEC" : "Professeur"}`,
+        `Établissement : ${scope === "ogec" ? "OGEC" : etablissement || "—"}`,
+        `Personne concernée : ${input.record.displayName}`,
+        `Saisie par : ${input.actorName}`,
+        `Période : ${formatAbsencePeriod(input.record.data)}`,
+        `Motif : ${input.record.data.reason}`,
+        input.record.data.details ? `Détails : ${input.record.data.details}` : "",
+        ...formatMakeupPreferenceMailLines(input.record),
+        ``,
+        `Action attendue : Valider / Refuser dans l’application.`,
+        `Si rattrapage : indiquer à quel moment les heures doivent être rattrapées.`,
+        `Après votre accord, le calendrier est mis à jour et le dossier passe à la personne qui traite (rectorat / RH) dans l’intranet.`,
+        ``,
+        `Espace Absences: ${absencesLink}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+  }
 }
 
 /**
@@ -338,35 +367,38 @@ export async function notifyAbsenceMakeupSlotsRequested(input: {
 export async function notifyAbsenceMakeupSlotsProvided(record: AbsenceRecord): Promise<void> {
   const scope = resolveAbsenceScope(record);
   const etablissement = record.data.etablissement;
-  const target = await resolveAbsenceDecisionTarget(scope, scope === "ogec" ? null : etablissement);
-  if (!target.email.trim()) return;
+  const targets = await resolveAbsenceDecisionTargets(scope, scope === "ogec" ? null : etablissement);
+  if (targets.length === 0) return;
   const mail = await getMailer();
   if (!mail) return;
   const link = await absenceAppLink(
     record.managerDecision === "VALIDEE" ? "traitement" : "a-traiter",
   );
-  await mail.transporter.sendMail({
-    from: `"Absences" <${mail.smtp.user}>`,
-    to: target.email,
-    subject: `Créneaux de rattrapage indiqués — ${record.displayName || record.createdBy.name}`,
-    text: [
-      `Bonjour ${target.name},`,
-      ``,
-      `${record.createdBy.name} a indiqué les moments prévus pour rattraper les heures d’absence.`,
-      ``,
-      `Personne : ${record.displayName || record.createdBy.name}`,
-      `Période d’absence : ${formatAbsencePeriod(record.data)}`,
-      `Motif : ${record.data.reason}`,
-      record.staffPreferredMakeupSlots
-        ? `Créneaux proposés : ${record.staffPreferredMakeupSlots}`
-        : "",
-      ``,
-      `Voir dans l’application :`,
-      link,
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  });
+  for (const target of targets) {
+    if (!target.email.trim()) continue;
+    await mail.transporter.sendMail({
+      from: `"Absences" <${mail.smtp.user}>`,
+      to: target.email,
+      subject: `Créneaux de rattrapage indiqués — ${record.displayName || record.createdBy.name}`,
+      text: [
+        `Bonjour ${target.name},`,
+        ``,
+        `${record.createdBy.name} a indiqué les moments prévus pour rattraper les heures d’absence.`,
+        ``,
+        `Personne : ${record.displayName || record.createdBy.name}`,
+        `Période d’absence : ${formatAbsencePeriod(record.data)}`,
+        `Motif : ${record.data.reason}`,
+        record.staffPreferredMakeupSlots
+          ? `Créneaux proposés : ${record.staffPreferredMakeupSlots}`
+          : "",
+        ``,
+        `Voir dans l’application :`,
+        link,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+  }
 }
 
 export async function notifyAbsenceJustificatifDeposited(record: AbsenceRecord): Promise<void> {

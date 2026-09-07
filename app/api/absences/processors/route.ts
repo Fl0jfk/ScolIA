@@ -6,6 +6,7 @@ import { loadAppConfig, saveNotifications } from "@/app/lib/app-config";
 import { parseNotifications, type AbsenceNotifyPerson } from "@/app/lib/app-config-schemas";
 import {
   viewerCanConfigureAbsenceProcessors,
+  viewerCanSeeAbsenceDirectionQueue,
   viewerCanSeeProcessorQueue,
 } from "@/app/lib/absences-admin-access";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
@@ -17,6 +18,21 @@ function asPerson(value: unknown): AbsenceNotifyPerson | null {
   const label = String((value as { label?: string }).label || "").trim() || undefined;
   const userId = String((value as { userId?: string }).userId || "").trim() || undefined;
   return { email, label, userId };
+}
+
+function asPeople(value: unknown): AbsenceNotifyPerson[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: AbsenceNotifyPerson[] = [];
+  for (const item of value) {
+    const person = asPerson(item);
+    if (!person) continue;
+    const key = person.email.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(person);
+  }
+  return out;
 }
 
 export async function GET() {
@@ -34,6 +50,7 @@ export async function GET() {
     const n = bundle.notifications;
     const canConfigure = viewerCanConfigureAbsenceProcessors(roles);
     const canSeeQueue = viewerCanSeeProcessorQueue(viewer, n);
+    const canSeeDirection = viewerCanSeeAbsenceDirectionQueue(viewer, n);
 
     let members: Array<{
       externalUserId: string;
@@ -57,14 +74,16 @@ export async function GET() {
 
     return NextResponse.json({
       viewerIsProcessor: canSeeQueue,
+      viewerCanDirection: canSeeDirection,
       viewerCanConfigure: canConfigure,
       processors:
-        canSeeQueue || canConfigure
+        canSeeQueue || canConfigure || canSeeDirection
           ? {
               absencesNotifyProfEcole: n.absencesNotifyProfEcole ?? null,
               absencesNotifyProfCollege: n.absencesNotifyProfCollege ?? n.absencesNotifyProfCollegeLycee ?? null,
               absencesNotifyProfLycee: n.absencesNotifyProfLycee ?? n.absencesNotifyProfCollegeLycee ?? null,
               absencesNotifyOgecCompta: n.absencesNotifyOgecCompta ?? [],
+              absencesValidatorsOgec: n.absencesValidatorsOgec ?? [],
             }
           : null,
       members,
@@ -102,6 +121,9 @@ export async function PUT(req: Request) {
     absencesNotifyOgecCompta: Array.isArray(body.absencesNotifyOgecCompta)
       ? body.absencesNotifyOgecCompta
       : n.absencesNotifyOgecCompta,
+    absencesValidatorsOgec: has("absencesValidatorsOgec")
+      ? asPeople(body.absencesValidatorsOgec)
+      : n.absencesValidatorsOgec,
   });
   await saveNotifications(next);
   return NextResponse.json({ ok: true, notifications: next });

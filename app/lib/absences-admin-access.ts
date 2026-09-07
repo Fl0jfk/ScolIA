@@ -1,9 +1,11 @@
 import type { Establishment, NotificationsConfig } from "@/app/lib/app-config-schemas";
 import type { AbsenceRecord } from "@/app/lib/absences-types";
 import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
+import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import {
   collectAbsenceProcessors,
   isConfiguredAbsenceProcessor,
+  viewerIsConfiguredOgecAbsenceValidator,
 } from "@/app/lib/absences-validation-recipients";
 
 export type AbsenceProcessorViewer = {
@@ -69,4 +71,14 @@ export function viewerCanConfigureAbsenceProcessors(roles: string[]): boolean {
       .replace(/[\u0300-\u036f]/g, "");
     return n.includes("direction");
   });
+}
+
+/** Onglet Direction : rôle direction, admin, ou validateur OGEC nominatif. */
+export function viewerCanSeeAbsenceDirectionQueue(
+  viewer: AbsenceProcessorViewer,
+  notifications: NotificationsConfig | null | undefined,
+): boolean {
+  const roles = viewer.roles || [];
+  if (hasGlobalAdminRole(roles) || hasMasterRole(roles) || isAnyDirectionRole(roles)) return true;
+  return viewerIsConfiguredOgecAbsenceValidator(viewer, notifications);
 }

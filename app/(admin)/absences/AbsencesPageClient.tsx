@@ -12,7 +12,6 @@ import ModuleTabFallback from "@/app/components/module-chrome/ModuleTabFallback"
 import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
 import { useAppContext } from "@/app/hooks/useAppContext";
-import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import {
   canChooseDeclarationScope,
   canDeclareAbsenceOnBehalf,
@@ -26,9 +25,8 @@ import {
   resolveSelfDeclarationScope,
   type AbsenceRecord,
 } from "@/app/lib/absences-types";
-import { viewerCanConfigureAbsenceProcessors, viewerIsAbsenceProcessor } from "@/app/lib/absences-admin-access";
+import { viewerCanConfigureAbsenceProcessors, viewerCanSeeAbsenceDirectionQueue, viewerIsAbsenceProcessor } from "@/app/lib/absences-admin-access";
 import type { NotificationsConfig } from "@/app/lib/app-config-schemas";
-import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
 import { formatAbsencePeriod, type AbsencePeriodType } from "@/app/lib/absence-period";
 import {
   formatAbsenceHoursTreatment,
@@ -117,11 +115,18 @@ export default function AbsencesPageClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const showCalendar = canViewCalendar(roles);
-  const canTreat = isAnyDirectionRole(roles) || hasGlobalAdminRole(roles) || hasMasterRole(roles);
   const canOnBehalf = canDeclareAbsenceOnBehalf(roles);
   const canConfigureProcessors = viewerCanConfigureAbsenceProcessors(roles);
   const [viewerIsProcessor, setViewerIsProcessor] = useState(false);
   const [processorNotifications, setProcessorNotifications] = useState<NotificationsConfig | null>(null);
+  const canTreat = viewerCanSeeAbsenceDirectionQueue(
+    {
+      email: user?.primaryEmailAddress?.emailAddress,
+      userId: user?.id,
+      roles,
+    },
+    processorNotifications,
+  );
 
   const subjectRoles = useMemo(() => {
     if (forOther && colleague) {
@@ -250,6 +255,7 @@ export default function AbsencesPageClient({
             absencesNotifyProfCollege?: { email: string; userId?: string } | null;
             absencesNotifyProfLycee?: { email: string; userId?: string } | null;
             absencesNotifyOgecCompta?: string[];
+            absencesValidatorsOgec?: Array<{ email: string; userId?: string; label?: string }>;
           };
         } | null;
         if (!res.ok || cancelled || !data) return;
@@ -261,6 +267,7 @@ export default function AbsencesPageClient({
             absencesNotifyProfEcole: data.processors.absencesNotifyProfEcole ?? undefined,
             absencesNotifyProfCollege: data.processors.absencesNotifyProfCollege ?? undefined,
             absencesNotifyProfLycee: data.processors.absencesNotifyProfLycee ?? undefined,
+            absencesValidatorsOgec: data.processors.absencesValidatorsOgec ?? [],
           });
         }
       } catch {
@@ -393,6 +400,8 @@ export default function AbsencesPageClient({
     canManageAbsence(asRecord(item), roles, {
       establishments,
       userId: user?.id,
+      email: user?.primaryEmailAddress?.emailAddress,
+      notifications: processorNotifications,
     });
   const updateWorkflow = async (
     id: string,
@@ -662,10 +671,12 @@ export default function AbsencesPageClient({
           isAbsencePendingForManager(i as unknown as AbsenceRecord, user?.id || "", roles, {
             establishments,
             userId: user?.id,
+            email: user?.primaryEmailAddress?.emailAddress,
+            notifications: processorNotifications,
           }),
         )
         .sort((a, b) => compareAbsenceRecordsAlphabetically(asRecord(a), asRecord(b))),
-    [sorted, user?.id, roles, establishments],
+    [sorted, user?.id, user?.primaryEmailAddress?.emailAddress, roles, establishments, processorNotifications],
   );
   const adminQueue = useMemo(
     () =>

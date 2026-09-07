@@ -407,11 +407,13 @@ export async function PATCH(req: Request) {
     const isOwner = current.createdBy.userId === userId;
     const isSubmitter = current.submittedBy?.userId === userId;
     const bundle = await loadAppConfig();
+    const viewerEmail = user?.primaryEmailAddress?.emailAddress || "";
     const canManage = canManageAbsence(current, roles, {
       establishments: bundle.establishments,
       userId,
+      email: viewerEmail,
+      notifications: bundle.notifications,
     });
-    const viewerEmail = user?.primaryEmailAddress?.emailAddress || "";
     const canProcess = viewerIsAbsenceProcessor(
       current,
       { email: viewerEmail, userId, roles },
@@ -906,7 +908,14 @@ export async function DELETE(req: Request) {
     const record = await getAbsenceOrLegacyRecord(id);
     if (!record) return NextResponse.json({ error: "Absence introuvable" }, { status: 404 });
     const bundle = await loadAppConfig();
-    if (!canManageAbsence(record, roles, { establishments: bundle.establishments, userId: user?.id })) {
+    if (
+      !canManageAbsence(record, roles, {
+        establishments: bundle.establishments,
+        userId: user?.id,
+        email: user?.primaryEmailAddress?.emailAddress || "",
+        notifications: bundle.notifications,
+      })
+    ) {
       return NextResponse.json({ error: "Suppression non autorisée." }, { status: 403 });
     }
 

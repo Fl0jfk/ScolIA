@@ -5,6 +5,7 @@ import type { AbsenceRecord } from "./absences-types";
 import {
   isAbsencePendingForProcessor,
   processorMayAccessValidatedAbsence,
+  viewerCanSeeAbsenceDirectionQueue,
   viewerCanSeeProcessorQueue,
   viewerIsAbsenceProcessor,
 } from "./absences-admin-access";
@@ -124,5 +125,36 @@ test("Sarah ne voit pas un dossier encore en attente direction", () => {
   assert.equal(
     processorMayAccessValidatedAbsence(prof("Lycée") as AbsenceRecord, sarah, notifications, establishments),
     true,
+  );
+});
+
+test("validateur OGEC nominatif voit l’onglet Direction", () => {
+  const withValidators: NotificationsConfig = {
+    ...notifications,
+    absencesValidatorsOgec: [
+      { label: "Marie", email: "marie.rh@etab.fr", userId: "u-marie" },
+      { label: "Paul", email: "paul.dir@etab.fr", userId: "u-paul" },
+    ],
+  };
+  assert.equal(
+    viewerCanSeeAbsenceDirectionQueue(
+      { email: "marie.rh@etab.fr", userId: "u-marie", roles: [] },
+      withValidators,
+    ),
+    true,
+  );
+  assert.equal(
+    viewerCanSeeAbsenceDirectionQueue(
+      { email: "autre@etab.fr", roles: ["direction_college"] },
+      withValidators,
+    ),
+    true,
+  );
+  assert.equal(
+    viewerCanSeeAbsenceDirectionQueue(
+      { email: "autre@etab.fr", roles: ["administratif"] },
+      withValidators,
+    ),
+    false,
   );
 });

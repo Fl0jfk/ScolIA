@@ -290,7 +290,12 @@ export async function GET() {
       console.error("[dashboard/signals] prof-room config", err);
       roomSubjectColors = withDefaultProfRoomSubjects(defaultProfRoomModule()).subjectColors;
     }
-    const absenceDirCtx = { establishments, userId };
+    const absenceDirCtx = {
+      establishments,
+      userId,
+      email,
+      notifications: appBundle?.notifications ?? null,
+    };
     let absences: AbsenceRecord[] = [];
     try {
       absences = absencesRaw.filter(

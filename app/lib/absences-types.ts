@@ -1,6 +1,6 @@
 import type { AbsenceHoursTreatment } from "@/app/lib/absence-hours-treatment";
 import type { AbsencePeriodType } from "@/app/lib/absence-period";
-import type { Establishment } from "@/app/lib/app-config-schemas";
+import type { Establishment, NotificationsConfig } from "@/app/lib/app-config-schemas";
 import {
   directionRolesMatchEstablishmentRef,
   isAnyDirectionRole,
@@ -144,6 +144,8 @@ export function canChooseDeclarationScope(roles: string[]) {
 export type DirectionAuthCtx = {
   establishments?: Establishment[];
   userId?: string | null;
+  email?: string | null;
+  notifications?: NotificationsConfig | null;
 };
 
 export function getRoleFlags(roles: string[]) {
@@ -321,7 +323,25 @@ export function canManageAbsence(abs: AbsenceRecord, roles: string[], ctx?: Dire
   if (hasGlobalAdminRole(roles) || hasMasterRole(roles)) return true;
   const flags = getRoleFlags(roles);
   const scope = resolveAbsenceScope(abs);
-  if (scope === "ogec") return flags.isDirection;
+  if (scope === "ogec") {
+    const validators = ctx?.notifications?.absencesValidatorsOgec;
+    const configured =
+      Array.isArray(validators) &&
+      validators.some((p) => String(p?.email || "").trim());
+    if (configured) {
+      const email = String(ctx?.email || "")
+        .trim()
+        .toLowerCase();
+      const userId = String(ctx?.userId || "").trim();
+      return validators!.some((p) => {
+        if (!p) return false;
+        if (email && p.email && p.email.trim().toLowerCase() === email) return true;
+        if (userId && p.userId && p.userId === userId) return true;
+        return false;
+      });
+    }
+    return flags.isDirection;
+  }
   return directionRolesMatchEstablishmentRef(
     roles,
     abs.data.etablissement,

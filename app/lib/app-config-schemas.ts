@@ -175,6 +175,11 @@ export type NotificationsConfig = {
   absencesNotifyProfCollegeLycee?: AbsenceNotifyPerson;
   absencesNotifyOgecCompta: string[];
   /**
+   * Personnes nominatives qui valident / refusent les absences du personnel OGEC (GEC).
+   * Si la liste est vide : repli sur tout rôle Direction (comportement historique).
+   */
+  absencesValidatorsOgec?: AbsenceNotifyPerson[];
+  /**
    * Après validation d'une absence OGEC d'un personnel « éducation / surveillance » :
    * copie aux responsables des surveillants (en plus de la compta RH).
    */
@@ -499,6 +504,20 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
     const userId = str(b.userId).trim();
     return { label: str(b.label) || undefined, email, userId: userId || undefined };
   };
+  const parseNotifyPeople = (block: unknown): AbsenceNotifyPerson[] => {
+    if (!Array.isArray(block)) return [];
+    const seen = new Set<string>();
+    const out: AbsenceNotifyPerson[] = [];
+    for (const item of block) {
+      const person = parseNotify(item);
+      if (!person) continue;
+      const key = person.email.trim().toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(person);
+    }
+    return out;
+  };
   const parseInternatRollCall = (block: unknown): InternatRollCallRecipients | undefined => {
     if (!block || typeof block !== "object") return undefined;
     const b = block as Record<string, unknown>;
@@ -534,6 +553,7 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
     absencesNotifyProfLycee: parseNotify(o.absencesNotifyProfLycee),
     absencesNotifyProfCollegeLycee: parseNotify(o.absencesNotifyProfCollegeLycee),
     absencesNotifyOgecCompta: ogec,
+    absencesValidatorsOgec: parseNotifyPeople(o.absencesValidatorsOgec),
     absencesNotifySurveillanceResponsables: surveillance,
     internatRollCallRecipients: parseInternatRollCall(o.internatRollCallRecipients),
     internatEmergencyRecipients: strArr(o.internatEmergencyRecipients).filter(isEmail),

@@ -99,6 +99,9 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
   const [editForm, setEditForm] = useState<EditFormState | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [absenceNotifications, setAbsenceNotifications] = useState<
+    import("@/app/lib/app-config-schemas").NotificationsConfig | null
+  >(null);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 639px)");
@@ -121,8 +124,40 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
 
   const canManageSlot = useMemo(() => {
     return (item: AbsenceRecord) =>
-      canManageAbsence(item, roles, { establishments, userId: user?.id });
-  }, [roles, establishments, user?.id]);
+      canManageAbsence(item, roles, {
+        establishments,
+        userId: user?.id,
+        email: user?.primaryEmailAddress?.emailAddress,
+        notifications: absenceNotifications,
+      });
+  }, [roles, establishments, user?.id, user?.primaryEmailAddress?.emailAddress, absenceNotifications]);
+
+  useEffect(() => {
+    if (!userLoaded || !user) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/absences/processors", { cache: "no-store" });
+        const data = (await res.json().catch(() => null)) as {
+          processors?: {
+            absencesValidatorsOgec?: Array<{ email: string; userId?: string; label?: string }>;
+            absencesNotifyOgecCompta?: string[];
+          } | null;
+        } | null;
+        if (!res.ok || cancelled || !data?.processors) return;
+        setAbsenceNotifications({
+          travelsCompta: [],
+          absencesNotifyOgecCompta: data.processors.absencesNotifyOgecCompta ?? [],
+          absencesValidatorsOgec: data.processors.absencesValidatorsOgec ?? [],
+        });
+      } catch {
+        /* droits calendrier : repli direction */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userLoaded, user]);
 
   const fetchAbsences = async () => {
     try {

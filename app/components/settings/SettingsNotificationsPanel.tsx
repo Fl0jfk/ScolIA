@@ -4,6 +4,7 @@ import type { Dispatch, SetStateAction } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import DirectoryPersonSelect, {
   DirectoryPeopleSelect,
+  DirectoryPeoplePersonSelect,
   directoryMemberLabel,
 } from "@/app/components/settings/DirectoryPersonSelect";
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
@@ -85,6 +86,9 @@ export default function SettingsNotificationsPanel({
     asNotify(notifications.absencesNotifyProfCollege) || asNotify(notifications.absencesNotifyProfCollegeLycee);
   const profLycee =
     asNotify(notifications.absencesNotifyProfLycee) || asNotify(notifications.absencesNotifyProfCollegeLycee);
+  const ogecValidators = Array.isArray(notifications.absencesValidatorsOgec)
+    ? (notifications.absencesValidatorsOgec as NotifyPerson[]).filter((p) => p?.email)
+    : [];
 
   const showInternat = activeEstablishmentKinds.has("college") || activeEstablishmentKinds.has("lycee");
 
@@ -168,8 +172,20 @@ export default function SettingsNotificationsPanel({
       <SettingsSection
         icon="🗓️"
         title="Absences"
-        description="Après validation direction, un mail avec un lien intranet est envoyé à la personne absente et à celle qui traite (rectorat / ONISE / RH). Le dossier se clôture dans Absences → Traitement. Vous pouvez aussi les choisir dans Absences → Paramétrage."
+        description="Choisissez qui valide les absences OGEC, puis qui les traite après validation (rectorat / ONISE / RH). Vous pouvez aussi le faire dans Absences → Paramétrage."
       >
+        <SettingsField
+          label="Validation — personnel OGEC"
+          hint="Personnes authentifiées qui acceptent ou refusent les absences du personnel OGEC. Plusieurs possibles. Liste vide = toute direction (historique)."
+          as="div"
+        >
+          <DirectoryPeoplePersonSelect
+            members={directoryMembers}
+            loading={membersLoading}
+            selected={ogecValidators}
+            onChange={(people) => patch({ absencesValidatorsOgec: people })}
+          />
+        </SettingsField>
         {activeEstablishmentKinds.has("ecole") ? (
           <SettingsField
             label="Professeurs — école"
