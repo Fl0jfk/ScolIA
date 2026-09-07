@@ -1,5 +1,8 @@
 /** Générateur .ics générique (événements établissement, sorties, etc.). */
 
+export type CalendarIcsMethod = "PUBLISH" | "CANCEL";
+export type CalendarIcsStatus = "CONFIRMED" | "TENTATIVE" | "CANCELLED";
+
 export type CalendarIcsEvent = {
   title: string;
   description?: string;
@@ -20,6 +23,10 @@ export type CalendarIcsEvent = {
   durationMinutes?: number;
   uid?: string;
   prodId?: string;
+  /** Statut VEVENT (ex. CANCELLED pour retirer du calendrier). */
+  status?: CalendarIcsStatus;
+  /** SEQUENCE pour mises à jour / annulations (défaut 0). */
+  sequence?: number;
 };
 
 /** Alias historique portes ouvertes. */
@@ -30,6 +37,9 @@ export function buildPortesOuvertesIcs(params: {
   startAt: string;
   endAt: string;
   uid?: string;
+  method?: CalendarIcsMethod;
+  status?: CalendarIcsStatus;
+  sequence?: number;
 }): string {
   return buildCalendarEventIcs({
     ...params,
@@ -37,10 +47,11 @@ export function buildPortesOuvertesIcs(params: {
   });
 }
 
-export function buildCalendarEventIcs(params: CalendarIcsEvent): string {
+export function buildCalendarEventIcs(params: CalendarIcsEvent & { method?: CalendarIcsMethod }): string {
   return buildCalendarEventsIcs({
     events: [params],
     prodId: params.prodId,
+    method: params.method,
   });
 }
 
@@ -48,15 +59,17 @@ export function buildCalendarEventIcs(params: CalendarIcsEvent): string {
 export function buildCalendarEventsIcs(params: {
   events: CalendarIcsEvent[];
   prodId?: string;
+  method?: CalendarIcsMethod;
 }): string {
   const prodId = params.prodId || "-//Scola//Calendrier//FR";
+  const method = params.method || "PUBLISH";
   const stamp = formatIcsNowUtc();
   const blocks: string[] = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     `PRODID:${prodId}`,
     "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
+    `METHOD:${method}`,
   ];
 
   for (const ev of params.events) {
@@ -66,14 +79,17 @@ export function buildCalendarEventsIcs(params: {
     const loc = (ev.location || "").replace(/,/g, "\\,");
     const startLine = useParisTz ? `DTSTART;TZID=Europe/Paris:${dtStart}` : `DTSTART:${dtStart}`;
     const endLine = useParisTz ? `DTEND;TZID=Europe/Paris:${dtEnd}` : `DTEND:${dtEnd}`;
+    const sequence = typeof ev.sequence === "number" && ev.sequence >= 0 ? ev.sequence : 0;
     blocks.push(
       "BEGIN:VEVENT",
       `UID:${uid}`,
       `DTSTAMP:${stamp}`,
+      `SEQUENCE:${sequence}`,
       startLine,
       endLine,
       `SUMMARY:${escapeIcs(ev.title)}`,
     );
+    if (ev.status) blocks.push(`STATUS:${ev.status}`);
     if (desc) blocks.push(`DESCRIPTION:${escapeIcs(desc)}`);
     if (loc) blocks.push(`LOCATION:${escapeIcs(loc)}`);
     blocks.push("END:VEVENT");

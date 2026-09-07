@@ -6,6 +6,7 @@ import {
   addPortesOuvertesRegistration,
   countRegistrationsBySlot,
   countRegistrationsForSlot,
+  deletePortesOuvertesRegistration,
   getPortesOuvertesConfig,
   listDuePortesOuvertesFollowUps,
   listPortesOuvertesRegistrations,
@@ -93,6 +94,7 @@ async function sendVisitorConfirmationMail(params: {
     startAt: slot.startAt,
     endAt: slot.endAt,
     uid: `po-${entry.id}@scola`,
+    sequence: kind === "update" ? 1 : 0,
   });
 
   const dateStr = new Date(slot.startAt).toLocaleString("fr-FR", {
@@ -103,7 +105,7 @@ async function sendVisitorConfirmationMail(params: {
 
   const headline =
     kind === "update"
-      ? `Votre créneau pour les <strong>${po.title}</strong> a été modifié.`
+      ? `Votre créneau de portes ouvertes pour les <strong>${po.title}</strong> a été modifié.`
       : `Votre inscription aux <strong>${po.title}</strong> est confirmée.`;
 
   return sendPortesOuvertesMail({
@@ -119,6 +121,47 @@ async function sendVisitorConfirmationMail(params: {
       <p>Ajoutez l'événement à votre agenda via le fichier joint (.ics)${
         kind === "update" ? " (remplacez l’ancien créneau)" : ""
       }.</p>
+    `,
+    ics,
+  });
+}
+
+async function sendVisitorCancellationMail(params: {
+  po: PortesOuvertesToolConfig;
+  entry: PortesOuvertesRegistration;
+  slot: PortesOuvertesSlot;
+}): Promise<boolean> {
+  const { po, entry, slot } = params;
+  const visitLine = visitLineOf(entry);
+  const dateStr = new Date(slot.startAt).toLocaleString("fr-FR", {
+    timeZone: "Europe/Paris",
+    dateStyle: "full",
+    timeStyle: "short",
+  });
+
+  const ics = buildPortesOuvertesIcs({
+    title: `${po.title} — ${slot.label}`,
+    description: "Inscription annulée — retirez cet événement de votre agenda.",
+    location: po.address,
+    startAt: slot.startAt,
+    endAt: slot.endAt,
+    uid: `po-${entry.id}@scola`,
+    method: "CANCEL",
+    status: "CANCELLED",
+    sequence: 2,
+  });
+
+  return sendPortesOuvertesMail({
+    to: entry.email,
+    subject: `Inscription annulée — ${po.title}`,
+    html: `
+      <p>Bonjour ${entry.firstName} ${entry.lastName},</p>
+      <p>Votre inscription aux <strong>${po.title}</strong> a été annulée.</p>
+      <p><strong>Créneau annulé :</strong> ${slot.label}<br/>
+      <strong>Date :</strong> ${dateStr}<br/>
+      ${visitLine ? `<strong>Visite :</strong> ${visitLine}<br/>` : ""}
+      ${po.address ? `<strong>Adresse :</strong> ${po.address}` : ""}</p>
+      <p>Le fichier joint (.ics) permet de retirer l’événement de votre agenda.</p>
     `,
     ics,
   });
@@ -228,6 +271,8 @@ export type UpdatePortesOuvertesInput = {
   lastName?: string;
   email?: string;
   phone?: string;
+  childFirstName?: string;
+  childLastName?: string;
   cycle?: PortesOuvertesCycle;
   classeSouhaitee?: string;
   actor: { userId: string; name: string };
@@ -284,6 +329,23 @@ export async function updatePortesOuvertesVisitor(
     }
   }
 
+  const childFirstName =
+    input.childFirstName !== undefined
+      ? input.childFirstName.trim() || undefined
+      : current.childFirstName;
+  const childLastName =
+    input.childLastName !== undefined
+      ? input.childLastName.trim() || undefined
+      : current.childLastName;
+  const classeSouhaitee = input.classeSouhaitee ?? current.classeSouhaitee;
+  const childrenInfo =
+    portesOuvertesVisitLine({
+      cycle: nextCycle,
+      childFirstName,
+      childLastName,
+      classeSouhaitee,
+    }) || current.childrenInfo;
+
   const snap = slotSnapshot(slot);
   const entry = await updatePortesOuvertesRegistration(input.id, {
     slotId: nextSlotId,
@@ -292,8 +354,12 @@ export async function updatePortesOuvertesVisitor(
     lastName: input.lastName?.trim() || current.lastName,
     email: (input.email?.trim().toLowerCase() || current.email).toLowerCase(),
     phone: input.phone !== undefined ? input.phone.trim() || undefined : current.phone,
+    // Chaîne vide → null en BDD (permet d’effacer le prénom/nom enfant).
+    childFirstName: childFirstName || "",
+    childLastName: childLastName || "",
+    childrenInfo,
     cycle: nextCycle,
-    classeSouhaitee: input.classeSouhaitee ?? current.classeSouhaitee,
+    classeSouhaitee,
     lastModifiedBy: input.actor,
   });
 
@@ -320,6 +386,83 @@ export async function updatePortesOuvertesVisitor(
   }
 
   return { ok: true, entry, mailSent };
+}
+
+export type CancelPortesOuvertesInput = {
+  id: string;
+  actor: { userId: string; name: string };
+  /** Si false, ne pas envoyer le mail d’annulation (défaut : true pour créneaux à venir). */
+  notifyVisitor?: boolean;
+};
+
+export async function cancelPortesOuvertesVisitor(
+  po: PortesOuvertesToolConfig,
+  input: CancelPortesOuvertesInput,
+): Promise<RegisterPortesOuvertesResult> {
+  const registrations = await listPortesOuvertesRegistrations();
+  const current = registrations.find((r) => r.id === input.id);
+  if (!current) {
+    return { ok: false, status: 404, error: "Inscription introuvable." };
+  }
+
+  const configSlot = po.slots.find((s) => s.id === current.slotId);
+  const startAt = current.slotStartAt || configSlot?.startAt;
+  const endAt = current.slotEndAt || configSlot?.endAt;
+  const label = current.slotLabel || configSlot?.label || "Créneau";
+  const currentWithSnap = {
+    ...current,
+    slotStartAt: startAt,
+    slotEndAt: endAt,
+  };
+
+  if (!isPortesOuvertesRegistrationUpcoming(currentWithSnap)) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Cette session est passée : suppression impossible (historique conservé).",
+    };
+  }
+
+  if (!startAt || !endAt) {
+    return { ok: false, status: 400, error: "Créneau introuvable pour cette inscription." };
+  }
+
+  const slotForMail: PortesOuvertesSlot = {
+    id: current.slotId,
+    label,
+    startAt,
+    endAt,
+    cycle: current.cycle || configSlot?.cycle,
+    maxPlaces: configSlot?.maxPlaces,
+  };
+
+  const shouldNotify = input.notifyVisitor !== false;
+  const deleted = await deletePortesOuvertesRegistration(input.id);
+  if (!deleted) {
+    return { ok: false, status: 404, error: "Inscription introuvable." };
+  }
+
+  let mailSent = false;
+  if (shouldNotify) {
+    mailSent = await sendVisitorCancellationMail({
+      po,
+      entry: deleted,
+      slot: slotForMail,
+    });
+  }
+
+  if (po.notifyEmail) {
+    const visitLine = visitLineOf(deleted);
+    await sendPortesOuvertesMail({
+      to: po.notifyEmail,
+      subject: `Inscription annulée — ${po.title}`,
+      html: `<p>${deleted.firstName} ${deleted.lastName} (${deleted.email}) — créneau ${label}${
+        visitLine ? ` — ${visitLine}` : ""
+      } — annulé par ${input.actor.name}</p>`,
+    });
+  }
+
+  return { ok: true, entry: deleted, mailSent };
 }
 
 export async function sendPortesOuvertesFollowUpMail(params: {

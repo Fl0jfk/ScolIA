@@ -63,6 +63,8 @@ type EditDraft = {
   lastName: string;
   email: string;
   phone: string;
+  childFirstName: string;
+  childLastName: string;
   cycle: PortesOuvertesCycle;
   classeSouhaitee: string;
   slotId: string;
@@ -333,6 +335,8 @@ export default function AccueilPortesOuvertesClient() {
       lastName: r.lastName,
       email: r.email,
       phone: r.phone || "",
+      childFirstName: r.childFirstName || "",
+      childLastName: r.childLastName || "",
       cycle: r.cycle || "college",
       classeSouhaitee: r.classeSouhaitee || "",
       slotId: r.slotId,
@@ -361,6 +365,39 @@ export default function AccueilPortesOuvertesClient() {
           : "Créneau modifié — nouvel e-mail de confirmation avec .ics envoyé.",
       );
       setEdit(null);
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeRegistration(r: RegistrationRow) {
+    if (!r.upcoming) return;
+    const label = [r.firstName, r.lastName].filter(Boolean).join(" ");
+    const slotLabel = board ? displaySlot(r, board.slots) : r.slotId;
+    const ok = window.confirm(
+      `Supprimer l’inscription de ${label} (${slotLabel}) ?\n\nUn e-mail d’annulation avec .ics sera envoyé à ${r.email}.`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/accueil/portes-ouvertes", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: r.id }),
+      });
+      const data = (await res.json()) as { error?: string; mailSent?: boolean };
+      if (!res.ok) throw new Error(data.error || "Suppression impossible");
+      setMessage(
+        data.mailSent === false
+          ? "Inscription supprimée. Attention : l’e-mail d’annulation/.ics n’a pas pu être envoyé (SMTP)."
+          : "Inscription supprimée — e-mail d’annulation avec .ics envoyé.",
+      );
+      if (edit?.id === r.id) setEdit(null);
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -520,13 +557,24 @@ export default function AccueilPortesOuvertesClient() {
                 </td>
                 <td className="px-4 py-2">
                   {r.upcoming ? (
-                    <button
-                      type="button"
-                      onClick={() => openEdit(r)}
-                      className="text-xs font-bold text-violet-700 underline"
-                    >
-                      Modifier
-                    </button>
+                    <div className="flex flex-col items-start gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(r)}
+                        disabled={busy}
+                        className="text-xs font-bold text-violet-700 underline disabled:opacity-50"
+                      >
+                        Modifier
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void removeRegistration(r)}
+                        disabled={busy}
+                        className="text-xs font-bold text-rose-700 underline disabled:opacity-50"
+                      >
+                        Supprimer
+                      </button>
+                    </div>
                   ) : (
                     <span className="text-xs text-slate-400">Historique</span>
                   )}
@@ -749,11 +797,14 @@ export default function AccueilPortesOuvertesClient() {
                 </button>
               </div>
               <p className="text-sm text-violet-900">
-                Changement de créneau / coordonnées → nouvel e-mail de confirmation avec .ics.
+                Changement de créneau, de coordonnées ou de prénom → nouvel e-mail « créneau modifié »
+                avec .ics.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
-                  <span className="text-xs font-bold uppercase text-slate-500">Prénom</span>
+                  <span className="text-xs font-bold uppercase text-slate-500">
+                    Prénom contact
+                  </span>
                   <input
                     required
                     className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
@@ -762,12 +813,32 @@ export default function AccueilPortesOuvertesClient() {
                   />
                 </label>
                 <label className="block">
-                  <span className="text-xs font-bold uppercase text-slate-500">Nom</span>
+                  <span className="text-xs font-bold uppercase text-slate-500">Nom contact</span>
                   <input
                     required
                     className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
                     value={edit.lastName}
                     onChange={(e) => setEdit({ ...edit, lastName: e.target.value })}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold uppercase text-slate-500">
+                    Prénom enfant
+                  </span>
+                  <input
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+                    value={edit.childFirstName}
+                    onChange={(e) => setEdit({ ...edit, childFirstName: e.target.value })}
+                    placeholder="Optionnel"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-bold uppercase text-slate-500">Nom enfant</span>
+                  <input
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+                    value={edit.childLastName}
+                    onChange={(e) => setEdit({ ...edit, childLastName: e.target.value })}
+                    placeholder="Optionnel"
                   />
                 </label>
                 <label className="block">

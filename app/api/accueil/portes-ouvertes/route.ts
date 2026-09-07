@@ -4,6 +4,7 @@ import { loadAppConfig } from "@/app/lib/app-config";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { getToolboxConfig } from "@/app/lib/toolbox-config";
 import {
+  cancelPortesOuvertesVisitor,
   registerPortesOuvertesVisitor,
   updatePortesOuvertesVisitor,
 } from "@/app/lib/portes-ouvertes-mail";
@@ -40,8 +41,15 @@ const UpdateSchema = z.object({
   lastName: z.string().min(1).max(80).optional(),
   email: z.string().email().max(200).optional(),
   phone: z.string().min(6).max(40).optional(),
+  childFirstName: z.string().max(80).optional(),
+  childLastName: z.string().max(80).optional(),
   cycle: z.enum(["ecole", "college", "lycee"]).optional(),
   classeSouhaitee: z.string().min(1).max(80).optional(),
+});
+
+const CancelSchema = z.object({
+  id: z.string().min(1),
+  notifyVisitor: z.boolean().optional(),
 });
 
 const VisitSchema = z.object({
@@ -253,8 +261,48 @@ export async function PATCH(req: Request) {
     lastName: body.lastName,
     email: body.email,
     phone: body.phone,
+    childFirstName: body.childFirstName,
+    childLastName: body.childLastName,
     cycle: body.cycle,
     classeSouhaitee: body.classeSouhaitee,
+    actor: actorFromGate(gate),
+  });
+
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+
+  return NextResponse.json({
+    success: true,
+    mailSent: result.mailSent,
+    entry: result.entry,
+  });
+}
+
+export async function DELETE(req: Request) {
+  const gate = await requireModule("accueil-portes-ouvertes");
+  if (!gate.ok) return gate.response;
+
+  const payload = await buildPortesOuvertesToolPayload();
+  const po = { enabled: true, ...payload };
+
+  const url = new URL(req.url);
+  const idFromQuery = url.searchParams.get("id");
+  const bodyJson = await req.json().catch(() => null);
+  const parsed = CancelSchema.safeParse(
+    bodyJson && typeof bodyJson === "object"
+      ? bodyJson
+      : idFromQuery
+        ? { id: idFromQuery }
+        : null,
+  );
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Identifiant d’inscription manquant." }, { status: 400 });
+  }
+
+  const result = await cancelPortesOuvertesVisitor(po, {
+    id: parsed.data.id,
+    notifyVisitor: parsed.data.notifyVisitor,
     actor: actorFromGate(gate),
   });
 

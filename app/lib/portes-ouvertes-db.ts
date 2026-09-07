@@ -457,6 +457,38 @@ export async function updatePortesOuvertesRegistration(
   return refreshed[0] ? mapRegistration(refreshed[0]) : null;
 }
 
+/** Suppression ciblée d’une inscription (id + établissement uniquement). */
+export async function deletePortesOuvertesRegistration(
+  id: string,
+  etablissementId?: string,
+): Promise<PortesOuvertesRegistration | null> {
+  const etabId = await requireEtabId(etablissementId);
+  const db = getDb();
+  const existing = await db
+    .select()
+    .from(portesOuvertesRegistration)
+    .where(
+      and(
+        eq(portesOuvertesRegistration.etablissementId, etabId),
+        eq(portesOuvertesRegistration.id, id),
+      ),
+    )
+    .limit(1);
+  const current = existing[0];
+  if (!current) return null;
+
+  await db
+    .delete(portesOuvertesRegistration)
+    .where(
+      and(
+        eq(portesOuvertesRegistration.etablissementId, etabId),
+        eq(portesOuvertesRegistration.id, id),
+      ),
+    );
+
+  return mapRegistration(current);
+}
+
 export function countRegistrationsBySlot(
   rows: PortesOuvertesRegistration[],
 ): Record<string, number> {
