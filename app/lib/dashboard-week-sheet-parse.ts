@@ -38,9 +38,10 @@ type MistralPayload = {
 function normalizeEvent(raw: MistralEvent, index: number): WeekSheetEvent | null {
   const day = raw.day ? normalizeWeekDay(raw.day) : null;
   const title = raw.title?.trim();
-  const startTime = raw.startTime?.trim();
-  if (!day || !title || !startTime) return null;
-  if (parseTimeToMinutes(startTime) === null) return null;
+  if (!day || !title) return null;
+  // Annonces sans horaire (consignes journée) : 8h00 pour rester visibles le jour J.
+  let startTime = raw.startTime?.trim() || "8h00";
+  if (parseTimeToMinutes(startTime) === null) startTime = "8h00";
   return {
     id: `ev-${index}`,
     day,
@@ -85,19 +86,23 @@ function buildPrompt(ocrText: string, singleWeek: boolean): string {
   const scope = singleWeek
     ? "Extrais les créneaux de CETTE semaine uniquement (le texte ne couvre qu'une semaine)."
     : "Le document peut contenir PLUSIEURS semaines : extrais CHAQUE semaine séparément.";
+  const year = new Date().getFullYear();
+  const exampleMonday = `${year}-09-07`;
 
   return (
     `Tu analyses une feuille de semaine (planning) d'un établissement scolaire en France.\n` +
     `${scope}\n` +
     `Pour chaque semaine, extrais TOUS les créneaux / rendez-vous / réunions / activités du lundi au vendredi.\n` +
     `IMPORTANT : chaque activité distincte = une entrée séparée dans events (absence d'un prof, réunion, consigne horaire, etc.).\n` +
+    `Si une activité n'a pas d'horaire précis, mets startTime à "8h00".\n` +
     `Ne mets JAMAIS d'information dans "notes" : laisse notes vide ou omets le champ.\n` +
+    `Année civile courante : ${year}. Si le PDF n'indique pas l'année, utilise ${year}.\n` +
     `Réponds UNIQUEMENT en JSON valide avec ce schéma :\n` +
     `{\n` +
     `  "weeks": [\n` +
     `    {\n` +
-    `      "weekLabel": "Semaine du 8 au 14 juin 2025",\n` +
-    `      "weekStart": "2025-06-08",\n` +
+    `      "weekLabel": "Semaine du 7 au 13 septembre ${year}",\n` +
+    `      "weekStart": "${exampleMonday}",\n` +
     `      "events": [\n` +
     `        {\n` +
     `          "day": "lundi|mardi|mercredi|jeudi|vendredi",\n` +
@@ -110,7 +115,7 @@ function buildPrompt(ocrText: string, singleWeek: boolean): string {
     `    }\n` +
     `  ]\n` +
     `}\n` +
-    `Règles : weekStart = date du LUNDI (YYYY-MM-DD), pas de sous-texte ni notes, jours en français, heures 8h30 ou 08:30, pas de texte hors JSON.\n\n` +
+    `Règles : weekStart = date du LUNDI (YYYY-MM-DD) en ${year} sauf si une autre année est écrite dans le PDF, pas de sous-texte ni notes, jours en français, heures 8h30 ou 08:30, pas de texte hors JSON.\n\n` +
     `Texte OCR :\n${ocrText.slice(0, 14_000)}`
   );
 }

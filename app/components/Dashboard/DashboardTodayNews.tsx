@@ -16,6 +16,12 @@ type Props = {
   wide?: boolean;
 };
 
+function isPdfFile(file: File): boolean {
+  const type = (file.type || "").toLowerCase();
+  const name = (file.name || "").toLowerCase();
+  return type === "application/pdf" || type === "application/x-pdf" || name.endsWith(".pdf");
+}
+
 /** Même hauteur / forme que `DashboardWeather` ; largeur ≈ 2×. */
 export default function DashboardTodayNews({
   items,
@@ -29,6 +35,7 @@ export default function DashboardTodayNews({
   const [index, setIndex] = useState(0);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     setIndex(0);
@@ -42,37 +49,57 @@ export default function DashboardTodayNews({
     return () => window.clearInterval(t);
   }, [items.length]);
 
+  useEffect(() => {
+    if (!success) return;
+    const t = window.setTimeout(() => setSuccess(null), 10_000);
+    return () => window.clearTimeout(t);
+  }, [success]);
+
   const handleFile = useCallback(
     async (file: File) => {
-      if (!file || file.type !== "application/pdf") {
+      if (!file || !isPdfFile(file)) {
         setError("Choisissez un fichier PDF.");
+        setSuccess(null);
         return;
       }
       setImporting(true);
       setError(null);
+      setSuccess(null);
       try {
-        const prep = await fetch("/api/dashboard/week-sheet/upload-url", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileName: file.name }),
-        });
-        const prepJson = await prep.json();
-        if (!prep.ok) throw new Error(prepJson.error || "Préparation upload impossible.");
-
-        const put = await fetch(prepJson.uploadUrl, {
-          method: "PUT",
-          headers: { "Content-Type": "application/pdf" },
-          body: file,
-        });
-        if (!put.ok) throw new Error("Envoi du PDF échoué.");
-
+        const fd = new FormData();
+        fd.append("file", file, file.name || "feuille-semaine.pdf");
         const imp = await fetch("/api/dashboard/week-sheet/import", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key: prepJson.key }),
+          body: fd,
         });
-        const impJson = await imp.json();
-        if (!imp.ok) throw new Error(impJson.error || "Analyse impossible.");
+        const impJson = (await imp.json().catch(() => ({}))) as {
+          error?: string;
+          eventCount?: number;
+          todayEventCount?: number;
+          hasCurrentWeek?: boolean;
+          weekLabel?: string | null;
+        };
+        if (!imp.ok) {
+          throw new Error(impJson.error || "Analyse impossible.");
+        }
+        const weekCount = Number(impJson.eventCount ?? 0);
+        const todayCount = Number(impJson.todayEventCount ?? 0);
+        const label = impJson.weekLabel?.trim();
+        if (todayCount > 0) {
+          setSuccess(
+            `${todayCount} actu${todayCount > 1 ? "s" : ""} aujourd’hui${label ? ` · ${label}` : ""}`,
+          );
+        } else if (weekCount > 0 && impJson.hasCurrentWeek) {
+          setSuccess(
+            `Semaine OK (${weekCount} créneaux) — rien pour aujourd’hui${label ? ` · ${label}` : ""}`,
+          );
+        } else if (weekCount > 0) {
+          setSuccess(
+            `${weekCount} créneau${weekCount > 1 ? "x" : ""} trouvés, mais pas la semaine en cours${label ? ` · ${label}` : ""}`,
+          );
+        } else {
+          setSuccess("PDF importé — aucun créneau reconnu.");
+        }
         onWeekSheetUpdated?.();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erreur inconnue.");
@@ -87,28 +114,50 @@ export default function DashboardTodayNews({
   const current = items[index];
   const empty = !loading && (!hasCurrentWeek || items.length === 0);
   const meta = [current?.time, current?.location].filter(Boolean).join(" · ");
+  const statusLine = importing
+    ? "Analyse du PDF…"
+    : error
+      ? error
+      : success
+        ? success
+        : null;
 
   return (
     <div
       className={`${DASH_CHIP_SHELL} ${wide ? DASH_NEWS_WIDTH : "w-full"}`}
       aria-label="Actualité du jour"
-      title={current?.title || "Actualité du jour"}
+      title={error || success || current?.title || "Actualité du jour"}
     >
       <span className="text-2xl leading-none" aria-hidden>
         📰
       </span>
       <div className="min-w-0 flex-1 overflow-hidden">
-        <p className={`text-[10px] font-bold uppercase tracking-widest ${dash.label}`}>Aujourd&apos;hui</p>
+        <p className={`text-[10px] font-bold uppercase tracking-widest ${dash.label}`}>
+          Aujourd&apos;hui
+        </p>
 
-        {loading ? (
+        {loading || importing ? (
           <>
-            <p className={`text-lg font-black leading-tight ${dash.ink}`}>…</p>
-            <p className="text-[10px] font-medium leading-tight text-stone-400">chargement</p>
+            <p className={`truncate text-lg font-black leading-tight ${dash.ink}`}>
+              {importing ? "Import…" : "…"}
+            </p>
+            <p className="truncate text-[10px] font-medium leading-tight text-stone-400">
+              {importing ? "OCR + analyse en cours" : "chargement"}
+            </p>
           </>
         ) : empty ? (
           <>
-            <p className={`truncate text-lg font-black leading-tight ${dash.ink}`}>Pas d&apos;actualité</p>
-            <p className="text-[10px] font-medium leading-tight text-stone-400">aujourd&apos;hui</p>
+            <p className={`truncate text-lg font-black leading-tight ${dash.ink}`}>
+              Pas d&apos;actualité
+            </p>
+            <p
+              className={`truncate text-[10px] font-medium leading-tight ${
+                error ? "text-rose-600" : success ? "text-emerald-700" : "text-stone-400"
+              }`}
+              title={statusLine || "aujourd'hui"}
+            >
+              {statusLine || "aujourd'hui"}
+            </p>
           </>
         ) : (
           <AnimatePresence mode="wait">
@@ -119,15 +168,22 @@ export default function DashboardTodayNews({
               exit={{ opacity: 0, y: -3 }}
               transition={{ duration: 0.28 }}
             >
-              <p className={`truncate text-lg font-black leading-tight ${dash.ink}`}>{current?.title}</p>
-              <p className="truncate text-[10px] font-medium leading-tight text-stone-400">
-                {meta || (items.length > 1 ? `${index + 1} / ${items.length}` : "\u00a0")}
+              <p className={`truncate text-lg font-black leading-tight ${dash.ink}`}>
+                {current?.title}
+              </p>
+              <p
+                className={`truncate text-[10px] font-medium leading-tight ${
+                  error ? "text-rose-600" : success ? "text-emerald-700" : "text-stone-400"
+                }`}
+                title={statusLine || meta || undefined}
+              >
+                {statusLine ||
+                  meta ||
+                  (items.length > 1 ? `${index + 1} / ${items.length}` : "\u00a0")}
               </p>
             </motion.div>
           </AnimatePresence>
         )}
-
-        {error ? <p className="truncate text-[10px] font-medium text-rose-600">{error}</p> : null}
       </div>
 
       {(items.length > 1 || isOrgAdmin) && (
@@ -152,8 +208,9 @@ export default function DashboardTodayNews({
               <input
                 ref={fileRef}
                 type="file"
-                accept="application/pdf"
+                accept="application/pdf,.pdf"
                 className="hidden"
+                disabled={importing}
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) void handleFile(f);
@@ -164,6 +221,7 @@ export default function DashboardTodayNews({
                 disabled={importing}
                 onClick={() => fileRef.current?.click()}
                 className="text-[10px] font-bold leading-none text-[var(--dash-primary)] hover:underline disabled:opacity-50"
+                title="Importer la feuille de semaine (PDF)"
               >
                 {importing ? "…" : "PDF"}
               </button>
