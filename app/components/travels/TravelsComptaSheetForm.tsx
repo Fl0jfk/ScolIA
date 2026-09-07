@@ -37,10 +37,15 @@ type Props = {
 };
 
 function parseNumberInput(raw: string): number | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
+  const trimmed = raw.trim().replace(/\s/g, "").replace(",", ".");
+  if (!trimmed || trimmed === "." || trimmed === "-" || trimmed === "-.") return null;
   const n = Number(trimmed);
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
+}
+
+function formatAmountDraft(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "";
+  return String(value);
 }
 
 function EuroAmountInput({
@@ -49,22 +54,45 @@ function EuroAmountInput({
   className = "",
   readOnly = false,
   onBlur,
+  onFocus,
 }: {
   value: number | null;
   onChange: (v: number | null) => void;
   className?: string;
   readOnly?: boolean;
   onBlur?: () => void;
+  onFocus?: () => void;
 }) {
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState(() => formatAmountDraft(value));
+
+  useEffect(() => {
+    if (!focused) setDraft(formatAmountDraft(value));
+  }, [value, focused]);
+
   return (
     <input
-      type="number"
+      type="text"
       inputMode="decimal"
-      step="0.01"
-      min={0}
-      value={value == null ? "" : value}
-      onChange={(e) => onChange(parseNumberInput(e.target.value))}
-      onBlur={onBlur}
+      value={focused ? draft : formatAmountDraft(value)}
+      onFocus={() => {
+        setFocused(true);
+        setDraft(formatAmountDraft(value));
+        onFocus?.();
+      }}
+      onChange={(e) => {
+        const raw = e.target.value;
+        if (raw !== "" && !/^-?\d*[.,]?\d*$/.test(raw)) return;
+        setDraft(raw);
+        onChange(parseNumberInput(raw));
+      }}
+      onBlur={() => {
+        setFocused(false);
+        const parsed = parseNumberInput(draft);
+        onChange(parsed);
+        setDraft(formatAmountDraft(parsed));
+        onBlur?.();
+      }}
       readOnly={readOnly}
       disabled={readOnly}
       className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-right disabled:bg-slate-50 ${className}`}
@@ -77,8 +105,58 @@ function isBlankDepenseLine(line: TravelsComptaExpenseLine): boolean {
   return !line.label.trim() && line.amount == null;
 }
 
+/** Ligne encore en cours de saisie : on ne la coupe pas / on n'écrase pas le focus. */
+function isIncompleteDepenseLine(line: TravelsComptaExpenseLine): boolean {
+  const hasLabel = Boolean(line.label.trim());
+  const hasAmount = line.amount != null;
+  return hasLabel !== hasAmount;
+}
+
 function withoutBlankDepenses(depenses: TravelsComptaExpenseLine[]): TravelsComptaExpenseLine[] {
   return depenses.filter((line) => !isBlankDepenseLine(line));
+}
+
+function newRowKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `row-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Réinjecte les brouillons locaux (ligne incomplète / vide) après un save serveur. */
+function mergeSavedDepensesWithDrafts(
+  saved: TravelsComptaExpenseLine[],
+  local: TravelsComptaExpenseLine[],
+): TravelsComptaExpenseLine[] {
+  const drafts = local.filter((line) => isBlankDepenseLine(line) || isIncompleteDepenseLine(line));
+  if (drafts.length === 0) return saved;
+  const out = [...saved];
+  for (const draft of drafts) {
+    const already =
+      draft.label.trim() &&
+      out.some(
+        (line) =>
+          line.label.trim().toLowerCase() === draft.label.trim().toLowerCase() &&
+          line.amount === draft.amount,
+      );
+    if (!already) out.push(draft);
+  }
+  return out;
+}
+
+function mergeSavedRecettesWithDrafts(
+  saved: TravelsComptaRecetteLine[],
+  local: TravelsComptaRecetteLine[],
+): TravelsComptaRecetteLine[] {
+  const normalizedSaved = normalizeComptaRecettesLignes({ recettesLignes: saved });
+  const localNorm = normalizeComptaRecettesLignes({ recettesLignes: local });
+  const drafts = localNorm.filter(
+    (line, i) =>
+      !isApelRecetteLineIndex(i) &&
+      (isBlankRecetteLine(line) || Boolean(line.label.trim()) !== (line.amount != null)),
+  );
+  if (drafts.length === 0) return normalizedSaved;
+  return [...normalizedSaved, ...drafts];
 }
 
 function depensesAffichees(depenses: TravelsComptaSheet["depenses"]) {
@@ -135,6 +213,18 @@ export default function TravelsComptaSheetForm({
   const onValidateBudgetRef = useRef(onValidateBudget);
   const loadSeq = useRef(0);
   const sheetRef = useRef(sheet);
+  const saveEpoch = useRef(0);
+  const lineEditDepth = useRef(0);
+  const depenseKeysRef = useRef<string[]>([]);
+  const recetteKeysRef = useRef<string[]>([]);
+
+  function syncRowKeys(keysRef: { current: string[] }, length: number, removedIndex?: number) {
+    if (removedIndex != null && removedIndex >= 0 && removedIndex < keysRef.current.length) {
+      keysRef.current = keysRef.current.filter((_, i) => i !== removedIndex);
+    }
+    while (keysRef.current.length < length) keysRef.current.push(newRowKey());
+    if (keysRef.current.length > length) keysRef.current = keysRef.current.slice(0, length);
+  }
 
   useEffect(() => {
     onSavedRef.current = onSaved;
@@ -146,6 +236,8 @@ export default function TravelsComptaSheetForm({
 
   useEffect(() => {
     sheetRef.current = sheet;
+    syncRowKeys(depenseKeysRef, sheet.depenses.length);
+    syncRowKeys(recetteKeysRef, normalizeComptaRecettesLignes(sheet).length);
   }, [sheet]);
 
   const derived = useMemo(() => computeComptaSheetDerived(sheet), [sheet]);
@@ -188,6 +280,24 @@ export default function TravelsComptaSheetForm({
   }, [readOnly]);
 
   const persistSheet = useCallback(async (finalSheet: TravelsComptaSheet) => {
+    const epoch = ++saveEpoch.current;
+    const snapshot = JSON.stringify({
+      depenses: finalSheet.depenses,
+      recettesLignes: finalSheet.recettesLignes,
+      compte: finalSheet.compte,
+      ligne: finalSheet.ligne,
+      classe: finalSheet.classe,
+      profs: finalSheet.profs,
+      accompagnateurs: finalSheet.accompagnateurs,
+      nbEleves: finalSheet.nbEleves,
+      margeSecuriteEuro: finalSheet.margeSecuriteEuro,
+      prixParEleveAnnonce: finalSheet.prixParEleveAnnonce,
+      nbElevesFactures: finalSheet.nbElevesFactures,
+      aidesIndividuelles: finalSheet.aidesIndividuelles,
+      facturations: finalSheet.facturations,
+      recettesElevesFigees: finalSheet.recettesElevesFigees,
+      margeFigeeEuro: finalSheet.margeFigeeEuro,
+    });
     setSaveState("saving");
     setError(null);
     const cleanedSheet = computeComptaSheetDerived({
@@ -204,13 +314,52 @@ export default function TravelsComptaSheetForm({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur");
       const saved = computeComptaSheetDerived(data.sheet || cleanedSheet);
-      skipSave.current = true;
-      setSheet(saved);
-      setSaveState("saved");
       onSavedRef.current?.(saved);
+
+      // Ne jamais écraser une saisie plus récente (libellés / montants qui « sautent »).
+      if (epoch !== saveEpoch.current) {
+        setSaveState("saved");
+        return;
+      }
+      const local = sheetRef.current;
+      const localSnapshot = JSON.stringify({
+        depenses: local.depenses,
+        recettesLignes: local.recettesLignes,
+        compte: local.compte,
+        ligne: local.ligne,
+        classe: local.classe,
+        profs: local.profs,
+        accompagnateurs: local.accompagnateurs,
+        nbEleves: local.nbEleves,
+        margeSecuriteEuro: local.margeSecuriteEuro,
+        prixParEleveAnnonce: local.prixParEleveAnnonce,
+        nbElevesFactures: local.nbElevesFactures,
+        aidesIndividuelles: local.aidesIndividuelles,
+        facturations: local.facturations,
+        recettesElevesFigees: local.recettesElevesFigees,
+        margeFigeeEuro: local.margeFigeeEuro,
+      });
+      if (localSnapshot !== snapshot) {
+        setSaveState("saved");
+        return;
+      }
+
+      const merged = computeComptaSheetDerived({
+        ...saved,
+        depenses: mergeSavedDepensesWithDrafts(saved.depenses, local.depenses),
+        recettesLignes: mergeSavedRecettesWithDrafts(
+          saved.recettesLignes ?? [],
+          local.recettesLignes ?? [],
+        ),
+      });
+      skipSave.current = true;
+      setSheet(merged);
+      setSaveState("saved");
     } catch (e) {
-      setSaveState("error");
-      setError(e instanceof Error ? e.message : "Erreur d'enregistrement");
+      if (epoch === saveEpoch.current) {
+        setSaveState("error");
+        setError(e instanceof Error ? e.message : "Erreur d'enregistrement");
+      }
     }
   }, [tripId]);
 
@@ -303,6 +452,21 @@ export default function TravelsComptaSheetForm({
     };
   }, [tripId, documentsRevision, loadSheet]);
 
+  const schedulePersist = useCallback(
+    (delayMs = 1200) => {
+      if (readOnly) return;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(function tick() {
+        if (lineEditDepth.current > 0) {
+          saveTimer.current = setTimeout(tick, 500);
+          return;
+        }
+        void persistSheet(sheetRef.current);
+      }, delayMs);
+    },
+    [persistSheet, readOnly],
+  );
+
   useEffect(() => {
     if (readOnly) return;
     if (!hydrated.current || initialLoading || analyzing) return;
@@ -310,14 +474,23 @@ export default function TravelsComptaSheetForm({
       skipSave.current = false;
       return;
     }
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      void persistSheet(sheet);
-    }, 500);
+    schedulePersist();
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [sheet, initialLoading, analyzing, persistSheet, readOnly]);
+  }, [sheet, initialLoading, analyzing, schedulePersist, readOnly]);
+
+  function beginLineEdit() {
+    lineEditDepth.current += 1;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+  }
+
+  function endLineEdit() {
+    lineEditDepth.current = Math.max(0, lineEditDepth.current - 1);
+    if (lineEditDepth.current === 0 && hydrated.current && !readOnly) {
+      schedulePersist(450);
+    }
+  }
 
   async function handleValidateBudget() {
     const finalSheet = computeComptaSheetDerived({
@@ -371,16 +544,21 @@ export default function TravelsComptaSheetForm({
   }
 
   function removeDepense(index: number) {
+    syncRowKeys(depenseKeysRef, sheet.depenses.length - 1, index);
     patch({ depenses: sheet.depenses.filter((_, i) => i !== index) });
   }
 
   function pruneBlankDepense(index: number) {
     const line = sheet.depenses[index];
     if (!line || !isBlankDepenseLine(line)) return;
+    // Garder au moins une ligne vide pour la saisie, sauf suppression explicite.
+    if (sheet.depenses.length <= 1) return;
+    syncRowKeys(depenseKeysRef, sheet.depenses.length - 1, index);
     patch({ depenses: sheet.depenses.filter((_, i) => i !== index) });
   }
 
   function addDepense() {
+    depenseKeysRef.current = [...depenseKeysRef.current, newRowKey()];
     patch({ depenses: [...sheet.depenses, { label: "", amount: null }] });
   }
 
@@ -393,6 +571,7 @@ export default function TravelsComptaSheetForm({
 
   function removeRecette(index: number) {
     if (isApelRecetteLineIndex(index)) return;
+    syncRowKeys(recetteKeysRef, normalizeComptaRecettesLignes(sheet).length - 1, index);
     patch({ recettesLignes: normalizeComptaRecettesLignes(sheet).filter((_, i) => i !== index) });
   }
 
@@ -400,10 +579,12 @@ export default function TravelsComptaSheetForm({
     if (isApelRecetteLineIndex(index)) return;
     const line = normalizeComptaRecettesLignes(sheet)[index];
     if (!line || !isBlankRecetteLine(line)) return;
+    syncRowKeys(recetteKeysRef, normalizeComptaRecettesLignes(sheet).length - 1, index);
     patch({ recettesLignes: normalizeComptaRecettesLignes(sheet).filter((_, i) => i !== index) });
   }
 
   function addRecette() {
+    recetteKeysRef.current = [...recetteKeysRef.current, newRowKey()];
     patch({
       recettesLignes: [...normalizeComptaRecettesLignes(sheet), { label: "", amount: null }],
     });
@@ -562,12 +743,16 @@ export default function TravelsComptaSheetForm({
                 </thead>
                 <tbody>
                   {sheet.depenses.map((line, i) => (
-                    <tr key={i} className="border-b border-slate-50">
+                    <tr key={depenseKeysRef.current[i] ?? `depense-${i}`} className="border-b border-slate-50">
                       <td className="p-2">
                         <input
                           value={line.label}
                           onChange={(e) => updateDepense(i, "label", e.target.value)}
-                          onBlur={() => pruneBlankDepense(i)}
+                          onFocus={beginLineEdit}
+                          onBlur={() => {
+                            endLineEdit();
+                            pruneBlankDepense(i);
+                          }}
                           readOnly={readOnly}
                           disabled={readOnly}
                           className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm disabled:bg-slate-50"
@@ -578,7 +763,11 @@ export default function TravelsComptaSheetForm({
                         <EuroAmountInput
                           value={line.amount}
                           onChange={(v) => updateDepense(i, "amount", v)}
-                          onBlur={() => pruneBlankDepense(i)}
+                          onFocus={beginLineEdit}
+                          onBlur={() => {
+                            endLineEdit();
+                            pruneBlankDepense(i);
+                          }}
                           readOnly={readOnly}
                         />
                       </td>
@@ -821,7 +1010,7 @@ export default function TravelsComptaSheetForm({
                   </thead>
                   <tbody>
                     {(derived.recettesLignes ?? []).map((line, i) => (
-                      <tr key={i} className="border-b border-slate-50">
+                      <tr key={recetteKeysRef.current[i] ?? `recette-${i}`} className="border-b border-slate-50">
                         <td className="p-2">
                           {isApelRecetteLineIndex(i) ? (
                             <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-sm font-semibold text-slate-700">
@@ -831,7 +1020,11 @@ export default function TravelsComptaSheetForm({
                             <input
                               value={line.label}
                               onChange={(e) => updateRecette(i, "label", e.target.value)}
-                              onBlur={() => pruneBlankRecette(i)}
+                              onFocus={beginLineEdit}
+                              onBlur={() => {
+                                endLineEdit();
+                                pruneBlankRecette(i);
+                              }}
                               readOnly={readOnly}
                               disabled={readOnly}
                               className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm disabled:bg-slate-50"
@@ -843,7 +1036,15 @@ export default function TravelsComptaSheetForm({
                           <EuroAmountInput
                             value={line.amount}
                             onChange={(v) => updateRecette(i, "amount", v)}
-                            onBlur={isApelRecetteLineIndex(i) ? undefined : () => pruneBlankRecette(i)}
+                            onFocus={beginLineEdit}
+                            onBlur={
+                              isApelRecetteLineIndex(i)
+                                ? () => endLineEdit()
+                                : () => {
+                                    endLineEdit();
+                                    pruneBlankRecette(i);
+                                  }
+                            }
                             readOnly={readOnly}
                           />
                         </td>
@@ -1094,7 +1295,7 @@ export default function TravelsComptaSheetForm({
                 <span className="block text-[10px] font-normal normal-case mt-0.5 opacity-80">
                   {recettesFigees
                     ? afficheMarge
-                      ? "Recettes figées + subventions − (dépenses + marge figée)"
+                      ? "Recettes (prix annoncé, marge incluse) + subventions − dépenses réelles"
                       : "Recettes figées + subventions − dépenses réelles"
                     : "Total recettes + subventions − total dépenses"}
                 </span>

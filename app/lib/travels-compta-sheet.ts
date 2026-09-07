@@ -554,11 +554,12 @@ export function computeComptaSheetDerived(
         ? Math.ceil(prixParEleveAvantMargeRisque)
         : null;
 
+  // Après annonce aux familles, la marge est déjà intégrée dans le prix (donc dans
+  // les recettes). L'excédent/déficit compare recettes encaissées et dépenses réelles :
+  // la marge non consommée apparaît ainsi en excédent (et non soustraite une 2ᵉ fois).
   const excedentOuDeficit =
     depensesTotalRounded != null
-      ? recettesFigees && montantCibleFacturation != null && totalRecettes != null
-        ? Math.round((totalRecettes - montantCibleFacturation) * 100) / 100
-        : Math.round((recettesSum - depensesTotalRounded) * 100) / 100
+      ? Math.round((recettesSum - depensesTotalRounded) * 100) / 100
       : null;
 
   return {
