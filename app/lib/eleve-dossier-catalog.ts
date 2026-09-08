@@ -11,6 +11,12 @@ import {
 } from "@/app/lib/school-classes-catalog";
 import { loadOfficialSchoolClasses, mergeClassesByPoleWithSiecle } from "@/app/lib/nomenclature-classes";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { guessClassLevelFromClasse } from "@/app/lib/class-allocation-level-heuristic";
+import {
+  loadClasseSiteMappings,
+  type ClasseSiteMappingRecord,
+} from "@/app/lib/classe-site-mapping";
+import { resolveMappedSiteId } from "@/app/lib/classe-site-mapping-logic";
 
 export type DossierSiteRef = {
   siteId: string;
@@ -42,40 +48,7 @@ function normalizeClassKey(className: string): string {
 }
 
 function inferSiteKindFromClassName(className: string): EstablishmentKind | null {
-  const key = normalizeClassKey(className);
-  if (!key) return null;
-  const compact = key.replace(/[\s._\-/]+/g, "");
-  const folded = key.toLowerCase().replace(/[\s._\-/]+/g, " ").trim();
-
-  // École / maternelle / élémentaire (CP A, CE1-B, TPS, « École PS », etc.)
-  if (
-    /^(TPS|PS|MS|GS|CP|CE1|CE2|CM1|CM2|M[1-3])\b/.test(key) ||
-    /^(TPS|PS|MS|GS|CP|CE1|CE2|CM1|CM2)/.test(compact) ||
-    /\b(MATERNELLE|ELEMENTAIRE|PRIMAIRE|ECOLE)\b/.test(key)
-  ) {
-    return "ecole";
-  }
-  if (/\b(tps|ps|ms|gs|cp|ce1|ce2|cm1|cm2)\b/.test(folded)) return "ecole";
-
-  // Collège : 6A…3F, 6ème A, 3e2…
-  if (
-    /^[3456][A-Z0-9]{0,2}$/.test(compact) ||
-    /^[3456](E|EME|ÈME)/.test(compact) ||
-    /\b[3456]\s*(E|EME|ÈME)?\b/.test(key)
-  ) {
-    return "college";
-  }
-
-  // Lycée : 2A, 1B, TA, 2nde, 1re, Tle…
-  if (
-    /^(2NDE|2DE|1RE|1ERE|TLE|TERMINALE|SECONDE|PREMIERE)/.test(compact) ||
-    /^[12T][A-Z0-9]{0,2}$/.test(compact) ||
-    /^T[A-Z]$/.test(compact)
-  ) {
-    return "lycee";
-  }
-
-  return null;
+  return guessClassLevelFromClasse(className);
 }
 
 function siteIdForKind(
@@ -162,9 +135,13 @@ export function resolveSiteLabel(
 export function resolveSiteIdForClass(
   className: string | null | undefined,
   catalog: Pick<EleveDossierClassCatalog, "classToSiteId" | "sites">,
+  mappings: ClasseSiteMappingRecord[] = [],
 ): string | null {
   const cls = String(className || "").trim();
   if (!cls) return null;
+
+  const mapped = resolveMappedSiteId(cls, mappings);
+  if (mapped) return mapped;
 
   const direct = catalog.classToSiteId.get(cls);
   if (direct) return direct;
@@ -195,6 +172,69 @@ export function isExcludedFromDossierList(row: {
 const CATALOG_CACHE_MS = 60_000;
 const catalogCache = new Map<string, { at: number; catalog: EleveDossierClassCatalog }>();
 
+export function invalidateEleveDossierClassCatalog(): void {
+  catalogCache.clear();
+}
+
+function overlayClasseSiteMappings(
+  catalog: EleveDossierClassCatalog,
+  mappings: ClasseSiteMappingRecord[],
+): EleveDossierClassCatalog {
+  if (mappings.length === 0) return catalog;
+
+  const classToSiteId = new Map(catalog.classToSiteId);
+  const classOptions = catalog.classOptions.map((o) => ({ ...o }));
+  const optionByFold = new Map<string, number>();
+  classOptions.forEach((opt, idx) => {
+    const fold = foldSchoolClass(opt.value);
+    if (fold && !optionByFold.has(fold)) optionByFold.set(fold, idx);
+  });
+
+  for (const m of mappings) {
+    if (!m.siteId) continue;
+    classToSiteId.set(m.className, m.siteId);
+    classToSiteId.set(m.classKey, m.siteId);
+    if (m.siecleCode) {
+      classToSiteId.set(m.siecleCode, m.siteId);
+      const siecleFold = foldSchoolClass(m.siecleCode);
+      if (siecleFold) classToSiteId.set(siecleFold, m.siteId);
+    }
+    const siteLabel = resolveSiteLabel(m.siteId, catalog);
+    const fold = foldSchoolClass(m.className) || m.classKey;
+    const displayValue = m.className;
+    const next: DossierClassOption = {
+      value: displayValue,
+      label: classOptionLabel(displayValue, siteLabel),
+      siteId: m.siteId,
+      siteLabel,
+    };
+    const existingIdx = optionByFold.get(fold);
+    if (existingIdx != null) {
+      const previous = classOptions[existingIdx]!;
+      classOptions[existingIdx] = {
+        ...previous,
+        siteId: m.siteId,
+        siteLabel,
+        label: classOptionLabel(previous.value, siteLabel),
+      };
+    } else {
+      optionByFold.set(fold, classOptions.length);
+      classOptions.push(next);
+    }
+  }
+
+  classOptions.sort((a, b) =>
+    a.label.localeCompare(b.label, "fr", { sensitivity: "base", numeric: true }),
+  );
+
+  return {
+    sites: catalog.sites,
+    siteLabelById: catalog.siteLabelById,
+    classToSiteId,
+    classOptions,
+  };
+}
+
 export async function buildEleveDossierClassCatalog(
   sites: DossierSiteRef[],
 ): Promise<EleveDossierClassCatalog> {
@@ -203,12 +243,14 @@ export async function buildEleveDossierClassCatalog(
     .sort()
     .join("|");
   const cached = catalogCache.get(cacheKey);
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  const mappings = etabId ? await loadClasseSiteMappings(etabId) : [];
+
   if (cached && Date.now() - cached.at < CATALOG_CACHE_MS) {
-    return cached.catalog;
+    return overlayClasseSiteMappings(cached.catalog, mappings);
   }
 
   const config = await loadAppConfig();
-  const etabId = await resolveCurrentEtablissementId().catch(() => null);
   const official = etabId ? await loadOfficialSchoolClasses(etabId) : null;
 
   let merged = mergeClassesByPole(
@@ -284,7 +326,7 @@ export async function buildEleveDossierClassCatalog(
     classOptions,
   };
   catalogCache.set(cacheKey, { at: Date.now(), catalog });
-  return catalog;
+  return overlayClasseSiteMappings(catalog, mappings);
 }
 
 export function dossierClassOptionsForSite(

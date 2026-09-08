@@ -613,6 +613,35 @@ export const schoolClassAssignment = pgTable(
   ],
 );
 
+/**
+ * Affectation manuelle classe observée → site (école / collège / lycée)
+ * et matching optionnel avec le code rectorat (Siècle).
+ */
+export const classeSiteMapping = pgTable(
+  "classe_site_mapping",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    /** Clé normalisée (foldSchoolClass) — unique par tenant. */
+    classKey: text("class_key").notNull(),
+    /** Libellé tel qu’observé (liste élèves, import…). */
+    className: text("class_name").notNull(),
+    /** Site métier (`etablissement_site.site_id`). */
+    siteId: text("site_id").notNull(),
+    /** CODE_STRUCTURE rectorat, si rattaché. */
+    siecleCode: text("siecle_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("classe_site_mapping_class_uidx").on(t.etablissementId, t.classKey),
+    index("classe_site_mapping_etablissement_idx").on(t.etablissementId),
+    index("classe_site_mapping_site_idx").on(t.etablissementId, t.siteId),
+  ],
+);
+
 /** Meta EDT professeur (semaines types A/B + remplacements). */
 export const teacherPlanning = pgTable(
   "teacher_planning",
@@ -799,6 +828,7 @@ export const appSchema = {
   preinscription,
   schoolRosterMeta,
   schoolClassAssignment,
+  classeSiteMapping,
   teacherPlanning,
   teacherPlanningSlot,
   teacherPlanningReplacement,

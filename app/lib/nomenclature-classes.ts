@@ -7,6 +7,7 @@ import { inferSecteurFromMef } from "@/app/lib/mef-secteur-inference";
 import { loadMefSecteurMapFromNomenclature } from "@/app/lib/mef-secteurs-nomenclature";
 import { normMefCode } from "@/app/lib/mef-secteurs";
 import { listGroupes } from "@/app/lib/groupes-pedagogiques-db";
+import { guessClassLevelFromClasse } from "@/app/lib/class-allocation-level-heuristic";
 
 export type SiecleDivision = NomenclatureEntry;
 
@@ -35,6 +36,11 @@ function secteurToPole(secteur: Secteur): SchoolPole {
 }
 
 function inferPoleForDivision(code: string, libelle: string | null): SchoolPole {
+  const guessed = guessClassLevelFromClasse(`${code} ${libelle || ""}`.trim());
+  if (guessed === "ecole") return "ÉCOLE";
+  if (guessed === "college") return "COLLÈGE";
+  if (guessed === "lycee") return "LYCÉE";
+
   const trimmedCode = code.trim();
   const blob = `${trimmedCode} ${libelle || ""}`
     .normalize("NFD")

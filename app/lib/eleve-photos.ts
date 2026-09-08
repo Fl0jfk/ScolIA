@@ -21,6 +21,17 @@ export {
   photoRelativePathForEleve,
 } from "@/app/lib/eleve-photos-match";
 
+export function elevePhotoProxyPath(eleveId: string): string {
+  return `/api/eleves/${encodeURIComponent(eleveId)}/photo`;
+}
+
+export function resolveElevePhotoS3Key(
+  index: ElevePhotoIndex,
+  person: { nom: string; prenom: string; ine?: string | null; photoKey?: string | null },
+): string | null {
+  return lookupS3Key(index, person);
+}
+
 const PHOTO_INDEX_KEY = "eleves/photo-index.json";
 const PHOTO_INDEX_CACHE_MS = 45_000;
 const SIGNED_URL_CACHE_MS = 50 * 60 * 1000; // signatures ~1h — on garde 50 min

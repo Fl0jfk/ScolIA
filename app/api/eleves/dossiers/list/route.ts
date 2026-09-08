@@ -29,7 +29,12 @@ import {
 } from "@/app/lib/eleve-dossier-catalog";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 import { backfillElevesScolariteCouranteOnce } from "@/app/lib/ent-core-db";
-import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
+import {
+  elevePhotoProxyPath,
+  loadElevePhotoIndex,
+  resolveElevePhotoS3Key,
+} from "@/app/lib/eleve-photos";
+import { listObservedClassNames } from "@/app/lib/classe-site-mapping";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { etablissementSite } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -46,6 +51,7 @@ export async function GET(req: NextRequest) {
   const siteId = searchParams.get("siteId")?.trim() || undefined;
   const classe = searchParams.get("classe")?.trim() || undefined;
   const status = searchParams.get("status")?.trim() || undefined;
+  const metaOnly = searchParams.get("meta") === "1";
 
   const user = gate.ctx.user;
   const fullHub = canViewFullElevesDossierHub({
@@ -108,17 +114,8 @@ export async function GET(req: NextRequest) {
     );
   });
 
-  const elevesRaw = await listElevesDossierFromDb(tenant.ctx.etablissementId, {
-    classe: profScoped && classe ? classe : fullHub ? classe : undefined,
-    status: fullHub ? status : undefined,
-    assignedClasses:
-      profScoped && !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
-        ? assignedClasses
-        : undefined,
-  });
-
   const db = getDb();
-  const sites = await db
+  const sitesPromise = db
     .select({
       siteId: etablissementSite.siteId,
       label: etablissementSite.label,
@@ -126,6 +123,57 @@ export async function GET(req: NextRequest) {
     })
     .from(etablissementSite)
     .where(eq(etablissementSite.etablissementId, tenant.ctx.etablissementId));
+
+  if (metaOnly) {
+    const [sites, extraClasses] = await Promise.all([
+      sitesPromise,
+      listObservedClassNames(tenant.ctx.etablissementId),
+    ]);
+    const catalog = await buildEleveDossierClassCatalog(sites);
+    const classOptions =
+      profScoped && !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
+        ? (assignedClasses ?? [])
+            .map((cls) => {
+              const fromCatalog = catalog.classOptions.find((o) => o.value === cls);
+              if (fromCatalog) return fromCatalog;
+              const clsSiteId = resolveSiteIdForClass(cls, catalog);
+              const clsSiteLabel = resolveSiteLabel(clsSiteId, catalog);
+              return {
+                value: cls,
+                label: classOptionLabel(cls, clsSiteLabel),
+                siteId: clsSiteId,
+                siteLabel: clsSiteLabel,
+              };
+            })
+            .sort((a, b) =>
+              a.label.localeCompare(b.label, "fr", { sensitivity: "base", numeric: true }),
+            )
+        : dossierClassOptionsForSite(catalog, undefined, extraClasses);
+    const siteLabelById = Object.fromEntries(catalog.siteLabelById.entries());
+    return NextResponse.json({
+      eleves: [],
+      assignedClasses: assignedClasses ?? [],
+      canViewFullHub: fullHub,
+      canManagePreinscriptions,
+      canOpenDetail,
+      profScoped,
+      sites: sites.map((s) => ({ siteId: s.siteId, label: s.label })),
+      siteLabelById,
+      classOptions,
+    });
+  }
+
+  const [elevesRaw, sites] = await Promise.all([
+    listElevesDossierFromDb(tenant.ctx.etablissementId, {
+      classe: profScoped && classe ? classe : fullHub ? classe : undefined,
+      status: fullHub ? status : undefined,
+      assignedClasses:
+        profScoped && !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
+          ? assignedClasses
+          : undefined,
+    }),
+    sitesPromise,
+  ]);
 
   const catalog = await buildEleveDossierClassCatalog(sites);
 
@@ -135,18 +183,10 @@ export async function GET(req: NextRequest) {
     eleves = eleves.filter((e) => e.siteId === siteId);
   }
 
-  const photoUrls = await resolvePhotoUrlsForEleves(
-    eleves.map((e) => ({
-      id: e.id,
-      nom: e.nom,
-      prenom: e.prenom,
-      ine: e.ine,
-      photoKey: e.photoKey,
-    })),
-  );
+  const photoIndex = await loadElevePhotoIndex().catch(() => ({} as Record<string, string>));
   eleves = eleves.map((e) => ({
     ...e,
-    photoUrl: photoUrls[e.id] ?? null,
+    photoUrl: resolveElevePhotoS3Key(photoIndex, e) ? elevePhotoProxyPath(e.id) : null,
     photoKey: undefined,
   }));
 

@@ -253,6 +253,13 @@
       "when": 1787610000000,
       "tag": "0035_teacher_planning_slot_group",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1787615000000,
+      "tag": "0036_classe_site_mapping",
+      "breakpoints": true
     }
   ]
 }

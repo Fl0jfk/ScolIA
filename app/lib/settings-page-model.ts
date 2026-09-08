@@ -1,6 +1,7 @@
 export type Tab =
   | "site"
   | "establishments"
+  | "classes"
   | "notifications"
   | "mef"
   | "prof-room"

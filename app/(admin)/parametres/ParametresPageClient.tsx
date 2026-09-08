@@ -34,6 +34,10 @@ const SettingsEstablishmentsPanel = dynamic(
   () => import("@/app/components/settings/SettingsEstablishmentsPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
 );
+const ClasseSiteMappingPanel = dynamic(
+  () => import("@/app/components/settings/ClasseSiteMappingPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 const SettingsNotificationsPanel = dynamic(
   () => import("@/app/components/settings/SettingsNotificationsPanel"),
   { ssr: false, loading: () => <ModuleTabFallback /> },
@@ -94,6 +98,7 @@ const TeachingGroupsSettingsPanel = dynamic(
 const SETTINGS_NAV_TABS: ModuleTabItem<Tab>[] = [
   { id: "site", label: "Établissement", icon: "🏫" },
   { id: "establishments", label: "Sites / directions", icon: "🗺️" },
+  { id: "classes", label: "Classes / sites", icon: "🏷️" },
   { id: "utilisateurs", label: "Utilisateurs", icon: "👥" },
   { id: "module-access", label: "Droits modules", icon: "🔐" },
   { id: "referentiel", label: "Liste des élèves", icon: "🎒" },
@@ -142,6 +147,7 @@ export default function ParametresPage() {
       t === "siecle" ||
       t === "site" ||
       t === "establishments" ||
+      t === "classes" ||
       t === "notifications" ||
       t === "grilles-horaires" ||
       t === "groupes-edt" ||
@@ -550,6 +556,8 @@ export default function ParametresPage() {
             saveSection={saveSection}
           />
         )}
+
+        {tab === "classes" && <ClasseSiteMappingPanel />}
 
         {tab === "notifications" && (
           <SettingsNotificationsPanel

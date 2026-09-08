@@ -328,6 +328,7 @@ export default function EleveDossierClient() {
   const [focusFoyerId, setFocusFoyerId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [accompagnementDragOver, setAccompagnementDragOver] = useState(false);
   const [staleCache, setStaleCache] = useState(false);
   const dataRef = useRef<DossierPayload | null>(null);
   dataRef.current = data;
@@ -660,6 +661,14 @@ export default function EleveDossierClient() {
     e.preventDefault();
     setDragOver(false);
     void uploadFiles(e.dataTransfer.files);
+  }
+
+  function onDropAccompagnement(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    setAccompagnementDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) void uploadAccompagnementFile(file);
   }
 
   async function requestAccess() {
@@ -2133,16 +2142,29 @@ export default function EleveDossierClient() {
             ) : null}
 
             {canUploadAccompagnement ? (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-4">
+              <div
+                onDragOver={(ev) => {
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                  setAccompagnementDragOver(true);
+                }}
+                onDragLeave={() => setAccompagnementDragOver(false)}
+                onDrop={onDropAccompagnement}
+                className={`rounded-2xl border-2 border-dashed p-4 transition ${
+                  accompagnementDragOver
+                    ? "border-rose-400 bg-rose-100/80"
+                    : "border-rose-200 bg-rose-50/70"
+                }`}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-bold text-rose-950">
                       Dispositif d’accompagnement
                     </p>
                     <p className="mt-1 text-xs text-rose-800/80">
-                      Choisissez PAP, PAI, PPS ou GEVASCO, puis déposez le PDF — il apparaît sur la synthèse
-                      et dans la liste des élèves. Plusieurs dispositifs peuvent coexister.
-                      et dans Documents → Santé.
+                      Choisissez PAP, PAI, PPS ou GEVASCO, puis glissez-déposez le PDF ici (ou utilisez le
+                      bouton). Il apparaît sur la synthèse et dans Documents → Santé. Plusieurs dispositifs
+                      peuvent coexister.
                       {hasSelectedKind
                         ? ` Un nouveau fichier remplace le ${selectedAccompagnementDef.code} affiché sur la synthèse.`
                         : ""}
@@ -2182,6 +2204,11 @@ export default function EleveDossierClient() {
                     />
                   </label>
                 </div>
+                <p className="mt-3 text-center text-xs font-semibold text-rose-800/70">
+                  {accompagnementDragOver
+                    ? `Déposez le ${selectedAccompagnementDef.code}…`
+                    : "Glisser-déposer un PDF ou une image ici"}
+                </p>
               </div>
             ) : null}
 

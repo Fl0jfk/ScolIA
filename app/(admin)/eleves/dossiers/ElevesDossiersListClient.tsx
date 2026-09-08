@@ -118,6 +118,7 @@ export default function ElevesDossiersListClient() {
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [listLoading, setListLoading] = useState(true);
 
   useEffect(() => {
     const nextClasse = searchParams.get("classe")?.trim() || "";
@@ -168,7 +169,32 @@ export default function ElevesDossiersListClient() {
     [listQueryString],
   );
 
+  const loadMeta = useCallback(async () => {
+    const res = await fetch("/api/eleves/dossiers/list?meta=1", { cache: "no-store" });
+    if (!res.ok) return;
+    const j = (await res.json()) as {
+      canViewFullHub: boolean;
+      canManagePreinscriptions?: boolean;
+      canOpenDetail?: boolean;
+      profScoped: boolean;
+      sites: SiteOption[];
+      siteLabelById?: Record<string, string>;
+      classOptions?: ClassOption[];
+      message?: string;
+    };
+    setCanViewFullHub(Boolean(j.canViewFullHub));
+    setCanManagePreinscriptions(Boolean(j.canManagePreinscriptions));
+    setCanOpenDetail(j.canOpenDetail !== false);
+    setProfScoped(Boolean(j.profScoped));
+    setSites(j.sites || []);
+    setSiteLabelById(j.siteLabelById || {});
+    setClassOptions(j.classOptions || []);
+    if (j.message) setListMessage(j.message);
+    setMetaReady(true);
+  }, []);
+
   const loadDossiers = useCallback(async () => {
+    setListLoading(true);
     const res = await fetch("/api/eleves/dossiers/list", { cache: "no-store" });
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
@@ -196,19 +222,21 @@ export default function ElevesDossiersListClient() {
     setClassOptions(j.classOptions || []);
     setListMessage(j.message ?? null);
     setMetaReady(true);
+    setListLoading(false);
   }, []);
 
   useEffect(() => {
     void (async () => {
       try {
         setError(null);
-        await loadDossiers();
+        await Promise.all([loadMeta(), loadDossiers()]);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Erreur chargement");
         setMetaReady(true);
+        setListLoading(false);
       }
     })();
-  }, [loadDossiers]);
+  }, [loadDossiers, loadMeta]);
 
   useEffect(() => {
     if (!canViewFullHub && !canManagePreinscriptions) return;
@@ -456,6 +484,14 @@ export default function ElevesDossiersListClient() {
                   </option>
                 ))}
               </select>
+              {canViewFullHub ? (
+                <Link
+                  href="/parametres?tab=classes"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+                >
+                  Ranger les classes
+                </Link>
+              ) : null}
               {hasActiveSearch ? (
                 <button
                   type="button"
@@ -474,7 +510,7 @@ export default function ElevesDossiersListClient() {
           </div>
 
           {!metaReady ? (
-            <p className="px-2 text-center text-sm text-slate-500">Chargement…</p>
+            <p className="px-2 text-center text-sm text-slate-500">Chargement des établissements…</p>
           ) : !hasActiveSearch ? (
             <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-12 text-center">
               <p className="text-base font-semibold text-slate-800">Affinez la recherche</p>
@@ -483,6 +519,8 @@ export default function ElevesDossiersListClient() {
                 filtre statut.
               </p>
             </div>
+          ) : listLoading ? (
+            <p className="px-2 text-center text-sm text-slate-500">Chargement des dossiers…</p>
           ) : (
             <ul className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
               {filtered.slice(0, 200).map((e) => {
