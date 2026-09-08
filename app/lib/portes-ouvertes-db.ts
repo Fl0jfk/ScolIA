@@ -31,10 +31,13 @@ export type PortesOuvertesConfigRow = {
   address: string;
   mapsUrl?: string;
   notifyEmail?: string;
+  contactPhone?: string;
   preinscriptionUrl?: string;
   followUpDelayMinutes: number;
   consentLabel: string;
 };
+
+const DEFAULT_CONTACT_PHONE = "02 32 86 50 90";
 
 const DEFAULT_CONFIG: PortesOuvertesConfigRow = {
   title: "Portes ouvertes",
@@ -42,6 +45,7 @@ const DEFAULT_CONFIG: PortesOuvertesConfigRow = {
   address: "",
   mapsUrl: undefined,
   notifyEmail: undefined,
+  contactPhone: DEFAULT_CONTACT_PHONE,
   preinscriptionUrl: undefined,
   followUpDelayMinutes: 60,
   consentLabel:
@@ -134,6 +138,7 @@ export async function getPortesOuvertesConfig(
     address: row.address,
     mapsUrl: row.mapsUrl || undefined,
     notifyEmail: row.notifyEmail || undefined,
+    contactPhone: DEFAULT_CONTACT_PHONE,
     preinscriptionUrl: row.preinscriptionUrl || undefined,
     followUpDelayMinutes:
       typeof row.followUpDelayMinutes === "number" && row.followUpDelayMinutes > 0
@@ -157,6 +162,10 @@ export async function upsertPortesOuvertesConfig(
     mapsUrl: patch.mapsUrl !== undefined ? patch.mapsUrl || undefined : current.mapsUrl,
     notifyEmail:
       patch.notifyEmail !== undefined ? patch.notifyEmail || undefined : current.notifyEmail,
+    contactPhone:
+      patch.contactPhone !== undefined
+        ? patch.contactPhone.trim() || DEFAULT_CONTACT_PHONE
+        : current.contactPhone || DEFAULT_CONTACT_PHONE,
     preinscriptionUrl:
       patch.preinscriptionUrl !== undefined
         ? patch.preinscriptionUrl || undefined
@@ -788,6 +797,7 @@ export async function buildPortesOuvertesToolPayload(etablissementId?: string): 
   address: string;
   mapsUrl?: string;
   notifyEmail?: string;
+  contactPhone?: string;
   preinscriptionUrl?: string;
   followUpDelayMinutes: number;
   consentLabel: string;
@@ -801,17 +811,17 @@ export async function buildPortesOuvertesToolPayload(etablissementId?: string): 
   ]);
 
   let merged = { ...config };
-  const needsBackfill =
-    !merged.address?.trim() ||
-    !merged.mapsUrl?.trim() ||
-    !merged.preinscriptionUrl?.trim() ||
-    !merged.notifyEmail?.trim();
+  try {
+    const { getToolboxConfig } = await import("@/app/lib/toolbox-config");
+    const toolbox = await getToolboxConfig();
+    const po = toolbox.tools["portes-ouvertes"];
+    const needsBackfill =
+      !merged.address?.trim() ||
+      !merged.mapsUrl?.trim() ||
+      !merged.preinscriptionUrl?.trim() ||
+      !merged.notifyEmail?.trim();
 
-  if (needsBackfill) {
-    try {
-      const { getToolboxConfig } = await import("@/app/lib/toolbox-config");
-      const toolbox = await getToolboxConfig();
-      const po = toolbox.tools["portes-ouvertes"];
+    if (needsBackfill) {
       merged = {
         ...merged,
         address: merged.address?.trim() || po.address || "",
@@ -835,9 +845,19 @@ export async function buildPortesOuvertesToolPayload(etablissementId?: string): 
       ) {
         merged = await upsertPortesOuvertesConfig(merged, etablissementId);
       }
-    } catch {
-      /* ignore repli toolbox */
     }
+
+    // Téléphone établissement : stocké dans le miroir toolbox (pas de colonne SQL).
+    merged = {
+      ...merged,
+      contactPhone:
+        po.contactPhone?.trim() || merged.contactPhone?.trim() || DEFAULT_CONTACT_PHONE,
+    };
+  } catch {
+    merged = {
+      ...merged,
+      contactPhone: merged.contactPhone?.trim() || DEFAULT_CONTACT_PHONE,
+    };
   }
 
   return {

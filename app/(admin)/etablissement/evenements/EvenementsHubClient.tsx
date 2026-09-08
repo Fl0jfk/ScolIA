@@ -50,6 +50,7 @@ type PoAdminPayload = {
   address: string;
   mapsUrl?: string;
   notifyEmail?: string;
+  contactPhone?: string;
   preinscriptionUrl?: string;
   followUpDelayMinutes: number;
   consentLabel: string;
@@ -161,6 +162,7 @@ function applyPoResponse(j: PoAdminPayload): PoAdminPayload {
     address: j.address || "",
     mapsUrl: j.mapsUrl || "",
     notifyEmail: j.notifyEmail || "",
+    contactPhone: j.contactPhone?.trim() || "02 32 86 50 90",
     preinscriptionUrl: j.preinscriptionUrl || "",
     followUpDelayMinutes:
       typeof j.followUpDelayMinutes === "number" && j.followUpDelayMinutes > 0
@@ -384,6 +386,7 @@ export default function EvenementsHubClient() {
         // Envoyer la chaîne telle quelle (pas `|| null`) pour ne pas effacer à tort.
         mapsUrl: (po.mapsUrl ?? "").trim(),
         notifyEmail: (po.notifyEmail ?? "").trim(),
+        contactPhone: (po.contactPhone ?? "").trim() || "02 32 86 50 90",
         preinscriptionUrl: (po.preinscriptionUrl ?? "").trim(),
         followUpDelayMinutes: po.followUpDelayMinutes,
         consentLabel: po.consentLabel,
@@ -819,6 +822,18 @@ export default function EvenementsHubClient() {
                     />
                   </label>
                 </div>
+                <label className="block max-w-sm">
+                  <span className="text-xs font-bold text-slate-500 uppercase">
+                    Téléphone établissement (mail / ICS)
+                  </span>
+                  <input
+                    type="tel"
+                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm"
+                    value={po.contactPhone || ""}
+                    onChange={(e) => patchPoLocal({ contactPhone: e.target.value })}
+                    placeholder="02 32 86 50 90"
+                  />
+                </label>
                 <label className="block">
                   <span className="text-xs font-bold text-slate-500 uppercase">Introduction</span>
                   <textarea

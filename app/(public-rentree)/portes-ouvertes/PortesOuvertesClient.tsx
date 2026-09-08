@@ -84,6 +84,10 @@ export default function PortesOuvertesClient({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!form.slotId) {
+      setError("Veuillez choisir un créneau.");
+      return;
+    }
     if (selectedFull || allSlotsFull) {
       setError("Ce créneau est complet. Veuillez en choisir un autre.");
       return;
@@ -211,21 +215,42 @@ export default function PortesOuvertesClient({
                     Tous les créneaux sont complets pour cet établissement.
                   </p>
                 ) : (
-                  <label className="block">
-                    <span className="text-xs font-bold uppercase text-slate-500">Créneau</span>
-                    <select
-                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold"
-                      value={form.slotId}
-                      onChange={(e) => setForm({ ...form, slotId: e.target.value })}
-                      required
+                  <fieldset className="block space-y-2">
+                    <legend className="text-xs font-bold uppercase text-slate-500">Créneau</legend>
+                    <div
+                      role="listbox"
+                      aria-label="Créneau"
+                      className="mt-1 max-h-[min(22rem,55vh)] space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2"
                     >
-                      {cycleSlots.map((s) => (
-                        <option key={s.id} value={s.id} disabled={s.remaining === 0}>
-                          {formatSlotLabel(s)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                      {cycleSlots.map((s) => {
+                        const selected = form.slotId === s.id;
+                        const disabled = s.remaining === 0;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            disabled={disabled}
+                            onClick={() => setForm({ ...form, slotId: s.id })}
+                            className={`w-full rounded-lg px-3 py-3 text-left text-sm leading-snug transition ${
+                              selected
+                                ? "bg-violet-600 font-semibold text-white shadow-sm"
+                                : disabled
+                                  ? "cursor-not-allowed bg-slate-50 text-slate-400"
+                                  : "bg-slate-50 text-slate-800 hover:bg-violet-50"
+                            }`}
+                          >
+                            <span className="block whitespace-normal break-words">
+                              {formatSlotLabel(s)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Valeur pour la validation HTML5 du formulaire */}
+                    <input type="hidden" name="slotId" value={form.slotId} required />
+                  </fieldset>
                 )}
               </fieldset>
 

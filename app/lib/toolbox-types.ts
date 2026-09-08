@@ -53,6 +53,8 @@ export type PortesOuvertesToolConfig = {
   address: string;
   mapsUrl?: string;
   notifyEmail?: string;
+  /** Téléphone de l’établissement (affiché dans le mail / ICS, pas celui du visiteur). */
+  contactPhone?: string;
   /** Lien vers le formulaire de préinscription (mail de suivi). */
   preinscriptionUrl?: string;
   /** Délai minutes après check-in avant le mail de suivi. */
@@ -139,6 +141,7 @@ export function defaultToolboxConfig(): ToolboxConfig {
         address: "",
         mapsUrl: "",
         notifyEmail: "",
+        contactPhone: "02 32 86 50 90",
         preinscriptionUrl: "",
         followUpDelayMinutes: 60,
         slots: [],

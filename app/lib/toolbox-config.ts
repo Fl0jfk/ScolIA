@@ -166,6 +166,10 @@ export function parseToolboxConfig(raw: unknown): ToolboxConfig {
         address: String(po.address || "").trim(),
         mapsUrl: String(po.mapsUrl || "").trim() || undefined,
         notifyEmail: String(po.notifyEmail || "").trim() || undefined,
+        contactPhone:
+          String(po.contactPhone || "").trim() ||
+          defaults.tools["portes-ouvertes"].contactPhone ||
+          undefined,
         preinscriptionUrl: String(po.preinscriptionUrl || "").trim() || undefined,
         followUpDelayMinutes: (() => {
           const n = Number(po.followUpDelayMinutes);

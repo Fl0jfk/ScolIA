@@ -41,6 +41,7 @@ const PutSchema = z.object({
   /** URLs Maps souvent très longues — ne pas tronquer / invalider le save. */
   mapsUrl: z.string().max(4000).optional().nullable(),
   notifyEmail: z.string().max(200).optional().nullable(),
+  contactPhone: z.string().max(40).optional().nullable(),
   preinscriptionUrl: z.string().max(4000).optional().nullable(),
   followUpDelayMinutes: z.number().int().min(5).max(24 * 60).optional(),
   consentLabel: z.string().max(1000).optional(),
@@ -86,6 +87,7 @@ function hasConfigPatch(body: z.infer<typeof PutSchema>): boolean {
     body.address !== undefined ||
     body.mapsUrl !== undefined ||
     body.notifyEmail !== undefined ||
+    body.contactPhone !== undefined ||
     body.preinscriptionUrl !== undefined ||
     body.followUpDelayMinutes !== undefined ||
     body.consentLabel !== undefined
@@ -145,7 +147,12 @@ export async function PUT(req: Request) {
       });
 
       // Miroir toolbox pour ne pas perdre les champs au prochain toggle enabled.
+      // contactPhone : stocké uniquement dans le miroir toolbox (pas de colonne SQL).
       const toolbox = await getToolboxConfig();
+      const contactPhone =
+        body.contactPhone !== undefined
+          ? body.contactPhone?.trim() || "02 32 86 50 90"
+          : toolbox.tools["portes-ouvertes"].contactPhone?.trim() || "02 32 86 50 90";
       await saveToolboxConfig({
         ...toolbox,
         tools: {
@@ -161,6 +168,7 @@ export async function PUT(req: Request) {
             address: saved.address,
             mapsUrl: saved.mapsUrl,
             notifyEmail: saved.notifyEmail,
+            contactPhone,
             preinscriptionUrl: saved.preinscriptionUrl,
             followUpDelayMinutes: saved.followUpDelayMinutes,
             consentLabel: saved.consentLabel,

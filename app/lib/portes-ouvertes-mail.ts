@@ -80,11 +80,24 @@ async function sendVisitorConfirmationMail(params: {
   const visitLine = visitLineOf(entry);
   const preinscriptionUrl = po.preinscriptionUrl?.trim() || "";
   const preinscriptionLabel = "Compléter ma préinscription";
+  const contactPhone = po.contactPhone?.trim() || "02 32 86 50 90";
+  const dayLabel = new Date(slot.startAt).toLocaleDateString("fr-FR", {
+    timeZone: "Europe/Paris",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const timeLabel = new Date(slot.startAt).toLocaleTimeString("fr-FR", {
+    timeZone: "Europe/Paris",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   const icsDescription = [
-    "Rendez-vous à la cantine pour un petit café et découvrir l’établissement ensemble.",
+    `Rendez-vous le ${dayLabel} à ${timeLabel}, à la cantine, pour un petit café et découvrir l’établissement ensemble.`,
     "Au programme : visite guidée, échange avec la direction et les équipes qui vous intéressent.",
     visitLine ? `Visite souhaitée : ${visitLine}` : "",
-    entry.phone ? `Tél. : ${entry.phone}` : "",
+    contactPhone ? `Contact établissement : ${contactPhone}` : "",
     preinscriptionUrl
       ? `Avez-vous déjà fait votre préinscription ? Sinon, utilisez le lien « ${preinscriptionLabel} » de cet événement.`
       : "",
@@ -125,7 +138,8 @@ async function sendVisitorConfirmationMail(params: {
       <p><strong>Créneau :</strong> ${slot.label}<br/>
       <strong>Date :</strong> ${dateStr}<br/>
       ${visitLine ? `<strong>Visite :</strong> ${visitLine}<br/>` : ""}
-      ${po.address ? `<strong>Adresse :</strong> ${po.address}` : ""}</p>
+      ${po.address ? `<strong>Adresse :</strong> ${po.address}<br/>` : ""}
+      ${contactPhone ? `<strong>Téléphone :</strong> ${contactPhone}` : ""}</p>
       <p>Ajoutez l'événement à votre agenda via le fichier joint (.ics)${
         kind === "update" ? " (remplacez l’ancien créneau)" : ""
       }.</p>
