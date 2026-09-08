@@ -167,6 +167,7 @@ export const MODULE_EMOJI: Record<string, string> = {
   internat: "🌙",
   "vs-calendrier": "📆",
   "accueil-absences": "☎️",
+  "accueil-portes-ouvertes": "🏡",
   "absences-accueil-consultation": "📋",
   /** Absences RH (autorisations / calendrier personnel) — distinct de ☎️ accueil et 📋 consultation. */
   absences: "🤒",
@@ -191,6 +192,7 @@ export const MODULE_EMOJI: Record<string, string> = {
   "demandes-hse": "⏱️",
   /** Impression couleur — distinct de ☁️ documents / 📄 bulletins. */
   "photocopies-couleur": "🖨️",
+  /** Réservation de salles — portes physiques. Portes ouvertes = 🏡 (accueil familles). */
   "prof-room": "🚪",
   documents: "☁️",
   qrcreator: "📱",
