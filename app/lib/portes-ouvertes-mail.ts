@@ -83,7 +83,6 @@ async function sendVisitorConfirmationMail(params: {
   const contactPhone = po.contactPhone?.trim() || "02 32 86 50 90";
   const dayLabel = new Date(slot.startAt).toLocaleDateString("fr-FR", {
     timeZone: "Europe/Paris",
-    weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -94,7 +93,7 @@ async function sendVisitorConfirmationMail(params: {
     minute: "2-digit",
   });
   const icsDescription = [
-    `Rendez-vous le ${dayLabel} à ${timeLabel}, à la cantine, pour un petit café et découvrir l’établissement ensemble.`,
+    `Rendez-vous à ${timeLabel} à la cantine, pour un petit café et découvrir l’établissement ensemble.`,
     "Au programme : visite guidée, échange avec la direction et les équipes qui vous intéressent.",
     visitLine ? `Visite souhaitée : ${visitLine}` : "",
     contactPhone ? `Contact établissement : ${contactPhone}` : "",
@@ -107,7 +106,7 @@ async function sendVisitorConfirmationMail(params: {
     .join("\n\n");
 
   const ics = buildPortesOuvertesIcs({
-    title: `${po.title} — ${slot.label}`,
+    title: `${po.title} du ${dayLabel} — ${timeLabel}`,
     description: icsDescription,
     location: po.address,
     url: preinscriptionUrl || undefined,
