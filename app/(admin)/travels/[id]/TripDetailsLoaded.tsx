@@ -1631,9 +1631,41 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         />
       )}
 
+      {trip.type === "SIMPLE" &&
+        hubTab === "overview" &&
+        (isOwner || canSign) &&
+        !["ANNULE", "SEANCE_ANNULEE", "REJETE"].includes(String(trip.status)) && (
+          <TripAlert
+            tone="warning"
+            icon="🚌"
+            title="Besoin d’un autocar ?"
+            action={
+              <TripButton variant="primary" size="sm" onClick={() => setHubTab("actions")}>
+                Passer en sortie bus
+              </TripButton>
+            }
+          >
+            Cette sortie de proximité peut être requalifiée en voyage / sortie bus avec envoi
+            immédiat d’une demande de devis (onglet Actions).
+          </TripAlert>
+        )}
+
       {trip.type === "COMPLEX" && !withBusLogistics && hubTab === "overview" && (
-        <TripAlert tone="info" icon="ℹ️" title="Sans transport bus">
-          L&apos;étape « Choix du devis transport » est ignorée pour ce voyage (sans bus).
+        <TripAlert
+          tone="info"
+          icon="ℹ️"
+          title="Sans transport bus"
+          action={
+            (isOwner || canSign) &&
+            !["ANNULE", "SEANCE_ANNULEE", "REJETE"].includes(String(trip.status)) ? (
+              <TripButton variant="secondary" size="sm" onClick={() => setHubTab("actions")}>
+                Activer le bus + devis
+              </TripButton>
+            ) : undefined
+          }
+        >
+          L&apos;étape « Choix du devis transport » est ignorée pour ce voyage (sans bus). Vous
+          pouvez activer l’autocar depuis l’onglet Actions si besoin.
         </TripAlert>
       )}
 
