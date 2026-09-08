@@ -1,9 +1,11 @@
 import { rentreeAccentClasses } from "@/app/lib/rentree-accent-styles";
 import type { PortesOuvertesCycle } from "@/app/lib/portes-ouvertes-types";
-import type { RentreeAccent } from "@/app/lib/rentree-types";
+
+/** Accents rentrée utilisés pour école / collège / lycée. */
+export type PortesOuvertesCycleAccent = "yellow" | "sky" | "pink";
 
 /** Même mapping que `defaultAccentForKind` (préparation rentrée). */
-export function rentreeAccentForPortesCycle(cycle: PortesOuvertesCycle): RentreeAccent {
+export function rentreeAccentForPortesCycle(cycle: PortesOuvertesCycle): PortesOuvertesCycleAccent {
   if (cycle === "ecole") return "yellow";
   if (cycle === "college") return "sky";
   return "pink";
@@ -26,7 +28,7 @@ type CycleShell = {
   childTitle: string;
 };
 
-const SHELL: Record<"yellow" | "sky" | "pink", CycleShell> = {
+const SHELL: Record<PortesOuvertesCycleAccent, CycleShell> = {
   yellow: {
     pageBg: "bg-[linear-gradient(180deg,#fffbeb_0%,#f8fafc_42%,#ffffff_100%)]",
     cardBorder: "border-yellow-100/90",
