@@ -4,6 +4,11 @@ import { useMemo, useState } from "react";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
 import { parisDateKey, parseParisDateTime } from "@/app/lib/paris-time";
 import {
+  portesOuvertesCycleFormStyles,
+  rentreeAccentForPortesCycle,
+} from "@/app/lib/portes-ouvertes-cycle-styles";
+import { rentreeAccentClasses } from "@/app/lib/rentree-accent-styles";
+import {
   PORTES_OUVERTES_CYCLE_LABELS,
   type PortesOuvertesCycle,
 } from "@/app/lib/portes-ouvertes-types";
@@ -101,6 +106,7 @@ export default function PortesOuvertesClient({
     () => slotsForCycle(po.slots, form.cycle),
     [form.cycle, po.slots],
   );
+  const theme = useMemo(() => portesOuvertesCycleFormStyles(form.cycle), [form.cycle]);
   const dayLabel = useMemo(() => daysLabelFromSlots(cycleSlots), [cycleSlots]);
   const heading = pageHeading(po.title, dayLabel);
   const selectedSlot = cycleSlots.find((s) => s.id === form.slotId);
@@ -155,12 +161,11 @@ export default function PortesOuvertesClient({
     }
   }
 
-  const fieldClass =
-    "mt-1.5 w-full rounded-2xl border border-slate-200/90 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-200";
+  const fieldClass = `mt-1.5 w-full rounded-2xl border border-slate-200/90 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm outline-none transition ${theme.fieldFocus}`;
 
   if (done) {
     return (
-      <div className="min-h-screen bg-[linear-gradient(180deg,#f5f3ff_0%,#f8fafc_42%,#ffffff_100%)]">
+      <div className="min-h-screen bg-[linear-gradient(180deg,#ecfdf5_0%,#f8fafc_42%,#ffffff_100%)]">
         <RentreePublicHeader />
         <main className="mx-auto max-w-2xl px-4 py-16 sm:px-6">
           <div className="rounded-[1.75rem] border border-emerald-200/80 bg-white p-8 text-center shadow-[0_24px_60px_-36px_rgba(16,185,129,0.55)] sm:p-10">
@@ -181,15 +186,23 @@ export default function PortesOuvertesClient({
   }
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f5f3ff_0%,#f8fafc_42%,#ffffff_100%)]">
+    <div className={`min-h-screen transition-colors duration-300 ${theme.pageBg}`}>
       <RentreePublicHeader />
       <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 sm:py-12 lg:px-8">
-        <div className="overflow-hidden rounded-[1.75rem] border border-violet-100/90 bg-white/95 shadow-[0_30px_80px_-48px_rgba(91,33,182,0.55)]">
-          <header className="border-b border-violet-100 bg-[radial-gradient(120%_120%_at_0%_0%,#ede9fe_0%,#ffffff_55%)] px-5 py-7 sm:px-8 sm:py-9 lg:px-10">
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-violet-700">
+        <div
+          className={`overflow-hidden rounded-[1.75rem] border bg-white/95 transition-colors duration-300 ${theme.cardBorder} ${theme.cardShadow}`}
+        >
+          <header
+            className={`border-b px-5 py-7 transition-colors duration-300 sm:px-8 sm:py-9 lg:px-10 ${theme.headerBorder} ${theme.headerBg}`}
+          >
+            <p
+              className={`text-[11px] font-bold uppercase tracking-[0.2em] transition-colors duration-300 ${theme.headerEyebrow}`}
+            >
               Visite de l’établissement
             </p>
-            <h1 className="mt-2 max-w-3xl text-3xl font-black tracking-tight text-violet-950 sm:text-4xl">
+            <h1
+              className={`mt-2 max-w-3xl text-3xl font-black tracking-tight transition-colors duration-300 sm:text-4xl ${theme.headerTitle}`}
+            >
               {heading}
             </h1>
             {po.intro ? (
@@ -198,7 +211,9 @@ export default function PortesOuvertesClient({
               </p>
             ) : null}
             {po.address ? (
-              <p className="mt-5 inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-full bg-white/80 px-3.5 py-1.5 text-sm font-semibold text-slate-800 ring-1 ring-violet-100">
+              <p
+                className={`mt-5 inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-full bg-white/80 px-3.5 py-1.5 text-sm font-semibold text-slate-800 ring-1 transition-colors duration-300 ${theme.addressRing}`}
+              >
                 <span aria-hidden>📍</span>
                 <span>{po.address}</span>
                 {po.mapsUrl ? (
@@ -206,7 +221,7 @@ export default function PortesOuvertesClient({
                     href={po.mapsUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-bold text-violet-700 underline-offset-2 hover:underline"
+                    className={theme.link}
                   >
                     Itinéraire
                   </a>
@@ -246,7 +261,9 @@ export default function PortesOuvertesClient({
                 <section className="space-y-4">
                   <div className="flex flex-wrap items-end justify-between gap-3">
                     <div>
-                      <h2 className="text-sm font-black uppercase tracking-wide text-violet-900">
+                      <h2
+                        className={`text-sm font-black uppercase tracking-wide transition-colors duration-300 ${theme.sectionTitle}`}
+                      >
                         Votre créneau
                       </h2>
                       <p className="mt-1 text-xs text-slate-500">
@@ -254,7 +271,9 @@ export default function PortesOuvertesClient({
                       </p>
                     </div>
                     {dayLabel ? (
-                      <p className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-800 ring-1 ring-violet-100">
+                      <p
+                        className={`rounded-full border px-3 py-1 text-xs font-bold transition-colors duration-300 ${theme.badge}`}
+                      >
                         {dayLabel}
                       </p>
                     ) : null}
@@ -264,15 +283,14 @@ export default function PortesOuvertesClient({
                     <div className="flex flex-wrap gap-2">
                       {availableCycles.map((c) => {
                         const active = form.cycle === c;
+                        const pill = rentreeAccentClasses(rentreeAccentForPortesCycle(c));
                         return (
                           <button
                             key={c}
                             type="button"
                             onClick={() => setCycle(c)}
-                            className={`rounded-full px-4 py-2 text-sm font-bold transition ${
-                              active
-                                ? "bg-violet-700 text-white shadow-sm"
-                                : "bg-slate-100 text-slate-700 hover:bg-violet-50 hover:text-violet-900"
+                            className={`rounded-full border px-4 py-2 text-sm font-bold transition ${
+                              active ? pill.pillActive : pill.pillIdle
                             }`}
                           >
                             {cycleLabels[c] || PORTES_OUVERTES_CYCLE_LABELS[c]}
@@ -315,15 +333,15 @@ export default function PortesOuvertesClient({
                             onClick={() => setForm({ ...form, slotId: s.id })}
                             className={`flex min-h-[4.25rem] flex-col items-start justify-center rounded-2xl px-4 py-3 text-left transition ${
                               selected
-                                ? "bg-violet-700 text-white shadow-md shadow-violet-700/25"
+                                ? theme.slotSelected
                                 : disabled
                                   ? "cursor-not-allowed bg-slate-50 text-slate-400 ring-1 ring-slate-100"
-                                  : "bg-slate-50 text-slate-900 ring-1 ring-slate-200/80 hover:bg-violet-50 hover:ring-violet-200"
+                                  : theme.slotIdle
                             }`}
                           >
                             <span className="text-base font-black tracking-tight sm:text-lg">
                               {formatHm(s.startAt)}
-                              <span className={selected ? "text-violet-200" : "text-slate-400"}>
+                              <span className={selected ? "text-white/70" : "text-slate-400"}>
                                 {" "}
                                 – {formatHm(s.endAt)}
                               </span>
@@ -332,7 +350,7 @@ export default function PortesOuvertesClient({
                               <span
                                 className={`mt-1 text-xs font-semibold ${
                                   selected
-                                    ? "text-violet-100"
+                                    ? "text-white/80"
                                     : disabled
                                       ? "text-slate-400"
                                       : "text-slate-500"
@@ -408,8 +426,12 @@ export default function PortesOuvertesClient({
                       </label>
                     </section>
 
-                    <section className="space-y-4 rounded-[1.35rem] bg-violet-50/50 p-4 ring-1 ring-violet-100 sm:p-5">
-                      <h2 className="text-sm font-black uppercase tracking-wide text-violet-900">
+                    <section
+                      className={`space-y-4 rounded-[1.35rem] p-4 transition-colors duration-300 sm:p-5 ${theme.childPanel}`}
+                    >
+                      <h2
+                        className={`text-sm font-black uppercase tracking-wide transition-colors duration-300 ${theme.childTitle}`}
+                      >
                         Enfant concerné
                       </h2>
                       <div className="grid gap-4 sm:grid-cols-2">
@@ -454,7 +476,7 @@ export default function PortesOuvertesClient({
                       <button
                         type="submit"
                         disabled={busy || selectedFull || !form.slotId}
-                        className="w-full rounded-2xl bg-violet-700 px-4 py-3.5 text-sm font-black text-white shadow-lg shadow-violet-700/20 transition hover:bg-violet-800 disabled:opacity-50 sm:text-base"
+                        className={`w-full rounded-2xl px-4 py-3.5 text-sm font-black shadow-lg transition disabled:opacity-50 sm:text-base ${theme.cta}`}
                       >
                         {busy ? "Inscription…" : "Confirmer mon inscription"}
                       </button>
