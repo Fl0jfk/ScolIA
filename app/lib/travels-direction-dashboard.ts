@@ -10,7 +10,7 @@ export type TripDashboardRow = {
     startDate?: string;
     endDate?: string;
     needsBus?: boolean;
-    selectedBusQuote?: unknown;
+    selectedBusQuote?: Record<string, unknown>;
   };
   createdAt?: string;
 };
