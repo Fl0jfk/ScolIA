@@ -7,6 +7,8 @@ export type CalendarIcsEvent = {
   title: string;
   description?: string;
   location?: string;
+  /** Lien cliquable de l’événement (propriété ICS `URL`, ex. préinscription). */
+  url?: string;
   /** ISO datetime (avec Z ou offset) — utilisé si fourni. */
   startAt?: string;
   endAt?: string;
@@ -34,6 +36,7 @@ export function buildPortesOuvertesIcs(params: {
   title: string;
   description?: string;
   location?: string;
+  url?: string;
   startAt: string;
   endAt: string;
   uid?: string;
@@ -93,6 +96,8 @@ export function buildCalendarEventsIcs(params: {
     // Un seul escapeIcs : un pré-remplacement \n → \\n puis escapeIcs doublait les \ et affichait « \n » littéral.
     if (desc) blocks.push(`DESCRIPTION:${escapeIcs(desc)}`);
     if (loc) blocks.push(`LOCATION:${escapeIcs(loc)}`);
+    const url = normalizeIcsUrl(ev.url);
+    if (url) blocks.push(`URL:${url}`);
     blocks.push("END:VEVENT");
   }
 
@@ -154,6 +159,19 @@ function escapeIcs(s: string) {
     .replace(/;/g, "\\;")
     .replace(/,/g, "\\,")
     .replace(/\n/g, "\\n");
+}
+
+/** URI pour la propriété ICS `URL` (pas d’échappement TEXT type DESCRIPTION). */
+function normalizeIcsUrl(raw: string | undefined): string | undefined {
+  const u = (raw || "").trim();
+  if (!u) return undefined;
+  try {
+    const parsed = new URL(u);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined;
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 /** @deprecated Préférer buildTravelsParentsTripIcs (multi-événements). */

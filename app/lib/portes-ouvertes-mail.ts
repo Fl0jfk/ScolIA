@@ -96,6 +96,7 @@ async function sendVisitorConfirmationMail(params: {
     title: `${po.title} — ${slot.label}`,
     description: icsDescription,
     location: po.address,
+    url: preinscriptionUrl || undefined,
     startAt: slot.startAt,
     endAt: slot.endAt,
     uid: `po-${entry.id}@scola`,
