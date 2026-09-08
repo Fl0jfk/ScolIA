@@ -218,6 +218,23 @@ export async function requireModule(
     return { ok: false, response: moduleForbiddenResponse(moduleId) };
   }
 
+  if (moduleId === "accueil-portes-ouvertes") {
+    const { isPortesOuvertesToolEnabled } = await import("@/app/lib/toolbox-config");
+    if (!(await isPortesOuvertesToolEnabled())) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          {
+            error:
+              "Les portes ouvertes ne sont pas activées. Activez-les dans Événements → Portes ouvertes.",
+            code: "PORTES_OUVERTES_DISABLED",
+          },
+          { status: 403 },
+        ),
+      };
+    }
+  }
+
   return {
     ok: true,
     ctx: { userId: resolved.userId, user: resolved.user },

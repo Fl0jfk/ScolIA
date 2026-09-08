@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
-import { z } from "zod";
 import { loadAppConfig } from "@/app/lib/app-config";
+import { isOrgAdminFromAppUser } from "@/app/lib/auth-roles-db";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { getToolboxConfig } from "@/app/lib/toolbox-config";
+import { canManagePortesOuvertesParametrage } from "@/app/lib/portes-ouvertes-access";
 import {
   cancelPortesOuvertesVisitor,
   registerPortesOuvertesVisitor,
@@ -23,6 +23,8 @@ import {
   PORTES_OUVERTES_CYCLES,
   type PortesOuvertesCycle,
 } from "@/app/lib/portes-ouvertes-types";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 
 const RegisterSchema = z.object({
   slotId: z.string().min(1),
@@ -146,6 +148,10 @@ export async function GET() {
     preinscriptionUrl: payload.preinscriptionUrl || null,
     followUpDelayMinutes: payload.followUpDelayMinutes,
     publicEnabled: toolbox.tools["portes-ouvertes"].enabled,
+    canManageParametrage: canManagePortesOuvertesParametrage(
+      gate.ctx.user.roles,
+      isOrgAdminFromAppUser(gate.ctx.user),
+    ),
     slots,
     registrations: enriched,
     staff,

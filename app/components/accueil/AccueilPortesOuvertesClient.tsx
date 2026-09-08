@@ -55,6 +55,7 @@ type BoardPayload = {
   preinscriptionUrl: string | null;
   followUpDelayMinutes: number;
   publicEnabled: boolean;
+  canManageParametrage?: boolean;
   slots: SlotWithCount[];
   registrations: RegistrationRow[];
   staff: StaffRow[];
@@ -153,6 +154,7 @@ export default function AccueilPortesOuvertesClient({
     setBoard({
       ...data,
       staff: Array.isArray(data.staff) ? data.staff : [],
+      canManageParametrage: Boolean(data.canManageParametrage),
       followUpDelayMinutes:
         typeof data.followUpDelayMinutes === "number" && data.followUpDelayMinutes > 0
           ? data.followUpDelayMinutes
@@ -392,6 +394,10 @@ export default function AccueilPortesOuvertesClient({
   }
 
   function changeVue(next: AccueilPoVue) {
+    if (next === "parametrage" && !(board?.canManageParametrage)) {
+      setError("Paramétrage réservé à la direction et aux admins.");
+      return;
+    }
     setVue(next);
     const params = new URLSearchParams(window.location.search);
     const qs = params.toString();
@@ -432,6 +438,22 @@ export default function AccueilPortesOuvertesClient({
       .sort((a, b) => a.startAt.localeCompare(b.startAt));
   }, [board?.slots, availableCycles]);
 
+  const canParam = Boolean(board?.canManageParametrage);
+
+  useEffect(() => {
+    if (!board) return;
+    if (vue === "parametrage" && !canParam) {
+      setVue("planning");
+      const params = new URLSearchParams(window.location.search);
+      const qs = params.toString();
+      window.history.replaceState(
+        null,
+        "",
+        qs ? `/accueil/portes-ouvertes?${qs}` : "/accueil/portes-ouvertes",
+      );
+    }
+  }, [board, vue, canParam]);
+
   return (
     <ModulePageShell>
       <ModulePageHeader
@@ -456,7 +478,7 @@ export default function AccueilPortesOuvertesClient({
       <ModuleTabNav
         tabs={[
           { id: "planning", label: "Planning du jour" },
-          { id: "parametrage", label: "Paramétrage" },
+          { id: "parametrage", label: "Paramétrage", hidden: !canParam },
         ]}
         active={vue}
         onChange={changeVue}
@@ -478,7 +500,7 @@ export default function AccueilPortesOuvertesClient({
         <div className="space-y-4">
           {!board.publicEnabled ? (
             <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Page publique désactivée — la saisie Accueil reste possible.
+              Les portes ouvertes ne sont pas marquées activées côté paramétrage — vérifiez Événements.
             </p>
           ) : null}
 
@@ -709,7 +731,7 @@ export default function AccueilPortesOuvertesClient({
         </div>
       ) : null}
 
-      {board && vue === "parametrage" ? (
+      {board && vue === "parametrage" && canParam ? (
         <div className="space-y-6">
           <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
             <h2 className="text-lg font-bold text-slate-900">Configuration de la grille</h2>

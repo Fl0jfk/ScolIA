@@ -51,6 +51,18 @@ export async function GET() {
       } catch {
         /* ignore */
       }
+      try {
+        const {
+          isPortesOuvertesToolEnabled,
+          withoutAccueilPortesOuvertesIfDisabled,
+        } = await import("@/app/lib/toolbox-config");
+        const poOn = await isPortesOuvertesToolEnabled();
+        const filtered = withoutAccueilPortesOuvertesIfDisabled(moduleIds, poOn);
+        moduleIds.length = 0;
+        moduleIds.push(...filtered);
+      } catch {
+        /* ignore */
+      }
       const dossierSections = [
         ...dossierSectionsForRolesWithAccess(
           appUser.user.roles,
@@ -74,6 +86,18 @@ export async function GET() {
       businessUserId: user.id,
     };
     const moduleIds = [...accessibleModuleIdsForRoles(roles, isOrgAdmin, access, lookup)];
+    try {
+      const {
+        isPortesOuvertesToolEnabled,
+        withoutAccueilPortesOuvertesIfDisabled,
+      } = await import("@/app/lib/toolbox-config");
+      const poOn = await isPortesOuvertesToolEnabled();
+      const filtered = withoutAccueilPortesOuvertesIfDisabled(moduleIds, poOn);
+      moduleIds.length = 0;
+      moduleIds.push(...filtered);
+    } catch {
+      /* ignore */
+    }
     const dossierSections = [
       ...dossierSectionsForRolesWithAccess(
         roles,

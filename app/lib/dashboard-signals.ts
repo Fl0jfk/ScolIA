@@ -1632,6 +1632,11 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     { moduleId: "organigramme", label: "Annuaire de l'établissement" },
     { moduleId: "evenements", label: "Événements" },
     {
+      moduleId: "accueil-portes-ouvertes",
+      label: "Portes ouvertes",
+      detail: "Planning du jour · Paramétrage",
+    },
+    {
       moduleId: "communication",
       label: "Communication",
       detail: "Documents familles · Simulateur tarifs",

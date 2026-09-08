@@ -242,3 +242,25 @@ export async function isCovoiturageToolEnabled(): Promise<boolean> {
   const config = await getToolboxConfig();
   return config.tools.covoiturage.enabled === true;
 }
+
+/**
+ * Portes ouvertes activées (page publique + module Accueil planning/paramétrage).
+ * Quand désactivé : pas de tuile Accueil pour direction / administratif / accueil.
+ */
+export async function isPortesOuvertesToolEnabled(): Promise<boolean> {
+  const config = await getToolboxConfig();
+  return config.tools["portes-ouvertes"].enabled === true;
+}
+
+/** Retire le module Accueil PO si l’outil n’est pas activé. */
+export function withoutAccueilPortesOuvertesIfDisabled(
+  moduleIds: Iterable<string>,
+  portesOuvertesEnabled: boolean,
+): string[] {
+  const out: string[] = [];
+  for (const id of moduleIds) {
+    if (id === "accueil-portes-ouvertes" && !portesOuvertesEnabled) continue;
+    out.push(id);
+  }
+  return out;
+}

@@ -172,6 +172,15 @@ export async function GET() {
     });
     if (isPhotoOps) accessibleModuleIds.add("photocopies-couleur");
 
+    try {
+      const { isPortesOuvertesToolEnabled } = await import("@/app/lib/toolbox-config");
+      if (!(await isPortesOuvertesToolEnabled())) {
+        accessibleModuleIds.delete("accueil-portes-ouvertes");
+      }
+    } catch {
+      /* ignore */
+    }
+
     let establishments: NonNullable<typeof appBundle>["establishments"] = appBundle?.establishments ?? [];
     if (!appBundle) {
       try {

@@ -25,6 +25,7 @@ const PILLAR_MODULE_HREF: Record<string, string> = {
   "edt-classe": "/edt-classe",
   "vs-calendrier": "/vie-scolaire/calendrier",
   "accueil-absences": "/accueil/absences",
+  "accueil-portes-ouvertes": "/accueil/portes-ouvertes",
   "absences-accueil-consultation": "/vie-scolaire/absences-accueil",
   "vs-appels": "/vie-scolaire/presence",
   "vs-absences": "/vie-scolaire/presence?tab=absences",
@@ -62,6 +63,8 @@ const PILLAR_TAB_TO_MODULE: Record<DashboardPillarId, Record<string, string>> = 
   etablissement: {
     organigramme: "organigramme",
     evenements: "evenements",
+    "portes-ouvertes": "accueil-portes-ouvertes",
+    portesouvertes: "accueil-portes-ouvertes",
     communication: "communication",
     parametres: "admin-settings",
     identite: "admin-settings",

@@ -563,11 +563,12 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [...DIRECTIONS, "administratif", "accueil"],
     dashboard: {
       id: 244,
-      name: "Portes ouvertes (accueil)",
+      name: "Portes ouvertes",
       img: "",
       link: "/accueil/portes-ouvertes",
       external: false,
-      description: "Planning du jour (tableur) + ajout manuel visiteurs / équipe des créneaux",
+      description:
+        "Planning du jour et paramétrage — Établissement (si activé)",
     },
   },
   {
@@ -1085,6 +1086,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "admin-settings",
     "organigramme",
     "evenements",
+    "accueil-portes-ouvertes",
     "communication",
     "conformite-rgpd",
     "chatbot-knowledge",
@@ -1104,7 +1106,6 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "internat",
     "vs-calendrier",
     "accueil-absences",
-    "accueil-portes-ouvertes",
     "absences-accueil-consultation",
     "vs-appels",
     "vs-absences",

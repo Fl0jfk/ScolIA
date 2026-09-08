@@ -605,7 +605,7 @@ export default function EvenementsHubClient() {
                 <Toggle
                   checked={po.enabled}
                   onChange={(v) => patchPoLocal({ enabled: v })}
-                  label="Activer la page publique /portes-ouvertes"
+                  label="Activer les portes ouvertes (page publique + planning Accueil pour direction, administratif et accueil)"
                 />
                 <div className="grid gap-4 sm:grid-cols-2">
                   <label className="block">
