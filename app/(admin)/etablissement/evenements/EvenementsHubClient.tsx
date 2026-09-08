@@ -876,16 +876,6 @@ export default function EvenementsHubClient() {
                     />
                   </label>
                 </div>
-                <label className="block">
-                  <span className="text-xs font-bold text-slate-500 uppercase">
-                    Libellé consentement
-                  </span>
-                  <textarea
-                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm min-h-[60px]"
-                    value={po.consentLabel}
-                    onChange={(e) => patchPoLocal({ consentLabel: e.target.value })}
-                  />
-                </label>
 
                 <div className="rounded-xl border border-violet-100 bg-violet-50/60 p-4 space-y-2">
                   <p className="text-sm text-violet-950">

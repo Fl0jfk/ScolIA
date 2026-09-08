@@ -45,7 +45,6 @@ export async function POST(req: Request) {
     const childLastName = String(body.childLastName || "").trim();
     const classeSouhaitee = String(body.classeSouhaitee || "").trim();
     const cycleRaw = String(body.cycle || "").trim();
-    const consent = body.consent === true;
 
     if (!slotId || !firstName || !lastName || !email) {
       return NextResponse.json({ error: "Créneau, nom, prénom et e-mail requis." }, { status: 400 });
@@ -64,9 +63,6 @@ export async function POST(req: Request) {
     }
     if (childFirstName.length > 80 || childLastName.length > 80 || classeSouhaitee.length > 80) {
       return NextResponse.json({ error: "Champs enfant trop longs." }, { status: 400 });
-    }
-    if (!consent) {
-      return NextResponse.json({ error: "Veuillez accepter le traitement de vos données." }, { status: 400 });
     }
 
     const bundle = await loadAppConfig();
@@ -96,7 +92,8 @@ export async function POST(req: Request) {
       childLastName,
       cycle: cycleRaw,
       classeSouhaitee,
-      consent,
+      // L’inscription vaut acceptation du traitement (confirmation + mail de suivi préinscription).
+      consent: true,
       source: "public",
     });
 

@@ -59,7 +59,6 @@ export default function PortesOuvertesClient({
     childFirstName: "",
     childLastName: "",
     classeSouhaitee: "",
-    consent: false,
   });
   const [honeypot, setHoneypot] = useState("");
   const [busy, setBusy] = useState(false);
@@ -105,7 +104,6 @@ export default function PortesOuvertesClient({
           childFirstName: form.childFirstName,
           childLastName: form.childLastName,
           classeSouhaitee: form.classeSouhaitee,
-          consent: form.consent,
           website: honeypot,
         }),
       });
@@ -325,16 +323,6 @@ export default function PortesOuvertesClient({
                     </label>
                   </fieldset>
 
-                  <label className="flex cursor-pointer items-start gap-3">
-                    <input
-                      type="checkbox"
-                      required
-                      checked={form.consent}
-                      onChange={(e) => setForm({ ...form, consent: e.target.checked })}
-                      className="mt-1"
-                    />
-                    <span className="text-xs text-slate-600">{po.consentLabel}</span>
-                  </label>
                   <button
                     type="submit"
                     disabled={busy || selectedFull}
