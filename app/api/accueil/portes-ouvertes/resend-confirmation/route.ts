@@ -17,10 +17,19 @@ const BodySchema = z.object({
 /**
  * Renvoi manuel des mails de confirmation portes ouvertes.
  * POST { limit?: 2 } ou { ids: ["…"] }
+ * Auth : session module, ou header `x-scola-support-secret` (= OCR_WORKER_SECRET / TRAVEL_EMAIL_INGEST_SECRET).
  */
 export async function POST(req: Request) {
-  const gate = await requireModule("accueil-portes-ouvertes");
-  if (!gate.ok) return gate.response;
+  const supportSecret = req.headers.get("x-scola-support-secret")?.trim() || "";
+  const expected =
+    process.env.OCR_WORKER_SECRET?.trim() ||
+    process.env.TRAVEL_EMAIL_INGEST_SECRET?.trim() ||
+    "";
+  const supportOk = Boolean(expected && supportSecret && supportSecret === expected);
+  if (!supportOk) {
+    const gate = await requireModule("accueil-portes-ouvertes");
+    if (!gate.ok) return gate.response;
+  }
 
   const parsed = BodySchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
