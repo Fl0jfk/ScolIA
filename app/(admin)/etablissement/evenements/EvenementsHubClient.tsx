@@ -286,14 +286,15 @@ export default function EvenementsHubClient() {
         enabled: po.enabled,
         title: po.title,
         intro: po.intro,
-        address: po.address,
-        mapsUrl: po.mapsUrl || null,
-        notifyEmail: po.notifyEmail || null,
-        preinscriptionUrl: po.preinscriptionUrl || null,
+        address: po.address ?? "",
+        // Envoyer la chaîne telle quelle (pas `|| null`) pour ne pas effacer à tort.
+        mapsUrl: (po.mapsUrl ?? "").trim(),
+        notifyEmail: (po.notifyEmail ?? "").trim(),
+        preinscriptionUrl: (po.preinscriptionUrl ?? "").trim(),
         followUpDelayMinutes: po.followUpDelayMinutes,
         consentLabel: po.consentLabel,
       },
-      "Portes ouvertes enregistrées (SQL).",
+      "Portes ouvertes enregistrées.",
     );
   }
 

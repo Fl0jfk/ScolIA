@@ -781,7 +781,7 @@ export async function markPortesOuvertesFollowUpSent(
     );
 }
 
-/** Construit la config outil (hors enabled toolbox) depuis SQL. */
+/** Construit la config outil (hors enabled toolbox) depuis SQL (+ repli toolbox si SQL vide). */
 export async function buildPortesOuvertesToolPayload(etablissementId?: string): Promise<{
   title: string;
   intro: string;
@@ -799,8 +799,49 @@ export async function buildPortesOuvertesToolPayload(etablissementId?: string): 
     listPortesOuvertesSlots(etablissementId),
     listPortesOuvertesStaff(etablissementId),
   ]);
+
+  let merged = { ...config };
+  const needsBackfill =
+    !merged.address?.trim() ||
+    !merged.mapsUrl?.trim() ||
+    !merged.preinscriptionUrl?.trim() ||
+    !merged.notifyEmail?.trim();
+
+  if (needsBackfill) {
+    try {
+      const { getToolboxConfig } = await import("@/app/lib/toolbox-config");
+      const toolbox = await getToolboxConfig();
+      const po = toolbox.tools["portes-ouvertes"];
+      merged = {
+        ...merged,
+        address: merged.address?.trim() || po.address || "",
+        mapsUrl: merged.mapsUrl?.trim() || po.mapsUrl || undefined,
+        notifyEmail: merged.notifyEmail?.trim() || po.notifyEmail || undefined,
+        preinscriptionUrl:
+          merged.preinscriptionUrl?.trim() || po.preinscriptionUrl || undefined,
+        followUpDelayMinutes:
+          merged.followUpDelayMinutes > 0
+            ? merged.followUpDelayMinutes
+            : typeof po.followUpDelayMinutes === "number" && po.followUpDelayMinutes > 0
+              ? po.followUpDelayMinutes
+              : 60,
+      };
+      // Réécrit en SQL pour ne plus perdre les valeurs au prochain enregistrement.
+      if (
+        (merged.address && merged.address !== config.address) ||
+        (merged.mapsUrl && merged.mapsUrl !== config.mapsUrl) ||
+        (merged.preinscriptionUrl && merged.preinscriptionUrl !== config.preinscriptionUrl) ||
+        (merged.notifyEmail && merged.notifyEmail !== config.notifyEmail)
+      ) {
+        merged = await upsertPortesOuvertesConfig(merged, etablissementId);
+      }
+    } catch {
+      /* ignore repli toolbox */
+    }
+  }
+
   return {
-    ...config,
+    ...merged,
     slots,
     staff,
   };

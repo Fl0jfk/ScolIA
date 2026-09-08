@@ -139,6 +139,8 @@ export function defaultToolboxConfig(): ToolboxConfig {
         address: "",
         mapsUrl: "",
         notifyEmail: "",
+        preinscriptionUrl: "",
+        followUpDelayMinutes: 60,
         slots: [],
         consentLabel:
           "J'accepte que mes coordonnées soient utilisées pour organiser ma visite et me recontacter si besoin.",

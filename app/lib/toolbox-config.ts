@@ -166,6 +166,11 @@ export function parseToolboxConfig(raw: unknown): ToolboxConfig {
         address: String(po.address || "").trim(),
         mapsUrl: String(po.mapsUrl || "").trim() || undefined,
         notifyEmail: String(po.notifyEmail || "").trim() || undefined,
+        preinscriptionUrl: String(po.preinscriptionUrl || "").trim() || undefined,
+        followUpDelayMinutes: (() => {
+          const n = Number(po.followUpDelayMinutes);
+          return Number.isFinite(n) && n >= 5 ? Math.min(24 * 60, Math.floor(n)) : 60;
+        })(),
         slots: parseSlots(po.slots),
         consentLabel: String(po.consentLabel || defaults.tools["portes-ouvertes"].consentLabel).trim(),
       },

@@ -37,10 +37,11 @@ const StaffAddSchema = z.object({
 const PutSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   intro: z.string().max(4000).optional(),
-  address: z.string().max(500).optional(),
-  mapsUrl: z.string().max(1000).optional().nullable(),
+  address: z.string().max(1000).optional(),
+  /** URLs Maps souvent très longues — ne pas tronquer / invalider le save. */
+  mapsUrl: z.string().max(4000).optional().nullable(),
   notifyEmail: z.string().max(200).optional().nullable(),
-  preinscriptionUrl: z.string().max(1000).optional().nullable(),
+  preinscriptionUrl: z.string().max(4000).optional().nullable(),
   followUpDelayMinutes: z.number().int().min(5).max(24 * 60).optional(),
   consentLabel: z.string().max(1000).optional(),
   enabled: z.boolean().optional(),
@@ -69,6 +70,19 @@ async function poAdminResponse() {
     stats: countRegistrationsBySlot(registrations),
     registrationsCount: registrations.length,
   };
+}
+
+function hasConfigPatch(body: z.infer<typeof PutSchema>): boolean {
+  return (
+    body.title !== undefined ||
+    body.intro !== undefined ||
+    body.address !== undefined ||
+    body.mapsUrl !== undefined ||
+    body.notifyEmail !== undefined ||
+    body.preinscriptionUrl !== undefined ||
+    body.followUpDelayMinutes !== undefined ||
+    body.consentLabel !== undefined
+  );
 }
 
 export async function GET() {
@@ -106,16 +120,48 @@ export async function PUT(req: Request) {
       });
     }
 
-    await upsertPortesOuvertesConfig({
-      title: body.title,
-      intro: body.intro,
-      address: body.address,
-      mapsUrl: body.mapsUrl === null ? "" : body.mapsUrl,
-      notifyEmail: body.notifyEmail === null ? "" : body.notifyEmail,
-      preinscriptionUrl: body.preinscriptionUrl === null ? "" : body.preinscriptionUrl,
-      followUpDelayMinutes: body.followUpDelayMinutes,
-      consentLabel: body.consentLabel,
-    });
+    // Ne jamais réécrire la config meta lors d’un simple append créneau / staffing.
+    if (hasConfigPatch(body)) {
+      const saved = await upsertPortesOuvertesConfig({
+        title: body.title,
+        intro: body.intro,
+        address: body.address,
+        mapsUrl: body.mapsUrl === undefined ? undefined : body.mapsUrl?.trim() || undefined,
+        notifyEmail:
+          body.notifyEmail === undefined ? undefined : body.notifyEmail?.trim() || undefined,
+        preinscriptionUrl:
+          body.preinscriptionUrl === undefined
+            ? undefined
+            : body.preinscriptionUrl?.trim() || undefined,
+        followUpDelayMinutes: body.followUpDelayMinutes,
+        consentLabel: body.consentLabel,
+      });
+
+      // Miroir toolbox pour ne pas perdre les champs au prochain toggle enabled.
+      const toolbox = await getToolboxConfig();
+      await saveToolboxConfig({
+        ...toolbox,
+        tools: {
+          ...toolbox.tools,
+          "portes-ouvertes": {
+            ...toolbox.tools["portes-ouvertes"],
+            enabled:
+              body.enabled !== undefined
+                ? body.enabled
+                : toolbox.tools["portes-ouvertes"].enabled,
+            title: saved.title,
+            intro: saved.intro,
+            address: saved.address,
+            mapsUrl: saved.mapsUrl,
+            notifyEmail: saved.notifyEmail,
+            preinscriptionUrl: saved.preinscriptionUrl,
+            followUpDelayMinutes: saved.followUpDelayMinutes,
+            consentLabel: saved.consentLabel,
+            slots: [],
+          },
+        },
+      });
+    }
 
     if (body.slotDeleteId) {
       await deletePortesOuvertesSlot(body.slotDeleteId);
