@@ -1,8 +1,8 @@
 "use client";
 
-import type { RefObject } from "react";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import { TripButton, TripDocumentChip, TripSection } from "@/app/components/travels/TripDetailUI";
+import { TripDocumentsDropZone } from "@/app/components/travels/TripDocumentsDropZone";
 
 type TripDocumentsHubPanelProps = {
   trip: TravelsTrip;
@@ -14,8 +14,7 @@ type TripDocumentsHubPanelProps = {
   loadingAction: string | null;
   handleRegenerateCircular: () => void;
   canAddDocuments: boolean;
-  fileInputRef: RefObject<HTMLInputElement | null>;
-  handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  uploadTravelFiles: (files: File[]) => void | Promise<void>;
   uploading: boolean;
   openSecureFile: (url: string, key?: string | null) => void;
   canSeeTravelDocHoverActions: boolean;
@@ -30,10 +29,11 @@ type TripDocumentsHubPanelProps = {
 export function TripDocumentsHubPanel(p: TripDocumentsHubPanelProps) {
   const {
     trip, isEditing, editedData, documentCount, canSign, isOwner, loadingAction,
-    handleRegenerateCircular, canAddDocuments, fileInputRef, handleFileUpload, uploading,
+    handleRegenerateCircular, canAddDocuments, uploadTravelFiles, uploading,
     openSecureFile, canSeeTravelDocHoverActions, prepareSendToZeendoc, zeendocSendingUrl,
     canManageFiles, removeFile, withBusLogistics, deleteBusQuote,
   } = p;
+
   return (
         <TripSection title="Documents du dossier" subtitle="Pièces jointes, devis transport et circulaire" icon="📁">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
@@ -44,19 +44,19 @@ export function TripDocumentsHubPanel(p: TripDocumentsHubPanelProps) {
                   {loadingAction === "regenerate-circular" ? "Génération…" : "Régénérer circulaire"}
                 </TripButton>
               )}
-              {canAddDocuments && (
-                <>
-                  <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
-                  <TripButton variant="primary" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                    {uploading ? "Upload…" : "+ Document"}
-                  </TripButton>
-                </>
-              )}
             </div>
           </div>
 
+          {canAddDocuments && (
+            <TripDocumentsDropZone
+              className="mb-6"
+              uploading={uploading}
+              onFiles={uploadTravelFiles}
+            />
+          )}
+
           {documentCount === 0 ? (
-            <p className="text-sm text-slate-400 italic py-8 text-center">Aucun document dans ce dossier.</p>
+            <p className="text-sm text-slate-400 italic py-4 text-center">Aucun document dans ce dossier.</p>
           ) : (
             <div className="space-y-8">
               {((isEditing ? editedData.attachments : trip.data.attachments) || []).length > 0 && (

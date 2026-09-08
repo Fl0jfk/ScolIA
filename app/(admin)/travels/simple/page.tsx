@@ -23,6 +23,7 @@ import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
 import type { TravelsAccompagnateur } from "@/app/lib/travels-accompagnateurs";
 import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
+import { TripDocumentsDropZone } from "@/app/components/travels/TripDocumentsDropZone";
 
 const CUISINE_DAYS = [
   { key: "lundi",    label: "Lun." },
@@ -158,15 +159,18 @@ function SimpleTripFormContent() {
       skipPublicHolidays
     );
   }, [recurrenceEnabled, editId, recurrenceWeekday, recurrenceFrom, recurrenceTo, skipPublicHolidays]);
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const uploadTravelFiles = async (files: File[]) => {
+    if (files.length === 0) return;
     setUploading(true);
     try {
-      const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(file, file.name);
-      setFormData(prev => ({
+      const uploaded: Array<{ name: string; url: string; s3Key: string }> = [];
+      for (const file of files) {
+        const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(file, file.name);
+        uploaded.push({ name: file.name, url: fileUrl, s3Key: uploadedKey });
+      }
+      setFormData((prev) => ({
         ...prev,
-        attachments: [...(prev.attachments || []), { name: file.name, url: fileUrl, s3Key: uploadedKey }]
+        attachments: [...(prev.attachments || []), ...uploaded],
       }));
     } catch (error) {
       console.error(error);
@@ -629,13 +633,8 @@ function SimpleTripFormContent() {
                 <button type="button" onClick={() => removeFile(idx)} className="text-indigo-400 hover:text-indigo-600 ml-2">✕</button>
               </div>
             ))}
-            <label className="cursor-pointer flex items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-6 hover:bg-slate-50 transition-all w-full md:w-auto min-w-[200px]">
-              <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploading} />
-              <span className="text-slate-500 text-sm font-medium text-center">
-                {uploading ? "Envoi en cours..." : "+ Ajouter un document (PDF, Image)"}
-              </span>
-            </label>
           </div>
+          <TripDocumentsDropZone uploading={uploading} onFiles={uploadTravelFiles} />
         </div>
         <div className="md:col-span-2 mt-8">
           <button type="submit" disabled={loading || uploading} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:bg-slate-300 transition-all">

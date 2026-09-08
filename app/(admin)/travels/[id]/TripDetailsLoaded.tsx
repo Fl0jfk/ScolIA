@@ -104,7 +104,6 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   const remindersFocus = searchParams.get("focus") === "reminders";
   const highlightReminderId = searchParams.get("reminder");
   const tabFromUrl = searchParams.get("tab");
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const { user } = useSessionUser();
   const { data: appCtx } = useAppContext();
   const classOptions = useMemo(
@@ -446,17 +445,19 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       setLoadingAction(null);
     }
   };
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!canAddDocuments) return;
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const uploadTravelFiles = async (files: File[]) => {
+    if (!canAddDocuments || files.length === 0) return;
     setUploading(true);
     try {
-      const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(file, file.name);
-      const newAttachment = { name: file.name, url: fileUrl, s3Key: uploadedKey };
+      const uploaded: Array<{ name: string; url: string; s3Key: string }> = [];
+      for (const file of files) {
+        const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(file, file.name);
+        uploaded.push({ name: file.name, url: fileUrl, s3Key: uploadedKey });
+      }
       const currentAttachments = isEditing ? (editedData.attachments || []) : (trip.data.attachments || []);
-      const updatedAttachments = [...currentAttachments, newAttachment];
-      if (isEditing) { setEditedData((prev: any) => ({ ...prev, attachments: updatedAttachments }));
+      const updatedAttachments = [...currentAttachments, ...uploaded];
+      if (isEditing) {
+        setEditedData((prev: typeof editedData) => ({ ...prev, attachments: updatedAttachments }));
       } else {
         const updatedTrip = { ...trip, data: { ...trip.data, attachments: updatedAttachments } };
         await saveUpdates(updatedTrip);
@@ -1758,8 +1759,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           loadingAction={loadingAction}
           handleRegenerateCircular={handleRegenerateCircular}
           canAddDocuments={canAddDocuments}
-          fileInputRef={fileInputRef}
-          handleFileUpload={handleFileUpload}
+          uploadTravelFiles={uploadTravelFiles}
           uploading={uploading}
           openSecureFile={openSecureFile}
           canSeeTravelDocHoverActions={canSeeTravelDocHoverActions}

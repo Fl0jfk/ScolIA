@@ -1,12 +1,13 @@
 "use client";
 
 import { useSessionUser } from "@/app/hooks/useAppUser";
-import { useState, Suspense, useRef, useMemo } from "react";
+import { useState, Suspense, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAppContext } from "@/app/hooks/useAppContext";
 import { GROUPE_SCOLAIRE_LABEL } from "@/app/lib/travels-establishments";
 import { mergeTripClassCatalogs } from "@/app/lib/travels-classes";
 import { uploadTravelDocument } from "@/app/lib/travels-upload-client";
+import { TripDocumentsDropZone } from "@/app/components/travels/TripDocumentsDropZone";
 
 import { CUISINE_DAYS_UI as CUISINE_DAYS, CUISINE_ROWS_UI as CUISINE_ROWS } from "@/app/lib/travels-cuisine-form";
 import TravelsOwnerAssignSection, {
@@ -33,8 +34,6 @@ function ComplexTripFormContent() {
     [appCtx?.profRoom?.classesByPole, appCtx?.domainPlanning?.classesByPole],
   );
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const busProgramRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [ownerOverride, setOwnerOverride] = useState<TravelsOwnerFields | null>(null);
@@ -81,17 +80,15 @@ function ComplexTripFormContent() {
     attachments: [] as { name: string, url: string, s3Key?: string }[]
   });
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, isBusProgram = false) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const uploadTravelFiles = async (files: File[], isBusProgram = false) => {
+    if (files.length === 0) return;
     setUploading(true);
-    const newAttachments = [...formData.attachments];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
+    const uploaded: Array<{ name: string; url: string; s3Key: string }> = [];
+    for (const file of files) {
       try {
         const { fileUrl, s3Key: uploadedKey } = await uploadTravelDocument(file, file.name);
         if (isBusProgram) {
-          setFormData(prev => ({
+          setFormData((prev) => ({
             ...prev,
             transportRequest: {
               ...prev.transportRequest,
@@ -99,14 +96,16 @@ function ComplexTripFormContent() {
             },
           }));
         } else {
-          newAttachments.push({ name: file.name, url: fileUrl, s3Key: uploadedKey });
+          uploaded.push({ name: file.name, url: fileUrl, s3Key: uploadedKey });
         }
       } catch (error) {
         console.error("Erreur upload:", error);
         alert(`Erreur pour le fichier ${file.name}`);
       }
     }
-    if (!isBusProgram) setFormData(prev => ({ ...prev, attachments: newAttachments }));
+    if (!isBusProgram && uploaded.length > 0) {
+      setFormData((prev) => ({ ...prev, attachments: [...prev.attachments, ...uploaded] }));
+    }
     setUploading(false);
   };
 
@@ -327,12 +326,19 @@ function ComplexTripFormContent() {
                   <label className="block text-xs font-bold mb-1">Informations complémentaires</label>
                   <textarea rows={2} className="w-full p-3 bg-slate-50 border rounded-xl text-sm" placeholder="Ex: Numéro de vol AF123..." value={formData.transportRequest.freeText} onChange={e => setFormData({...formData, transportRequest: {...formData.transportRequest, freeText: e.target.value}})} />
                 </div>
-                <div className="border-t pt-4">
+                <div className="border-t pt-4 space-y-2">
                   <label className="block text-xs font-bold mb-2">Programme complet chauffeur</label>
-                  <input type="file" ref={busProgramRef} className="hidden" onChange={(e) => handleFileUpload(e, true)} />
-                  <button type="button" onClick={() => busProgramRef.current?.click()} className="text-xs py-2 px-4 bg-amber-600 text-white rounded-lg font-bold hover:bg-amber-700">
-                    {formData.transportRequest.busProgramFile ? "✅ Programme transport joint" : "📎 Joindre un programme PDF / Excel"}
-                  </button>
+                  <TripDocumentsDropZone
+                    multiple={false}
+                    uploading={uploading}
+                    title={
+                      formData.transportRequest.busProgramFile
+                        ? `✅ ${formData.transportRequest.busProgramFile.name}`
+                        : "Glisser-déposer le programme chauffeur"
+                    }
+                    hint="PDF / Excel — ou cliquer pour parcourir"
+                    onFiles={(files) => uploadTravelFiles(files, true)}
+                  />
                 </div>
               </div>
             )}
@@ -348,10 +354,11 @@ function ComplexTripFormContent() {
         <div className="bg-white p-8 border rounded-3xl shadow-sm space-y-6">
           <div className="text-slate-400 uppercase text-xs font-bold tracking-widest border-b pb-4">5. Autres documents</div>
           <div className="space-y-4">
-            <input type="file" multiple ref={fileInputRef} className="hidden" onChange={(e) => handleFileUpload(e)} />
-            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} className="w-full py-4 border-2 border-dashed border-slate-200 rounded-2xl font-bold text-slate-500 hover:bg-slate-50 flex flex-col items-center">
-              <span>{uploading ? "Envoi en cours..." : "📎 Ajouter des documents généraux"}</span>
-            </button>
+            <TripDocumentsDropZone
+              uploading={uploading}
+              title="Glisser-déposer des documents généraux"
+              onFiles={(files) => uploadTravelFiles(files, false)}
+            />
             <div className="flex flex-wrap gap-2">
               {formData.attachments.map((file, idx) => (
                 <div key={idx} className="flex items-center gap-2 p-2 bg-indigo-50 border border-indigo-100 rounded-xl text-xs font-bold text-indigo-700">
