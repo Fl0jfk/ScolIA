@@ -75,8 +75,8 @@ export function buildCalendarEventsIcs(params: {
   for (const ev of params.events) {
     const uid = ev.uid || `scola-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@scola`;
     const { dtStart, dtEnd, useParisTz } = resolveIcsBounds(ev);
-    const desc = (ev.description || "").replace(/\n/g, "\\n");
-    const loc = (ev.location || "").replace(/,/g, "\\,");
+    const desc = (ev.description || "").trim();
+    const loc = (ev.location || "").trim();
     const startLine = useParisTz ? `DTSTART;TZID=Europe/Paris:${dtStart}` : `DTSTART:${dtStart}`;
     const endLine = useParisTz ? `DTEND;TZID=Europe/Paris:${dtEnd}` : `DTEND:${dtEnd}`;
     const sequence = typeof ev.sequence === "number" && ev.sequence >= 0 ? ev.sequence : 0;
@@ -90,6 +90,7 @@ export function buildCalendarEventsIcs(params: {
       `SUMMARY:${escapeIcs(ev.title)}`,
     );
     if (ev.status) blocks.push(`STATUS:${ev.status}`);
+    // Un seul escapeIcs : un pré-remplacement \n → \\n puis escapeIcs doublait les \ et affichait « \n » littéral.
     if (desc) blocks.push(`DESCRIPTION:${escapeIcs(desc)}`);
     if (loc) blocks.push(`LOCATION:${escapeIcs(loc)}`);
     blocks.push("END:VEVENT");
@@ -146,7 +147,13 @@ function formatIcsNowUtc(): string {
 }
 
 function escapeIcs(s: string) {
-  return s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+  return s
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\n/g, "\\n");
 }
 
 /** @deprecated Préférer buildTravelsParentsTripIcs (multi-événements). */
