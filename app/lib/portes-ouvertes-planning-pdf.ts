@@ -21,6 +21,8 @@ export function renderPortesOuvertesPlanningPdf(input: {
   address?: string;
   generatedAt?: Date;
   cycleLabels?: Partial<Record<PortesOuvertesCycle, string>>;
+  /** Cycles à afficher (défaut : tous). */
+  cycles?: PortesOuvertesCycle[];
   slots: PortesOuvertesSlot[];
   registrations: PortesOuvertesRegistration[];
   staff: PortesOuvertesStaffRow[];
@@ -28,6 +30,7 @@ export function renderPortesOuvertesPlanningPdf(input: {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const when = (input.generatedAt || new Date()).toLocaleString("fr-FR");
   const labels = { ...PORTES_OUVERTES_CYCLE_LABELS, ...input.cycleLabels };
+  const cycles = input.cycles?.length ? input.cycles : [...PORTES_OUVERTES_CYCLES];
 
   doc.setFontSize(14);
   doc.setFont("helvetica", "bold");
@@ -43,7 +46,7 @@ export function renderPortesOuvertesPlanningPdf(input: {
   doc.setTextColor(0);
 
   let startY = 28;
-  for (const cycle of PORTES_OUVERTES_CYCLES) {
+  for (const cycle of cycles) {
     const slots = input.slots
       .filter((s) => s.cycle === cycle || (!s.cycle && cycle === "college"))
       .sort((a, b) => a.startAt.localeCompare(b.startAt));

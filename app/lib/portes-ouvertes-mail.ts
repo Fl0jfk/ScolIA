@@ -23,7 +23,7 @@ import {
   portesOuvertesVisitLine,
 } from "@/app/lib/portes-ouvertes-types";
 import type { PortesOuvertesSlot, PortesOuvertesToolConfig } from "@/app/lib/toolbox-types";
-import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
+import { createTenantTransporter, getTenantSmtpConfig, sendMailWithTimeout } from "@/app/lib/tenant-mail";
 
 export async function sendPortesOuvertesMail(params: {
   to: string;
@@ -31,21 +31,26 @@ export async function sendPortesOuvertesMail(params: {
   html: string;
   ics?: string;
 }): Promise<boolean> {
-  const smtp = await getTenantSmtpConfig();
-  const transporter = await createTenantTransporter();
-  if (!smtp || !transporter) return false;
-  const bundle = await loadAppConfig();
-  const school = bundle.identity.shortName || bundle.identity.name;
-  await transporter.sendMail({
-    from: `"${school}" <${smtp.user}>`,
-    to: params.to,
-    subject: params.subject,
-    html: params.html,
-    attachments: params.ics
-      ? [{ filename: "portes-ouvertes.ics", content: params.ics, contentType: "text/calendar" }]
-      : undefined,
-  });
-  return true;
+  try {
+    const smtp = await getTenantSmtpConfig();
+    const transporter = await createTenantTransporter();
+    if (!smtp || !transporter) return false;
+    const bundle = await loadAppConfig();
+    const school = bundle.identity.shortName || bundle.identity.name;
+    await sendMailWithTimeout(transporter, {
+      from: `"${school}" <${smtp.user}>`,
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+      attachments: params.ics
+        ? [{ filename: "portes-ouvertes.ics", content: params.ics, contentType: "text/calendar" }]
+        : undefined,
+    });
+    return true;
+  } catch (e) {
+    console.error("[portes-ouvertes] envoi mail échoué:", e instanceof Error ? e.message : e);
+    return false;
+  }
 }
 
 function visitLineOf(entry: {

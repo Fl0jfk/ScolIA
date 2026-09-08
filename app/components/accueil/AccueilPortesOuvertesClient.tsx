@@ -463,16 +463,26 @@ export default function AccueilPortesOuvertesClient({
             ? "Planning du jour style tableur : ajoutez un visiteur dès qu’un parent appelle."
             : "Équipe des créneaux (profs, OGEC, ambassadeurs). La grille horaire se configure dans Événements."
         }
-        actions={
-          <a
-            href="/api/accueil/portes-ouvertes/planning-pdf"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex rounded-xl bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800"
-          >
-            Exporter PDF
-          </a>
-        }
+        actions={(() => {
+          const qs = new URLSearchParams({
+            ...(dayKey ? { day: dayKey } : {}),
+            ...(cycleFilter !== "all" ? { cycle: cycleFilter } : {}),
+          }).toString();
+          return (
+            <a
+              href={
+                qs
+                  ? `/api/accueil/portes-ouvertes/planning-pdf?${qs}`
+                  : "/api/accueil/portes-ouvertes/planning-pdf"
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex rounded-xl bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800"
+            >
+              Exporter PDF
+            </a>
+          );
+        })()}
       />
 
       <ModuleTabNav

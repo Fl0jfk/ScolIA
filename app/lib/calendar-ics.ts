@@ -115,7 +115,19 @@ export function buildCalendarEventsIcs(params: {
   }
 
   blocks.push("END:VCALENDAR");
-  return blocks.join("\r\n");
+  return blocks.map(foldIcsLine).join("\r\n");
+}
+
+/** RFC 5545 : plier les lignes > 75 octets (sinon certains SMTP / agendas rejettent le .ics). */
+function foldIcsLine(line: string): string {
+  if (line.length <= 75) return line;
+  let out = line.slice(0, 75);
+  let rest = line.slice(75);
+  while (rest.length > 0) {
+    out += `\r\n ${rest.slice(0, 74)}`;
+    rest = rest.slice(74);
+  }
+  return out;
 }
 
 function resolveIcsBounds(params: CalendarIcsEvent): {
