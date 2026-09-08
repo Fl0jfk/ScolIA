@@ -20,7 +20,11 @@ const BodySchema = z.object({
  * Auth : session module, ou header `x-scola-support-secret` (= OCR_WORKER_SECRET / TRAVEL_EMAIL_INGEST_SECRET).
  */
 export async function POST(req: Request) {
-  const supportSecret = req.headers.get("x-scola-support-secret")?.trim() || "";
+  const supportSecret =
+    req.headers.get("x-scola-support-secret")?.trim() ||
+    req.headers.get("x-ocr-worker-secret")?.trim() ||
+    new URL(req.url).searchParams.get("support_secret")?.trim() ||
+    "";
   const expected =
     process.env.OCR_WORKER_SECRET?.trim() ||
     process.env.TRAVEL_EMAIL_INGEST_SECRET?.trim() ||

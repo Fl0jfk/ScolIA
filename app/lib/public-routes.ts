@@ -22,6 +22,7 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/api/fournitures/file",
   "/api/portes-ouvertes/register",
   "/api/portes-ouvertes/follow-up",
+  "/api/accueil/portes-ouvertes/resend-confirmation",
   "/faire-une-demande(.*)",
   "/demande-parents(.*)",
   "/demande/merci",
