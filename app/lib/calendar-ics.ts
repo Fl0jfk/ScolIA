@@ -9,6 +9,11 @@ export type CalendarIcsEvent = {
   location?: string;
   /** Lien cliquable de l’événement (propriété ICS `URL`, ex. préinscription). */
   url?: string;
+  /**
+   * Libellé du lien (pas d’URL brute dans le texte).
+   * Sert au HTML Outlook (`X-ALT-DESC`) et au rappel dans la description.
+   */
+  urlLabel?: string;
   /** ISO datetime (avec Z ou offset) — utilisé si fourni. */
   startAt?: string;
   endAt?: string;
@@ -37,6 +42,7 @@ export function buildPortesOuvertesIcs(params: {
   description?: string;
   location?: string;
   url?: string;
+  urlLabel?: string;
   startAt: string;
   endAt: string;
   uid?: string;
@@ -97,7 +103,14 @@ export function buildCalendarEventsIcs(params: {
     if (desc) blocks.push(`DESCRIPTION:${escapeIcs(desc)}`);
     if (loc) blocks.push(`LOCATION:${escapeIcs(loc)}`);
     const url = normalizeIcsUrl(ev.url);
-    if (url) blocks.push(`URL:${url}`);
+    if (url) {
+      blocks.push(`URL:${url}`);
+      const label = (ev.urlLabel || "Ouvrir le lien").trim() || "Ouvrir le lien";
+      // Outlook / certains clients : vrai lien nommé (HTML), sans URL brute dans le libellé.
+      blocks.push(
+        `X-ALT-DESC;FMTTYPE=text/html:${escapeIcs(buildIcsAltHtml(desc, url, label))}`,
+      );
+    }
     blocks.push("END:VEVENT");
   }
 
@@ -159,6 +172,28 @@ function escapeIcs(s: string) {
     .replace(/;/g, "\\;")
     .replace(/,/g, "\\,")
     .replace(/\n/g, "\\n");
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function buildIcsAltHtml(description: string, url: string, label: string): string {
+  const paragraphs = description
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p>${escapeHtml(p).replace(/\n/g, "<br/>")}</p>`)
+    .join("");
+  return (
+    `<!DOCTYPE HTML><html><body>${paragraphs}` +
+    `<p><a href="${escapeHtml(url)}">${escapeHtml(label)}</a></p>` +
+    `</body></html>`
+  );
 }
 
 /** URI pour la propriété ICS `URL` (pas d’échappement TEXT type DESCRIPTION). */

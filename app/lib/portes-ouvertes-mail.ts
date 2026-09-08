@@ -79,13 +79,14 @@ async function sendVisitorConfirmationMail(params: {
   const { po, entry, slot, kind } = params;
   const visitLine = visitLineOf(entry);
   const preinscriptionUrl = po.preinscriptionUrl?.trim() || "";
+  const preinscriptionLabel = "Compléter ma préinscription";
   const icsDescription = [
     "Rendez-vous à la cantine pour un petit café et découvrir l’établissement ensemble.",
     "Au programme : visite guidée, échange avec la direction et les équipes qui vous intéressent.",
     visitLine ? `Visite souhaitée : ${visitLine}` : "",
     entry.phone ? `Tél. : ${entry.phone}` : "",
     preinscriptionUrl
-      ? `Avez-vous déjà fait votre préinscription ? Sinon, vous pouvez la compléter ici :\n${preinscriptionUrl}`
+      ? `Avez-vous déjà fait votre préinscription ? Sinon, utilisez le lien « ${preinscriptionLabel} » de cet événement.`
       : "",
     kind === "update" ? "Créneau modifié — remplacez l’ancien événement dans votre agenda." : "",
   ]
@@ -97,6 +98,7 @@ async function sendVisitorConfirmationMail(params: {
     description: icsDescription,
     location: po.address,
     url: preinscriptionUrl || undefined,
+    urlLabel: preinscriptionUrl ? preinscriptionLabel : undefined,
     startAt: slot.startAt,
     endAt: slot.endAt,
     uid: `po-${entry.id}@scola`,
