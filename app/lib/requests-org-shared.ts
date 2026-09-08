@@ -194,7 +194,13 @@ export function getActiveUnits(org: RequestsOrgConfig): RequestServiceUnit[] {
 
 export function findUnitsForBranch(org: RequestsOrgConfig, branchId: string): RequestServiceUnit[] {
   const b = branchId.trim();
-  return getActiveUnits(org).filter((u) => u.taskIds.includes(b));
+  if (!b) return [];
+  return getActiveUnits(org).filter((u) => {
+    if (u.taskIds.includes(b)) return true;
+    // Unités créées via l’UI (tags seuls, sans taskIds legacy) : la file virtuelle = id du service.
+    if (u.taskIds.length === 0 && u.tags.length > 0 && u.id === b) return true;
+    return false;
+  });
 }
 
 export function getChildUnits(org: RequestsOrgConfig, parentId: string): RequestServiceUnit[] {

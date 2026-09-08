@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
+import { DirectoryPeopleSelect } from "@/app/components/settings/DirectoryPersonSelect";
 import type { RequestsOrgConfig, RequestsRoutingConfig, RequestServiceUnit } from "@/app/lib/app-config-schemas";
 import { newRequestServiceUnit } from "@/app/lib/requests-org-shared";
 
@@ -30,48 +31,19 @@ function EmailMultiPicker({
   members: DirectoryMemberOption[];
   membersLoading: boolean;
 }) {
-  const options = useMemo(() => {
-    const fromMembers = members.map((m) => m.email?.trim()).filter(Boolean) as string[];
-    return [...new Set([...fromMembers, ...values])].sort((a, b) => a.localeCompare(b, "fr"));
-  }, [members, values]);
-
-  const toggle = (email: string) => {
-    const e = email.trim().toLowerCase();
-    if (values.includes(e)) onChange(values.filter((x) => x !== e));
-    else onChange([...values, e]);
-  };
-
   return (
     <div>
       <p className="text-xs font-bold text-slate-500 mb-1">{label}</p>
-      {membersLoading ? (
-        <p className="text-xs text-slate-400">Chargement annuaire…</p>
-      ) : (
-        <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/80 p-2">
-          {options.length === 0 ? (
-            <span className="text-xs text-slate-400 italic">Aucun collaborateur</span>
-          ) : (
-            options.map((email) => {
-              const checked = values.includes(email.toLowerCase());
-              const name = members.find((m) => m.email?.toLowerCase() === email.toLowerCase())?.displayName;
-              return (
-                <button
-                  key={email}
-                  type="button"
-                  onClick={() => toggle(email)}
-                  className={`rounded-lg px-2 py-1 text-[11px] font-semibold border ${
-                    checked
-                      ? "bg-indigo-100 border-indigo-300 text-indigo-900"
-                      : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
-                  }`}
-                >
-                  {name || email.split("@")[0]}
-                </button>
-              );
-            })
-          )}
-        </div>
-      )}
+      <DirectoryPeopleSelect
+        members={members}
+        selectedEmails={values}
+        onChange={(emails) =>
+          onChange([...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))])
+        }
+        loading={membersLoading}
+        minQueryLength={2}
+        searchPlaceholder="Tapez 2–3 lettres (nom ou e-mail)…"
+      />
     </div>
   );
 }

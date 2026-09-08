@@ -63,51 +63,68 @@ function MemberSearchList({
   members,
   selectedIds,
   onPick,
+  minQueryLength = 0,
+  placeholder = "Rechercher dans le personnel…",
 }: {
   members: DirectoryMemberOption[];
   selectedIds: Set<string>;
   onPick: (member: DirectoryMemberOption) => void;
+  /** Nombre mini de caractères avant d’afficher des résultats (0 = liste complète filtrable). */
+  minQueryLength?: number;
+  placeholder?: string;
 }) {
   const [search, setSearch] = useState("");
+  const q = search.trim().toLowerCase();
+  const queryReady = q.length >= minQueryLength;
+
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    if (!queryReady) return [];
     if (!q) return members;
     return members.filter((m) => {
       const hay = `${directoryMemberLabel(m)} ${m.email} ${m.lastName ?? ""}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [members, search]);
+  }, [members, q, queryReady]);
 
   return (
     <div className="space-y-2">
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="Rechercher dans le personnel…"
+        placeholder={placeholder}
         className={`${settingsInputClass} mt-0`}
+        autoComplete="off"
       />
-      <div className="max-h-44 divide-y divide-white/60 overflow-y-auto rounded-2xl border border-white/70 bg-white/60 backdrop-blur-sm">
-        {filtered.length === 0 ? (
-          <p className={`p-3 text-sm italic ${dash.textMid}`}>Aucune personne trouvée.</p>
-        ) : (
-          filtered.map((m) => {
-            const active = selectedIds.has(m.externalUserId);
-            return (
-              <button
-                key={m.externalUserId}
-                type="button"
-                onClick={() => onPick(m)}
-                className={`w-full cursor-pointer px-3 py-2.5 text-left text-sm ${
-                  active ? "bg-[color:var(--dash-soft)]/80" : "hover:bg-white/80"
-                }`}
-              >
-                <span className={`font-semibold ${dash.ink}`}>{directoryMemberLabel(m)}</span>
-                <span className={`block truncate text-[11px] ${dash.textMid}`}>{m.email}</span>
-              </button>
-            );
-          })
-        )}
-      </div>
+      {!queryReady ? (
+        <p className={`text-[11px] italic ${dash.textMid}`}>
+          {minQueryLength > 0
+            ? `Tapez au moins ${minQueryLength} lettres pour rechercher…`
+            : null}
+        </p>
+      ) : (
+        <div className="max-h-44 divide-y divide-white/60 overflow-y-auto rounded-2xl border border-white/70 bg-white/60 backdrop-blur-sm">
+          {filtered.length === 0 ? (
+            <p className={`p-3 text-sm italic ${dash.textMid}`}>Aucune personne trouvée.</p>
+          ) : (
+            filtered.map((m) => {
+              const active = selectedIds.has(m.externalUserId);
+              return (
+                <button
+                  key={m.externalUserId}
+                  type="button"
+                  onClick={() => onPick(m)}
+                  className={`w-full cursor-pointer px-3 py-2.5 text-left text-sm ${
+                    active ? "bg-[color:var(--dash-soft)]/80" : "hover:bg-white/80"
+                  }`}
+                >
+                  <span className={`font-semibold ${dash.ink}`}>{directoryMemberLabel(m)}</span>
+                  <span className={`block truncate text-[11px] ${dash.textMid}`}>{m.email}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -189,11 +206,16 @@ export function DirectoryPeopleSelect({
   selectedEmails,
   onChange,
   loading,
+  minQueryLength = 0,
+  searchPlaceholder,
 }: {
   members: DirectoryMemberOption[];
   selectedEmails: string[];
   onChange: (emails: string[]) => void;
   loading?: boolean;
+  /** Ex. 2 — n’affiche les suggestions qu’après quelques lettres. */
+  minQueryLength?: number;
+  searchPlaceholder?: string;
 }) {
   const activeMembers = useMemo(
     () => members.filter((m) => m.externalUserId && !m.pending),
@@ -253,6 +275,8 @@ export function DirectoryPeopleSelect({
       <MemberSearchList
         members={activeMembers}
         selectedIds={selectedIds}
+        minQueryLength={minQueryLength}
+        placeholder={searchPlaceholder}
         onPick={(member) => {
           const email = member.email.trim();
           if (!email) return;
