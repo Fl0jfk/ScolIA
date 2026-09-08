@@ -13,7 +13,8 @@ import type { Establishment } from "@/app/lib/app-config-schemas";
 import { EVENEMENTS_TOOLS_META, type EvenementToolId } from "@/app/lib/evenements-tools";
 import {
   generatePortesOuvertesSlots,
-  type PortesOuvertesSlotIntervalMinutes,
+  type PortesOuvertesDepartureIntervalMinutes,
+  type PortesOuvertesVisitDurationMinutes,
 } from "@/app/lib/portes-ouvertes-slots";
 import {
   PORTES_OUVERTES_CYCLE_LABELS,
@@ -52,7 +53,10 @@ type CycleGridForm = {
   day: string;
   startTime: string;
   endTime: string;
-  interval: PortesOuvertesSlotIntervalMinutes;
+  /** Rythme des départs (toutes les X minutes). */
+  departureInterval: PortesOuvertesDepartureIntervalMinutes;
+  /** Durée réelle de la visite (souvent ~1 h). */
+  visitDuration: PortesOuvertesVisitDurationMinutes;
   maxPlaces: number;
 };
 
@@ -84,7 +88,8 @@ function emptyCycleGrid(): CycleGridForm {
     day: defaultGridDay(),
     startTime: "08:30",
     endTime: "12:00",
-    interval: 30,
+    departureInterval: 15,
+    visitDuration: 60,
     maxPlaces: 20,
   };
 }
@@ -330,7 +335,8 @@ export default function EvenementsHubClient() {
       date: g.day,
       startTime: g.startTime,
       endTime: g.endTime,
-      intervalMinutes: g.interval,
+      departureIntervalMinutes: g.departureInterval,
+      visitDurationMinutes: g.visitDuration,
       maxPlaces: g.maxPlaces > 0 ? g.maxPlaces : undefined,
       cycle,
     });
@@ -690,9 +696,10 @@ export default function EvenementsHubClient() {
                         </span>
                       </div>
                       <p className="text-xs text-violet-900">
-                        Générer une grille pour ce cycle uniquement (quart / demi-heure / heure).
+                        Départs toutes les 15 / 30 / 60 min, indépendamment de la durée de la visite
+                        (souvent ~1 h). « Fin » = fermeture (fin de la dernière visite).
                       </p>
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                         <label className="block">
                           <span className="text-[11px] font-bold uppercase text-violet-800">
                             Jour
@@ -706,7 +713,7 @@ export default function EvenementsHubClient() {
                         </label>
                         <label className="block">
                           <span className="text-[11px] font-bold uppercase text-violet-800">
-                            Début
+                            Premier départ
                           </span>
                           <input
                             type="time"
@@ -717,7 +724,7 @@ export default function EvenementsHubClient() {
                         </label>
                         <label className="block">
                           <span className="text-[11px] font-bold uppercase text-violet-800">
-                            Fin
+                            Fin (fermeture)
                           </span>
                           <input
                             type="time"
@@ -728,14 +735,16 @@ export default function EvenementsHubClient() {
                         </label>
                         <label className="block">
                           <span className="text-[11px] font-bold uppercase text-violet-800">
-                            Pas
+                            Départ toutes les
                           </span>
                           <select
                             className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm font-semibold"
-                            value={g.interval}
+                            value={g.departureInterval}
                             onChange={(e) =>
                               patchGrid(cycle, {
-                                interval: Number(e.target.value) as PortesOuvertesSlotIntervalMinutes,
+                                departureInterval: Number(
+                                  e.target.value,
+                                ) as PortesOuvertesDepartureIntervalMinutes,
                               })
                             }
                           >
@@ -746,7 +755,29 @@ export default function EvenementsHubClient() {
                         </label>
                         <label className="block">
                           <span className="text-[11px] font-bold uppercase text-violet-800">
-                            Places / créneau
+                            Durée de la visite
+                          </span>
+                          <select
+                            className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm font-semibold"
+                            value={g.visitDuration}
+                            onChange={(e) =>
+                              patchGrid(cycle, {
+                                visitDuration: Number(
+                                  e.target.value,
+                                ) as PortesOuvertesVisitDurationMinutes,
+                              })
+                            }
+                          >
+                            <option value={30}>30 min</option>
+                            <option value={45}>45 min</option>
+                            <option value={60}>1 h</option>
+                            <option value={75}>1 h 15</option>
+                            <option value={90}>1 h 30</option>
+                          </select>
+                        </label>
+                        <label className="block">
+                          <span className="text-[11px] font-bold uppercase text-violet-800">
+                            Places / départ
                           </span>
                           <input
                             type="number"
