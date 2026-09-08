@@ -3,8 +3,10 @@ import { z } from "zod";
 import { requireAdmin } from "@/app/lib/intranet-auth";
 import { getToolboxConfig, saveToolboxConfig } from "@/app/lib/toolbox-config";
 import {
+  addPortesOuvertesStaff,
   buildPortesOuvertesToolPayload,
   deletePortesOuvertesSlot,
+  deletePortesOuvertesStaff,
   insertPortesOuvertesSlots,
   listPortesOuvertesRegistrations,
   replacePortesOuvertesSlotsForCycle,
@@ -22,6 +24,14 @@ const SlotSchema = z.object({
   endAt: z.string().min(1),
   maxPlaces: z.number().int().positive().optional(),
   cycle: z.enum(["ecole", "college", "lycee"]),
+});
+
+const StaffAddSchema = z.object({
+  slotId: z.string().min(1),
+  role: z.enum(["ambassadeur", "enseignant", "personnel"]),
+  refId: z.string().min(1).max(120),
+  displayName: z.string().min(1).max(200),
+  meta: z.record(z.string(), z.string()).optional(),
 });
 
 const PutSchema = z.object({
@@ -43,24 +53,29 @@ const PutSchema = z.object({
     .optional(),
   slotUpsert: SlotSchema.optional(),
   slotDeleteId: z.string().min(1).optional(),
+  staffAdd: StaffAddSchema.optional(),
+  staffDeleteId: z.string().min(1).optional(),
 });
+
+async function poAdminResponse() {
+  const [toolbox, payload, registrations] = await Promise.all([
+    getToolboxConfig(),
+    buildPortesOuvertesToolPayload(),
+    listPortesOuvertesRegistrations(),
+  ]);
+  return {
+    enabled: toolbox.tools["portes-ouvertes"].enabled,
+    ...payload,
+    stats: countRegistrationsBySlot(registrations),
+    registrationsCount: registrations.length,
+  };
+}
 
 export async function GET() {
   const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
   try {
-    const [toolbox, payload, registrations] = await Promise.all([
-      getToolboxConfig(),
-      buildPortesOuvertesToolPayload(),
-      listPortesOuvertesRegistrations(),
-    ]);
-    const counts = countRegistrationsBySlot(registrations);
-    return NextResponse.json({
-      enabled: toolbox.tools["portes-ouvertes"].enabled,
-      ...payload,
-      stats: counts,
-      registrationsCount: registrations.length,
-    });
+    return NextResponse.json(await poAdminResponse());
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
@@ -118,18 +133,17 @@ export async function PUT(req: Request) {
       }
       await replacePortesOuvertesSlotsForCycle(cycle, body.slotsReplaceCycle.slots);
     }
+    if (body.staffDeleteId) {
+      const ok = await deletePortesOuvertesStaff(body.staffDeleteId);
+      if (!ok) return NextResponse.json({ error: "Staffing introuvable." }, { status: 404 });
+    }
+    if (body.staffAdd) {
+      await addPortesOuvertesStaff(body.staffAdd);
+    }
 
-    const [toolbox, payload, registrations] = await Promise.all([
-      getToolboxConfig(),
-      buildPortesOuvertesToolPayload(),
-      listPortesOuvertesRegistrations(),
-    ]);
     return NextResponse.json({
       success: true,
-      enabled: toolbox.tools["portes-ouvertes"].enabled,
-      ...payload,
-      stats: countRegistrationsBySlot(registrations),
-      registrationsCount: registrations.length,
+      ...(await poAdminResponse()),
     });
   } catch (e) {
     return NextResponse.json(

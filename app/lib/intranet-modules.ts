@@ -567,7 +567,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/accueil/portes-ouvertes",
       external: false,
-      description: "Inscrire un visiteur au téléphone — créneau, classe, mail + .ics",
+      description: "Planning du jour (tableur) + ajout manuel visiteurs / équipe des créneaux",
     },
   },
   {

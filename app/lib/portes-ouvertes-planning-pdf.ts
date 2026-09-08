@@ -96,7 +96,7 @@ export function renderPortesOuvertesPlanningPdf(input: {
 
     autoTable(doc, {
       startY,
-      head: [["Créneau", "Places", "Visiteurs", "Ambassadeurs", "Profs", "Personnel"]],
+      head: [["Créneau", "Places", "Visiteurs", "Ambassadeurs", "Profs", "OGEC"]],
       body,
       styles: { fontSize: 7, cellPadding: 1.5, valign: "top" },
       headStyles: { fillColor: [91, 33, 182], textColor: 255 },

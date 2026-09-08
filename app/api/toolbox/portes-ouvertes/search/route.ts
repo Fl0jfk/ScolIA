@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireModule } from "@/app/lib/intranet-auth";
+import { requireAdmin } from "@/app/lib/intranet-auth";
 import {
   searchPortesOuvertesStaffPeople,
   type PortesOuvertesStaffSearchKind,
@@ -11,16 +11,14 @@ function parseKind(v: string | null): PortesOuvertesStaffSearchKind {
 }
 
 export async function GET(req: Request) {
-  const gate = await requireModule("accueil-portes-ouvertes");
+  const gate = await requireAdmin();
   if (!gate.ok) return gate.response;
-
   const url = new URL(req.url);
   const kind = parseKind(url.searchParams.get("kind"));
   const q = (url.searchParams.get("q") || "").trim();
   if (q.length < 2) {
     return NextResponse.json({ results: [] });
   }
-
   const results = await searchPortesOuvertesStaffPeople(kind, q);
   return NextResponse.json({ results });
 }

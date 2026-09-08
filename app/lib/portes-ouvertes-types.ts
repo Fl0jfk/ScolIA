@@ -52,6 +52,28 @@ export const PORTES_OUVERTES_CYCLE_LABELS: Record<PortesOuvertesCycle, string> =
 
 export const PORTES_OUVERTES_CYCLES: PortesOuvertesCycle[] = ["ecole", "college", "lycee"];
 
+/** Plafonds soft par créneau : 1–2 encadrants (prof ou OGEC) + 1–2 élèves ambassadeurs. */
+export const PORTES_OUVERTES_MAX_ENCADRANTS = 2;
+export const PORTES_OUVERTES_MAX_AMBASSADEURS = 2;
+
+export type PortesOuvertesStaffRole = "ambassadeur" | "enseignant" | "personnel";
+
+export type PortesOuvertesStaffRow = {
+  id: string;
+  slotId: string;
+  role: PortesOuvertesStaffRole;
+  refId: string;
+  displayName: string;
+  meta?: Record<string, string>;
+  createdAt: string;
+};
+
+export const PORTES_OUVERTES_STAFF_ROLE_LABELS: Record<PortesOuvertesStaffRole, string> = {
+  ambassadeur: "Ambassadeur (élève)",
+  enseignant: "Professeur",
+  personnel: "Personnel OGEC",
+};
+
 /** Classes proposées par cycle (catalogue établissement). */
 export function classesForPortesOuvertesCycle(cycle: PortesOuvertesCycle): string[] {
   if (cycle === "ecole") return [...(DEFAULT_CLASSES_BY_POLE.ÉCOLE || [])];

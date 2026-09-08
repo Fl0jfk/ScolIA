@@ -14,20 +14,16 @@ import type {
   PortesOuvertesCycle,
   PortesOuvertesRegistration,
   PortesOuvertesRegistrationSource,
+  PortesOuvertesStaffRole,
+  PortesOuvertesStaffRow,
 } from "@/app/lib/portes-ouvertes-types";
 import { isPortesOuvertesCycle } from "@/app/lib/portes-ouvertes-types";
+import {
+  PORTES_OUVERTES_MAX_AMBASSADEURS,
+  PORTES_OUVERTES_MAX_ENCADRANTS,
+} from "@/app/lib/portes-ouvertes-types";
 
-export type PortesOuvertesStaffRole = "ambassadeur" | "enseignant" | "personnel";
-
-export type PortesOuvertesStaffRow = {
-  id: string;
-  slotId: string;
-  role: PortesOuvertesStaffRole;
-  refId: string;
-  displayName: string;
-  meta?: Record<string, string>;
-  createdAt: string;
-};
+export type { PortesOuvertesStaffRole, PortesOuvertesStaffRow };
 
 export type PortesOuvertesConfigRow = {
   title: string;
@@ -277,7 +273,7 @@ export async function insertPortesOuvertesSlots(
   return n;
 }
 
-/** Suppression ciblée d’un créneau (id + etablissement). */
+/** Suppression ciblée d’un créneau (id + etablissement) + staffing associé. */
 export async function deletePortesOuvertesSlot(
   slotId: string,
   etablissementId?: string,
@@ -286,6 +282,14 @@ export async function deletePortesOuvertesSlot(
   const id = slotId.trim();
   if (!id) return false;
   const db = getDb();
+  await db
+    .delete(portesOuvertesSlotStaff)
+    .where(
+      and(
+        eq(portesOuvertesSlotStaff.etablissementId, etabId),
+        eq(portesOuvertesSlotStaff.slotId, id),
+      ),
+    );
   const deleted = await db
     .delete(portesOuvertesSlot)
     .where(
@@ -295,7 +299,7 @@ export async function deletePortesOuvertesSlot(
   return deleted.length > 0;
 }
 
-/** Remplace uniquement les créneaux d’un cycle donné (pas les autres). */
+/** Remplace uniquement les créneaux d’un cycle donné (pas les autres). Nettoie le staffing des anciens ids. */
 export async function replacePortesOuvertesSlotsForCycle(
   cycle: PortesOuvertesCycle,
   slots: Array<PortesOuvertesSlot & { cycle: PortesOuvertesCycle }>,
@@ -310,6 +314,14 @@ export async function replacePortesOuvertesSlotsForCycle(
       and(eq(portesOuvertesSlot.etablissementId, etabId), eq(portesOuvertesSlot.cycle, cycle)),
     );
   for (const row of existing) {
+    await db
+      .delete(portesOuvertesSlotStaff)
+      .where(
+        and(
+          eq(portesOuvertesSlotStaff.etablissementId, etabId),
+          eq(portesOuvertesSlotStaff.slotId, row.id),
+        ),
+      );
     await db
       .delete(portesOuvertesSlot)
       .where(
@@ -595,15 +607,42 @@ export async function addPortesOuvertesStaff(
   etablissementId?: string,
 ): Promise<PortesOuvertesStaffRow> {
   const etabId = await requireEtabId(etablissementId);
+  const slotId = input.slotId.trim();
+  const refId = input.refId.trim();
+  const displayName = input.displayName.trim();
+  if (!slotId || !refId || !displayName) {
+    throw new Error("Créneau et personne requis.");
+  }
+
+  const existing = await listPortesOuvertesStaff(etabId, slotId);
+  const alreadySame = existing.some((s) => s.role === input.role && s.refId === refId);
+  if (!alreadySame) {
+    if (input.role === "ambassadeur") {
+      const n = existing.filter((s) => s.role === "ambassadeur").length;
+      if (n >= PORTES_OUVERTES_MAX_AMBASSADEURS) {
+        throw new Error(
+          `Maximum ${PORTES_OUVERTES_MAX_AMBASSADEURS} élèves ambassadeurs par créneau.`,
+        );
+      }
+    } else {
+      const n = existing.filter((s) => s.role === "enseignant" || s.role === "personnel").length;
+      if (n >= PORTES_OUVERTES_MAX_ENCADRANTS) {
+        throw new Error(
+          `Maximum ${PORTES_OUVERTES_MAX_ENCADRANTS} encadrants (professeur ou personnel OGEC) par créneau.`,
+        );
+      }
+    }
+  }
+
   const db = getDb();
   const inserted = await db
     .insert(portesOuvertesSlotStaff)
     .values({
       etablissementId: etabId,
-      slotId: input.slotId.trim(),
+      slotId,
       role: input.role,
-      refId: input.refId.trim(),
-      displayName: input.displayName.trim(),
+      refId,
+      displayName,
       meta: input.meta || null,
     })
     .onConflictDoUpdate({
@@ -614,7 +653,7 @@ export async function addPortesOuvertesStaff(
         portesOuvertesSlotStaff.refId,
       ],
       set: {
-        displayName: input.displayName.trim(),
+        displayName,
         meta: input.meta || null,
       },
     })
@@ -753,13 +792,16 @@ export async function buildPortesOuvertesToolPayload(etablissementId?: string): 
   followUpDelayMinutes: number;
   consentLabel: string;
   slots: PortesOuvertesSlot[];
+  staff: PortesOuvertesStaffRow[];
 }> {
-  const [config, slots] = await Promise.all([
+  const [config, slots, staff] = await Promise.all([
     getPortesOuvertesConfig(etablissementId),
     listPortesOuvertesSlots(etablissementId),
+    listPortesOuvertesStaff(etablissementId),
   ]);
   return {
     ...config,
     slots,
+    staff,
   };
 }

@@ -18,7 +18,11 @@ import {
 } from "@/app/lib/portes-ouvertes-slots";
 import {
   PORTES_OUVERTES_CYCLE_LABELS,
+  PORTES_OUVERTES_MAX_AMBASSADEURS,
+  PORTES_OUVERTES_MAX_ENCADRANTS,
   type PortesOuvertesCycle,
+  type PortesOuvertesStaffRole,
+  type PortesOuvertesStaffRow,
 } from "@/app/lib/portes-ouvertes-types";
 import type { PortesOuvertesSlot, ToolboxConfig } from "@/app/lib/toolbox-types";
 
@@ -44,6 +48,7 @@ type PoAdminPayload = {
   followUpDelayMinutes: number;
   consentLabel: string;
   slots: PortesOuvertesSlot[];
+  staff: PortesOuvertesStaffRow[];
   stats: Record<string, number>;
   registrationsCount: number;
   error?: string;
@@ -109,6 +114,7 @@ function applyPoResponse(j: PoAdminPayload): PoAdminPayload {
         : 60,
     consentLabel: j.consentLabel || "",
     slots: Array.isArray(j.slots) ? j.slots : [],
+    staff: Array.isArray(j.staff) ? j.staff : [],
     stats: j.stats && typeof j.stats === "object" ? j.stats : {},
     registrationsCount: typeof j.registrationsCount === "number" ? j.registrationsCount : 0,
   };
@@ -351,6 +357,13 @@ export default function EvenementsHubClient() {
         `${generated.length} créneau(x) ajouté(s) pour ${cycleLabel(cycle)}.`,
       );
     } else {
+      const ok = window.confirm(
+        `Remplacer tous les créneaux « ${cycleLabel(cycle)} » ?\n\n` +
+          "Les inscriptions déjà liées aux anciens créneaux restent en historique, " +
+          "mais le staffing (profs / OGEC / ambassadeurs) de ces créneaux sera effacé. " +
+          "Préférez « Ajouter la grille » si vous voulez conserver le staffing.",
+      );
+      if (!ok) return;
       await putPo(
         { slotsReplaceCycle: { cycle, slots: slotsWithCycle } },
         `${generated.length} créneau(x) — grille ${cycleLabel(cycle)} remplacée.`,
@@ -364,6 +377,20 @@ export default function EvenementsHubClient() {
 
   async function deleteSlot(id: string) {
     await putPo({ slotDeleteId: id }, "Créneau supprimé.");
+  }
+
+  async function addSlotStaff(input: {
+    slotId: string;
+    role: PortesOuvertesStaffRole;
+    refId: string;
+    displayName: string;
+    meta?: Record<string, string>;
+  }) {
+    await putPo({ staffAdd: input }, `${input.displayName} ajouté(e) au créneau.`);
+  }
+
+  async function removeSlotStaff(staffId: string) {
+    await putPo({ staffDeleteId: staffId }, "Personne retirée du créneau.");
   }
 
   const slotsByCycle = useMemo(() => {
@@ -677,7 +704,7 @@ export default function EvenementsHubClient() {
                     href="/accueil/portes-ouvertes"
                     className="inline-block text-xs font-bold text-violet-800 underline"
                   >
-                    Ouvrir la saisie Accueil →
+                    Planning Accueil (tableur du jour) →
                   </a>
                 </div>
 
@@ -820,9 +847,12 @@ export default function EvenementsHubClient() {
                               cycle={cycle}
                               index={idx}
                               registered={po.stats[slot.id] || 0}
+                              staff={(po.staff || []).filter((x) => x.slotId === slot.id)}
                               saving={saving}
                               onDelete={() => void deleteSlot(slot.id)}
                               onSave={(next) => void upsertSlot({ ...next, cycle })}
+                              onAddStaff={(person) => void addSlotStaff(person)}
+                              onRemoveStaff={(staffId) => void removeSlotStaff(staffId)}
                             />
                           ))}
                         </div>
@@ -920,22 +950,35 @@ function SlotEditorRow({
   cycle,
   index,
   registered,
+  staff,
   saving,
   onDelete,
   onSave,
+  onAddStaff,
+  onRemoveStaff,
 }: {
   slot: PortesOuvertesSlot;
   cycle: PortesOuvertesCycle;
   index: number;
   registered: number;
+  staff: PortesOuvertesStaffRow[];
   saving: boolean;
   onDelete: () => void;
   onSave: (slot: PortesOuvertesSlot & { cycle: PortesOuvertesCycle }) => void;
+  onAddStaff: (input: {
+    slotId: string;
+    role: PortesOuvertesStaffRole;
+    refId: string;
+    displayName: string;
+    meta?: Record<string, string>;
+  }) => void;
+  onRemoveStaff: (staffId: string) => void;
 }) {
   const [label, setLabel] = useState(slot.label);
   const [maxPlaces, setMaxPlaces] = useState(slot.maxPlaces ?? 0);
   const [startLocal, setStartLocal] = useState(toDatetimeLocalValue(slot.startAt));
   const [endLocal, setEndLocal] = useState(toDatetimeLocalValue(slot.endAt));
+  const [staffOpen, setStaffOpen] = useState(false);
 
   useEffect(() => {
     setLabel(slot.label);
@@ -943,6 +986,9 @@ function SlotEditorRow({
     setStartLocal(toDatetimeLocalValue(slot.startAt));
     setEndLocal(toDatetimeLocalValue(slot.endAt));
   }, [slot.id, slot.label, slot.maxPlaces, slot.startAt, slot.endAt]);
+
+  const ambassadeurs = staff.filter((s) => s.role === "ambassadeur");
+  const encadrants = staff.filter((s) => s.role === "enseignant" || s.role === "personnel");
 
   return (
     <div className="rounded-xl border border-slate-100 bg-white p-4 space-y-3">
@@ -988,27 +1034,219 @@ function SlotEditorRow({
         <p className="text-xs text-slate-500">
           Inscrits : {registered}
           {maxPlaces > 0 ? ` — plafond ${maxPlaces}` : ""}
+          {" · "}
+          Encadrants {encadrants.length}/{PORTES_OUVERTES_MAX_ENCADRANTS}
+          {" · "}
+          Ambassadeurs {ambassadeurs.length}/{PORTES_OUVERTES_MAX_AMBASSADEURS}
         </p>
-        <button
-          type="button"
-          disabled={saving}
-          className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
-          onClick={() => {
-            const startAt = new Date(startLocal).toISOString();
-            const endAt = new Date(endLocal).toISOString();
-            onSave({
-              id: slot.id,
-              label: label.trim() || slot.label,
-              startAt,
-              endAt,
-              maxPlaces: maxPlaces > 0 ? maxPlaces : undefined,
-              cycle,
-            });
-          }}
-        >
-          Enregistrer ce créneau
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-900"
+            onClick={() => setStaffOpen((v) => !v)}
+          >
+            {staffOpen ? "Masquer l’équipe" : "Équipe du créneau"}
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+            onClick={() => {
+              const startAt = new Date(startLocal).toISOString();
+              const endAt = new Date(endLocal).toISOString();
+              onSave({
+                id: slot.id,
+                label: label.trim() || slot.label,
+                startAt,
+                endAt,
+                maxPlaces: maxPlaces > 0 ? maxPlaces : undefined,
+                cycle,
+              });
+            }}
+          >
+            Enregistrer ce créneau
+          </button>
+        </div>
       </div>
+
+      {staffOpen ? (
+        <div className="rounded-lg border border-violet-100 bg-violet-50/50 p-3 space-y-3">
+          <p className="text-xs text-violet-900">
+            Typiquement 1–2 encadrants (professeur ou personnel OGEC) et 2 élèves ambassadeurs.
+          </p>
+          <div className="grid gap-3 lg:grid-cols-3">
+            <AdminStaffSearchPicker
+              kind="enseignant"
+              label="Professeur"
+              disabled={saving || encadrants.length >= PORTES_OUVERTES_MAX_ENCADRANTS}
+              onPick={(hit) =>
+                onAddStaff({
+                  slotId: slot.id,
+                  role: "enseignant",
+                  refId: hit.refId,
+                  displayName: hit.displayName,
+                  meta: hit.meta,
+                })
+              }
+            />
+            <AdminStaffSearchPicker
+              kind="personnel"
+              label="Personnel OGEC"
+              disabled={saving || encadrants.length >= PORTES_OUVERTES_MAX_ENCADRANTS}
+              onPick={(hit) =>
+                onAddStaff({
+                  slotId: slot.id,
+                  role: "personnel",
+                  refId: hit.refId,
+                  displayName: hit.displayName,
+                  meta: hit.meta,
+                })
+              }
+            />
+            <AdminStaffSearchPicker
+              kind="eleve"
+              label="Élève ambassadeur"
+              disabled={saving || ambassadeurs.length >= PORTES_OUVERTES_MAX_AMBASSADEURS}
+              onPick={(hit) =>
+                onAddStaff({
+                  slotId: slot.id,
+                  role: "ambassadeur",
+                  refId: hit.refId,
+                  displayName: hit.displayName,
+                  meta: hit.meta,
+                })
+              }
+            />
+          </div>
+          {staff.length === 0 ? (
+            <p className="text-sm text-slate-500">Personne assignée pour l’instant.</p>
+          ) : (
+            <ul className="divide-y divide-violet-100 rounded-lg border border-violet-100 bg-white">
+              {staff.map((row) => (
+                <li
+                  key={row.id}
+                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                >
+                  <div>
+                    <span className="font-semibold text-slate-900">{row.displayName}</span>
+                    <span className="ml-2 text-xs font-semibold text-violet-700">
+                      {row.role === "ambassadeur"
+                        ? "Ambassadeur"
+                        : row.role === "enseignant"
+                          ? "Professeur"
+                          : "Personnel OGEC"}
+                    </span>
+                    {row.meta?.classe ? (
+                      <span className="ml-2 text-xs text-slate-500">{row.meta.classe}</span>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    className="text-xs font-bold text-rose-600 disabled:opacity-50"
+                    onClick={() => onRemoveStaff(row.id)}
+                  >
+                    Retirer
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type StaffSearchHit = {
+  refId: string;
+  displayName: string;
+  meta?: Record<string, string>;
+};
+
+function AdminStaffSearchPicker({
+  kind,
+  label,
+  disabled,
+  onPick,
+}: {
+  kind: "eleve" | "enseignant" | "personnel";
+  label: string;
+  disabled: boolean;
+  onPick: (hit: StaffSearchHit) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<StaffSearchHit[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    const needle = q.trim();
+    if (needle.length < 2 || disabled) {
+      setResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      void fetch(
+        `/api/toolbox/portes-ouvertes/search?kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(needle)}`,
+        { cache: "no-store" },
+      )
+        .then(async (res) => {
+          const data = (await res.json()) as { results?: StaffSearchHit[]; error?: string };
+          if (!res.ok) throw new Error(data.error || "Recherche impossible");
+          if (!cancelled) setResults(Array.isArray(data.results) ? data.results : []);
+        })
+        .catch(() => {
+          if (!cancelled) setResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [q, kind, disabled]);
+
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-[11px] font-bold uppercase text-violet-800">{label}</label>
+      <input
+        type="search"
+        disabled={disabled}
+        placeholder={disabled ? "Plafond atteint" : "Rechercher (2 lettres min.)"}
+        className="w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+      {searching ? <p className="text-[11px] text-slate-500">Recherche…</p> : null}
+      {results.length > 0 ? (
+        <ul className="max-h-36 overflow-auto rounded-lg border border-violet-100 bg-white text-sm">
+          {results.map((hit) => (
+            <li key={`${hit.refId}-${hit.displayName}`}>
+              <button
+                type="button"
+                disabled={disabled}
+                className="w-full px-3 py-1.5 text-left hover:bg-violet-50 disabled:opacity-50"
+                onClick={() => {
+                  onPick(hit);
+                  setQ("");
+                  setResults([]);
+                }}
+              >
+                <span className="font-semibold text-slate-900">{hit.displayName}</span>
+                {hit.meta?.classe ? (
+                  <span className="ml-2 text-xs text-slate-500">{hit.meta.classe}</span>
+                ) : hit.meta?.jobTitle ? (
+                  <span className="ml-2 text-xs text-slate-500">{hit.meta.jobTitle}</span>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
