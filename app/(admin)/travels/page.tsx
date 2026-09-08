@@ -153,6 +153,9 @@ function TripDashboardContent() {
   const filteredTrips = useMemo(() => {
     const defaultLabel = etabFilterOptions.showGroupe ? GROUPE_SCOLAIRE_LABEL : etabFilterOptions.labels[0] || "";
     return trips.filter((t) => {
+      // Séjours terminés / annulés : plus affichés dans la liste opérationnelle.
+      if (isTripTravelDatePast(t)) return false;
+      if (t.status === "ANNULE" || t.status === "SEANCE_ANNULEE" || t.status === "REJETE") return false;
       if (filterEtab && (t.data?.etablissement || defaultLabel) !== filterEtab) return false;
       return travelsTripMatchesSearch(t, searchQuery);
     });

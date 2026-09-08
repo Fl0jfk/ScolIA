@@ -15,6 +15,7 @@ import type { NotificationsConfig } from "@/app/lib/app-config-schemas";
 import { absencesToday } from "@/app/lib/dashboard-absences";
 import { moduleIdToPillarId, type DashboardPillarId } from "@/app/lib/dashboard-pillars";
 import { tripsThisWeek, tripsToday, type TripIndexRow } from "@/app/lib/dashboard-trips";
+import { isTripTravelDatePast } from "@/app/lib/travels-trip-helpers";
 import { moduleHref } from "@/app/lib/pillar-module-routes";
 import { canEnterTravelsDetail } from "@/app/lib/accueil-access";
 import { pickExactCurrentWeekSheet } from "@/app/lib/dashboard-week-sheet-active";
@@ -473,7 +474,9 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             : undefined,
       });
     } else if (isCompta(roles)) {
-      const n = trips.filter((t) => t.status === "EN_ATTENTE_COMPTA").length;
+      const n = trips.filter(
+        (t) => t.status === "EN_ATTENTE_COMPTA" && !isTripTravelDatePast(t),
+      ).length;
       if (n > 0) {
         shortcuts.push({
           id: "travels-compta",
@@ -507,6 +510,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       const etab = resolveDirectionEtab(roles, establishments);
       const pending = trips.filter((t) => {
         if (t.status !== "EN_ATTENTE_DIR_INITIAL" && t.status !== "EN_ATTENTE_DIR_FINAL") return false;
+        if (isTripTravelDatePast(t)) return false;
         if (!etab) return true;
         return (t.data?.etablissement || "Groupe Scolaire") === etab;
       });

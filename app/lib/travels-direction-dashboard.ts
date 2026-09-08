@@ -85,6 +85,9 @@ function formatDateLabel(trip: TripDashboardRow) {
 
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import { directionRolesMatchEstablishmentRef } from "@/app/lib/establishment-catalog";
+import { isTripTravelDatePast } from "@/app/lib/travels-trip-helpers";
+
+const CLOSED_STATUSES = new Set(["SEANCE_ANNULEE", "REJETE", "ANNULE"]);
 
 export function resolveDirectionEtab(
   roles: string[],
@@ -119,10 +122,16 @@ export function buildTravelsDirectionDashboard(
   const upcoming: TravelsDirectionDashboard["upcoming"] = [];
 
   for (const t of mine) {
-    if (t.status === "SEANCE_ANNULEE" || t.status === "REJETE") continue;
+    if (t.status && CLOSED_STATUSES.has(t.status)) continue;
 
+    const past = isTripTravelDatePast(t);
+
+    // Compteurs année : on garde l'historique (passés inclus), hors annulés/rejetés.
     if (inSchoolYear(t, sy.start, sy.end)) tripsYear += 1;
     if (t.status === "VALIDE" && inSchoolYear(t, sy.start, sy.end)) validatedYear += 1;
+
+    // Files opérationnelles : plus de dossiers dont la date de séjour est passée.
+    if (past) continue;
 
     if (t.status && ACTIVE_STATUSES.has(t.status)) tripsActive += 1;
 
@@ -162,7 +171,13 @@ export function buildTravelsDirectionDashboard(
     }
 
     const start = parseTripStart(t);
-    if (start && start >= today && t.status !== "VALIDE" && t.status !== "REJETE") {
+    if (
+      start &&
+      start >= today &&
+      t.status !== "VALIDE" &&
+      t.status !== "REJETE" &&
+      t.status !== "ANNULE"
+    ) {
       upcoming.push({
         id: t.id,
         title: t.data?.title || "Sans titre",
