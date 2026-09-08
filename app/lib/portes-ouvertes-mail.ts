@@ -78,14 +78,19 @@ async function sendVisitorConfirmationMail(params: {
 }): Promise<boolean> {
   const { po, entry, slot, kind } = params;
   const visitLine = visitLineOf(entry);
+  const preinscriptionUrl = po.preinscriptionUrl?.trim() || "";
   const icsDescription = [
-    po.intro,
+    "Rendez-vous à la cantine pour un petit café et découvrir l’établissement ensemble.",
+    "Au programme : visite guidée, échange avec la direction et les équipes qui vous intéressent.",
     visitLine ? `Visite souhaitée : ${visitLine}` : "",
     entry.phone ? `Tél. : ${entry.phone}` : "",
+    preinscriptionUrl
+      ? `Avez-vous déjà fait votre préinscription ? Sinon, vous pouvez la compléter ici :\n${preinscriptionUrl}`
+      : "",
     kind === "update" ? "Créneau modifié — remplacez l’ancien événement dans votre agenda." : "",
   ]
     .filter(Boolean)
-    .join("\n");
+    .join("\n\n");
 
   const ics = buildPortesOuvertesIcs({
     title: `${po.title} — ${slot.label}`,
