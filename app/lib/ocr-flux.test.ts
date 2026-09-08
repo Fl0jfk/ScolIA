@@ -43,6 +43,42 @@ test("ne recouvre pas un ocrFlux déjà renseigné", () => {
   assert.equal(grid.find((r) => r.id === "eleves_lycee")?.externalUserId, "nouveau");
 });
 
+test("complète les élèves legacy même si un flux enseignants a déjà un assignee", () => {
+  const grid = migrateLegacyUserSecteursToOcrFlux({
+    ocrFlux: [
+      {
+        id: "enseignants_college",
+        externalUserId: "ens",
+        match: "ens@ecole.fr",
+      },
+    ],
+    userSecteurs: [
+      {
+        externalUserId: "sec",
+        match: "sec@ecole.fr",
+        displayName: "Secrétariat",
+        secteur: "college",
+      },
+    ],
+  });
+  assert.equal(grid.find((r) => r.id === "eleves_college")?.externalUserId, "sec");
+  assert.equal(grid.find((r) => r.id === "eleves_college")?.match, "sec@ecole.fr");
+  assert.equal(grid.find((r) => r.id === "enseignants_college")?.externalUserId, "ens");
+});
+
+test("rattache via ids secondaires (auth vs métier)", () => {
+  const grid = mergeOcrFluxGrid([
+    { id: "eleves_lycee", externalUserId: "clerk_old", match: "fh@ecole.fr" },
+  ]);
+  const assigned = fluxesAssignedToUser(grid, {
+    id: "auth_uuid",
+    ids: ["auth_uuid", "clerk_old"],
+    emails: ["autre@ecole.fr"],
+  });
+  assert.equal(assigned.length, 1);
+  assert.equal(assigned[0]?.id, "eleves_lycee");
+});
+
 test("autorise la même personne sur plusieurs flux enseignants", () => {
   const grid = mergeOcrFluxGrid([
     { id: "eleves_college", externalUserId: "col", match: "c@ecole.fr" },

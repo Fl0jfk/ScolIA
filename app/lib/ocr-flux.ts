@@ -206,8 +206,10 @@ export function migrateLegacyUserSecteursToOcrFlux(input: {
   personnelBasePath?: string | null;
 }): OcrFluxAssignment[] {
   const grid = mergeOcrFluxGrid(input.ocrFlux);
-  const hasAnyAssignee = grid.some((row) => row.externalUserId || row.match);
-  if (!hasAnyAssignee && input.userSecteurs?.length) {
+  // Toujours compléter les lignes élèves vides depuis userSecteurs, même si un autre
+  // flux (enseignants / personnel) a déjà un assignee — sinon le secrétariat « visible »
+  // dans l’ancien mapping disparaît de la résolution OCR.
+  if (input.userSecteurs?.length) {
     for (const row of input.userSecteurs) {
       const secteur = String(row.secteur ?? "").trim().toLowerCase();
       if (secteur !== "ecole" && secteur !== "college" && secteur !== "lycee") continue;
@@ -252,19 +254,33 @@ export function resolveOcrFluxRow(row: OcrFluxAssignment): OcrResolvedFlux {
 
 export function fluxesAssignedToUser(
   grid: OcrFluxAssignment[],
-  user: { id?: string | null; lastName?: string | null; emails?: string[] },
+  user: {
+    id?: string | null;
+    /** Tous les ids connus (auth Better-Auth, externalUserId métier, mapping Clerk…). */
+    ids?: Array<string | null | undefined> | null;
+    lastName?: string | null;
+    fullName?: string | null;
+    emails?: string[];
+  },
 ): OcrResolvedFlux[] {
-  const directoryUserId = user.id?.trim();
+  const idSet = new Set(
+    [user.id, ...(user.ids ?? [])]
+      .map((v) => String(v ?? "").trim())
+      .filter(Boolean),
+  );
   const identifiers = [
     ...(user.emails ?? []).map(normalizeMatch),
     user.lastName ? normalizeMatch(user.lastName) : "",
+    user.fullName ? normalizeMatch(user.fullName) : "",
   ].filter(Boolean);
 
   return grid
     .filter((row) => {
-      if (directoryUserId && row.externalUserId?.trim() === directoryUserId) return true;
+      const rowId = row.externalUserId?.trim();
+      if (rowId && idSet.has(rowId)) return true;
       const target = normalizeMatch(row.match ?? "");
       if (!target) return false;
+      if (idSet.has(target)) return true;
       return identifiers.some((id) => id === target || id.includes(target) || target.includes(id));
     })
     .map(resolveOcrFluxRow);

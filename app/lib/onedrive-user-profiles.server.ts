@@ -1,5 +1,8 @@
 import "server-only";
 
+import { eq, inArray, sql } from "drizzle-orm";
+import { getDb, isDatabaseConfigured } from "@/db/index";
+import { authUserMapping, user as userTable } from "@/db/schema";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
 import type { SessionLikeUser } from "@/app/lib/app-actor-types";
@@ -46,6 +49,7 @@ function normalizeMatch(value: string): string {
 function collectUserIdentifiers(user: SessionLikeUser): string[] {
   const out: string[] = [];
   if (user.lastName?.trim()) out.push(normalizeMatch(user.lastName));
+  if (user.fullName?.trim()) out.push(normalizeMatch(user.fullName));
   if (user.primaryEmailAddress?.emailAddress) {
     out.push(normalizeMatch(user.primaryEmailAddress.emailAddress));
   }
@@ -60,6 +64,109 @@ function collectEmails(user: SessionLikeUser): string[] {
     user.primaryEmailAddress?.emailAddress,
     ...(user.emailAddresses?.map((e) => e.emailAddress) ?? []),
   ].filter((e): e is string => Boolean(e?.trim()));
+}
+
+/**
+ * Élargit les ids utilisables pour rattacher un flux OCR :
+ * id session (métier), id auth Better-Auth, external_user_id, mapping Clerk historique.
+ * Sans ça, Paramètres peut afficher la personne via e-mail alors que /api/onedrive/profile
+ * ne matche que sur un id obsolète.
+ */
+export async function expandOcrMatchIdsForUser(user: SessionLikeUser): Promise<string[]> {
+  const ids = new Set<string>();
+  const push = (value: string | null | undefined) => {
+    const v = value?.trim();
+    if (v) ids.add(v);
+  };
+  push(user.id);
+
+  if (!isDatabaseConfigured()) return [...ids];
+
+  try {
+    const db = getDb();
+    const emails = collectEmails(user)
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+
+    const rows =
+      emails.length > 0
+        ? await db
+            .select({
+              id: userTable.id,
+              externalUserId: userTable.externalUserId,
+              etablissementId: userTable.etablissementId,
+            })
+            .from(userTable)
+            .where(inArray(sql`lower(${userTable.email})`, emails))
+        : [];
+
+    // Repli : résoudre la ligne via l'id déjà connu (auth ou métier).
+    if (rows.length === 0 && user.id?.trim()) {
+      const sid = user.id.trim();
+      const byId = await db
+        .select({
+          id: userTable.id,
+          externalUserId: userTable.externalUserId,
+          etablissementId: userTable.etablissementId,
+        })
+        .from(userTable)
+        .where(eq(userTable.id, sid))
+        .limit(1);
+      if (byId[0]) rows.push(byId[0]);
+      else {
+        const byExternal = await db
+          .select({
+            id: userTable.id,
+            externalUserId: userTable.externalUserId,
+            etablissementId: userTable.etablissementId,
+          })
+          .from(userTable)
+          .where(eq(userTable.externalUserId, sid))
+          .limit(1);
+        if (byExternal[0]) rows.push(byExternal[0]);
+      }
+    }
+
+    const authIds: string[] = [];
+    for (const row of rows) {
+      push(row.id);
+      push(row.externalUserId);
+      authIds.push(row.id);
+    }
+
+    if (authIds.length > 0) {
+      const mappings = await db
+        .select({
+          externalUserId: authUserMapping.externalUserId,
+          userId: authUserMapping.userId,
+        })
+        .from(authUserMapping)
+        .where(inArray(authUserMapping.userId, authIds));
+      for (const m of mappings) {
+        push(m.externalUserId);
+        push(m.userId);
+      }
+    }
+
+    // Mapping inverse : id session = ancien Clerk stocké comme external dans auth_user_mapping
+    if (user.id?.trim()) {
+      const reverse = await db
+        .select({
+          externalUserId: authUserMapping.externalUserId,
+          userId: authUserMapping.userId,
+        })
+        .from(authUserMapping)
+        .where(eq(authUserMapping.externalUserId, user.id.trim()));
+      for (const m of reverse) {
+        push(m.externalUserId);
+        push(m.userId);
+      }
+    }
+  } catch (error) {
+    console.error("[expandOcrMatchIdsForUser]", error);
+  }
+
+  return [...ids];
 }
 
 async function loadOneDriveConfig() {
@@ -106,9 +213,12 @@ export async function resolveOcrCapabilitiesForUserServer(
     basesBySecteur: od?.basesBySecteur,
     personnelBasePath: od?.rhDrive?.basePath,
   });
+  const matchIds = await expandOcrMatchIdsForUser(user);
   const assigned = fluxesAssignedToUser(grid, {
     id: user.id,
+    ids: matchIds,
     lastName: user.lastName,
+    fullName: user.fullName,
     emails: collectEmails(user),
   }).map((flux) => applyElevesPathDefaults(flux, defaults, od?.basesBySecteur));
   return capabilitiesFromFluxes(assigned);
@@ -128,15 +238,17 @@ export async function resolveOneDriveProfileForUserServer(
 
   const { od, establishments } = await loadOneDriveConfig();
   const defaults = defaultBaseBySecteur(establishments);
+  const matchIds = await expandOcrMatchIdsForUser(user);
+  const idSet = new Set(matchIds);
 
   if (!profile && od?.userSecteurs?.length) {
-    const directoryUserId = user.id?.trim();
-    if (directoryUserId) {
-      const byId = od.userSecteurs.find((m) => m.externalUserId?.trim() === directoryUserId);
-      if (byId) {
-        const def = defaults[byId.secteur];
-        profile = { key: byId.secteur, secteur: byId.secteur, basePath: def.basePath, label: def.label };
-      }
+    const byId = od.userSecteurs.find((m) => {
+      const ext = m.externalUserId?.trim();
+      return Boolean(ext && idSet.has(ext));
+    });
+    if (byId) {
+      const def = defaults[byId.secteur];
+      profile = { key: byId.secteur, secteur: byId.secteur, basePath: def.basePath, label: def.label };
     }
   }
 
@@ -144,6 +256,8 @@ export async function resolveOneDriveProfileForUserServer(
     const identifiers = collectUserIdentifiers(user);
     const hit = od.userSecteurs.find((m) => {
       const target = normalizeMatch(m.match);
+      if (!target) return false;
+      if (idSet.has(target)) return true;
       return identifiers.some((id) => id === target || id.includes(target) || target.includes(id));
     });
     if (hit) {

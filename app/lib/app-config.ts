@@ -146,7 +146,8 @@ async function maybeBackfillLegacyIntegrations(
   const merged: IntegrationsConfig = { ...integrations };
 
   if (merged.microsoftOneDrive?.enabled !== true) {
-    merged.microsoftOneDrive = { enabled: true };
+    // Préserver ocrFlux / userSecteurs / chemins — ne pas remplacer tout l’objet.
+    merged.microsoftOneDrive = { ...merged.microsoftOneDrive, enabled: true };
   }
   if (merged.zeendoc?.enabled !== true) {
     merged.zeendoc = { ...seed.zeendoc, ...merged.zeendoc, enabled: true };

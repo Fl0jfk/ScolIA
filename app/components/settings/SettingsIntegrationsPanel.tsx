@@ -2,7 +2,10 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
-import DirectoryPersonSelect, { directoryMemberLabel } from "@/app/components/settings/DirectoryPersonSelect";
+import DirectoryPersonSelect, {
+  directoryMemberLabel,
+  findDirectoryMember,
+} from "@/app/components/settings/DirectoryPersonSelect";
 import {
   SettingsNotice,
   SettingsSection,
@@ -56,6 +59,27 @@ function basesBySecteurFromFlux(
     if (path) bases[meta.secteur] = { basePath: path };
   }
   return bases;
+}
+
+/** Réécrit externalUserId / e-mail depuis l’annuaire courant (ids Clerk obsolètes). */
+function healOcrFluxAgainstDirectory(
+  grid: OcrFluxAssignment[],
+  members: DirectoryMemberOption[],
+): OcrFluxAssignment[] {
+  return grid.map((row) => {
+    if (!row.externalUserId && !row.match) return row;
+    const member = findDirectoryMember(members, {
+      id: row.externalUserId,
+      email: row.match,
+    });
+    if (!member) return row;
+    return {
+      ...row,
+      externalUserId: member.externalUserId,
+      match: member.email.trim() || row.match,
+      displayName: directoryMemberLabel(member),
+    };
+  });
 }
 
 export default function SettingsIntegrationsPanel({
@@ -247,7 +271,8 @@ export default function SettingsIntegrationsPanel({
         variant="primary"
         disabled={saving}
         onClick={() => {
-          const merged = mergeOcrFluxGrid(fluxGrid);
+          const healed = healOcrFluxAgainstDirectory(fluxGrid, directoryMembers);
+          const merged = mergeOcrFluxGrid(healed);
           void saveSection("integrations", {
             ...integrations,
             microsoftOneDrive: {

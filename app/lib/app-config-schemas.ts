@@ -701,7 +701,7 @@ function parseOcrFluxRows(raw: unknown): OcrFluxConfigRow[] {
     // Ancienne config brève : une seule ligne "enseignants"
     if (rawId === "enseignants") {
       unified = {
-        externalUserId: str(row.externalUserId) || undefined,
+        externalUserId: str(row.externalUserId) || str(row.clerkUserId) || undefined,
         match: str(row.match) || undefined,
         displayName: str(row.displayName) || undefined,
         basePath: str(row.basePath) || ENSEIGNANTS_SHARED_BASE_PATH,
@@ -712,7 +712,8 @@ function parseOcrFluxRows(raw: unknown): OcrFluxConfigRow[] {
     if (!id) continue;
     byId.set(id, {
       id,
-      externalUserId: str(row.externalUserId) || undefined,
+      // clerkUserId = id legacy Clerk encore présent dans d’anciennes configs JSON
+      externalUserId: str(row.externalUserId) || str(row.clerkUserId) || undefined,
       match: str(row.match) || undefined,
       displayName: str(row.displayName) || undefined,
       basePath: str(row.basePath) || undefined,
@@ -773,7 +774,7 @@ function parseOneDriveIntegration(raw: Record<string, unknown>): MicrosoftOneDri
     for (const item of raw.userSecteurs) {
       if (!item || typeof item !== "object") continue;
       const row = item as Record<string, unknown>;
-      const externalUserId = str(row.externalUserId) || undefined;
+      const externalUserId = str(row.externalUserId) || str(row.clerkUserId) || undefined;
       const match = str(row.match);
       const displayName = str(row.displayName) || undefined;
       const secteur = parseOneDriveSecteur(row.secteur);
@@ -790,8 +791,10 @@ function parseOneDriveIntegration(raw: Record<string, unknown>): MicrosoftOneDri
   if (hasFluxAssignee || parsedFlux.some((row) => row.basePath) || Array.isArray(raw.ocrFlux)) {
     result.ocrFlux = parsedFlux;
   }
-  if (!hasFluxAssignee && result.userSecteurs?.length) {
-    const migrated = parsedFlux.map((row) => ({ ...row }));
+  // Compléter les lignes élèves vides depuis userSecteurs même si d’autres flux ont un assignee.
+  if (result.userSecteurs?.length) {
+    const migrated = (result.ocrFlux ?? parsedFlux).map((row) => ({ ...row }));
+    let changed = false;
     for (const legacy of result.userSecteurs) {
       const id = (
         legacy.secteur === "ecole"
@@ -805,6 +808,7 @@ function parseOneDriveIntegration(raw: Record<string, unknown>): MicrosoftOneDri
       current.externalUserId = legacy.externalUserId;
       current.match = legacy.match;
       current.displayName = legacy.displayName;
+      changed = true;
     }
     for (const secteur of ["ecole", "college", "lycee"] as const) {
       const override = result.basesBySecteur?.[secteur]?.basePath?.trim();
@@ -813,9 +817,12 @@ function parseOneDriveIntegration(raw: Record<string, unknown>): MicrosoftOneDri
         secteur === "ecole" ? "eleves_ecole" : secteur === "college" ? "eleves_college" : "eleves_lycee"
       ) as OcrFluxConfigId;
       const current = migrated.find((r) => r.id === id);
-      if (current && !current.basePath) current.basePath = override;
+      if (current && !current.basePath) {
+        current.basePath = override;
+        changed = true;
+      }
     }
-    result.ocrFlux = migrated;
+    if (changed || !result.ocrFlux) result.ocrFlux = migrated;
   }
 
   const rhRaw = raw.rhDrive;
