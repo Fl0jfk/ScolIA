@@ -39,6 +39,25 @@ export function hasStaffCapableRole(roles: string[]): boolean {
   return roles.some((r) => !FAMILY_ROLE.has(r));
 }
 
+/**
+ * Cible du logo établissement (header public / intranet).
+ * Personnel interne connecté → dashboard ; parent, élève ou visiteur → portail rentrée.
+ */
+export function resolveEstablishmentLogoHomeHref(opts: {
+  isSignedIn: boolean;
+  roles: string[];
+  orgAdmin?: boolean;
+  platformAdmin?: boolean;
+  /** Cible si non connecté / famille (défaut `/rentree`). */
+  publicFallback?: string;
+}): string {
+  const fallback = opts.publicFallback ?? "/rentree";
+  if (!opts.isSignedIn) return fallback;
+  if (opts.orgAdmin || opts.platformAdmin) return "/dashboard";
+  if (hasStaffCapableRole(opts.roles)) return "/dashboard";
+  return fallback;
+}
+
 export function isAppOnlyAllowedPath(pathname: string): boolean {
   const normalized = pathname.replace(/\/+$/, "") || "/";
   return APP_ONLY_ALLOWED_PREFIXES.some(

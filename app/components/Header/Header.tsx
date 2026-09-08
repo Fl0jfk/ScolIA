@@ -11,6 +11,7 @@ import { useData } from "@/app/contexts/data";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { ExternalQuickLinksBar } from "@/app/components/Dashboard/ExternalQuickLinks";
 import { toDashboardQuickLinks } from "@/app/lib/dashboard-quick-links";
+import { resolveEstablishmentLogoHomeHref } from "@/app/lib/channel-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { dashboardBrandCssVars, parseDashboardAccent } from "@/app/lib/dashboard-brand-presets";
 import { SCOLA_HEADER_ACCENT } from "@/app/lib/marketing-theme";
@@ -134,7 +135,13 @@ export default function Header() {
   const dashVars = isDashboard
     ? dashboardBrandCssVars(parseDashboardAccent(appContext?.identity?.dashboardAccent))
     : null;
-  const homeHref = isSignedIn ? "/dashboard" : "/";
+  const homeHref = resolveEstablishmentLogoHomeHref({
+    isSignedIn: Boolean(isLoaded && isSignedIn),
+    roles: rolesFromUserLike(user),
+    orgAdmin: isOrgAdmin,
+    platformAdmin: Boolean(user?.publicMetadata?.platform_admin),
+    publicFallback: "/",
+  });
   const logoAlt = siteIdentity?.shortName || siteIdentity?.name || "Établissement";
   const customLogoUrl = siteIdentity?.headerLogoUrl?.trim() || "";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -9,6 +9,9 @@ import {
   usePublicSiteIdentity,
   type PublicSiteIdentity,
 } from "@/app/contexts/public-site-identity";
+import { useSessionUser } from "@/app/hooks/useAppUser";
+import { resolveEstablishmentLogoHomeHref } from "@/app/lib/channel-access";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
 const NAV = [
   { href: "/rentree", label: "Rentrée" },
@@ -18,15 +21,17 @@ const NAV = [
 function PublicHeaderLogo({
   identity,
   ready,
+  homeHref,
 }: {
   identity: PublicSiteIdentity | null;
   ready: boolean;
+  homeHref: string;
 }) {
   const logoAlt = identity?.shortName || identity?.name || "La Providence Nicolas Barré";
   const customLogoUrl = identity?.headerLogoUrl?.trim() || "";
 
   return (
-    <Link href="/rentree" className="hover:opacity-75 transition flex-shrink-0 relative">
+    <Link href={homeHref} className="hover:opacity-75 transition flex-shrink-0 relative">
       <div className="w-[110px] h-[110px]">
         {!ready ? (
           <div className="absolute top-7 left-[-20px] sm:left-0 h-[80px] w-[80px]" aria-hidden />
@@ -47,6 +52,7 @@ function PublicHeaderLogo({
 
 export default function RentreePublicHeader() {
   const pathname = usePathname();
+  const { isLoaded, isSignedIn, user } = useSessionUser();
   const contextIdentity = usePublicSiteIdentity();
   const [fetchedIdentity, setFetchedIdentity] = useState<PublicSiteIdentity | null>(null);
   const [fetchDone, setFetchDone] = useState(false);
@@ -73,10 +79,22 @@ export default function RentreePublicHeader() {
   const siteIdentity = contextIdentity ?? fetchedIdentity;
   const logoReady = Boolean(contextIdentity) || fetchDone;
 
+  const homeHref = useMemo(() => {
+    if (!isLoaded) return "/rentree";
+    const roles = rolesFromUserLike(user);
+    const meta = user?.publicMetadata;
+    return resolveEstablishmentLogoHomeHref({
+      isSignedIn,
+      roles,
+      orgAdmin: Boolean(meta?.org_admin),
+      platformAdmin: Boolean(meta?.platform_admin),
+    });
+  }, [isLoaded, isSignedIn, user]);
+
   return (
     <header className="bg-white/90 backdrop-blur-md sticky top-0 z-50 border-b border-slate-100">
       <div className="max-w-[1400px] mx-auto px-6 h-14 flex items-center justify-between gap-4">
-        <PublicHeaderLogo identity={siteIdentity} ready={logoReady} />
+        <PublicHeaderLogo identity={siteIdentity} ready={logoReady} homeHref={homeHref} />
 
         <nav className="hidden md:flex gap-6 text-sm font-bold text-slate-600">
           {NAV.map(({ href, label }) => {
