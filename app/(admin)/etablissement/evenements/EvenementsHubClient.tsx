@@ -12,6 +12,12 @@ import ModuleTabNav from "@/app/components/module-chrome/ModuleTabNav";
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import { EVENEMENTS_TOOLS_META, type EvenementToolId } from "@/app/lib/evenements-tools";
 import {
+  formatParisHm,
+  getParisParts,
+  parisDateKey,
+  parseParisDateTime,
+} from "@/app/lib/paris-time";
+import {
   generatePortesOuvertesSlots,
   type PortesOuvertesDepartureIntervalMinutes,
   type PortesOuvertesVisitDurationMinutes,
@@ -51,6 +57,14 @@ type PoAdminPayload = {
   staff: PortesOuvertesStaffRow[];
   stats: Record<string, number>;
   registrationsCount: number;
+  /** Snapshots d’inscriptions (pour détecter / restaurer une date écrasée). */
+  registrationSlotSnapshots?: Array<{
+    slotId: string;
+    slotLabel?: string;
+    slotStartAt?: string;
+    slotEndAt?: string;
+    cycle?: PortesOuvertesCycle;
+  }>;
   error?: string;
 };
 
@@ -83,9 +97,8 @@ function Toggle({
 }
 
 function defaultGridDay(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 14);
-  return d.toISOString().slice(0, 10);
+  // Pas de date inventée (+14 j) : ça a déjà écrasé un vrai jour (21/11 → 22/09).
+  return "";
 }
 
 function emptyCycleGrid(): CycleGridForm {
@@ -96,6 +109,47 @@ function emptyCycleGrid(): CycleGridForm {
     departureInterval: 15,
     visitDuration: 60,
     maxPlaces: 20,
+  };
+}
+
+function formatDayFr(dayKey: string): string {
+  const d = parseParisDateTime(dayKey, "12:00");
+  if (!d) return dayKey;
+  return d.toLocaleDateString("fr-FR", {
+    timeZone: "Europe/Paris",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function toDatetimeLocalValue(iso: string): string {
+  const p = getParisParts(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
+}
+
+function datetimeLocalToIso(local: string): string | null {
+  const raw = local.trim();
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(raw);
+  if (!m) return null;
+  const d = parseParisDateTime(m[1], m[2]);
+  return d ? d.toISOString() : null;
+}
+
+function gridFromSlots(slots: PortesOuvertesSlot[]): CycleGridForm {
+  const base = emptyCycleGrid();
+  if (!slots.length) return base;
+  const sorted = [...slots].sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  return {
+    ...base,
+    day: parisDateKey(first.startAt),
+    startTime: formatParisHm(first.startAt),
+    endTime: formatParisHm(last.endAt),
+    maxPlaces: first.maxPlaces && first.maxPlaces > 0 ? first.maxPlaces : base.maxPlaces,
   };
 }
 
@@ -117,14 +171,10 @@ function applyPoResponse(j: PoAdminPayload): PoAdminPayload {
     staff: Array.isArray(j.staff) ? j.staff : [],
     stats: j.stats && typeof j.stats === "object" ? j.stats : {},
     registrationsCount: typeof j.registrationsCount === "number" ? j.registrationsCount : 0,
+    registrationSlotSnapshots: Array.isArray(j.registrationSlotSnapshots)
+      ? j.registrationSlotSnapshots
+      : [],
   };
-}
-
-function toDatetimeLocalValue(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export default function EvenementsHubClient() {
@@ -177,6 +227,50 @@ export default function EvenementsHubClient() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Préremplit le jour / horaires depuis les créneaux déjà en base (évite une date inventée). */
+  useEffect(() => {
+    if (!po?.slots?.length) return;
+    const trapPlus14 = (() => {
+      const d = new Date();
+      d.setDate(d.getDate() + 14);
+      return parisDateKey(d);
+    })();
+    setCycleGrids((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const cycle of ["ecole", "college", "lycee"] as const) {
+        const cycleSlots = po.slots.filter((s) => s.cycle === cycle);
+        if (!cycleSlots.length) continue;
+        const fromSlots = gridFromSlots(cycleSlots);
+        const current = prev[cycle];
+        if (
+          current &&
+          current.day === fromSlots.day &&
+          current.startTime === fromSlots.startTime &&
+          current.endTime === fromSlots.endTime
+        ) {
+          continue;
+        }
+        // Sync depuis la BDD sauf si l’utilisateur a déjà saisi un autre jour volontairement.
+        const currentDay = current?.day || "";
+        const userTypedOtherDay =
+          Boolean(currentDay) &&
+          currentDay !== fromSlots.day &&
+          currentDay !== trapPlus14;
+        if (userTypedOtherDay) continue;
+        next[cycle] = {
+          ...(current || emptyCycleGrid()),
+          day: fromSlots.day,
+          startTime: fromSlots.startTime,
+          endTime: fromSlots.endTime,
+          maxPlaces: fromSlots.maxPlaces,
+        };
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [po?.slots]);
 
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
@@ -338,6 +432,39 @@ export default function EvenementsHubClient() {
 
   async function generateSlots(cycle: PortesOuvertesCycle, mode: "append" | "replace") {
     const g = gridFor(cycle);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(g.day)) {
+      setError("Indiquez d’abord le jour de la grille (ex. 21/11/2026) avant d’ajouter ou remplacer.");
+      return;
+    }
+    const dayLabel = formatDayFr(g.day);
+    const existing = (po?.slots || []).filter((s) => s.cycle === cycle);
+    const existingDays = [
+      ...new Set(existing.map((s) => parisDateKey(s.startAt))),
+    ].sort();
+
+    if (mode === "replace" && existing.length > 0) {
+      const ok = window.confirm(
+        `ATTENTION — Remplacer TOUS les créneaux « ${cycleLabel(cycle)} » ?\n\n` +
+          `Jour de la nouvelle grille : ${dayLabel} (${g.day})\n` +
+          (existingDays.length
+            ? `Jours actuellement en base : ${existingDays.map(formatDayFr).join(", ")}\n\n`
+            : "\n") +
+          "Les inscriptions liées aux anciens créneaux restent en historique, " +
+          "mais les créneaux eux-mêmes (et leur staffing) seront effacés.\n\n" +
+          "Si vous vouliez seulement enregistrer adresse / Maps / délai : utilisez le bouton Enregistrer en haut, PAS celui-ci.",
+      );
+      if (!ok) return;
+    }
+
+    if (mode === "append" && existingDays.length > 0 && !existingDays.includes(g.day)) {
+      const ok = window.confirm(
+        `Ajouter une grille le ${dayLabel} (${g.day}) ?\n\n` +
+          `Des créneaux existent déjà pour : ${existingDays.map(formatDayFr).join(", ")}.\n` +
+          "Vérifiez bien le champ « Jour » avant de confirmer.",
+      );
+      if (!ok) return;
+    }
+
     const generated = generatePortesOuvertesSlots({
       date: g.day,
       startTime: g.startTime,
@@ -355,21 +482,54 @@ export default function EvenementsHubClient() {
     if (mode === "append") {
       await putPo(
         { slotsAppend: slotsWithCycle },
-        `${generated.length} créneau(x) ajouté(s) pour ${cycleLabel(cycle)}.`,
+        `${generated.length} créneau(x) ajouté(s) le ${dayLabel} (${cycleLabel(cycle)}).`,
       );
     } else {
-      const ok = window.confirm(
-        `Remplacer tous les créneaux « ${cycleLabel(cycle)} » ?\n\n` +
-          "Les inscriptions déjà liées aux anciens créneaux restent en historique, " +
-          "mais le staffing (profs / OGEC / ambassadeurs) de ces créneaux sera effacé. " +
-          "Préférez « Ajouter la grille » si vous voulez conserver le staffing.",
-      );
-      if (!ok) return;
       await putPo(
         { slotsReplaceCycle: { cycle, slots: slotsWithCycle } },
-        `${generated.length} créneau(x) — grille ${cycleLabel(cycle)} remplacée.`,
+        `${generated.length} créneau(x) — grille ${cycleLabel(cycle)} remplacée par le ${dayLabel}.`,
       );
     }
+  }
+
+  async function restoreSlotsFromSnapshots() {
+    if (!po?.registrationSlotSnapshots?.length) return;
+    const existingIds = new Set((po.slots || []).map((s) => s.id));
+    const existingDays = new Set((po.slots || []).map((s) => parisDateKey(s.startAt)));
+    const toRestore: Array<PortesOuvertesSlot & { cycle: PortesOuvertesCycle }> = [];
+    const seen = new Set<string>();
+    for (const snap of po.registrationSlotSnapshots) {
+      if (!snap.slotId || !snap.slotStartAt || !snap.slotEndAt) continue;
+      if (existingIds.has(snap.slotId) || seen.has(snap.slotId)) continue;
+      const day = parisDateKey(snap.slotStartAt);
+      if (existingDays.has(day)) continue;
+      const cycle =
+        snap.cycle === "ecole" || snap.cycle === "college" || snap.cycle === "lycee"
+          ? snap.cycle
+          : (activeCycles[0] || "college");
+      seen.add(snap.slotId);
+      toRestore.push({
+        id: snap.slotId,
+        label: snap.slotLabel || formatParisHm(snap.slotStartAt),
+        startAt: snap.slotStartAt,
+        endAt: snap.slotEndAt,
+        cycle,
+      });
+    }
+    if (!toRestore.length) {
+      setMsg("Aucun créneau manquant à restaurer depuis les inscriptions.");
+      return;
+    }
+    const days = [...new Set(toRestore.map((s) => parisDateKey(s.startAt)))].map(formatDayFr);
+    const ok = window.confirm(
+      `Restaurer ${toRestore.length} créneau(x) depuis les inscriptions ?\n\nJour(s) : ${days.join(", ")}\n\n` +
+        "Les créneaux actuels (ex. 22 septembre) ne sont pas effacés — uniquement les créneaux manquants sont réajoutés.",
+    );
+    if (!ok) return;
+    await putPo(
+      { slotsAppend: toRestore },
+      `${toRestore.length} créneau(x) restauré(s) (${days.join(", ")}).`,
+    );
   }
 
   async function upsertSlot(slot: PortesOuvertesSlot & { cycle: PortesOuvertesCycle }) {
@@ -413,6 +573,17 @@ export default function EvenementsHubClient() {
     }
     return groups;
   }, [po?.slots, activeCycles]);
+
+  const orphanRegistrationDays = useMemo(() => {
+    const slotDays = new Set((po?.slots || []).map((s) => parisDateKey(s.startAt)));
+    const orphan = new Set<string>();
+    for (const snap of po?.registrationSlotSnapshots || []) {
+      if (!snap.slotStartAt) continue;
+      const day = parisDateKey(snap.slotStartAt);
+      if (!slotDays.has(day)) orphan.add(day);
+    }
+    return [...orphan].sort();
+  }, [po?.slots, po?.registrationSlotSnapshots]);
 
   if (loading || !config) {
     return (
@@ -603,6 +774,26 @@ export default function EvenementsHubClient() {
             ) : null}
             {po ? (
               <>
+                {orphanRegistrationDays.length > 0 ? (
+                  <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 space-y-2">
+                    <p className="text-sm font-semibold text-amber-950">
+                      Des inscriptions référencent des jours absents des créneaux actuels :{" "}
+                      {orphanRegistrationDays.map(formatDayFr).join(", ")}.
+                    </p>
+                    <p className="text-xs text-amber-900">
+                      Probable écrasement par une régénération (ex. jour par défaut au 22 septembre).
+                      Vous pouvez restaurer les créneaux manquants depuis les snapshots d’inscription.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={saving}
+                      className="rounded-lg bg-amber-800 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                      onClick={() => void restoreSlotsFromSnapshots()}
+                    >
+                      Restaurer les créneaux manquants
+                    </button>
+                  </div>
+                ) : null}
                 <Toggle
                   checked={po.enabled}
                   onChange={(v) => patchPoLocal({ enabled: v })}
@@ -730,10 +921,11 @@ export default function EvenementsHubClient() {
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                         <label className="block">
                           <span className="text-[11px] font-bold uppercase text-violet-800">
-                            Jour
+                            Jour {g.day ? `(${formatDayFr(g.day)})` : "(à choisir)"}
                           </span>
                           <input
                             type="date"
+                            required
                             className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm"
                             value={g.day}
                             onChange={(e) => patchGrid(cycle, { day: e.target.value })}
@@ -825,17 +1017,21 @@ export default function EvenementsHubClient() {
                           className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
                           onClick={() => void generateSlots(cycle, "append")}
                         >
-                          Ajouter la grille
+                          Ajouter la grille du {formatDayFr(g.day)}
                         </button>
                         <button
                           type="button"
                           disabled={saving}
-                          className="rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-xs font-bold text-violet-900 disabled:opacity-50"
+                          className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-bold text-rose-800 disabled:opacity-50"
                           onClick={() => void generateSlots(cycle, "replace")}
                         >
-                          Remplacer les créneaux de ce cycle
+                          Remplacer par le {formatDayFr(g.day)} (danger)
                         </button>
                       </div>
+                      <p className="text-[11px] text-violet-800">
+                        Vérifiez le champ « Jour » ci-dessus avant d’ajouter ou remplacer. L’enregistrement
+                        adresse / Maps / délai se fait uniquement via le bouton Enregistrer en haut de page.
+                      </p>
 
                       {cycleSlots.length === 0 ? (
                         <p className="text-sm text-slate-500">Aucun créneau pour ce cycle.</p>
@@ -1053,8 +1249,12 @@ function SlotEditorRow({
             disabled={saving}
             className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
             onClick={() => {
-              const startAt = new Date(startLocal).toISOString();
-              const endAt = new Date(endLocal).toISOString();
+              const startAt = datetimeLocalToIso(startLocal);
+              const endAt = datetimeLocalToIso(endLocal);
+              if (!startAt || !endAt) {
+                window.alert("Horaires invalides (fuseau Paris).");
+                return;
+              }
               onSave({
                 id: slot.id,
                 label: label.trim() || slot.label,

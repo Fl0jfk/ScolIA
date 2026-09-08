@@ -69,6 +69,13 @@ async function poAdminResponse() {
     ...payload,
     stats: countRegistrationsBySlot(registrations),
     registrationsCount: registrations.length,
+    registrationSlotSnapshots: registrations.map((r) => ({
+      slotId: r.slotId,
+      slotLabel: r.slotLabel,
+      slotStartAt: r.slotStartAt,
+      slotEndAt: r.slotEndAt,
+      cycle: r.cycle,
+    })),
   };
 }
 
