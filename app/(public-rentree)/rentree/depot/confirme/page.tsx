@@ -1,5 +1,11 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
+
+export const metadata: Metadata = {
+  title: "Confirmation de dépôt",
+  description: "Confirmation d’envoi d’un document pour la rentrée.",
+};
 
 type Search = Promise<{ ok?: string; erreur?: string }>;
 

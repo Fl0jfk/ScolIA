@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getToolboxConfig } from "@/app/lib/toolbox-config";
 import { notFound } from "next/navigation";
@@ -12,6 +13,15 @@ import {
   type PortesOuvertesCycle,
 } from "@/app/lib/portes-ouvertes-types";
 import PortesOuvertesClient from "./PortesOuvertesClient";
+
+export async function generateMetadata(): Promise<Metadata> {
+  const toolbox = await getToolboxConfig();
+  const title = toolbox.tools["portes-ouvertes"].title?.trim() || "Portes ouvertes";
+  return {
+    title,
+    description: "Inscription aux portes ouvertes de l’établissement.",
+  };
+}
 
 export default async function PortesOuvertesPage() {
   const toolbox = await getToolboxConfig();

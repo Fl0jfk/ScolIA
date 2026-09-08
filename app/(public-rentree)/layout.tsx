@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import PublicSiteIdentityLayout from "@/app/components/PublicSiteIdentityLayout";
+import { publicRentreeLayoutMetadata } from "@/app/lib/public-page-metadata";
 
-export const metadata: Metadata = {
-  title: "Rentrée — La Providence Nicolas Barré",
-  description: "Informations rentrée, simulateur de tarifs et liste de fournitures.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return publicRentreeLayoutMetadata();
+}
 
 export default function PublicRentreeLayout({ children }: { children: React.ReactNode }) {
   return (
