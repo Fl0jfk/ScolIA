@@ -46,7 +46,7 @@ export type AccueilBoardRow = {
   source: "accueil";
   /** Élèves : absence ou retard. */
   eleveNature?: AccueilEleveNature | null;
-  /** Élèves : école / collège / lycée (secteur ou heuristique classe). */
+  /** Élèves / professeurs : école / collège / lycée. */
   cycle?: "ecole" | "college" | "lycee" | null;
   /** Élèves : libellé de classe. */
   classe?: string | null;

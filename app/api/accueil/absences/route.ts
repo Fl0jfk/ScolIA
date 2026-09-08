@@ -21,6 +21,8 @@ const DeclareSchema = z.object({
   motif: z.string().max(400).optional().nullable(),
   canal: z.enum(["telephone", "physique", "mail"]).optional(),
   eleveNature: z.enum(["absence", "retard"]).optional(),
+  /** Professeurs : école / collège / lycée (libellé établissement). */
+  etablissement: z.string().min(1).max(120).optional().nullable(),
 });
 
 const CancelSchema = z.object({
@@ -68,6 +70,7 @@ export async function POST(req: Request) {
       motif: body.motif,
       canal: body.canal || "telephone",
       eleveNature: body.kind === "eleve" ? body.eleveNature || "absence" : undefined,
+      etablissement: body.kind === "eleve" ? undefined : body.etablissement || undefined,
       actor: {
         userId: gate.ctx.user.id,
         name:

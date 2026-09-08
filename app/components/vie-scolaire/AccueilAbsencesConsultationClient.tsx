@@ -118,15 +118,15 @@ export default function AccueilAbsencesConsultationClient() {
       list = list.filter((r) => r.kind === kindFilter);
     }
 
-    // Niveau / classe : ciblent les élèves (CPE collège / lycée / école).
-    if (cycleFilter !== "tous" || classeFilter !== "tous") {
-      list = list.filter((r) => r.kind === "eleve");
-      if (cycleFilter !== "tous") {
-        list = list.filter((r) => r.cycle === cycleFilter);
-      }
-      if (classeFilter !== "tous") {
-        list = list.filter((r) => (r.classe || "").trim() === classeFilter);
-      }
+    // Niveau : élèves + professeurs (pas le personnel OGEC).
+    if (cycleFilter !== "tous") {
+      list = list.filter((r) => r.kind !== "ogec" && r.cycle === cycleFilter);
+    }
+    // Classe : élèves uniquement.
+    if (classeFilter !== "tous") {
+      list = list.filter(
+        (r) => r.kind === "eleve" && (r.classe || "").trim() === classeFilter,
+      );
     }
 
     if (!needle) return list;
@@ -179,7 +179,7 @@ export default function AccueilAbsencesConsultationClient() {
       <ModulePageHeader
         eyebrow="Vie scolaire"
         title="Absences déclarées à l’accueil"
-        description="Élèves (et professeurs) signalés absents par le standard — source unique pour les absences élèves prévenues par téléphone. Filtrez par niveau ou classe ; corrigez une erreur de saisie si besoin."
+        description="Élèves et professeurs signalés absents par le standard. Filtrez par niveau (école / collège / lycée) ou classe ; les professeurs suivent le niveau choisi à la déclaration. Corrigez une erreur de saisie si besoin."
         actions={
           <button
             type="button"

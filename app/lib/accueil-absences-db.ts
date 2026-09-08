@@ -5,6 +5,7 @@ import { getDb } from "@/db/index";
 import { absence, eleve, enseignant, personnel } from "@/db/schema";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
+import { matchEstablishment } from "@/app/lib/establishment-catalog";
 import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 import { normalizeAbsencePeriodInput } from "@/app/lib/absence-period";
 import { saveAbsenceRecord } from "@/app/lib/absences-storage";
@@ -46,6 +47,11 @@ export type AccueilDeclareInput = {
   canal?: AccueilAbsenceCanal;
   /** Élèves uniquement : absence (défaut) ou retard. */
   eleveNature?: AccueilEleveNature;
+  /**
+   * Professeurs : libellé établissement (école / collège / lycée) pour router
+   * la validation direction et le filtre du tableau des absents.
+   */
+  etablissement?: string | null;
   actor: {
     userId: string;
     name: string;
@@ -93,9 +99,27 @@ function formatPeriodSubtitle(row: {
   return `${start} → ${end}`;
 }
 
-async function resolveProfSiteLabel(secteurOrLabel: string | null | undefined): Promise<string> {
+/**
+ * Résout le libellé site d’un professeur pour la validation direction.
+ * Priorité : choix explicite accueil → secteur / label connu → erreur (plus de
+ * fallback silencieux sur le premier établissement = souvent l’école).
+ */
+async function resolveProfSiteLabel(
+  secteurOrLabel: string | null | undefined,
+  explicitEtablissement?: string | null,
+): Promise<string> {
   const bundle = await loadAppConfig();
   const active = getActiveEstablishments(bundle.establishments);
+
+  const explicit = String(explicitEtablissement || "").trim();
+  if (explicit) {
+    const matched = matchEstablishment(bundle.establishments, explicit);
+    if (!matched) {
+      throw new Error("Établissement invalide. Choisissez école, collège ou lycée.");
+    }
+    return matched.label;
+  }
+
   const cycle = asCycle(secteurOrLabel);
   if (cycle) {
     const hit = active.find((e) => inferEstablishmentKind(e) === cycle);
@@ -104,8 +128,23 @@ async function resolveProfSiteLabel(secteurOrLabel: string | null | undefined): 
     const named = cycleLabel(cycle);
     if (named) return named;
   }
-  if (secteurOrLabel?.trim()) return secteurOrLabel.trim();
-  return active[0]?.label || active[0]?.id || "Établissement";
+  if (secteurOrLabel?.trim()) {
+    const matched = matchEstablishment(bundle.establishments, secteurOrLabel);
+    if (matched?.label) return matched.label;
+    return secteurOrLabel.trim();
+  }
+
+  throw new Error("Indiquez l’établissement du professeur (école, collège ou lycée).");
+}
+
+function cycleFromSiteLabel(siteLabel: string | null | undefined): "ecole" | "college" | "lycee" | null {
+  const raw = String(siteLabel || "").trim();
+  if (!raw) return null;
+  const fromAlias = asCycle(raw);
+  if (fromAlias) return fromAlias;
+  const kind = inferEstablishmentKind({ label: raw });
+  if (kind === "ecole" || kind === "college" || kind === "lycee") return kind;
+  return null;
 }
 
 async function findRhOverlap(input: {
@@ -326,7 +365,9 @@ export async function declareAccueilAbsence(
     let enseignantId: string | null = ensById?.id ?? null;
     let personnelId: string | null = null;
     let displayName = ensById ? `${ensById.prenom} ${ensById.nom}`.trim() : "";
-    let siteLabel = ensById ? await resolveProfSiteLabel(ensById.secteur) : await resolveProfSiteLabel(null);
+    let siteLabel = ensById
+      ? await resolveProfSiteLabel(ensById.secteur, input.etablissement)
+      : await resolveProfSiteLabel(null, input.etablissement);
     let subjectUserId: string | undefined;
     let subjectEmail = ensById ? ensById.emailPro || ensById.email || "" : "";
 
@@ -361,7 +402,7 @@ export async function declareAccueilAbsence(
           .limit(1);
         if (ensByEmail) {
           enseignantId = ensByEmail.id;
-          siteLabel = await resolveProfSiteLabel(ensByEmail.secteur);
+          siteLabel = await resolveProfSiteLabel(ensByEmail.secteur, input.etablissement);
           if (!subjectEmail) subjectEmail = ensByEmail.emailPro || ensByEmail.email || "";
         }
       }
@@ -428,7 +469,9 @@ export async function declareAccueilAbsence(
     categoryNorm === "enseignant" ||
     categoryNorm === "teacher";
   const scope: AbsenceScope = isProf ? "professeur" : "ogec";
-  const siteLabel = isProf ? await resolveProfSiteLabel(pers.establishmentLabel) : null;
+  const siteLabel = isProf
+    ? await resolveProfSiteLabel(pers.establishmentLabel, input.etablissement)
+    : null;
   const clash = await findRhOverlap({
     etablissementId,
     personnelId: pers.id,
@@ -520,12 +563,14 @@ export async function listAccueilBoard(
     .map((r) => {
       const kind: AccueilBoardKind = r.scope === "ogec" ? "ogec" : "professeur";
       const pending = r.managerDecision === "EN_ATTENTE";
+      const cycle = kind === "professeur" ? cycleFromSiteLabel(r.siteLabel) : null;
       return {
         id: r.id,
         kind,
         displayName: r.displayName,
         subtitle: [
           kind === "ogec" ? "Personnel OGEC" : "Professeur",
+          kind === "professeur" ? cycleLabel(cycle) || r.siteLabel || null : null,
           pending ? "En attente direction" : r.managerDecision === "VALIDEE" ? "Validée" : null,
           formatPeriodSubtitle({
             dateDebut: asDateKey(r.startDate),
@@ -543,6 +588,7 @@ export async function listAccueilBoard(
         motif: r.reason,
         createdByNom: r.createdByName,
         source: "accueil",
+        cycle,
       };
     });
 

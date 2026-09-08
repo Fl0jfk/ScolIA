@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
+import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
+import { useAppContext } from "@/app/hooks/useAppContext";
+import { getActiveEstablishments } from "@/app/lib/app-config-establishments";
+import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 import type {
   AccueilBoardRow,
   AccueilEleveNature,
@@ -25,11 +29,28 @@ function kindBadge(
   return "Personnel OGEC";
 }
 
+function isProfHit(hit: AccueilSearchHit | null): boolean {
+  if (!hit) return false;
+  return hit.kind === "enseignant" || hit.scope === "professeur";
+}
+
+function defaultEtablissementForHit(
+  hit: AccueilSearchHit,
+  establishments: ReturnType<typeof getActiveEstablishments>,
+): string {
+  if (!hit.cycle) return "";
+  const match = establishments.find((e) => inferEstablishmentKind(e) === hit.cycle);
+  return match?.label || "";
+}
+
 export default function AccueilAbsencesClient() {
+  const { data: appCtx } = useAppContext();
+  const activeEstablishments = getActiveEstablishments(appCtx?.establishments || []);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<AccueilSearchHit[]>([]);
   const [selected, setSelected] = useState<AccueilSearchHit | null>(null);
+  const [etablissement, setEtablissement] = useState("");
   const [eleveNature, setEleveNature] = useState<AccueilEleveNature>("absence");
   const [mode, setMode] = useState<AccueilPeriodMode>("today");
   const [startDate, setStartDate] = useState(todayIso());
@@ -95,6 +116,7 @@ export default function AccueilAbsencesClient() {
     setSelected(null);
     setQ("");
     setHits([]);
+    setEtablissement("");
     setEleveNature("absence");
     setMode("today");
     setStartDate(todayIso());
@@ -109,9 +131,25 @@ export default function AccueilAbsencesClient() {
     focusSearch();
   }, [resetForm, focusSearch]);
 
+  const selectHit = (h: AccueilSearchHit) => {
+    setSelected(h);
+    setHits([]);
+    setQ(h.displayName);
+    if (isProfHit(h)) {
+      setEtablissement(defaultEtablissementForHit(h, activeEstablishments));
+    } else {
+      setEtablissement("");
+    }
+  };
+
   const submit = async () => {
     if (!selected) return;
     const isEleve = selected.kind === "eleve";
+    const isProf = isProfHit(selected);
+    if (isProf && !etablissement.trim()) {
+      setError("Choisissez l’établissement du professeur (école, collège ou lycée).");
+      return;
+    }
     const effectiveMode: AccueilPeriodMode =
       isEleve && eleveNature === "retard" ? "hours" : mode;
     setBusy(true);
@@ -132,6 +170,7 @@ export default function AccueilAbsencesClient() {
           motif: motif.trim() || null,
           canal: "telephone",
           eleveNature: isEleve ? eleveNature : undefined,
+          etablissement: isProf ? etablissement : undefined,
         }),
       });
       const data = (await res.json()) as {
@@ -141,11 +180,10 @@ export default function AccueilAbsencesClient() {
       };
       if (!res.ok) throw new Error(data.error || "Enregistrement impossible");
       const name = data.displayName || selected.displayName;
-      const isProf = selected.kind === "enseignant" || selected.scope === "professeur";
       if (data.pendingDirection) {
         setMessage(
           isProf
-            ? `${name} — transmis à la direction. Vous pouvez en déclarer une autre.`
+            ? `${name} — transmis à la direction (${etablissement}). Vous pouvez en déclarer une autre.`
             : `${name} — transmis à la direction. Vous pouvez en déclarer une autre.`,
         );
       } else if (isEleve && eleveNature === "retard") {
@@ -193,7 +231,7 @@ export default function AccueilAbsencesClient() {
       <ModulePageHeader
         eyebrow="Standard"
         title="Absence accueil"
-        description="Téléphone à l’oreille : 3 lettres, on déclare. Élèves tout de suite. Professeurs : validation direction, puis calendrier absences profs et mail à la personne qui déclare au rectorat. Personnel OGEC : circuit RH / compta."
+        description="Téléphone à l’oreille : 3 lettres, on déclare. Élèves tout de suite. Professeurs : niveau (école / collège / lycée), validation par la bonne direction, puis calendrier absences profs et mail à la personne qui déclare au rectorat. Personnel OGEC : circuit RH / compta."
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
@@ -241,11 +279,7 @@ export default function AccueilAbsencesClient() {
                   <button
                     type="button"
                     className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-slate-50"
-                    onClick={() => {
-                      setSelected(h);
-                      setHits([]);
-                      setQ(h.displayName);
-                    }}
+                    onClick={() => selectHit(h)}
                   >
                     <span className="mt-0.5 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold uppercase text-slate-600">
                       {kindBadge(h.kind, h.scope)}
@@ -262,6 +296,28 @@ export default function AccueilAbsencesClient() {
 
           {selected ? (
             <>
+              {isProfHit(selected) ? (
+                <label className="block text-sm">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Établissement du professeur
+                  </span>
+                  <EstablishmentSelect
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    value={etablissement}
+                    onChange={setEtablissement}
+                    includeGroupe={false}
+                    kinds={["ecole", "college", "lycee"]}
+                    emptyLabel="— École, collège ou lycée —"
+                    required
+                    disabled={busy}
+                  />
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Détermine quelle direction valide (et où la ligne apparaît dans le tableau
+                    filtrable).
+                  </span>
+                </label>
+              ) : null}
+
               {selected.kind === "eleve" ? (
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -403,7 +459,7 @@ export default function AccueilAbsencesClient() {
 
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || (isProfHit(selected) && !etablissement.trim())}
                 onClick={() => void submit()}
                 className="w-full rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
               >
@@ -413,10 +469,11 @@ export default function AccueilAbsencesClient() {
                     ? "Déclarer le retard"
                     : "Déclarer l’absence"}
               </button>
-              {selected.kind === "enseignant" || selected.scope === "professeur" ? (
+              {isProfHit(selected) ? (
                 <p className="text-xs text-slate-500">
-                  La direction valide d’abord. Ensuite l’absence apparaît au calendrier professeurs et
-                  un e-mail part à la personne qui déclare au rectorat (réglages Notifications).
+                  La direction de l’établissement choisi valide d’abord. Ensuite l’absence apparaît
+                  au calendrier professeurs et un e-mail part à la personne qui déclare au rectorat
+                  (réglages Notifications).
                 </p>
               ) : selected.kind === "personnel" ? (
                 <p className="text-xs text-slate-500">
