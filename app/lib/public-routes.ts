@@ -31,6 +31,7 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/api/agentIAOCR/batch-job/internal-run",
   "/api/travels/ingest-from-email",
   "/api/travels/poll-email",
+  "/api/travels/support-cleanup-tests",
   "/api/requests/create",
   "/api/requests/confirm",
   "/api/requests/parent-portal",
