@@ -152,6 +152,15 @@ async function sendVisitorConfirmationMail(params: {
   });
 }
 
+/** Renvoi manuel du mail de confirmation (script / support). */
+export async function resendPortesOuvertesVisitorConfirmation(params: {
+  po: PortesOuvertesToolConfig;
+  entry: PortesOuvertesRegistration;
+  slot: PortesOuvertesSlot;
+}): Promise<boolean> {
+  return sendVisitorConfirmationMail({ ...params, kind: "create" });
+}
+
 async function sendVisitorCancellationMail(params: {
   po: PortesOuvertesToolConfig;
   entry: PortesOuvertesRegistration;
