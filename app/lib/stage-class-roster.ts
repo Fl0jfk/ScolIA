@@ -1,6 +1,10 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
-import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
+import {
+  getStagePeriodsForClass,
+  listStageEnabledClassNames,
+  type StageClassPeriod,
+} from "@/app/lib/stage-periods-config";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
 import { buildSignatureSummary, type StageSignatureSummary } from "@/app/lib/stage-signature-summary";
@@ -40,6 +44,9 @@ export type StageRosterStudent = {
 export type StageClassRoster = {
   className: string;
   schoolYear: string;
+  /** True si des périodes officielles sont configurées (stage attendu pour la classe). */
+  expectsMandatoryStage: boolean;
+  officialPeriods: StageClassPeriod[];
   summary: {
     total: number;
     sansStage: number;
@@ -135,9 +142,23 @@ function studentKey(nom: string, prenom: string, ine?: string): string {
   return `name:${normalizeName(nom)}|${normalizeName(prenom)}`;
 }
 
-/** Classes disponibles dans le suivi classe (config stages activée). */
+/**
+ * Classes disponibles dans le suivi : config stages activée + classes
+ * ayant déjà un dossier (stages volontaires hors config, ex. terminale).
+ */
 export async function listStageRosterClassNames(schoolYear?: string): Promise<string[]> {
-  return listStageEnabledClassNames(schoolYear);
+  const year = schoolYear?.trim() || currentStageSchoolYear();
+  const [enabled, index] = await Promise.all([
+    listStageEnabledClassNames(year),
+    getConventionsIndex(),
+  ]);
+  const fromConventions = index
+    .filter((e) => e.schoolYear === year)
+    .map((e) => String(e.className ?? "").trim())
+    .filter(Boolean);
+  return [...new Set([...enabled, ...fromConventions])].sort((a, b) =>
+    a.localeCompare(b, "fr", { sensitivity: "base" }),
+  );
 }
 
 export async function buildStageClassRoster(
@@ -146,7 +167,12 @@ export async function buildStageClassRoster(
 ): Promise<StageClassRoster> {
   const year = schoolYear?.trim() || currentStageSchoolYear();
 
-  const [eleves, index] = await Promise.all([loadEleves(), getConventionsIndex()]);
+  const [eleves, index, officialPeriods] = await Promise.all([
+    loadEleves(),
+    getConventionsIndex(),
+    getStagePeriodsForClass(className, year),
+  ]);
+  const expectsMandatoryStage = officialPeriods.length > 0;
   const classEleves = eleves.filter((e) => eleveMatchesClass(e, className));
 
   const conventions = (
@@ -214,17 +240,26 @@ export async function buildStageClassRoster(
   };
 
   const rosterSource = classEleves.length > 0 ? "eleves_and_conventions" : "conventions_only";
-  const note =
-    classEleves.length === 0
-      ? "Liste élèves vide pour cette classe — seuls les dossiers de stage déjà ouverts sont affichés. Renseignez le champ « classe » dans eleves.json pour un suivi complet."
-      : undefined;
+  const notes: string[] = [];
+  if (classEleves.length === 0) {
+    notes.push(
+      "Liste élèves vide pour cette classe — seuls les dossiers de stage déjà ouverts sont affichés. Renseignez le champ « classe » dans le registre élèves pour un suivi complet.",
+    );
+  }
+  if (!expectsMandatoryStage) {
+    notes.push(
+      "Aucune période officielle pour cette classe : le stage n'est pas obligatoire. Les demandes volontaires apparaissent ici ; un élève sans dossier n'est pas une alerte.",
+    );
+  }
 
   return {
     className,
     schoolYear: year,
+    expectsMandatoryStage,
+    officialPeriods,
     summary,
     students,
     rosterSource,
-    ...(note ? { note } : {}),
+    ...(notes.length ? { note: notes.join(" ") } : {}),
   };
 }

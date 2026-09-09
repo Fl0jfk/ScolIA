@@ -236,9 +236,11 @@ export default function StagePeriodsEditor({
 
       <p className="text-sm text-stone-600 max-w-3xl">
         Sélectionnez les classes collège et lycée importées depuis SIECLE (Structures.xml), puis
-        configurez leurs périodes et rappels. L&apos;école primaire n&apos;est pas concernée par les
-        stages. Les classes désactivées restent visibles ici mais n&apos;apparaissent pas dans les
-        référents ni sur le formulaire public.
+        configurez leurs périodes et rappels. Les périodes sont un rappel informatif pour les
+        familles (dates habituelles) : elles ne bloquent pas une demande hors période — c&apos;est
+        l&apos;établissement qui accepte ou refuse. Une classe sans période reste éligible au dépôt
+        volontaire (ex. terminale). L&apos;école primaire n&apos;est pas concernée. Les classes
+        désactivées restent visibles ici mais ferment le dépôt public.
       </p>
 
       {updatedAt && (

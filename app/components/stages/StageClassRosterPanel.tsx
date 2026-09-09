@@ -4,19 +4,31 @@ import { useCallback, useEffect, useState } from "react";
 import type { StageClassRoster, StageRosterStudentStatus } from "@/app/lib/stage-class-roster";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 
-const STATUS_LABELS: Record<StageRosterStudentStatus, string> = {
-  sans_stage: "Sans stage",
-  en_cours: "En cours",
-  valide: "Stage validé",
-  plusieurs: "Plusieurs stages",
-};
+function statusLabel(
+  status: StageRosterStudentStatus,
+  expectsMandatoryStage: boolean,
+): string {
+  if (status === "sans_stage") {
+    return expectsMandatoryStage ? "Sans stage" : "Aucun stage";
+  }
+  if (status === "en_cours") return "En cours";
+  if (status === "valide") return "Stage validé";
+  return "Plusieurs stages";
+}
 
-const STATUS_STYLES: Record<StageRosterStudentStatus, string> = {
-  sans_stage: "bg-rose-50 text-rose-800 border-rose-200",
-  en_cours: "bg-amber-50 text-amber-900 border-amber-200",
-  valide: "bg-emerald-50 text-emerald-900 border-emerald-200",
-  plusieurs: "bg-violet-50 text-violet-900 border-violet-200",
-};
+function statusStyle(
+  status: StageRosterStudentStatus,
+  expectsMandatoryStage: boolean,
+): string {
+  if (status === "sans_stage") {
+    return expectsMandatoryStage
+      ? "bg-rose-50 text-rose-800 border-rose-200"
+      : "bg-stone-50 text-stone-600 border-stone-200";
+  }
+  if (status === "en_cours") return "bg-amber-50 text-amber-900 border-amber-200";
+  if (status === "valide") return "bg-emerald-50 text-emerald-900 border-emerald-200";
+  return "bg-violet-50 text-violet-900 border-violet-200";
+}
 
 type RosterResponse = {
   schoolYear: string;
@@ -95,6 +107,10 @@ export default function StageClassRosterPanel({
   const roster = data?.roster;
   if (!roster) return null;
 
+  const mandatory = roster.expectsMandatoryStage === true;
+  const sansStageLabel = mandatory ? "Sans stage" : "Aucun";
+  const sansStageColor = mandatory ? "text-rose-700" : "text-stone-600";
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-4">
@@ -124,6 +140,21 @@ export default function StageClassRosterPanel({
         )}
       </div>
 
+      {mandatory && roster.officialPeriods.length > 0 && (
+        <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+          <p className="text-xs font-bold uppercase tracking-wide text-sky-800">
+            Périodes officielles (rappel)
+          </p>
+          <ul className="mt-2 space-y-1 text-xs">
+            {roster.officialPeriods.map((p) => (
+              <li key={p.id}>
+                <strong>{p.label}</strong> : {p.periodStart} → {p.periodEnd}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {roster.note && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           {roster.note}
@@ -133,7 +164,7 @@ export default function StageClassRosterPanel({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {[
           ["Élèves", roster.summary.total, "text-[#1F3D2B]"],
-          ["Sans stage", roster.summary.sansStage, "text-rose-700"],
+          [sansStageLabel, roster.summary.sansStage, sansStageColor],
           ["En cours", roster.summary.enCours, "text-amber-800"],
           ["Validés", roster.summary.valide, "text-emerald-800"],
           ["Plusieurs", roster.summary.plusieurs, "text-violet-800"],
@@ -168,9 +199,9 @@ export default function StageClassRosterPanel({
                 </td>
                 <td className="px-4 py-3">
                   <span
-                    className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${STATUS_STYLES[student.rosterStatus]}`}
+                    className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${statusStyle(student.rosterStatus, mandatory)}`}
                   >
-                    {STATUS_LABELS[student.rosterStatus]}
+                    {statusLabel(student.rosterStatus, mandatory)}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-stone-600">

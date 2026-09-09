@@ -55,9 +55,9 @@ export async function buildStudentStageDossier(params: {
     };
   });
 
-  const maxFromConfig = configuredPeriods.length;
-  const canCreateNew =
-    maxFromConfig === 0 ? true : active.length < maxFromConfig || availablePeriods.some((p) => !p.used);
+  // Toujours autoriser une nouvelle demande : les périodes officielles sont
+  // indicatives ; l'établissement accepte ou refuse ensuite.
+  const canCreateNew = true;
 
   return {
     schoolYear,

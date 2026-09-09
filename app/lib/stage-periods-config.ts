@@ -22,9 +22,15 @@ export type StageClassPeriod = {
 
 export type StageClassStageConfig = {
   className: string;
-  /** Si false, la classe n'apparaît pas dans les référents ni le formulaire public. */
+  /**
+   * Si false, la classe est explicitement fermée (pas de dépôt public).
+   * Absent de la config ou `enabled` sans périodes = stage volontaire possible.
+   */
   enabled: boolean;
-  /** Une ou plusieurs périodes de stage pour l'année (ex. PFMP 1, PFMP 2). */
+  /**
+   * Périodes officielles / obligatoires pour l'année (rappel informatif aux familles).
+   * Ne bloquent pas une demande hors période — validation par l'établissement.
+   */
   periods: StageClassPeriod[];
   /** Rappels affichés sur le formulaire public pour cette classe. */
   reminders: StagePeriodReminder[];
@@ -132,7 +138,11 @@ export async function hasStagePeriodsConfig(schoolYear?: string): Promise<boolea
   return names.length > 0;
 }
 
-/** Vérifie si la classe de l'élève peut déposer une préconvention. */
+/**
+ * Vérifie si la classe de l'élève peut déposer une préconvention.
+ * Absence de périodes officielles ≠ refus : stage volontaire autorisé.
+ * Seul un `enabled: false` explicite ferme le dépôt public.
+ */
 export async function isClassEligibleForStage(
   className: string,
   schoolYear?: string,
@@ -154,6 +164,15 @@ export async function isClassEligibleForStage(
     };
   }
   return { ok: true };
+}
+
+/** True si la classe a au moins une période officielle (stage attendu / rappel dates). */
+export async function classHasOfficialStagePeriods(
+  className: string,
+  schoolYear?: string,
+): Promise<boolean> {
+  const periods = await getStagePeriodsForClass(className, schoolYear);
+  return periods.length > 0;
 }
 
 export async function getStageRemindersForClass(

@@ -73,7 +73,13 @@ export default function StagePreconventionForm({
     <div className="space-y-8 text-sm">
       {(reminders.length > 0 || officialPeriods.length > 0) && (
         <section className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 space-y-3">
-          <h2 className="text-sm font-bold text-amber-900">Rappels — dates de stage</h2>
+          <h2 className="text-sm font-bold text-amber-900">
+            Rappels — dates habituelles pour votre classe
+          </h2>
+          <p className="text-xs text-amber-900/90 leading-relaxed">
+            Indicatif : vous pouvez demander un stage hors de ces dates ; l&apos;établissement
+            validera ensuite.
+          </p>
           {officialPeriods.map((p) => (
             <div key={p.id} className="text-xs text-amber-900">
               <p className="font-semibold">{p.label}</p>

@@ -356,8 +356,6 @@ function StagePreconventionPublicContent() {
     }
   }
 
-  const freePeriods = dossier?.availablePeriods.filter((p) => !p.used) ?? [];
-
   if (step === "form" && !convention && !error) {
     return <main className="min-h-screen flex items-center justify-center p-6">Chargement…</main>;
   }
@@ -539,9 +537,16 @@ function StagePreconventionPublicContent() {
               )}
             </div>
 
-            {(reminders.length > 0 || officialPeriods.length > 0) && (
+            {(reminders.length > 0 || officialPeriods.length > 0) ? (
               <section className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 space-y-2">
-                <h2 className="text-sm font-bold text-amber-900">Rappels — dates de stage</h2>
+                <h2 className="text-sm font-bold text-amber-900">
+                  Rappels — dates habituelles pour votre classe
+                </h2>
+                <p className="text-xs text-amber-900/90 leading-relaxed">
+                  Ces dates sont indicatives (périodes prévues pour votre classe). Vous pouvez
+                  aussi demander un stage à d&apos;autres dates : l&apos;établissement acceptera ou
+                  refusera ensuite.
+                </p>
                 {officialPeriods.map((p) => (
                   <p key={p.id} className="text-xs text-amber-900">
                     <strong>{p.label}</strong> : du{" "}
@@ -555,6 +560,13 @@ function StagePreconventionPublicContent() {
                   </p>
                 ))}
               </section>
+            ) : (
+              <section className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
+                <p className="text-xs text-stone-700 leading-relaxed">
+                  Aucune période officielle n&apos;est associée à votre classe : vous pouvez
+                  quand même déposer une demande de stage. L&apos;établissement validera ensuite.
+                </p>
+              </section>
             )}
 
             <section>
@@ -562,74 +574,86 @@ function StagePreconventionPublicContent() {
                 Mes stages ({dossier.conventions.length})
               </h2>
               {dossier.conventions.length === 0 ? (
-                <p className="mt-2 text-stone-500">Aucun stage déposé pour le moment.</p>
+                <p className="mt-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-stone-600">
+                  Aucun stage déposé pour le moment. Vous pouvez en ouvrir un ci-dessous.
+                </p>
               ) : (
-                <ul className="mt-3 space-y-3">
-                  {dossier.conventions.map((c) => (
-                    <li
-                      key={c.id}
-                      className="rounded-xl border border-stone-200 bg-stone-50/50 p-4 space-y-2"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <p className="font-bold text-[#1F3D2B]">
-                            {c.stageLabel || "Stage"}
-                            {c.companyName !== "—" ? ` — ${c.companyName}` : ""}
-                          </p>
-                          <p className="text-xs text-stone-500 mt-0.5">
-                            {c.periodStart} → {c.periodEnd} · {c.statusLabel}
-                          </p>
+                <>
+                  <p className="mt-2 text-xs text-emerald-800">
+                    Vous avez déjà {dossier.conventions.length} dossier
+                    {dossier.conventions.length > 1 ? "s" : ""} de stage cette année. Vous pouvez
+                    en ouvrir un existant ou en déposer un nouveau.
+                  </p>
+                  <ul className="mt-3 space-y-3">
+                    {dossier.conventions.map((c) => (
+                      <li
+                        key={c.id}
+                        className="rounded-xl border border-stone-200 bg-stone-50/50 p-4 space-y-2"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-[#1F3D2B]">
+                              {c.stageLabel || "Stage"}
+                              {c.companyName !== "—" ? ` — ${c.companyName}` : ""}
+                            </p>
+                            <p className="text-xs text-stone-500 mt-0.5">
+                              {c.periodStart} → {c.periodEnd} · {c.statusLabel}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openExistingStage(c)}
+                            className="shrink-0 rounded-lg border border-[#2F6B4A] px-3 py-1.5 text-xs font-semibold text-[#2F6B4A]"
+                          >
+                            Ouvrir
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => openExistingStage(c)}
-                          className="shrink-0 rounded-lg border border-[#2F6B4A] px-3 py-1.5 text-xs font-semibold text-[#2F6B4A]"
-                        >
-                          Ouvrir
-                        </button>
-                      </div>
-                      <StageSignatureProgress summary={c.signatureSummary} compact />
-                    </li>
-                  ))}
-                </ul>
+                        <StageSignatureProgress summary={c.signatureSummary} compact />
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
             </section>
 
-            {dossier.canCreateNew && (
-              <section className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3">
-                <h2 className="text-sm font-bold text-emerald-900">Nouveau stage</h2>
-                {freePeriods.length > 0 && (
-                  <label className="block text-xs">
-                    Période concernée (optionnel)
-                    <select
-                      className="mt-1 w-full rounded-lg border px-3 py-2"
-                      value={selectedPeriodId}
-                      onChange={(e) => setSelectedPeriodId(e.target.value)}
-                    >
-                      <option value="">— Choisir une période —</option>
-                      {freePeriods.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.label} ({p.periodStart} → {p.periodEnd})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                <button
-                  type="button"
-                  disabled={busy || !parent1Email.trim()}
-                  onClick={() => void createNewStage()}
-                  className="w-full rounded-lg bg-[#2F6B4A] py-2.5 text-sm font-bold text-white disabled:opacity-50"
-                >
-                  {busy ? "Création…" : "+ Déposer un nouveau stage"}
-                </button>
-                {!parent1Email.trim() && (
-                  <p className="text-xs text-rose-700">
-                    Indiquez au moins l&apos;e-mail du responsable légal 1 avant de continuer.
-                  </p>
-                )}
-              </section>
-            )}
+            <section className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-3">
+              <h2 className="text-sm font-bold text-emerald-900">Nouveau stage</h2>
+              <p className="text-xs text-emerald-900/90 leading-relaxed">
+                Déposez une demande même hors période officielle. L&apos;établissement décidera
+                ensuite d&apos;accepter ou de refuser.
+              </p>
+              {(dossier.availablePeriods.length > 0) && (
+                <label className="block text-xs">
+                  Période officielle concernée (optionnel)
+                  <select
+                    className="mt-1 w-full rounded-lg border px-3 py-2"
+                    value={selectedPeriodId}
+                    onChange={(e) => setSelectedPeriodId(e.target.value)}
+                  >
+                    <option value="">— Hors période / autre date —</option>
+                    {dossier.availablePeriods.map((p) => (
+                      <option key={p.id} value={p.id} disabled={p.used}>
+                        {p.label} ({p.periodStart} → {p.periodEnd})
+                        {p.used ? " — déjà utilisée" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <button
+                type="button"
+                disabled={busy || !parent1Email.trim()}
+                onClick={() => void createNewStage()}
+                className="w-full rounded-lg bg-[#2F6B4A] py-2.5 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {busy ? "Création…" : "+ Déposer un nouveau stage"}
+              </button>
+              {!parent1Email.trim() && (
+                <p className="text-xs text-rose-700">
+                  Indiquez au moins l&apos;e-mail du responsable légal 1 avant de continuer.
+                </p>
+              )}
+            </section>
           </div>
         )}
 
