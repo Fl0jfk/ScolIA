@@ -1,6 +1,7 @@
 /**
  * Détection + import XML Siècle (ISO-8859-15).
  * Pont EN complet : Communs, Nomenclature, Géographique, Établissements, Structures, Élèves, Responsables.
+ * Collège et lycée s'importent séparément (exports Siècle distincts) via `cycle`.
  */
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
@@ -25,6 +26,11 @@ import {
   parseStructuresGroupes,
 } from "@/app/lib/nomenclature-import/siecle-nomenclature-parse";
 import { decodeSiecleBuffer } from "@/app/lib/nomenclature-import/siecle-xml-parse-utils";
+import {
+  siecleCycleLabel,
+  siecleCyclePole,
+  type SiecleImportCycle,
+} from "@/app/lib/nomenclature-import/siecle-import-cycle";
 
 export { decodeSiecleBuffer } from "@/app/lib/nomenclature-import/siecle-xml-parse-utils";
 
@@ -56,6 +62,22 @@ import type { NomenclatureUpsertRow } from "@/app/lib/nomenclature-import/siecle
 
 export type { NomenclatureUpsertRow } from "@/app/lib/nomenclature-import/siecle-xml-types";
 export { parseNomenclatureXml, parseStructuresDivisions, parseStructuresGroupes } from "@/app/lib/nomenclature-import/siecle-nomenclature-parse";
+
+/** Marque les divisions avec le cycle déclaré (export Siècle collège ou lycée). */
+function applyCycleToStructureRows(
+  rows: NomenclatureUpsertRow[],
+  cycle: SiecleImportCycle,
+): NomenclatureUpsertRow[] {
+  const pole = siecleCyclePole(cycle);
+  return rows.map((r) => ({
+    ...r,
+    metadataJson: {
+      ...(r.metadataJson || {}),
+      sourceCycle: cycle,
+      pole,
+    },
+  }));
+}
 
 export async function upsertNomenclatureRows(
   etablissementId: string,
@@ -129,6 +151,7 @@ export function rankSiecleImportFilename(name: string): number {
 export async function importSiecleXmlBuffersBatch(
   etablissementId: string,
   files: Array<{ filename: string; buffer: ArrayBuffer | Buffer | Uint8Array }>,
+  opts?: { cycle?: SiecleImportCycle },
 ): Promise<
   Array<{
     file: string;
@@ -160,6 +183,7 @@ export async function importSiecleXmlBuffersBatch(
     try {
       const report = await importSiecleXmlBuffer(etablissementId, file.filename, file.buffer, {
         inlineEleveIdMap: batchEleveIdMap,
+        cycle: opts?.cycle,
       });
       if (report.eleveIdMap) {
         batchEleveIdMap = { ...batchEleveIdMap, ...report.eleveIdMap };
@@ -186,7 +210,7 @@ export async function importSiecleXmlBuffer(
   etablissementId: string,
   filename: string,
   buffer: ArrayBuffer | Buffer | Uint8Array,
-  opts?: { inlineEleveIdMap?: Record<string, string> },
+  opts?: { inlineEleveIdMap?: Record<string, string>; cycle?: SiecleImportCycle },
 ): Promise<{
   kind: SiecleXmlKind;
   inserts: number;
@@ -197,9 +221,11 @@ export async function importSiecleXmlBuffer(
 }> {
   const xml = decodeSiecleBuffer(buffer);
   const kind = detectSiecleXmlKind(xml);
+  const cycle = opts?.cycle;
+  const cycleNote = cycle ? ` · ${siecleCycleLabel(cycle)}` : "";
 
   if (kind === "eleves") {
-    const result = await importSiecleElevesXml(etablissementId, filename, xml);
+    const result = await importSiecleElevesXml(etablissementId, filename, xml, { cycle });
     return {
       kind,
       inserts: result.inserts,
@@ -211,12 +237,10 @@ export async function importSiecleXmlBuffer(
   }
 
   if (kind === "responsables") {
-    const result = await importSiecleResponsablesXml(
-      etablissementId,
-      filename,
-      xml,
-      opts?.inlineEleveIdMap,
-    );
+    const result = await importSiecleResponsablesXml(etablissementId, filename, xml, {
+      inlineEleveIdMap: opts?.inlineEleveIdMap,
+      cycle,
+    });
     return {
       kind,
       inserts: result.inserts,
@@ -227,7 +251,7 @@ export async function importSiecleXmlBuffer(
   }
 
   if (kind === "communs") {
-    const result = await importSiecleCommunsXml(etablissementId, filename, xml);
+    const result = await importSiecleCommunsXml(etablissementId, filename, xml, { cycle });
     return {
       kind,
       inserts: result.inserts,
@@ -256,6 +280,9 @@ export async function importSiecleXmlBuffer(
     rows = parseGeographiqueXml(xml);
   } else if (kind === "structures") {
     rows = parseStructuresDivisions(xml);
+    if (cycle) {
+      rows = applyCycleToStructureRows(rows, cycle);
+    }
     const groupes = parseStructuresGroupes(xml);
     if (groupes.length) {
       const gResult = await upsertGroupesFromSiecleCodes(etablissementId, groupes);
@@ -266,7 +293,11 @@ export async function importSiecleXmlBuffer(
         statut: "ok",
         nbInserts: gResult.inserts,
         nbUpdates: gResult.updates,
-        rapportJson: { kind: "structures_groupes", rows: groupes.length },
+        rapportJson: {
+          kind: "structures_groupes",
+          ...(cycle ? { cycle } : {}),
+          rows: groupes.length,
+        },
       });
     }
   } else {
@@ -277,6 +308,7 @@ export async function importSiecleXmlBuffer(
       statut: "ignore",
       rapportJson: {
         kind,
+        ...(cycle ? { cycle } : {}),
         note: "Type non reconnu — import pris en charge : communs, nomenclature, geographique, etablissements, structures, eleves, responsables.",
       },
     });
@@ -334,6 +366,7 @@ export async function importSiecleXmlBuffer(
     nbUpdates: updates,
     rapportJson: {
       kind,
+      ...(cycle ? { cycle } : {}),
       rows: rows.length,
       ...(competencesSynced ? { competencesSynced } : {}),
       ...(matieresSynced ? { matieresSynced } : {}),
@@ -359,6 +392,6 @@ export async function importSiecleXmlBuffer(
     inserts,
     updates,
     rows: rows.length,
-    message: `${filename} (${kind}) : ${rows.length} entrées — ${inserts} créées, ${updates} mises à jour.${compNote}${matNote}${classNote}`,
+    message: `${filename} (${kind}${cycleNote}) : ${rows.length} entrées — ${inserts} créées, ${updates} mises à jour.${compNote}${matNote}${classNote}`,
   };
 }

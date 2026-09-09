@@ -4,6 +4,10 @@ import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { importSiecleXmlBuffersBatch } from "@/app/lib/nomenclature-import/siecle-xml";
 import { buildNomenclatureImportAnomalies } from "@/app/lib/nomenclature-import/import-anomalies";
 import { buildSiecleImportStatus, SIECLE_IMPORT_SLOTS } from "@/app/lib/nomenclature-import/import-status";
+import {
+  parseSiecleImportCycle,
+  SIECLE_IMPORT_CYCLES,
+} from "@/app/lib/nomenclature-import/siecle-import-cycle";
 import { getDb } from "@/db/index";
 import { nomenclatureImportLog, refEtablissement, refNomenclature } from "@/db/schema";
 import { desc, eq, sql } from "drizzle-orm";
@@ -37,7 +41,7 @@ export async function GET() {
       .from(nomenclatureImportLog)
       .where(eq(nomenclatureImportLog.etablissementId, etabId))
       .orderBy(desc(nomenclatureImportLog.dateImport))
-      .limit(20),
+      .limit(30),
     db
       .select({ n: sql<number>`count(*)::int` })
       .from(refEtablissement)
@@ -53,6 +57,7 @@ export async function GET() {
     anomalies,
     importStatus,
     slots: SIECLE_IMPORT_SLOTS,
+    cycles: SIECLE_IMPORT_CYCLES,
   });
 }
 
@@ -64,6 +69,17 @@ export async function POST(req: Request) {
 
   const form = await req.formData().catch(() => null);
   if (!form) return NextResponse.json({ error: "Formulaire invalide." }, { status: 400 });
+
+  const cycle = parseSiecleImportCycle(form.get("cycle"));
+  if (!cycle) {
+    return NextResponse.json(
+      {
+        error:
+          "Indiquez le cycle d'import : collège ou lycée (Siècle exporte les deux séparément).",
+      },
+      { status: 400 },
+    );
+  }
 
   const files = form.getAll("files").filter((f): f is File => f instanceof File);
   const single = form.get("file");
@@ -84,10 +100,10 @@ export async function POST(req: Request) {
     fileBuffers.push({ filename: file.name, buffer: buf });
   }
 
-  const batchReports = await importSiecleXmlBuffersBatch(etabId, fileBuffers);
+  const batchReports = await importSiecleXmlBuffersBatch(etabId, fileBuffers, { cycle });
   for (const r of batchReports) {
     reports.push(r);
   }
 
-  return NextResponse.json({ ok: true, reports });
+  return NextResponse.json({ ok: true, cycle, reports });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 type CountRow = { type: string; n: number };
@@ -13,6 +13,7 @@ type LogRow = {
   dateImport: string;
   rapportJson?: {
     kind?: string;
+    cycle?: "college" | "lycee";
     total?: number;
     linkedUsers?: number;
     linksCreated?: number;
@@ -42,16 +43,29 @@ type ImportSlot = {
   filenameHint: string;
   required: boolean;
   order: number;
+  cycleScoped?: boolean;
 };
 type ImportStatusRow = {
   kind: string;
+  cycle: "college" | "lycee" | "shared";
   imported: boolean;
   lastImport: string | null;
   lastFile: string | null;
   statut: string | null;
   rows: number | null;
 };
-type DivisionRow = { code: string; libelle: string };
+type DivisionRow = {
+  code: string;
+  libelle: string;
+  pole?: string | null;
+};
+
+type ImportCycle = "college" | "lycee";
+
+const CYCLE_LABEL: Record<ImportCycle, string> = {
+  college: "Collège",
+  lycee: "Lycée",
+};
 
 export default function NomenclatureImportPanel() {
   const multiInputRef = useRef<HTMLInputElement>(null);
@@ -73,6 +87,8 @@ export default function NomenclatureImportPanel() {
   const [officialDivisions, setOfficialDivisions] = useState<DivisionRow[]>([]);
   const [siecleLockedCollègeLycée, setSiecleLockedCollègeLycée] = useState(false);
   const [unmatchedEleveClasses, setUnmatchedEleveClasses] = useState<string[]>([]);
+  const [cycle, setCycle] = useState<ImportCycle>("lycee");
+  const [lockedByPole, setLockedByPole] = useState<Partial<Record<string, string[]>>>({});
 
   const load = useCallback(async () => {
     try {
@@ -96,9 +112,22 @@ export default function NomenclatureImportPanel() {
       setOmogenConfigured(Boolean(omogenData?.configured));
       if (classesRes.ok) {
         const classesData = await classesRes.json();
-        setOfficialDivisions(classesData.divisions || []);
+        const divisions = (classesData.divisions || []).map(
+          (d: {
+            code: string;
+            libelle: string;
+            pole?: string | null;
+            metadata?: { pole?: string } | null;
+          }) => ({
+            code: d.code,
+            libelle: d.libelle,
+            pole: d.pole ?? d.metadata?.pole ?? null,
+          }),
+        );
+        setOfficialDivisions(divisions);
         setSiecleLockedCollègeLycée(Boolean(classesData.siecleLockedCollègeLycée));
         setUnmatchedEleveClasses(classesData.unmatchedEleveClasses || []);
+        setLockedByPole(classesData.lockedClassesByPole || {});
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -118,6 +147,7 @@ export default function NomenclatureImportPanel() {
     setError(null);
     try {
       const fd = new FormData();
+      fd.append("cycle", cycle);
       list.forEach((f) => fd.append("files", f));
       const res = await fetch("/api/nomenclature/import", { method: "POST", body: fd });
       const data = await res.json();
@@ -126,7 +156,7 @@ export default function NomenclatureImportPanel() {
         (r: { file: string; message?: string; error?: string }) =>
           r.error ? `${r.file}: ${r.error}` : r.message || r.file,
       );
-      setMessage(lines.join("\n"));
+      setMessage([`Import ${CYCLE_LABEL[cycle]}`, ...lines].join("\n"));
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -210,20 +240,45 @@ export default function NomenclatureImportPanel() {
   const logDetail = (l: LogRow): string | null => {
     const r = l.rapportJson;
     if (!r?.kind) return null;
-    if (r.kind === "eleves" && r.total != null) return `${r.total} élève(s) lus`;
+    const parts: string[] = [];
+    if (r.cycle === "college") parts.push("Collège");
+    if (r.cycle === "lycee") parts.push("Lycée");
+    if (r.kind === "eleves" && r.total != null) parts.push(`${r.total} élève(s) lus`);
     if (r.kind === "responsables") {
-      const parts: string[] = [];
       if (r.linksCreated != null) parts.push(`${r.linksCreated} lien(s) élève`);
       if (r.linkedUsers != null && r.linkedUsers > 0) parts.push(`${r.linkedUsers} compte(s) parent`);
-      return parts.length ? parts.join(" · ") : null;
     }
-    return null;
+    return parts.length ? parts.join(" · ") : null;
   };
 
-  const statusForKind = (kind: string) => importStatus.find((s) => s.kind === kind);
+  const statusForKind = (kind: string, scoped: boolean) =>
+    importStatus.find((s) => {
+      if (s.kind !== kind) return false;
+      if (!scoped) return s.cycle === "shared";
+      return s.cycle === cycle;
+    });
 
-  const slotBadge = (slot: ImportSlot) => {
-    const st = statusForKind(slot.kind);
+  const scopedList = useMemo(
+    () =>
+      slots.filter((s) =>
+        s.cycleScoped === true ||
+        (s.cycleScoped == null &&
+          ["communs", "structures", "eleves", "responsables"].includes(s.kind)),
+      ),
+    [slots],
+  );
+  const sharedList = useMemo(
+    () =>
+      slots.filter((s) =>
+        s.cycleScoped === false ||
+        (s.cycleScoped == null &&
+          ["nomenclature", "geographique", "etablissements"].includes(s.kind)),
+      ),
+    [slots],
+  );
+
+  const slotBadge = (slot: ImportSlot, scoped: boolean) => {
+    const st = statusForKind(slot.kind, scoped);
     if (st?.imported) {
       return (
         <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
@@ -245,15 +300,75 @@ export default function NomenclatureImportPanel() {
     );
   };
 
+  const renderSlotGrid = (list: ImportSlot[], scoped: boolean) => (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {list.map((slot) => {
+        const st = statusForKind(slot.kind, scoped);
+        const inputKey = scoped ? `${cycle}:${slot.kind}` : `shared:${slot.kind}`;
+        const slotBusy = busySlot === inputKey || busy;
+        const chooseLabel = scoped
+          ? `Choisir le fichier (${CYCLE_LABEL[cycle]})`
+          : "Choisir le fichier";
+        return (
+          <div
+            key={inputKey}
+            className="rounded-xl border border-slate-100 bg-slate-50/50 p-3 flex flex-col gap-2"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="font-semibold text-slate-900">{slot.label}</div>
+                <code className="text-[11px] text-slate-500">{slot.filenameHint}</code>
+              </div>
+              {slotBadge(slot, scoped)}
+            </div>
+            {st?.lastImport ? (
+              <p className="text-[11px] text-slate-500">
+                Dernier import : {new Date(st.lastImport).toLocaleString("fr-FR")}
+                {st.lastFile ? ` · ${st.lastFile}` : ""}
+              </p>
+            ) : (
+              <p className="text-[11px] text-slate-400">Pas encore importé</p>
+            )}
+            <input
+              ref={(el) => {
+                slotInputRefs.current[inputKey] = el;
+              }}
+              type="file"
+              accept=".xml,application/xml,text/xml"
+              className="hidden"
+              onChange={(e) => void uploadFiles(e.target.files || [], inputKey)}
+            />
+            <button
+              type="button"
+              disabled={slotBusy}
+              onClick={() => slotInputRefs.current[inputKey]?.click()}
+              className="mt-auto rounded-lg border border-indigo-200 bg-white text-indigo-800 px-3 py-1.5 text-xs font-bold disabled:opacity-50 hover:bg-indigo-50"
+            >
+              {slotBusy ? "Import…" : chooseLabel}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const collegeCount = lockedByPole.COLLÈGE?.length ?? officialDivisions.filter((d) => d.pole === "COLLÈGE").length;
+  const lyceeCount = lockedByPole.LYCÉE?.length ?? officialDivisions.filter((d) => d.pole === "LYCÉE").length;
+
+  const visibleDivisions = useMemo(() => {
+    const poleWanted = cycle === "college" ? "COLLÈGE" : "LYCÉE";
+    const filtered = officialDivisions.filter((d) => (d.pole || "").toUpperCase() === poleWanted);
+    return filtered.length ? filtered : officialDivisions;
+  }, [officialDivisions, cycle]);
+
   return (
     <div className="space-y-6 text-sm">
       <div>
         <h2 className="font-black text-slate-900 text-lg">Éducation nationale — Pont Siècle</h2>
         <p className="text-slate-600 mt-1">
-          Référentiel de base de l&apos;établissement : importez ou mettez à jour chaque fichier XML Siècle
-          (ISO-8859-15). Les classes, MEF, matières, régimes et données géographiques alimentent directement
-          la base PostgreSQL (<code className="text-xs bg-slate-100 px-1 rounded">ref_nomenclature</code>
-          ).
+          Siècle exporte le <strong>collège</strong> et le <strong>lycée</strong> séparément (UAJ
+          distincts). Importez chaque jeu de XML pour le cycle concerné : les classes s&apos;ajoutent
+          sans écraser l&apos;autre cycle.
         </p>
         <p className="mt-2">
           <Link href="/parametres?tab=annees" className="text-xs font-bold text-indigo-600 hover:underline">
@@ -262,72 +377,65 @@ export default function NomenclatureImportPanel() {
         </p>
       </div>
 
+      <div className="flex flex-wrap gap-2 items-center">
+        {(["college", "lycee"] as const).map((c) => {
+          const active = cycle === c;
+          const n = c === "college" ? collegeCount : lyceeCount;
+          return (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCycle(c)}
+              className={
+                active
+                  ? "rounded-xl bg-indigo-600 text-white px-4 py-2 text-sm font-bold shadow-sm"
+                  : "rounded-xl border border-slate-200 bg-white text-slate-700 px-4 py-2 text-sm font-bold hover:bg-slate-50"
+              }
+            >
+              {CYCLE_LABEL[c]}
+              <span className={active ? "ml-2 opacity-90" : "ml-2 text-slate-400"}>
+                {n} classe{n === 1 ? "" : "s"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
-        <h3 className="font-bold mb-3">Fichiers Siècle — mise à jour par type</h3>
+        <h3 className="font-bold mb-1">Fichiers Siècle — {CYCLE_LABEL[cycle]}</h3>
         <p className="text-xs text-slate-500 mb-4">
-          Ordre recommandé : Communs → Nomenclature → Géographique → Structures → Élèves → Responsables.
-          Chaque import remplace ou complète les entrées existantes (upsert).
+          Communs, Structures, Élèves et Responsables sont propres à ce cycle. Ordre recommandé :
+          Communs → Structures → Élèves → Responsables. L&apos;upsert conserve l&apos;autre cycle.
         </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {slots.map((slot) => {
-            const st = statusForKind(slot.kind);
-            const slotBusy = busySlot === slot.kind || busy;
-            return (
-              <div
-                key={slot.kind}
-                className="rounded-xl border border-slate-100 bg-slate-50/50 p-3 flex flex-col gap-2"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="font-semibold text-slate-900">{slot.label}</div>
-                    <code className="text-[11px] text-slate-500">{slot.filenameHint}</code>
-                  </div>
-                  {slotBadge(slot)}
-                </div>
-                {st?.lastImport ? (
-                  <p className="text-[11px] text-slate-500">
-                    Dernier import : {new Date(st.lastImport).toLocaleString("fr-FR")}
-                    {st.lastFile ? ` · ${st.lastFile}` : ""}
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-slate-400">Pas encore importé</p>
-                )}
-                <input
-                  ref={(el) => {
-                    slotInputRefs.current[slot.kind] = el;
-                  }}
-                  type="file"
-                  accept=".xml,application/xml,text/xml"
-                  className="hidden"
-                  onChange={(e) => void uploadFiles(e.target.files || [], slot.kind)}
-                />
-                <button
-                  type="button"
-                  disabled={slotBusy}
-                  onClick={() => slotInputRefs.current[slot.kind]?.click()}
-                  className="mt-auto rounded-lg border border-indigo-200 bg-white text-indigo-800 px-3 py-1.5 text-xs font-bold disabled:opacity-50 hover:bg-indigo-50"
-                >
-                  {slotBusy ? "Import…" : "Choisir le fichier"}
-                </button>
-              </div>
-            );
-          })}
-        </div>
+        {renderSlotGrid(scopedList, true)}
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <h3 className="font-bold mb-1">Fichiers partagés (établissement)</h3>
+        <p className="text-xs text-slate-500 mb-4">
+          Nomenclature, géographique et établissements : un import suffit pour collège et lycée.
+          Ils restent accessibles quel que soit le cycle sélectionné.
+        </p>
+        {renderSlotGrid(sharedList, false)}
       </section>
 
       {officialDivisions.length > 0 ? (
         <section className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-4">
-          <h3 className="font-bold mb-1 text-indigo-950">Classes collège / lycée (Structures Siècle)</h3>
+          <h3 className="font-bold mb-1 text-indigo-950">
+            Classes {CYCLE_LABEL[cycle]} (Structures Siècle)
+          </h3>
           <p className="text-xs text-indigo-900/80 mb-3">
-            Imposées telles quelles par le rectorat — {officialDivisions.length} division(s), sans
-            matching manuel. C&apos;est à vous d&apos;affecter les élèves dans ces divisions (
-            <code className="bg-white/80 px-1 rounded">1 A</code>,{" "}
-            <code className="bg-white/80 px-1 rounded">2C</code>, etc.).
+            Collège : {collegeCount} · Lycée : {lyceeCount} — imposées telles quelles par le
+            rectorat, sans matching manuel.
           </p>
           {siecleLockedCollègeLycée ? (
             <p className="text-[11px] font-bold text-emerald-800 mb-2">
-              Collège et lycée verrouillés sur Siècle. École : hors périmètre rectorat pour
-              l&apos;instant (catalogue libre dans le référentiel scolaire).
+              {collegeCount > 0 && lyceeCount > 0
+                ? "Collège et lycée verrouillés sur Siècle."
+                : collegeCount > 0
+                  ? "Collège verrouillé — importez encore le Structures.xml du lycée."
+                  : "Lycée verrouillé — importez encore le Structures.xml du collège."}{" "}
+              École : hors périmètre rectorat pour l&apos;instant.
             </p>
           ) : null}
           {unmatchedEleveClasses.length > 0 ? (
@@ -337,7 +445,7 @@ export default function NomenclatureImportPanel() {
             </div>
           ) : null}
           <ul className="grid gap-1 sm:grid-cols-2 max-h-56 overflow-y-auto text-xs">
-            {officialDivisions.map((d) => (
+            {visibleDivisions.map((d) => (
               <li
                 key={d.code}
                 className="flex justify-between gap-2 rounded-lg bg-white border border-indigo-100 px-2 py-1.5"
@@ -365,7 +473,7 @@ export default function NomenclatureImportPanel() {
           onClick={() => multiInputRef.current?.click()}
           className="rounded-xl bg-indigo-600 text-white px-4 py-2 font-bold disabled:opacity-50"
         >
-          {busy ? "Import…" : "Importer plusieurs XML"}
+          {busy ? "Import…" : `Importer plusieurs XML (${CYCLE_LABEL[cycle]})`}
         </button>
         <button
           type="button"
@@ -392,7 +500,8 @@ export default function NomenclatureImportPanel() {
 
       <p className="text-xs text-slate-500">
         Les divisions Structures.xml deviennent la liste de classes de référence (roster, notes, EDT).
-        Les matières Nomenclature.xml alimentent aussi <code className="bg-slate-100 px-1 rounded">note_matiere</code>.
+        Les matières Nomenclature.xml alimentent aussi{" "}
+        <code className="bg-slate-100 px-1 rounded">note_matiere</code>.
       </p>
 
       {message && (

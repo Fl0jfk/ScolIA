@@ -22,6 +22,10 @@ import {
   type SieclePersonneRow,
 } from "@/app/lib/nomenclature-import/siecle-responsables-parse";
 import { linkFoyerResponsableToUserAccount } from "@/app/lib/nomenclature-import/link-responsable-user";
+import {
+  siecleCycleLabel,
+  type SiecleImportCycle,
+} from "@/app/lib/nomenclature-import/siecle-import-cycle";
 
 const SIECLE_ELEVE_MAP_KEY = "siecle/eleve-id-map.json";
 
@@ -54,6 +58,7 @@ export async function importSiecleElevesXml(
   etablissementId: string,
   filename: string,
   xml: string,
+  opts?: { cycle?: SiecleImportCycle },
 ): Promise<{
   inserts: number;
   updates: number;
@@ -68,6 +73,8 @@ export async function importSiecleElevesXml(
 
   const sansIne = parsed.eleves.filter((e) => !e.ine?.trim()).length;
   const sansClasse = parsed.eleves.filter((e) => !e.classe?.trim()).length;
+  const cycle = opts?.cycle;
+  const cycleNote = cycle ? ` · ${siecleCycleLabel(cycle)}` : "";
 
   const existing = await loadElevesRegistry();
   const merged = mergeElevesLists(existing, parsed.eleves);
@@ -87,6 +94,7 @@ export async function importSiecleElevesXml(
     nbUpdates: merged.stats.updated,
     rapportJson: {
       kind: "eleves",
+      ...(cycle ? { cycle } : {}),
       total: parsed.total,
       internesCount: parsed.internesCount,
       siecleIds: Object.keys(parsed.siecleEleveIdMap).length,
@@ -103,7 +111,7 @@ export async function importSiecleElevesXml(
     rows: parsed.total,
     internesCount: parsed.internesCount,
     message:
-      `${filename} (élèves) : ${parsed.total} lus — ${merged.stats.added} ajouté(s), ${merged.stats.updated} mis à jour, ${parsed.internesCount} interne(s) · sync BDD par sourceKey.` +
+      `${filename} (élèves${cycleNote}) : ${parsed.total} lus — ${merged.stats.added} ajouté(s), ${merged.stats.updated} mis à jour, ${parsed.internesCount} interne(s) · sync BDD par sourceKey.` +
       (sansIne ? ` ${sansIne} sans INE.` : "") +
       (sansClasse ? ` ${sansClasse} sans classe.` : ""),
   };
@@ -223,7 +231,7 @@ export async function importSiecleResponsablesXml(
   etablissementId: string,
   filename: string,
   xml: string,
-  inlineEleveMap?: SiecleEleveIdMap,
+  opts?: { inlineEleveIdMap?: SiecleEleveIdMap; cycle?: SiecleImportCycle },
 ): Promise<{
   inserts: number;
   updates: number;
@@ -232,7 +240,9 @@ export async function importSiecleResponsablesXml(
   unmappedEleves: number;
 }> {
   const parsed = parseSiecleResponsablesXml(xml);
-  const idMap = { ...(await loadSiecleEleveIdMap()), ...(inlineEleveMap ?? {}) };
+  const idMap = { ...(await loadSiecleEleveIdMap()), ...(opts?.inlineEleveIdMap ?? {}) };
+  const cycle = opts?.cycle;
+  const cycleNote = cycle ? ` · ${siecleCycleLabel(cycle)}` : "";
 
   if (!parsed.liens.length) {
     throw new Error("Aucun lien RESPONSABLE_ELEVE dans le XML.");
@@ -337,6 +347,7 @@ export async function importSiecleResponsablesXml(
     nbUpdates: responsablesUpdated,
     rapportJson: {
       kind: "responsables",
+      ...(cycle ? { cycle } : {}),
       personnes: parsed.personnes.length,
       liens: parsed.liens.length,
       foyersCreated,
@@ -356,7 +367,7 @@ export async function importSiecleResponsablesXml(
     updates: responsablesUpdated,
     rows: parsed.liens.length,
     unmappedEleves,
-    message: `${filename} (responsables) : ${parsed.liens.length} lien(s) — ${foyersCreated} foyer(s), ${responsablesCreated} responsable(s) créé(s), ${linksCreated} lien(s) élève.${linkNote}${warn}`,
+    message: `${filename} (responsables${cycleNote}) : ${parsed.liens.length} lien(s) — ${foyersCreated} foyer(s), ${responsablesCreated} responsable(s) créé(s), ${linksCreated} lien(s) élève.${linkNote}${warn}`,
   };
 }
 

@@ -32,11 +32,18 @@ export async function GET() {
     lockedClasses: official.lockedClasses,
     lockedClassesByPole: official.lockedClassesByPole,
     classesByPole: official.classesByPole,
-    divisions: lockedDivisions.map((d) => ({
-      code: d.code,
-      libelle: d.libelleLong || d.libelleCourt || d.code,
-      metadata: d.metadataJson,
-    })),
+    divisions: lockedDivisions.map((d) => {
+      const meta = d.metadataJson;
+      return {
+        code: d.code,
+        libelle: d.libelleLong || d.libelleCourt || d.code,
+        metadata: meta,
+        pole:
+          meta && typeof meta === "object" && "pole" in meta
+            ? String((meta as { pole?: unknown }).pole || "")
+            : null,
+      };
+    }),
     ecoleFromSiecle: official.classesByPole.ÉCOLE || [],
     unmatchedEleveClasses: unmatched,
     readOnly: false,

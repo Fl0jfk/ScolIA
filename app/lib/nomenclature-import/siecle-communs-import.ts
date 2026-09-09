@@ -8,6 +8,10 @@ import {
   upsertRefEtablissementRows,
   type RefEtablissementRow,
 } from "@/app/lib/nomenclature-import/siecle-etablissements-import";
+import {
+  siecleCycleLabel,
+  type SiecleImportCycle,
+} from "@/app/lib/nomenclature-import/siecle-import-cycle";
 
 function extractBlocks(xml: string, tag: string): string[] {
   const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, "gi");
@@ -73,12 +77,15 @@ export async function importSiecleCommunsXml(
   etablissementId: string,
   filename: string,
   xml: string,
+  opts?: { cycle?: SiecleImportCycle },
 ): Promise<{ inserts: number; updates: number; rows: number; message: string }> {
   const db = getDb();
   let inserts = 0;
   let updates = 0;
   let rows = 0;
   const notes: string[] = [];
+  const cycle = opts?.cycle;
+  const cycleNote = cycle ? ` · ${siecleCycleLabel(cycle)}` : "";
 
   const uajBlocks = [...extractBlocks(xml, "UAJ"), ...extractBlocks(xml, "PARAMETRES")];
   for (const block of uajBlocks) {
@@ -91,11 +98,17 @@ export async function importSiecleCommunsXml(
 
     const label = uaj.denomPrinc || uaj.sigle;
     if (label) {
-      await db
-        .update(etablissement)
-        .set({ name: label, updatedAt: new Date() })
-        .where(eq(etablissement.id, etablissementId));
-      notes.push(`UAJ ${uaj.codeRne} — libellé établissement synchronisé.`);
+      // Un export collège et un export lycée ont des UAJ différents : ne pas
+      // écraser le nom du tenant cité scolaire quand un cycle est déclaré.
+      if (!cycle) {
+        await db
+          .update(etablissement)
+          .set({ name: label, updatedAt: new Date() })
+          .where(eq(etablissement.id, etablissementId));
+        notes.push(`UAJ ${uaj.codeRne} — libellé établissement synchronisé.`);
+      } else {
+        notes.push(`UAJ ${uaj.codeRne} (${siecleCycleLabel(cycle)}) — référentiel RNE à jour.`);
+      }
     }
   }
 
@@ -155,13 +168,13 @@ export async function importSiecleCommunsXml(
     statut: "ok",
     nbInserts: inserts,
     nbUpdates: updates,
-    rapportJson: { kind: "communs", rows, notes },
+    rapportJson: { kind: "communs", ...(cycle ? { cycle } : {}), rows, notes },
   });
 
   return {
     inserts,
     updates,
     rows,
-    message: `${filename} (communs) : ${rows} entrées — ${inserts} créées, ${updates} mises à jour.${notes.length ? ` ${notes.join(" ")}` : ""}`,
+    message: `${filename} (communs${cycleNote}) : ${rows} entrées — ${inserts} créées, ${updates} mises à jour.${notes.length ? ` ${notes.join(" ")}` : ""}`,
   };
 }
