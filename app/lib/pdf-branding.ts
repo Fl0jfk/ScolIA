@@ -133,7 +133,8 @@ async function bytesToPdfLogoAsync(buf: Buffer): Promise<PdfLogo | null> {
   const raster = bytesToPdfLogo(buf);
   if (raster) return raster;
   if (isSvgBuffer(buf)) return rasterizeSvgToPngLogo(buf);
-  return null;
+  // WebP / GIF / autres formats supportés par @napi-rs/canvas
+  return rasterizeSvgToPngLogo(buf);
 }
 
 /** Même logique que GET /api/site/public — logo du tenant courant, pas la plateforme. */

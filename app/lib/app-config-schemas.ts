@@ -202,6 +202,11 @@ export type NotificationsConfig = {
   stagesDirectionEmailByKind?: Partial<Record<"ecole" | "college" | "lycee", string>>;
   /** PDF vierge remplissable — lien de téléchargement sur /stages/deposer */
   stagesConventionTemplateUrl?: string;
+  /**
+   * Référence assurance RC établissement affichée dans la convention de stage (art. 9).
+   * Ex. « Mutuelles Saint-Christophe — Police n° … ».
+   */
+  stagesInsuranceText?: string;
 };
 
 export type InternatModuleConfig = {
@@ -587,6 +592,10 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
     stagesConventionTemplateUrl: (() => {
       const u = str(o.stagesConventionTemplateUrl).trim();
       return u.startsWith("http") ? u : undefined;
+    })(),
+    stagesInsuranceText: (() => {
+      const t = str(o.stagesInsuranceText).trim();
+      return t || undefined;
     })(),
   };
 }

@@ -388,6 +388,18 @@ export default function SettingsNotificationsPanel({
         <p className={`text-xs ${dash.textMid}`}>
           PDF remplissable (Adobe) hébergé sur S3 ou autre — lien affiché sur /stages/deposer.
         </p>
+        <SettingsField label="Référence assurance RC (convention de stage, art. 9)">
+          <input
+            className={settingsInputClass}
+            type="text"
+            value={String(notifications.stagesInsuranceText || "")}
+            onChange={(e) => patch({ stagesInsuranceText: e.target.value.trim() })}
+            placeholder="Mutuelles Saint-Christophe — Police n° …"
+          />
+        </SettingsField>
+        <p className={`text-xs ${dash.textMid}`}>
+          Affichée dans le PDF généré. Si vide, le modèle Collège La Providence est utilisé par défaut.
+        </p>
       </SettingsSection>
 
       <div className="flex justify-end">
