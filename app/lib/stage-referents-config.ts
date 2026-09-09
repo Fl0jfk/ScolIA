@@ -2,11 +2,15 @@ import { listStageEnabledClassNames } from "@/app/lib/stage-periods-config";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { STAGE_S3, currentStageSchoolYear, type StageConvention } from "@/app/lib/stage-types";
 
+export type StageReferentRole = "professeur_principal" | "professeur_referent";
+
 export type StageClassReferentAssignment = {
   className: string;
   externalUserId: string;
   name: string;
   email: string;
+  /** PP de la classe vs référent stage (peut être la même personne). */
+  role: StageReferentRole;
 };
 
 export type StageReferentsConfig = {
@@ -29,6 +33,10 @@ export function classKey(className: string): string {
     .toLowerCase();
 }
 
+function normalizeRole(raw: unknown): StageReferentRole {
+  return raw === "professeur_principal" ? "professeur_principal" : "professeur_referent";
+}
+
 export async function listStageReferentClassNames(schoolYear?: string): Promise<string[]> {
   return listStageEnabledClassNames(schoolYear);
 }
@@ -47,6 +55,7 @@ export async function getStageReferentsConfig(schoolYear: string): Promise<Stage
             externalUserId: String(a.externalUserId ?? "").trim(),
             name: String(a.name ?? "").trim(),
             email: String(a.email ?? "").trim().toLowerCase(),
+            role: normalizeRole((a as { role?: unknown }).role),
           }))
           .filter((a) => a.className && a.externalUserId && a.email)
       : [],
@@ -66,6 +75,7 @@ export async function saveStageReferentsConfig(
         externalUserId: a.externalUserId.trim(),
         name: a.name.trim(),
         email: a.email.trim().toLowerCase(),
+        role: normalizeRole(a.role),
       }))
       .filter((a) => a.className && a.externalUserId && a.name && a.email),
   };
@@ -78,7 +88,12 @@ export function findReferentAssignment(
   className: string,
 ): StageClassReferentAssignment | null {
   const all = findReferentAssignments(config, className);
-  return all[0] ?? null;
+  return (
+    all.find((a) => a.role === "professeur_referent") ??
+    all.find((a) => a.role === "professeur_principal") ??
+    all[0] ??
+    null
+  );
 }
 
 export function findReferentAssignments(
@@ -88,6 +103,15 @@ export function findReferentAssignments(
   if (!config || !className.trim()) return [];
   const key = classKey(className);
   return config.assignments.filter((a) => classKey(a.className) === key);
+}
+
+export function findPrincipalAssignments(
+  config: StageReferentsConfig | null | undefined,
+  className: string,
+): StageClassReferentAssignment[] {
+  return findReferentAssignments(config, className).filter(
+    (a) => a.role === "professeur_principal",
+  );
 }
 
 async function resolveReferentForClass(
@@ -109,10 +133,35 @@ export async function listClassesForReferentUser(
   const year = schoolYear?.trim() || currentStageSchoolYear();
   const config = await getStageReferentsConfig(year);
   if (!config) return [];
-  return config.assignments
-    .filter((a) => a.externalUserId === id)
-    .map((a) => a.className)
-    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  return [...new Set(
+    config.assignments
+      .filter((a) => a.externalUserId === id)
+      .map((a) => a.className),
+  )].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+}
+
+/** True si l'utilisateur est PP (ou seul assigné historique) sur la classe. */
+export async function userCanAssignStageReferentForClass(
+  externalUserId: string,
+  className: string,
+  schoolYear?: string,
+): Promise<boolean> {
+  const id = externalUserId.trim();
+  if (!id || !className.trim()) return false;
+  const year = schoolYear?.trim() || currentStageSchoolYear();
+  const config = await getStageReferentsConfig(year);
+  const forClass = findReferentAssignments(config, className);
+  if (forClass.length === 0) return false;
+  const asPrincipal = forClass.some(
+    (a) => a.externalUserId === id && a.role === "professeur_principal",
+  );
+  if (asPrincipal) return true;
+  // Compat : anciennes configs sans PP explicite → tout assigné de la classe peut déléguer.
+  const hasExplicitPrincipal = forClass.some((a) => a.role === "professeur_principal");
+  if (!hasExplicitPrincipal) {
+    return forClass.some((a) => a.externalUserId === id);
+  }
+  return false;
 }
 
 export async function ensureConventionReferent(convention: StageConvention): Promise<StageConvention> {

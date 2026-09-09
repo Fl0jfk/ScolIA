@@ -132,6 +132,42 @@ export async function listStageEnabledClassNames(schoolYear?: string): Promise<s
     .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
 
+/**
+ * Enregistre une classe dans la config stages si absente (ex. terminale volontaire).
+ * Permet ensuite d'assigner PP / référent dans les réglages.
+ */
+export async function ensureClassRegisteredForStages(
+  className: string,
+  schoolYear?: string,
+): Promise<{ added: boolean; className: string }> {
+  const year = schoolYear?.trim() || currentStageSchoolYear();
+  const name = className.trim();
+  if (!name) return { added: false, className: name };
+
+  const existing = await getStagePeriodsConfig(year);
+  const found = findClassConfig(existing, name);
+  if (found) {
+    return { added: false, className: found.className };
+  }
+
+  const next: StagePeriodsConfig = {
+    schoolYear: year,
+    updatedAt: new Date().toISOString(),
+    updatedBy: "Système (préconvention)",
+    classes: [
+      ...(existing?.classes ?? []),
+      {
+        className: name,
+        enabled: true,
+        periods: [],
+        reminders: [],
+      },
+    ],
+  };
+  await saveStagePeriodsConfig(next);
+  return { added: true, className: name };
+}
+
 /** True si la config périodes existe et contient au moins une classe activée. */
 export async function hasStagePeriodsConfig(schoolYear?: string): Promise<boolean> {
   const names = await listStageEnabledClassNames(schoolYear);

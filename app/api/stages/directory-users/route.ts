@@ -4,9 +4,9 @@ import { NextResponse } from "next/server";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { canReviewPreconvention } from "@/app/lib/stage-access";
+import { canReviewPreconvention, canViewReferentConventions } from "@/app/lib/stage-access";
 
-/** Utilisateurs éligibles comme professeur référent (rôle professeur). */
+/** Utilisateurs éligibles comme professeur principal / référent stage. */
 export async function GET() {
   try {
     const gate = await requireAuth();
@@ -14,8 +14,8 @@ export async function GET() {
 
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
-    if (!canReviewPreconvention(roles)) {
-      return NextResponse.json({ error: "Réservé à l'administratif." }, { status: 403 });
+    if (!canReviewPreconvention(roles) && !canViewReferentConventions(roles)) {
+      return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 
     const members = await listDirectoryMembers();

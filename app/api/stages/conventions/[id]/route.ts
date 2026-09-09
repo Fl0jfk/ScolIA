@@ -12,7 +12,7 @@ import {
   submitPreconvention,
 } from "@/app/lib/stage-workflow";
 import { getStageConvention, saveStageConvention } from "@/app/lib/stage-storage";
-import { ensureConventionReferent, listClassesForReferentUser } from "@/app/lib/stage-referents-config";
+import { ensureConventionReferent, listClassesForReferentUser, userCanAssignStageReferentForClass } from "@/app/lib/stage-referents-config";
 import { notifyAllStageSignatureRequests, notifyStageDepositAdminRejected, notifyStageSignatureRequest } from "@/app/lib/stage-notify";
 import {
   findEleveByIne,
@@ -127,6 +127,48 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           ],
         };
       }
+      await saveStageConvention(convention);
+      return NextResponse.json({ success: true, convention });
+    }
+
+    if (action === "assign_referent") {
+      const allowed =
+        canReviewPreconvention(roles) ||
+        (await userCanAssignStageReferentForClass(
+          gate.ctx.userId,
+          convention.student.className,
+          convention.schoolYear,
+        ));
+      if (!allowed) {
+        return NextResponse.json(
+          { error: "Seul le professeur principal de la classe (ou l'administratif) peut déléguer un référent." },
+          { status: 403 },
+        );
+      }
+      const externalUserId = String(body.externalUserId ?? "").trim();
+      const name = String(body.name ?? "").trim();
+      const email = String(body.email ?? "").trim().toLowerCase();
+      if (!externalUserId || !name || !email) {
+        return NextResponse.json(
+          { error: "Choisissez un professeur référent (nom et e-mail requis)." },
+          { status: 400 },
+        );
+      }
+      const now = new Date().toISOString();
+      convention = {
+        ...convention,
+        teacherReferent: { name, email, userId: externalUserId },
+        updatedAt: now,
+        history: [
+          ...convention.history,
+          {
+            at: now,
+            by: displayName(user),
+            action: "REFERENT_DELEGUE",
+            note: `${name} <${email}>`,
+          },
+        ],
+      };
       await saveStageConvention(convention);
       return NextResponse.json({ success: true, convention });
     }

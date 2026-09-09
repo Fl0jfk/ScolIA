@@ -49,6 +49,7 @@ async function syncStageReferentsFromRoster(config: SchoolRosterConfig): Promise
     externalUserId: a.externalUserId,
     name: a.name,
     email: a.email,
+    role: "professeur_principal" as const,
   }));
   await saveStageReferentsConfig({
     schoolYear: year,
@@ -108,12 +109,22 @@ export async function importAssignmentsFromStageReferents(
   const current = await loadSchoolRoster();
   return saveSchoolRoster({
     teacherCatalog: current.teacherCatalog,
-    classAssignments: (stage?.assignments ?? []).map((a) => ({
-      className: a.className,
-      externalUserId: a.externalUserId,
-      name: a.name,
-      email: a.email,
-    })),
+    classAssignments: (stage?.assignments ?? [])
+      .filter(
+        (a) =>
+          a.role === "professeur_principal" ||
+          !(stage?.assignments ?? []).some(
+            (o) =>
+              o.className === a.className && o.role === "professeur_principal",
+          ),
+      )
+      .filter((a, i, arr) => arr.findIndex((x) => x.className === a.className) === i)
+      .map((a) => ({
+        className: a.className,
+        externalUserId: a.externalUserId,
+        name: a.name,
+        email: a.email,
+      })),
     updatedBy,
   });
 }

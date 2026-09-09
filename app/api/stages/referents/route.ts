@@ -29,8 +29,10 @@ function parseAssignments(raw: unknown): StageClassReferentAssignment[] {
     const externalUserId = String(o.externalUserId ?? "").trim();
     const name = String(o.name ?? "").trim();
     const email = String(o.email ?? "").trim().toLowerCase();
+    const role =
+      o.role === "professeur_principal" ? "professeur_principal" : "professeur_referent";
     if (!className || !externalUserId || !name || !email) continue;
-    out.push({ className, externalUserId, name, email });
+    out.push({ className, externalUserId, name, email, role });
   }
   return out;
 }

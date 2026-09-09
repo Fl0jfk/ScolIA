@@ -29,6 +29,8 @@ type StageRosterConvention = {
   oneDriveFiled: boolean;
   canFileOneDrive: boolean;
   signatureSummary: StageSignatureSummary;
+  teacherReferentName?: string;
+  teacherReferentEmail?: string;
 };
 
 export type StageRosterStudent = {
@@ -134,6 +136,8 @@ function toRosterConvention(c: StageConvention): StageRosterConvention {
     oneDriveFiled: Boolean(c.oneDriveFiling?.filedAt),
     canFileOneDrive: c.status === "signed" && !c.oneDriveFiling?.filedAt,
     signatureSummary: buildSignatureSummary(c),
+    teacherReferentName: c.teacherReferent.name?.trim() || undefined,
+    teacherReferentEmail: c.teacherReferent.email?.trim() || undefined,
   };
 }
 

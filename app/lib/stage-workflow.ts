@@ -43,6 +43,7 @@ import {
   saveStudentTokenRef,
 } from "@/app/lib/stage-storage";
 import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
+import { ensureClassRegisteredForStages } from "@/app/lib/stage-periods-config";
 import { inferStudentLevelFromClass } from "@/app/lib/stage-student-identity";
 
 export function generateStageToken() {
@@ -281,6 +282,7 @@ export async function submitPreconvention(
   convention: StageConvention,
   by: string,
 ): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  await ensureClassRegisteredForStages(convention.student.className, convention.schoolYear);
   let prepared = sanitizeConventionParents(await ensureConventionReferent(convention));
   const err = validateConventionForSubmit(prepared);
   if (err) return { ok: false, error: err };
@@ -920,7 +922,10 @@ export async function createPublicPreconventionDraft(student: {
         }
       : undefined,
   };
-  convention = await ensureConventionReferent(convention);
+  convention = await ensureClassRegisteredForStages(
+    convention.student.className,
+    convention.schoolYear,
+  ).then(async () => ensureConventionReferent(convention));
   convention = await ensureStudentAccessToken(convention);
   await saveStageConvention(convention);
   const studentLink = `/stages/eleve?token=${encodeURIComponent(convention.studentAccessToken!)}`;
