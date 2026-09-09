@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import type {
   StageConvention,
   StageDaySlot,
@@ -15,7 +15,10 @@ import {
   buildUniformWeekDays,
   defaultDayHoursTemplate,
   formatDaySlotLabel,
+  presencePeriodMismatchMessage,
   rebuildPerDaySlots,
+  suggestPresenceWeekdays,
+  weekdaysPresentInPeriod,
 } from "@/app/lib/stage-schedule";
 
 const LEVELS = ["6e", "5e", "4e", "3e", "2nde", "1re", "Tle"];
@@ -150,6 +153,8 @@ export default function StagePreconventionForm({
 }) {
   const schedule = convention.schedule;
   const hoursTemplate = schedule.days[0] || defaultDayHoursTemplate();
+  const periodStartRef = useRef<HTMLInputElement>(null);
+  const [periodHint, setPeriodHint] = useState<string | null>(null);
 
   const selectedWeekdaysList: StageWeekday[] = Array.isArray(schedule.presenceWeekdays)
     ? [...schedule.presenceWeekdays].filter((w) => w >= 1 && w <= 6).sort((a, b) => a - b)
@@ -164,6 +169,28 @@ export default function StagePreconventionForm({
         })()
       : [...STAGE_DEFAULT_WEEKDAYS];
   const selectedWeekdays = new Set(selectedWeekdaysList);
+
+  const periodMismatch =
+    periodHint ||
+    presencePeriodMismatchMessage({
+      selectedWeekdays: selectedWeekdaysList,
+      periodStart: schedule.periodStart,
+      periodEnd: schedule.periodEnd,
+    });
+
+  function focusPeriodStart(message: string) {
+    setPeriodHint(message);
+    requestAnimationFrame(() => {
+      const el = periodStartRef.current;
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.focus();
+    });
+  }
+
+  function clearPeriodHint() {
+    setPeriodHint(null);
+  }
 
   function updateSchedule(patch: Partial<typeof schedule>) {
     onChange({ ...convention, schedule: { ...schedule, ...patch } });
@@ -189,20 +216,27 @@ export default function StagePreconventionForm({
     updateSchedule({ days });
   }
 
-  function setPresenceWeekdays(weekdays: StageWeekday[]) {
+  function applyPresenceWeekdays(
+    weekdays: StageWeekday[],
+    bounds?: { periodStart: string; periodEnd: string },
+  ) {
+    const periodStart = bounds?.periodStart ?? schedule.periodStart;
+    const periodEnd = bounds?.periodEnd ?? schedule.periodEnd;
     const sorted = [...new Set(weekdays)].filter((w) => w >= 1 && w <= 6).sort((a, b) => a - b);
     const template = { ...hoursTemplate };
     delete template.date;
     delete template.weekday;
     if (schedule.mode === "per_day") {
       updateSchedule({
+        periodStart,
+        periodEnd,
         presenceWeekdays: sorted,
         days:
           sorted.length === 0
             ? []
             : rebuildPerDaySlots({
-                periodStart: schedule.periodStart,
-                periodEnd: schedule.periodEnd,
+                periodStart,
+                periodEnd,
                 weekdays: sorted,
                 existing: schedule.days,
                 template,
@@ -212,19 +246,42 @@ export default function StagePreconventionForm({
     }
     updateSchedule({
       mode: "uniform_week",
+      periodStart,
+      periodEnd,
       presenceWeekdays: sorted,
       days: sorted.length === 0 ? [] : buildUniformWeekDays(template, sorted),
     });
   }
 
+  function setPresenceWeekdays(weekdays: StageWeekday[]) {
+    applyPresenceWeekdays(weekdays);
+  }
+
   function toggleWeekday(weekday: StageWeekday, enabled: boolean) {
-    let weekdays = [...selectedWeekdaysList];
     if (enabled) {
-      if (!weekdays.includes(weekday)) weekdays.push(weekday);
-    } else {
-      weekdays = weekdays.filter((w) => w !== weekday);
+      const present = weekdaysPresentInPeriod(schedule.periodStart, schedule.periodEnd);
+      if (!present.includes(weekday)) {
+        const message = presencePeriodMismatchMessage({
+          selectedWeekdays: selectedWeekdaysList,
+          periodStart: schedule.periodStart,
+          periodEnd: schedule.periodEnd,
+          attemptedWeekday: weekday,
+        });
+        focusPeriodStart(
+          message ||
+            `Ce jour ne tombe pas dans la période indiquée. Modifiez la date de début.`,
+        );
+        return;
+      }
+      clearPeriodHint();
+      const weekdays = selectedWeekdaysList.includes(weekday)
+        ? selectedWeekdaysList
+        : [...selectedWeekdaysList, weekday];
+      setPresenceWeekdays(weekdays);
+      return;
     }
-    setPresenceWeekdays(weekdays);
+    clearPeriodHint();
+    setPresenceWeekdays(selectedWeekdaysList.filter((w) => w !== weekday));
   }
 
   function setScheduleMode(nextMode: StageScheduleMode) {
@@ -261,25 +318,9 @@ export default function StagePreconventionForm({
   function setPeriodBounds(patch: { periodStart?: string; periodEnd?: string }) {
     const periodStart = patch.periodStart ?? schedule.periodStart;
     const periodEnd = patch.periodEnd ?? schedule.periodEnd;
-    if (schedule.mode === "per_day") {
-      const template = { ...hoursTemplate };
-      delete template.date;
-      delete template.weekday;
-      updateSchedule({
-        periodStart,
-        periodEnd,
-        presenceWeekdays: selectedWeekdaysList,
-        days: rebuildPerDaySlots({
-          periodStart,
-          periodEnd,
-          weekdays: selectedWeekdaysList,
-          existing: schedule.days,
-          template,
-        }),
-      });
-      return;
-    }
-    updateSchedule({ periodStart, periodEnd, presenceWeekdays: selectedWeekdaysList });
+    clearPeriodHint();
+    const suggested = suggestPresenceWeekdays(periodStart, periodEnd);
+    applyPresenceWeekdays(suggested, { periodStart, periodEnd });
   }
 
   function updateParent1Email(value: string) {
@@ -601,8 +642,13 @@ export default function StagePreconventionForm({
         <div className="grid grid-cols-2 gap-3">
           <Field label="Date de début" required>
             <input
+              ref={periodStartRef}
               type="date"
-              className={fieldInputClass}
+              className={
+                periodMismatch
+                  ? "mt-1 w-full rounded-lg border-2 border-rose-500 bg-rose-50 px-3 py-2 text-sm text-stone-900 shadow-sm outline-none ring-2 ring-rose-300"
+                  : fieldInputClass
+              }
               value={schedule.periodStart}
               onChange={(e) => setPeriodBounds({ periodStart: e.target.value })}
             />
@@ -616,6 +662,11 @@ export default function StagePreconventionForm({
             />
           </Field>
         </div>
+        {periodMismatch ? (
+          <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 leading-relaxed">
+            {periodMismatch}
+          </p>
+        ) : null}
 
         <div className="space-y-2">
           <p className="text-xs font-bold text-[#1F3D2B]">Comment sont vos horaires ?</p>
@@ -659,7 +710,8 @@ export default function StagePreconventionForm({
           <div>
             <p className="text-xs font-bold text-[#1F3D2B]">Jours de présence dans la semaine</p>
             <p className="mt-1 text-xs text-stone-500">
-              Cochez les jours concernés (lundi à samedi) — utile notamment pour la restauration.
+              Précochés selon vos dates (lundi à vendredi présents dans la période). Le samedi reste
+              disponible si besoin — utile notamment pour la restauration.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">

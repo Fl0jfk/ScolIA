@@ -76,21 +76,30 @@ function resolveParent2Email(convention: StageConvention): string {
   );
 }
 
-/** Un seul responsable suffit : e-mail 2 vide ou identique au 1 → on l'ignore. */
+/** Un seul responsable suffit : e-mail 2 vide ou identique au 1 → on l'ignore.
+ * Recalcule aussi le niveau depuis la classe (évite 2A → 3e fantôme qui masque le dossier lycée).
+ */
 function sanitizeConventionParents(convention: StageConvention): StageConvention {
   const parent1 = resolveParent1Email(convention);
   const parent2 = resolveParent2Email(convention);
-  if (!parent2 || (parent1 && parent2.toLowerCase() === parent1.toLowerCase())) {
-    return {
-      ...convention,
-      parent2SignerEmail: undefined,
-      student: {
-        ...convention.student,
-        parent2Email: undefined,
-      },
-    };
-  }
-  return convention;
+  const className = convention.student.className?.trim() || "";
+  const inferredLevel = className
+    ? inferStudentLevelFromClass(className)
+    : convention.student.level?.trim() || convention.student.level;
+
+  const clearDuplicateParent2 =
+    !parent2 || (Boolean(parent1) && parent2.toLowerCase() === parent1!.toLowerCase());
+
+  return {
+    ...convention,
+    parent2SignerEmail: clearDuplicateParent2 ? undefined : parent2,
+    student: {
+      ...convention.student,
+      className: className || convention.student.className,
+      level: inferredLevel || convention.student.level,
+      parent2Email: clearDuplicateParent2 ? undefined : parent2,
+    },
+  };
 }
 
 function optionalClearedString(raw: unknown, base?: string): string | undefined {
@@ -889,7 +898,7 @@ export async function createPublicPreconventionDraft(student: {
       firstName: student.firstName.trim(),
       lastName: student.lastName.trim(),
       className: student.className.trim(),
-      level: student.level.trim() || inferStudentLevelFromClass(student.className),
+      level: inferStudentLevelFromClass(student.className),
       email: student.email?.trim() || undefined,
       parent1Email: parent1,
       parent2Email: parent2,

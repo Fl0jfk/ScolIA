@@ -18,6 +18,8 @@ export function stageSecteurLabel(secteur: Secteur): string {
 }
 
 export function inferStageSecteurFromClass(className: string, level?: string): Secteur | null {
+  // La classe prime : un niveau stocké erroné (ex. 3e pour une 2A) ne doit pas
+  // classer un lycéen en collège et le masquer à la direction lycée.
   return (
     inferSecteurFromFolderName(className.trim()) ||
     inferSecteurFromFolderName(String(level ?? "").trim()) ||

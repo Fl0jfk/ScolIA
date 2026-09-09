@@ -244,6 +244,99 @@ export function rebuildPerDaySlots(params: {
   });
 }
 
+/** Jours de la semaine (lun–sam) réellement présents entre deux dates. */
+export function weekdaysPresentInPeriod(
+  periodStart: string,
+  periodEnd: string,
+): StageWeekday[] {
+  return [
+    ...new Set(
+      expandWeekdayDates(periodStart, periodEnd, STAGE_WEEKDAYS).map((date) => {
+        const dow = new Date(`${date}T12:00:00`).getDay();
+        return dow as StageWeekday;
+      }),
+    ),
+  ].sort((a, b) => a - b);
+}
+
+/**
+ * Préselection lun–ven selon la période.
+ * Le samedi reste selectable manuellement, jamais précoché.
+ */
+export function suggestPresenceWeekdays(
+  periodStart: string,
+  periodEnd: string,
+): StageWeekday[] {
+  return weekdaysPresentInPeriod(periodStart, periodEnd).filter((w) => w <= 5);
+}
+
+export function formatWeekdayListFr(weekdays: StageWeekday[]): string {
+  const labels = [...new Set(weekdays)]
+    .filter((w) => w >= 1 && w <= 6)
+    .sort((a, b) => a - b)
+    .map((w) => STAGE_WEEKDAY_LABELS[w].toLowerCase());
+  if (labels.length === 0) return "";
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} et ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")} et ${labels[labels.length - 1]}`;
+}
+
+export function formatPeriodRangeFr(periodStart: string, periodEnd: string): string {
+  const fmt = (iso: string) =>
+    new Date(`${iso}T12:00:00`).toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    });
+  if (!periodStart || !periodEnd) return "";
+  return `du ${fmt(periodStart)} au ${fmt(periodEnd)}`;
+}
+
+/** Jours cochés qui ne tombent dans aucune date de la période. */
+export function weekdaysOutsidePeriod(
+  weekdays: StageWeekday[],
+  periodStart: string,
+  periodEnd: string,
+): StageWeekday[] {
+  const present = new Set(weekdaysPresentInPeriod(periodStart, periodEnd));
+  return [...new Set(weekdays)]
+    .filter((w) => w >= 1 && w <= 6 && !present.has(w))
+    .sort((a, b) => a - b);
+}
+
+/**
+ * Message d’aide si les jours cochés ne correspondent pas à la période.
+ * Ex. : « Vous cochez le lundi, mais la période ne contient que mercredi à samedi. »
+ */
+export function presencePeriodMismatchMessage(params: {
+  selectedWeekdays: StageWeekday[];
+  periodStart: string;
+  periodEnd: string;
+  attemptedWeekday?: StageWeekday;
+}): string | null {
+  const { periodStart, periodEnd, selectedWeekdays, attemptedWeekday } = params;
+  if (!periodStart || !periodEnd || periodEnd < periodStart) return null;
+
+  const present = weekdaysPresentInPeriod(periodStart, periodEnd);
+  const presentSet = new Set(present);
+  const range = formatPeriodRangeFr(periodStart, periodEnd);
+
+  if (attemptedWeekday && !presentSet.has(attemptedWeekday)) {
+    const dayLabel = STAGE_WEEKDAY_LABELS[attemptedWeekday].toLowerCase();
+    if (present.length === 0) {
+      return `Vous cochez le ${dayLabel}, mais aucune journée ouvrable (lundi–samedi) ne tombe ${range}. Modifiez la date de début.`;
+    }
+    return `Vous cochez le ${dayLabel}, mais il n’y a aucun ${dayLabel} ${range} — la période ne couvre que ${formatWeekdayListFr(present)} (${present.length} jour${present.length > 1 ? "s" : ""}). Modifiez la date de début (ou de fin).`;
+  }
+
+  const outside = weekdaysOutsidePeriod(selectedWeekdays, periodStart, periodEnd);
+  if (outside.length === 0) return null;
+  if (present.length === 0) {
+    return `Les jours cochés (${formatWeekdayListFr(selectedWeekdays)}) ne tombent pas ${range}. Modifiez la date de début.`;
+  }
+  return `Vous avez coché ${formatWeekdayListFr(selectedWeekdays)}, mais ${range} ne contient que ${formatWeekdayListFr(present)} (${present.length} jour${present.length > 1 ? "s" : ""}). Ajustez la date de début (ou de fin), ou décochez les jours absents.`;
+}
+
 export function scheduleSummary(schedule: StageSchedule): string {
   const labels = schedule.days.map(formatDaySlotLabel);
   return `${schedule.periodStart} → ${schedule.periodEnd} · ${labels.join(", ")}`;
@@ -257,6 +350,21 @@ export function validateStageSchedule(schedule: StageSchedule): string | null {
       ? "Aucun jour de présence dans la période — cochez au moins un jour (lundi à samedi)."
       : "Sélectionnez au moins un jour de stage (lundi à samedi).";
   }
+
+  const selected =
+    schedule.presenceWeekdays && schedule.presenceWeekdays.length > 0
+      ? schedule.presenceWeekdays
+      : schedule.mode === "uniform_week"
+        ? schedule.days
+            .map((d) => d.weekday)
+            .filter((w): w is StageWeekday => typeof w === "number" && w >= 1 && w <= 6)
+        : [];
+  const mismatch = presencePeriodMismatchMessage({
+    selectedWeekdays: selected,
+    periodStart: schedule.periodStart,
+    periodEnd: schedule.periodEnd,
+  });
+  if (mismatch) return mismatch;
 
   for (const day of schedule.days) {
     if (schedule.mode === "per_day" && !day.date) return "Chaque jour doit avoir une date.";

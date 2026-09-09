@@ -18,20 +18,39 @@ function norm(s: string) {
 /** Détecte Lycée / Collège / École depuis le nom de dossier (ex. « Dupont — 6e A » → collège). */
 export function inferSecteurFromFolderName(folderName: string): Secteur | null {
   const f = norm(folderName);
+  const compact = f.replace(/\s+/g, "");
+
+  // Codes lycée type « 2A », « 1ES », « TA » — avant le collège, sinon un niveau erroné
+  // stocké à part (ex. 3e) peut masquer un vrai lycéen.
   if (
-    /\b(6e|5e|4e|3e|sixieme|cinquieme|quatrieme|troisieme|3 eme|4 eme|5 eme|6 eme)\b/.test(f) ||
-    f.includes("college") ||
-    f.includes("colleg")
-  ) {
-    return "college";
-  }
-  if (
-    /\b(2nde|2de|seconde|1re|1ere|premiere|terminale|tle|tale|2 nde|1 re)\b/.test(f) ||
+    /^(2nde|2de|seconde)/.test(compact) ||
+    /^2[a-z0-9]/.test(compact) ||
+    compact.includes("2nde") ||
+    compact.includes("seconde") ||
+    /^(1re|1ere|premiere)/.test(compact) ||
+    /^1[a-z]/.test(compact) ||
+    compact.includes("1re") ||
+    compact.includes("prem") ||
+    /^(tle|terminale|tale)/.test(compact) ||
+    /^t[a-z0-9]/.test(compact) ||
+    compact.includes("tle") ||
+    compact.includes("term") ||
     f.includes("lycee") ||
     f.includes("lyc")
   ) {
     return "lycee";
   }
+
+  if (
+    /\b(6e|5e|4e|3e|sixieme|cinquieme|quatrieme|troisieme|3 eme|4 eme|5 eme|6 eme)\b/.test(f) ||
+    /^(6e|5e|4e|3e|6eme|5eme|4eme|3eme)/.test(compact) ||
+    /^[6543][a-z0-9]/.test(compact) ||
+    f.includes("college") ||
+    f.includes("colleg")
+  ) {
+    return "college";
+  }
+
   if (
     /\b(cp|ce1|ce2|cm1|cm2|maternelle|gs|ms|ps|tps|primaire)\b/.test(f) ||
     f.includes("ecole") ||

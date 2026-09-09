@@ -1,12 +1,17 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { StageConvention } from "@/app/lib/stage-types";
 import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-config";
 import type { StageConventionCard } from "@/app/lib/stage-signature-summary";
 import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
 import { scheduleSummary } from "@/app/lib/stage-schedule";
+import {
+  clearPreconventionDeviceMemory,
+  readPreconventionDeviceMemory,
+  writePreconventionDeviceMemory,
+} from "@/app/lib/stage-preconvention-device-memory";
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 
@@ -82,6 +87,41 @@ function StagePreconventionPublicContent() {
   const [parentCode, setParentCode] = useState("");
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
   const [tutorEmailEdit, setTutorEmailEdit] = useState("");
+  const [restoringDevice, setRestoringDevice] = useState(() => {
+    if (tokenFromUrl) return false;
+    return Boolean(readPreconventionDeviceMemory());
+  });
+  const deviceRestoreStarted = useRef(false);
+
+  function rememberIdentity(fields?: {
+    nom?: string;
+    prenom?: string;
+    dateNaissance?: string;
+    classe?: string;
+  }) {
+    writePreconventionDeviceMemory({
+      nom: (fields?.nom ?? nom).trim(),
+      prenom: (fields?.prenom ?? prenom).trim(),
+      dateNaissance: (fields?.dateNaissance ?? dateNaissance).trim(),
+      classe: (fields?.classe ?? classe).trim() || undefined,
+    });
+  }
+
+  function forgetIdentity() {
+    clearPreconventionDeviceMemory();
+    setStudentPreview(null);
+    setDossier(null);
+    setNom("");
+    setPrenom("");
+    setDateNaissance("");
+    setClasse("");
+    setClassOptions([]);
+    setParent1Email("");
+    setParent2Email("");
+    setStep("identity");
+    setError(null);
+    setInfoMsg(null);
+  }
 
   function applyStageContext(ctx: unknown) {
     if (!ctx || typeof ctx !== "object") {
@@ -114,6 +154,21 @@ function StagePreconventionPublicContent() {
     } else {
       setRejectNote(null);
     }
+    const memory = readPreconventionDeviceMemory();
+    const student = data.convention?.student as
+      | { firstName?: string; lastName?: string; className?: string }
+      | undefined;
+    if (memory && student) {
+      const samePerson =
+        memory.prenom.trim().toLowerCase() === String(student.firstName ?? "").trim().toLowerCase() &&
+        memory.nom.trim().toLowerCase() === String(student.lastName ?? "").trim().toLowerCase();
+      if (samePerson) {
+        setNom(memory.nom);
+        setPrenom(memory.prenom);
+        setDateNaissance(memory.dateNaissance);
+        setClasse(memory.classe || String(student.className ?? "") || "");
+      }
+    }
     setStep("form");
   }, []);
 
@@ -123,24 +178,59 @@ function StagePreconventionPublicContent() {
       void loadConvention(tokenFromUrl).catch((e: unknown) =>
         setError(e instanceof Error ? e.message : "Erreur"),
       );
+      return;
     }
+
+    if (deviceRestoreStarted.current) return;
+    const memory = readPreconventionDeviceMemory();
+    if (!memory) {
+      setRestoringDevice(false);
+      return;
+    }
+    deviceRestoreStarted.current = true;
+    setRestoringDevice(true);
+    setNom(memory.nom);
+    setPrenom(memory.prenom);
+    setDateNaissance(memory.dateNaissance);
+    if (memory.classe) setClasse(memory.classe);
+    void identifyWithCredentials(memory)
+      .catch((e: unknown) => {
+        clearPreconventionDeviceMemory();
+        setStep("identity");
+        setError(
+          e instanceof Error
+            ? e.message
+            : "Impossible de vous reconnaître automatiquement. Identifiez-vous à nouveau.",
+        );
+      })
+      .finally(() => setRestoringDevice(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restauration unique au montage
   }, [tokenFromUrl, loadConvention]);
 
   function identityPayload(extra?: Record<string, unknown>) {
+    const memory = readPreconventionDeviceMemory();
     return {
-      nom: nom.trim(),
-      prenom: prenom.trim(),
-      dateNaissance,
-      classe: classe.trim() || undefined,
+      nom: nom.trim() || memory?.nom || "",
+      prenom: prenom.trim() || memory?.prenom || "",
+      dateNaissance: dateNaissance || memory?.dateNaissance || "",
+      classe: (classe.trim() || memory?.classe || undefined) as string | undefined,
       ...extra,
     };
   }
 
-  function applyIdentifySuccess(data: {
-    studentPreview: StudentPreview;
-    dossier: StudentDossier;
-    stageContext?: unknown;
-  }) {
+  function applyIdentifySuccess(
+    data: {
+      studentPreview: StudentPreview;
+      dossier: StudentDossier;
+      stageContext?: unknown;
+    },
+    identity?: {
+      nom: string;
+      prenom: string;
+      dateNaissance: string;
+      classe?: string;
+    },
+  ) {
     const preview = data.studentPreview;
     setStudentPreview(preview);
     setParent1Email(String(preview.parent1Email ?? ""));
@@ -149,10 +239,59 @@ function StagePreconventionPublicContent() {
     setDossier(data.dossier);
     applyStageContext(data.stageContext);
     setClassOptions([]);
-    if (preview.className && !classe.trim()) {
-      setClasse(preview.className);
-    }
+    const nextClasse = (identity?.classe || preview.className || classe).trim();
+    if (nextClasse) setClasse(nextClasse);
+    rememberIdentity({
+      nom: (identity?.nom || preview.lastName || nom).trim(),
+      prenom: (identity?.prenom || preview.firstName || prenom).trim(),
+      dateNaissance: (identity?.dateNaissance || dateNaissance).trim(),
+      classe: nextClasse || undefined,
+    });
     setStep("dashboard");
+  }
+
+  async function identifyWithCredentials(creds: {
+    nom: string;
+    prenom: string;
+    dateNaissance: string;
+    classe?: string;
+  }) {
+    const res = await fetch("/api/stages/public/preconvention", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nom: creds.nom.trim(),
+        prenom: creds.prenom.trim(),
+        dateNaissance: creds.dateNaissance,
+        classe: creds.classe?.trim() || undefined,
+        action: "identify",
+      }),
+    });
+    const data = await res.json();
+    if (data?.needsClass === true) {
+      const options = Array.isArray(data.candidates)
+        ? data.candidates
+            .map((c: { className?: string }) => String(c?.className ?? "").trim())
+            .filter(Boolean)
+        : [];
+      setClassOptions(options);
+      setClasse("");
+      setNom(creds.nom);
+      setPrenom(creds.prenom);
+      setDateNaissance(creds.dateNaissance);
+      setStep("identity");
+      setError(
+        String(data.message ?? "Plusieurs élèves correspondent. Sélectionnez votre classe."),
+      );
+      return { ok: false as const, needsClass: true as const };
+    }
+    if (!res.ok) throw new Error(data?.error || "Erreur");
+    setNom(creds.nom.trim());
+    setPrenom(creds.prenom.trim());
+    setDateNaissance(creds.dateNaissance);
+    if (creds.classe) setClasse(creds.classe.trim());
+    applyIdentifySuccess(data, creds);
+    return { ok: true as const };
   }
 
   async function verifyIdentity(e: React.FormEvent) {
@@ -160,28 +299,7 @@ function StagePreconventionPublicContent() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/stages/public/preconvention", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(identityPayload({ action: "identify" })),
-      });
-      const data = await res.json();
-      if (data?.needsClass === true) {
-        const options = Array.isArray(data.candidates)
-          ? data.candidates
-              .map((c: { className?: string }) => String(c?.className ?? "").trim())
-              .filter(Boolean)
-          : [];
-        setClassOptions(options);
-        setClasse("");
-        setError(
-          String(data.message ?? "Plusieurs élèves correspondent. Sélectionnez votre classe."),
-        );
-        return;
-      }
-      if (!res.ok) throw new Error(data?.error || "Erreur");
-
-      applyIdentifySuccess(data);
+      await identifyWithCredentials({ nom, prenom, dateNaissance, classe });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -348,28 +466,32 @@ function StagePreconventionPublicContent() {
     setRejectNote(null);
     setShowParentCode(false);
     router.replace("/stages/preconvention");
-    if (studentPreview && dossier) {
-      setStep("dashboard");
-      void (async () => {
-        const res = await fetch("/api/stages/public/preconvention", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(identityPayload({ action: "identify" })),
-        });
-        const data = await res.json();
-        if (res.ok && data?.success !== false) {
-          setDossier(data.dossier);
-          applyStageContext(data.stageContext);
-          if (data.studentPreview) {
-            setStudentPreview(data.studentPreview);
-            setParent1Email(String(data.studentPreview.parent1Email ?? parent1Email));
-            setParent2Email(String(data.studentPreview.parent2Email ?? parent2Email));
-          }
-        }
-      })();
-    } else {
+    const memory = readPreconventionDeviceMemory();
+    const creds = {
+      nom: nom.trim() || memory?.nom || "",
+      prenom: prenom.trim() || memory?.prenom || "",
+      dateNaissance: dateNaissance || memory?.dateNaissance || "",
+      classe: classe.trim() || memory?.classe || undefined,
+    };
+    if (!creds.nom || !creds.prenom || !creds.dateNaissance) {
       setStep("identity");
+      return;
     }
+    setBusy(true);
+    void identifyWithCredentials(creds)
+      .catch((e: unknown) => {
+        setStep("identity");
+        setError(e instanceof Error ? e.message : "Erreur");
+      })
+      .finally(() => setBusy(false));
+  }
+
+  if (restoringDevice) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6">
+        <p className="text-sm text-stone-600">Reconnaissance de votre appareil…</p>
+      </main>
+    );
   }
 
   if (step === "form" && !convention && !error) {
@@ -470,23 +592,37 @@ function StagePreconventionPublicContent() {
         {step === "dashboard" && studentPreview && dossier && (
           <div className="mt-6 space-y-6 text-sm">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-              <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">
-                Élève reconnu
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">
+                    Élève reconnu
+                  </p>
+                  <p className="mt-1 text-base font-black text-[#1F3D2B]">
+                    {studentPreview.firstName} {studentPreview.lastName}
+                  </p>
+                  <p className="text-stone-600">
+                    {studentPreview.className} · Année {dossier.schoolYear}
+                  </p>
+                  {(studentPreview.parentPhone || studentPreview.parent2Phone) && (
+                    <p className="mt-1 text-xs text-stone-600">
+                      Tél. responsable :{" "}
+                      {[studentPreview.parentPhone, studentPreview.parent2Phone]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={forgetIdentity}
+                  className="shrink-0 text-xs font-semibold text-stone-500 underline"
+                >
+                  Ce n&apos;est pas moi
+                </button>
+              </div>
+              <p className="mt-2 text-[11px] text-emerald-800/80">
+                Cet appareil se souvient de votre identification pour éviter de ressaisir vos infos.
               </p>
-              <p className="mt-1 text-base font-black text-[#1F3D2B]">
-                {studentPreview.firstName} {studentPreview.lastName}
-              </p>
-              <p className="text-stone-600">
-                {studentPreview.className} · Année {dossier.schoolYear}
-              </p>
-              {(studentPreview.parentPhone || studentPreview.parent2Phone) && (
-                <p className="mt-1 text-xs text-stone-600">
-                  Tél. responsable :{" "}
-                  {[studentPreview.parentPhone, studentPreview.parent2Phone]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              )}
             </div>
 
             <div className="rounded-xl border-2 border-rose-300 bg-rose-50 px-4 py-4 space-y-3">
@@ -691,10 +827,19 @@ function StagePreconventionPublicContent() {
             </div>
 
             {done && (
-              <p className="mt-4 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
-                Préconvention envoyée à l&apos;administratif pour validation. Vous serez notifié une
-                fois la convention prête à signer.
-              </p>
+              <div className="mt-4 space-y-3">
+                <p className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
+                  Préconvention envoyée à l&apos;administratif pour validation. Vous serez notifié une
+                  fois la convention prête à signer.
+                </p>
+                <button
+                  type="button"
+                  onClick={backToDashboard}
+                  className="w-full rounded-lg border border-[#2F6B4A] bg-white py-2.5 text-sm font-bold text-[#2F6B4A]"
+                >
+                  Retour à mes stages
+                </button>
+              </div>
             )}
 
             {rejectNote && !done && (
