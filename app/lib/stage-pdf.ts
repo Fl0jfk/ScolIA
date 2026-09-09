@@ -398,10 +398,28 @@ function drawHeader(ctx: PdfCtx, schoolYear: string, refId: string) {
     color: palette.accent,
   });
 
-  ctx.page.drawText(sanitizePdfText(`Année ${schoolYear}  ·  ${refId}`), {
-    x: bx,
-    y: yBottom + 16,
+  const rightEdge = margin + contentW - 16;
+  const yearLine = sanitizePdfText(`Année ${schoolYear}`);
+  const yearW = ctx.font.widthOfTextAtSize(yearLine, 6.5);
+  ctx.page.drawText(yearLine, {
+    x: rightEdge - yearW,
+    y: yBottom + 28,
     size: 6.5,
+    font: ctx.font,
+    color: palette.soft,
+  });
+
+  const maxRefW = Math.min(badgeW + 8, contentW * 0.42);
+  let refLine = sanitizePdfText(`N° ${refId}`);
+  while (ctx.font.widthOfTextAtSize(refLine, 6) > maxRefW && refLine.length > 14) {
+    const keep = Math.max(8, refId.length - (refLine.length - 14));
+    refLine = sanitizePdfText(`N° …${refId.slice(-keep)}`);
+  }
+  const refW = ctx.font.widthOfTextAtSize(refLine, 6);
+  ctx.page.drawText(refLine, {
+    x: rightEdge - refW,
+    y: yBottom + 16,
+    size: 6,
     font: ctx.font,
     color: palette.soft,
   });
@@ -615,20 +633,49 @@ function drawScheduleTable(ctx: PdfCtx, convention: StageConvention) {
   ctx.y = yBottom - 12;
 }
 
+/** Marqueur PDF (subject) — page annexes réservée aux paraphes électroniques. */
+export const STAGE_ESIGN_ANNEX_SUBJECT = "SCOLIA_ESIGN_ANNEX";
+
+export const STAGE_ESIGN_PAGE_TITLE = "Signatures électroniques";
+
 function signatureBoxLabel(sig: StageSignature): string {
   return STAGE_SIGNER_ROLE_LABELS[sig.role] || sig.label || sig.role;
 }
 
+/** Positions des cases signature (coords PDF, y = bas de la case) — page annexes. */
+export function electronicSignatureBoxLayout(params: {
+  pageWidth: number;
+  pageHeight: number;
+  index: number;
+  total: number;
+}): { x: number; y: number; width: number; height: number } {
+  const margin = 40;
+  const contentW = params.pageWidth - margin * 2;
+  const gap = 12;
+  const boxW = (contentW - gap) / 2;
+  const boxH = 82;
+  const headerReserve = 120;
+  const col = params.index % 2;
+  const row = Math.floor(params.index / 2);
+  const x = margin + col * (boxW + gap);
+  const yTop = params.pageHeight - headerReserve - row * (boxH + gap);
+  return { x, y: yTop - boxH, width: boxW, height: boxH };
+}
+
 function drawSignatureGrid(ctx: PdfCtx, signatures: StageSignature[]) {
   const { palette, margin, contentW } = ctx;
+  // Toujours une page dédiée : n'empiète pas sur d'éventuelles signatures manuscrites.
+  newPage(ctx);
+  ctx.doc.setSubject(STAGE_ESIGN_ANNEX_SUBJECT);
+
   ensureSpace(ctx, 40);
-  drawText(ctx, "Validation", { size: 12, bold: true, color: palette.accent });
+  drawText(ctx, STAGE_ESIGN_PAGE_TITLE, { size: 14, bold: true, color: palette.accent });
   drawText(
     ctx,
-    "La présente convention est validée par signature électronique des parties suivantes.",
+    "Page réservée aux signatures et paraphes électroniques. Les signatures manuscrites (document papier) restent sur les pages précédentes.",
     { size: 8.5, color: palette.muted },
   );
-  ctx.y -= 6;
+  ctx.y -= 10;
 
   const gap = 12;
   const boxW = (contentW - gap) / 2;
@@ -679,7 +726,7 @@ function drawSignatureGrid(ctx: PdfCtx, signatures: StageSignature[]) {
       font: ctx.font,
       color: palette.muted,
     });
-    ctx.page.drawText(sanitizePdfText("Zone signature / paraphe"), {
+    ctx.page.drawText(sanitizePdfText("Zone signature / paraphe électronique"), {
       x: x + 14,
       y: yTop - boxH + 14,
       size: 7,

@@ -1,9 +1,18 @@
 import { NextResponse } from "next/server";
-import { applyConventionSignature, resolveSignTokenBySecureCode } from "@/app/lib/stage-workflow";
+import {
+  applyConventionSignature,
+  requestSignConfirmCode,
+  resolveSignTokenBySecureCode,
+} from "@/app/lib/stage-workflow";
 import { roleStampsPdf } from "@/app/lib/stage-pdf-sign";
 import { loadReferentSignatureBytes } from "@/app/lib/stage-signature-store";
 import { getSignTokenRef, getStageConvention } from "@/app/lib/stage-storage";
-import { scheduleSummary } from "@/app/lib/stage-schedule";
+import {
+  formatDaySlotLabel,
+  formatPeriodRangeFr,
+  scheduleSummary,
+  STAGE_WEEKDAY_LABELS,
+} from "@/app/lib/stage-schedule";
 import {
   isExternalStageSignerRole,
   STAGE_SIGNER_ROLE_LABELS,
@@ -41,6 +50,36 @@ export async function GET(req: Request) {
     const needsDrawnSignature =
       !isExternal && signature.role === "professeur_referent" && stampsPdf && !hasStoredReferentSignature;
 
+    const scheduleDays = convention.schedule.days.map((day) => {
+      const title = day.date
+        ? new Date(`${day.date}T12:00:00`).toLocaleDateString("fr-FR", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          })
+        : day.weekday
+          ? STAGE_WEEKDAY_LABELS[day.weekday]
+          : "Jour";
+      let hours = "—";
+      if (!day.hasLunchBreak && day.fullDayStart && day.fullDayEnd) {
+        hours = `${day.fullDayStart} – ${day.fullDayEnd}`;
+      } else {
+        const parts: string[] = [];
+        if (day.morningStart && day.morningEnd) {
+          parts.push(`${day.morningStart} – ${day.morningEnd}`);
+        }
+        if (day.afternoonStart && day.afternoonEnd) {
+          parts.push(`${day.afternoonStart} – ${day.afternoonEnd}`);
+        }
+        if (parts.length) hours = parts.join("  ·  ");
+      }
+      return {
+        title,
+        hours,
+        label: formatDaySlotLabel(day),
+      };
+    });
+
     return NextResponse.json({
       convention: {
         id: convention.id,
@@ -48,7 +87,12 @@ export async function GET(req: Request) {
         className: convention.student.className,
         companyName: convention.company.name,
         period: `${convention.schedule.periodStart} → ${convention.schedule.periodEnd}`,
+        periodLabel: formatPeriodRangeFr(
+          convention.schedule.periodStart,
+          convention.schedule.periodEnd,
+        ),
         scheduleSummary: scheduleSummary(convention.schedule),
+        scheduleDays,
         hasPdf: Boolean(convention.uploadedPdf?.s3Key),
       },
       signature: {
@@ -99,11 +143,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ token });
     }
 
+    if (action === "request_confirm_code") {
+      const token = String(body.token ?? "").trim();
+      if (!token) return NextResponse.json({ error: "Jeton manquant." }, { status: 400 });
+      const result = await requestSignConfirmCode(token);
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      if (!result.sent) {
+        return NextResponse.json(
+          {
+            error:
+              result.reason === "smtp"
+                ? "Envoi e-mail indisponible (SMTP non configuré)."
+                : "Impossible d'envoyer le code par e-mail.",
+          },
+          { status: 502 },
+        );
+      }
+      return NextResponse.json({ success: true, sent: true });
+    }
+
     const token = String(body.token ?? "").trim();
     const signerName = String(body.signerName ?? "").trim();
     const signaturePngBase64 = String(body.signaturePngBase64 ?? "").trim() || undefined;
     const paperPdfBase64 = String(body.paperPdfBase64 ?? "").trim() || undefined;
     const paperFileName = String(body.paperFileName ?? "").trim() || undefined;
+    const confirmCode = String(body.confirmCode ?? "").trim() || undefined;
     const signMethod = String(body.signMethod ?? "").trim() as StageSignMethod | "";
     if (!token) return NextResponse.json({ error: "Jeton manquant." }, { status: 400 });
 
@@ -113,6 +177,7 @@ export async function POST(req: Request) {
       signaturePngBase64,
       paperPdfBase64,
       paperFileName,
+      confirmCode,
       signMethod: signMethod || undefined,
     });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });

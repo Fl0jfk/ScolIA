@@ -31,13 +31,13 @@ import {
   notifyStagePreconventionSubmitted,
   notifyStageSignatureRejected,
   notifyStageSignatureRequest,
+  notifyStageSignConfirmCode,
 } from "@/app/lib/stage-notify";
 import {
   getSignTokenRef,
   getSignCodeLookup,
   getStageConvention,
   getStudentTokenRef,
-  saveSignCodeLookup,
   saveSignTokenRef,
   saveStageConvention,
   saveStudentTokenRef,
@@ -220,7 +220,6 @@ async function attachSignTokens(convention: StageConvention): Promise<StageConve
       continue;
     }
     const token = generateStageToken();
-    const secureCode = generateStageSecureCode();
     const ref: StageSignTokenRef = {
       conventionId: convention.id,
       signatureId: sig.id,
@@ -228,18 +227,12 @@ async function attachSignTokens(convention: StageConvention): Promise<StageConve
       createdAt: new Date().toISOString(),
     };
     await saveSignTokenRef(token, ref);
-    if (sig.signEmail?.trim()) {
-      await saveSignCodeLookup(sig.signEmail, secureCode, {
-        token,
-        conventionId: convention.id,
-        signatureId: sig.id,
-        createdAt: new Date().toISOString(),
-      });
-    }
     signatures.push({
       ...sig,
       signToken: token,
-      signSecureCode: secureCode,
+      signSecureCode: undefined,
+      signConfirmCode: undefined,
+      signConfirmCodeSentAt: undefined,
       signSentAt: new Date().toISOString(),
     });
   }
@@ -325,6 +318,7 @@ export async function submitPreconvention(
 }
 
 const PARENT_VERIFY_TTL_MS = 30 * 60 * 1000;
+const SIGN_CONFIRM_TTL_MS = 30 * 60 * 1000;
 
 export async function sendParentEmailVerificationCode(
   convention: StageConvention,
@@ -442,7 +436,6 @@ export async function updateTutorEmailAndResend(params: {
     );
     if (tutorSig) {
       const token = generateStageToken();
-      const secureCode = generateStageSecureCode();
       const ref: StageSignTokenRef = {
         conventionId: next.id,
         signatureId: tutorSig.id,
@@ -450,12 +443,6 @@ export async function updateTutorEmailAndResend(params: {
         createdAt: now,
       };
       await saveSignTokenRef(token, ref);
-      await saveSignCodeLookup(email, secureCode, {
-        token,
-        conventionId: next.id,
-        signatureId: tutorSig.id,
-        createdAt: now,
-      });
       next = {
         ...next,
         signatures: next.signatures.map((s) =>
@@ -464,7 +451,9 @@ export async function updateTutorEmailAndResend(params: {
                 ...s,
                 signEmail: email,
                 signToken: token,
-                signSecureCode: secureCode,
+                signSecureCode: undefined,
+                signConfirmCode: undefined,
+                signConfirmCodeSentAt: undefined,
                 signSentAt: now,
               }
             : s,
@@ -614,6 +603,8 @@ export async function applyConventionSignature(params: {
   signMethod?: StageSignMethod;
   paperPdfBase64?: string;
   paperFileName?: string;
+  /** Code OTP reçu par e-mail (mode code_confirm). */
+  confirmCode?: string;
 }): Promise<
   | { ok: true; convention: StageConvention }
   | { ok: false; error: string }
@@ -640,6 +631,25 @@ export async function applyConventionSignature(params: {
     }
     if (signMethod === "paper_upload" && !params.paperPdfBase64?.trim()) {
       return { ok: false, error: "Déposez le PDF signé." };
+    }
+    if (signMethod === "code_confirm") {
+      const pending = sig.signConfirmCode;
+      const sentAt = sig.signConfirmCodeSentAt;
+      if (!pending || !sentAt) {
+        return {
+          ok: false,
+          error: "Demandez d'abord un code e-mail (bouton Valider ma signature).",
+        };
+      }
+      const age = Date.now() - new Date(sentAt).getTime();
+      if (age > SIGN_CONFIRM_TTL_MS) {
+        return { ok: false, error: "Code expiré. Demandez un nouveau code." };
+      }
+      const expected = pending.replace(/\D/g, "");
+      const given = String(params.confirmCode ?? "").replace(/\D/g, "").trim();
+      if (!given || expected !== given) {
+        return { ok: false, error: "Code incorrect." };
+      }
     }
   }
 
@@ -706,6 +716,8 @@ export async function applyConventionSignature(params: {
           reviewNote: undefined,
           reviewedAt: reviewStatus === "accepted" ? now : undefined,
           reviewedBy: reviewStatus === "accepted" ? params.signerName?.trim() || s.label : undefined,
+          signConfirmCode: undefined,
+          signConfirmCodeSentAt: undefined,
         }
       : s,
   );
@@ -738,7 +750,6 @@ async function regenerateSignatureToken(
   sig: StageSignature,
 ): Promise<StageSignature> {
   const token = generateStageToken();
-  const secureCode = generateStageSecureCode();
   const ref: StageSignTokenRef = {
     conventionId,
     signatureId: sig.id,
@@ -746,19 +757,64 @@ async function regenerateSignatureToken(
     createdAt: new Date().toISOString(),
   };
   await saveSignTokenRef(token, ref);
-  if (sig.signEmail?.trim()) {
-    await saveSignCodeLookup(sig.signEmail, secureCode, {
-      token,
-      conventionId,
-      signatureId: sig.id,
-      createdAt: new Date().toISOString(),
-    });
-  }
   return {
     ...sig,
     signToken: token,
-    signSecureCode: secureCode,
+    signSecureCode: undefined,
+    signConfirmCode: undefined,
+    signConfirmCodeSentAt: undefined,
     signSentAt: new Date().toISOString(),
+  };
+}
+
+/** Génère et envoie le code OTP pour le mode « Code e-mail » (au moment du Valider). */
+export async function requestSignConfirmCode(
+  token: string,
+): Promise<
+  | { ok: true; sent: boolean; reason?: string }
+  | { ok: false; error: string }
+> {
+  const ref = await getSignTokenRef(token);
+  if (!ref) return { ok: false, error: "Lien invalide." };
+
+  const convention = await getStageConvention(ref.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+
+  const sig = convention.signatures.find((s) => s.id === ref.signatureId);
+  if (!sig) return { ok: false, error: "Signature introuvable." };
+  if (sig.status === "signe" && sig.reviewStatus !== "rejected") {
+    return { ok: false, error: "Déjà signé." };
+  }
+
+  const to = sig.signEmail?.trim();
+  if (!to || !isValidEmail(to)) {
+    return { ok: false, error: "Aucune adresse e-mail associée à cette signature." };
+  }
+
+  const code = generateStageSecureCode();
+  const now = new Date().toISOString();
+  const next: StageConvention = {
+    ...convention,
+    signatures: convention.signatures.map((s) =>
+      s.id === sig.id
+        ? { ...s, signConfirmCode: code, signConfirmCodeSentAt: now }
+        : s,
+    ),
+    updatedAt: now,
+  };
+  await saveStageConvention(next);
+
+  const mail = await notifyStageSignConfirmCode({
+    to,
+    studentName: `${convention.student.firstName} ${convention.student.lastName}`.trim(),
+    roleLabel: STAGE_SIGNER_ROLE_LABELS[sig.role],
+    code,
+  });
+
+  return {
+    ok: true,
+    sent: mail.sent,
+    reason: !mail.sent && "reason" in mail ? String(mail.reason) : undefined,
   };
 }
 

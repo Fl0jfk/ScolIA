@@ -258,43 +258,21 @@ async function notifyStageSignatureRequest(
   const school = bundle.identity.shortName || bundle.identity.name;
   const roleLabel = STAGE_SIGNER_ROLE_LABELS[signature.role];
   const link = await signLink(signature.signToken);
-  const intranetStages = await tenantAbsolutePath("/stages");
-
-  const profHint =
-    signature.role === "professeur_referent"
-      ? [
-          "",
-          "Conseil : enregistrez votre signature une fois dans Mon compte → Sécurité → Ma signature,",
-          "puis signez en un clic depuis ce lien ou depuis le bandeau de notifications du module.",
-        ]
-      : signature.role === "direction"
-        ? [
-            "",
-            "Votre paraphe direction sera apposé automatiquement sur le PDF de la convention.",
-          ]
-        : [];
+  const period =
+    convention.schedule.periodStart && convention.schedule.periodEnd
+      ? `${convention.schedule.periodStart} → ${convention.schedule.periodEnd}`
+      : null;
+  const signerName = signature.label?.trim() || roleLabel;
 
   const text = [
-    "Bonjour,",
+    `Bonjour ${signerName},`,
     "",
-    `La convention de stage de ${studentLabel(convention)} (${convention.student.className}) a été validée par l'administration.`,
-    `Votre signature est maintenant requise en tant que ${roleLabel}.`,
+    `La convention de stage de ${studentLabel(convention)} (classe ${convention.student.className}) a bien été validée par l'administration.`,
+    `Votre signature est requise en tant que ${roleLabel}.`,
+    period ? `Période du stage : ${period}.` : null,
     "",
-    `Entreprise : ${convention.company.name}`,
-    `Période : ${convention.schedule.periodStart} → ${convention.schedule.periodEnd}`,
-    `Horaires : ${scheduleSummary(convention.schedule)}`,
-    "",
-    signature.signSecureCode
-      ? `Code de signature sécurisé : ${signature.signSecureCode}`
-      : null,
-    "Pour signer en ligne :",
+    "Pour signer la convention, ouvrez le lien sécurisé ci-dessous :",
     link,
-    signature.signSecureCode
-      ? `Vous pouvez aussi ouvrir ${await tenantAbsolutePath("/stages/signer")} et saisir votre e-mail + le code ci-dessus.`
-      : null,
-    "",
-    `Vous pouvez aussi ouvrir le module Stages : ${intranetStages}`,
-    ...profHint,
     "",
     "Cordialement,",
     school,
@@ -321,6 +299,52 @@ async function notifyStageSignatureRequest(
 }
 
 export { notifyStageSignatureRequest };
+
+/** OTP envoyé uniquement quand le signataire choisit « Code e-mail » puis Valider. */
+export async function notifyStageSignConfirmCode(params: {
+  to: string;
+  studentName: string;
+  roleLabel: string;
+  code: string;
+}): Promise<{ sent: boolean; reason?: string; error?: string }> {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" };
+  const to = params.to.trim();
+  if (!to) return { sent: false, reason: "no_email" };
+
+  const bundle = await loadAppConfig();
+  const school = bundle.identity.shortName || bundle.identity.name;
+  const text = [
+    "Bonjour,",
+    "",
+    `Voici votre code de confirmation pour signer la convention de stage de ${params.studentName}`,
+    `en tant que ${params.roleLabel} :`,
+    "",
+    `  ${params.code}`,
+    "",
+    "Ce code est valable 30 minutes. Saisissez-le sur la page de signature pour valider.",
+    "",
+    "Cordialement,",
+    school,
+  ].join("\n");
+
+  try {
+    await m.transporter.sendMail({
+      from: `"Stages ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `[Stages] Code de signature — ${params.studentName}`,
+      text,
+    });
+    return { sent: true };
+  } catch (err) {
+    console.error("[stages] send sign confirm code failed:", to, err);
+    return {
+      sent: false,
+      reason: "smtp_error",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
 
 /** Code OTP pour confirmer l'e-mail du responsable légal avant soumission. */
 export async function notifyParentEmailVerification(params: {
@@ -391,13 +415,8 @@ export async function notifyStageSignatureRejected(
     `Votre signature pour la convention de stage de ${studentLabel(convention)} n'a pas pu être acceptée.`,
     note ? `Motif : ${note}` : null,
     "",
-    "Merci de signer à nouveau la convention en utilisant l'un des modes proposés :",
-    "- code sécurisé reçu par e-mail,",
-    "- signature au doigt sur l'écran,",
-    "- ou dépôt du document signé en papier (scan / photo PDF).",
-    "",
-    signature.signSecureCode ? `Nouveau code : ${signature.signSecureCode}` : null,
-    `Lien : ${link}`,
+    "Merci de signer à nouveau via le lien ci-dessous (code e-mail, signature au doigt, ou document papier) :",
+    link,
     "",
     "Cordialement,",
     school,

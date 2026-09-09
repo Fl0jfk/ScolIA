@@ -139,8 +139,14 @@ export type StageSignature = {
   label: string;
   status: StageSignatureStatus;
   signToken?: string;
-  /** Code à 6 chiffres envoyé par e-mail (alternative au lien). */
+  /**
+   * Ancien code d'accès au lien (legacy). Le code de confirmation
+   * « Code e-mail » est désormais dans `signConfirmCode`.
+   */
   signSecureCode?: string;
+  /** OTP envoyé quand le signataire choisit « Code e-mail » puis Valider. */
+  signConfirmCode?: string;
+  signConfirmCodeSentAt?: string;
   signEmail?: string;
   signSentAt?: string;
   signedAt?: string;

@@ -2,8 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import StageConventionPdfPreview from "@/app/components/stages/StageConventionPdfPreview";
 
 type SignMethod = "code_confirm" | "touch" | "paper_upload";
+
+type ScheduleDay = {
+  title: string;
+  hours: string;
+  label: string;
+};
 
 type SignView = {
   convention: {
@@ -11,7 +18,9 @@ type SignView = {
     className: string;
     companyName: string;
     period: string;
+    periodLabel?: string;
     scheduleSummary: string;
+    scheduleDays?: ScheduleDay[];
     hasPdf: boolean;
   };
   signature: {
@@ -86,14 +95,14 @@ function SignatureCanvas({ onChange }: { onChange: (dataUrl: string | null) => v
 
   return (
     <div>
-      <p className="text-xs font-semibold text-stone-600 mb-2">
+      <p className="mb-2 text-xs font-semibold text-stone-600">
         Signez avec le doigt ou la souris dans le cadre ci-dessous
       </p>
       <canvas
         ref={canvasRef}
         width={400}
         height={120}
-        className="w-full touch-none rounded-lg border-2 border-dashed border-stone-300 bg-white cursor-crosshair"
+        className="w-full cursor-crosshair touch-none rounded-lg border-2 border-dashed border-stone-300 bg-white"
         onMouseDown={start}
         onMouseMove={move}
         onMouseUp={end}
@@ -136,8 +145,9 @@ export default function StagePublicSignerClient() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [pendingReview, setPendingReview] = useState(false);
-  const [codeEmail, setCodeEmail] = useState("");
-  const [secureCode, setSecureCode] = useState("");
+  const [confirmCode, setConfirmCode] = useState("");
+  const [codeSent, setCodeSent] = useState(false);
+  const [codeHint, setCodeHint] = useState<string | null>(null);
 
   const load = useCallback(async (activeToken: string) => {
     if (!activeToken) {
@@ -167,21 +177,21 @@ export default function StagePublicSignerClient() {
     }
   }, [initialToken, load]);
 
-  async function resolveCode(e: React.FormEvent) {
-    e.preventDefault();
+  async function requestEmailCode() {
+    if (!token) return;
     setBusy(true);
     setError(null);
+    setCodeHint(null);
     try {
       const res = await fetch("/api/stages/public/sign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "resolve_code", email: codeEmail, code: secureCode }),
+        body: JSON.stringify({ action: "request_confirm_code", token }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Code invalide");
-      setToken(data.token);
-      router.replace(`/stages/signer?token=${encodeURIComponent(data.token)}`);
-      await load(data.token);
+      if (!res.ok) throw new Error(data?.error || "Envoi du code impossible");
+      setCodeSent(true);
+      setCodeHint("Un code à 6 chiffres vient d'être envoyé à votre adresse e-mail.");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -192,6 +202,17 @@ export default function StagePublicSignerClient() {
   async function sign(chosenMethod?: SignMethod) {
     if (!view || !token) return;
     const method = chosenMethod ?? signMethod;
+
+    if (method === "code_confirm" && view.isExternalSigner) {
+      if (!codeSent) {
+        await requestEmailCode();
+        return;
+      }
+      if (!/^\d{6}$/.test(confirmCode.trim())) {
+        setError("Saisissez le code à 6 chiffres reçu par e-mail.");
+        return;
+      }
+    }
 
     if (method === "touch" && !signaturePng && !view.hasStoredReferentSignature && view.needsDrawnSignature) {
       setError("Dessinez votre signature dans le cadre ci-dessous.");
@@ -224,6 +245,7 @@ export default function StagePublicSignerClient() {
           signaturePngBase64: method === "touch" ? signaturePng || undefined : undefined,
           paperPdfBase64,
           paperFileName: paperFile?.name,
+          confirmCode: method === "code_confirm" ? confirmCode.trim() : undefined,
         }),
       });
       const data = await res.json();
@@ -244,48 +266,27 @@ export default function StagePublicSignerClient() {
         <div className="mx-auto max-w-md rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
           <h1 className="text-2xl font-black text-[#1F3D2B]">Signer une convention</h1>
           <p className="mt-2 text-sm text-stone-600">
-            Saisissez l&apos;e-mail sur lequel vous avez reçu le code sécurisé à 6 chiffres.
+            Utilisez le lien sécurisé reçu par e-mail pour accéder à la page de signature.
           </p>
-          {error && <p className="mt-4 text-sm text-rose-700">{error}</p>}
-          <form onSubmit={(e) => void resolveCode(e)} className="mt-6 space-y-4 text-sm">
-            <input
-              className="w-full rounded-lg border px-3 py-2"
-              type="email"
-              placeholder="Votre e-mail"
-              value={codeEmail}
-              onChange={(e) => setCodeEmail(e.target.value)}
-              required
-            />
-            <input
-              className="w-full rounded-lg border px-3 py-2 font-mono tracking-widest text-center text-lg"
-              inputMode="numeric"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              placeholder="Code 6 chiffres"
-              value={secureCode}
-              onChange={(e) => setSecureCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              required
-            />
-            <button
-              type="submit"
-              disabled={busy}
-              className="w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white disabled:opacity-50"
-            >
-              {busy ? "Vérification…" : "Accéder à la convention"}
-            </button>
-          </form>
+          <button
+            type="button"
+            onClick={() => router.push("/")}
+            className="mt-6 w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white"
+          >
+            Retour à l&apos;accueil
+          </button>
         </div>
       </main>
     );
   }
 
   if (!view && !error) {
-    return <main className="min-h-screen flex items-center justify-center p-6">Chargement…</main>;
+    return <main className="flex min-h-screen items-center justify-center p-6">Chargement…</main>;
   }
 
   if (error && !view) {
     return (
-      <main className="min-h-screen flex items-center justify-center p-6">
+      <main className="flex min-h-screen items-center justify-center p-6">
         <p className="text-rose-700">{error}</p>
       </main>
     );
@@ -295,6 +296,7 @@ export default function StagePublicSignerClient() {
 
   const isDirection = view.signature.role === "direction";
   const isProf = view.signature.role === "professeur_referent";
+  const scheduleDays = view.convention.scheduleDays ?? [];
 
   return (
     <main className="min-h-screen bg-[#f6f8f5] px-4 py-10">
@@ -314,34 +316,63 @@ export default function StagePublicSignerClient() {
           </p>
         )}
 
-        <div className="mt-6 rounded-xl bg-stone-50 p-4 text-sm space-y-2">
-          <p>
-            <strong>Élève :</strong> {view.convention.studentName} ({view.convention.className})
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl border border-stone-200/80 bg-gradient-to-br from-[#1F3D2B] to-[#2F6B4A] p-4 text-white shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
+              Élève
+            </p>
+            <p className="mt-1 text-lg font-bold leading-tight">{view.convention.studentName}</p>
+            <p className="mt-1 text-sm text-white/85">{view.convention.className}</p>
+          </div>
+          <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+              Entreprise
+            </p>
+            <p className="mt-1 text-lg font-bold leading-tight text-stone-900">
+              {view.convention.companyName}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800/70">
+            Période
           </p>
-          <p>
-            <strong>Entreprise :</strong> {view.convention.companyName}
-          </p>
-          <p>
-            <strong>Période :</strong> {view.convention.period}
-          </p>
-          <p>
-            <strong>Horaires :</strong> {view.convention.scheduleSummary}
+          <p className="mt-1 text-base font-bold capitalize text-amber-950">
+            {view.convention.periodLabel || view.convention.period}
           </p>
         </div>
 
+        {scheduleDays.length > 0 && (
+          <div className="mt-3">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+              Horaires de présence
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {scheduleDays.map((day) => (
+                <div
+                  key={day.label}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2.5 shadow-sm"
+                >
+                  <span className="text-sm font-semibold capitalize text-stone-800">{day.title}</span>
+                  <span className="rounded-lg bg-[#2F6B4A]/10 px-2 py-1 font-mono text-xs font-bold text-[#1F3D2B]">
+                    {day.hours}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {view.pdfUrl && (
           <div className="mt-6">
-            <p className="text-xs font-bold text-stone-600 mb-2">Aperçu du document</p>
-            <iframe
-              title="Convention PDF"
-              src={view.pdfUrl}
-              className="h-[420px] w-full rounded-lg border border-stone-200"
-            />
+            <p className="mb-2 text-xs font-bold text-stone-600">Aperçu du document</p>
+            <StageConventionPdfPreview url={view.pdfUrl} />
           </div>
         )}
 
         {done ? (
-          <p className="mt-6 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-800">
+          <p className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             {pendingReview
               ? "Votre signature a été transmise et sera validée par l'établissement sous peu."
               : `Signature enregistrée${view.signature.signedBy ? ` par ${view.signature.signedBy}` : ""}${view.stampsPdf ? " — paraphe ajouté sur le PDF." : "."}`}
@@ -366,8 +397,16 @@ export default function StagePublicSignerClient() {
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setSignMethod(id)}
-                  className={`rounded-lg px-3 py-2 text-xs font-bold border ${
+                  onClick={() => {
+                    setSignMethod(id);
+                    setError(null);
+                    if (id !== "code_confirm") {
+                      setCodeSent(false);
+                      setConfirmCode("");
+                      setCodeHint(null);
+                    }
+                  }}
+                  className={`rounded-lg border px-3 py-2 text-xs font-bold ${
                     signMethod === id
                       ? "border-[#2F6B4A] bg-[#2F6B4A] text-white"
                       : "border-stone-300 text-stone-700"
@@ -379,11 +418,40 @@ export default function StagePublicSignerClient() {
             </div>
 
             {signMethod === "code_confirm" && (
-              <div className="rounded-lg border border-stone-200 bg-stone-50 p-4 text-sm text-stone-700">
-                <p>
-                  Confirmez avoir lu la convention et autorisez la signature électronique simple. Le
-                  code reçu par e-mail atteste de votre identité.
-                </p>
+              <div className="space-y-3 rounded-lg border border-stone-200 bg-stone-50 p-4 text-sm text-stone-700">
+                {!codeSent ? (
+                  <p>
+                    Cliquez sur <strong>Valider ma signature</strong> : un code à 6 chiffres sera
+                    envoyé à votre e-mail. Vous le saisirez ensuite pour confirmer.
+                  </p>
+                ) : (
+                  <>
+                    {codeHint && (
+                      <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800">
+                        {codeHint}
+                      </p>
+                    )}
+                    <input
+                      className="w-full rounded-lg border border-stone-300 px-3 py-2 text-center font-mono text-lg tracking-widest"
+                      inputMode="numeric"
+                      pattern="[0-9]{6}"
+                      maxLength={6}
+                      placeholder="Code 6 chiffres"
+                      value={confirmCode}
+                      onChange={(e) =>
+                        setConfirmCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                      }
+                    />
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void requestEmailCode()}
+                      className="text-xs font-semibold text-[#2F6B4A] underline disabled:opacity-50"
+                    >
+                      Renvoyer le code
+                    </button>
+                  </>
+                )}
               </div>
             )}
 
@@ -400,7 +468,9 @@ export default function StagePublicSignerClient() {
                   </a>
                 )}
                 <p className="text-xs text-stone-600">
-                  Imprimez, signez en papier, puis déposez le scan ou la photo PDF ci-dessous.
+                  Imprimez, signez en papier, puis déposez le scan ou la photo PDF ci-dessous. Les
+                  signatures électroniques des autres parties seront apposées sur une page dédiée,
+                  sans écraser votre paraphe manuscrit.
                 </p>
                 <label className="flex min-h-[120px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-center text-sm text-stone-600 hover:border-[#2F6B4A]">
                   <input
@@ -421,7 +491,11 @@ export default function StagePublicSignerClient() {
               onClick={() => void sign()}
               className="w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white disabled:opacity-50"
             >
-              {busy ? "Envoi…" : "Valider ma signature"}
+              {busy
+                ? "Envoi…"
+                : signMethod === "code_confirm" && !codeSent
+                  ? "Valider ma signature (recevoir le code)"
+                  : "Valider ma signature"}
             </button>
           </div>
         ) : (
