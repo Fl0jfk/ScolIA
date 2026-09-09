@@ -67,6 +67,14 @@ const CYCLE_LABEL: Record<ImportCycle, string> = {
   lycee: "Lycée",
 };
 
+/** Aligné sur /api/nomenclature/import (MAX_XML_BYTES). */
+const MAX_CLIENT_XML_BYTES = 50 * 1024 * 1024;
+const MAX_CLIENT_XML_LABEL = "50 Mo";
+
+function formatMo(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
 export default function NomenclatureImportPanel() {
   const multiInputRef = useRef<HTMLInputElement>(null);
   const slotInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -145,18 +153,53 @@ export default function NomenclatureImportPanel() {
     else setBusy(true);
     setMessage(null);
     setError(null);
-    try {
-      const fd = new FormData();
-      fd.append("cycle", cycle);
-      list.forEach((f) => fd.append("files", f));
-      const res = await fetch("/api/nomenclature/import", { method: "POST", body: fd });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Import impossible");
-      const lines = (data.reports || []).map(
-        (r: { file: string; message?: string; error?: string }) =>
-          r.error ? `${r.file}: ${r.error}` : r.message || r.file,
+
+    const oversized = list.filter((f) => f.size > MAX_CLIENT_XML_BYTES);
+    if (oversized.length) {
+      setError(
+        oversized
+          .map((f) => `${f.name} : ${formatMo(f.size)} (max ${MAX_CLIENT_XML_LABEL})`)
+          .join(" · "),
       );
-      setMessage([`Import ${CYCLE_LABEL[cycle]}`, ...lines].join("\n"));
+      setBusy(false);
+      setBusySlot(null);
+      if (multiInputRef.current) multiInputRef.current.value = "";
+      if (slotKind && slotInputRefs.current[slotKind]) {
+        slotInputRefs.current[slotKind]!.value = "";
+      }
+      return;
+    }
+
+    try {
+      /** Un fichier à la fois : évite de saturer le body HTTP (multipart) sur les gros XML. */
+      const allLines: string[] = [`Import ${CYCLE_LABEL[cycle]}`];
+      for (let i = 0; i < list.length; i++) {
+        const file = list[i];
+        if (list.length > 1) {
+          setMessage(`Envoi ${i + 1}/${list.length} : ${file.name} (${formatMo(file.size)})…`);
+        }
+        const fd = new FormData();
+        fd.append("cycle", cycle);
+        fd.append("files", file);
+        const res = await fetch("/api/nomenclature/import", { method: "POST", body: fd });
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          reports?: Array<{ file: string; message?: string; error?: string }>;
+        };
+        if (!res.ok) {
+          throw new Error(
+            data?.error ||
+              (res.status === 413
+                ? `Fichier trop volumineux (${formatMo(file.size)}).`
+                : `Import impossible (HTTP ${res.status}).`),
+          );
+        }
+        const lines = (data.reports || []).map((r) =>
+          r.error ? `${r.file}: ${r.error}` : r.message || r.file,
+        );
+        allLines.push(...(lines.length ? lines : [file.name]));
+      }
+      setMessage(allLines.join("\n"));
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -386,6 +429,8 @@ export default function NomenclatureImportPanel() {
         <p className="text-xs text-slate-500 mb-4">
           Ordre recommandé : Communs → Nomenclature → Géographique → Structures → Élèves →
           Responsables. Chaque fichier est propre à ce cycle (matières collège ≠ matières lycée).
+          Taille max. {MAX_CLIENT_XML_LABEL} par XML — les gros exports (Élèves / Responsables) sont
+          envoyés un par un.
         </p>
         {renderSlotGrid(slotList)}
       </section>
