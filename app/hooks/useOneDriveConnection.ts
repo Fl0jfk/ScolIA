@@ -35,7 +35,17 @@ type OneDriveConnectionState = {
   ensureToken: () => Promise<string | null>;
 };
 
-export function useOneDriveConnection(): OneDriveConnectionState {
+/**
+ * @param enabled — si false, n'initialise pas MSAL (évite iframes sandbox + appels verify au chargement).
+ * @param restoreOnMount — si false, n'appelle pas acquireTokenSilent au chargement
+ *   (supprime les warnings Chrome sandbox allow-scripts+allow-same-origin de MSAL).
+ */
+export function useOneDriveConnection(options?: {
+  enabled?: boolean;
+  restoreOnMount?: boolean;
+}): OneDriveConnectionState {
+  const enabled = options?.enabled !== false;
+  const restoreOnMount = options?.restoreOnMount !== false;
   const [msalReady, setMsalReady] = useState(false);
   const [oneDriveEnabled, setOneDriveEnabled] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -51,6 +61,16 @@ export function useOneDriveConnection(): OneDriveConnectionState {
   }, []);
 
   useEffect(() => {
+    if (!enabled) {
+      setMsalReady(false);
+      setOneDriveEnabled(false);
+      setConnected(false);
+      setAccessToken(null);
+      setAccountLabel(null);
+      setError(null);
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       try {
@@ -69,6 +89,8 @@ export function useOneDriveConnection(): OneDriveConnectionState {
         await getMsal().handleRedirectPromise({ navigateToLoginRequestUrl: false });
         if (cancelled) return;
         setMsalReady(true);
+
+        if (!restoreOnMount) return;
 
         const accounts = getMsal().getAllAccounts();
         if (accounts.length > 0) {
@@ -89,9 +111,13 @@ export function useOneDriveConnection(): OneDriveConnectionState {
     return () => {
       cancelled = true;
     };
-  }, [applySession]);
+  }, [applySession, enabled, restoreOnMount]);
 
   const ensureToken = useCallback(async (): Promise<string | null> => {
+    if (!enabled) {
+      setError("OneDrive non disponible sur cet écran.");
+      return null;
+    }
     if (!msalReady || !oneDriveEnabled) {
       setError("OneDrive non activé pour cet établissement.");
       return null;
@@ -123,10 +149,10 @@ export function useOneDriveConnection(): OneDriveConnectionState {
     } finally {
       setChecking(false);
     }
-  }, [accessToken, applySession, msalReady, oneDriveEnabled]);
+  }, [accessToken, applySession, enabled, msalReady, oneDriveEnabled]);
 
   const login = useCallback(async () => {
-    if (!msalReady) return;
+    if (!enabled || !msalReady) return;
     setError(null);
     try {
       storeMsalReturnPath();
@@ -141,7 +167,7 @@ export function useOneDriveConnection(): OneDriveConnectionState {
       }
       setError(e instanceof Error ? e.message : "Échec connexion OneDrive");
     }
-  }, [msalReady]);
+  }, [enabled, msalReady]);
 
   return {
     msalReady,

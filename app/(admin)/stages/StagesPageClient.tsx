@@ -41,14 +41,19 @@ function StagesContent() {
   const searchParams = useSearchParams();
   const { user: sessionUser } = useSessionUser();
   const [oneDriveProfile, setOneDriveProfile] = useState<OneDriveUserProfile | null>(null);
+  const [board, setBoard] = useState<StagesHubBoard | null>(null);
+  const odEnabled = Boolean(board?.permissions?.canFileToOneDrive);
   useEffect(() => {
-    if (!sessionUser) {
+    if (!sessionUser || !odEnabled) {
       setOneDriveProfile(null);
       return;
     }
     let cancelled = false;
-    fetch("/api/onedrive/profile")
-      .then((r) => r.json())
+    fetch("/api/onedrive/profile", { credentials: "include", cache: "no-store" })
+      .then(async (r) => {
+        if (!r.ok) return { profile: null };
+        return r.json();
+      })
       .then((j) => {
         if (!cancelled) setOneDriveProfile(j.profile || null);
       })
@@ -58,9 +63,8 @@ function StagesContent() {
     return () => {
       cancelled = true;
     };
-  }, [sessionUser]);
-  const od = useOneDriveConnection();
-  const [board, setBoard] = useState<StagesHubBoard | null>(null);
+  }, [sessionUser, odEnabled]);
+  const od = useOneDriveConnection({ enabled: odEnabled, restoreOnMount: false });
   const [conventions, setConventions] = useState<StageConvention[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get("convention"));
   const [detail, setDetail] = useState<{

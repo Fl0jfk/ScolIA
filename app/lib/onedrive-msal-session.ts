@@ -9,7 +9,7 @@ const SCOPES = [...ONEDRIVE_MSAL_SCOPES];
 /** Vérifie l'accès OneDrive via l'API (évite les 401 Graph visibles dans la console). */
 async function verifyOneDriveAccessToken(accessToken: string): Promise<boolean> {
   try {
-    const res = await fetch("/api/agentIAOCR/onedrive-verify", {
+    const res = await fetch("/api/onedrive/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accessToken }),

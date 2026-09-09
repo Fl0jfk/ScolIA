@@ -85,7 +85,10 @@ function OneDriveUpDocsOCRAIContent() {
     }
     let cancelled = false;
     fetch("/api/onedrive/profile", { credentials: "include", cache: "no-store" })
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) return { profile: null, fluxes: [] };
+        return r.json();
+      })
       .then((j) => {
         if (!cancelled) {
           setOneDriveProfile(j.profile || null);

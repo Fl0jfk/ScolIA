@@ -87,6 +87,13 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   /** Chrome dashboard (météo, actualité) — hors matrice « Droits modules ». */
   "/api/weather",
   "/api/dashboard",
+  /**
+   * OneDrive partagé (stages, OCR, pilotage) — auth session dans la route.
+   * Sans ça : 403 MODULE_FORBIDDEN car aucun module ne déclare /api/onedrive.
+   */
+  "/api/onedrive",
+  /** Retour OAuth MSAL (popup / redirect) — doit rester accessible hors module OCR. */
+  "/agentIAOCR/msal-callback",
   "/onboarding",
   "/configuration-en-cours",
   "/abonnement-suspendu",
