@@ -231,8 +231,8 @@ function validateConventionForSubmit(convention: StageConvention): string | null
     return "Entreprise d'accueil incomplète (nom et adresse obligatoires).";
   }
   const siret = normalizeSiret(convention.company.siret);
-  if (siret.length !== 14) {
-    return "SIRET obligatoire (14 chiffres).";
+  if (siret && siret.length !== 14) {
+    return "SIRET invalide : 14 chiffres attendus (ou laissez le champ vide).";
   }
   if (!convention.company.tutorName.trim() || !convention.company.tutorEmail.trim()) {
     return "Tuteur en entreprise obligatoire (nom et e-mail).";
@@ -243,13 +243,15 @@ function validateConventionForSubmit(convention: StageConvention): string | null
   const parent1 = resolveParent1Email(convention);
   const parent2 = resolveParent2Email(convention);
   if (!parent1 || !isValidEmail(parent1)) {
-    return "E-mail du responsable légal 1 obligatoire.";
+    return "Indiquez au moins un e-mail de responsable légal pour la signature.";
   }
-  if (!parent2 || !isValidEmail(parent2)) {
-    return "E-mail du responsable légal 2 obligatoire.";
-  }
-  if (parent1.toLowerCase() === parent2.toLowerCase()) {
-    return "Les deux responsables légaux doivent avoir des adresses e-mail distinctes.";
+  if (parent2) {
+    if (!isValidEmail(parent2)) {
+      return "E-mail du responsable légal 2 invalide.";
+    }
+    if (parent1.toLowerCase() === parent2.toLowerCase()) {
+      return "Si vous renseignez deux responsables, leurs e-mails doivent être distincts.";
+    }
   }
   if (!convention.teacherReferent.name.trim() || !convention.teacherReferent.email.trim()) {
     return "Professeur référent obligatoire — configurez-le dans Stages & conventions.";
@@ -859,7 +861,7 @@ export async function createPublicPreconventionDraft(student: {
     id: stageUid("conv"),
     schoolYear: currentStageSchoolYear(),
     status: "draft",
-    internshipKind: "pfmp",
+    internshipKind: "stage_observation",
     stagePeriodId: student.stagePeriodId?.trim() || undefined,
     stageLabel: student.stageLabel?.trim() || undefined,
     student: {

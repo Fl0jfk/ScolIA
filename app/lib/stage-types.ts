@@ -71,8 +71,8 @@ export type StageOfferCandidatureTokenRef = {
 
 export type StageScheduleMode = "uniform_week" | "per_day";
 
-/** 1 = lundi … 5 = vendredi (ISO) */
-export type StageWeekday = 1 | 2 | 3 | 4 | 5;
+/** 1 = lundi … 6 = samedi (ISO) */
+export type StageWeekday = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type StageDaySlot = {
   /** Date ISO (mode per_day) ou absent si mode uniforme */

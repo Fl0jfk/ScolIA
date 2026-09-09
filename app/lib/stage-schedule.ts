@@ -1,6 +1,29 @@
 import type { StageDaySlot, StageSchedule, StageScheduleMode, StageWeekday } from "@/app/lib/stage-types";
 
-const WEEKDAYS: StageWeekday[] = [1, 2, 3, 4, 5];
+/** Lundi → samedi (les dimanches restent exclus). */
+export const STAGE_WEEKDAYS: StageWeekday[] = [1, 2, 3, 4, 5, 6];
+
+/** Jours proposés par défaut (lun–ven) ; le samedi reste sélectionnable. */
+export const STAGE_DEFAULT_WEEKDAYS: StageWeekday[] = [1, 2, 3, 4, 5];
+
+export const STAGE_WEEKDAY_LABELS: Record<StageWeekday, string> = {
+  1: "Lundi",
+  2: "Mardi",
+  3: "Mercredi",
+  4: "Jeudi",
+  5: "Vendredi",
+  6: "Samedi",
+};
+
+export function defaultDayHoursTemplate(): StageDaySlot {
+  return {
+    hasLunchBreak: true,
+    morningStart: "08:00",
+    morningEnd: "12:00",
+    afternoonStart: "13:00",
+    afternoonEnd: "17:00",
+  };
+}
 
 export function defaultStageSchedule(mode: StageScheduleMode = "uniform_week"): StageSchedule {
   const today = new Date();
@@ -8,22 +31,14 @@ export function defaultStageSchedule(mode: StageScheduleMode = "uniform_week"): 
   start.setDate(start.getDate() + 14);
   const end = new Date(start);
   end.setDate(end.getDate() + 4);
+  const template = defaultDayHoursTemplate();
 
   if (mode === "uniform_week") {
     return {
       mode,
       periodStart: start.toISOString().slice(0, 10),
       periodEnd: end.toISOString().slice(0, 10),
-      days: [
-        {
-          weekday: 1,
-          hasLunchBreak: true,
-          morningStart: "08:00",
-          morningEnd: "12:00",
-          afternoonStart: "13:00",
-          afternoonEnd: "17:00",
-        },
-      ],
+      days: STAGE_DEFAULT_WEEKDAYS.map((weekday) => ({ ...template, weekday })),
     };
   }
 
@@ -33,22 +48,23 @@ export function defaultStageSchedule(mode: StageScheduleMode = "uniform_week"): 
     periodEnd: end.toISOString().slice(0, 10),
     days: [
       {
+        ...template,
         date: start.toISOString().slice(0, 10),
-        hasLunchBreak: true,
-        morningStart: "08:00",
-        morningEnd: "12:00",
-        afternoonStart: "13:00",
-        afternoonEnd: "17:00",
       },
     ],
   };
 }
 
-/** Applique le modèle du premier jour à lun–ven (mode uniform_week). */
-function replicateUniformWeekDays(template: StageDaySlot): StageDaySlot[] {
+/** Applique le modèle horaire aux jours de semaine sélectionnés. */
+export function buildUniformWeekDays(
+  template: StageDaySlot,
+  weekdays: StageWeekday[] = STAGE_DEFAULT_WEEKDAYS,
+): StageDaySlot[] {
   const base = { ...template };
   delete base.date;
-  return WEEKDAYS.map((weekday) => ({ ...base, weekday }));
+  const unique = [...new Set(weekdays)].filter((w) => w >= 1 && w <= 6).sort((a, b) => a - b);
+  const list = unique.length > 0 ? unique : STAGE_DEFAULT_WEEKDAYS;
+  return list.map((weekday) => ({ ...base, weekday }));
 }
 
 export function normalizeStageSchedule(raw: unknown): StageSchedule {
@@ -60,8 +76,13 @@ export function normalizeStageSchedule(raw: unknown): StageSchedule {
 
   let days: StageDaySlot[] = daysRaw.map((d) => normalizeDaySlot(d));
 
-  if (mode === "uniform_week" && days.length === 1 && days[0]) {
-    days = replicateUniformWeekDays(days[0]);
+  if (mode === "uniform_week" && days.length === 1 && days[0] && !days[0].weekday) {
+    days = buildUniformWeekDays(days[0], STAGE_DEFAULT_WEEKDAYS);
+  }
+
+  if (mode === "uniform_week" && days.length === 1 && days[0]?.weekday) {
+    // Ancien format « 1 template » : on ne force plus lun–ven si un seul weekday
+    // est déjà présent — on laisse tel quel.
   }
 
   if (days.length === 0) {
@@ -82,7 +103,10 @@ function normalizeDaySlot(raw: unknown): StageDaySlot {
     const v = o[k];
     return typeof v === "string" && v.trim() ? v.trim() : null;
   };
-  const weekday = typeof o.weekday === "number" && o.weekday >= 1 && o.weekday <= 5 ? (o.weekday as StageWeekday) : undefined;
+  const weekday =
+    typeof o.weekday === "number" && o.weekday >= 1 && o.weekday <= 6
+      ? (o.weekday as StageWeekday)
+      : undefined;
   const date = typeof o.date === "string" ? o.date.slice(0, 10) : undefined;
 
   return {
@@ -99,9 +123,13 @@ function normalizeDaySlot(raw: unknown): StageDaySlot {
 }
 
 export function formatDaySlotLabel(slot: StageDaySlot): string {
-  const weekdayNames = ["", "Lun", "Mar", "Mer", "Jeu", "Ven"];
+  const weekdayNames = ["", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
   const head = slot.date
-    ? new Date(slot.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })
+    ? new Date(slot.date).toLocaleDateString("fr-FR", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+      })
     : slot.weekday
       ? weekdayNames[slot.weekday] ?? `J${slot.weekday}`
       : "Jour";
@@ -111,11 +139,13 @@ export function formatDaySlotLabel(slot: StageDaySlot): string {
   }
   const parts: string[] = [];
   if (slot.morningStart && slot.morningEnd) parts.push(`${slot.morningStart}–${slot.morningEnd}`);
-  if (slot.afternoonStart && slot.afternoonEnd) parts.push(`${slot.afternoonStart}–${slot.afternoonEnd}`);
+  if (slot.afternoonStart && slot.afternoonEnd) {
+    parts.push(`${slot.afternoonStart}–${slot.afternoonEnd}`);
+  }
   return `${head} ${parts.join(" / ") || "—"}`;
 }
 
-/** Génère une entrée par jour ouvré entre deux dates ISO (mode per_day). */
+/** Génère une entrée par jour (lun–sam) entre deux dates ISO (mode per_day). */
 function expandWeekdayDates(periodStart: string, periodEnd: string): string[] {
   const out: string[] = [];
   const start = new Date(`${periodStart}T12:00:00`);
@@ -123,8 +153,8 @@ function expandWeekdayDates(periodStart: string, periodEnd: string): string[] {
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return out;
   const cur = new Date(start);
   while (cur <= end) {
-    const dow = cur.getDay();
-    if (dow >= 1 && dow <= 5) out.push(cur.toISOString().slice(0, 10));
+    const dow = cur.getDay(); // 0=dim … 6=sam
+    if (dow >= 1 && dow <= 6) out.push(cur.toISOString().slice(0, 10));
     cur.setDate(cur.getDate() + 1);
   }
   return out;
@@ -150,11 +180,15 @@ export function scheduleSummary(schedule: StageSchedule): string {
 export function validateStageSchedule(schedule: StageSchedule): string | null {
   if (!schedule.periodStart || !schedule.periodEnd) return "Période de stage obligatoire.";
   if (schedule.periodEnd < schedule.periodStart) return "La date de fin doit être après le début.";
-  if (schedule.days.length === 0) return "Au moins un jour ou un modèle horaire est requis.";
+  if (schedule.days.length === 0) {
+    return "Sélectionnez au moins un jour de stage (lundi à samedi).";
+  }
 
   for (const day of schedule.days) {
     if (schedule.mode === "per_day" && !day.date) return "Chaque jour doit avoir une date.";
-    if (schedule.mode === "uniform_week" && !day.weekday) return "Chaque jour doit avoir un jour de semaine.";
+    if (schedule.mode === "uniform_week" && !day.weekday) {
+      return "Chaque jour doit avoir un jour de semaine.";
+    }
     if (!day.hasLunchBreak) {
       if (!day.fullDayStart && !(day.morningStart && day.morningEnd)) {
         return "Horaires journée continue incomplets.";
