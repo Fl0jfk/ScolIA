@@ -75,6 +75,31 @@ function resolveParent2Email(convention: StageConvention): string {
   );
 }
 
+/** Un seul responsable suffit : e-mail 2 vide ou identique au 1 → on l'ignore. */
+function sanitizeConventionParents(convention: StageConvention): StageConvention {
+  const parent1 = resolveParent1Email(convention);
+  const parent2 = resolveParent2Email(convention);
+  if (!parent2 || (parent1 && parent2.toLowerCase() === parent1.toLowerCase())) {
+    return {
+      ...convention,
+      parent2SignerEmail: undefined,
+      student: {
+        ...convention.student,
+        parent2Email: undefined,
+      },
+    };
+  }
+  return convention;
+}
+
+function optionalClearedString(raw: unknown, base?: string): string | undefined {
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    return trimmed || undefined;
+  }
+  return base?.trim() || undefined;
+}
+
 function pushHistory(
   convention: StageConvention,
   by: string,
@@ -245,17 +270,10 @@ function validateConventionForSubmit(convention: StageConvention): string | null
   if (!parent1 || !isValidEmail(parent1)) {
     return "Indiquez au moins un e-mail de responsable légal pour la signature.";
   }
-  if (parent2) {
-    if (!isValidEmail(parent2)) {
-      return "E-mail du responsable légal 2 invalide.";
-    }
-    if (parent1.toLowerCase() === parent2.toLowerCase()) {
-      return "Si vous renseignez deux responsables, leurs e-mails doivent être distincts.";
-    }
+  if (parent2 && !isValidEmail(parent2)) {
+    return "E-mail du responsable légal 2 invalide.";
   }
-  if (!convention.teacherReferent.name.trim() || !convention.teacherReferent.email.trim()) {
-    return "Professeur référent obligatoire — configurez-le dans Stages & conventions.";
-  }
+  // Professeur référent : optionnel à la soumission (rattachement possible ensuite par l'établissement).
   return validateStageSchedule(convention.schedule);
 }
 
@@ -263,7 +281,7 @@ export async function submitPreconvention(
   convention: StageConvention,
   by: string,
 ): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
-  let prepared = await ensureConventionReferent(convention);
+  let prepared = sanitizeConventionParents(await ensureConventionReferent(convention));
   const err = validateConventionForSubmit(prepared);
   if (err) return { ok: false, error: err };
 
@@ -303,10 +321,11 @@ export async function sendParentEmailVerificationCode(
   | { ok: true; convention: StageConvention; sent: boolean; reason?: string }
   | { ok: false; error: string }
 > {
+  const cleaned = sanitizeConventionParents(convention);
   const email =
-    convention.parentSignerEmail?.trim() ||
-    convention.student.parent1Email?.trim() ||
-    convention.student.parentEmail?.trim() ||
+    cleaned.parentSignerEmail?.trim() ||
+    cleaned.student.parent1Email?.trim() ||
+    cleaned.student.parentEmail?.trim() ||
     "";
   if (!email || !isValidEmail(email)) {
     return { ok: false, error: "Adresse e-mail du responsable légal invalide." };
@@ -315,7 +334,7 @@ export async function sendParentEmailVerificationCode(
   const code = generateStageSecureCode();
   const now = new Date().toISOString();
   const next: StageConvention = {
-    ...convention,
+    ...cleaned,
     parentEmailVerification: {
       email: email.toLowerCase(),
       code,
@@ -328,7 +347,7 @@ export async function sendParentEmailVerificationCode(
 
   const mail = await notifyParentEmailVerification({
     to: email,
-    studentName: `${convention.student.firstName} ${convention.student.lastName}`.trim(),
+    studentName: `${cleaned.student.firstName} ${cleaned.student.lastName}`.trim(),
     code,
   });
 
@@ -925,7 +944,7 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
 
   const str = (v: unknown, fallback = "") => (typeof v === "string" ? v.trim() : fallback);
 
-  return {
+  return sanitizeConventionParents({
     id: base?.id ?? stageUid("conv"),
     schoolYear: base?.schoolYear ?? str(o.schoolYear),
     status: base?.status ?? "draft",
@@ -940,7 +959,12 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
         str(studentRaw.parent1Email, base?.student.parent1Email) ||
         str(studentRaw.parentEmail, base?.student.parentEmail) ||
         undefined,
-      parent2Email: str(studentRaw.parent2Email, base?.student.parent2Email) || undefined,
+      parent2Email: optionalClearedString(
+        "parent2Email" in studentRaw ? studentRaw.parent2Email : undefined,
+        "parent2Email" in studentRaw || "parent2SignerEmail" in o
+          ? undefined
+          : base?.student.parent2Email,
+      ),
       parentEmail:
         str(studentRaw.parent1Email, base?.student.parent1Email) ||
         str(studentRaw.parentEmail, base?.student.parentEmail) ||
@@ -970,10 +994,16 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
       str(o.parentSignerEmail, base?.parentSignerEmail) ||
       str(studentRaw.parent1Email, base?.student.parent1Email) ||
       undefined,
-    parent2SignerEmail:
-      str(o.parent2SignerEmail, base?.parent2SignerEmail) ||
-      str(studentRaw.parent2Email, base?.student.parent2Email) ||
-      undefined,
+    parent2SignerEmail: optionalClearedString(
+      "parent2SignerEmail" in o
+        ? o.parent2SignerEmail
+        : "parent2Email" in studentRaw
+          ? studentRaw.parent2Email
+          : undefined,
+      "parent2SignerEmail" in o || "parent2Email" in studentRaw
+        ? undefined
+        : base?.parent2SignerEmail || base?.student.parent2Email,
+    ),
     parentEmailVerification: (() => {
       const nextParent =
         str(o.parentSignerEmail, base?.parentSignerEmail) ||
@@ -1000,5 +1030,5 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
     eleveDossierFilingError: base?.eleveDossierFilingError,
     uploadedPdf: base?.uploadedPdf,
     ocrMeta: base?.ocrMeta,
-  };
+  });
 }

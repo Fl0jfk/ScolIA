@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type {
   StageConvention,
   StageDaySlot,
@@ -17,6 +18,32 @@ import {
 } from "@/app/lib/stage-schedule";
 
 const LEVELS = ["6e", "5e", "4e", "3e", "2nde", "1re", "Tle"];
+
+const fieldInputClass =
+  "mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 disabled:bg-stone-100 disabled:text-stone-700";
+
+function Field({
+  label,
+  required,
+  hint,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold text-stone-600">
+        {label}
+        {required ? " *" : ""}
+      </span>
+      {children}
+      {hint ? <span className="mt-1 block text-[11px] font-normal text-stone-500">{hint}</span> : null}
+    </label>
+  );
+}
 
 function TimeField({
   label,
@@ -179,12 +206,14 @@ export default function StagePreconventionForm({
   }
 
   function updateParent2Email(value: string) {
+    const cleared = value.trim();
     onChange({
       ...convention,
-      parent2SignerEmail: value.trim() || undefined,
+      // Chaîne vide explicite pour que le serveur n'ait pas à retomber sur l'ancien e-mail.
+      parent2SignerEmail: cleared,
       student: {
         ...convention.student,
-        parent2Email: value.trim() || undefined,
+        parent2Email: cleared,
       },
     });
   }
@@ -195,7 +224,11 @@ export default function StagePreconventionForm({
     convention.student.parentEmail ||
     "";
   const parent2Value =
-    convention.parent2SignerEmail || convention.student.parent2Email || "";
+    typeof convention.parent2SignerEmail === "string"
+      ? convention.parent2SignerEmail
+      : typeof convention.student.parent2Email === "string"
+        ? convention.student.parent2Email
+        : "";
 
   return (
     <div className="space-y-8 text-sm">
@@ -250,97 +283,114 @@ export default function StagePreconventionForm({
             champs ci-dessous ne sont pas modifiables.
           </p>
         )}
-        <div className="grid grid-cols-2 gap-2">
-          <input
-            className="rounded-lg border px-3 py-2 disabled:bg-stone-100 disabled:text-stone-700"
-            placeholder="Prénom *"
-            value={convention.student.firstName}
-            disabled={identityLocked}
-            onChange={(e) =>
-              onChange({
-                ...convention,
-                student: { ...convention.student, firstName: e.target.value },
-              })
-            }
-          />
-          <input
-            className="rounded-lg border px-3 py-2 disabled:bg-stone-100 disabled:text-stone-700"
-            placeholder="Nom *"
-            value={convention.student.lastName}
-            disabled={identityLocked}
-            onChange={(e) =>
-              onChange({
-                ...convention,
-                student: { ...convention.student, lastName: e.target.value },
-              })
-            }
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Prénom" required>
+            <input
+              className={fieldInputClass}
+              value={convention.student.firstName}
+              disabled={identityLocked}
+              onChange={(e) =>
+                onChange({
+                  ...convention,
+                  student: { ...convention.student, firstName: e.target.value },
+                })
+              }
+            />
+          </Field>
+          <Field label="Nom" required>
+            <input
+              className={fieldInputClass}
+              value={convention.student.lastName}
+              disabled={identityLocked}
+              onChange={(e) =>
+                onChange({
+                  ...convention,
+                  student: { ...convention.student, lastName: e.target.value },
+                })
+              }
+            />
+          </Field>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Classe" required>
+            <input
+              className={fieldInputClass}
+              value={convention.student.className}
+              disabled={identityLocked}
+              onChange={(e) =>
+                onChange({
+                  ...convention,
+                  student: { ...convention.student, className: e.target.value },
+                })
+              }
+            />
+          </Field>
+          <Field label="Niveau" required>
+            <select
+              className={fieldInputClass}
+              value={convention.student.level}
+              disabled={identityLocked}
+              onChange={(e) =>
+                onChange({
+                  ...convention,
+                  student: { ...convention.student, level: e.target.value },
+                })
+              }
+            >
+              {LEVELS.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <Field label="E-mail élève" hint="Optionnel">
           <input
-            className="rounded-lg border px-3 py-2 disabled:bg-stone-100 disabled:text-stone-700"
-            placeholder="Classe *"
-            value={convention.student.className}
-            disabled={identityLocked}
+            className={fieldInputClass}
+            type="email"
+            value={convention.student.email || ""}
             onChange={(e) =>
               onChange({
                 ...convention,
-                student: { ...convention.student, className: e.target.value },
+                student: { ...convention.student, email: e.target.value },
               })
             }
           />
-          <select
-            className="rounded-lg border px-3 py-2 disabled:bg-stone-100 disabled:text-stone-700"
-            value={convention.student.level}
-            disabled={identityLocked}
-            onChange={(e) =>
-              onChange({
-                ...convention,
-                student: { ...convention.student, level: e.target.value },
-              })
-            }
-          >
-            {LEVELS.map((l) => (
-              <option key={l} value={l}>
-                {l}
-              </option>
-            ))}
-          </select>
-        </div>
-        <input
-          className="w-full rounded-lg border px-3 py-2"
-          type="email"
-          placeholder="E-mail élève (optionnel)"
-          value={convention.student.email || ""}
-          onChange={(e) =>
-            onChange({
-              ...convention,
-              student: { ...convention.student, email: e.target.value },
-            })
-          }
-        />
+        </Field>
 
-        <div className="rounded-xl border border-stone-200 bg-stone-50/80 p-3 space-y-2">
+        <div className="rounded-xl border border-stone-200 bg-stone-50/80 p-3 space-y-3">
           <p className="text-xs font-bold text-[#1F3D2B]">Responsable(s) légal/aux</p>
           <p className="text-xs text-stone-600 leading-relaxed">
             Un seul responsable suffit pour signer. Le second est optionnel (parents séparés) :
             s&apos;il est renseigné, il recevra aussi l&apos;invitation, mais son absence de
             signature ne bloque pas le dossier.
           </p>
-          <input
-            className="w-full rounded-lg border px-3 py-2"
-            type="email"
-            placeholder="E-mail responsable légal qui signe *"
-            value={parent1Value}
-            onChange={(e) => updateParent1Email(e.target.value)}
-          />
-          <input
-            className="w-full rounded-lg border px-3 py-2"
-            type="email"
-            placeholder="E-mail 2ᵉ responsable (optionnel)"
-            value={parent2Value}
-            onChange={(e) => updateParent2Email(e.target.value)}
-          />
+          <Field label="E-mail du responsable qui signe" required>
+            <input
+              className={fieldInputClass}
+              type="email"
+              value={parent1Value}
+              onChange={(e) => updateParent1Email(e.target.value)}
+            />
+          </Field>
+          <Field label="E-mail du 2ᵉ responsable" hint="Optionnel — laissez vide s'il n'y a qu'un responsable">
+            <input
+              className={fieldInputClass}
+              type="email"
+              value={parent2Value}
+              onChange={(e) => updateParent2Email(e.target.value)}
+            />
+          </Field>
+          {parent2Value.trim() ? (
+            <button
+              type="button"
+              className="text-xs font-semibold text-stone-600 underline"
+              onClick={() => updateParent2Email("")}
+            >
+              Retirer le 2ᵉ responsable
+            </button>
+          ) : null}
         </div>
 
         <p className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs text-stone-700">
@@ -350,122 +400,132 @@ export default function StagePreconventionForm({
 
       <section className="space-y-3">
         <h2 className="text-base font-bold text-[#1F3D2B]">2. Entreprise d&apos;accueil</h2>
-        <input
-          className="w-full rounded-lg border px-3 py-2"
-          placeholder="Raison sociale *"
-          value={convention.company.name}
-          onChange={(e) =>
-            onChange({
-              ...convention,
-              company: { ...convention.company, name: e.target.value },
-            })
-          }
-        />
-        <input
-          className="w-full rounded-lg border px-3 py-2"
-          placeholder="Adresse *"
-          value={convention.company.address}
-          onChange={(e) =>
-            onChange({
-              ...convention,
-              company: { ...convention.company, address: e.target.value },
-            })
-          }
-        />
-        <input
-          className="w-full rounded-lg border px-3 py-2"
-          placeholder="SIRET (14 chiffres, optionnel)"
-          value={convention.company.siret || ""}
-          onChange={(e) =>
-            onChange({
-              ...convention,
-              company: { ...convention.company, siret: e.target.value },
-            })
-          }
-        />
-        <input
-          className="w-full rounded-lg border px-3 py-2"
-          placeholder="Activité de l'entreprise"
-          value={convention.company.activity}
-          onChange={(e) =>
-            onChange({
-              ...convention,
-              company: { ...convention.company, activity: e.target.value },
-            })
-          }
-        />
-        <div className="grid grid-cols-2 gap-2">
+        <Field label="Raison sociale" required>
           <input
-            className="rounded-lg border px-3 py-2"
-            placeholder="Tuteur (nom) *"
-            value={convention.company.tutorName}
+            className={fieldInputClass}
+            value={convention.company.name}
             onChange={(e) =>
               onChange({
                 ...convention,
-                company: { ...convention.company, tutorName: e.target.value },
+                company: { ...convention.company, name: e.target.value },
               })
             }
           />
+        </Field>
+        <Field label="Adresse" required>
           <input
-            className="rounded-lg border px-3 py-2"
-            type="tel"
-            placeholder="Tuteur (téléphone)"
-            value={convention.company.tutorPhone || ""}
+            className={fieldInputClass}
+            value={convention.company.address}
             onChange={(e) =>
               onChange({
                 ...convention,
-                company: { ...convention.company, tutorPhone: e.target.value },
+                company: { ...convention.company, address: e.target.value },
               })
             }
           />
+        </Field>
+        <Field label="SIRET" hint="14 chiffres — optionnel">
+          <input
+            className={fieldInputClass}
+            value={convention.company.siret || ""}
+            onChange={(e) =>
+              onChange({
+                ...convention,
+                company: { ...convention.company, siret: e.target.value },
+              })
+            }
+          />
+        </Field>
+        <Field label="Activité de l'entreprise">
+          <input
+            className={fieldInputClass}
+            value={convention.company.activity}
+            onChange={(e) =>
+              onChange({
+                ...convention,
+                company: { ...convention.company, activity: e.target.value },
+              })
+            }
+          />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Tuteur — nom" required>
+            <input
+              className={fieldInputClass}
+              value={convention.company.tutorName}
+              onChange={(e) =>
+                onChange({
+                  ...convention,
+                  company: { ...convention.company, tutorName: e.target.value },
+                })
+              }
+            />
+          </Field>
+          <Field label="Tuteur — téléphone">
+            <input
+              className={fieldInputClass}
+              type="tel"
+              value={convention.company.tutorPhone || ""}
+              onChange={(e) =>
+                onChange({
+                  ...convention,
+                  company: { ...convention.company, tutorPhone: e.target.value },
+                })
+              }
+            />
+          </Field>
         </div>
-        <input
-          className="w-full rounded-lg border px-3 py-2"
-          type="email"
-          placeholder="Tuteur (e-mail) * — pour envoyer la signature"
-          value={convention.company.tutorEmail}
-          onChange={(e) =>
-            onChange({
-              ...convention,
-              company: { ...convention.company, tutorEmail: e.target.value },
-            })
-          }
-        />
-        <input
-          className="w-full rounded-lg border px-3 py-2"
-          type="email"
-          placeholder="RH / signataire entreprise — e-mail optionnel"
-          value={convention.company.rhEmail || ""}
-          onChange={(e) =>
-            onChange({
-              ...convention,
-              company: { ...convention.company, rhEmail: e.target.value },
-            })
-          }
-        />
+        <Field
+          label="Tuteur — e-mail"
+          required
+          hint="Obligatoire pour envoyer la convention à signer"
+        >
+          <input
+            className={fieldInputClass}
+            type="email"
+            value={convention.company.tutorEmail}
+            onChange={(e) =>
+              onChange({
+                ...convention,
+                company: { ...convention.company, tutorEmail: e.target.value },
+              })
+            }
+          />
+        </Field>
+        <Field label="RH / signataire entreprise — e-mail" hint="Optionnel si signataire">
+          <input
+            className={fieldInputClass}
+            type="email"
+            value={convention.company.rhEmail || ""}
+            onChange={(e) =>
+              onChange({
+                ...convention,
+                company: { ...convention.company, rhEmail: e.target.value },
+              })
+            }
+          />
+        </Field>
       </section>
 
       <section className="space-y-3">
         <h2 className="text-base font-bold text-[#1F3D2B]">3. Période et horaires</h2>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="text-xs text-stone-600">
-            Début
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Date de début" required>
             <input
               type="date"
-              className="mt-1 w-full rounded-lg border px-3 py-2"
+              className={fieldInputClass}
               value={schedule.periodStart}
               onChange={(e) => updateSchedule({ periodStart: e.target.value })}
             />
-          </label>
-          <label className="text-xs text-stone-600">
-            Fin
+          </Field>
+          <Field label="Date de fin" required>
             <input
               type="date"
-              className="mt-1 w-full rounded-lg border px-3 py-2"
+              className={fieldInputClass}
               value={schedule.periodEnd}
               onChange={(e) => updateSchedule({ periodEnd: e.target.value })}
             />
-          </label>
+          </Field>
         </div>
 
         <div className="rounded-xl border border-stone-200 bg-white p-4 space-y-3">

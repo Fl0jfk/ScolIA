@@ -275,6 +275,7 @@ function StagePreconventionPublicContent() {
     if (!convention || !token) return;
     setBusy(true);
     setError(null);
+    setInfoMsg(null);
     try {
       const res = await fetch("/api/stages/public/student", {
         method: "PATCH",
@@ -288,10 +289,25 @@ function StagePreconventionPublicContent() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Code invalide");
-      setConvention(data.convention);
+      const verifiedConvention = data.convention as StageConvention;
+      setConvention(verifiedConvention);
       setParentEmailVerified(true);
       setShowParentCode(false);
-      setInfoMsg("Adresse e-mail confirmée. Vous pouvez envoyer la préconvention.");
+
+      const submitRes = await fetch("/api/stages/public/student", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          action: "submit",
+          convention: verifiedConvention,
+        }),
+      });
+      const submitData = await submitRes.json();
+      if (!submitRes.ok) throw new Error(submitData?.error || "Erreur envoi administratif");
+      setConvention(submitData.convention);
+      setDone(true);
+      setInfoMsg(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -738,7 +754,7 @@ function StagePreconventionPublicContent() {
                         onClick={() => void confirmParentCode()}
                         className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
                       >
-                        Valider le code
+                        {busy ? "Envoi…" : "Valider le code et envoyer"}
                       </button>
                       <button
                         type="button"
