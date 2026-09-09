@@ -23,7 +23,7 @@ export default function StagePreconventionForm({
   onSave: () => void;
   onSubmit: () => void;
   busy: boolean;
-  /** Identité vérifiée via INE + date de naissance — champs élève non modifiables. */
+  /** Identité vérifiée via nom + prénom + date de naissance — champs élève non modifiables. */
   identityLocked?: boolean;
   reminders?: StagePeriodReminder[];
   officialPeriods?: StageClassPeriod[];
@@ -108,7 +108,7 @@ export default function StagePreconventionForm({
         <h2 className="text-base font-bold text-[#1F3D2B]">1. Identité élève</h2>
         {identityLocked && (
           <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-            Identité confirmée par l&apos;établissement (INE + date de naissance). Les champs ci-dessous
+            Identité confirmée par l&apos;établissement (nom, prénom et date de naissance). Les champs ci-dessous
             ne sont pas modifiables.
           </p>
         )}

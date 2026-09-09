@@ -52,8 +52,11 @@ function StagePreconventionPublicContent() {
   const [step, setStep] = useState<"identity" | "dashboard" | "form">(
     tokenFromUrl ? "form" : "identity",
   );
-  const [ine, setIne] = useState("");
+  const [nom, setNom] = useState("");
+  const [prenom, setPrenom] = useState("");
   const [dateNaissance, setDateNaissance] = useState("");
+  const [classe, setClasse] = useState("");
+  const [classOptions, setClassOptions] = useState<string[]>([]);
   const [studentPreview, setStudentPreview] = useState<StudentPreview | null>(null);
   const [dossier, setDossier] = useState<StudentDossier | null>(null);
   const [token, setToken] = useState(tokenFromUrl);
@@ -123,6 +126,35 @@ function StagePreconventionPublicContent() {
     }
   }, [tokenFromUrl, loadConvention]);
 
+  function identityPayload(extra?: Record<string, unknown>) {
+    return {
+      nom: nom.trim(),
+      prenom: prenom.trim(),
+      dateNaissance,
+      classe: classe.trim() || undefined,
+      ...extra,
+    };
+  }
+
+  function applyIdentifySuccess(data: {
+    studentPreview: StudentPreview;
+    dossier: StudentDossier;
+    stageContext?: unknown;
+  }) {
+    const preview = data.studentPreview;
+    setStudentPreview(preview);
+    setParent1Email(String(preview.parent1Email ?? ""));
+    setParent2Email(String(preview.parent2Email ?? ""));
+    setEditingParentEmail(false);
+    setDossier(data.dossier);
+    applyStageContext(data.stageContext);
+    setClassOptions([]);
+    if (preview.className && !classe.trim()) {
+      setClasse(preview.className);
+    }
+    setStep("dashboard");
+  }
+
   async function verifyIdentity(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -131,19 +163,25 @@ function StagePreconventionPublicContent() {
       const res = await fetch("/api/stages/public/preconvention", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ine, dateNaissance, action: "identify" }),
+        body: JSON.stringify(identityPayload({ action: "identify" })),
       });
       const data = await res.json();
+      if (data?.needsClass === true) {
+        const options = Array.isArray(data.candidates)
+          ? data.candidates
+              .map((c: { className?: string }) => String(c?.className ?? "").trim())
+              .filter(Boolean)
+          : [];
+        setClassOptions(options);
+        setClasse("");
+        setError(
+          String(data.message ?? "Plusieurs élèves correspondent. Sélectionnez votre classe."),
+        );
+        return;
+      }
       if (!res.ok) throw new Error(data?.error || "Erreur");
 
-      const preview = data.studentPreview as StudentPreview;
-      setStudentPreview(preview);
-      setParent1Email(String(preview.parent1Email ?? ""));
-      setParent2Email(String(preview.parent2Email ?? ""));
-      setEditingParentEmail(false);
-      setDossier(data.dossier);
-      applyStageContext(data.stageContext);
-      setStep("dashboard");
+      applyIdentifySuccess(data);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -158,14 +196,14 @@ function StagePreconventionPublicContent() {
       const res = await fetch("/api/stages/public/preconvention", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ine,
-          dateNaissance,
-          action: "create",
-          periodId: selectedPeriodId || undefined,
-          parent1Email: parent1Email.trim() || undefined,
-          parent2Email: parent2Email.trim() || undefined,
-        }),
+        body: JSON.stringify(
+          identityPayload({
+            action: "create",
+            periodId: selectedPeriodId || undefined,
+            parent1Email: parent1Email.trim() || undefined,
+            parent2Email: parent2Email.trim() || undefined,
+          }),
+        ),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur");
@@ -300,10 +338,10 @@ function StagePreconventionPublicContent() {
         const res = await fetch("/api/stages/public/preconvention", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ine, dateNaissance, action: "identify" }),
+          body: JSON.stringify(identityPayload({ action: "identify" })),
         });
         const data = await res.json();
-        if (res.ok) {
+        if (res.ok && data?.success !== false) {
           setDossier(data.dossier);
           applyStageContext(data.stageContext);
           if (data.studentPreview) {
@@ -343,19 +381,34 @@ function StagePreconventionPublicContent() {
         {step === "identity" && !token && (
           <form onSubmit={(e) => void verifyIdentity(e)} className="mt-6 space-y-4 text-sm">
             <p className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-700">
-              <strong>Étape 1 — Identification</strong> : INE et date de naissance (bulletin /
-              Pronote). Vous accéderez ensuite à vos dossiers de stage.
+              <strong>Étape 1 — Identification</strong> : nom, prénom et date de naissance (comme
+              sur le bulletin ou dans Pronote). Vous accéderez ensuite à vos dossiers de stage.
             </p>
             <label className="block">
-              <span className="text-xs font-semibold text-stone-600">
-                Identifiant national élève (INE) *
-              </span>
+              <span className="text-xs font-semibold text-stone-600">Nom *</span>
               <input
-                className="mt-1 w-full rounded-lg border px-3 py-2 font-mono uppercase"
-                placeholder="ex. 180123456AB"
-                value={ine}
-                onChange={(e) => setIne(e.target.value.toUpperCase())}
-                autoComplete="off"
+                className="mt-1 w-full rounded-lg border px-3 py-2 uppercase"
+                placeholder="ex. DUPONT"
+                value={nom}
+                onChange={(e) => {
+                  setNom(e.target.value);
+                  setClassOptions([]);
+                }}
+                autoComplete="family-name"
+                required
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-stone-600">Prénom *</span>
+              <input
+                className="mt-1 w-full rounded-lg border px-3 py-2"
+                placeholder="ex. Léa"
+                value={prenom}
+                onChange={(e) => {
+                  setPrenom(e.target.value);
+                  setClassOptions([]);
+                }}
+                autoComplete="given-name"
                 required
               />
             </label>
@@ -365,13 +418,34 @@ function StagePreconventionPublicContent() {
                 type="date"
                 className="mt-1 w-full rounded-lg border px-3 py-2"
                 value={dateNaissance}
-                onChange={(e) => setDateNaissance(e.target.value)}
+                onChange={(e) => {
+                  setDateNaissance(e.target.value);
+                  setClassOptions([]);
+                }}
                 required
               />
             </label>
+            {classOptions.length > 0 && (
+              <label className="block">
+                <span className="text-xs font-semibold text-stone-600">Classe *</span>
+                <select
+                  className="mt-1 w-full rounded-lg border px-3 py-2"
+                  value={classe}
+                  onChange={(e) => setClasse(e.target.value)}
+                  required
+                >
+                  <option value="">Choisir votre classe…</option>
+                  {classOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <button
               type="submit"
-              disabled={busy}
+              disabled={busy || (classOptions.length > 0 && !classe.trim())}
               className="w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white disabled:opacity-50"
             >
               {busy ? "Vérification…" : "Accéder à mes stages →"}

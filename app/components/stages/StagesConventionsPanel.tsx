@@ -43,7 +43,7 @@ export default function StagesConventionsPanel({
       >
         <h2 className="text-lg font-bold text-[#1F3D2B]">Formulaire public élèves</h2>
         <p className="text-stone-600">
-          Lien à communiquer aux familles : identification INE puis formulaire en ligne (entreprise,
+          Lien à communiquer aux familles : identification (nom, prénom, date de naissance) puis formulaire en ligne (entreprise,
           horaires, dates) — pas de dépôt PDF.
         </p>
         <a

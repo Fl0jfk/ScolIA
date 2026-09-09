@@ -13,7 +13,7 @@ export default function StagesSettingsPanel({
       <section className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5">
         <h2 className="text-sm font-bold text-emerald-900">Lien public — formulaire élève</h2>
         <p className="mt-2 text-sm text-emerald-800">
-          Les élèves s&apos;identifient (INE + date de naissance), puis remplissent le formulaire
+          Les élèves s&apos;identifient (nom, prénom et date de naissance), puis remplissent le formulaire
           en ligne : entreprise, horaires, dates, contacts — sans dépôt de PDF.
         </p>
         <p className="mt-2 rounded-lg bg-white border border-emerald-100 px-3 py-2 text-sm font-mono break-all text-[#1F3D2B]">

@@ -2,7 +2,7 @@ import "server-only";
 
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { normalizeEleveDateNaissance } from "@/app/lib/eleves-config";
-import { findEleveByIne } from "@/app/lib/eleves-registry";
+import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 
 /** Déduit un niveau scolaire à partir du libellé de classe (ex. « 3e2 » → 3e). */
 export function inferStudentLevelFromClass(className: string): string {
@@ -18,6 +18,24 @@ export function inferStudentLevelFromClass(className: string): string {
   return "3e";
 }
 
+function normalizePersonName(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[-\s]+/g, " ")
+    .trim();
+}
+
+function normalizeClassLabel(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .trim();
+}
+
 export type VerifiedStageStudent = {
   eleve: EleveConfig;
   firstName: string;
@@ -26,33 +44,81 @@ export type VerifiedStageStudent = {
   level: string;
 };
 
-/**
- * Vérifie l'identité élève sans exposer de liste publique.
- * INE + date de naissance (registre eleves.json / BDD) — message d'erreur générique si échec.
- */
-export async function verifyStudentForPreconvention(params: {
-  ine: string;
-  dateNaissance: string;
-}): Promise<{ ok: true; student: VerifiedStageStudent } | { ok: false }> {
-  const ine = params.ine.trim().toUpperCase();
-  const dob = normalizeEleveDateNaissance(params.dateNaissance);
-  if (!ine || !dob) return { ok: false };
+export type StageIdentityCandidateClass = {
+  className: string;
+};
 
-  const eleve = await findEleveByIne(ine);
-  if (!eleve) return { ok: false };
-
-  const registryDob = normalizeEleveDateNaissance(eleve.dateNaissance);
-  if (!registryDob || registryDob !== dob) return { ok: false };
-
+function toVerifiedStudent(eleve: EleveConfig): VerifiedStageStudent {
   const className = String(eleve.classe ?? "").trim();
   return {
-    ok: true,
-    student: {
-      eleve,
-      firstName: eleve.prenom.trim(),
-      lastName: eleve.nom.trim(),
-      className,
-      level: inferStudentLevelFromClass(className),
-    },
+    eleve,
+    firstName: eleve.prenom.trim(),
+    lastName: eleve.nom.trim(),
+    className,
+    level: inferStudentLevelFromClass(className),
   };
+}
+
+/**
+ * Vérifie l'identité élève sans exposer de liste publique.
+ * Nom + prénom + date de naissance ; si plusieurs homonymes, la classe départage.
+ */
+export async function verifyStudentForPreconvention(params: {
+  nom: string;
+  prenom: string;
+  dateNaissance: string;
+  classe?: string;
+}): Promise<
+  | { ok: true; student: VerifiedStageStudent }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "ambiguous"; candidates: StageIdentityCandidateClass[] }
+> {
+  const nom = normalizePersonName(params.nom);
+  const prenom = normalizePersonName(params.prenom);
+  const dob = normalizeEleveDateNaissance(params.dateNaissance);
+  if (!nom || !prenom || !dob) return { ok: false, reason: "not_found" };
+
+  const eleves = await loadElevesRegistry();
+  const matches = eleves.filter((eleve) => {
+    if (normalizePersonName(eleve.nom) !== nom) return false;
+    if (normalizePersonName(eleve.prenom) !== prenom) return false;
+    const registryDob = normalizeEleveDateNaissance(eleve.dateNaissance);
+    return Boolean(registryDob) && registryDob === dob;
+  });
+
+  if (matches.length === 0) return { ok: false, reason: "not_found" };
+
+  if (matches.length === 1) {
+    return { ok: true, student: toVerifiedStudent(matches[0]!) };
+  }
+
+  const classeRaw = String(params.classe ?? "").trim();
+  if (!classeRaw) {
+    const seen = new Set<string>();
+    const candidates: StageIdentityCandidateClass[] = [];
+    for (const eleve of matches) {
+      const className = String(eleve.classe ?? "").trim();
+      if (!className) continue;
+      const key = normalizeClassLabel(className);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      candidates.push({ className });
+    }
+    if (candidates.length < 2) {
+      // Homonymes sans classes distinctes exploitables → échec générique.
+      return { ok: false, reason: "not_found" };
+    }
+    return { ok: false, reason: "ambiguous", candidates };
+  }
+
+  const wantedClass = normalizeClassLabel(classeRaw);
+  const narrowed = matches.filter(
+    (eleve) => normalizeClassLabel(String(eleve.classe ?? "")) === wantedClass,
+  );
+
+  if (narrowed.length === 1) {
+    return { ok: true, student: toVerifiedStudent(narrowed[0]!) };
+  }
+
+  return { ok: false, reason: "not_found" };
 }

@@ -20,11 +20,21 @@ const identityLimiter = createMemoryRateLimiter({
 });
 
 const GENERIC_IDENTITY_ERROR =
-  "Identifiant ou date de naissance incorrects. Vérifiez les informations figurant sur le bulletin ou dans Pronote, ou contactez le secrétariat.";
+  "Nom, prénom ou date de naissance incorrects. Vérifiez l'orthographe (comme sur le bulletin ou dans Pronote), ou contactez le secrétariat.";
 
-async function verifyAndLoadStudent(ine: string, dateNaissance: string) {
-  const verified = await verifyStudentForPreconvention({ ine, dateNaissance });
-  if (!verified.ok) return { ok: false as const };
+async function verifyAndLoadStudent(params: {
+  nom: string;
+  prenom: string;
+  dateNaissance: string;
+  classe?: string;
+}) {
+  const verified = await verifyStudentForPreconvention(params);
+  if (!verified.ok) {
+    if (verified.reason === "ambiguous") {
+      return { ok: false as const, ambiguous: true as const, candidates: verified.candidates };
+    }
+    return { ok: false as const };
+  }
 
   const { eleve, ...student } = verified.student;
   const eligibility = await isClassEligibleForStage(student.className);
@@ -63,13 +73,15 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const ine = String(body.ine ?? "").trim();
+    const nom = String(body.nom ?? "").trim();
+    const prenom = String(body.prenom ?? "").trim();
     const dateNaissance = String(body.dateNaissance ?? "").trim();
+    const classe = String(body.classe ?? "").trim() || undefined;
     const action = String(body.action ?? "identify");
 
-    if (!ine || !dateNaissance) {
+    if (!nom || !prenom || !dateNaissance) {
       return NextResponse.json(
-        { error: "L'identifiant élève (INE) et la date de naissance sont obligatoires." },
+        { error: "Le nom, le prénom et la date de naissance sont obligatoires." },
         { status: 400 },
       );
     }
@@ -78,8 +90,29 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: GENERIC_IDENTITY_ERROR }, { status: 403 });
     }
 
-    const loaded = await verifyAndLoadStudent(ine, dateNaissance);
+    let loaded: Awaited<ReturnType<typeof verifyAndLoadStudent>>;
+    try {
+      loaded = await verifyAndLoadStudent({ nom, prenom, dateNaissance, classe });
+    } catch (error) {
+      console.error("[stages/preconvention] identity lookup failed", error);
+      return NextResponse.json(
+        {
+          error:
+            "Le service d'identification est temporairement indisponible. Réessayez dans quelques minutes ou contactez le secrétariat.",
+        },
+        { status: 503 },
+      );
+    }
     if (!loaded.ok) {
+      if ("ambiguous" in loaded && loaded.ambiguous) {
+        return NextResponse.json({
+          success: false,
+          needsClass: true,
+          candidates: loaded.candidates,
+          message:
+            "Plusieurs élèves correspondent. Sélectionnez votre classe pour continuer.",
+        });
+      }
       if ("error" in loaded && loaded.error) {
         return NextResponse.json({ error: loaded.error }, { status: loaded.status ?? 403 });
       }
