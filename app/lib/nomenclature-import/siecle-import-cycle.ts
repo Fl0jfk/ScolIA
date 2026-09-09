@@ -1,24 +1,20 @@
 /**
- * Siècle exporte collège et lycée séparément (UAJ / Structures / Élèves distincts).
- * Le cycle choisi à l'import permet d'empiler les deux jeux sans écraser l'autre.
+ * Siècle exporte collège et lycée séparément (UAJ / Structures / Nomenclature / Élèves…).
+ * Chaque fichier s'importe une fois par cycle ; l'upsert conserve l'autre cycle.
  */
 export const SIECLE_IMPORT_CYCLES = ["college", "lycee"] as const;
 
 export type SiecleImportCycle = (typeof SIECLE_IMPORT_CYCLES)[number];
 
-/** Fichiers propres à un UAJ / un cycle (à importer une fois par collège et une fois par lycée). */
+/** Tous les XML Siècle d'un export sont propres à un UAJ / un cycle. */
 export const SIECLE_CYCLE_SCOPED_KINDS = [
   "communs",
-  "structures",
-  "eleves",
-  "responsables",
-] as const;
-
-/** Fichiers référentiels partagés (un seul import suffit pour tout l'établissement). */
-export const SIECLE_SHARED_KINDS = [
   "nomenclature",
   "geographique",
   "etablissements",
+  "structures",
+  "eleves",
+  "responsables",
 ] as const;
 
 export type SiecleCycleScopedKind = (typeof SIECLE_CYCLE_SCOPED_KINDS)[number];
@@ -45,4 +41,9 @@ export function siecleCyclePole(cycle: SiecleImportCycle): "COLLÈGE" | "LYCÉE"
 
 export function siecleCycleLabel(cycle: SiecleImportCycle): string {
   return cycle === "college" ? "Collège" : "Lycée";
+}
+
+/** Valeur colonne `ref_nomenclature.cycle` ('' = import historique non scindé). */
+export function siecleCycleColumnValue(cycle: SiecleImportCycle | null | undefined): string {
+  return cycle ?? "";
 }

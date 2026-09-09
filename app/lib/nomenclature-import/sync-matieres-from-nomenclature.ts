@@ -1,16 +1,28 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { refNomenclature, noteMatiere } from "@/db/schema";
 import { upsertMatiere } from "@/app/lib/notes-config-db";
+import {
+  siecleCycleColumnValue,
+  type SiecleImportCycle,
+} from "@/app/lib/nomenclature-import/siecle-import-cycle";
 
-/** Alimente note_matiere depuis ref_nomenclature (type matiere). */
-export async function syncMatieresFromNomenclature(etablissementId: string): Promise<{
+/** Alimente note_matiere depuis ref_nomenclature (type matiere), optionnellement pour un cycle. */
+export async function syncMatieresFromNomenclature(
+  etablissementId: string,
+  opts?: { cycle?: SiecleImportCycle },
+): Promise<{
   inserts: number;
   updates: number;
 }> {
   const db = getDb();
+  const cycleCol = siecleCycleColumnValue(opts?.cycle);
+  const cycleFilter = opts?.cycle
+    ? or(eq(refNomenclature.cycle, cycleCol), eq(refNomenclature.cycle, ""))
+    : undefined;
+
   const matieres = await db
     .select({
       code: refNomenclature.code,
@@ -20,7 +32,11 @@ export async function syncMatieresFromNomenclature(etablissementId: string): Pro
     })
     .from(refNomenclature)
     .where(
-      and(eq(refNomenclature.etablissementId, etablissementId), eq(refNomenclature.type, "matiere")),
+      and(
+        eq(refNomenclature.etablissementId, etablissementId),
+        eq(refNomenclature.type, "matiere"),
+        ...(cycleFilter ? [cycleFilter] : []),
+      ),
     );
 
   let inserts = 0;

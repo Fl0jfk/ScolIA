@@ -27,6 +27,7 @@ import {
 } from "@/app/lib/nomenclature-import/siecle-nomenclature-parse";
 import { decodeSiecleBuffer } from "@/app/lib/nomenclature-import/siecle-xml-parse-utils";
 import {
+  siecleCycleColumnValue,
   siecleCycleLabel,
   siecleCyclePole,
   type SiecleImportCycle,
@@ -63,18 +64,21 @@ import type { NomenclatureUpsertRow } from "@/app/lib/nomenclature-import/siecle
 export type { NomenclatureUpsertRow } from "@/app/lib/nomenclature-import/siecle-xml-types";
 export { parseNomenclatureXml, parseStructuresDivisions, parseStructuresGroupes } from "@/app/lib/nomenclature-import/siecle-nomenclature-parse";
 
-/** Marque les divisions avec le cycle déclaré (export Siècle collège ou lycée). */
-function applyCycleToStructureRows(
+/** Marque les lignes nomenclature / structures / géo avec le cycle déclaré. */
+function applyCycleToRows(
   rows: NomenclatureUpsertRow[],
   cycle: SiecleImportCycle,
+  opts?: { forcePole?: boolean },
 ): NomenclatureUpsertRow[] {
   const pole = siecleCyclePole(cycle);
+  const cycleCol = siecleCycleColumnValue(cycle);
   return rows.map((r) => ({
     ...r,
+    cycle: cycleCol,
     metadataJson: {
       ...(r.metadataJson || {}),
       sourceCycle: cycle,
-      pole,
+      ...(opts?.forcePole ? { pole } : {}),
     },
   }));
 }
@@ -91,6 +95,7 @@ export async function upsertNomenclatureRows(
   for (let i = 0; i < rows.length; i += chunk) {
     const slice = rows.slice(i, i + chunk);
     for (const r of slice) {
+      const cycle = typeof r.cycle === "string" ? r.cycle : "";
       const existing = await db
         .select({ id: refNomenclature.id })
         .from(refNomenclature)
@@ -99,6 +104,7 @@ export async function upsertNomenclatureRows(
             eq(refNomenclature.etablissementId, etablissementId),
             eq(refNomenclature.type, r.type),
             eq(refNomenclature.code, r.code),
+            eq(refNomenclature.cycle, cycle),
           ),
         )
         .limit(1);
@@ -122,6 +128,7 @@ export async function upsertNomenclatureRows(
           etablissementId,
           type: r.type,
           code: r.code,
+          cycle,
           libelleCourt: r.libelleCourt || null,
           libelleLong: r.libelleLong || null,
           metadataJson: r.metadataJson || null,
@@ -262,7 +269,7 @@ export async function importSiecleXmlBuffer(
   }
 
   if (kind === "etablissements") {
-    const result = await importSiecleEtablissementsXml(etablissementId, filename, xml);
+    const result = await importSiecleEtablissementsXml(etablissementId, filename, xml, { cycle });
     return {
       kind,
       inserts: result.inserts,
@@ -276,12 +283,14 @@ export async function importSiecleXmlBuffer(
 
   if (kind === "nomenclature") {
     rows = parseNomenclatureXml(xml);
+    if (cycle) rows = applyCycleToRows(rows, cycle);
   } else if (kind === "geographique") {
     rows = parseGeographiqueXml(xml);
+    if (cycle) rows = applyCycleToRows(rows, cycle);
   } else if (kind === "structures") {
     rows = parseStructuresDivisions(xml);
     if (cycle) {
-      rows = applyCycleToStructureRows(rows, cycle);
+      rows = applyCycleToRows(rows, cycle, { forcePole: true });
     }
     const groupes = parseStructuresGroupes(xml);
     if (groupes.length) {
@@ -347,12 +356,12 @@ export async function importSiecleXmlBuffer(
   let matieresSynced: { inserts: number; updates: number } | null = null;
   if (kind === "nomenclature" && isEntCoreDbEnabled()) {
     try {
-      competencesSynced = await syncProgrammesToCompetences(etablissementId);
+      competencesSynced = await syncProgrammesToCompetences(etablissementId, { cycle });
     } catch {
       competencesSynced = null;
     }
     try {
-      matieresSynced = await syncMatieresFromNomenclature(etablissementId);
+      matieresSynced = await syncMatieresFromNomenclature(etablissementId, { cycle });
     } catch {
       matieresSynced = null;
     }

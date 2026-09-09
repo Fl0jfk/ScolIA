@@ -42,12 +42,12 @@ type ImportSlot = {
   label: string;
   filenameHint: string;
   required: boolean;
-  order: number;
+  order?: number;
   cycleScoped?: boolean;
 };
 type ImportStatusRow = {
   kind: string;
-  cycle: "college" | "lycee" | "shared";
+  cycle: "college" | "lycee";
   imported: boolean;
   lastImport: string | null;
   lastFile: string | null;
@@ -251,34 +251,16 @@ export default function NomenclatureImportPanel() {
     return parts.length ? parts.join(" · ") : null;
   };
 
-  const statusForKind = (kind: string, scoped: boolean) =>
-    importStatus.find((s) => {
-      if (s.kind !== kind) return false;
-      if (!scoped) return s.cycle === "shared";
-      return s.cycle === cycle;
-    });
+  const statusForKind = (kind: string) =>
+    importStatus.find((s) => s.kind === kind && s.cycle === cycle);
 
-  const scopedList = useMemo(
-    () =>
-      slots.filter((s) =>
-        s.cycleScoped === true ||
-        (s.cycleScoped == null &&
-          ["communs", "structures", "eleves", "responsables"].includes(s.kind)),
-      ),
-    [slots],
-  );
-  const sharedList = useMemo(
-    () =>
-      slots.filter((s) =>
-        s.cycleScoped === false ||
-        (s.cycleScoped == null &&
-          ["nomenclature", "geographique", "etablissements"].includes(s.kind)),
-      ),
+  const slotList = useMemo(
+    () => [...slots].sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
     [slots],
   );
 
-  const slotBadge = (slot: ImportSlot, scoped: boolean) => {
-    const st = statusForKind(slot.kind, scoped);
+  const slotBadge = (slot: ImportSlot) => {
+    const st = statusForKind(slot.kind);
     if (st?.imported) {
       return (
         <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
@@ -300,15 +282,12 @@ export default function NomenclatureImportPanel() {
     );
   };
 
-  const renderSlotGrid = (list: ImportSlot[], scoped: boolean) => (
+  const renderSlotGrid = (list: ImportSlot[]) => (
     <div className="grid gap-3 sm:grid-cols-2">
       {list.map((slot) => {
-        const st = statusForKind(slot.kind, scoped);
-        const inputKey = scoped ? `${cycle}:${slot.kind}` : `shared:${slot.kind}`;
+        const st = statusForKind(slot.kind);
+        const inputKey = `${cycle}:${slot.kind}`;
         const slotBusy = busySlot === inputKey || busy;
-        const chooseLabel = scoped
-          ? `Choisir le fichier (${CYCLE_LABEL[cycle]})`
-          : "Choisir le fichier";
         return (
           <div
             key={inputKey}
@@ -319,7 +298,7 @@ export default function NomenclatureImportPanel() {
                 <div className="font-semibold text-slate-900">{slot.label}</div>
                 <code className="text-[11px] text-slate-500">{slot.filenameHint}</code>
               </div>
-              {slotBadge(slot, scoped)}
+              {slotBadge(slot)}
             </div>
             {st?.lastImport ? (
               <p className="text-[11px] text-slate-500">
@@ -344,7 +323,7 @@ export default function NomenclatureImportPanel() {
               onClick={() => slotInputRefs.current[inputKey]?.click()}
               className="mt-auto rounded-lg border border-indigo-200 bg-white text-indigo-800 px-3 py-1.5 text-xs font-bold disabled:opacity-50 hover:bg-indigo-50"
             >
-              {slotBusy ? "Import…" : chooseLabel}
+              {slotBusy ? "Import…" : `Choisir le fichier (${CYCLE_LABEL[cycle]})`}
             </button>
           </div>
         );
@@ -367,8 +346,9 @@ export default function NomenclatureImportPanel() {
         <h2 className="font-black text-slate-900 text-lg">Éducation nationale — Pont Siècle</h2>
         <p className="text-slate-600 mt-1">
           Siècle exporte le <strong>collège</strong> et le <strong>lycée</strong> séparément (UAJ
-          distincts). Importez chaque jeu de XML pour le cycle concerné : les classes s&apos;ajoutent
-          sans écraser l&apos;autre cycle.
+          distincts). Importez <strong>tout le jeu XML</strong> pour chaque cycle — y compris
+          Nomenclature (matières / MEF), Géographique et Établissements : les référentiels ne sont
+          pas partagés et s&apos;ajoutent sans écraser l&apos;autre cycle.
         </p>
         <p className="mt-2">
           <Link href="/parametres?tab=annees" className="text-xs font-bold text-indigo-600 hover:underline">
@@ -404,19 +384,10 @@ export default function NomenclatureImportPanel() {
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
         <h3 className="font-bold mb-1">Fichiers Siècle — {CYCLE_LABEL[cycle]}</h3>
         <p className="text-xs text-slate-500 mb-4">
-          Communs, Structures, Élèves et Responsables sont propres à ce cycle. Ordre recommandé :
-          Communs → Structures → Élèves → Responsables. L&apos;upsert conserve l&apos;autre cycle.
+          Ordre recommandé : Communs → Nomenclature → Géographique → Structures → Élèves →
+          Responsables. Chaque fichier est propre à ce cycle (matières collège ≠ matières lycée).
         </p>
-        {renderSlotGrid(scopedList, true)}
-      </section>
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-4">
-        <h3 className="font-bold mb-1">Fichiers partagés (établissement)</h3>
-        <p className="text-xs text-slate-500 mb-4">
-          Nomenclature, géographique et établissements : un import suffit pour collège et lycée.
-          Ils restent accessibles quel que soit le cycle sélectionné.
-        </p>
-        {renderSlotGrid(sharedList, false)}
+        {renderSlotGrid(slotList)}
       </section>
 
       {officialDivisions.length > 0 ? (

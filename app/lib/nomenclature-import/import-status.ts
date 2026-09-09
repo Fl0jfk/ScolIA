@@ -1,12 +1,10 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { nomenclatureImportLog, refNomenclature } from "@/db/schema";
-import { sql } from "drizzle-orm";
 import type { SiecleXmlKind } from "@/app/lib/nomenclature-import/siecle-xml";
 import {
-  isSiecleCycleScopedKind,
   isSiecleImportCycle,
   SIECLE_IMPORT_CYCLES,
   type SiecleImportCycle,
@@ -19,7 +17,7 @@ export type SiecleImportSlot = {
   filenameHint: string;
   required: boolean;
   order: number;
-  /** true = à importer une fois pour le collège et une fois pour le lycée */
+  /** Toujours true : Siècle exporte collège et lycée séparément. */
   cycleScoped: boolean;
 };
 
@@ -38,7 +36,7 @@ export const SIECLE_IMPORT_SLOTS: SiecleImportSlot[] = [
     filenameHint: "Nomenclature.xml",
     required: true,
     order: 1,
-    cycleScoped: false,
+    cycleScoped: true,
   },
   {
     kind: "geographique",
@@ -46,7 +44,7 @@ export const SIECLE_IMPORT_SLOTS: SiecleImportSlot[] = [
     filenameHint: "Geographique.xml",
     required: false,
     order: 2,
-    cycleScoped: false,
+    cycleScoped: true,
   },
   {
     kind: "etablissements",
@@ -54,7 +52,7 @@ export const SIECLE_IMPORT_SLOTS: SiecleImportSlot[] = [
     filenameHint: "Etablissements.xml",
     required: false,
     order: 3,
-    cycleScoped: false,
+    cycleScoped: true,
   },
   {
     kind: "structures",
@@ -96,8 +94,7 @@ function rapportCycle(rapport: RapportJson | null): SiecleImportCycle | null {
 
 export type SiecleImportStatus = {
   kind: SiecleXmlKind;
-  /** Cycle ciblé, ou `shared` pour les fichiers communs à tout l'établissement. */
-  cycle: SiecleImportCycle | "shared";
+  cycle: SiecleImportCycle;
   imported: boolean;
   lastImport: string | null;
   lastFile: string | null;
@@ -111,24 +108,26 @@ function dateToIso(value: unknown): string | null {
   return null;
 }
 
+const GEO_TYPES = new Set(["pays", "departement", "commune"]);
+const STRUCTURE_TYPES = new Set(["division"]);
+
 function buildSlotStatus(params: {
   slot: SiecleImportSlot;
-  cycle: SiecleImportCycle | "shared";
+  cycle: SiecleImportCycle;
   logs: Array<{
     fichier: string;
     statut: string;
     dateImport: unknown;
     rapportJson: unknown;
   }>;
-  countByType: Map<string, number>;
+  countByTypeCycle: Map<string, number>;
   divisionCountByCycle: Partial<Record<SiecleImportCycle, number>>;
 }): SiecleImportStatus {
-  const { slot, cycle, logs, countByType, divisionCountByCycle } = params;
+  const { slot, cycle, logs, countByTypeCycle, divisionCountByCycle } = params;
 
   const matching = [...logs].reverse().filter((l) => {
     const rapport = asRapport(l.rapportJson);
     if (rapport?.kind !== slot.kind || l.statut === "ignore") return false;
-    if (cycle === "shared") return true;
     const logCycle = rapportCycle(rapport);
     // Logs sans cycle (imports historiques) : visibles pour les deux cycles.
     return logCycle == null || logCycle === cycle;
@@ -139,25 +138,23 @@ function buildSlotStatus(params: {
   const rowsFromLog = rapport?.rows != null ? Number(rapport.rows) : null;
 
   let rows = rowsFromLog;
-  if (slot.kind === "nomenclature" || slot.kind === "geographique" || slot.kind === "structures") {
-    if (slot.kind === "structures") {
-      if (cycle === "college" || cycle === "lycee") {
-        rows = divisionCountByCycle[cycle] ?? rowsFromLog;
-      } else {
-        rows = countByType.get("division") ?? rowsFromLog;
-      }
-    } else if (slot.kind === "nomenclature") {
-      const total = [...countByType.entries()]
-        .filter(([t]) => t !== "division" && t !== "commune" && t !== "pays" && t !== "departement")
-        .reduce((acc, [, n]) => acc + n, 0);
-      rows = total || rowsFromLog;
-    } else if (slot.kind === "geographique") {
-      const geoTotal =
-        (countByType.get("pays") ?? 0) +
-        (countByType.get("departement") ?? 0) +
-        (countByType.get("commune") ?? 0);
-      rows = geoTotal || rowsFromLog;
+  if (slot.kind === "structures") {
+    rows = divisionCountByCycle[cycle] ?? rowsFromLog;
+  } else if (slot.kind === "nomenclature") {
+    let total = 0;
+    for (const [key, n] of countByTypeCycle) {
+      const [type, rowCycle] = key.split("\0");
+      if (!type || STRUCTURE_TYPES.has(type) || GEO_TYPES.has(type)) continue;
+      if (rowCycle === cycle || rowCycle === "") total += n;
     }
+    rows = total || rowsFromLog;
+  } else if (slot.kind === "geographique") {
+    let geoTotal = 0;
+    for (const geoType of GEO_TYPES) {
+      geoTotal += countByTypeCycle.get(`${geoType}\0${cycle}`) ?? 0;
+      geoTotal += countByTypeCycle.get(`${geoType}\0`) ?? 0;
+    }
+    rows = geoTotal || rowsFromLog;
   }
 
   if (slot.kind === "eleves" && rapport?.total != null) {
@@ -165,7 +162,7 @@ function buildSlotStatus(params: {
   }
 
   const hasDataInDb = rows != null && rows > 0;
-  const imported = Boolean((last && last.statut === "ok") || hasDataInDb);
+  const imported = Boolean((last && (last.statut === "ok" || last.statut === "partiel")) || hasDataInDb);
 
   return {
     kind: slot.kind,
@@ -194,42 +191,30 @@ export async function buildSiecleImportStatus(etablissementId: string): Promise<
     db
       .select({
         type: refNomenclature.type,
+        cycle: refNomenclature.cycle,
         n: sql<number>`count(*)::int`,
       })
       .from(refNomenclature)
       .where(eq(refNomenclature.etablissementId, etablissementId))
-      .groupBy(refNomenclature.type),
+      .groupBy(refNomenclature.type, refNomenclature.cycle),
     loadOfficialSchoolClasses(etablissementId),
   ]);
 
-  const countByType = new Map(counts.map((c) => [c.type, c.n]));
+  const countByTypeCycle = new Map(counts.map((c) => [`${c.type}\0${c.cycle ?? ""}`, c.n]));
   const divisionCountByCycle: Partial<Record<SiecleImportCycle, number>> = {
     college: official.lockedClassesByPole.COLLÈGE?.length ?? 0,
     lycee: official.lockedClassesByPole.LYCÉE?.length ?? 0,
   };
 
   const out: SiecleImportStatus[] = [];
-
   for (const slot of SIECLE_IMPORT_SLOTS) {
-    if (slot.cycleScoped || isSiecleCycleScopedKind(slot.kind)) {
-      for (const cycle of SIECLE_IMPORT_CYCLES) {
-        out.push(
-          buildSlotStatus({
-            slot,
-            cycle,
-            logs,
-            countByType,
-            divisionCountByCycle,
-          }),
-        );
-      }
-    } else {
+    for (const cycle of SIECLE_IMPORT_CYCLES) {
       out.push(
         buildSlotStatus({
           slot,
-          cycle: "shared",
+          cycle,
           logs,
-          countByType,
+          countByTypeCycle,
           divisionCountByCycle,
         }),
       );

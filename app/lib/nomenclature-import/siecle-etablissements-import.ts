@@ -3,6 +3,10 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { nomenclatureImportLog, refEtablissement } from "@/db/schema";
+import {
+  siecleCycleLabel,
+  type SiecleImportCycle,
+} from "@/app/lib/nomenclature-import/siecle-import-cycle";
 
 export type RefEtablissementRow = {
   codeRne: string;
@@ -131,12 +135,15 @@ export async function importSiecleEtablissementsXml(
   etablissementId: string,
   filename: string,
   xml: string,
+  opts?: { cycle?: SiecleImportCycle },
 ): Promise<{ inserts: number; updates: number; rows: number; message: string }> {
   const batchSize = 500;
   let batch: RefEtablissementRow[] = [];
   let totalRows = 0;
   let inserts = 0;
   let updates = 0;
+  const cycle = opts?.cycle;
+  const cycleNote = cycle ? ` · ${siecleCycleLabel(cycle)}` : "";
 
   const flush = async () => {
     if (!batch.length) return;
@@ -163,13 +170,13 @@ export async function importSiecleEtablissementsXml(
     statut: "ok",
     nbInserts: inserts,
     nbUpdates: updates,
-    rapportJson: { kind: "etablissements", rows: totalRows },
+    rapportJson: { kind: "etablissements", ...(cycle ? { cycle } : {}), rows: totalRows },
   });
 
   return {
     inserts,
     updates,
     rows: totalRows,
-    message: `${filename} (etablissements) : ${totalRows} établissements — ${inserts} créés, ${updates} mis à jour.`,
+    message: `${filename} (etablissements${cycleNote}) : ${totalRows} établissements — ${inserts} créés, ${updates} mis à jour.`,
   };
 }

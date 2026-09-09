@@ -29,6 +29,8 @@ export const refNomenclature = pgTable(
       .references(() => etablissement.id, { onDelete: "cascade" }),
     type: text("type").notNull(),
     code: text("code").notNull(),
+    /** Cycle Siècle : college | lycee | '' (historique non scindé). */
+    cycle: text("cycle").notNull().default(""),
     libelleCourt: text("libelle_court"),
     libelleLong: text("libelle_long"),
     source: text("source").notNull().default("siecle"),
@@ -39,8 +41,14 @@ export const refNomenclature = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("ref_nomenclature_etab_type_code_uidx").on(t.etablissementId, t.type, t.code),
+    uniqueIndex("ref_nomenclature_etab_type_code_cycle_uidx").on(
+      t.etablissementId,
+      t.type,
+      t.code,
+      t.cycle,
+    ),
     index("ref_nomenclature_etab_type_idx").on(t.etablissementId, t.type),
+    index("ref_nomenclature_etab_type_cycle_idx").on(t.etablissementId, t.type, t.cycle),
   ],
 );
 
