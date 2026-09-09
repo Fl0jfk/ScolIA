@@ -114,7 +114,9 @@ export async function GET(req: Request) {
       updatedAt: new Date().toISOString(),
       readyAt: new Date().toISOString(),
       readyBy: "Gestionnaire impressions",
+      readySeenAt: undefined,
     };
+    delete updated.readySeenAt;
     all[idx] = updated;
     await saveIndex(all);
 

@@ -28,6 +28,7 @@ import {
   type PhotoCopieRecord,
   type PhotoCopieStatus,
 } from "@/app/lib/photocopies-couleur-types";
+import { clearDashboardSignalsCache } from "@/app/lib/dashboard-signals-cache";
 
 async function openPhotocopieDocument(id: string): Promise<void> {
   const res = await fetch(`/api/photocopies-couleur/document?id=${encodeURIComponent(id)}`, {
@@ -143,7 +144,8 @@ export default function PhotocopiesCouleurPage() {
         typeof data?.currentUserId === "string" && data.currentUserId.trim()
           ? data.currentUserId.trim()
           : null,
-      );    } catch (e: unknown) {
+      );
+    } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Erreur de chargement.";
       setError(msg);
     } finally {
@@ -154,6 +156,37 @@ export default function PhotocopiesCouleurPage() {
   useEffect(() => {
     if (isLoaded && user) void fetchItems();
   }, [isLoaded, user, fetchItems]);
+
+  // Clic / ouverture du module = signal « photocopies prêtes » vu (demandeur).
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    let cancelled = false;
+    void fetch("/api/photocopies-couleur/mark-ready-seen", { method: "POST" })
+      .then(async (ackRes) => {
+        if (cancelled || !ackRes.ok) return;
+        const ack = (await ackRes.json().catch(() => ({}))) as {
+          ids?: string[];
+          seenAt?: string;
+        };
+        const markedIds = Array.isArray(ack.ids) ? ack.ids : [];
+        if (!markedIds.length) return;
+        const seenAt =
+          typeof ack.seenAt === "string" && ack.seenAt.trim()
+            ? ack.seenAt
+            : new Date().toISOString();
+        const idSet = new Set(markedIds);
+        setItems((prev) =>
+          prev.map((it) => (idSet.has(it.id) ? { ...it, readySeenAt: seenAt } : it)),
+        );
+        clearDashboardSignalsCache(user.id);
+      })
+      .catch(() => {
+        /* non bloquant */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, user]);
 
   useEffect(() => {
     if (!canOnBehalf) return;

@@ -371,7 +371,10 @@ export async function PATCH(req: Request) {
         updatedAt: new Date().toISOString(),
         readyAt: new Date().toISOString(),
         readyBy: readyByName,
+        // Nouvelle « prête » → signal redemandeur jusqu’à ouverture du module
+        readySeenAt: undefined,
       };
+      delete updated.readySeenAt;
       all[idx] = updated;
       await saveIndex(all);
 

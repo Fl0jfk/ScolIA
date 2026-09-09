@@ -24,6 +24,7 @@ import { WEEK_DAYS, type WeekDayKey } from "@/app/lib/dashboard-week-sheet-types
 import { canAccessHseModule, canCreateHseDemand, getHseRoleFlags, type HseRecordLike } from "@/app/lib/demandes-hse-access";
 import { canCreatePhotocopiesDemand } from "@/app/lib/photocopies-couleur-access";
 import { isPhotocopiesOpsHandler, photocopiesOpsPendingCount } from "@/app/lib/photocopies-couleur-ops";
+import { isPhotocopieReadyUnseen } from "@/app/lib/photocopies-couleur-types";
 import { directionRolesMatchEstablishmentRef, isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
@@ -304,14 +305,21 @@ function personLabelFromAbsence(a: {
 
 function photocopiesReadyForUser(
   userId: string,
-  photocopies: Array<{ status: string; createdBy?: { userId?: string } }>,
+  photocopies: Array<{
+    status: string;
+    readySeenAt?: string;
+    createdBy?: { userId?: string };
+  }>,
   altUserIds: Array<string | null | undefined> = [],
 ): number {
   const ids = new Set(
     [userId, ...altUserIds].map((x) => String(x || "").trim()).filter(Boolean),
   );
   return photocopies.filter(
-    (p) => p.status === "PRETE" && p.createdBy?.userId && ids.has(p.createdBy.userId),
+    (p) =>
+      isPhotocopieReadyUnseen(p) &&
+      p.createdBy?.userId &&
+      ids.has(p.createdBy.userId),
   ).length;
 }
 

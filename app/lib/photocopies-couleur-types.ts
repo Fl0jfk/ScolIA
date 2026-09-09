@@ -27,7 +27,17 @@ export type PhotoCopieRecord = {
   directionNote?: string;
   readyAt?: string;
   readyBy?: string;
+  /** Demandeur a ouvert le module après « prête » → signal dashboard acquitté. */
+  readySeenAt?: string;
 };
+
+/** Photocopie prête encore non vue par le demandeur (signal dashboard). */
+export function isPhotocopieReadyUnseen(rec: {
+  status: string;
+  readySeenAt?: string;
+}): boolean {
+  return rec.status === "PRETE" && !String(rec.readySeenAt || "").trim();
+}
 
 export function photoCopieStatusLabel(status: PhotoCopieStatus): string {
   if (status === "ACCEPTEE") return "Acceptée";
