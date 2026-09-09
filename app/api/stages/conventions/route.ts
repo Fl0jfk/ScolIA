@@ -14,6 +14,10 @@ import { ensureStageYearAutoPurge } from "@/app/lib/stage-auto-purge";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import { conventionMatchesStageSecteurs, resolveStageViewerSecteurs } from "@/app/lib/stage-sector-scope";
 import { ensureConventionReferent, listClassesForReferentUser } from "@/app/lib/stage-referents-config";
+import {
+  getStageWatchersConfig,
+  listWatcherAssignmentsForUser,
+} from "@/app/lib/stage-watchers-config";
 import { defaultStageSchedule } from "@/app/lib/stage-schedule";
 import {
   ensureStudentAccessToken,
@@ -67,7 +71,15 @@ export async function GET(req: Request) {
       });
     }
 
-    if (!canViewAllConventions(roles) && !canViewReferentConventions(roles) && !canCreateOffer(roles)) {
+    const watchersCfg = await getStageWatchersConfig(currentStageSchoolYear());
+    const watcherAssignments = listWatcherAssignmentsForUser(watchersCfg, gate.ctx.userId);
+
+    if (
+      !canViewAllConventions(roles) &&
+      !canViewReferentConventions(roles) &&
+      !canCreateOffer(roles) &&
+      watcherAssignments.length === 0
+    ) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 
@@ -82,7 +94,14 @@ export async function GET(req: Request) {
       .filter((c): c is NonNullable<typeof c> => Boolean(c))
       .filter((c) => c.status !== "archived")
       .filter((c) =>
-        conventionVisibleToUser(c, roles, userEmail, gate.ctx.userId, referentClassNames),
+        conventionVisibleToUser(
+          c,
+          roles,
+          userEmail,
+          gate.ctx.userId,
+          referentClassNames,
+          watcherAssignments,
+        ),
       )
       .filter((c) => conventionMatchesStageSecteurs(c, viewerSecteurs));
     return NextResponse.json({ conventions });

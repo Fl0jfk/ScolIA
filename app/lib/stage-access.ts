@@ -35,7 +35,13 @@ export function canReviewPreconvention(roles: string[]) {
 }
 
 export function canViewAllConventions(roles: string[]) {
-  return canReviewPreconvention(roles) || roles.includes("surveillant") || roles.includes("cpe");
+  // CPE : scoped via affectations watchers (classe / élève), pas un accès global.
+  return canReviewPreconvention(roles) || roles.includes("surveillant");
+}
+
+/** Visu stages sans signature — CPE (et restauration pour les repas). */
+export function canViewStageWatchScope(roles: string[]) {
+  return roles.includes("cpe") || roles.includes("accueil") || roles.includes("administratif");
 }
 
 export function canViewReferentConventions(roles: string[]) {

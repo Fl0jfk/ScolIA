@@ -2,6 +2,7 @@
 
 import StageReferentsEditor from "@/app/components/stages/StageReferentsEditor";
 import StagePeriodsEditor from "@/app/components/stages/StagePeriodsEditor";
+import StageWatchersEditor from "@/app/components/stages/StageWatchersEditor";
 
 export default function StagesSettingsPanel({
   onSavedMsg,
@@ -42,6 +43,18 @@ export default function StagesSettingsPanel({
         </p>
         <div className="mt-4">
           <StageReferentsEditor onSaved={(m) => onSavedMsg(m)} />
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-[#1F3D2B]">CPE &amp; restauration (visibilité)</h2>
+        <p className="mt-2 text-sm text-stone-600 max-w-2xl">
+          Affectez les CPE par classe (ou élève hors parcours) pour le suivi des stages. Affectez
+          aussi la restauration pour connaître les jours où les élèves ne mangeront pas à
+          l&apos;établissement.
+        </p>
+        <div className="mt-4">
+          <StageWatchersEditor onSaved={(m) => onSavedMsg(m)} />
         </div>
       </section>
     </div>

@@ -660,6 +660,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "professeur",
       "surveillant",
       "cpe",
+      "accueil",
       "parent",
     ],
     dashboard: {

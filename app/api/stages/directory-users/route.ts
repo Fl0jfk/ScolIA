@@ -25,7 +25,9 @@ export async function GET() {
         (m) =>
           m.roles.includes("professeur") ||
           m.roles.includes("surveillant") ||
-          m.roles.includes("cpe"),
+          m.roles.includes("cpe") ||
+          m.roles.includes("accueil") ||
+          m.roles.includes("administratif"),
       )
       .map((m) => ({
         externalUserId: m.externalUserId,

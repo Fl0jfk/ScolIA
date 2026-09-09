@@ -17,6 +17,10 @@ import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import { listPendingSignaturesForUser } from "@/app/lib/stage-pending-signatures";
 import { listClassesForReferentUser } from "@/app/lib/stage-referents-config";
 import {
+  getStageWatchersConfig,
+  listWatcherAssignmentsForUser,
+} from "@/app/lib/stage-watchers-config";
+import {
   conventionMatchesStageSecteurs,
   resolveStageViewerSecteurs,
   stageViewerSecteurSummary,
@@ -25,7 +29,7 @@ import {
   getConventionsIndex,
   getStageConvention,
 } from "@/app/lib/stage-storage";
-import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
+import { STAGE_CONVENTION_STATUS_LABELS, currentStageSchoolYear } from "@/app/lib/stage-types";
 
 export async function GET() {
   try {
@@ -37,7 +41,9 @@ export async function GET() {
     const user = await safeCurrentUser();
     const roles = intranetRolesFromMetadata(user?.publicMetadata);
     const viewer = resolveStageViewerRole(roles);
-    if (!viewer) {
+    const watchersCfg = await getStageWatchersConfig(currentStageSchoolYear());
+    const watcherAssignments = listWatcherAssignmentsForUser(watchersCfg, gate.ctx.userId);
+    if (!viewer && watcherAssignments.length === 0) {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 
@@ -53,7 +59,14 @@ export async function GET() {
       ? await listClassesForReferentUser(gate.ctx.userId)
       : [];
     let conventions = allConventions.filter((c) =>
-      conventionVisibleToUser(c, roles, userEmail, gate.ctx.userId, referentClassNames),
+      conventionVisibleToUser(
+        c,
+        roles,
+        userEmail,
+        gate.ctx.userId,
+        referentClassNames,
+        watcherAssignments,
+      ),
     );
 
     if (viewerSecteurs.length > 0) {
@@ -70,6 +83,11 @@ export async function GET() {
     );
     const signaturesPending = activeConventions.filter((c) => c.status === "signatures_pending");
     const referentOnly = canViewReferentConventions(roles) && !canViewAllConventions(roles);
+    const watcherOnly =
+      !canViewAllConventions(roles) &&
+      !canViewReferentConventions(roles) &&
+      !canReviewPreconvention(roles) &&
+      watcherAssignments.length > 0;
     const myPendingSignatures = await listPendingSignaturesForUser(
       conventions,
       userEmail,
@@ -78,7 +96,7 @@ export async function GET() {
     );
 
     return NextResponse.json({
-      viewer,
+      viewer: viewer || "staff",
       viewerSecteurLabel: stageViewerSecteurSummary(viewerSecteurs),
       permissions: {
         canModerateOffers: canModerateOffers(roles),
@@ -89,7 +107,13 @@ export async function GET() {
         canFileToOneDrive: canFileConventionToOneDrive(roles),
         canManageStageSettings: canManageStageSettings(roles),
         canManageReferents: canReviewPreconvention(roles),
+        canViewRepasAbsences:
+          canReviewPreconvention(roles) ||
+          canViewAllConventions(roles) ||
+          roles.includes("cpe") ||
+          watcherAssignments.some((a) => a.kind === "restauration" || a.kind === "cpe"),
         referentOnly,
+        watcherOnly,
         canViewClassRoster: canViewReferentConventions(roles) || canViewAllConventions(roles),
       },
       counts: {

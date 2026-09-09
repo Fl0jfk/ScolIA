@@ -15,6 +15,8 @@ export const STAGE_S3 = {
   offerApplications: (offerId: string) => `stages/offer-applications/${offerId}.json`,
   referentsConfig: (schoolYear: string) => `stages/referents/${schoolYear}.json`,
   periodsConfig: (schoolYear: string) => `stages/periods/${schoolYear}.json`,
+  /** CPE / restauration : visu stages par classe ou élève. */
+  watchersConfig: (schoolYear: string) => `stages/watchers/${schoolYear}.json`,
   referentSignature: (externalUserId: string) => `signatures/users/${externalUserId}.png`,
   externalSignature: (conventionId: string, signatureId: string) =>
     `stages/signatures/external/${conventionId}/${signatureId}.png`,
@@ -122,6 +124,7 @@ export type StageSignerRole =
   | "tuteur_entreprise"
   | "rh_entreprise"
   | "professeur_referent"
+  | "professeur_principal"
   | "direction"
   | "administratif";
 
@@ -351,6 +354,7 @@ export const STAGE_SIGNER_ROLE_LABELS: Record<StageSignerRole, string> = {
   tuteur_entreprise: "Tuteur en entreprise",
   rh_entreprise: "RH entreprise",
   professeur_referent: "Professeur référent",
+  professeur_principal: "Professeur principal",
   direction: "Direction",
   administratif: "Administratif",
 };

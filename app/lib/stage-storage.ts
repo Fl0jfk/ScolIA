@@ -1,4 +1,4 @@
-import { getJson, putJson } from "@/app/lib/s3-storage";
+import { getJson, putJson, deleteJson } from "@/app/lib/s3-storage";
 import {
   STAGE_S3,
   type StageConvention,
@@ -95,6 +95,11 @@ export async function listConventionsForDossier(
     if (c && studentDossierKey(c.student) === key) out.push(c);
   }
   return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function deleteSignTokenRef(token: string): Promise<void> {
+  if (!token.trim()) return;
+  await deleteJson(STAGE_S3.signToken(token));
 }
 
 export async function saveSignTokenRef(token: string, ref: StageSignTokenRef) {

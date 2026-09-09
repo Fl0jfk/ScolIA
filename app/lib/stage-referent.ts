@@ -3,6 +3,8 @@ import {
   canViewAllConventions,
 } from "@/app/lib/stage-access";
 import { classKey } from "@/app/lib/stage-referents-config";
+import type { StageWatcherAssignment } from "@/app/lib/stage-watchers-config";
+import { conventionMatchesWatcherAssignments } from "@/app/lib/stage-watchers-config";
 import type { StageConvention } from "@/app/lib/stage-types";
 
 function conventionMatchesReferent(
@@ -36,8 +38,13 @@ export function conventionVisibleToUser(
   userEmail: string,
   userId?: string,
   referentClassNames?: string[],
+  watcherAssignments?: StageWatcherAssignment[],
 ): boolean {
   if (canViewAllConventions(roles)) return true;
+  if (canReviewPreconvention(roles)) return true;
+  if (watcherAssignments && watcherAssignments.length > 0) {
+    if (conventionMatchesWatcherAssignments(convention, watcherAssignments)) return true;
+  }
   if (canViewReferentConventions(roles)) {
     if (conventionMatchesReferent(convention, userEmail, userId)) return true;
     if (referentClassNames?.length) {
@@ -45,7 +52,10 @@ export function conventionVisibleToUser(
     }
     return false;
   }
-  if (canReviewPreconvention(roles)) return true;
+  // CPE / accueil : uniquement via affectations watchers (classe ou élève).
+  if (roles.includes("cpe") || roles.includes("accueil")) {
+    return false;
+  }
   return false;
 }
 

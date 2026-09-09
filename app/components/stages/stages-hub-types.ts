@@ -1,6 +1,6 @@
 import type { PendingStageSignature } from "@/app/lib/stage-pending-signatures";
 
-export type StageTab = "board" | "classe" | "conventions" | "settings";
+export type StageTab = "board" | "classe" | "conventions" | "repas" | "settings";
 
 export type StagesHubPermissions = {
   canModerateOffers: boolean;
@@ -11,7 +11,9 @@ export type StagesHubPermissions = {
   canFileToOneDrive: boolean;
   canManageStageSettings: boolean;
   canManageReferents: boolean;
+  canViewRepasAbsences?: boolean;
   referentOnly: boolean;
+  watcherOnly?: boolean;
   canViewClassRoster: boolean;
 };
 

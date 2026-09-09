@@ -6,14 +6,24 @@ import { canReviewPreconvention, canViewAllConventions, canViewReferentConventio
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import {
   approveDepositedConvention,
+  addConventionSignatory,
+  markConventionSignatureManual,
   normalizeConventionInput,
+  removeConventionSignatory,
   reviewConventionSignature,
   reviewPreconvention,
   submitPreconvention,
+  syncProfReferentSignatory,
 } from "@/app/lib/stage-workflow";
 import { getStageConvention, saveStageConvention } from "@/app/lib/stage-storage";
 import { ensureConventionReferent, listClassesForReferentUser, userCanAssignStageReferentForClass } from "@/app/lib/stage-referents-config";
+import {
+  getStageWatchersConfig,
+  listWatcherAssignmentsForUser,
+} from "@/app/lib/stage-watchers-config";
 import { notifyAllStageSignatureRequests, notifyStageDepositAdminRejected, notifyStageSignatureRequest } from "@/app/lib/stage-notify";
+import type { StageSignerRole } from "@/app/lib/stage-types";
+import { currentStageSchoolYear } from "@/app/lib/stage-types";
 import {
   findEleveByIne,
   matchEleveForConvention,
@@ -43,6 +53,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     const referentClassNames = canViewReferentConventions(roles)
       ? await listClassesForReferentUser(gate.ctx.userId)
       : [];
+    const watchers = await getStageWatchersConfig(convention.schoolYear || currentStageSchoolYear());
+    const watcherAssignments = listWatcherAssignmentsForUser(watchers, gate.ctx.userId);
     if (
       !conventionVisibleToUser(
         convention,
@@ -50,6 +62,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         userEmail,
         gate.ctx.userId,
         referentClassNames,
+        watcherAssignments,
       ) &&
       !roles.includes("parent")
     ) {
@@ -169,7 +182,16 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           },
         ],
       };
-      await saveStageConvention(convention);
+      if (convention.status === "signatures_pending" || convention.status === "convention_ready") {
+        convention = await syncProfReferentSignatory(convention, {
+          name,
+          email,
+          userId: externalUserId,
+          byName: displayName(user),
+        });
+      } else {
+        await saveStageConvention(convention);
+      }
       return NextResponse.json({ success: true, convention });
     }
 
@@ -341,6 +363,59 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       }
       const mail = await notifyAllStageSignatureRequests(convention);
       return NextResponse.json({ success: true, mail });
+    }
+
+    if (action === "add_signatory") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const role = String(body.role ?? "").trim() as StageSignerRole;
+      const email = String(body.email ?? "").trim();
+      const name = String(body.name ?? "").trim() || undefined;
+      const result = await addConventionSignatory({
+        conventionId: convention.id,
+        role,
+        email,
+        name,
+        byName: displayName(user),
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({ success: true, convention: result.convention });
+    }
+
+    if (action === "remove_signatory") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const signatureId = String(body.signatureId ?? "").trim();
+      if (!signatureId) {
+        return NextResponse.json({ error: "signatureId requis." }, { status: 400 });
+      }
+      const result = await removeConventionSignatory({
+        conventionId: convention.id,
+        signatureId,
+        byName: displayName(user),
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({ success: true, convention: result.convention });
+    }
+
+    if (action === "mark_signature_manual") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const signatureId = String(body.signatureId ?? "").trim();
+      if (!signatureId) {
+        return NextResponse.json({ error: "signatureId requis." }, { status: 400 });
+      }
+      const result = await markConventionSignatureManual({
+        conventionId: convention.id,
+        signatureId,
+        byName: displayName(user),
+        note: String(body.note ?? "").trim() || undefined,
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({ success: true, convention: result.convention });
     }
 
     if (action === "file_eleve_dossier") {

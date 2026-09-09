@@ -342,6 +342,27 @@ export function scheduleSummary(schedule: StageSchedule): string {
   return `${schedule.periodStart} → ${schedule.periodEnd} · ${labels.join(", ")}`;
 }
 
+/** Dates ISO où l'élève est en stage (absent établissement / repas). */
+export function expandStagePresenceDates(schedule: StageSchedule): string[] {
+  if (schedule.mode === "per_day") {
+    return [
+      ...new Set(
+        schedule.days
+          .map((d) => d.date?.slice(0, 10))
+          .filter((d): d is string => Boolean(d)),
+      ),
+    ].sort();
+  }
+  const weekdays =
+    schedule.presenceWeekdays && schedule.presenceWeekdays.length > 0
+      ? schedule.presenceWeekdays
+      : schedule.days
+          .map((d) => d.weekday)
+          .filter((w): w is StageWeekday => typeof w === "number" && w >= 1 && w <= 6);
+  const list = weekdays.length > 0 ? weekdays : STAGE_DEFAULT_WEEKDAYS;
+  return expandWeekdayDates(schedule.periodStart, schedule.periodEnd, list);
+}
+
 export function validateStageSchedule(schedule: StageSchedule): string | null {
   if (!schedule.periodStart || !schedule.periodEnd) return "Période de stage obligatoire.";
   if (schedule.periodEnd < schedule.periodStart) return "La date de fin doit être après le début.";

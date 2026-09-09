@@ -23,6 +23,7 @@ const ROLE_STAMP_ORDER: StageSignerRole[] = [
   "parent_2",
   "eleve",
   "professeur_referent",
+  "professeur_principal",
   "direction",
   "administratif",
 ];
@@ -210,6 +211,7 @@ async function saveConventionPdfBytes(convention: StageConvention, pdfBytes: Uin
 export function roleStampsPdf(role: StageSignerRole): boolean {
   return (
     role === "professeur_referent" ||
+    role === "professeur_principal" ||
     role === "direction" ||
     role === "parent" ||
     role === "parent_2" ||

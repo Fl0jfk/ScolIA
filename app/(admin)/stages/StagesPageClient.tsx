@@ -36,6 +36,10 @@ const StagesSettingsPanel = dynamic(() => import("@/app/components/stages/Stages
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
+const StageRepasAbsencesPanel = dynamic(
+  () => import("@/app/components/stages/StageRepasAbsencesPanel"),
+  { ssr: false, loading: () => <ModuleTabFallback /> },
+);
 
 function StagesContent() {
   const searchParams = useSearchParams();
@@ -296,6 +300,94 @@ function StagesContent() {
     }
   }
 
+  async function addSignatory() {
+    if (!detail) return;
+    const role = window.prompt(
+      "Rôle (professeur_referent | professeur_principal | direction | parent | tuteur_entreprise) :",
+      "professeur_referent",
+    );
+    if (!role) return;
+    const email = window.prompt("E-mail du signataire :");
+    if (!email) return;
+    const name = window.prompt("Nom affiché (optionnel) :") || undefined;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add_signatory", role, email, name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setDetail({ ...detail, convention: data.convention });
+      setMsg("Signataire ajouté — e-mail de signature envoyé.");
+      await loadDetail(detail.convention.id);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeSignatory(signatureId: string) {
+    if (!detail) return;
+    if (!window.confirm("Retirer ce signataire et invalider son lien ?")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "remove_signatory", signatureId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setDetail({ ...detail, convention: data.convention });
+      setMsg("Signataire retiré — lien invalidé.");
+      await loadDetail(detail.convention.id);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function markSignatureManual(signatureId: string) {
+    if (!detail) return;
+    const note =
+      window.prompt(
+        "Valider manuellement (papier / hors plateforme). Note optionnelle :",
+        "Signé hors plateforme",
+      ) ?? undefined;
+    if (note === undefined) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "mark_signature_manual",
+          signatureId,
+          note: note.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setDetail({ ...detail, convention: data.convention });
+      setMsg("Signature validée manuellement — lien invalidé.");
+      await loadDetail(detail.convention.id);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function attachEleveIne() {
     if (!detail) return;
     setBusy(true);
@@ -440,6 +532,12 @@ function StagesContent() {
             dataAttrs: { "data-stages-tab": "conventions" },
           },
           {
+            id: "repas",
+            label: "Absences repas",
+            hidden: !permissions?.canViewRepasAbsences,
+            dataAttrs: { "data-stages-tab": "repas" },
+          },
+          {
             id: "settings",
             label: "Réglages",
             hidden: !permissions?.canManageStageSettings,
@@ -470,6 +568,18 @@ function StagesContent() {
           permissions={permissions}
           onLoadDetail={(id) => void loadDetail(id)}
         />
+      )}
+
+      {tab === "repas" && permissions?.canViewRepasAbsences && (
+        <section className="mb-8 rounded-2xl border border-amber-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-bold text-[#1F3D2B]">Absences repas (stages)</h2>
+          <p className="mt-1 text-sm text-stone-600">
+            Élèves en stage sur la période — utiles pour la restauration et le suivi CPE.
+          </p>
+          <div className="mt-4">
+            <StageRepasAbsencesPanel />
+          </div>
+        </section>
       )}
 
       {tab === "settings" && permissions?.canManageStageSettings && (
@@ -518,14 +628,14 @@ function StagesContent() {
                 rel="noopener noreferrer"
                 className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
               >
-                Voir le PDF déposé
+                Télécharger PDF (avec signatures déjà apposées)
               </a>
             )}
             <a
               href={`/api/stages/conventions/${detail.convention.id}/pdf`}
               className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-800 hover:bg-stone-50"
             >
-              Télécharger PDF généré
+              PDF généré (texte / grille)
             </a>
             {permissions?.canReviewPreconvention && detail.convention.status === "signatures_pending" && (
               <button
@@ -537,6 +647,18 @@ function StagesContent() {
                 Renvoyer les e-mails de signature
               </button>
             )}
+            {permissions?.canReviewPreconvention &&
+              (detail.convention.status === "signatures_pending" ||
+                detail.convention.status === "signed") && (
+                <button
+                  type="button"
+                  onClick={() => void addSignatory()}
+                  disabled={busy}
+                  className="rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-900 disabled:opacity-50"
+                >
+                  Ajouter un signataire
+                </button>
+              )}
           </div>
 
           {detail.convention.ocrMeta && permissions?.canReviewPreconvention && (
@@ -884,14 +1006,32 @@ function StagesContent() {
                         Lien
                       </a>
                       {pending && permissions?.canReviewPreconvention && (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void resendSignature(pending.id)}
-                          className="rounded-lg border border-[#2F6B4A] px-2 py-1 text-xs font-semibold text-[#2F6B4A] disabled:opacity-50"
-                        >
-                          Relancer
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void resendSignature(pending.id)}
+                            className="rounded-lg border border-[#2F6B4A] px-2 py-1 text-xs font-semibold text-[#2F6B4A] disabled:opacity-50"
+                          >
+                            Relancer
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void markSignatureManual(pending.id)}
+                            className="rounded-lg border border-stone-400 px-2 py-1 text-xs font-semibold text-stone-700 disabled:opacity-50"
+                          >
+                            Valider manuellement
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void removeSignatory(pending.id)}
+                            className="rounded-lg border border-rose-300 px-2 py-1 text-xs font-semibold text-rose-700 disabled:opacity-50"
+                          >
+                            Retirer
+                          </button>
+                        </>
                       )}
                     </li>
                   );

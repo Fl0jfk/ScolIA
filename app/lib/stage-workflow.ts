@@ -38,6 +38,7 @@ import {
   getSignCodeLookup,
   getStageConvention,
   getStudentTokenRef,
+  deleteSignTokenRef,
   saveSignTokenRef,
   saveStageConvention,
   saveStudentTokenRef,
@@ -694,7 +695,10 @@ export async function applyConventionSignature(params: {
   }
 
   const reviewStatus =
-    signMethod === "code_confirm" && (sig.role === "professeur_referent" || sig.role === "direction")
+    signMethod === "code_confirm" &&
+    (sig.role === "professeur_referent" ||
+      sig.role === "professeur_principal" ||
+      sig.role === "direction")
       ? ("accepted" as const)
       : signMethod === "code_confirm"
         ? ("accepted" as const)
@@ -730,7 +734,7 @@ export async function applyConventionSignature(params: {
     updatedAt: now,
   };
   next = pushHistory(next, params.signerName || sig.label, "SIGNATURE", `${sig.role}:${signMethod}`);
-  if (allValidated) {
+  if (allValidated && !next.uploadedPdf?.s3Key) {
     next = await generateAndStoreConventionPdf(next);
   }
   await saveStageConvention(next);
@@ -818,6 +822,282 @@ export async function requestSignConfirmCode(
   };
 }
 
+async function issuePendingSignatory(
+  conventionId: string,
+  role: StageSignerRole,
+  email: string,
+  label?: string,
+): Promise<StageSignature> {
+  const token = generateStageToken();
+  const sig: StageSignature = {
+    id: stageUid("sig"),
+    role,
+    label: label?.trim() || STAGE_SIGNER_ROLE_LABELS[role],
+    status: "en_attente",
+    signEmail: email.trim(),
+    signToken: token,
+    signSentAt: new Date().toISOString(),
+  };
+  await saveSignTokenRef(token, {
+    conventionId,
+    signatureId: sig.id,
+    role,
+    createdAt: new Date().toISOString(),
+  });
+  return sig;
+}
+
+/**
+ * Après délégation / ajout d'un référent alors que les signatures sont en cours :
+ * crée ou met à jour le signataire professeur_referent et envoie le mail.
+ */
+export async function syncProfReferentSignatory(
+  convention: StageConvention,
+  params: { name: string; email: string; userId?: string; byName: string },
+): Promise<StageConvention> {
+  const email = params.email.trim().toLowerCase();
+  if (!email || !isValidEmail(email)) return convention;
+  if (convention.status !== "signatures_pending" && convention.status !== "convention_ready") {
+    return convention;
+  }
+
+  const now = new Date().toISOString();
+  let withTeacher: StageConvention = {
+    ...convention,
+    teacherReferent: {
+      name: params.name.trim(),
+      email,
+      userId: params.userId,
+    },
+    updatedAt: now,
+  };
+
+  const existing = withTeacher.signatures.find((s) => s.role === "professeur_referent");
+  if (existing?.status === "signe") {
+    await saveStageConvention(withTeacher);
+    return withTeacher;
+  }
+
+  if (existing?.signToken) {
+    await deleteSignTokenRef(existing.signToken);
+  }
+
+  const token = generateStageToken();
+  const signatureId = existing?.id ?? stageUid("sig");
+  await saveSignTokenRef(token, {
+    conventionId: withTeacher.id,
+    signatureId,
+    role: "professeur_referent",
+    createdAt: now,
+  });
+
+  const nextSig: StageSignature = {
+    id: signatureId,
+    role: "professeur_referent",
+    label: params.name.trim() || STAGE_SIGNER_ROLE_LABELS.professeur_referent,
+    status: "en_attente",
+    signEmail: email,
+    signToken: token,
+    signSentAt: now,
+  };
+
+  const signatures = existing
+    ? withTeacher.signatures.map((s) => (s.id === existing.id ? nextSig : s))
+    : [...withTeacher.signatures, nextSig];
+
+  let next: StageConvention = {
+    ...withTeacher,
+    signatures,
+    status: "signatures_pending",
+  };
+  next = pushHistory(next, params.byName, "SIGNATAIRE_REFERENT_AJOUTE", email);
+  await saveStageConvention(next);
+  void notifyStageSignatureRequest(next, nextSig).catch((e) =>
+    console.error("[stages] notify referent sync:", e),
+  );
+  return next;
+}
+
+export async function addConventionSignatory(params: {
+  conventionId: string;
+  role: StageSignerRole;
+  email: string;
+  name?: string;
+  byName: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const convention = await getStageConvention(params.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+  if (convention.status !== "signatures_pending" && convention.status !== "signed") {
+    if (convention.status !== "convention_ready") {
+      return { ok: false, error: "Ajout possible uniquement pendant le circuit de signatures." };
+    }
+  }
+
+  const email = params.email.trim().toLowerCase();
+  if (!email || !isValidEmail(email)) return { ok: false, error: "E-mail invalide." };
+
+  const allowed: StageSignerRole[] = [
+    "professeur_referent",
+    "professeur_principal",
+    "direction",
+    "parent",
+    "parent_2",
+    "tuteur_entreprise",
+    "rh_entreprise",
+    "administratif",
+  ];
+  if (!allowed.includes(params.role)) {
+    return { ok: false, error: "Rôle de signature non autorisé." };
+  }
+
+  const duplicatePending = convention.signatures.find(
+    (s) =>
+      s.role === params.role &&
+      s.status === "en_attente" &&
+      s.signEmail?.trim().toLowerCase() === email,
+  );
+  if (duplicatePending) {
+    return { ok: false, error: "Ce signataire est déjà en attente pour ce rôle." };
+  }
+
+  const sig = await issuePendingSignatory(
+    convention.id,
+    params.role,
+    email,
+    params.name?.trim() || STAGE_SIGNER_ROLE_LABELS[params.role],
+  );
+
+  let next: StageConvention = {
+    ...convention,
+    signatures: [...convention.signatures, sig],
+    status: "signatures_pending",
+    updatedAt: new Date().toISOString(),
+  };
+  if (params.role === "professeur_referent") {
+    next = {
+      ...next,
+      teacherReferent: {
+        name: params.name?.trim() || next.teacherReferent.name || sig.label,
+        email,
+        userId: next.teacherReferent.userId,
+      },
+    };
+  }
+  next = pushHistory(next, params.byName, "SIGNATAIRE_AJOUTE", `${params.role}:${email}`);
+  await saveStageConvention(next);
+  void notifyStageSignatureRequest(next, sig).catch((e) =>
+    console.error("[stages] notify add signatory:", e),
+  );
+  return { ok: true, convention: next };
+}
+
+export async function removeConventionSignatory(params: {
+  conventionId: string;
+  signatureId: string;
+  byName: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const convention = await getStageConvention(params.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+
+  const sig = convention.signatures.find((s) => s.id === params.signatureId);
+  if (!sig) return { ok: false, error: "Signature introuvable." };
+  if (sig.status === "signe" && sig.reviewStatus !== "rejected") {
+    return {
+      ok: false,
+      error: "Impossible de retirer une signature déjà validée. Utilisez le refus si besoin.",
+    };
+  }
+
+  if (sig.signToken) await deleteSignTokenRef(sig.signToken);
+
+  const signatures = convention.signatures.filter((s) => s.id !== sig.id);
+  if (signatures.length === 0) {
+    return { ok: false, error: "Il doit rester au moins un signataire." };
+  }
+
+  const allValidated = conventionAllSignaturesValidated(signatures);
+  let next: StageConvention = {
+    ...convention,
+    signatures,
+    status: allValidated ? "signed" : "signatures_pending",
+    updatedAt: new Date().toISOString(),
+  };
+  next = pushHistory(next, params.byName, "SIGNATAIRE_RETIRE", `${sig.role}:${sig.signEmail || sig.id}`);
+  if (allValidated && !next.uploadedPdf?.s3Key) {
+    next = await generateAndStoreConventionPdf(next);
+  }
+  await saveStageConvention(next);
+  if (allValidated) {
+    void import("@/app/lib/stage-eleve-dossier-filing").then((m) =>
+      m.finalizeSignedConventionDestinations(next).catch((e) =>
+        console.error("[stages] finalize destinations:", e),
+      ),
+    );
+  }
+  return { ok: true, convention: next };
+}
+
+/** Validation manuelle (ex. papier hors plateforme) — invalide le lien. */
+export async function markConventionSignatureManual(params: {
+  conventionId: string;
+  signatureId: string;
+  byName: string;
+  note?: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const convention = await getStageConvention(params.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+
+  const sig = convention.signatures.find((s) => s.id === params.signatureId);
+  if (!sig) return { ok: false, error: "Signature introuvable." };
+  if (sig.status === "signe" && sig.reviewStatus === "accepted") {
+    return { ok: false, error: "Déjà signée et validée." };
+  }
+
+  if (sig.signToken) await deleteSignTokenRef(sig.signToken);
+
+  const now = new Date().toISOString();
+  const signatures = convention.signatures.map((s) =>
+    s.id === sig.id
+      ? {
+          ...s,
+          status: "signe" as const,
+          signedAt: now,
+          signedBy: params.byName,
+          signMethod: "paper_upload" as const,
+          reviewStatus: "accepted" as const,
+          reviewNote: params.note?.trim() || "Validée manuellement (papier / hors plateforme)",
+          reviewedAt: now,
+          reviewedBy: params.byName,
+          signToken: undefined,
+          signConfirmCode: undefined,
+          signConfirmCodeSentAt: undefined,
+        }
+      : s,
+  );
+
+  const allValidated = conventionAllSignaturesValidated(signatures);
+  let next: StageConvention = {
+    ...convention,
+    signatures,
+    status: allValidated ? "signed" : "signatures_pending",
+    updatedAt: now,
+  };
+  next = pushHistory(next, params.byName, "SIGNATURE_MANUELLE", sig.role);
+  if (allValidated && !next.uploadedPdf?.s3Key) {
+    next = await generateAndStoreConventionPdf(next);
+  }
+  await saveStageConvention(next);
+  if (allValidated) {
+    void import("@/app/lib/stage-eleve-dossier-filing").then((m) =>
+      m.finalizeSignedConventionDestinations(next).catch((e) =>
+        console.error("[stages] finalize destinations:", e),
+      ),
+    );
+    void notifyStageFullySigned(next).catch((e) => console.error("[stages] notify signed:", e));
+  }
+  return { ok: true, convention: next };
+}
+
 export async function reviewConventionSignature(params: {
   conventionId: string;
   signatureId: string;
@@ -860,7 +1140,7 @@ export async function reviewConventionSignature(params: {
       updatedAt: now,
     };
     next = pushHistory(next, params.byName, "SIGNATURE_ACCEPTEE", sig.role);
-    if (allValidated) {
+    if (allValidated && !next.uploadedPdf?.s3Key) {
       next = await generateAndStoreConventionPdf(next);
     }
     await saveStageConvention(next);
