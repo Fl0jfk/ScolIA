@@ -94,6 +94,11 @@ export type StageSchedule = {
   periodStart: string;
   periodEnd: string;
   days: StageDaySlot[];
+  /**
+   * Jours de présence dans la semaine (1=lun … 6=sam).
+   * Conservé même si la période ne contient pas encore ce jour-là.
+   */
+  presenceWeekdays?: StageWeekday[];
 };
 
 export type StageInternshipKind = "pfmp" | "stage_observation" | "job_ete" | "autre";

@@ -9,12 +9,13 @@ import type {
 } from "@/app/lib/stage-types";
 import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-config";
 import {
+  STAGE_DEFAULT_WEEKDAYS,
   STAGE_WEEKDAY_LABELS,
   STAGE_WEEKDAYS,
-  buildPerDaySlotsFromTemplate,
   buildUniformWeekDays,
   defaultDayHoursTemplate,
   formatDaySlotLabel,
+  rebuildPerDaySlots,
 } from "@/app/lib/stage-schedule";
 
 const LEVELS = ["6e", "5e", "4e", "3e", "2nde", "1re", "Tle"];
@@ -149,26 +150,37 @@ export default function StagePreconventionForm({
 }) {
   const schedule = convention.schedule;
   const hoursTemplate = schedule.days[0] || defaultDayHoursTemplate();
-  const selectedWeekdays = new Set(
-    schedule.days
-      .map((d) => d.weekday)
-      .filter((w): w is StageWeekday => typeof w === "number" && w >= 1 && w <= 6),
-  );
+
+  const selectedWeekdaysList: StageWeekday[] = Array.isArray(schedule.presenceWeekdays)
+    ? [...schedule.presenceWeekdays].filter((w) => w >= 1 && w <= 6).sort((a, b) => a - b)
+    : schedule.mode === "uniform_week"
+      ? (() => {
+          const fromDays = schedule.days
+            .map((d) => d.weekday)
+            .filter((w): w is StageWeekday => typeof w === "number" && w >= 1 && w <= 6);
+          return fromDays.length > 0
+            ? [...new Set(fromDays)].sort((a, b) => a - b)
+            : [...STAGE_DEFAULT_WEEKDAYS];
+        })()
+      : [...STAGE_DEFAULT_WEEKDAYS];
+  const selectedWeekdays = new Set(selectedWeekdaysList);
 
   function updateSchedule(patch: Partial<typeof schedule>) {
     onChange({ ...convention, schedule: { ...schedule, ...patch } });
   }
 
-  function applyHoursToSelectedDays(patch: Partial<StageDaySlot>) {
-    const nextDays =
-      schedule.mode === "uniform_week"
-        ? schedule.days.map((d) => ({ ...d, ...patch, date: undefined }))
-        : schedule.days;
-    if (schedule.mode === "uniform_week") {
-      updateSchedule({ days: nextDays.length ? nextDays : buildUniformWeekDays({ ...hoursTemplate, ...patch }) });
-      return;
-    }
-    updateSchedule({ days: nextDays });
+  function applyUniformHours(patch: Partial<StageDaySlot>) {
+    const template = { ...hoursTemplate, ...patch };
+    delete template.date;
+    delete template.weekday;
+    updateSchedule({
+      mode: "uniform_week",
+      presenceWeekdays: selectedWeekdaysList,
+      days:
+        selectedWeekdaysList.length === 0
+          ? []
+          : buildUniformWeekDays(template, selectedWeekdaysList),
+    });
   }
 
   function updateDay(index: number, patch: Partial<StageDaySlot>) {
@@ -177,20 +189,97 @@ export default function StagePreconventionForm({
     updateSchedule({ days });
   }
 
-  function toggleWeekday(weekday: StageWeekday, enabled: boolean) {
+  function setPresenceWeekdays(weekdays: StageWeekday[]) {
+    const sorted = [...new Set(weekdays)].filter((w) => w >= 1 && w <= 6).sort((a, b) => a - b);
     const template = { ...hoursTemplate };
     delete template.date;
-    let weekdays = [...selectedWeekdays];
+    delete template.weekday;
+    if (schedule.mode === "per_day") {
+      updateSchedule({
+        presenceWeekdays: sorted,
+        days:
+          sorted.length === 0
+            ? []
+            : rebuildPerDaySlots({
+                periodStart: schedule.periodStart,
+                periodEnd: schedule.periodEnd,
+                weekdays: sorted,
+                existing: schedule.days,
+                template,
+              }),
+      });
+      return;
+    }
+    updateSchedule({
+      mode: "uniform_week",
+      presenceWeekdays: sorted,
+      days: sorted.length === 0 ? [] : buildUniformWeekDays(template, sorted),
+    });
+  }
+
+  function toggleWeekday(weekday: StageWeekday, enabled: boolean) {
+    let weekdays = [...selectedWeekdaysList];
     if (enabled) {
       if (!weekdays.includes(weekday)) weekdays.push(weekday);
     } else {
       weekdays = weekdays.filter((w) => w !== weekday);
     }
-    weekdays.sort((a, b) => a - b);
+    setPresenceWeekdays(weekdays);
+  }
+
+  function setScheduleMode(nextMode: StageScheduleMode) {
+    const template = { ...hoursTemplate };
+    delete template.date;
+    delete template.weekday;
+    if (nextMode === "per_day") {
+      updateSchedule({
+        mode: "per_day",
+        presenceWeekdays: selectedWeekdaysList,
+        days:
+          selectedWeekdaysList.length === 0
+            ? []
+            : rebuildPerDaySlots({
+                periodStart: schedule.periodStart,
+                periodEnd: schedule.periodEnd,
+                weekdays: selectedWeekdaysList,
+                existing: schedule.days,
+                template,
+              }),
+      });
+      return;
+    }
     updateSchedule({
       mode: "uniform_week",
-      days: buildUniformWeekDays(template, weekdays),
+      presenceWeekdays: selectedWeekdaysList,
+      days:
+        selectedWeekdaysList.length === 0
+          ? []
+          : buildUniformWeekDays(template, selectedWeekdaysList),
     });
+  }
+
+  function setPeriodBounds(patch: { periodStart?: string; periodEnd?: string }) {
+    const periodStart = patch.periodStart ?? schedule.periodStart;
+    const periodEnd = patch.periodEnd ?? schedule.periodEnd;
+    if (schedule.mode === "per_day") {
+      const template = { ...hoursTemplate };
+      delete template.date;
+      delete template.weekday;
+      updateSchedule({
+        periodStart,
+        periodEnd,
+        presenceWeekdays: selectedWeekdaysList,
+        days: rebuildPerDaySlots({
+          periodStart,
+          periodEnd,
+          weekdays: selectedWeekdaysList,
+          existing: schedule.days,
+          template,
+        }),
+      });
+      return;
+    }
+    updateSchedule({ periodStart, periodEnd, presenceWeekdays: selectedWeekdaysList });
   }
 
   function updateParent1Email(value: string) {
@@ -507,7 +596,7 @@ export default function StagePreconventionForm({
         </Field>
       </section>
 
-      <section className="space-y-3">
+      <section className="space-y-4">
         <h2 className="text-base font-bold text-[#1F3D2B]">3. Période et horaires</h2>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Date de début" required>
@@ -515,7 +604,7 @@ export default function StagePreconventionForm({
               type="date"
               className={fieldInputClass}
               value={schedule.periodStart}
-              onChange={(e) => updateSchedule({ periodStart: e.target.value })}
+              onChange={(e) => setPeriodBounds({ periodStart: e.target.value })}
             />
           </Field>
           <Field label="Date de fin" required>
@@ -523,16 +612,54 @@ export default function StagePreconventionForm({
               type="date"
               className={fieldInputClass}
               value={schedule.periodEnd}
-              onChange={(e) => updateSchedule({ periodEnd: e.target.value })}
+              onChange={(e) => setPeriodBounds({ periodEnd: e.target.value })}
             />
           </Field>
         </div>
 
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-[#1F3D2B]">Comment sont vos horaires ?</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setScheduleMode("uniform_week")}
+              className={`rounded-xl border-2 px-4 py-3 text-left transition ${
+                schedule.mode === "uniform_week"
+                  ? "border-[#2F6B4A] bg-[#e8f5ee] shadow-sm"
+                  : "border-stone-200 bg-white hover:border-stone-300"
+              }`}
+            >
+              <span className="block text-sm font-bold text-[#1F3D2B]">
+                Mêmes horaires tous les jours
+              </span>
+              <span className="mt-1 block text-xs text-stone-600 leading-snug">
+                Vous configurez une seule fois — appliqué à chaque jour coché.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setScheduleMode("per_day")}
+              className={`rounded-xl border-2 px-4 py-3 text-left transition ${
+                schedule.mode === "per_day"
+                  ? "border-[#2F6B4A] bg-[#e8f5ee] shadow-sm"
+                  : "border-stone-200 bg-white hover:border-stone-300"
+              }`}
+            >
+              <span className="block text-sm font-bold text-[#1F3D2B]">
+                Horaires différents chaque jour
+              </span>
+              <span className="mt-1 block text-xs text-stone-600 leading-snug">
+                Chaque date de la période se règle à part (semaines 1 et 2 peuvent différer).
+              </span>
+            </button>
+          </div>
+        </div>
+
         <div className="rounded-xl border border-stone-200 bg-white p-4 space-y-3">
           <div>
-            <p className="text-xs font-bold text-[#1F3D2B]">Jours de présence</p>
+            <p className="text-xs font-bold text-[#1F3D2B]">Jours de présence dans la semaine</p>
             <p className="mt-1 text-xs text-stone-500">
-              Cochez les jours concernés (lundi à samedi). Utile notamment pour la restauration.
+              Cochez les jours concernés (lundi à samedi) — utile notamment pour la restauration.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -558,58 +685,52 @@ export default function StagePreconventionForm({
               );
             })}
           </div>
-          {selectedWeekdays.size === 0 && (
+          {selectedWeekdaysList.length === 0 && (
             <p className="text-xs text-rose-700">Sélectionnez au moins un jour.</p>
           )}
         </div>
 
-        <div className="space-y-2">
-          <p className="text-xs font-bold text-[#1F3D2B]">Horaires (modifiables)</p>
-          <p className="text-xs text-stone-500">
-            Cliquez sur les heures pour les ajuster — elles s&apos;appliquent à tous les jours
-            cochés.
-          </p>
-          <DayHoursEditor day={hoursTemplate} onPatch={(patch) => applyHoursToSelectedDays(patch)} />
-        </div>
-
-        <label className="flex items-center gap-2 text-xs text-stone-600">
-          <input
-            type="checkbox"
-            checked={schedule.mode === "per_day"}
-            onChange={(e) => {
-              const nextMode = (e.target.checked ? "per_day" : "uniform_week") as StageScheduleMode;
-              if (nextMode === "per_day" && schedule.periodStart && schedule.periodEnd) {
-                updateSchedule({
-                  mode: nextMode,
-                  days: buildPerDaySlotsFromTemplate(
-                    schedule.periodStart,
-                    schedule.periodEnd,
-                    hoursTemplate,
-                  ),
-                });
-              } else {
-                updateSchedule({
-                  mode: "uniform_week",
-                  days: buildUniformWeekDays(
-                    hoursTemplate,
-                    [...selectedWeekdays].sort((a, b) => a - b),
-                  ),
-                });
-              }
-            }}
-          />
-          Détail jour par jour sur la période (avancé)
-        </label>
-
-        {schedule.mode === "per_day" && (
-          <ul className="max-h-72 space-y-2 overflow-y-auto">
-            {schedule.days.map((day, i) => (
-              <li key={day.date || i} className="rounded-lg border border-stone-200 p-3">
-                <p className="mb-2 text-xs font-bold text-stone-700">{formatDaySlotLabel(day)}</p>
-                <DayHoursEditor day={day} onPatch={(patch) => updateDay(i, patch)} />
-              </li>
-            ))}
-          </ul>
+        {schedule.mode === "uniform_week" ? (
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-[#1F3D2B]">Horaires (une seule configuration)</p>
+            <p className="text-xs text-stone-500">
+              Ces horaires s&apos;appliquent à tous les jours cochés, chaque semaine de la période.
+            </p>
+            <DayHoursEditor day={hoursTemplate} onPatch={(patch) => applyUniformHours(patch)} />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-bold text-[#1F3D2B]">Horaires jour par jour</p>
+              <p className="mt-1 text-xs text-stone-500 leading-relaxed">
+                Chaque date de votre période apparaît ci-dessous. Ajustez librement : la 1ʳᵉ semaine
+                peut avoir des horaires différents de la 2ᵉ.
+              </p>
+            </div>
+            {schedule.days.length === 0 ? (
+              <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                Aucun jour dans la période avec les cases cochées. Élargissez les dates ou cochez
+                d&apos;autres jours.
+              </p>
+            ) : (
+              <ul className="max-h-96 space-y-3 overflow-y-auto pr-1">
+                {schedule.days.map((day, i) => (
+                  <li key={day.date || i} className="rounded-xl border border-stone-200 bg-white p-3">
+                    <p className="mb-2 text-sm font-bold text-[#1F3D2B]">
+                      {day.date
+                        ? new Date(`${day.date}T12:00:00`).toLocaleDateString("fr-FR", {
+                            weekday: "long",
+                            day: "numeric",
+                            month: "long",
+                          })
+                        : formatDaySlotLabel(day)}
+                    </p>
+                    <DayHoursEditor day={day} onPatch={(patch) => updateDay(i, patch)} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
       </section>
 
