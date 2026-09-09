@@ -144,7 +144,6 @@ export default function StagePublicSignerClient() {
   const [signMethod, setSignMethod] = useState<SignMethod>("code_confirm");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-  const [pendingReview, setPendingReview] = useState(false);
   const [confirmCode, setConfirmCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [codeHint, setCodeHint] = useState<string | null>(null);
@@ -162,7 +161,6 @@ export default function StagePublicSignerClient() {
     setView(data);
     if (data.signature?.status === "signe") {
       setDone(true);
-      setPendingReview(data.signature?.reviewStatus === "pending");
     }
     if (data.isExternalSigner) {
       setSignMethod("touch");
@@ -251,7 +249,6 @@ export default function StagePublicSignerClient() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur");
       setDone(true);
-      setPendingReview(method === "touch" || method === "paper_upload");
       await load(token);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -373,9 +370,7 @@ export default function StagePublicSignerClient() {
 
         {done ? (
           <p className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {pendingReview
-              ? "Votre signature a été transmise et sera validée par l'établissement sous peu."
-              : `Signature enregistrée${view.signature.signedBy ? ` par ${view.signature.signedBy}` : ""}${view.stampsPdf ? " — paraphe ajouté sur le PDF." : "."}`}
+            {`Signature enregistrée${view.signature.signedBy ? ` par ${view.signature.signedBy}` : ""}${view.stampsPdf ? " — paraphe ajouté sur le PDF." : "."}`}
           </p>
         ) : view.isExternalSigner ? (
           <div className="mt-6 space-y-5">
@@ -389,11 +384,14 @@ export default function StagePublicSignerClient() {
             <div className="flex flex-wrap gap-2">
               {(
                 [
-                  ["code_confirm", "Code e-mail"],
-                  ["touch", "Signer au doigt"],
-                  ["paper_upload", "Document papier"],
-                ] as const
-              ).map(([id, label]) => (
+                  { id: "code_confirm" as const, label: "Code e-mail" },
+                  { id: "touch" as const, label: "Signer au doigt" },
+                  ...(view.signature.role === "tuteur_entreprise" ||
+                  view.signature.role === "rh_entreprise"
+                    ? [{ id: "paper_upload" as const, label: "Document papier" }]
+                    : []),
+                ]
+              ).map(({ id, label }) => (
                 <button
                   key={id}
                   type="button"

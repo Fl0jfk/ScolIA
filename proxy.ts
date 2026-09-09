@@ -599,7 +599,8 @@ export default multiTenantMiddleware;
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|eot|otf|mp4|mp3|pdf)).*)",
+    // Exclure assets statiques (dont .mjs : worker pdf.js — sinon HTML de login → MIME error)
+    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf|eot|otf|mp4|mp3|pdf|mjs|js|css|map)).*)",
     "/documents/rentree/:path*",
     "/",
     "/(api|trpc)(.*)",

@@ -633,16 +633,16 @@ function drawScheduleTable(ctx: PdfCtx, convention: StageConvention) {
   ctx.y = yBottom - 12;
 }
 
-/** Marqueur PDF (subject) — page annexes réservée aux paraphes électroniques. */
-export const STAGE_ESIGN_ANNEX_SUBJECT = "SCOLIA_ESIGN_ANNEX";
+/** Marqueur PDF (subject) — page des signatures des parties. */
+export const STAGE_ESIGN_ANNEX_SUBJECT = "SCOLIA_SIGNATURES";
 
-export const STAGE_ESIGN_PAGE_TITLE = "Signatures électroniques";
+export const STAGE_ESIGN_PAGE_TITLE = "Signatures des parties";
 
 function signatureBoxLabel(sig: StageSignature): string {
   return STAGE_SIGNER_ROLE_LABELS[sig.role] || sig.label || sig.role;
 }
 
-/** Positions des cases signature (coords PDF, y = bas de la case) — page annexes. */
+/** Positions des cases signature (coords PDF, y = bas de la case). */
 export function electronicSignatureBoxLayout(params: {
   pageWidth: number;
   pageHeight: number;
@@ -654,7 +654,7 @@ export function electronicSignatureBoxLayout(params: {
   const gap = 12;
   const boxW = (contentW - gap) / 2;
   const boxH = 82;
-  const headerReserve = 120;
+  const headerReserve = 100;
   const col = params.index % 2;
   const row = Math.floor(params.index / 2);
   const x = margin + col * (boxW + gap);
@@ -662,24 +662,63 @@ export function electronicSignatureBoxLayout(params: {
   return { x, y: yTop - boxH, width: boxW, height: boxH };
 }
 
-function drawSignatureGrid(ctx: PdfCtx, signatures: StageSignature[]) {
-  const { palette, margin, contentW } = ctx;
-  // Toujours une page dédiée : n'empiète pas sur d'éventuelles signatures manuscrites.
+async function resolveSignatureImageBytes(
+  convention: StageConvention,
+  sig: StageSignature,
+): Promise<Uint8Array | null> {
+  if (sig.status !== "signe") return null;
+
+  if (sig.signaturePngS3Key) {
+    try {
+      const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+      const { getTenantDataS3Client } = await import("@/app/lib/s3-clients");
+      const { getBucketName } = await import("@/app/lib/s3-storage");
+      const s3 = await getTenantDataS3Client();
+      const obj = await s3.send(
+        new GetObjectCommand({ Bucket: await getBucketName(), Key: sig.signaturePngS3Key }),
+      );
+      const bytes = await obj.Body?.transformToByteArray();
+      if (bytes?.length) return bytes;
+    } catch (err) {
+      console.error("[stage-pdf] lecture signature PNG:", err);
+    }
+  }
+
+  if (sig.role === "direction") {
+    try {
+      const { resolveDirectionSignatureBytesForLevel } = await import(
+        "@/app/lib/direction-signature"
+      );
+      return resolveDirectionSignatureBytesForLevel(convention.student.level);
+    } catch {
+      return null;
+    }
+  }
+
+  if (sig.role === "professeur_referent" || sig.role === "professeur_principal") {
+    const userId = convention.teacherReferent.userId;
+    if (!userId) return null;
+    try {
+      const { loadReferentSignatureBytes } = await import("@/app/lib/stage-signature-store");
+      return loadReferentSignatureBytes(userId);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+async function drawSignatureGrid(
+  ctx: PdfCtx,
+  convention: StageConvention,
+  signatures: StageSignature[],
+) {
+  const { palette } = ctx;
+  // Page dédiée unique : toutes les signatures (électronique ou espace papier).
   newPage(ctx);
   ctx.doc.setSubject(STAGE_ESIGN_ANNEX_SUBJECT);
 
-  ensureSpace(ctx, 40);
-  drawText(ctx, STAGE_ESIGN_PAGE_TITLE, { size: 14, bold: true, color: palette.accent });
-  drawText(
-    ctx,
-    "Page réservée aux signatures et paraphes électroniques. Les signatures manuscrites (document papier) restent sur les pages précédentes.",
-    { size: 8.5, color: palette.muted },
-  );
-  ctx.y -= 10;
-
-  const gap = 12;
-  const boxW = (contentW - gap) / 2;
-  const boxH = 82;
   const list = signatures.length
     ? signatures
     : ([
@@ -689,27 +728,48 @@ function drawSignatureGrid(ctx: PdfCtx, signatures: StageSignature[]) {
         { id: "d", role: "direction", label: "Direction", status: "en_attente" },
       ] as StageSignature[]);
 
-  for (let i = 0; i < list.length; i++) {
-    if (i > 0 && i % 2 === 0) {
-      ctx.y -= boxH + gap;
-      ensureSpace(ctx, boxH + 24);
-    }
-    const sig = list[i]!;
-    const col = i % 2;
-    const x = margin + col * (boxW + gap);
-    const yTop = ctx.y;
+  const { width: pageW, height: pageH } = ctx.page.getSize();
 
-    roundedRect(ctx.page, x, yTop - boxH, boxW, boxH, 14, {
+  ctx.page.drawText(sanitizePdfText(STAGE_ESIGN_PAGE_TITLE), {
+    x: 40,
+    y: pageH - 56,
+    size: 14,
+    font: ctx.bold,
+    color: palette.accent,
+  });
+  ctx.page.drawText(
+    sanitizePdfText(
+      "Chaque partie signe dans sa case. Signature electronique ou manuscrite (tuteur entreprise) : un seul emplacement par role.",
+    ),
+    {
+      x: 40,
+      y: pageH - 76,
+      size: 8.5,
+      font: ctx.font,
+      color: palette.muted,
+    },
+  );
+
+  for (let i = 0; i < list.length; i++) {
+    const sig = list[i]!;
+    const box = electronicSignatureBoxLayout({
+      pageWidth: pageW,
+      pageHeight: pageH,
+      index: i,
+      total: list.length,
+    });
+
+    roundedRect(ctx.page, box.x, box.y, box.width, box.height, 14, {
       fill: palette.white,
       border: palette.accentMid,
       borderWidth: 1,
     });
-    roundedRect(ctx.page, x + 10, yTop - 22, boxW - 20, 14, 7, {
+    roundedRect(ctx.page, box.x + 10, box.y + box.height - 22, box.width - 20, 14, 7, {
       fill: palette.accentSoft,
     });
     ctx.page.drawText(sanitizePdfText(signatureBoxLabel(sig)), {
-      x: x + 18,
-      y: yTop - 18,
+      x: box.x + 18,
+      y: box.y + box.height - 18,
       size: 8,
       font: ctx.bold,
       color: palette.accent,
@@ -720,22 +780,54 @@ function drawSignatureGrid(ctx: PdfCtx, signatures: StageSignature[]) {
         ? `Signe le ${sig.signedAt ? new Date(sig.signedAt).toLocaleDateString("fr-FR") : "—"} — ${dash(sig.signedBy)}`
         : "En attente de signature";
     ctx.page.drawText(sanitizePdfText(status), {
-      x: x + 14,
-      y: yTop - 36,
+      x: box.x + 14,
+      y: box.y + box.height - 36,
       size: 7,
       font: ctx.font,
       color: palette.muted,
     });
-    ctx.page.drawText(sanitizePdfText("Zone signature / paraphe électronique"), {
-      x: x + 14,
-      y: yTop - boxH + 14,
-      size: 7,
-      font: ctx.font,
-      color: palette.soft,
-    });
+
+    const imgBytes = await resolveSignatureImageBytes(convention, sig);
+    if (imgBytes) {
+      try {
+        const isJpg = imgBytes[0] === 0xff && imgBytes[1] === 0xd8;
+        const img = isJpg
+          ? await ctx.doc.embedJpg(imgBytes)
+          : await ctx.doc.embedPng(imgBytes);
+        const maxW = box.width - 28;
+        const maxH = box.height - 48;
+        const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+        const drawW = img.width * scale;
+        const drawH = img.height * scale;
+        ctx.page.drawImage(img, {
+          x: box.x + (box.width - drawW) / 2,
+          y: box.y + 10,
+          width: drawW,
+          height: drawH,
+        });
+      } catch (err) {
+        console.error("[stage-pdf] embed signature:", err);
+        ctx.page.drawText(sanitizePdfText("Signature recueillie"), {
+          x: box.x + 14,
+          y: box.y + 14,
+          size: 7,
+          font: ctx.font,
+          color: palette.soft,
+        });
+      }
+    } else if (sig.status !== "signe") {
+      ctx.page.drawText(sanitizePdfText("Zone de signature"), {
+        x: box.x + 14,
+        y: box.y + 14,
+        size: 7,
+        font: ctx.font,
+        color: palette.soft,
+      });
+    }
   }
+
   const rows = Math.ceil(list.length / 2);
-  ctx.y -= rows * (boxH + gap) + 8;
+  ctx.y = pageH - 100 - rows * (82 + 12) - 16;
 }
 
 export async function renderStageConventionPdf(
@@ -907,34 +999,7 @@ export async function renderStageConventionPdf(
     `Ces droits peuvent être exercés auprès de la direction de l'établissement (${rgpdContact}). Durée de conservation : pendant la scolarité, et jusqu'à 5 ans maximum. En cas de litige, une réclamation peut être adressée à la CNIL.`,
   ]);
 
-  if (convention.adminReview) {
-    const note = `Validee par ${convention.adminReview.byName} le ${new Date(convention.adminReview.at).toLocaleDateString("fr-FR")}${convention.adminReview.note ? ` — ${convention.adminReview.note}` : ""}.`;
-    ensureSpace(ctx, 48);
-    const h = 40;
-    const yBottom = ctx.y - h;
-    roundedRect(ctx.page, ctx.margin, yBottom, ctx.contentW, h, 14, {
-      fill: ctx.palette.accentSoft,
-      border: ctx.palette.line,
-      borderWidth: 0.6,
-    });
-    ctx.page.drawText(sanitizePdfText("Validation administrative"), {
-      x: ctx.margin + 14,
-      y: yBottom + h - 16,
-      size: 9,
-      font: ctx.bold,
-      color: ctx.palette.accent,
-    });
-    ctx.page.drawText(sanitizePdfText(note), {
-      x: ctx.margin + 14,
-      y: yBottom + 10,
-      size: 8,
-      font: ctx.font,
-      color: ctx.palette.ink,
-    });
-    ctx.y = yBottom - 14;
-  }
-
-  drawSignatureGrid(ctx, convention.signatures);
+  await drawSignatureGrid(ctx, convention, convention.signatures);
 
   drawText(
     ctx,

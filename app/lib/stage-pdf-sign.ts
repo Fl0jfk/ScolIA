@@ -36,7 +36,10 @@ function roleStampIndex(role: StageSignerRole, rolesOnDoc: StageSignerRole[]): n
 
 function hasElectronicAnnex(pdfDoc: PDFDocument): boolean {
   const subject = (pdfDoc.getSubject() || "").toUpperCase();
-  return subject.includes(STAGE_ESIGN_ANNEX_SUBJECT);
+  return (
+    subject.includes(STAGE_ESIGN_ANNEX_SUBJECT.toUpperCase()) ||
+    subject.includes("SCOLIA_ESIGN_ANNEX")
+  );
 }
 
 async function drawAnnexBoxes(
@@ -68,7 +71,7 @@ async function drawAnnexBoxes(
     color: accent,
   });
   page.drawText(
-    "Page reservee aux paraphes electroniques (ne remplace pas les signatures manuscrites).",
+    "Chaque partie signe dans sa case (electronique ou manuscrite pour le tuteur entreprise).",
     {
       x: 40,
       y: PAGE_H - 76,
@@ -104,7 +107,7 @@ async function drawAnnexBoxes(
       font: bold,
       color: accent,
     });
-    page.drawText("Zone signature / paraphe electronique", {
+    page.drawText("Zone de signature", {
       x: box.x + 14,
       y: box.y + 14,
       size: 7,
@@ -122,8 +125,8 @@ async function drawAnnexBoxes(
 }
 
 /**
- * Garantit une dernière page dédiée aux signatures électroniques,
- * pour ne jamais tamponner par-dessus des signatures manuscrites.
+ * Garantit une dernière page « Signatures des parties »
+ * (cases par rôle — électronique ou espace papier tuteur).
  */
 async function ensureElectronicSignatureAnnex(
   pdfDoc: PDFDocument,
@@ -140,8 +143,7 @@ async function ensureElectronicSignatureAnnex(
 }
 
 /**
- * Appose l'image de signature sur la page annexes (signatures électroniques),
- * sans toucher aux zones manuscrites des pages précédentes.
+ * Appose l'image de signature dans la case du rôle concerné.
  */
 async function embedSignatureOnPdf(
   pdfBytes: Uint8Array,
@@ -241,7 +243,7 @@ async function resolveSignaturePngForRole(
   return null;
 }
 
-/** Applique l'image de signature sur la page annexes du PDF (sans écraser le papier). */
+/** Applique l'image de signature dans la case du rôle sur le PDF. */
 export async function stampSignatureOnConventionPdf(params: {
   convention: StageConvention;
   role: StageSignerRole;

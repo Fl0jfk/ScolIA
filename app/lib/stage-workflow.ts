@@ -12,6 +12,7 @@ import {
 } from "@/app/lib/stage-external-signature-store";
 import {
   STAGE_SIGNER_ROLE_LABELS,
+  canStageSignerUsePaperUpload,
   conventionAllSignaturesValidated,
   currentStageSchoolYear,
   isExternalStageSignerRole,
@@ -626,6 +627,13 @@ export async function applyConventionSignature(params: {
     params.signMethod ??
     (params.paperPdfBase64 ? "paper_upload" : params.signaturePngBase64 ? "touch" : "code_confirm");
 
+  if (signMethod === "paper_upload" && !canStageSignerUsePaperUpload(sig.role)) {
+    return {
+      ok: false,
+      error: "La signature papier est réservée au tuteur / RH en entreprise.",
+    };
+  }
+
   if (isExternalStageSignerRole(sig.role)) {
     if (signMethod === "touch" && !params.signaturePngBase64?.trim()) {
       return { ok: false, error: "Dessinez votre signature dans le cadre prévu." };
@@ -694,15 +702,8 @@ export async function applyConventionSignature(params: {
     }
   }
 
-  const reviewStatus =
-    signMethod === "code_confirm" &&
-    (sig.role === "professeur_referent" ||
-      sig.role === "professeur_principal" ||
-      sig.role === "direction")
-      ? ("accepted" as const)
-      : signMethod === "code_confirm"
-        ? ("accepted" as const)
-        : ("pending" as const);
+  // Signature déposée = acceptée d'office (pas de validation admin).
+  const reviewStatus = "accepted" as const;
 
   const now = new Date().toISOString();
   const signatures = convention.signatures.map((s) =>

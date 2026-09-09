@@ -372,8 +372,14 @@ export function isExternalStageSignerRole(role: StageSignerRole): boolean {
 
 export function isStageSignatureFullyValidated(sig: StageSignature): boolean {
   if (sig.status !== "signe") return false;
-  if (sig.reviewStatus === "pending" || sig.reviewStatus === "rejected") return false;
+  // Une signature déposée vaut signature (plus de file « à valider »).
+  if (sig.reviewStatus === "rejected") return false;
   return true;
+}
+
+/** Seuls les tuteurs / RH entreprise peuvent signer en imprimant papier. */
+export function canStageSignerUsePaperUpload(role: StageSignerRole): boolean {
+  return role === "tuteur_entreprise" || role === "rh_entreprise";
 }
 
 export function conventionAllSignaturesValidated(signatures: StageSignature[]): boolean {

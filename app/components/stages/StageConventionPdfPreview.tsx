@@ -6,6 +6,39 @@ type Props = {
   url: string;
 };
 
+let workerReady: Promise<void> | null = null;
+
+/**
+ * Configure le worker pdf.js une seule fois.
+ * On charge le fichier en blob (même origine) pour éviter qu'un middleware
+ * renvoie du HTML (login) avec un Content-Type invalide pour un Worker.
+ */
+async function ensurePdfJsWorker(
+  pdfjs: typeof import("pdfjs-dist/legacy/build/pdf.mjs"),
+): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (pdfjs.GlobalWorkerOptions.workerSrc?.startsWith("blob:")) return;
+
+  if (!workerReady) {
+    workerReady = (async () => {
+      const res = await fetch("/pdf.worker.min.mjs", { cache: "force-cache" });
+      const contentType = res.headers.get("content-type") || "";
+      if (!res.ok || contentType.includes("text/html")) {
+        throw new Error(
+          `Worker PDF inaccessible (${res.status}, ${contentType || "sans type"}).`,
+        );
+      }
+      const code = await res.text();
+      const blob = new Blob([code], { type: "text/javascript" });
+      pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
+    })().catch((err) => {
+      workerReady = null;
+      throw err;
+    });
+  }
+  await workerReady;
+}
+
 /**
  * Aperçu multi-pages d'une convention PDF (pdf.js).
  * Remplace l'iframe (bloquée par X-Frame-Options DENY sur /api/*).
@@ -28,7 +61,7 @@ export default function StageConventionPdfPreview({ url }: Props) {
         const data = new Uint8Array(await res.arrayBuffer());
 
         const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+        await ensurePdfJsWorker(pdfjs);
 
         const doc = await pdfjs.getDocument({ data }).promise;
         const rendered: string[] = [];
