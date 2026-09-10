@@ -60,7 +60,8 @@ const nextConfig: NextConfig = {
       },
       {
         key: "Permissions-Policy",
-        value: "camera=(), microphone=(), geolocation=()",
+        // Messagerie : vocal / vidéo courte (getUserMedia) — self uniquement.
+        value: "camera=(self), microphone=(self), geolocation=()",
       },
       ...(process.env.NODE_ENV === "production"
         ? [

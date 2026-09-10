@@ -59,6 +59,8 @@ export function isAllowedMime(mime: string): boolean {
   if (!mime) return false;
   if (ALLOWED_MIME_TYPES.has(mime)) return true;
   if (mime.startsWith("image/")) return true;
+  if (mime.startsWith("video/")) return true;
+  if (mime.startsWith("audio/")) return true;
   return false;
 }
 

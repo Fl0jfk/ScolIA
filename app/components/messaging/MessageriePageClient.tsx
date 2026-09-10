@@ -251,6 +251,7 @@ export default function MessageriePageClient() {
                 peer={selected.peer}
                 kind={selected.kind}
                 membersPreview={selected.membersPreview}
+                memberCount={selected.memberCount}
                 currentUserId={currentUserId}
                 variant="page"
                 className="h-full"

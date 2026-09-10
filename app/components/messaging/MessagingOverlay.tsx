@@ -241,9 +241,12 @@ export default function MessagingOverlay() {
   }, [conversations]);
 
   const onMainFabClick = () => {
-    if (headsExpanded || panelOpen) {
-      setExpanded(false);
+    if (panelOpen) {
       setPanelOpen(false);
+      return;
+    }
+    if (headsExpanded) {
+      setExpanded(false);
       return;
     }
     setExpanded(true);
@@ -299,6 +302,7 @@ export default function MessagingOverlay() {
               peer={p.conversation.peer}
               kind={p.conversation.kind}
               membersPreview={p.conversation.membersPreview}
+              memberCount={p.conversation.memberCount}
               currentUserId={currentUserId}
               variant="dock"
               onClose={() => closePanel(p.conversation.id)}
@@ -386,6 +390,7 @@ export default function MessagingOverlay() {
           peer={mobileFull.conversation.peer}
           kind={mobileFull.conversation.kind}
           membersPreview={mobileFull.conversation.membersPreview}
+          memberCount={mobileFull.conversation.memberCount}
           currentUserId={currentUserId}
           variant="mobile-full"
           onClose={() => setMobileFull(null)}

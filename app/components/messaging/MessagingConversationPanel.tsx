@@ -17,6 +17,7 @@ type Props = {
   peer: MessagingPeer | null;
   kind?: MessagingConversationKind;
   membersPreview?: MessagingPeer[];
+  memberCount?: number;
   currentUserId: string;
   variant: "dock" | "page" | "mobile-full";
   onClose?: () => void;
@@ -31,6 +32,7 @@ export default function MessagingConversationPanel({
   peer,
   kind = "dm",
   membersPreview = [],
+  memberCount,
   currentUserId,
   variant,
   onClose,
@@ -140,8 +142,8 @@ export default function MessagingConversationPanel({
 
   const subtitle =
     kind === "group"
-      ? `${membersPreview.length || "Plusieurs"} membres`
-      : peer?.email || "Conversation";
+      ? `${memberCount && memberCount > 0 ? memberCount : Math.max(membersPreview.length + 1, 2)} membres`
+      : null;
 
   const typingLabel =
     kind === "group" ? "Quelqu’un écrit…" : `${peer?.name ?? "Contact"} écrit…`;
@@ -184,7 +186,9 @@ export default function MessagingConversationPanel({
         )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-slate-800">{title}</p>
-          <p className="truncate text-[11px] text-slate-400">{subtitle}</p>
+          {subtitle ? (
+            <p className="truncate text-[11px] text-slate-400">{subtitle}</p>
+          ) : null}
         </div>
         {onMinimize ? (
           <button type="button" className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100" onClick={onMinimize}>
