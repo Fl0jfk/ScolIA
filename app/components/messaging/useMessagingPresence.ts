@@ -29,6 +29,8 @@ function collectPeerIds(
   return [...ids];
 }
 
+const EMPTY_USER_IDS: string[] = [];
+
 function isStatus(value: string): value is MessagingPresenceStatus {
   return (
     value === "online" ||
@@ -46,7 +48,7 @@ export function useMessagingPresence({
   enabled,
   currentUserId,
   conversations,
-  extraUserIds = [],
+  extraUserIds = EMPTY_USER_IDS,
   callBusy = false,
 }: {
   enabled: boolean;
@@ -66,11 +68,13 @@ export function useMessagingPresence({
     manualStatus: null,
     manualUntil: null,
   });
-  const peerIds = useMemo(
-    () => collectPeerIds(conversations, extraUserIds, currentUserId),
-    [conversations, extraUserIds, currentUserId],
-  );
-  const peerKey = peerIds.slice().sort().join(",");
+  const peerKey = collectPeerIds(conversations, extraUserIds, currentUserId)
+    .slice()
+    .sort()
+    .join(",");
+  const peerIds = useMemo(() => (peerKey ? peerKey.split(",") : []), [peerKey]);
+  const peerIdsRef = useRef(peerIds);
+  peerIdsRef.current = peerIds;
   const lastPosted = useRef<MessagingPresenceStatus | null>(null);
   const manualActive = Boolean(myPresence.manualStatus && myPresence.manualUntil);
 
@@ -123,10 +127,11 @@ export function useMessagingPresence({
   }, [enabled]);
 
   const refresh = useCallback(async () => {
-    if (!enabled || peerIds.length === 0) return;
+    const ids = peerIdsRef.current;
+    if (!enabled || ids.length === 0) return;
     try {
       const res = await fetch(
-        `/api/messaging/presence?userIds=${encodeURIComponent(peerIds.join(","))}`,
+        `/api/messaging/presence?userIds=${encodeURIComponent(ids.join(","))}`,
         { cache: "no-store" },
       );
       if (!res.ok) return;
@@ -139,7 +144,7 @@ export function useMessagingPresence({
     } catch {
       /* ignore */
     }
-  }, [enabled, peerIds]);
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -150,7 +155,7 @@ export function useMessagingPresence({
       void refreshMe();
     }, 120_000);
     return () => clearInterval(timer);
-  }, [enabled, refresh, refreshMe, peerKey]);
+  }, [enabled, refresh, refreshMe]);
 
   /** Visibilité onglet + occupation appel — ignoré si statut manuel actif. */
   useEffect(() => {
