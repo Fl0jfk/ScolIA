@@ -21,6 +21,10 @@ import {
   parseSiecleResponsablesXml,
   type SieclePersonneRow,
 } from "@/app/lib/nomenclature-import/siecle-responsables-parse";
+import {
+  buildMefLabelMaps,
+  enrichElevesMefLabels,
+} from "@/app/lib/nomenclature-import/enrich-eleves-mef";
 import { linkFoyerResponsableToUserAccount } from "@/app/lib/nomenclature-import/link-responsable-user";
 import {
   siecleCycleLabel,
@@ -71,13 +75,16 @@ export async function importSiecleElevesXml(
     throw new Error("Aucun élève lu dans le XML Siècle.");
   }
 
-  const sansIne = parsed.eleves.filter((e) => !e.ine?.trim()).length;
-  const sansClasse = parsed.eleves.filter((e) => !e.classe?.trim()).length;
+  const mefMaps = await buildMefLabelMaps(etablissementId);
+  const withMefLabels = enrichElevesMefLabels(parsed.eleves, mefMaps).eleves;
+
+  const sansIne = withMefLabels.filter((e) => !e.ine?.trim()).length;
+  const sansClasse = withMefLabels.filter((e) => !e.classe?.trim()).length;
   const cycle = opts?.cycle;
   const cycleNote = cycle ? ` · ${siecleCycleLabel(cycle)}` : "";
 
   const existing = await loadElevesRegistry();
-  const merged = mergeElevesLists(existing, parsed.eleves);
+  const merged = mergeElevesLists(existing, withMefLabels);
   const normalized = await normalizeElevesToSiecleClasses(etablissementId, merged.eleves);
   await saveElevesRegistry(normalized.eleves);
 
@@ -246,6 +253,11 @@ export async function importSiecleResponsablesXml(
 
   if (!parsed.liens.length) {
     throw new Error("Aucun lien RESPONSABLE_ELEVE dans le XML.");
+  }
+  if (!parsed.personnes.length) {
+    throw new Error(
+      "Aucune PERSONNE lisible dans le XML (PERSONNE_ID attendu en attribut ou balise). Vérifiez que le fichier est bien ResponsablesAvecAdresses.xml dézippé.",
+    );
   }
   if (!Object.keys(idMap).length) {
     throw new Error(

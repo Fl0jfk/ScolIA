@@ -8,13 +8,13 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist"],
   typescript: { ignoreBuildErrors: false },
   /**
-   * Imports Siècle (XML Élèves / Responsables ~7–15 Mo+) passent par proxy.ts :
-   * le body est bufferisé — défaut Next = 10 Mo → formData tronqué → 400.
+   * Imports Siècle (XML Établissements / Élèves / Responsables jusqu'à ~100 Mo)
+   * passent par proxy.ts : le body est bufferisé — défaut Next = 10 Mo → formData tronqué → 400.
    */
   experimental: {
-    proxyClientMaxBodySize: "64mb",
+    proxyClientMaxBodySize: "110mb",
     serverActions: {
-      bodySizeLimit: "64mb",
+      bodySizeLimit: "110mb",
     },
   },
   images: {

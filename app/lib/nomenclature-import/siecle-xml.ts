@@ -18,6 +18,7 @@ import { importSiecleCommunsXml } from "@/app/lib/nomenclature-import/siecle-com
 import { syncProgrammesToCompetences } from "@/app/lib/nomenclature-import/sync-programmes-competences";
 import { syncMatieresFromNomenclature } from "@/app/lib/nomenclature-import/sync-matieres-from-nomenclature";
 import { normalizeElevesToSiecleClasses } from "@/app/lib/nomenclature-import/normalize-eleves-classes";
+import { enrichElevesRegistryMefFromNomenclature } from "@/app/lib/nomenclature-import/enrich-eleves-mef";
 import { loadElevesRegistry, saveElevesRegistry } from "@/app/lib/eleves-registry";
 import { isEntCoreDbEnabled } from "@/app/lib/ent-core-db";
 import {
@@ -354,6 +355,7 @@ export async function importSiecleXmlBuffer(
 
   let competencesSynced: { domaines: number; items: number } | null = null;
   let matieresSynced: { inserts: number; updates: number } | null = null;
+  let mefLabelsEnriched = 0;
   if (kind === "nomenclature" && isEntCoreDbEnabled()) {
     try {
       competencesSynced = await syncProgrammesToCompetences(etablissementId, { cycle });
@@ -364,6 +366,11 @@ export async function importSiecleXmlBuffer(
       matieresSynced = await syncMatieresFromNomenclature(etablissementId, { cycle });
     } catch {
       matieresSynced = null;
+    }
+    try {
+      mefLabelsEnriched = (await enrichElevesRegistryMefFromNomenclature(etablissementId)).enriched;
+    } catch {
+      mefLabelsEnriched = 0;
     }
   }
 
@@ -380,6 +387,7 @@ export async function importSiecleXmlBuffer(
       ...(competencesSynced ? { competencesSynced } : {}),
       ...(matieresSynced ? { matieresSynced } : {}),
       ...(elevesClassesNormalized ? { elevesClassesNormalized } : {}),
+      ...(mefLabelsEnriched ? { mefLabelsEnriched } : {}),
     },
   });
 
@@ -395,12 +403,14 @@ export async function importSiecleXmlBuffer(
     elevesClassesNormalized && elevesClassesNormalized.normalized > 0
       ? ` · ${elevesClassesNormalized.normalized} classe(s) élève normalisée(s)`
       : "";
+  const mefNote =
+    mefLabelsEnriched > 0 ? ` · ${mefLabelsEnriched} MEF élève(s) → libellé` : "";
 
   return {
     kind,
     inserts,
     updates,
     rows: rows.length,
-    message: `${filename} (${kind}${cycleNote}) : ${rows.length} entrées — ${inserts} créées, ${updates} mises à jour.${compNote}${matNote}${classNote}`,
+    message: `${filename} (${kind}${cycleNote}) : ${rows.length} entrées — ${inserts} créées, ${updates} mises à jour.${compNote}${matNote}${classNote}${mefNote}`,
   };
 }

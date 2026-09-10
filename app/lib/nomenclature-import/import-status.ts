@@ -72,7 +72,7 @@ export const SIECLE_IMPORT_SLOTS: SiecleImportSlot[] = [
   },
   {
     kind: "responsables",
-    label: "Responsables",
+    label: "Responsables (parents + adresses)",
     filenameHint: "ResponsablesAvecAdresses.xml",
     required: false,
     order: 6,

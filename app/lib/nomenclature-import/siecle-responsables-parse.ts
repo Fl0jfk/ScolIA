@@ -1,22 +1,14 @@
-function extractBlocks(xml: string, tag: string): string[] {
-  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, "gi");
-  const out: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(xml))) {
-    out.push(m[1] ?? "");
-  }
-  return out;
-}
-
-function tagValue(block: string, tag: string): string {
-  const m = block.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, "i"));
-  return (m?.[1] ?? "").trim();
-}
-
-function boolTag(block: string, tag: string): boolean {
-  const v = tagValue(block, tag).toLowerCase();
-  return v === "1" || v === "true" || v === "o" || v === "oui";
-}
+/**
+ * Parse ResponsablesAvecAdresses.xml (BEE_RESPONSABLES).
+ * Siècle met souvent PERSONNE_ID / ADRESSE_ID en **attribut** de la balise ouvrante
+ * (pas en balise enfant) — cf. exports BEE réels.
+ */
+import {
+  attrValue,
+  extractSiecleElements,
+  firstNonEmpty,
+  tagValue,
+} from "@/app/lib/nomenclature-import/siecle-xml-parse-utils";
 
 export type SiecleAdresseRow = {
   adresseId: string;
@@ -49,57 +41,100 @@ export type SiecleResponsablesParsed = {
   liens: SiecleResponsableEleveRow[];
 };
 
+function boolFromRaw(raw: string): boolean {
+  const v = raw.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "o" || v === "oui";
+}
+
+function boolTag(block: string, tag: string): boolean {
+  return boolFromRaw(tagValue(block, tag));
+}
+
+function idFromElement(
+  attrs: string,
+  inner: string,
+  attrName: string,
+  tagName: string,
+): string {
+  return firstNonEmpty(attrValue(attrs, attrName), tagValue(inner, tagName));
+}
+
 /** Parse ResponsablesAvecAdresses.xml (BEE_RESPONSABLES). */
 export function parseSiecleResponsablesXml(xml: string): SiecleResponsablesParsed {
   const adresses: SiecleAdresseRow[] = [];
-  for (const block of extractBlocks(xml, "ADRESSE")) {
-    const adresseId = tagValue(block, "ADRESSE_ID");
+  for (const el of extractSiecleElements(xml, "ADRESSE")) {
+    const adresseId = idFromElement(el.attrs, el.inner, "ADRESSE_ID", "ADRESSE_ID");
     if (!adresseId) continue;
     adresses.push({
       adresseId,
-      ligne1:
-        tagValue(block, "ADRESSE_1") ||
-        tagValue(block, "ADRESSE1") ||
-        tagValue(block, "LIGNE_1") ||
-        "",
-      codePostal: tagValue(block, "CODE_POSTAL") || tagValue(block, "CP") || "",
-      ville: tagValue(block, "VILLE") || tagValue(block, "LIBELLE_VILLE") || "",
+      ligne1: firstNonEmpty(
+        tagValue(el.inner, "ADRESSE_1"),
+        tagValue(el.inner, "ADRESSE1"),
+        tagValue(el.inner, "LIGNE_1"),
+        tagValue(el.inner, "LIGNE1_ADRESSE"),
+        tagValue(el.inner, "LIGNE1"),
+      ),
+      codePostal: firstNonEmpty(tagValue(el.inner, "CODE_POSTAL"), tagValue(el.inner, "CP")),
+      ville: firstNonEmpty(
+        tagValue(el.inner, "VILLE"),
+        tagValue(el.inner, "LIBELLE_VILLE"),
+        tagValue(el.inner, "LIBELLE_POSTAL"),
+      ),
     });
   }
 
   const personnes: SieclePersonneRow[] = [];
-  for (const block of extractBlocks(xml, "PERSONNE")) {
-    const personneId = tagValue(block, "PERSONNE_ID");
-    const nom = tagValue(block, "NOM") || tagValue(block, "NOM_DE_FAMILLE");
-    const prenom = tagValue(block, "PRENOM") || tagValue(block, "PRENOM_1");
+  for (const el of extractSiecleElements(xml, "PERSONNE")) {
+    const personneId = idFromElement(el.attrs, el.inner, "PERSONNE_ID", "PERSONNE_ID");
+    const nom = firstNonEmpty(tagValue(el.inner, "NOM"), tagValue(el.inner, "NOM_DE_FAMILLE"));
+    const prenom = firstNonEmpty(tagValue(el.inner, "PRENOM"), tagValue(el.inner, "PRENOM_1"));
     if (!personneId || !nom || !prenom) continue;
     personnes.push({
       personneId,
       nom,
       prenom,
-      email: tagValue(block, "MEL") || tagValue(block, "EMAIL") || "",
-      telephone:
-        tagValue(block, "TEL") ||
-        tagValue(block, "TELEPHONE") ||
-        tagValue(block, "TEL_PORTABLE") ||
-        tagValue(block, "TEL_DOMICILE") ||
-        "",
-      adresseId: tagValue(block, "ADRESSE_ID") || "",
+      email: firstNonEmpty(tagValue(el.inner, "MEL"), tagValue(el.inner, "EMAIL")),
+      telephone: firstNonEmpty(
+        tagValue(el.inner, "TEL"),
+        tagValue(el.inner, "TELEPHONE"),
+        tagValue(el.inner, "TEL_PORTABLE"),
+        tagValue(el.inner, "TEL_PERSONNEL"),
+        tagValue(el.inner, "TEL_DOMICILE"),
+      ),
+      adresseId: idFromElement(el.attrs, el.inner, "ADRESSE_ID", "ADRESSE_ID"),
     });
   }
 
   const liens: SiecleResponsableEleveRow[] = [];
-  for (const block of extractBlocks(xml, "RESPONSABLE_ELEVE")) {
-    const eleveId = tagValue(block, "ELEVE_ID");
-    const personneId = tagValue(block, "PERSONNE_ID");
+  for (const el of extractSiecleElements(xml, "RESPONSABLE_ELEVE")) {
+    const eleveId = firstNonEmpty(
+      tagValue(el.inner, "ELEVE_ID"),
+      attrValue(el.attrs, "ELEVE_ID"),
+    );
+    const personneId = firstNonEmpty(
+      tagValue(el.inner, "PERSONNE_ID"),
+      attrValue(el.attrs, "PERSONNE_ID"),
+    );
     if (!eleveId || !personneId) continue;
+
+    const niveau = firstNonEmpty(
+      tagValue(el.inner, "NIVEAU_RESPONSABILITE"),
+      attrValue(el.attrs, "NIVEAU_RESPONSABILITE"),
+    );
+    const contactPrioritaire =
+      boolTag(el.inner, "A_CONTACTER_EN_PRIORITE") || niveau === "1";
+
     liens.push({
       eleveId,
       personneId,
-      codeParente: tagValue(block, "CODE_PARENTE") || "",
-      payeur: boolTag(block, "PAIE_FRAIS_SCOLAIRES"),
-      contactPrioritaire: boolTag(block, "A_CONTACTER_EN_PRIORITE"),
-      heberge: boolTag(block, "HEBERGE_ELEVE"),
+      codeParente: firstNonEmpty(
+        tagValue(el.inner, "CODE_PARENTE"),
+        attrValue(el.attrs, "CODE_PARENTE"),
+      ),
+      payeur:
+        boolTag(el.inner, "PAIE_FRAIS_SCOLAIRES") || boolTag(el.inner, "RESP_FINANCIER"),
+      contactPrioritaire,
+      heberge: boolTag(el.inner, "HEBERGE_ELEVE"),
     });
   }
 

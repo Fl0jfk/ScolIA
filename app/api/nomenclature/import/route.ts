@@ -15,9 +15,9 @@ import { desc, eq, sql } from "drizzle-orm";
 /** XML Siècle Élèves/Responsables dépassent souvent 7–10 Mo. */
 export const maxDuration = 300;
 
-/** Limite métier par fichier (alignée sur proxyClientMaxBodySize 64 Mo). */
-const MAX_XML_BYTES = 50 * 1024 * 1024;
-const MAX_XML_LABEL = "50 Mo";
+/** Limite métier par fichier (alignée sur proxyClientMaxBodySize 110 Mo). */
+const MAX_XML_BYTES = 100 * 1024 * 1024;
+const MAX_XML_LABEL = "100 Mo";
 
 function formatMo(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;

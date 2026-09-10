@@ -17,6 +17,10 @@ import {
 } from "@/db/schema";
 import { currentSchoolYearLabel } from "@/app/lib/ent-core-db";
 import { getJson } from "@/app/lib/s3-storage";
+import {
+  buildMefLabelMaps,
+  resolveMefExportCode,
+} from "@/app/lib/nomenclature-import/enrich-eleves-mef";
 
 const SIECLE_ELEVE_MAP_KEY = "siecle/eleve-id-map.json";
 const EXPORT_LOGICIEL = "SCOLIA";
@@ -306,7 +310,7 @@ export async function buildSiecleExportBundle(
   etablissementId: string,
 ): Promise<SiecleExportResult> {
   const db = getDb();
-  const [eleveRows, siecleMap, divisions, uaj, anneeLabel, numEnvoi] = await Promise.all([
+  const [eleveRows, siecleMap, divisions, mefMaps, uaj, anneeLabel, numEnvoi] = await Promise.all([
     db
       .select()
       .from(eleve)
@@ -314,6 +318,7 @@ export async function buildSiecleExportBundle(
       .orderBy(asc(eleve.nom), asc(eleve.prenom)),
     loadSiecleEleveIdMap(),
     buildDivisionCodeMap(etablissementId),
+    buildMefLabelMaps(etablissementId),
     resolveUaj(etablissementId),
     resolveAnneeScolaireLabel(etablissementId),
     nextNumEnvoi(etablissementId),
@@ -435,7 +440,7 @@ export async function buildSiecleExportBundle(
       sexe: sexeToCode(row.sexe),
       dateNaissance: formatSiecleDate(row.dateNaissance),
       codeRegime: regimeToCode(row.regime),
-      codeMef: row.mef || "",
+      codeMef: resolveMefExportCode(row.mef, mefMaps),
       codeDivision: resolveDivision(classe, divisions),
       codeStatut: row.status === "inscrit" ? "ST" : "ST",
       responsables,

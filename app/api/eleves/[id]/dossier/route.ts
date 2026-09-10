@@ -57,6 +57,10 @@ import { resolveEleveLiveCourse } from "@/app/lib/rh/planning-class-live";
 import { buildEleveDossierClassCatalog } from "@/app/lib/eleve-dossier-catalog";
 import { buildEleveSyntheseSnapshot } from "@/app/lib/eleve-dossier-synthese";
 import {
+  buildMefLabelMaps,
+  resolveMefDisplayValue,
+} from "@/app/lib/nomenclature-import/enrich-eleves-mef";
+import {
   countMidiFromGrille,
   parseEleveGrilleRepas,
 } from "@/app/lib/eleve-grille-repas";
@@ -543,6 +547,9 @@ export async function GET(_req: Request, ctx: Ctx) {
     };
   }
 
+  const mefMaps = await buildMefLabelMaps(etabId);
+  const mefLabel = resolveMefDisplayValue(row.mef, mefMaps) || row.mef;
+
   const synthese = await buildEleveSyntheseSnapshot({
     eleve: {
       nom: row.nom,
@@ -550,7 +557,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       classe: row.classe,
       status: row.status,
       ine: row.ine,
-      mef: row.mef,
+      mef: mefLabel,
       folderName: row.folderName,
       siteId: siteIdFromScolarite,
     },

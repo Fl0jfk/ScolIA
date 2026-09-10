@@ -914,7 +914,7 @@ export default function EleveDossierClient() {
                   {synth?.mef ? (
                     <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2 sm:col-span-2">
                       <dt className="text-slate-500">MEF</dt>
-                      <dd className="font-mono font-semibold text-slate-900">{synth.mef}</dd>
+                      <dd className="font-semibold text-slate-900">{synth.mef}</dd>
                     </div>
                   ) : null}
                   {!data.meta.profRestrictedView && synth?.ine ? (
