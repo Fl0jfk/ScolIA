@@ -20,7 +20,8 @@ export default function StagesClassePanel({
       <h2 className="text-lg font-bold text-[#1F3D2B]">Suivi des stages par classe</h2>
       <p className="mt-2 text-sm text-stone-600 max-w-3xl">
         Liste de la classe : élèves avec stage validé, en cours de traitement, sans stage, ou avec
-        plusieurs conventions. Cliquez sur un dossier pour ouvrir le détail.
+        plusieurs conventions. Un stage terminé (toutes signatures) reste visible avec le badge
+        « Stage validé ». Cliquez sur un dossier pour ouvrir le détail.
       </p>
       <div className="mt-6">
         <StageClassRosterPanel

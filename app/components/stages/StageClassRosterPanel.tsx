@@ -1,8 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { StageClassRoster, StageRosterStudentStatus } from "@/app/lib/stage-class-roster";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
+
+type RosterStatusFilter = "all" | StageRosterStudentStatus;
+
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
 
 function statusLabel(
   status: StageRosterStudentStatus,
@@ -65,6 +75,8 @@ export default function StageClassRosterPanel({
   const [error, setError] = useState<string | null>(null);
   const [assignBusyId, setAssignBusyId] = useState<string | null>(null);
   const [assignMsg, setAssignMsg] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<RosterStatusFilter>("all");
 
   const load = useCallback(async (className?: string) => {
     setLoading(true);
@@ -91,6 +103,8 @@ export default function StageClassRosterPanel({
 
   const onClassChange = (className: string) => {
     setSelectedClass(className);
+    setQuery("");
+    setStatusFilter("all");
     void load(className);
   };
 
@@ -123,6 +137,28 @@ export default function StageClassRosterPanel({
     }
   }
 
+  const roster = data?.roster ?? null;
+
+  const filteredStudents = useMemo(() => {
+    if (!roster) return [];
+    const q = normalizeSearch(query);
+    return roster.students.filter((student) => {
+      if (statusFilter !== "all" && student.rosterStatus !== statusFilter) return false;
+      if (!q) return true;
+      const blob = normalizeSearch(
+        [
+          student.prenom,
+          student.nom,
+          student.ine,
+          ...student.conventions.flatMap((c) => [c.companyName, c.stageLabel, c.statusLabel]),
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
+      return blob.includes(q);
+    });
+  }, [roster, query, statusFilter]);
+
   if (loading && !data) {
     return <p className="text-sm text-stone-500">Chargement du suivi classe…</p>;
   }
@@ -143,14 +179,21 @@ export default function StageClassRosterPanel({
     );
   }
 
-  const roster = data?.roster;
-  if (!roster) return null;
+  if (!data || !roster) return null;
 
   const mandatory = roster.expectsMandatoryStage === true;
   const sansStageLabel = mandatory ? "Sans stage" : "Aucun";
   const sansStageColor = mandatory ? "text-rose-700" : "text-stone-600";
   const canAssign = data.canAssignReferent === true;
   const teachers = data.teachers ?? [];
+
+  const statusFilters: Array<{ id: RosterStatusFilter; label: string; count: number }> = [
+    { id: "all", label: "Tous", count: roster.summary.total },
+    { id: "valide", label: "Validés", count: roster.summary.valide },
+    { id: "en_cours", label: "En cours", count: roster.summary.enCours },
+    { id: "sans_stage", label: sansStageLabel, count: roster.summary.sansStage },
+    { id: "plusieurs", label: "Plusieurs", count: roster.summary.plusieurs },
+  ];
 
   return (
     <div className="space-y-6">
@@ -185,6 +228,38 @@ export default function StageClassRosterPanel({
               .join(" · ")}
           </p>
         )}
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+        <label className="block min-w-[220px] flex-1 text-sm font-semibold text-stone-700">
+          Rechercher un élève
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Nom, INE, entreprise…"
+            className="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm font-normal"
+          />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {statusFilters.map((f) => {
+            const active = statusFilter === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setStatusFilter(f.id)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                  active
+                    ? "border-[#2F6B4A] bg-[#2F6B4A] text-white"
+                    : "border-stone-200 bg-white text-stone-700 hover:border-[#2F6B4A]/40"
+                }`}
+              >
+                {f.label} ({f.count})
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {canAssign && (
@@ -228,16 +303,25 @@ export default function StageClassRosterPanel({
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {[
-          ["Élèves", roster.summary.total, "text-[#1F3D2B]"],
-          [sansStageLabel, roster.summary.sansStage, sansStageColor],
-          ["En cours", roster.summary.enCours, "text-amber-800"],
-          ["Validés", roster.summary.valide, "text-emerald-800"],
-          ["Plusieurs", roster.summary.plusieurs, "text-violet-800"],
-        ].map(([label, n, color]) => (
-          <div key={String(label)} className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
+          ["all", "Élèves", roster.summary.total, "text-[#1F3D2B]"] as const,
+          ["sans_stage", sansStageLabel, roster.summary.sansStage, sansStageColor] as const,
+          ["en_cours", "En cours", roster.summary.enCours, "text-amber-800"] as const,
+          ["valide", "Validés", roster.summary.valide, "text-emerald-800"] as const,
+          ["plusieurs", "Plusieurs", roster.summary.plusieurs, "text-violet-800"] as const,
+        ].map(([id, label, n, color]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setStatusFilter(id)}
+            className={`rounded-xl border bg-white p-4 text-left shadow-sm transition ${
+              statusFilter === id
+                ? "border-[#2F6B4A] ring-1 ring-[#2F6B4A]/20"
+                : "border-stone-200 hover:border-[#2F6B4A]/40"
+            }`}
+          >
             <p className="text-xs text-stone-500">{label}</p>
             <p className={`text-2xl font-black mt-1 ${color}`}>{n}</p>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -255,7 +339,7 @@ export default function StageClassRosterPanel({
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-100">
-            {roster.students.map((student) => (
+            {filteredStudents.map((student) => (
               <tr key={student.key} className="hover:bg-stone-50/50">
                 <td className="px-4 py-3 font-semibold text-[#1F3D2B]">
                   {student.prenom} {student.nom}
@@ -398,8 +482,12 @@ export default function StageClassRosterPanel({
             ))}
           </tbody>
         </table>
-        {roster.students.length === 0 && (
-          <p className="px-4 py-8 text-center text-sm text-stone-500">Aucun élève pour cette classe.</p>
+        {filteredStudents.length === 0 && (
+          <p className="px-4 py-8 text-center text-sm text-stone-500">
+            {roster.students.length === 0
+              ? "Aucun élève pour cette classe."
+              : "Aucun élève ne correspond à cette recherche ou à ce filtre. Astuce : un stage terminé apparaît sous « Validés », pas sous « En cours »."}
+          </p>
         )}
       </div>
     </div>

@@ -186,12 +186,12 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
       {
         target: "stages-classe",
         title: "Suivi classe",
-        body: "Le professeur principal voit tous les élèves de sa classe et l'état de leur stage (sans stage, en cours, validé).",
+        body: "Le professeur principal voit tous les élèves de sa classe et l'état de leur stage (sans stage, en cours, validé). Les stages terminés restent dans « Validés ».",
       },
       {
         target: "stages-conventions",
         title: "Conventions",
-        body: "Liste des dossiers par élève. Ouvrez une ligne pour valider une préconvention ou lancer les signatures.",
+        body: "Liste des dossiers par élève, y compris les conventions déjà signées (filtre « Signées »). Seules les archives de fin d’année quittent cette liste. Ouvrez une ligne pour valider une préconvention ou lancer les signatures.",
       },
       {
         target: "stages-settings",
