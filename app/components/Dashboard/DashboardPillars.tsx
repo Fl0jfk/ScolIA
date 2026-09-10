@@ -352,6 +352,13 @@ function ShortcutTile({
   if (item.slides && item.slides.length > 0) {
     const isTravels = item.moduleId === "travels";
     const isRooms = item.moduleId === "prof-room";
+    const hasSlideSignals = item.slides.some(
+      (s) => (typeof s.count === "number" && s.count > 0) || Boolean(s.colorHex),
+    );
+    // Pas de carrousel « décoratif » : seulement salles/sorties, ou vrais signaux chiffrés.
+    if (!isTravels && !isRooms && !hasSlideSignals && item.tone !== "warn" && item.tone !== "action") {
+      return <SignalShortcutTile item={{ ...item, slides: undefined }} highlight={highlight} notifCount={notifCount} />;
+    }
     const alertTone = item.tone === "warn" || item.tone === "action";
     return (
       <ShortcutSlidesCarousel

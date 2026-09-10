@@ -148,10 +148,13 @@ export default function Header() {
   const headerQuickLinks = useMemo(() => {
     if (!isLoaded || !isSignedIn || !user || !data?.externalQuickLinks) return [];
     const roles = rolesFromUserLike(user);
-    return toDashboardQuickLinks(
-      data.externalQuickLinks.filter((l) => (l.allowedRoles ?? []).some((r) => roles.includes(r))),
-    );
-  }, [isLoaded, isSignedIn, user, data]);
+    const filtered = isOrgAdmin
+      ? data.externalQuickLinks
+      : data.externalQuickLinks.filter((l) =>
+          (l.allowedRoles ?? []).some((r) => roles.includes(r)),
+        );
+    return toDashboardQuickLinks(filtered);
+  }, [isLoaded, isSignedIn, user, data, isOrgAdmin]);
 
   const headerStyle =
     isDashboard && dashVars

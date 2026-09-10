@@ -102,10 +102,13 @@ export default function Home() {
   const quickLinks = useMemo(() => {
     if (!isLoaded || !user || !data?.externalQuickLinks) return [];
     const roles = intranetRolesFromMetadata(user.publicMetadata);
-    return toDashboardQuickLinks(
-      data.externalQuickLinks.filter((l) => (l.allowedRoles ?? []).some((r) => roles.includes(r))),
-    );
-  }, [isLoaded, user, data]);
+    const filtered = isOrgAdmin
+      ? data.externalQuickLinks
+      : data.externalQuickLinks.filter((l) =>
+          (l.allowedRoles ?? []).some((r) => roles.includes(r)),
+        );
+    return toDashboardQuickLinks(filtered);
+  }, [isLoaded, user, data, isOrgAdmin]);
 
   const userRoles = useMemo(() => {
     if (!user) return [];
@@ -180,7 +183,14 @@ export default function Home() {
               </div>
 
               <div className="justify-self-end">
-                <DashboardWeather />
+                <div className="flex flex-col items-end gap-2">
+                  <ExternalQuickLinksBar
+                    compact
+                    links={quickLinks}
+                    manageHref={isOrgAdmin ? "/parametres?tab=dashboard-links" : null}
+                  />
+                  <DashboardWeather />
+                </div>
               </div>
             </header>
 

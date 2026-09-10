@@ -1648,7 +1648,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
 
     const warnSlides = absenceViews.filter((s) => (s.count || 0) > 0);
-    const primaryHref = absenceViews[0]?.href || moduleHref("accueil-absences");
     const moduleId = has("accueil-absences")
       ? "accueil-absences"
       : has("absences-accueil-consultation")
@@ -1657,35 +1656,20 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           ? "vs-appels"
           : "vs-absences";
 
-    /** Libellé selon les vues accessibles — l’accueil (déclaration seule) garde son repère métier. */
-    const tileLabel =
-      absenceViews.length === 1 && absenceViews[0]?.id === "accueil-absences-declare"
-        ? "Absence déclarée à l'accueil"
-        : absenceViews.length === 1 && absenceViews[0]?.id === "accueil-absences-consult"
-          ? "Absences déclarées à l'accueil"
-          : "Absences";
-
-    if (absenceViews.length > 1 || warnSlides.length > 0) {
+    // Une seule vue → libellé métier + lien direct (ex. accueil = déclaration seule).
+    if (absenceViews.length === 1 && warnSlides.length === 0) {
+      const only = absenceViews[0]!;
+      const tileLabel =
+        only.id === "accueil-absences-declare"
+          ? "Absence déclarée à l'accueil"
+          : only.id === "accueil-absences-consult"
+            ? "Absences déclarées à l'accueil"
+            : "Absences";
       shortcuts.push({
         id: "vs-absences-accueil",
         pillarId: "vie_scolaire",
         moduleId,
-        href: warnSlides[0]?.href || primaryHref,
-        label: tileLabel,
-        emoji: "☎️",
-        rich: true,
-        detail: absenceViews.map((v) => v.label).join(" · "),
-        badge: warnSlides.length > 0 ? String(warnSlides.reduce((n, s) => n + (s.count || 0), 0)) : undefined,
-        tone: warnSlides.length > 0 ? "warn" : "neutral",
-        slides: absenceViews,
-      });
-    } else if (absenceViews[0]) {
-      const only = absenceViews[0];
-      shortcuts.push({
-        id: "vs-absences-accueil",
-        pillarId: "vie_scolaire",
-        moduleId,
-        href: only.href || primaryHref,
+        href: only.href || moduleHref("accueil-absences"),
         label: tileLabel,
         emoji: "☎️",
         detail:
@@ -1694,6 +1678,35 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             : only.id === "accueil-absences-consult"
               ? "Consulter les saisies du jour"
               : only.detail,
+      });
+    } else if (warnSlides.length > 0) {
+      // Signaux à traiter : carrousel avec pastilles qui tournent.
+      shortcuts.push({
+        id: "vs-absences-accueil",
+        pillarId: "vie_scolaire",
+        moduleId,
+        href: warnSlides[0]!.href || moduleHref("accueil-absences"),
+        label: "Absences",
+        emoji: "☎️",
+        rich: true,
+        detail: warnSlides.map((v) => v.label).join(" · "),
+        badge: String(warnSlides.reduce((n, s) => n + (s.count || 0), 0)),
+        tone: "warn",
+        slides: warnSlides,
+      });
+    } else if (absenceViews.length > 1) {
+      // Plusieurs vues (ex. admin / CPE) : une tuile stable → hub Vie scolaire
+      // où Déclarer + Consulter sont tous accessibles (pas de carrousel vide).
+      shortcuts.push({
+        id: "vs-absences-accueil",
+        pillarId: "vie_scolaire",
+        moduleId,
+        href: "/vie-scolaire",
+        label: "Absences",
+        emoji: "☎️",
+        rich: true,
+        detail: absenceViews.map((v) => v.label).join(" · "),
+        tone: "neutral",
       });
     }
   }
