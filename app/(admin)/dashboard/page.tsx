@@ -183,14 +183,7 @@ export default function Home() {
               </div>
 
               <div className="justify-self-end">
-                <div className="flex flex-col items-end gap-2">
-                  <ExternalQuickLinksBar
-                    compact
-                    links={quickLinks}
-                    manageHref={isOrgAdmin ? "/parametres?tab=dashboard-links" : null}
-                  />
-                  <DashboardWeather />
-                </div>
+                <DashboardWeather />
               </div>
             </header>
 
