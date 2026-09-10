@@ -8,10 +8,6 @@ import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 import { personMatchesSearchQuery } from "@/app/lib/person-name-search";
 import {
-  DOCUMENT_ACCESS_DURATION_OPTIONS,
-  documentAccessDurationLabel,
-} from "@/app/lib/eleve-document-access-duration";
-import {
   accompagnementKindDef,
   type AccompagnementKind,
 } from "@/app/lib/eleve-pap";
@@ -62,23 +58,6 @@ type Preinsc = {
   createdAt: string;
 };
 
-type AccessReq = {
-  id: string;
-  documentId: string;
-  status: string;
-  durationDays: number;
-  note: string | null;
-  createdAt: string;
-  docTitle?: string;
-  docTiroir?: string;
-  eleveId?: string;
-  eleveNom?: string;
-  elevePrenom?: string;
-  eleveClasse?: string | null;
-  requesterName?: string | null;
-  requesterEmail?: string | null;
-};
-
 const STATUS_OPTIONS = [
   { value: "", label: "Tous statuts" },
   { value: "inscrit", label: "Scolarisé" },
@@ -91,8 +70,6 @@ export default function ElevesDossiersListClient() {
   const searchParams = useSearchParams();
   const [eleves, setEleves] = useState<EleveRow[]>([]);
   const [preinsc, setPreinsc] = useState<Preinsc[]>([]);
-  const [accessReqs, setAccessReqs] = useState<AccessReq[]>([]);
-  const [canDecideAccess, setCanDecideAccess] = useState(false);
   const [canViewFullHub, setCanViewFullHub] = useState(false);
   const [canManagePreinscriptions, setCanManagePreinscriptions] = useState(false);
   const [canOpenDetail, setCanOpenDetail] = useState(true);
@@ -111,13 +88,12 @@ export default function ElevesDossiersListClient() {
     () => searchParams.get("status")?.trim() || "inscrit",
   );
   const [preSiteFilter, setPreSiteFilter] = useState("");
-  const [tab, setTab] = useState<"dossiers" | "preinscriptions" | "acces">(() => {
+  const [tab, setTab] = useState<"dossiers" | "preinscriptions">(() => {
     const t = searchParams.get("tab");
-    if (t === "preinscriptions" || t === "acces") return t;
+    if (t === "preinscriptions") return t;
     return "dossiers";
   });
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [listLoading, setListLoading] = useState(true);
 
   useEffect(() => {
@@ -130,15 +106,16 @@ export default function ElevesDossiersListClient() {
     setQ(nextQ);
     setSiteFilter(nextSite);
     setStatusFilter(nextStatus);
-    if (nextTab === "preinscriptions" || nextTab === "acces" || nextTab === "dossiers") {
+    if (nextTab === "preinscriptions" || nextTab === "dossiers") {
       setTab(nextTab);
+    } else if (nextTab === "acces") {
+      setTab("dossiers");
     }
   }, [searchParams]);
 
   useEffect(() => {
     if (tab === "preinscriptions" && !canManagePreinscriptions) setTab("dossiers");
-    if (tab === "acces" && (!canViewFullHub || !canOpenDetail)) setTab("dossiers");
-  }, [tab, canManagePreinscriptions, canViewFullHub, canOpenDetail]);
+  }, [tab, canManagePreinscriptions]);
 
   const listQueryString = useMemo(() => {
     const p = new URLSearchParams();
@@ -239,38 +216,19 @@ export default function ElevesDossiersListClient() {
   }, [loadDossiers, loadMeta]);
 
   useEffect(() => {
-    if (!canViewFullHub && !canManagePreinscriptions) return;
+    if (!canManagePreinscriptions) return;
     void (async () => {
       try {
-        const fetches: Promise<Response>[] = [];
-        if (canManagePreinscriptions) {
-          fetches.push(fetch("/api/eleves/preinscriptions?status=pending"));
-        }
-        if (canViewFullHub && canOpenDetail) {
-          fetches.push(fetch("/api/eleves/document-access-requests?status=pending"));
-        }
-        const results = await Promise.all(fetches);
-        let idx = 0;
-        if (canManagePreinscriptions) {
-          const pr = results[idx++]!;
-          if (pr.ok) {
-            const j = (await pr.json()) as { preinscriptions: Preinsc[] };
-            setPreinsc(j.preinscriptions || []);
-          }
-        }
-        if (canViewFullHub && canOpenDetail) {
-          const ar = results[idx++]!;
-          if (ar.ok) {
-            const j = (await ar.json()) as { requests: AccessReq[]; canDecide: boolean };
-            setAccessReqs(j.requests || []);
-            setCanDecideAccess(Boolean(j.canDecide));
-          }
+        const pr = await fetch("/api/eleves/preinscriptions?status=pending");
+        if (pr.ok) {
+          const j = (await pr.json()) as { preinscriptions: Preinsc[] };
+          setPreinsc(j.preinscriptions || []);
         }
       } catch {
         /* onglets admin secondaires */
       }
     })();
-  }, [canViewFullHub, canManagePreinscriptions, canOpenDetail]);
+  }, [canManagePreinscriptions]);
 
   const hasActiveSearch = Boolean(
     q.trim() || classeFilter || siteFilter || statusFilter,
@@ -344,29 +302,6 @@ export default function ElevesDossiersListClient() {
     }
   }
 
-  async function decideAccess(
-    id: string,
-    decision: "approved" | "rejected",
-    durationDays?: number,
-  ) {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/eleves/document-access-requests", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, decision, durationDays }),
-      });
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(j.error || "Échec");
-      setAccessReqs((prev) => prev.filter((r) => r.id !== id));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <ModulePageShell maxWidthClass="max-w-5xl">
       <ModulePageHeader
@@ -406,17 +341,6 @@ export default function ElevesDossiersListClient() {
             }`}
           >
             Préinscriptions ({preFiltered.length})
-          </button>
-        ) : null}
-        {canViewFullHub && canOpenDetail ? (
-          <button
-            type="button"
-            onClick={() => setTab("acces")}
-            className={`rounded-xl px-4 py-2 text-sm font-bold border ${
-              tab === "acces" ? "bg-slate-900 text-white" : "bg-white border-slate-200"
-            }`}
-          >
-            Accès documents ({accessReqs.length})
           </button>
         ) : null}
       </div>
@@ -752,96 +676,6 @@ export default function ElevesDossiersListClient() {
             ) : null}
           </ul>
         </>
-      ) : null}
-
-      {tab === "acces" && canViewFullHub && canOpenDetail ? (
-        <ul className="space-y-2">
-          {accessReqs.length === 0 ? (
-            <p className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-500">
-              Aucune demande d’accès en attente.
-            </p>
-          ) : (
-            accessReqs.map((r) => (
-              <li
-                key={r.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3"
-              >
-                <div>
-                  <p className="font-semibold text-slate-900">
-                    {r.docTitle || "Document"}
-                    {r.elevePrenom ? (
-                      <span className="font-normal text-slate-600">
-                        {" "}
-                        — {r.elevePrenom} {r.eleveNom}
-                        {r.eleveClasse ? ` (${r.eleveClasse})` : ""}
-                      </span>
-                    ) : null}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {r.requesterName || r.requesterEmail
-                      ? `Demandeur : ${r.requesterName || r.requesterEmail} · `
-                      : ""}
-                    {r.docTiroir || "tiroir"} · {documentAccessDurationLabel(r.durationDays)}
-                    {r.note ? ` · ${r.note}` : ""}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2 items-center">
-                  {r.eleveId ? (
-                    <Link
-                      href={dossierHref(r.eleveId)}
-                      className="text-xs font-bold text-indigo-600 hover:underline"
-                    >
-                      Dossier
-                    </Link>
-                  ) : null}
-                  {canDecideAccess ? (
-                    <>
-                      <select
-                        id={`list-decide-duration-${r.id}`}
-                        defaultValue={r.durationDays}
-                        className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
-                        aria-label="Durée d’accès"
-                      >
-                        {DOCUMENT_ACCESS_DURATION_OPTIONS.map((o) => (
-                          <option key={o.days} value={o.days}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          const sel = document.getElementById(
-                            `list-decide-duration-${r.id}`,
-                          ) as HTMLSelectElement | null;
-                          void decideAccess(
-                            r.id,
-                            "approved",
-                            sel ? Number(sel.value) : r.durationDays,
-                          );
-                        }}
-                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
-                      >
-                        Approuver
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void decideAccess(r.id, "rejected")}
-                        className="rounded-lg bg-slate-200 px-3 py-1.5 text-xs font-bold text-slate-700 disabled:opacity-50"
-                      >
-                        Refuser
-                      </button>
-                    </>
-                  ) : (
-                    <span className="text-xs font-bold text-amber-700">En attente</span>
-                  )}
-                </div>
-              </li>
-            ))
-          )}
-        </ul>
       ) : null}
     </ModulePageShell>
   );

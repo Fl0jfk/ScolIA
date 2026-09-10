@@ -4,7 +4,6 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   anneeScolaire,
-  documentAccessRequest,
   eleve,
   eleveDocument,
   eleveFoyerLink,
@@ -26,13 +25,10 @@ import {
   eleveDocTiroirsForRoles,
   listEleveDocumentsForViewer,
   getLatestAccompagnementDocumentsForEleve,
-  hasActiveDocumentGrant,
   recordEleveAccessAudit,
   type EleveDocConfidentialite,
   type EleveDocTiroir,
 } from "@/app/lib/eleve-dossier-access";
-import { normalizeDocumentAccessDurationDays } from "@/app/lib/eleve-document-access-duration";
-import { notifyDirectionPapAccessRequest } from "@/app/lib/eleve-pap-access-notify";
 import {
   accompagnementKindDef,
   detectAccompagnementKind,
@@ -105,15 +101,6 @@ function canEditStructure(
       isExactAdmin(roles) ||
       isDirection(roles) ||
       hasRole(roles, "administratif"),
-  );
-}
-
-function canDecideAccess(
-  roles: string[],
-  opts: { orgAdmin?: boolean; platformAdmin?: boolean },
-): boolean {
-  return Boolean(
-    opts.orgAdmin || opts.platformAdmin || isExactAdmin(roles) || isDirection(roles),
   );
 }
 
@@ -211,7 +198,6 @@ export async function GET(_req: Request, ctx: Ctx) {
   const needScol = sections.includes("scolarite");
   const needFactu = sections.includes("facturation");
   const needFamille = sections.includes("famille");
-  const canDecide = canDecideAccess(roles, { orgAdmin, platformAdmin });
 
   // Rattrapage hors chemin critique : sync scolarité en arrière-plan.
   after(async () => {
@@ -232,7 +218,6 @@ export async function GET(_req: Request, ctx: Ctx) {
     documentsRaw,
     sites,
     annees,
-    pendingAccess,
     enCoursMaintenant,
     notesRaw,
     competencesRaw,
@@ -283,29 +268,6 @@ export async function GET(_req: Request, ctx: Ctx) {
       .from(anneeScolaire)
       .where(eq(anneeScolaire.etablissementId, etabId))
       .orderBy(desc(anneeScolaire.label)),
-    needDocs && canDecide
-      ? db
-          .select({
-            id: documentAccessRequest.id,
-            documentId: documentAccessRequest.documentId,
-            requesterUserId: documentAccessRequest.requesterUserId,
-            durationDays: documentAccessRequest.durationDays,
-            note: documentAccessRequest.note,
-            createdAt: documentAccessRequest.createdAt,
-            docTitle: eleveDocument.title,
-          })
-          .from(documentAccessRequest)
-          .innerJoin(eleveDocument, eq(documentAccessRequest.documentId, eleveDocument.id))
-          .where(
-            and(
-              eq(documentAccessRequest.etablissementId, etabId),
-              eq(eleveDocument.eleveId, id),
-              eq(documentAccessRequest.status, "pending"),
-            ),
-          )
-          .orderBy(desc(documentAccessRequest.createdAt))
-          .limit(50)
-      : Promise.resolve([]),
     (async () => {
       try {
         const cfg = await loadAppConfig();
@@ -458,17 +420,10 @@ export async function GET(_req: Request, ctx: Ctx) {
       confidentialite: "standard" as const,
       title: row.title,
     };
-    let canOpen = canOpenDocumentWithoutGrant(asDoc, roles, {
+    const canOpen = canOpenDocumentWithoutGrant(asDoc, roles, {
       orgAdmin,
       platformAdmin,
     });
-    if (!canOpen) {
-      canOpen = await hasActiveDocumentGrant({
-        etablissementId: etabId,
-        documentId: row.id,
-        userId: authUserId,
-      });
-    }
     const def = accompagnementKindDef(row.kind);
     accompagnementsPayload.push({
       kind: row.kind,
@@ -633,7 +588,6 @@ export async function GET(_req: Request, ctx: Ctx) {
       sites,
       annees,
       canEditStructure: canEditStructure(roles, { orgAdmin, platformAdmin }),
-      canDecideAccess: canDecide,
       canUploadPap: canRegisterEleveDocument("sante", "standard", roles, {
         orgAdmin,
         platformAdmin,
@@ -654,7 +608,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),
     },
-    pendingAccessRequests: pendingAccess,
+    pendingAccessRequests: [],
     enCoursMaintenant,
     synthese,
   });
@@ -1081,141 +1035,14 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ success: true, document: doc });
   }
 
-  if (action === "request_document_access") {
-    if (!sections.has("documents")) {
-      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-    }
-    const documentId = String(body.documentId || "");
-    if (!documentId) {
-      return NextResponse.json({ error: "documentId requis." }, { status: 400 });
-    }
-    const [doc] = await db
-      .select()
-      .from(eleveDocument)
-      .where(
-        and(
-          eq(eleveDocument.etablissementId, etabId),
-          eq(eleveDocument.eleveId, id),
-          eq(eleveDocument.id, documentId),
-        ),
-      )
-      .limit(1);
-    if (!doc) {
-      return NextResponse.json({ error: "Document introuvable." }, { status: 404 });
-    }
-
-    const durationDays = normalizeDocumentAccessDurationDays(body.durationDays, 7);
-    const [created] = await db
-      .insert(documentAccessRequest)
-      .values({
-        etablissementId: etabId,
-        documentId,
-        requesterUserId: authUserId,
-        status: "pending",
-        durationDays,
-        note: body.note?.trim() || null,
-      })
-      .returning();
-
-    await recordEleveAccessAudit({
-      etablissementId: etabId,
-      actorUserId: authUserId,
-      resourceType: "document",
-      resourceId: documentId,
-      eleveId: id,
-      action: "request",
-      metadata: { requestId: created.id, durationDays },
-    });
-
-    if (isAccompagnementDocumentTitle(doc.title)) {
-      after(async () => {
-        try {
-          const session = await getAppSession();
-          const u = session?.user;
-          const requesterName =
-            [u?.name, u?.firstName && u?.lastName ? `${u.firstName} ${u.lastName}` : null, u?.email]
-              .filter(Boolean)
-              .join(" — ") || authUserId;
-          await notifyDirectionPapAccessRequest({
-            eleveNom: row.nom,
-            elevePrenom: row.prenom,
-            classe: row.classe,
-            level: row.secteur || row.classe,
-            documentTitle: doc.title,
-            requesterName,
-            requesterEmail: u?.email ?? null,
-            durationDays,
-            note: body.note,
-          });
-        } catch (err) {
-          console.error("[eleves/dossier] notify accompagnement access", err);
-        }
-      });
-    }
-
-    return NextResponse.json({ success: true, request: created });
-  }
-
-  if (action === "decide_document_access") {
-    if (!canDecideAccess(roles, { orgAdmin, platformAdmin })) {
-      return NextResponse.json({ error: "Réservé à la direction." }, { status: 403 });
-    }
-    if (body.decision !== "approved" && body.decision !== "rejected") {
-      return NextResponse.json({ error: "Décision invalide." }, { status: 400 });
-    }
-    const requestId = String(body.requestId || "");
-    const [reqRow] = await db
-      .select()
-      .from(documentAccessRequest)
-      .where(
-        and(
-          eq(documentAccessRequest.etablissementId, etabId),
-          eq(documentAccessRequest.id, requestId),
-          eq(documentAccessRequest.status, "pending"),
-        ),
-      )
-      .limit(1);
-    if (!reqRow) {
-      return NextResponse.json({ error: "Demande introuvable." }, { status: 404 });
-    }
-
-    const now = new Date();
-    let expiresAt: Date | null = null;
-    let durationDays = reqRow.durationDays;
-    if (body.decision === "approved") {
-      durationDays = normalizeDocumentAccessDurationDays(
-        body.durationDays ?? reqRow.durationDays,
-        7,
-      );
-      expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
-    }
-
-    const [updated] = await db
-      .update(documentAccessRequest)
-      .set({
-        status: body.decision,
-        durationDays,
-        decidedByUserId: authUserId,
-        decidedAt: now,
-        expiresAt,
-      })
-      .where(eq(documentAccessRequest.id, reqRow.id))
-      .returning();
-
-    await recordEleveAccessAudit({
-      etablissementId: etabId,
-      actorUserId: authUserId,
-      resourceType: "document",
-      resourceId: reqRow.documentId,
-      eleveId: id,
-      action: body.decision === "approved" ? "grant" : "deny",
-      metadata: {
-        requestId: reqRow.id,
-        durationDays,
-        expiresAt: expiresAt?.toISOString() ?? null,
+  if (action === "request_document_access" || action === "decide_document_access") {
+    return NextResponse.json(
+      {
+        error:
+          "Les demandes d’accès documents sont désactivées : PAP, PAI, PPS et GEVASCO sont accessibles directement.",
       },
-    });
-    return NextResponse.json({ success: true, request: updated });
+      { status: 410 },
+    );
   }
 
   if (action === "delete_document" || action === "delete_accompagnement_document") {

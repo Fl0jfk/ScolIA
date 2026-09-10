@@ -73,10 +73,11 @@ export function eleveDocCategoriesForRoles(
   }
   if (hasRole(roles, "cpe") || hasRole(roles, "surveillant")) {
     out.add("administratif");
+    out.add("sante"); // PAP·PAI·PPS·GEVASCO (filtrés à la liste / ouverture)
   }
   if (hasRole(roles, "professeur")) {
     out.add("administratif");
-    out.add("sante"); // PAP·PAI·PPS visibles (filtrés à la liste / ouverture)
+    out.add("sante"); // PAP·PAI·PPS·GEVASCO visibles (accès direct)
   }
   return out;
 }
@@ -245,6 +246,28 @@ export function canDeleteSpecificEleveDocument(
   return canRegisterEleveDocument(doc.tiroir, doc.confidentialite, roles, opts);
 }
 
+/** Viewer pédagogique : ouvre PAP·PAI·PPS·GEVASCO sans demande à la direction. */
+function isPedagogicalAccompagnementViewer(
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  if (
+    opts?.orgAdmin ||
+    opts?.platformAdmin ||
+    isExactAdmin(roles) ||
+    isDirection(roles) ||
+    hasRole(roles, "infirmerie") ||
+    hasRole(roles, "administratif")
+  ) {
+    return false;
+  }
+  return (
+    hasRole(roles, "professeur") ||
+    hasRole(roles, "cpe") ||
+    hasRole(roles, "surveillant")
+  );
+}
+
 export function canOpenDocumentWithoutGrant(
   doc: Pick<EleveDocumentRow, "tiroir" | "confidentialite" | "title">,
   roles: string[],
@@ -266,29 +289,8 @@ export function canOpenDocumentWithoutGrant(
     }
   }
   if (doc.confidentialite === "restreint") return false;
-  // PAP·PAI·PPS·GEVASCO : même pour un professeur, pas d’ouverture directe — demande d’accès direction.
-  if (
-    doc.tiroir === "sante" &&
-    isAccompagnementDocumentTitle(doc.title) &&
-    hasRole(roles, "professeur") &&
-    !isDirection(roles) &&
-    !opts?.orgAdmin &&
-    !isExactAdmin(roles) &&
-    !hasRole(roles, "infirmerie") &&
-    !hasRole(roles, "administratif")
-  ) {
-    return false;
-  }
-  // Prof : dans le tiroir santé, seuls PAP·PAI·PPS·GEVASCO sont listés (accès via grant) — pas le reste médical.
-  if (
-    doc.tiroir === "sante" &&
-    hasRole(roles, "professeur") &&
-    !isDirection(roles) &&
-    !opts?.orgAdmin &&
-    !isExactAdmin(roles) &&
-    !hasRole(roles, "infirmerie") &&
-    !hasRole(roles, "administratif")
-  ) {
+  // Prof / CPE / surveillant : tiroir santé = PAP·PAI·PPS·GEVASCO uniquement (accès direct).
+  if (doc.tiroir === "sante" && isPedagogicalAccompagnementViewer(roles, opts)) {
     return isAccompagnementDocumentTitle(doc.title);
   }
   return true;
@@ -392,17 +394,17 @@ export async function listEleveDocumentsForViewer(opts: {
     orgAdmin: opts.orgAdmin,
     platformAdmin: opts.platformAdmin,
   });
-  const profPapOnly =
-    hasRole(opts.roles, "professeur") &&
-    !isDirection(opts.roles) &&
-    !opts.orgAdmin &&
-    !opts.platformAdmin &&
-    !isExactAdmin(opts.roles) &&
-    !hasRole(opts.roles, "infirmerie") &&
-    !hasRole(opts.roles, "administratif");
+  const pedagogicalPapOnly = isPedagogicalAccompagnementViewer(opts.roles, {
+    orgAdmin: opts.orgAdmin,
+    platformAdmin: opts.platformAdmin,
+  });
 
   for (const doc of docs) {
-    if (profPapOnly && doc.tiroir === "sante" && !isAccompagnementDocumentTitle(doc.title)) {
+    if (
+      pedagogicalPapOnly &&
+      doc.tiroir === "sante" &&
+      !isAccompagnementDocumentTitle(doc.title)
+    ) {
       continue;
     }
     const tiroirAllowed = allowedTiroirs.has(doc.tiroir as EleveDocTiroir);
@@ -421,7 +423,7 @@ export async function listEleveDocumentsForViewer(opts: {
       if (grant) {
         canOpen = true;
       } else if (!tiroirAllowed) {
-        // Hors catégorie métier (ex. santé pour la compta) : invisible, pas « demander l’accès ».
+        // Hors catégorie métier (ex. santé pour la compta) : invisible.
         continue;
       } else {
         lockedReason = "confidentialite";
