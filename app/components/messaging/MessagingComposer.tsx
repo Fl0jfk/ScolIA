@@ -473,29 +473,12 @@ export default function MessagingComposer({
         </button>
         <button
           type="button"
-          title={recording === "video" ? "Arrêter et envoyer" : "Vidéo (enregistrer ou fichier)"}
-          disabled={Boolean(editing) || disabled || recording === "audio"}
-          className={`rounded-lg p-2 hover:bg-slate-100 disabled:opacity-40 ${
-            recording === "video" ? "text-red-600" : "text-slate-500"
-          }`}
-          onClick={() => {
-            if (recording === "video") {
-              stopRecording();
-              return;
-            }
-            // Clic court → enregistrement caméra ; Alt+clic → choisir un fichier
-            void startRecording("video");
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            if (!recording && !editing && !disabled) videoInputRef.current?.click();
-          }}
+          title="Joindre une vidéo fichier"
+          disabled={Boolean(editing) || disabled || Boolean(recording)}
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-40"
+          onClick={() => videoInputRef.current?.click()}
         >
-          {recording === "video" ? (
-            <IconSquare className="h-4 w-4" />
-          ) : (
-            <IconVideo className="h-4 w-4" />
-          )}
+          <IconVideo className="h-4 w-4" />
         </button>
         <button
           type="button"
@@ -548,7 +531,7 @@ export default function MessagingComposer({
         </button>
       </div>
       <p className="mt-1 text-[10px] text-slate-400">
-        Vocal / vidéo : clic pour enregistrer, reclic pour envoyer. Clic droit sur vidéo = fichier.
+        Visio : bouton caméra en haut de la conversation. Vocal : clic micro, reclic pour envoyer.
       </p>
     </div>
   );

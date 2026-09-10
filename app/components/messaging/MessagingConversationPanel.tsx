@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { IconX, IconMinus, IconUsers } from "./MessagingIcons";
+import { IconX, IconMinus, IconUsers, IconVideoCall } from "./MessagingIcons";
 import type {
   MessagingConversationDto,
   MessagingConversationKind,
@@ -23,6 +23,7 @@ type Props = {
   onClose?: () => void;
   onMinimize?: () => void;
   onForwardRequest?: (message: MessagingMessageDto) => void;
+  onStartVideoCall?: () => void;
   className?: string;
 };
 
@@ -38,6 +39,7 @@ export default function MessagingConversationPanel({
   onClose,
   onMinimize,
   onForwardRequest,
+  onStartVideoCall,
   className = "",
 }: Props) {
   const [messages, setMessages] = useState<MessagingMessageDto[]>([]);
@@ -190,6 +192,16 @@ export default function MessagingConversationPanel({
             <p className="truncate text-[11px] text-slate-400">{subtitle}</p>
           ) : null}
         </div>
+        {onStartVideoCall ? (
+          <button
+            type="button"
+            title="Visio"
+            className="rounded-full p-1.5 text-sky-600 hover:bg-sky-50"
+            onClick={onStartVideoCall}
+          >
+            <IconVideoCall className="h-4 w-4" />
+          </button>
+        ) : null}
         {onMinimize ? (
           <button type="button" className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100" onClick={onMinimize}>
             <IconMinus className="h-4 w-4" />

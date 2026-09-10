@@ -187,6 +187,13 @@ async function participantUserIds(
   return rows.map((r) => r.userId);
 }
 
+export async function listConversationParticipantIds(
+  etablissementId: string,
+  conversationId: string,
+): Promise<string[]> {
+  return participantUserIds(etablissementId, conversationId);
+}
+
 export async function assertParticipant(
   etablissementId: string,
   conversationId: string,

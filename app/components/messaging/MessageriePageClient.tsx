@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import { dash } from "@/app/lib/dashboard-brand";
@@ -14,6 +14,11 @@ import {
   useMessagingStream,
 } from "@/app/components/messaging/useMessagingData";
 import MessagingConversationPanel from "@/app/components/messaging/MessagingConversationPanel";
+import {
+  MessagingCallProvider,
+  useMessagingCall,
+} from "@/app/components/messaging/MessagingCallProvider";
+import MessagingCallOverlay from "@/app/components/messaging/MessagingCallOverlay";
 import { IconSearch, IconMessageCircle, IconUsers } from "@/app/components/messaging/MessagingIcons";
 
 export default function MessageriePageClient() {
@@ -21,6 +26,37 @@ export default function MessageriePageClient() {
   const enabled = Boolean(isLoaded && isSignedIn && user);
   const currentUserId = user?.id ?? "";
 
+  if (!isLoaded) {
+    return (
+      <DashboardThemeRoot>
+        <p className="p-8 text-sm text-slate-500">Chargement…</p>
+      </DashboardThemeRoot>
+    );
+  }
+
+  if (!isSignedIn || !user) {
+    return (
+      <DashboardThemeRoot>
+        <p className="p-8 text-sm text-slate-500">Connectez-vous pour accéder à la messagerie.</p>
+      </DashboardThemeRoot>
+    );
+  }
+
+  return (
+    <MessagingCallProvider currentUserId={currentUserId}>
+      <MessageriePageBody currentUserId={currentUserId} enabled={enabled} />
+    </MessagingCallProvider>
+  );
+}
+
+function MessageriePageBody({
+  currentUserId,
+  enabled,
+}: {
+  currentUserId: string;
+  enabled: boolean;
+}) {
+  const { handleSseEvent, startCall } = useMessagingCall();
   const { conversations, refresh, totalUnread } = useMessagingConversations(enabled);
   const [selected, setSelected] = useState<MessagingConversationDto | null>(null);
   const [users, setUsers] = useState<MessagingPeer[]>([]);
@@ -50,13 +86,12 @@ export default function MessageriePageClient() {
     }
   }, [conversations, selected]);
 
-  const handleSse = useCallback(() => {
-    void refresh();
-  }, [refresh]);
-
   useMessagingStream({
     enabled,
     onEvent: (ev) => {
+      if (ev.type.startsWith("call_")) {
+        handleSseEvent(ev);
+      }
       window.dispatchEvent(
         new CustomEvent("scolia-messaging-event", {
           detail: {
@@ -68,7 +103,14 @@ export default function MessageriePageClient() {
           },
         }),
       );
-      handleSse();
+      if (
+        ev.type === "message" ||
+        ev.type === "conversation_updated" ||
+        ev.type === "read" ||
+        ev.type === "reaction"
+      ) {
+        void refresh();
+      }
     },
     onFallbackPoll: () => void refresh(),
   });
@@ -117,24 +159,9 @@ export default function MessageriePageClient() {
       )
     : [];
 
-  if (!isLoaded) {
-    return (
-      <DashboardThemeRoot>
-        <p className="p-8 text-sm text-slate-500">Chargement…</p>
-      </DashboardThemeRoot>
-    );
-  }
-
-  if (!isSignedIn || !user) {
-    return (
-      <DashboardThemeRoot>
-        <p className="p-8 text-sm text-slate-500">Connectez-vous pour accéder à la messagerie.</p>
-      </DashboardThemeRoot>
-    );
-  }
-
   return (
     <DashboardThemeRoot>
+      <MessagingCallOverlay />
       <div className="mx-auto flex h-[calc(100vh-6rem)] max-w-6xl flex-col gap-4 p-4 md:p-6">
         <header className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -256,6 +283,13 @@ export default function MessageriePageClient() {
                 variant="page"
                 className="h-full"
                 onForwardRequest={setForwardMessage}
+                onStartVideoCall={() =>
+                  void startCall({
+                    conversationId: selected.id,
+                    title: selected.title,
+                    kind: selected.kind,
+                  })
+                }
               />
             ) : (
               <div className="flex h-full items-center justify-center rounded-xl bg-white text-sm text-slate-400 ring-1 ring-slate-200">

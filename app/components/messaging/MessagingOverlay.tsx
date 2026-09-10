@@ -27,6 +27,8 @@ import { useMessagingConversations, useMessagingStream } from "./useMessagingDat
 import MessagingMainPanel from "./MessagingMainPanel";
 import MessagingConversationPanel from "./MessagingConversationPanel";
 import { IconMessageCircle } from "./MessagingIcons";
+import { MessagingCallProvider, useMessagingCall } from "./MessagingCallProvider";
+import MessagingCallOverlay from "./MessagingCallOverlay";
 
 type OpenPanel = {
   conversation: MessagingConversationDto;
@@ -90,6 +92,17 @@ export default function MessagingOverlay() {
   const { user, isLoaded, isSignedIn } = useSessionUser();
   const enabled = Boolean(isLoaded && isSignedIn && user);
   const currentUserId = user?.id ?? "";
+  if (!enabled || !currentUserId) return null;
+  return (
+    <MessagingCallProvider currentUserId={currentUserId}>
+      <MessagingOverlayInner currentUserId={currentUserId} />
+    </MessagingCallProvider>
+  );
+}
+
+function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
+  const enabled = true;
+  const { handleSseEvent, startCall } = useMessagingCall();
 
   const storageKey = useMemo(() => messagingDockStorageKey(currentUserId), [currentUserId]);
   const headsKey = useMemo(() => messagingHeadsExpandedKey(currentUserId), [currentUserId]);
@@ -198,6 +211,9 @@ export default function MessagingOverlay() {
 
   const handleSse = useCallback(
     (event: MessagingSseEvent) => {
+      if (event.type.startsWith("call_")) {
+        handleSseEvent(event);
+      }
       window.dispatchEvent(
         new CustomEvent("scolia-messaging-event", {
           detail: {
@@ -218,7 +234,7 @@ export default function MessagingOverlay() {
         void refresh();
       }
     },
-    [refresh],
+    [handleSseEvent, refresh],
   );
 
   useMessagingStream({
@@ -277,8 +293,6 @@ export default function MessagingOverlay() {
     openConversation(target);
   };
 
-  if (!enabled || !currentUserId) return null;
-
   const recentForHeads = (() => {
     const fromDock = dockedIds
       .map((id) => conversations.find((c) => c.id === id))
@@ -312,6 +326,13 @@ export default function MessagingOverlay() {
                 )
               }
               onForwardRequest={setForwardMessage}
+              onStartVideoCall={() =>
+                void startCall({
+                  conversationId: p.conversation.id,
+                  title: p.conversation.title,
+                  kind: p.conversation.kind,
+                })
+              }
             />
           </div>
         ))}
@@ -395,8 +416,17 @@ export default function MessagingOverlay() {
           variant="mobile-full"
           onClose={() => setMobileFull(null)}
           onForwardRequest={setForwardMessage}
+          onStartVideoCall={() =>
+            void startCall({
+              conversationId: mobileFull.conversation.id,
+              title: mobileFull.conversation.title,
+              kind: mobileFull.conversation.kind,
+            })
+          }
         />
       ) : null}
+
+      <MessagingCallOverlay />
 
       {forwardMessage ? (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 p-4">

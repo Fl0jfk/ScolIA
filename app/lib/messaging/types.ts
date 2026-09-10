@@ -76,7 +76,16 @@ export type MessagingSseEventType =
   | "typing"
   | "reaction"
   | "conversation_updated"
-  | "heartbeat";
+  | "heartbeat"
+  | "call_invite"
+  | "call_accept"
+  | "call_reject"
+  | "call_join"
+  | "call_offer"
+  | "call_answer"
+  | "call_ice"
+  | "call_leave"
+  | "call_end";
 
 export type MessagingSseEvent = {
   type: MessagingSseEventType;
