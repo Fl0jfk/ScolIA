@@ -50,7 +50,10 @@ import {
 } from "@/app/lib/eleve-dossier-prof";
 import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { hasRole } from "@/app/lib/intranet-role-utils";
-import { buildEleveDossierClassCatalog } from "@/app/lib/eleve-dossier-catalog";
+import {
+  buildEleveDossierClassCatalog,
+  type EleveDossierClassCatalog,
+} from "@/app/lib/eleve-dossier-catalog";
 import { buildEleveSyntheseSnapshot } from "@/app/lib/eleve-dossier-synthese";
 import { lookupMefLabel } from "@/app/lib/nomenclature-import/enrich-eleves-mef";
 import {
@@ -413,13 +416,13 @@ export async function GET(req: Request, ctx: Ctx) {
     }).catch((auditErr) => console.error("[eleves/dossier] audit view", auditErr));
   });
 
-  const catalogFallback = {
+  const catalogFallback: EleveDossierClassCatalog = {
     sites: sites.map((s) => ({ siteId: s.siteId, label: s.label, kind: s.kind })),
     siteLabelById: new Map(sites.map((s) => [s.siteId, s.label])),
     classToSiteId: new Map<string, string>(),
     classOptions: [],
   };
-  let catalog = catalogFallback;
+  let catalog: EleveDossierClassCatalog = catalogFallback;
   if (loadExtras) {
     try {
       catalog = await buildEleveDossierClassCatalog(sites, { etablissementId: etabId });
