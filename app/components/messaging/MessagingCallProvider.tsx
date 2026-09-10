@@ -346,7 +346,10 @@ export function MessagingCallProvider({
       setCall((prev) => (prev ? { ...prev, phase: "active" } : prev));
     } catch (e) {
       resetCallState();
-      alert(e instanceof Error ? e.message : "Échec de la connexion");
+      const message = e instanceof Error ? e.message : "Échec de la connexion";
+      if (!/failed to fetch|networkerror|load failed/i.test(message)) {
+        alert(message);
+      }
     }
   }, [createOfferTo, currentUserId, ensureLocalStream, incoming, resetCallState]);
 

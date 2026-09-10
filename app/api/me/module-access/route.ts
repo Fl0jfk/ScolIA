@@ -10,6 +10,14 @@ import { loadModuleAccess } from "@/app/lib/module-access-store";
 import { isOrgAdminFromPublicMetadata, safeCurrentUser } from "@/app/lib/intranet-session";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 
+type MeModuleAccessPayload = {
+  moduleIds: string[];
+  dossierSections: string[];
+};
+
+const meAccessL1 = new Map<string, { at: number; payload: MeModuleAccessPayload }>();
+const ME_ACCESS_L1_MS = 45_000;
+
 /** Modules + sections dossier effectifs pour l’utilisateur courant (dashboard / hubs). */
 export async function GET() {
   const gate = await requireAuth();
@@ -18,17 +26,24 @@ export async function GET() {
   try {
     const appUserEarly = await requireViewUser();
     if (appUserEarly.ok) {
+      const l1Hit = meAccessL1.get(appUserEarly.user.id);
+      if (l1Hit && Date.now() - l1Hit.at < ME_ACCESS_L1_MS) {
+        return NextResponse.json(l1Hit.payload);
+      }
+
       const etab = appUserEarly.user.etablissementId?.trim() || "default";
-      const { valkeyGetJson, valkeySetJson } = await import("@/app/lib/valkey");
+      const { isValkeyConfigured, valkeyGetJson, valkeySetJson } = await import(
+        "@/app/lib/valkey"
+      );
       const { VALKEY_TTL, valkeyKeyModuleAccessUser } = await import(
         "@/app/lib/valkey-keys"
       );
       const cacheKey = valkeyKeyModuleAccessUser(etab, appUserEarly.user.id);
-      const cached = await valkeyGetJson<{
-        moduleIds: string[];
-        dossierSections: string[];
-      }>(cacheKey);
+      const cached = isValkeyConfigured()
+        ? await valkeyGetJson<MeModuleAccessPayload>(cacheKey)
+        : null;
       if (cached?.moduleIds) {
+        meAccessL1.set(appUserEarly.user.id, { at: Date.now(), payload: cached });
         return NextResponse.json(cached);
       }
 
@@ -95,7 +110,10 @@ export async function GET() {
         ),
       ];
       const payload = { moduleIds, dossierSections };
-      void valkeySetJson(cacheKey, payload, VALKEY_TTL.moduleAccessUser);
+      meAccessL1.set(appUserEarly.user.id, { at: Date.now(), payload });
+      if (isValkeyConfigured()) {
+        void valkeySetJson(cacheKey, payload, VALKEY_TTL.moduleAccessUser);
+      }
       return NextResponse.json(payload);
     }
 
