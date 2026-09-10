@@ -18,12 +18,12 @@ export function getDb() {
   }
   if (!client) {
     client = postgres(url, {
-      // 3 × max_scale(5) = 15 max côté app — évite FATAL 53300 Scaleway.
-      max: 3,
+      // max_scale=3 → ~24 connexions app ; Postgres Scaleway = 100.
+      max: 8,
       prepare: false,
       idle_timeout: 20,
       max_lifetime: 60 * 10,
-      connect_timeout: 10,
+      connect_timeout: 3,
     });
     dbInstance = drizzle(client, { schema });
   }

@@ -6,7 +6,7 @@ import { etablissement } from "@/db/schema";
 import type { TenantConfig } from "@/app/lib/tenant-types";
 import { isPlatformTenantSlug } from "@/app/lib/platform-tenant";
 import { resolveTenantBySlug } from "@/app/lib/tenant-registry";
-import { userHasActiveMembership } from "@/app/lib/user-membership";
+import type { UserMembershipRow } from "@/app/lib/user-membership";
 
 /** Cache process : slug → id (évite 1 SELECT Postgres par navigation proxy). */
 const etabIdBySlug = new Map<string, { id: string; expiresAt: number }>();
@@ -93,6 +93,8 @@ export async function assertUserBelongsToTenant(opts: {
   userEtablissementId: string | null | undefined;
   platformAdmin: boolean;
   tenant: TenantConfig;
+  /** Si fourni : pas de SELECT membership supplémentaire. */
+  memberships?: UserMembershipRow[];
 }): Promise<{ ok: true } | { ok: false; code: "TENANT_FORBIDDEN"; message: string }> {
   if (opts.platformAdmin) return { ok: true };
   if (isPlatformTenantSlug(opts.tenant.slug)) return { ok: true };
@@ -101,11 +103,23 @@ export async function assertUserBelongsToTenant(opts: {
   const userId = opts.userId.trim();
   const userEtab = opts.userEtablissementId?.trim() || "";
 
-  // Chemin chaud : même établissement maison → pas de SELECT membership.
   if (userId && userEtab && userEtab === tenantEtablissementId) {
     return { ok: true };
   }
 
+  if (opts.memberships) {
+    if (opts.memberships.some((m) => m.etablissementId === tenantEtablissementId && m.active)) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      code: "TENANT_FORBIDDEN",
+      message:
+        "Ce compte n’appartient pas à cet établissement. Connectez-vous depuis scolia.fr avec votre e-mail.",
+    };
+  }
+
+  const { userHasActiveMembership } = await import("@/app/lib/user-membership");
   if (userId && (await userHasActiveMembership(userId, tenantEtablissementId))) {
     return { ok: true };
   }

@@ -35,6 +35,14 @@ export type BetterAuthProxyState = {
   requiresTwoFactorSetup: boolean;
 };
 
+/** L1 process — évite même le RTT Valkey sur la même instance. */
+const PROXY_L1_TTL_MS = 45_000;
+const proxyL1 = new Map<string, { state: BetterAuthProxyState; expiresAt: number }>();
+
+function proxyL1Key(userId: string, scope: string): string {
+  return `${userId}:${scope}`;
+}
+
 export async function resolveBetterAuthProxyState(
   request: NextRequest,
   tenant?: TenantConfig,
@@ -54,8 +62,15 @@ export async function resolveBetterAuthProxyState(
     };
 
     const cacheScope = tenant?.slug?.trim() || u.etablissementId || "_";
+    const l1k = proxyL1Key(u.id, cacheScope);
+    const l1 = proxyL1.get(l1k);
+    if (l1 && l1.expiresAt > Date.now() && l1.state.authUserId === u.id) {
+      return l1.state;
+    }
+
     const cached = await cacheGetProxyAuth<BetterAuthProxyState>(u.id, cacheScope);
     if (cached?.authUserId === u.id) {
+      proxyL1.set(l1k, { state: cached, expiresAt: Date.now() + PROXY_L1_TTL_MS });
       return cached;
     }
 
@@ -121,6 +136,7 @@ export async function resolveBetterAuthProxyState(
       requiresTwoFactorSetup,
     };
     void cacheSetProxyAuth(u.id, cacheScope, state);
+    proxyL1.set(l1k, { state, expiresAt: Date.now() + PROXY_L1_TTL_MS });
     return state;
   } catch (error) {
     console.error("[resolveBetterAuthProxyState]", error);

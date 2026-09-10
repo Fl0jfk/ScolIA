@@ -5,17 +5,68 @@ import { getDb, isDatabaseConfigured } from "@/db/index";
 import { authUserMapping, user, userRole } from "@/db/schema";
 import { hasMasterRole, normalizeIntranetRoles } from "@/app/lib/intranet-roles";
 
+const ROLES_TTL_MS = 60_000;
+const rolesMem = new Map<string, { roles: string[]; expiresAt: number }>();
+
+function rolesKey(userId: string, etablissementId: string): string {
+  return `${userId}:${etablissementId}`;
+}
+
+export function invalidateUserRolesCache(
+  userId?: string,
+  etablissementId?: string,
+): void {
+  if (!userId) {
+    rolesMem.clear();
+    return;
+  }
+  if (etablissementId) {
+    rolesMem.delete(rolesKey(userId, etablissementId));
+    return;
+  }
+  for (const k of rolesMem.keys()) {
+    if (k.startsWith(`${userId}:`)) rolesMem.delete(k);
+  }
+}
+
 export async function listUserRolesFromDb(
   userId: string,
   etablissementId: string,
 ): Promise<string[]> {
-  if (!isDatabaseConfigured()) return [];
-  const db = getDb();
-  const rows = await db
-    .select({ role: userRole.role })
-    .from(userRole)
-    .where(and(eq(userRole.userId, userId), eq(userRole.etablissementId, etablissementId)));
-  return normalizeIntranetRoles(rows.map((r) => r.role));
+  if (!isDatabaseConfigured() || !userId || !etablissementId) return [];
+
+  const memKey = rolesKey(userId, etablissementId);
+  const mem = rolesMem.get(memKey);
+  if (mem && mem.expiresAt > Date.now()) return mem.roles;
+
+  try {
+    const { valkeyGetJson, valkeySetJson } = await import("@/app/lib/valkey");
+    const vk = `scola:roles:${userId}:${etablissementId}`;
+    const fromVk = await valkeyGetJson<string[]>(vk);
+    if (fromVk) {
+      rolesMem.set(memKey, { roles: fromVk, expiresAt: Date.now() + ROLES_TTL_MS });
+      return fromVk;
+    }
+
+    const db = getDb();
+    const rows = await db
+      .select({ role: userRole.role })
+      .from(userRole)
+      .where(and(eq(userRole.userId, userId), eq(userRole.etablissementId, etablissementId)));
+    const roles = normalizeIntranetRoles(rows.map((r) => r.role));
+    rolesMem.set(memKey, { roles, expiresAt: Date.now() + ROLES_TTL_MS });
+    void valkeySetJson(vk, roles, 60);
+    return roles;
+  } catch (error) {
+    console.error("[listUserRolesFromDb]", error);
+    // Repli direct Postgres sans cache si Valkey/import casse
+    const db = getDb();
+    const rows = await db
+      .select({ role: userRole.role })
+      .from(userRole)
+      .where(and(eq(userRole.userId, userId), eq(userRole.etablissementId, etablissementId)));
+    return normalizeIntranetRoles(rows.map((r) => r.role));
+  }
 }
 
 /** Rôles pour plusieurs utilisateurs en une requête (évite N+1 sur l’annuaire). */
@@ -52,14 +103,22 @@ export async function setUserRolesInDb(
   await db
     .delete(userRole)
     .where(and(eq(userRole.userId, userId), eq(userRole.etablissementId, etablissementId)));
-  if (normalized.length === 0) return;
-  await db.insert(userRole).values(
-    normalized.map((role) => ({
-      userId,
-      etablissementId,
-      role,
-    })),
-  );
+  if (normalized.length > 0) {
+    await db.insert(userRole).values(
+      normalized.map((role) => ({
+        userId,
+        etablissementId,
+        role,
+      })),
+    );
+  }
+  invalidateUserRolesCache(userId, etablissementId);
+  try {
+    const { valkeyDel } = await import("@/app/lib/valkey");
+    await valkeyDel(`scola:roles:${userId}:${etablissementId}`);
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function syncUserAdminFlagsInDb(

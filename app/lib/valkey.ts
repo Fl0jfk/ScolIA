@@ -3,21 +3,21 @@ import "server-only";
 import Redis from "ioredis";
 
 /**
- * Client Valkey / Managed Redis (protocole Redis).
- * URL : VALKEY_URL (préféré) ou REDIS_URL.
- * Absent / hors service → repli immédiat (pas d’attente longue).
+ * Client Valkey / Managed Redis.
+ * Règle d’or : ne JAMAIS ralentir le hot path.
+ * - timeout commande court (200 ms)
+ * - si pas ready → skip immédiat (pas d’attente reconnect)
+ * - coupe-circuit dès le 1er échec (30 s)
  */
 
 let client: Redis | null | undefined;
 let loggedMissing = false;
 let loggedReady = false;
 
-/** Coupe-circuit : après échecs, on ignore Valkey un moment (évite +5s par clic). */
 let circuitOpenUntil = 0;
-let consecutiveFailures = 0;
-const CIRCUIT_AFTER_FAILURES = 3;
 const CIRCUIT_COOLDOWN_MS = 30_000;
-const CMD_TIMEOUT_MS = 1_200;
+const CMD_TIMEOUT_MS = 200;
+const CONNECT_TIMEOUT_MS = 800;
 
 export function isValkeyConfigured(): boolean {
   return Boolean(resolveValkeyUrl());
@@ -32,16 +32,11 @@ function resolveValkeyUrl(): string | null {
 }
 
 function tripCircuit(reason: string): void {
-  consecutiveFailures += 1;
-  if (consecutiveFailures < CIRCUIT_AFTER_FAILURES) return;
   circuitOpenUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
-  console.warn(
-    `[valkey] coupe-circuit ${CIRCUIT_COOLDOWN_MS / 1000}s — ${reason}`,
-  );
+  console.warn(`[valkey] coupe-circuit ${CIRCUIT_COOLDOWN_MS / 1000}s — ${reason}`);
 }
 
 function resetCircuit(): void {
-  consecutiveFailures = 0;
   circuitOpenUntil = 0;
 }
 
@@ -63,7 +58,6 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   }
 }
 
-/** Client partagé, ou null si non configuré / coupe-circuit. */
 export function getValkey(): Redis | null {
   if (circuitOpen()) return null;
   if (client !== undefined) return client;
@@ -86,7 +80,7 @@ export function getValkey(): Redis | null {
       maxRetriesPerRequest: 1,
       enableReadyCheck: true,
       lazyConnect: true,
-      connectTimeout: 1_500,
+      connectTimeout: CONNECT_TIMEOUT_MS,
       enableOfflineQueue: false,
       keepAlive: 10_000,
       ...(useTls
@@ -98,11 +92,11 @@ export function getValkey(): Redis | null {
           }
         : {}),
       retryStrategy(times) {
-        if (times > 4) {
+        if (times > 2) {
           tripCircuit("retry épuisé");
           return null;
         }
-        return Math.min(times * 150, 800);
+        return Math.min(times * 100, 400);
       },
       reconnectOnError() {
         return true;
@@ -112,7 +106,7 @@ export function getValkey(): Redis | null {
     redis.on("error", (err) => {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("[valkey]", msg);
-      if (/closed|ECONNRESET|ETIMEDOUT|ECONNREFUSED/i.test(msg)) {
+      if (/closed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|timeout/i.test(msg)) {
         tripCircuit(msg);
       }
     });
@@ -127,6 +121,7 @@ export function getValkey(): Redis | null {
       tripCircuit("connexion fermée");
     });
 
+    // Connexion en arrière-plan — ne bloque jamais le hot path.
     void redis.connect().catch((err) => {
       tripCircuit(err instanceof Error ? err.message : "connect failed");
       console.error(
@@ -145,37 +140,19 @@ export function getValkey(): Redis | null {
   }
 }
 
-async function ensureConnected(v: Redis): Promise<boolean> {
-  if (v.status === "ready") return true;
-  if (
-    v.status === "connecting" ||
-    v.status === "connect" ||
-    v.status === "wait" ||
-    v.status === "end" ||
-    v.status === "close"
-  ) {
-    try {
-      await withTimeout(v.connect(), CMD_TIMEOUT_MS);
-      // Relecture après await : TS ne ré-élargit pas le littéral de status.
-      const status = v.status as string;
-      return status === "ready";
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}
-
+/**
+ * Si Valkey n’est pas ready → null immédiat (pas d’await connect).
+ * Évite d’ajouter 200–1200 ms sur chaque navigation.
+ */
 async function runCommand<T>(fn: (v: Redis) => Promise<T>): Promise<T | null> {
   if (circuitOpen()) return null;
   const v = getValkey();
   if (!v) return null;
+  if (v.status !== "ready") {
+    // Laisse le connect() background tourner ; on ne bloque pas.
+    return null;
+  }
   try {
-    const ok = await ensureConnected(v);
-    if (!ok) {
-      tripCircuit("not ready");
-      return null;
-    }
     const result = await withTimeout(fn(v), CMD_TIMEOUT_MS);
     resetCircuit();
     return result;
@@ -258,11 +235,7 @@ export async function valkeyIncr(
   });
 }
 
-/**
- * Secondary storage Better-Auth.
- * Ne jette jamais : un Valkey down ne doit pas casser login / rate-limit.
- * Preferer rateLimit.storage = "database" côté auth.
- */
+/** Conservé pour usage optionnel — Better-Auth n’utilise plus secondaryStorage. */
 export function createValkeySecondaryStorage(keyPrefix = "ba:"): {
   get: (key: string) => Promise<string | null>;
   getAndDelete: (key: string) => Promise<string | null>;
@@ -289,11 +262,7 @@ export function createValkeySecondaryStorage(keyPrefix = "ba:"): {
     },
     async increment(key, ttl) {
       const n = await valkeyIncr(p(key), ttl);
-      // Better-Auth exige un number : repli local process si Valkey down.
-      if (n === null) {
-        return 1;
-      }
-      return n;
+      return n ?? 1;
     },
   };
 }
@@ -301,11 +270,9 @@ export function createValkeySecondaryStorage(keyPrefix = "ba:"): {
 export async function valkeyDeleteByPrefix(prefix: string): Promise<number> {
   if (!prefix || circuitOpen()) return 0;
   const v = getValkey();
-  if (!v) return 0;
+  if (!v || v.status !== "ready") return 0;
   let deleted = 0;
   try {
-    const ok = await ensureConnected(v);
-    if (!ok) return 0;
     let cursor = "0";
     do {
       const [next, keys] = await withTimeout(
