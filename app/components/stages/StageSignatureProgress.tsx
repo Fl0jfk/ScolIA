@@ -1,12 +1,27 @@
 "use client";
 
 import type { StageSignatureSummary } from "@/app/lib/stage-signature-summary";
+import { stageSignatureProofRef } from "@/app/lib/stage-signature-proof";
 
 const STATUS_STYLES = {
   signe: "bg-emerald-100 text-emerald-800 border-emerald-200",
   en_attente: "bg-amber-50 text-amber-900 border-amber-200",
   refuse: "bg-rose-50 text-rose-800 border-rose-200",
 } as const;
+
+function signedLabel(item: StageSignatureSummary["items"][number]): string {
+  if (item.signMethod === "code_confirm") {
+    const proof = stageSignatureProofRef({
+      id: item.id,
+      signedAt: item.signedAt,
+      signMethod: "code_confirm",
+    });
+    return `Validé par code e-mail · ${proof}`;
+  }
+  if (item.signMethod === "touch") return "Signé (paraphe)";
+  if (item.signMethod === "paper_upload") return "Signé (papier)";
+  return "Signé";
+}
 
 export default function StageSignatureProgress({
   summary,
@@ -46,12 +61,12 @@ export default function StageSignatureProgress({
           {summary.items.map((item) => (
             <li
               key={item.id}
-              className={`flex items-center justify-between rounded-md border px-2 py-1 text-xs ${STATUS_STYLES[item.status]}`}
+              className={`flex items-center justify-between gap-2 rounded-md border px-2 py-1 text-xs ${STATUS_STYLES[item.status]}`}
             >
               <span>{item.label}</span>
-              <span className="font-medium">
+              <span className="max-w-[58%] text-right font-medium leading-snug">
                 {item.status === "signe"
-                  ? "Signé"
+                  ? signedLabel(item)
                   : item.status === "refuse"
                     ? "Refusé"
                     : "En attente"}

@@ -269,10 +269,13 @@ export async function finalizeSignedConventionDestinations(
 ): Promise<void> {
   const fresh = (await getStageConvention(convention.id)) ?? convention;
 
-  const [dossierResult, oneDriveResult] = await Promise.allSettled([
+  const [dossierResult, oneDriveResult, absenceResult] = await Promise.allSettled([
     tryAutoFileConventionToEleveDossier(fresh),
     import("@/app/lib/stage-onedrive-filing").then((m) =>
       m.tryAutoFileConventionToOneDrive(fresh),
+    ),
+    import("@/app/lib/stage-absences-sync").then((m) =>
+      m.ensureStageAbsencesForConvention(fresh),
     ),
   ]);
 
@@ -284,5 +287,11 @@ export async function finalizeSignedConventionDestinations(
 
   if (oneDriveResult.status === "rejected") {
     console.error("[stages] OneDrive auto:", oneDriveResult.reason);
+  }
+
+  if (absenceResult.status === "rejected") {
+    console.error("[stages] absence stage auto:", absenceResult.reason);
+  } else if (absenceResult.value && !absenceResult.value.ok) {
+    console.warn("[stages] absence stage:", absenceResult.value.error);
   }
 }

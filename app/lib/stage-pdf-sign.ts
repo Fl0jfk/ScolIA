@@ -7,8 +7,9 @@ import {
   STAGE_ESIGN_ANNEX_SUBJECT,
   STAGE_ESIGN_PAGE_TITLE,
   electronicSignatureBoxLayout,
+  stageSignatureStatusLines,
 } from "@/app/lib/stage-pdf";
-import type { StageConvention, StageSignerRole } from "@/app/lib/stage-types";
+import type { StageConvention, StageSignature, StageSignerRole } from "@/app/lib/stage-types";
 import { STAGE_SIGNER_ROLE_LABELS } from "@/app/lib/stage-types";
 
 const SIG_W = 140;
@@ -71,7 +72,7 @@ async function drawAnnexBoxes(
     color: accent,
   });
   page.drawText(
-    "Chaque partie signe dans sa case (electronique ou manuscrite pour le tuteur entreprise).",
+    "Signatures des parties — confirmation e-mail, paraphe electronique ou document papier.",
     {
       x: 40,
       y: PAGE_H - 76,
@@ -114,7 +115,7 @@ async function drawAnnexBoxes(
       font,
       color: soft,
     });
-    page.drawText("En attente", {
+    page.drawText("En attente de signature", {
       x: box.x + 14,
       y: box.y + box.height - 36,
       size: 7,
@@ -125,7 +126,7 @@ async function drawAnnexBoxes(
 }
 
 /**
- * Garantit une dernière page « Signatures des parties »
+ * Garantit une dernière page « Validation et signatures »
  * (cases par rôle — électronique ou espace papier tuteur).
  */
 async function ensureElectronicSignatureAnnex(
@@ -293,4 +294,66 @@ export async function stampSignatureOnConventionPdf(params: {
   const stamped = await embedSignatureOnPdf(pdfBytes, sigBytes!, params.role, isJpg, rolesOnDoc);
   await saveConventionPdfBytes(params.convention, stamped);
   return { ok: true };
+}
+
+/**
+ * Met à jour le texte de la case (ex. preuve code e-mail) sans régénérer tout le PDF.
+ * Utilisé pour les conventions déposées (PDF externe).
+ */
+export async function annotateSignatureStatusOnConventionPdf(params: {
+  convention: StageConvention;
+  signature: StageSignature;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!roleStampsPdf(params.signature.role)) return { ok: true };
+
+  const pdfBytes = await loadConventionPdfBytes(params.convention);
+  if (!pdfBytes) return { ok: true };
+
+  try {
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const rolesOnDoc = params.convention.signatures.map((s) => s.role);
+    const annex = await ensureElectronicSignatureAnnex(pdfDoc, rolesOnDoc);
+    const { width: pageW, height: pageH } = annex.getSize();
+    const index = roleStampIndex(params.signature.role, rolesOnDoc);
+    const box = electronicSignatureBoxLayout({
+      pageWidth: pageW,
+      pageHeight: pageH,
+      index,
+      total: Math.max(rolesOnDoc.length, index + 1),
+    });
+
+    const white = rgb(1, 1, 1);
+    const ink = rgb(0.12, 0.14, 0.16);
+    const accent = rgb(0.18, 0.44, 0.37);
+
+    annex.drawRectangle({
+      x: box.x + 6,
+      y: box.y + 6,
+      width: box.width - 12,
+      height: box.height - 30,
+      color: white,
+    });
+
+    const lines = stageSignatureStatusLines(params.signature);
+    let lineY = box.y + box.height - 36;
+    for (const line of lines) {
+      const safe = line.replace(/[^\x00-\xFF]/g, "?");
+      annex.drawText(safe, {
+        x: box.x + 14,
+        y: lineY,
+        size: 6.5,
+        font: line.startsWith("Preuve") || line.startsWith("Valide") ? bold : font,
+        color: params.signature.status === "signe" ? accent : ink,
+      });
+      lineY -= 10;
+    }
+
+    await saveConventionPdfBytes(params.convention, await pdfDoc.save());
+    return { ok: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
 }

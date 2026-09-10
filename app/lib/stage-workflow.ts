@@ -2,7 +2,11 @@ import { randomBytes } from "crypto";
 import { normalizeStageSchedule, validateStageSchedule, defaultStageSchedule } from "@/app/lib/stage-schedule";
 import { resolveStagesDirectionEmail } from "@/app/lib/stage-config";
 import { generateAndStoreConventionPdf } from "@/app/lib/stage-pdf-store";
-import { stampSignatureOnConventionPdf, roleStampsPdf } from "@/app/lib/stage-pdf-sign";
+import {
+  stampSignatureOnConventionPdf,
+  annotateSignatureStatusOnConventionPdf,
+  roleStampsPdf,
+} from "@/app/lib/stage-pdf-sign";
 import { generateStageSecureCode, normalizeSignEmail } from "@/app/lib/stage-secure-code";
 import {
   saveExternalSignaturePng,
@@ -124,6 +128,11 @@ function pushHistory(
     updatedAt: now,
     history: [...convention.history, { at: now, by, action, note }],
   };
+}
+
+/** PDF généré par ScolIA (préconvention en ligne) — régénérable sans écraser un dépôt externe. */
+function isScoliaGeneratedConventionPdf(convention: StageConvention): boolean {
+  return convention.history.some((h) => h.action === "ADMIN_VALIDE");
 }
 
 async function buildDefaultSignatures(convention: StageConvention): Promise<StageSignature[]> {
@@ -533,6 +542,11 @@ export async function reviewPreconvention(
   void notifyAllStageSignatureRequests(next).catch((e) =>
     console.error("[stages] notify signatures:", e),
   );
+  void import("@/app/lib/stage-absences-sync").then((m) =>
+    m.ensureStageAbsencesForConvention(next).then((r) => {
+      if (!r.ok) console.warn("[stages] absence stage:", r.error);
+    }),
+  );
   return next;
 }
 
@@ -594,6 +608,11 @@ export async function approveDepositedConvention(
   await saveStageConvention(next);
   void notifyAllStageSignatureRequests(next).catch((e) =>
     console.error("[stages] notify signatures deposit:", e),
+  );
+  void import("@/app/lib/stage-absences-sync").then((m) =>
+    m.ensureStageAbsencesForConvention(next).then((r) => {
+      if (!r.ok) console.warn("[stages] absence stage:", r.error);
+    }),
   );
   return { ok: true, convention: next };
 }
@@ -684,48 +703,27 @@ export async function applyConventionSignature(params: {
     paperUploadFileName = params.paperFileName?.trim() || "convention-signee.pdf";
   }
 
-  if (roleStampsPdf(sig.role) && signMethod === "touch") {
-    const stamp = await stampSignatureOnConventionPdf({
-      convention,
-      role: sig.role,
-      drawnPngBase64: params.signaturePngBase64,
-    });
-    if (!stamp.ok) return { ok: false, error: stamp.error };
-  } else if (roleStampsPdf(sig.role) && signMethod === "code_confirm") {
-    const stamp = await stampSignatureOnConventionPdf({
-      convention,
-      role: sig.role,
-      drawnPngBase64: undefined,
-    });
-    if (!stamp.ok && sig.role !== "parent" && sig.role !== "parent_2" && sig.role !== "tuteur_entreprise" && sig.role !== "rh_entreprise") {
-      return { ok: false, error: stamp.error };
-    }
-  }
-
   // Signature déposée = acceptée d'office (pas de validation admin).
   const reviewStatus = "accepted" as const;
 
   const now = new Date().toISOString();
-  const signatures = convention.signatures.map((s) =>
-    s.id === sig.id
-      ? {
-          ...s,
-          status: "signe" as const,
-          signedAt: now,
-          signedBy: params.signerName?.trim() || s.label,
-          signMethod,
-          signaturePngS3Key,
-          paperUploadS3Key,
-          paperUploadFileName,
-          reviewStatus,
-          reviewNote: undefined,
-          reviewedAt: reviewStatus === "accepted" ? now : undefined,
-          reviewedBy: reviewStatus === "accepted" ? params.signerName?.trim() || s.label : undefined,
-          signConfirmCode: undefined,
-          signConfirmCodeSentAt: undefined,
-        }
-      : s,
-  );
+  const updatedSig: StageSignature = {
+    ...sig,
+    status: "signe",
+    signedAt: now,
+    signedBy: params.signerName?.trim() || sig.label,
+    signMethod,
+    signaturePngS3Key,
+    paperUploadS3Key,
+    paperUploadFileName,
+    reviewStatus,
+    reviewNote: undefined,
+    reviewedAt: now,
+    reviewedBy: params.signerName?.trim() || sig.label,
+    signConfirmCode: undefined,
+    signConfirmCodeSentAt: undefined,
+  };
+  const signatures = convention.signatures.map((s) => (s.id === sig.id ? updatedSig : s));
 
   const allValidated = conventionAllSignaturesValidated(signatures);
   let next: StageConvention = {
@@ -735,9 +733,25 @@ export async function applyConventionSignature(params: {
     updatedAt: now,
   };
   next = pushHistory(next, params.signerName || sig.label, "SIGNATURE", `${sig.role}:${signMethod}`);
-  if (allValidated && !next.uploadedPdf?.s3Key) {
+
+  if (isScoliaGeneratedConventionPdf(next)) {
+    // Préconvention en ligne : régénère les cases (preuve code e-mail, plus d'« En attente » figé).
     next = await generateAndStoreConventionPdf(next);
+  } else if (roleStampsPdf(sig.role) && signMethod === "touch") {
+    const stamp = await stampSignatureOnConventionPdf({
+      convention: next,
+      role: sig.role,
+      drawnPngBase64: params.signaturePngBase64,
+    });
+    if (!stamp.ok) return { ok: false, error: stamp.error };
+  } else if (roleStampsPdf(sig.role) && signMethod === "code_confirm") {
+    const ann = await annotateSignatureStatusOnConventionPdf({
+      convention: next,
+      signature: updatedSig,
+    });
+    if (!ann.ok) console.warn("[stages] annotate preuve signature:", ann.error);
   }
+
   await saveStageConvention(next);
   if (allValidated) {
     void import("@/app/lib/stage-eleve-dossier-filing").then((m) =>
@@ -1024,7 +1038,7 @@ export async function removeConventionSignatory(params: {
     updatedAt: new Date().toISOString(),
   };
   next = pushHistory(next, params.byName, "SIGNATAIRE_RETIRE", `${sig.role}:${sig.signEmail || sig.id}`);
-  if (allValidated && !next.uploadedPdf?.s3Key) {
+  if (allValidated && isScoliaGeneratedConventionPdf(next)) {
     next = await generateAndStoreConventionPdf(next);
   }
   await saveStageConvention(next);
@@ -1084,8 +1098,17 @@ export async function markConventionSignatureManual(params: {
     updatedAt: now,
   };
   next = pushHistory(next, params.byName, "SIGNATURE_MANUELLE", sig.role);
-  if (allValidated && !next.uploadedPdf?.s3Key) {
+  if (isScoliaGeneratedConventionPdf(next)) {
     next = await generateAndStoreConventionPdf(next);
+  } else {
+    const updated = signatures.find((s) => s.id === sig.id);
+    if (updated) {
+      const ann = await annotateSignatureStatusOnConventionPdf({
+        convention: next,
+        signature: updated,
+      });
+      if (!ann.ok) console.warn("[stages] annotate preuve manuelle:", ann.error);
+    }
   }
   await saveStageConvention(next);
   if (allValidated) {
@@ -1141,7 +1164,7 @@ export async function reviewConventionSignature(params: {
       updatedAt: now,
     };
     next = pushHistory(next, params.byName, "SIGNATURE_ACCEPTEE", sig.role);
-    if (allValidated && !next.uploadedPdf?.s3Key) {
+    if (allValidated && isScoliaGeneratedConventionPdf(next)) {
       next = await generateAndStoreConventionPdf(next);
     }
     await saveStageConvention(next);

@@ -258,6 +258,8 @@ export type StageConvention = {
   oneDriveFilingError?: string;
   eleveDossierFilingPending?: boolean;
   eleveDossierFilingError?: string;
+  /** Absences créées automatiquement (vs_absence_eleve) pour la période de stage. */
+  stageAbsenceIds?: string[];
   /** PDF déposé par l'élève (convention papier / déjà signée). */
   uploadedPdf?: {
     s3Key: string;

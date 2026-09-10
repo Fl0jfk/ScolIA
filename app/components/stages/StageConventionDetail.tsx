@@ -109,6 +109,13 @@ export default function StageConventionDetail({
         <StageSignatureProgress summary={buildSignatureSummary(c)} />
       </div>
 
+      {c.stageAbsenceIds && c.stageAbsenceIds.length > 0 && c.schedule.periodStart && c.schedule.periodEnd && (
+        <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+          Absence motif stage déclarée à l&apos;accueil du{" "}
+          <strong>{c.schedule.periodStart}</strong> au <strong>{c.schedule.periodEnd}</strong>.
+        </p>
+      )}
+
       <div className="flex flex-wrap gap-2">
         {c.uploadedPdf && (
           <a
@@ -152,25 +159,12 @@ export default function StageConventionDetail({
       {canShowEleveDossierFiling && (
         <FilingBlock
           title="Dossier élève (intranet)"
-          hint="La convention signée est déposée dans le tiroir Scolaire du dossier élève."
+          hint="La convention signée est déposée automatiquement dans le tiroir Scolaire."
         >
-          {c.eleveDossierFilingPending && !c.eleveDossierFiling && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              <p className="font-semibold">Dépôt en attente</p>
-              {c.eleveDossierFilingError && <p className="mt-1">{c.eleveDossierFilingError}</p>}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={onFileToEleveDossier}
-                className="mt-2 rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
-              >
-                Réessayer
-              </button>
-            </div>
-          )}
           {c.eleveDossierFiling ? (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-              <p className="font-semibold">{c.eleveDossierFiling.title}</p>
+              <p className="font-semibold">Déjà déposée dans le dossier scolaire</p>
+              <p className="mt-1">{c.eleveDossierFiling.title}</p>
               <a
                 href={`/eleves/dossier/${c.eleveDossierFiling.eleveId}`}
                 className="mt-1 inline-block font-semibold text-[#2F6B4A] underline"
@@ -178,17 +172,23 @@ export default function StageConventionDetail({
                 Ouvrir le dossier →
               </a>
             </div>
-          ) : (
-            !c.eleveDossierFilingPending && (
+          ) : c.eleveDossierFilingPending ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <p className="font-semibold">Dépôt automatique en attente</p>
+              {c.eleveDossierFilingError && <p className="mt-1">{c.eleveDossierFilingError}</p>}
               <button
                 type="button"
                 disabled={busy}
                 onClick={onFileToEleveDossier}
-                className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-900 disabled:opacity-50"
+                className="mt-2 rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
               >
-                Déposer dans le dossier élève
+                Réessayer le dépôt
               </button>
-            )
+            </div>
+          ) : (
+            <p className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs text-stone-600">
+              Dépôt automatique en cours ou prévu dès que l&apos;élève est bien rattaché.
+            </p>
           )}
         </FilingBlock>
       )}
