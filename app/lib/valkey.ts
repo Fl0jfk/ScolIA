@@ -3,14 +3,21 @@ import "server-only";
 import Redis from "ioredis";
 
 /**
- * Client Valkey (protocole Redis-compatible).
- * URL : VALKEY_URL (préféré) ou REDIS_URL (Scaleway Managed Redis / compat).
- * Absent → l’app fonctionne sans cache partagé (repli mémoire / Postgres).
+ * Client Valkey / Managed Redis (protocole Redis).
+ * URL : VALKEY_URL (préféré) ou REDIS_URL.
+ * Absent / hors service → repli immédiat (pas d’attente longue).
  */
 
 let client: Redis | null | undefined;
 let loggedMissing = false;
 let loggedReady = false;
+
+/** Coupe-circuit : après échecs, on ignore Valkey un moment (évite +5s par clic). */
+let circuitOpenUntil = 0;
+let consecutiveFailures = 0;
+const CIRCUIT_AFTER_FAILURES = 3;
+const CIRCUIT_COOLDOWN_MS = 30_000;
+const CMD_TIMEOUT_MS = 1_200;
 
 export function isValkeyConfigured(): boolean {
   return Boolean(resolveValkeyUrl());
@@ -24,8 +31,41 @@ function resolveValkeyUrl(): string | null {
   return url || null;
 }
 
-/** Client partagé, ou null si non configuré / indisponible. */
+function tripCircuit(reason: string): void {
+  consecutiveFailures += 1;
+  if (consecutiveFailures < CIRCUIT_AFTER_FAILURES) return;
+  circuitOpenUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
+  console.warn(
+    `[valkey] coupe-circuit ${CIRCUIT_COOLDOWN_MS / 1000}s — ${reason}`,
+  );
+}
+
+function resetCircuit(): void {
+  consecutiveFailures = 0;
+  circuitOpenUntil = 0;
+}
+
+function circuitOpen(): boolean {
+  return Date.now() < circuitOpenUntil;
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`valkey timeout ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** Client partagé, ou null si non configuré / coupe-circuit. */
 export function getValkey(): Redis | null {
+  if (circuitOpen()) return null;
   if (client !== undefined) return client;
 
   const url = resolveValkeyUrl();
@@ -46,8 +86,9 @@ export function getValkey(): Redis | null {
       maxRetriesPerRequest: 1,
       enableReadyCheck: true,
       lazyConnect: true,
-      connectTimeout: 5_000,
-      // Scaleway Managed Redis : certificat managé — accepter la chaîne fournie.
+      connectTimeout: 1_500,
+      enableOfflineQueue: false,
+      keepAlive: 10_000,
       ...(useTls
         ? {
             tls: {
@@ -56,24 +97,38 @@ export function getValkey(): Redis | null {
             },
           }
         : {}),
-      // Ne pas faire planter Next si Valkey down.
       retryStrategy(times) {
-        if (times > 8) return null;
-        return Math.min(times * 200, 2_000);
+        if (times > 4) {
+          tripCircuit("retry épuisé");
+          return null;
+        }
+        return Math.min(times * 150, 800);
+      },
+      reconnectOnError() {
+        return true;
       },
     });
 
     redis.on("error", (err) => {
-      console.error("[valkey]", err instanceof Error ? err.message : err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[valkey]", msg);
+      if (/closed|ECONNRESET|ETIMEDOUT|ECONNREFUSED/i.test(msg)) {
+        tripCircuit(msg);
+      }
     });
     redis.on("ready", () => {
+      resetCircuit();
       if (!loggedReady) {
         loggedReady = true;
         console.info("[valkey] connecté");
       }
     });
+    redis.on("end", () => {
+      tripCircuit("connexion fermée");
+    });
 
     void redis.connect().catch((err) => {
+      tripCircuit(err instanceof Error ? err.message : "connect failed");
       console.error(
         "[valkey] connexion échouée — repli sans cache partagé",
         err instanceof Error ? err.message : err,
@@ -85,19 +140,53 @@ export function getValkey(): Redis | null {
   } catch (error) {
     console.error("[valkey] init", error);
     client = null;
+    tripCircuit("init");
+    return null;
+  }
+}
+
+async function ensureConnected(v: Redis): Promise<boolean> {
+  if (v.status === "ready") return true;
+  if (v.status === "connecting" || v.status === "connect" || v.status === "wait") {
+    try {
+      await withTimeout(v.connect(), CMD_TIMEOUT_MS);
+      return v.status === "ready";
+    } catch {
+      return false;
+    }
+  }
+  if (v.status === "end" || v.status === "close") {
+    try {
+      await withTimeout(v.connect(), CMD_TIMEOUT_MS);
+      return v.status === "ready";
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+async function runCommand<T>(fn: (v: Redis) => Promise<T>): Promise<T | null> {
+  if (circuitOpen()) return null;
+  const v = getValkey();
+  if (!v) return null;
+  try {
+    const ok = await ensureConnected(v);
+    if (!ok) {
+      tripCircuit("not ready");
+      return null;
+    }
+    const result = await withTimeout(fn(v), CMD_TIMEOUT_MS);
+    resetCircuit();
+    return result;
+  } catch (error) {
+    tripCircuit(error instanceof Error ? error.message : "cmd");
     return null;
   }
 }
 
 export async function valkeyGet(key: string): Promise<string | null> {
-  const v = getValkey();
-  if (!v) return null;
-  try {
-    return await v.get(key);
-  } catch (error) {
-    console.error("[valkey] get", key, error);
-    return null;
-  }
+  return runCommand((v) => v.get(key));
 }
 
 export async function valkeySet(
@@ -105,30 +194,20 @@ export async function valkeySet(
   value: string,
   ttlSeconds?: number,
 ): Promise<boolean> {
-  const v = getValkey();
-  if (!v) return false;
-  try {
+  const ok = await runCommand(async (v) => {
     if (ttlSeconds && ttlSeconds > 0) {
       await v.set(key, value, "EX", Math.floor(ttlSeconds));
     } else {
       await v.set(key, value);
     }
     return true;
-  } catch (error) {
-    console.error("[valkey] set", key, error);
-    return false;
-  }
+  });
+  return ok === true;
 }
 
 export async function valkeyDel(...keys: string[]): Promise<void> {
   if (keys.length === 0) return;
-  const v = getValkey();
-  if (!v) return;
-  try {
-    await v.del(...keys);
-  } catch (error) {
-    console.error("[valkey] del", error);
-  }
+  await runCommand((v) => v.del(...keys));
 }
 
 export async function valkeyGetJson<T>(key: string): Promise<T | null> {
@@ -154,10 +233,6 @@ export async function valkeySetJson(
   }
 }
 
-/**
- * Cache-aside : lit Valkey, sinon charge via `loader`, stocke le résultat.
- * Si Valkey down → appelle toujours `loader` (pas de panne).
- */
 export async function valkeyCached<T>(opts: {
   key: string;
   ttlSeconds: number;
@@ -174,21 +249,20 @@ export async function valkeyIncr(
   key: string,
   ttlSeconds: number,
 ): Promise<number | null> {
-  const v = getValkey();
-  if (!v) return null;
-  try {
+  return runCommand(async (v) => {
     const count = await v.incr(key);
     if (count === 1) {
       await v.expire(key, Math.max(1, Math.floor(ttlSeconds)));
     }
     return count;
-  } catch (error) {
-    console.error("[valkey] incr", key, error);
-    return null;
-  }
+  });
 }
 
-/** Secondary storage Better-Auth (sessions / rate-limit auth). */
+/**
+ * Secondary storage Better-Auth.
+ * Ne jette jamais : un Valkey down ne doit pas casser login / rate-limit.
+ * Preferer rateLimit.storage = "database" côté auth.
+ */
 export function createValkeySecondaryStorage(keyPrefix = "ba:"): {
   get: (key: string) => Promise<string | null>;
   getAndDelete: (key: string) => Promise<string | null>;
@@ -202,17 +276,10 @@ export function createValkeySecondaryStorage(keyPrefix = "ba:"): {
       return valkeyGet(p(key));
     },
     async getAndDelete(key) {
-      const v = getValkey();
-      if (!v) return null;
-      try {
-        const full = p(key);
-        const value = await v.get(full);
-        if (value !== null) await v.del(full);
-        return value;
-      } catch (error) {
-        console.error("[valkey] getAndDelete", error);
-        return null;
-      }
+      const full = p(key);
+      const value = await valkeyGet(full);
+      if (value !== null) await valkeyDel(full);
+      return value;
     },
     async set(key, value, ttl) {
       await valkeySet(p(key), value, ttl);
@@ -222,29 +289,37 @@ export function createValkeySecondaryStorage(keyPrefix = "ba:"): {
     },
     async increment(key, ttl) {
       const n = await valkeyIncr(p(key), ttl);
+      // Better-Auth exige un number : repli local process si Valkey down.
       if (n === null) {
-        throw new Error("Valkey indisponible pour increment");
+        return 1;
       }
       return n;
     },
   };
 }
 
-/** Supprime les clés matching `prefix*` (SCAN — safe prod). */
 export async function valkeyDeleteByPrefix(prefix: string): Promise<number> {
+  if (!prefix || circuitOpen()) return 0;
   const v = getValkey();
-  if (!v || !prefix) return 0;
+  if (!v) return 0;
   let deleted = 0;
   try {
+    const ok = await ensureConnected(v);
+    if (!ok) return 0;
     let cursor = "0";
     do {
-      const [next, keys] = await v.scan(cursor, "MATCH", `${prefix}*`, "COUNT", 100);
+      const [next, keys] = await withTimeout(
+        v.scan(cursor, "MATCH", `${prefix}*`, "COUNT", 100),
+        CMD_TIMEOUT_MS,
+      );
       cursor = next;
       if (keys.length > 0) {
-        deleted += await v.del(...keys);
+        deleted += await withTimeout(v.del(...keys), CMD_TIMEOUT_MS);
       }
     } while (cursor !== "0");
+    resetCircuit();
   } catch (error) {
+    tripCircuit(error instanceof Error ? error.message : "scan");
     console.error("[valkey] deleteByPrefix", prefix, error);
   }
   return deleted;

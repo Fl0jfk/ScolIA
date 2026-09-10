@@ -498,7 +498,8 @@ function createAuth() {
     },
     rateLimit: {
       enabled: true,
-      storage: valkeySecondary ? "secondary-storage" : "database",
+      // Toujours Postgres : Valkey flaky ne doit pas casser login / navigation.
+      storage: "database",
       window: 60,
       max: 100,
       customRules: {
