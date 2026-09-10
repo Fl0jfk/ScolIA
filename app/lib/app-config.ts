@@ -70,8 +70,12 @@ import { PLATFORM_ASSISTANCE_EMAIL } from "@/app/lib/platform-assistance-email";
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { saveOrganigramConfig, laprovidenceOrganigramConfig } from "@/app/lib/organigramme-config";
 
-const CACHE_MS = 45_000;
-let cache: { at: number; bundle: AppConfigBundle; allEstablishments: Establishment[] } | null = null;
+/** Soft : servi immédiat. Hard : au-delà on recharge en bloquant. */
+const SOFT_TTL_MS = 120_000;
+const HARD_TTL_MS = 15 * 60_000;
+let cache: { at: number; bundle: AppConfigBundle; allEstablishments: Establishment[] } | null =
+  null;
+let refreshInFlight: Promise<AppConfigBundle> | null = null;
 
 export function invalidateAppConfigCache() {
   cache = null;
@@ -224,8 +228,26 @@ function withInferredOrganizationKind(identity: SiteIdentity, establishments: Es
 }
 
 export async function loadAppConfig(): Promise<AppConfigBundle> {
-  if (cache && Date.now() - cache.at < CACHE_MS) return cache.bundle;
+  const now = Date.now();
+  if (cache && now - cache.at < SOFT_TTL_MS) return cache.bundle;
+  if (cache && now - cache.at < HARD_TTL_MS) {
+    // Stale-while-revalidate : ne jamais bloquer le hot path sur S3.
+    void refreshAppConfigBackground();
+    return cache.bundle;
+  }
+  return loadAppConfigFresh();
+}
 
+function refreshAppConfigBackground(): void {
+  void loadAppConfigFresh().catch((error) => {
+    console.error("[app-config] refresh background", error);
+  });
+}
+
+async function loadAppConfigFresh(): Promise<AppConfigBundle> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async (): Promise<AppConfigBundle> => {
   const slug = process.env.DEFAULT_TENANT_SLUG?.trim() || "default";
   try {
     const { valkeyGetJson, valkeySetJson } = await import("@/app/lib/valkey");
@@ -348,11 +370,16 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
     )
     .catch(() => undefined);
   return bundle;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+
+  return refreshInFlight;
 }
 
 /** Tous les sites (actifs et inactifs) — pour l’UI Paramètres / onboarding. */
 export async function loadAllEstablishments(): Promise<Establishment[]> {
-  if (cache && Date.now() - cache.at < CACHE_MS) return cache.allEstablishments;
+  if (cache && Date.now() - cache.at < HARD_TTL_MS) return cache.allEstablishments;
   await loadAppConfig();
   return cache?.allEstablishments ?? [];
 }

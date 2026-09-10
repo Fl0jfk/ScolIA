@@ -46,6 +46,11 @@ import {
   resolveBetterAuthProxyState,
 } from "@/app/lib/proxy-better-auth";
 import { assertUserBelongsToTenant } from "@/app/lib/etablissement-db";
+import {
+  encodeAuthSnapshot,
+  SCOLA_AUTH_SNAPSHOT_HEADER,
+  type ScolaAuthSnapshot,
+} from "@/app/lib/auth-snapshot";
 
 async function loadModuleAccessForProxy() {
   try {
@@ -152,12 +157,19 @@ function withTenantHeaders(
   return response;
 }
 
-function nextWithTenant(request: NextRequest, tenant: TenantConfig): NextResponse {
+function nextWithTenant(
+  request: NextRequest,
+  tenant: TenantConfig,
+  authSnapshot?: ScolaAuthSnapshot,
+): NextResponse {
   const nonce = createCspNonce();
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set(TENANT_SLUG_HEADER, tenant.slug);
   requestHeaders.set(TENANT_REQUEST_URL_HEADER, request.nextUrl.pathname + request.nextUrl.search);
   requestHeaders.set("x-nonce", nonce);
+  if (authSnapshot) {
+    requestHeaders.set(SCOLA_AUTH_SNAPSHOT_HEADER, encodeAuthSnapshot(authSnapshot));
+  }
   return withTenantHeaders(
     NextResponse.next({
       request: { headers: requestHeaders },
@@ -572,7 +584,21 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  return withOptionalDevTenantCookie(nextWithTenant(request, tenant), request, host);
+  return withOptionalDevTenantCookie(
+    nextWithTenant(request, tenant, {
+      authUserId: betterAuthState.authUserId,
+      userId: betterAuthState.userId,
+      email: betterAuthState.email,
+      etablissementId: betterAuthState.etablissementId,
+      roles: betterAuthState.roles,
+      orgAdmin: betterAuthState.orgAdmin,
+      platformAdmin: betterAuthState.platformAdmin,
+      twoFactorEnabled: betterAuthState.twoFactorEnabled,
+      hasPasskey: betterAuthState.hasPasskey,
+    }),
+    request,
+    host,
+  );
 }
 
 async function multiTenantMiddleware(request: NextRequest): Promise<NextResponse> {

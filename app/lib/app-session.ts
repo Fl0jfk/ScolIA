@@ -12,6 +12,10 @@ import {
 import { normalizeIntranetRoles } from "@/app/lib/intranet-roles";
 import { userHasPasskey } from "@/app/lib/passkey-db";
 import { isMfaSatisfied } from "@/app/lib/two-factor-policy";
+import {
+  decodeAuthSnapshot,
+  SCOLA_AUTH_SNAPSHOT_HEADER,
+} from "@/app/lib/auth-snapshot";
 
 export type AuthSource = "better-auth";
 
@@ -55,6 +59,41 @@ async function betterAuthSessionToAppUser(): Promise<AppUser | null> {
   if (!isBetterAuthActive()) return null;
   try {
     const hdrs = await headers();
+
+    // Snapshot posé par le proxy : évite un 2e getSession + SELECT rôles.
+    const fromProxy = decodeAuthSnapshot(hdrs.get(SCOLA_AUTH_SNAPSHOT_HEADER));
+    if (fromProxy) {
+      const roles = normalizeIntranetRoles(fromProxy.roles);
+      return {
+        id: fromProxy.authUserId,
+        businessUserId: fromProxy.userId,
+        email: fromProxy.email,
+        firstName: fromProxy.firstName,
+        lastName: fromProxy.lastName,
+        name: fromProxy.name,
+        imageUrl: fromProxy.imageUrl,
+        etablissementId: fromProxy.etablissementId ?? undefined,
+        roles,
+        orgAdmin:
+          fromProxy.orgAdmin ||
+          isOrgAdminFromAppUser({ roles, orgAdmin: fromProxy.orgAdmin }),
+        platformAdmin:
+          fromProxy.platformAdmin ||
+          isPlatformMasterFromAppUser({
+            roles,
+            platformAdmin: fromProxy.platformAdmin,
+          }),
+        twoFactorEnabled: fromProxy.twoFactorEnabled,
+        hasPasskey: fromProxy.hasPasskey,
+        mfaSatisfied: isMfaSatisfied({
+          twoFactorEnabled: fromProxy.twoFactorEnabled,
+          hasPasskey: fromProxy.hasPasskey,
+        }),
+        externalUserId: fromProxy.externalUserId,
+        authSource: "better-auth",
+      };
+    }
+
     const session = await getBetterAuth().api.getSession({ headers: hdrs });
     if (!session?.user) return null;
 

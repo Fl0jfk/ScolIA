@@ -13,7 +13,7 @@ import type {
 
 const REGISTRY_KEY = process.env.TENANT_REGISTRY_KEY?.trim() || "tenants/index.json";
 const SECRETS_PREFIX = process.env.TENANT_SECRETS_PREFIX?.trim() || "tenants/secrets";
-const CACHE_MS = 60_000;
+const CACHE_MS = 5 * 60_000;
 
 export function getRegistryStorageConfig() {
   return {

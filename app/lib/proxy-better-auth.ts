@@ -16,6 +16,7 @@ import {
   cacheGetProxyAuth,
   cacheSetProxyAuth,
 } from "@/app/lib/valkey-cache";
+import { createHash } from "node:crypto";
 
 export type BetterAuthProxyState = {
   userId: string;
@@ -35,12 +36,39 @@ export type BetterAuthProxyState = {
   requiresTwoFactorSetup: boolean;
 };
 
-/** L1 process — évite même le RTT Valkey sur la même instance. */
+/** L1 process — évite même le RTT Valkey / getSession sur la même instance. */
 const PROXY_L1_TTL_MS = 45_000;
 const proxyL1 = new Map<string, { state: BetterAuthProxyState; expiresAt: number }>();
 
 function proxyL1Key(userId: string, scope: string): string {
   return `${userId}:${scope}`;
+}
+
+function sessionTokenFromRequest(request: NextRequest): string | null {
+  return (
+    request.cookies.get("__Secure-better-auth.session_token")?.value?.trim() ||
+    request.cookies.get("better-auth.session_token")?.value?.trim() ||
+    null
+  );
+}
+
+function tokenL1Key(token: string, scope: string): string {
+  const hash = createHash("sha256").update(token).digest("hex").slice(0, 32);
+  return `tok:${scope}:${hash}`;
+}
+
+function readL1(key: string): BetterAuthProxyState | null {
+  const hit = proxyL1.get(key);
+  if (!hit || hit.expiresAt <= Date.now()) {
+    if (hit) proxyL1.delete(key);
+    return null;
+  }
+  return hit.state;
+}
+
+function writeL1(keys: string[], state: BetterAuthProxyState): void {
+  const entry = { state, expiresAt: Date.now() + PROXY_L1_TTL_MS };
+  for (const k of keys) proxyL1.set(k, entry);
 }
 
 export async function resolveBetterAuthProxyState(
@@ -49,6 +77,13 @@ export async function resolveBetterAuthProxyState(
 ): Promise<BetterAuthProxyState | null> {
   if (!isDatabaseConfigured()) return null;
   try {
+    const cacheScope = tenant?.slug?.trim() || "_";
+    const sessionToken = sessionTokenFromRequest(request);
+    if (sessionToken) {
+      const fromToken = readL1(tokenL1Key(sessionToken, cacheScope));
+      if (fromToken) return fromToken;
+    }
+
     const session = await getBetterAuth().api.getSession({ headers: request.headers });
     if (!session?.user) return null;
 
@@ -61,16 +96,19 @@ export async function resolveBetterAuthProxyState(
       twoFactorEnabled?: boolean;
     };
 
-    const cacheScope = tenant?.slug?.trim() || u.etablissementId || "_";
-    const l1k = proxyL1Key(u.id, cacheScope);
-    const l1 = proxyL1.get(l1k);
-    if (l1 && l1.expiresAt > Date.now() && l1.state.authUserId === u.id) {
-      return l1.state;
+    const scope = tenant?.slug?.trim() || u.etablissementId || "_";
+    const l1k = proxyL1Key(u.id, scope);
+    const fromUser = readL1(l1k);
+    if (fromUser) {
+      if (sessionToken) writeL1([tokenL1Key(sessionToken, scope)], fromUser);
+      return fromUser;
     }
 
-    const cached = await cacheGetProxyAuth<BetterAuthProxyState>(u.id, cacheScope);
+    const cached = await cacheGetProxyAuth<BetterAuthProxyState>(u.id, scope);
     if (cached?.authUserId === u.id) {
-      proxyL1.set(l1k, { state: cached, expiresAt: Date.now() + PROXY_L1_TTL_MS });
+      const keys = [l1k];
+      if (sessionToken) keys.push(tokenL1Key(sessionToken, scope));
+      writeL1(keys, cached);
       return cached;
     }
 
@@ -135,8 +173,10 @@ export async function resolveBetterAuthProxyState(
       hasPasskey,
       requiresTwoFactorSetup,
     };
-    void cacheSetProxyAuth(u.id, cacheScope, state);
-    proxyL1.set(l1k, { state, expiresAt: Date.now() + PROXY_L1_TTL_MS });
+    void cacheSetProxyAuth(u.id, scope, state);
+    const keys = [proxyL1Key(u.id, scope)];
+    if (sessionToken) keys.push(tokenL1Key(sessionToken, scope));
+    writeL1(keys, state);
     return state;
   } catch (error) {
     console.error("[resolveBetterAuthProxyState]", error);

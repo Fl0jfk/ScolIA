@@ -55,6 +55,7 @@ export async function ensureUserMembership(opts: {
   } catch {
     /* cache optionnel */
   }
+  invalidateMembershipsCache(opts.userId);
 }
 
 export async function userHasActiveMembership(
@@ -78,16 +79,33 @@ export async function userHasActiveMembership(
 }
 
 /** Liste les établissements actifs du compte (rapprochement national = plusieurs lignes). */
+const MEMBERSHIPS_L1_TTL_MS = 60_000;
+const membershipsL1 = new Map<string, { rows: UserMembershipRow[]; expiresAt: number }>();
+
+export function invalidateMembershipsCache(userId?: string): void {
+  if (!userId) {
+    membershipsL1.clear();
+    return;
+  }
+  membershipsL1.delete(userId);
+}
+
 export async function listActiveMembershipsForUser(
   userId: string,
 ): Promise<UserMembershipRow[]> {
   if (!isDatabaseConfigured() || !userId.trim()) return [];
 
+  const mem = membershipsL1.get(userId);
+  if (mem && mem.expiresAt > Date.now()) return mem.rows;
+
   const { valkeyGetJson, valkeySetJson } = await import("@/app/lib/valkey");
   const { VALKEY_TTL, valkeyKeyMemberships } = await import("@/app/lib/valkey-keys");
   const cacheKey = valkeyKeyMemberships(userId);
   const cached = await valkeyGetJson<UserMembershipRow[]>(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    membershipsL1.set(userId, { rows: cached, expiresAt: Date.now() + MEMBERSHIPS_L1_TTL_MS });
+    return cached;
+  }
 
   const db = getDb();
   const rows = await db
@@ -117,6 +135,7 @@ export async function listActiveMembershipsForUser(
     ...r,
     context: asContext(r.context),
   }));
+  membershipsL1.set(userId, { rows: mapped, expiresAt: Date.now() + MEMBERSHIPS_L1_TTL_MS });
   void valkeySetJson(cacheKey, mapped, VALKEY_TTL.memberships);
   return mapped;
 }

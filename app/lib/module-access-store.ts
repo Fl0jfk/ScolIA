@@ -9,8 +9,10 @@ import {
 import { valkeyDel, valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
 import { VALKEY_TTL, valkeyKeyModuleAccessConfig } from "@/app/lib/valkey-keys";
 
-const CACHE_MS = 30_000;
+const SOFT_TTL_MS = 120_000;
+const HARD_TTL_MS = 15 * 60_000;
 let cache: { at: number; config: ModuleAccessConfig } | null = null;
+let refreshInFlight: Promise<ModuleAccessConfig> | null = null;
 
 function tenantKey(): string {
   return process.env.DEFAULT_TENANT_SLUG?.trim() || "default";
@@ -26,24 +28,53 @@ export function invalidateModuleAccessCache(): void {
 }
 
 export async function loadModuleAccess(): Promise<ModuleAccessConfig> {
-  if (cache && Date.now() - cache.at < CACHE_MS) return cache.config;
-  const vk = valkeyKeyModuleAccessConfig(tenantKey());
-  const fromValkey = await valkeyGetJson<ModuleAccessConfig>(vk);
-  if (fromValkey) {
-    cache = { at: Date.now(), config: fromValkey };
-    return fromValkey;
+  const now = Date.now();
+  if (cache && now - cache.at < SOFT_TTL_MS) return cache.config;
+  if (cache && now - cache.at < HARD_TTL_MS) {
+    void refreshModuleAccessBackground();
+    return cache.config;
   }
+  return loadModuleAccessFresh();
+}
+
+function refreshModuleAccessBackground(): void {
+  if (refreshInFlight) return;
+  refreshInFlight = loadModuleAccessFresh()
+    .catch((error) => {
+      console.error("[module-access] refresh background", error);
+      return cache?.config ?? defaultModuleAccess();
+    })
+    .finally(() => {
+      refreshInFlight = null;
+    });
+}
+
+async function loadModuleAccessFresh(): Promise<ModuleAccessConfig> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const vk = valkeyKeyModuleAccessConfig(tenantKey());
+    const fromValkey = await valkeyGetJson<ModuleAccessConfig>(vk);
+    if (fromValkey) {
+      cache = { at: Date.now(), config: fromValkey };
+      return fromValkey;
+    }
+    try {
+      const raw = await getJson<unknown>("settings/module-access.json");
+      const config = raw?.data ? parseModuleAccess(raw.data) : defaultModuleAccess();
+      cache = { at: Date.now(), config };
+      void valkeySetJson(vk, config, VALKEY_TTL.moduleAccessConfig);
+      return config;
+    } catch (error) {
+      console.error("[module-access] load", error);
+      const config = defaultModuleAccess();
+      cache = { at: Date.now(), config };
+      return config;
+    }
+  })();
   try {
-    const raw = await getJson<unknown>("settings/module-access.json");
-    const config = raw?.data ? parseModuleAccess(raw.data) : defaultModuleAccess();
-    cache = { at: Date.now(), config };
-    void valkeySetJson(vk, config, VALKEY_TTL.moduleAccessConfig);
-    return config;
-  } catch (error) {
-    console.error("[module-access] load", error);
-    const config = defaultModuleAccess();
-    cache = { at: Date.now(), config };
-    return config;
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
   }
 }
 
