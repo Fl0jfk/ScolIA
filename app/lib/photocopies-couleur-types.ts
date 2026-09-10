@@ -8,6 +8,25 @@ export type PhotoCopieActor = {
   email?: string;
 };
 
+/** Nom lisible : prénom + nom, jamais l’e-mail si un vrai nom existe. */
+export function photocopiePersonLabel(opts: {
+  storedName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+}): string {
+  const first =
+    opts.firstName && !String(opts.firstName).includes("@") ? String(opts.firstName).trim() : "";
+  const last =
+    opts.lastName && !String(opts.lastName).includes("@") ? String(opts.lastName).trim() : "";
+  const fromParts = `${first} ${last}`.trim();
+  if (fromParts) return fromParts;
+  const stored = String(opts.storedName ?? "").trim();
+  if (stored && !stored.includes("@")) return stored;
+  const email = String(opts.email ?? "").trim();
+  return stored || email || "Utilisateur";
+}
+
 export type PhotoCopieRecord = {
   id: string;
   createdAt: string;

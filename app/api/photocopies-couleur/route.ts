@@ -25,7 +25,8 @@ import {
   resolvePhotocopiesOpsEmailsWithHandlers,
   resolvePhotocopiesOpsViewer,
 } from "@/app/lib/photocopies-couleur-ops-server";
-import type { PhotoCopieRecord } from "@/app/lib/photocopies-couleur-types";
+import type { PhotoCopieActor, PhotoCopieRecord } from "@/app/lib/photocopies-couleur-types";
+import { photocopiePersonLabel } from "@/app/lib/photocopies-couleur-types";
 
 const INDEX_KEY = "photocopies-couleur/index.json";
 
@@ -74,6 +75,24 @@ function isValidEtab(v: string, establishments: Establishment[]): boolean {
   return Boolean(matchEstablishment(establishments, v));
 }
 
+function enrichPhotocopieActor<T extends PhotoCopieActor>(
+  actor: T | undefined,
+  byUserId: Map<string, { firstName?: string; lastName?: string; email: string }>,
+  byEmail: Map<string, { firstName?: string; lastName?: string; email: string }>,
+): T | undefined {
+  if (!actor) return actor;
+  const emailKey = actor.email?.trim().toLowerCase() || "";
+  const member =
+    byUserId.get(actor.userId) || (emailKey ? byEmail.get(emailKey) : undefined);
+  const name = photocopiePersonLabel({
+    storedName: actor.name,
+    firstName: member?.firstName,
+    lastName: member?.lastName,
+    email: actor.email || member?.email,
+  });
+  return { ...actor, name };
+}
+
 export async function GET() {
   const gate = await requireAuth();
   if (!gate.ok) return gate.response;
@@ -95,6 +114,13 @@ export async function GET() {
 
   try {
     const all = await getIndex();
+    const members = await listDirectoryMembers().catch(() => []);
+    const byUserId = new Map(members.map((m) => [m.externalUserId, m]));
+    const byEmail = new Map(
+      members
+        .filter((m) => m.email.trim())
+        .map((m) => [m.email.trim().toLowerCase(), m] as const),
+    );
     const filtered = all.filter((r) =>
       canViewPhotocopiesDemand(r, userId, roles, bundle.establishments, {
         isOpsHandler: isOps,
@@ -102,8 +128,14 @@ export async function GET() {
       }),
     );
     filtered.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+    const items = filtered.map((r) => ({
+      ...r,
+      createdBy: enrichPhotocopieActor(r.createdBy, byUserId, byEmail) ?? r.createdBy,
+      submittedBy: enrichPhotocopieActor(r.submittedBy, byUserId, byEmail),
+      decidedBy: enrichPhotocopieActor(r.decidedBy, byUserId, byEmail),
+    }));
     return NextResponse.json({
-      items: filtered,
+      items,
       isOpsHandler: isOps,
       currentUserId: userId,
       opsPendingCount: filtered.filter((r) => r.status === "ACCEPTEE").length,
@@ -136,8 +168,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "JSON invalide" }, { status: 400 });
   }
 
-  const actorName = user?.fullName || user?.firstName || "Utilisateur";
   const actorEmail = user?.primaryEmailAddress?.emailAddress?.trim() || "";
+  const directory = await listDirectoryMembers().catch(() => []);
+  const meDir = directory.find(
+    (m) =>
+      m.externalUserId === userId ||
+      (actorEmail && m.email.trim().toLowerCase() === actorEmail.toLowerCase()),
+  );
+  const actorName = photocopiePersonLabel({
+    storedName: user?.fullName,
+    firstName: meDir?.firstName || user?.firstName,
+    lastName: meDir?.lastName,
+    email: actorEmail,
+  });
 
   const onBehalfRaw = body?.onBehalfOf && typeof body.onBehalfOf === "object" ? body.onBehalfOf : null;
   const onBehalfUserId = onBehalfRaw ? String((onBehalfRaw as { userId?: string }).userId || "").trim() : "";
