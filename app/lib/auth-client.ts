@@ -2,6 +2,7 @@
 
 import { createAuthClient } from "better-auth/client";
 import { twoFactorClient } from "better-auth/client/plugins";
+import { passkeyClient } from "@better-auth/passkey/client";
 
 const MFA_EMAIL_HINT_KEY = "scolia_mfa_email_hint";
 
@@ -41,6 +42,7 @@ export const authClient = createAuthClient({
         window.location.href = `/auth/two-factor?redirect_url=${encodeURIComponent(redirect)}${emailQs}`;
       },
     }),
+    passkeyClient(),
   ],
 });
 

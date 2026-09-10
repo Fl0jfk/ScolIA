@@ -5,6 +5,7 @@ import { getDb, isDatabaseConfigured } from "@/db/index";
 import { user } from "@/db/schema";
 import type { DirectoryMemberRow } from "@/app/lib/directory-members";
 import { listUserRolesBatchFromDb, listUserRolesFromDb } from "@/app/lib/auth-roles-db";
+import { countPasskeysByUserIds } from "@/app/lib/passkey-db";
 import { isAccountActivationPending } from "@/app/lib/two-factor-policy";
 import { ensureUserInvitationSentAtColumn } from "@/app/lib/user-invitation-sent";
 
@@ -17,9 +18,12 @@ export async function listMembersFromDb(etablissementId: string): Promise<Direct
     users.map((u) => u.id),
     etablissementId,
   );
+  const passkeyCounts = await countPasskeysByUserIds(users.map((u) => u.id));
   const rows: DirectoryMemberRow[] = [];
   for (const u of users) {
     const roles = rolesByUserId.get(u.id) ?? [];
+    const hasPasskey = (passkeyCounts.get(u.id) ?? 0) > 0;
+    const mfaEnabled = u.twoFactorEnabled || hasPasskey;
     rows.push({
       userId: u.id,
       externalUserId: u.externalUserId ?? u.id,
@@ -32,11 +36,12 @@ export async function listMembersFromDb(etablissementId: string): Promise<Direct
         emailVerified: u.emailVerified,
         mustChangePassword: u.mustChangePassword,
         twoFactorEnabled: u.twoFactorEnabled,
+        hasPasskey,
         platformAdmin: u.platformAdmin,
         orgAdmin: u.orgAdmin || roles.includes("admin"),
         roles,
       }),
-      mfaEnabled: u.twoFactorEnabled,
+      mfaEnabled,
       invitationSentAt: u.invitationSentAt ? u.invitationSentAt.toISOString() : null,
       createdAt: u.createdAt.toISOString(),
       updatedAt: u.updatedAt.toISOString(),

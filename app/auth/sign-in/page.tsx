@@ -13,7 +13,16 @@ export default function BetterAuthSignInPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [passkeySupported, setPasskeySupported] = useState(false);
+
+  useEffect(() => {
+    setPasskeySupported(
+      typeof window !== "undefined" &&
+        typeof window.PublicKeyCredential !== "undefined",
+    );
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -23,8 +32,6 @@ export default function BetterAuthSignInPage() {
         if (cancelled) return;
         if (data?.session) {
           const u = data.user as { mustChangePassword?: boolean; twoFactorEnabled?: boolean } | undefined;
-          // Session encore « provisoire » : ne pas renvoyer vers le dashboard (boucle),
-          // laisser le formulaire pour un autre compte après déconnexion côté autre page.
           if (u?.mustChangePassword) {
             router.replace(
               `/auth/change-password-required?redirect_url=${encodeURIComponent(redirectTo)}`,
@@ -44,6 +51,31 @@ export default function BetterAuthSignInPage() {
       cancelled = true;
     };
   }, [redirectTo, router]);
+
+  async function onPasskeySignIn() {
+    setPasskeyLoading(true);
+    setError(null);
+    try {
+      const { data, error: passkeyError } = await authClient.signIn.passkey({
+        autoFill: false,
+      });
+      if (passkeyError) {
+        throw new Error(
+          passkeyError.message ||
+            "Passkey annulée. Scannez le QR avec votre téléphone, ou connectez-vous par mot de passe.",
+        );
+      }
+      if (!data?.session) {
+        throw new Error("Connexion passkey incomplète.");
+      }
+      router.push(redirectTo);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Connexion passkey impossible.");
+    } finally {
+      setPasskeyLoading(false);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -104,7 +136,7 @@ export default function BetterAuthSignInPage() {
           <div>
             <h1 className="text-xl font-semibold text-emerald-950">Connexion intranet</h1>
             <p className="mt-1 text-sm text-emerald-800/70">
-              Identifiants ScolIA (e-mail et mot de passe)
+              Passkey téléphone, ou e-mail + mot de passe
             </p>
           </div>
         </div>
@@ -113,11 +145,37 @@ export default function BetterAuthSignInPage() {
             {error}
           </p>
         ) : null}
+
+        {passkeySupported ? (
+          <>
+            <button
+              type="button"
+              disabled={passkeyLoading || loading}
+              onClick={() => void onPasskeySignIn()}
+              className="w-full rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2.5 text-sm font-medium text-white hover:brightness-110 disabled:opacity-60"
+            >
+              {passkeyLoading ? "En attente du téléphone…" : "Se connecter avec une passkey"}
+            </button>
+            <p className="text-center text-xs text-emerald-800/70">
+              Le navigateur propose un QR à scanner avec votre téléphone (Windows Hello non
+              requis).
+            </p>
+            <div className="relative py-1">
+              <div className="absolute inset-0 flex items-center" aria-hidden>
+                <div className="w-full border-t border-emerald-100" />
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-white px-2 text-emerald-800/60">ou</span>
+              </div>
+            </div>
+          </>
+        ) : null}
+
         <label className="block space-y-1 text-sm">
           <span className="font-medium text-emerald-950">E-mail</span>
           <input
             type="email"
-            autoComplete="email"
+            autoComplete="username webauthn"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -127,7 +185,7 @@ export default function BetterAuthSignInPage() {
         <label className="block space-y-1 text-sm">
           <span className="font-medium text-emerald-950">Mot de passe</span>
           <PasswordInput
-            autoComplete="current-password"
+            autoComplete="current-password webauthn"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -136,10 +194,10 @@ export default function BetterAuthSignInPage() {
         </label>
         <button
           type="submit"
-          disabled={loading}
-          className="w-full rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2.5 text-sm font-medium text-white hover:brightness-110 disabled:opacity-60"
+          disabled={loading || passkeyLoading}
+          className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-950 hover:bg-emerald-100 disabled:opacity-60"
         >
-          {loading ? "Connexion…" : "Se connecter"}
+          {loading ? "Connexion…" : "Se connecter avec le mot de passe"}
         </button>
         <p className="text-center text-sm">
           <a

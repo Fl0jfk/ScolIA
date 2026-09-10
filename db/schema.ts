@@ -143,6 +143,30 @@ export const twoFactor = pgTable(
   ],
 );
 
+/** Passkeys WebAuthn (plugin @better-auth/passkey). */
+export const passkey = pgTable(
+  "passkey",
+  {
+    id: text("id").primaryKey(),
+    name: text("name"),
+    publicKey: text("public_key").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    credentialID: text("credential_id").notNull(),
+    counter: integer("counter").notNull(),
+    deviceType: text("device_type").notNull(),
+    backedUp: boolean("backed_up").notNull(),
+    transports: text("transports"),
+    createdAt: timestamp("created_at", { withTimezone: true }),
+    aaguid: text("aaguid"),
+  },
+  (t) => [
+    index("passkey_user_id_idx").on(t.userId),
+    index("passkey_credential_id_idx").on(t.credentialID),
+  ],
+);
+
 /** Rate-limit Better-Auth (stockage database multi-réplicas). */
 export const rateLimit = pgTable(
   "rate_limit",
@@ -808,6 +832,7 @@ export const authSchema = {
   account,
   verification,
   twoFactor,
+  passkey,
   rateLimit,
 };
 

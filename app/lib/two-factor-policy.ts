@@ -67,18 +67,29 @@ export function isAccountActivationPending(opts: {
   emailVerified: boolean;
   mustChangePassword: boolean;
   twoFactorEnabled: boolean;
+  /** Passkey enregistrée = MFA satisfaite (alternative au TOTP). */
+  hasPasskey?: boolean;
   platformAdmin: boolean;
   orgAdmin: boolean;
   roles: string[];
 }): boolean {
   if (!opts.emailVerified || opts.mustChangePassword) return true;
+  const mfaSatisfied = opts.twoFactorEnabled || opts.hasPasskey === true;
   return (
     roleRequiresTwoFactor({
       platformAdmin: opts.platformAdmin,
       orgAdmin: opts.orgAdmin,
       roles: opts.roles,
-    }) && !opts.twoFactorEnabled
+    }) && !mfaSatisfied
   );
+}
+
+/** MFA satisfaite : TOTP activé et/ou au moins une passkey. */
+export function isMfaSatisfied(opts: {
+  twoFactorEnabled: boolean;
+  hasPasskey: boolean;
+}): boolean {
+  return opts.twoFactorEnabled || opts.hasPasskey;
 }
 
 function isDirectionRoleSet(roles: string[]): boolean {

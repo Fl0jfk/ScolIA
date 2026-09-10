@@ -7,7 +7,11 @@ import {
 } from "@/app/lib/security-audit";
 import { forcePromoteTwoFactorEnabled } from "@/app/lib/two-factor-setup";
 
-const ALLOWED: SecurityAuditAction[] = ["two_factor_enabled", "two_factor_disabled"];
+const ALLOWED: SecurityAuditAction[] = [
+  "two_factor_enabled",
+  "two_factor_disabled",
+  "passkey_registered",
+];
 
 /** Journalisation côté client pour événements 2FA (session requise). */
 export async function POST(req: Request) {

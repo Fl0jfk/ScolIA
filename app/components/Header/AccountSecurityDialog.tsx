@@ -9,7 +9,7 @@ import SessionsManager from "@/app/components/account/SessionsManager";
 import { useAppUser } from "@/app/hooks/useAppUser";
 import { validatePasswordPolicy } from "@/app/lib/password-policy";
 
-type Mode = "menu" | "password" | "email" | "sessions" | "signature";
+type Mode = "menu" | "password" | "email" | "sessions" | "signature" | "passkeys";
 
 type Props = {
   open: boolean;
@@ -27,6 +27,10 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [passkeys, setPasskeys] = useState<
+    { id: string; name: string; createdAt: string | null }[]
+  >([]);
+  const [passkeysLoading, setPasskeysLoading] = useState(false);
 
   if (!open) return null;
 
@@ -122,6 +126,74 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
     }
   }
 
+  async function loadPasskeys() {
+    setPasskeysLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/account/passkeys", { credentials: "include" });
+      const j = (await res.json()) as {
+        error?: string;
+        passkeys?: { id: string; name: string; createdAt: string | null }[];
+      };
+      if (!res.ok) throw new Error(j.error || "Impossible de charger les passkeys.");
+      setPasskeys(j.passkeys ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setPasskeysLoading(false);
+    }
+  }
+
+  async function addPasskeyFromDialog() {
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const { authClient } = await import("@/app/lib/auth-client");
+      const { data, error: regError } = await authClient.passkey.addPasskey({
+        name: "Téléphone",
+        authenticatorAttachment: "cross-platform",
+      });
+      if (regError) throw new Error(regError.message || "Enregistrement annulé.");
+      if (!data) throw new Error("Aucune passkey enregistrée.");
+      await fetch("/api/account/security-event", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "passkey_registered" }),
+      });
+      setSuccess("Passkey enregistrée (téléphone).");
+      await loadPasskeys();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removePasskey(id: string) {
+    if (!window.confirm("Supprimer cette passkey ?")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/account/passkeys", {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const j = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(j.error || "Suppression impossible.");
+      await loadPasskeys();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]"
@@ -130,7 +202,9 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
     >
       <div
         className={`w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl ${
-          mode === "sessions" || mode === "signature" ? "max-w-lg" : "max-w-md"
+          mode === "sessions" || mode === "signature" || mode === "passkeys"
+            ? "max-w-lg"
+            : "max-w-md"
         }`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
@@ -144,6 +218,7 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
             {mode === "email" && "Changer l'e-mail de connexion"}
             {mode === "sessions" && "Appareils & sessions"}
             {mode === "signature" && "Ma signature"}
+            {mode === "passkeys" && "Passkeys"}
           </h2>
           {success && mode === "password" ? null : (
             <button
@@ -184,9 +259,11 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
               >
                 Changer mon e-mail de connexion
               </button>
-              {user?.twoFactorEnabled ? (
+              {user?.mfaSatisfied ? (
                 <p className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-900">
-                  Double authentification déjà active. Elle reste exigée à la connexion.
+                  Sécurité renforcée active
+                  {user.hasPasskey ? " (passkey)" : ""}
+                  {user.twoFactorEnabled ? " (OTP)" : ""}.
                 </p>
               ) : (
                 <button
@@ -197,9 +274,20 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                   }}
                   className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/50"
                 >
-                  Configurer la double authentification (2FA)
+                  Configurer passkey / double authentification
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setMode("passkeys");
+                  void loadPasskeys();
+                }}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-semibold text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50/50"
+              >
+                Gérer mes passkeys (téléphone)
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -221,6 +309,57 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                 Appareils & sessions connectées
               </button>
             </>
+          )}
+
+          {mode === "passkeys" && (
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => {
+                  resetForm();
+                  setMode("menu");
+                }}
+                className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+              >
+                ← Retour
+              </button>
+              <p className="text-sm text-slate-600">
+                Sur les PC pro sans Windows Hello : utilisez un QR téléphone. La passkey reste sur
+                votre mobile.
+              </p>
+              {passkeysLoading ? (
+                <p className="text-sm text-slate-500">Chargement…</p>
+              ) : passkeys.length === 0 ? (
+                <p className="text-sm text-slate-500">Aucune passkey enregistrée.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {passkeys.map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    >
+                      <span className="font-medium text-slate-800">{p.name}</span>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void removePasskey(p.id)}
+                        className="text-xs font-semibold text-red-700 hover:underline disabled:opacity-50"
+                      >
+                        Supprimer
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void addPasskeyFromDialog()}
+                className="w-full rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
+              >
+                {busy ? "En attente du téléphone…" : "Ajouter une passkey (téléphone)"}
+              </button>
+            </div>
           )}
 
           {mode === "sessions" && (

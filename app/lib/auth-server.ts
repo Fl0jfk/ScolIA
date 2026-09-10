@@ -5,6 +5,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { twoFactor } from "better-auth/plugins";
+import { passkey } from "@better-auth/passkey";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { authSchema, user as userTable } from "@/db/schema";
@@ -16,6 +17,7 @@ import {
   PASSWORD_MIN_LENGTH,
   validatePasswordPolicy,
 } from "@/app/lib/password-policy";
+import { resolvePasskeyRpId, resolvePasskeyRpName } from "@/app/lib/passkey-rp";
 import { s3Key } from "@/app/lib/s3-path";
 import { getObjectBytes } from "@/app/lib/s3-storage";
 import { getTenant } from "@/app/lib/tenant-context";
@@ -485,6 +487,10 @@ function createAuth() {
         "/forget-password": { window: 60, max: 5 },
         "/two-factor/verify-totp": { window: 60, max: 8 },
         "/two-factor/verify-backup-code": { window: 60, max: 8 },
+        "/passkey/generate-authenticate-options": { window: 60, max: 20 },
+        "/passkey/verify-authentication": { window: 60, max: 20 },
+        "/passkey/generate-register-options": { window: 60, max: 10 },
+        "/passkey/verify-registration": { window: 60, max: 10 },
       },
     },
     advanced: {
@@ -512,6 +518,20 @@ function createAuth() {
         totpOptions: {
           digits: 6,
           period: 30,
+        },
+      }),
+      passkey({
+        rpID: resolvePasskeyRpId(),
+        rpName: resolvePasskeyRpName(),
+        /**
+         * PC pro : Windows Hello souvent bloqué par l’org.
+         * On privilégie les passkeys cross-platform (téléphone via QR, clé USB).
+         * L’UI peut encore demander « cet appareil » en passant platform.
+         */
+        authenticatorSelection: {
+          authenticatorAttachment: "cross-platform",
+          residentKey: "preferred",
+          userVerification: "preferred",
         },
       }),
       nextCookies(),

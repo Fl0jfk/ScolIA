@@ -10,6 +10,8 @@ export type SecurityAuditAction =
   | "email_change_immediate"
   | "two_factor_enabled"
   | "two_factor_disabled"
+  | "passkey_registered"
+  | "passkey_deleted"
   | "account_claimed"
   | "session_revoked"
   | "sessions_revoked_others"

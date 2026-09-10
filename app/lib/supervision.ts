@@ -213,6 +213,8 @@ export function supervisionTargetToAppUser(profile: SupervisionTargetProfile): A
     orgAdmin: profile.orgAdmin,
     platformAdmin: profile.platformAdmin,
     twoFactorEnabled: profile.twoFactorEnabled,
+    hasPasskey: false,
+    mfaSatisfied: profile.twoFactorEnabled,
     externalUserId: profile.businessUserId !== profile.userId ? profile.businessUserId : undefined,
     authSource: "better-auth",
   };

@@ -7,7 +7,8 @@ import { getBetterAuth } from "@/app/lib/auth-server";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
 import { isPlatformTenantSlug } from "@/app/lib/platform-tenant";
-import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
+import { roleRequiresTwoFactor, isMfaSatisfied } from "@/app/lib/two-factor-policy";
+import { userHasPasskey } from "@/app/lib/passkey-db";
 import type { TenantConfig } from "@/app/lib/tenant-types";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { user } from "@/db/schema";
@@ -26,6 +27,7 @@ export type BetterAuthProxyState = {
   platformAdmin: boolean;
   mustChangePassword: boolean;
   twoFactorEnabled: boolean;
+  hasPasskey: boolean;
   requiresTwoFactorSetup: boolean;
 };
 
@@ -66,8 +68,10 @@ export async function resolveBetterAuthProxyState(
     const businessUserId = row?.externalUserId?.trim() || u.id;
     const mustChangePassword = Boolean(row?.mustChangePassword ?? u.mustChangePassword);
     const twoFactorEnabled = Boolean(row?.twoFactorEnabled ?? u.twoFactorEnabled);
+    const hasPasskey = await userHasPasskey(u.id);
     const requiresTwoFactorSetup =
-      roleRequiresTwoFactor({ platformAdmin, orgAdmin, roles }) && !twoFactorEnabled;
+      roleRequiresTwoFactor({ platformAdmin, orgAdmin, roles }) &&
+      !isMfaSatisfied({ twoFactorEnabled, hasPasskey });
 
     return {
       userId: businessUserId,
@@ -82,11 +86,14 @@ export async function resolveBetterAuthProxyState(
         platform_admin: platformAdmin,
         must_change_password: mustChangePassword,
         two_factor_enabled: twoFactorEnabled,
+        has_passkey: hasPasskey,
+        mfa_satisfied: isMfaSatisfied({ twoFactorEnabled, hasPasskey }),
       },
       orgAdmin,
       platformAdmin,
       mustChangePassword,
       twoFactorEnabled,
+      hasPasskey,
       requiresTwoFactorSetup,
     };
   } catch (error) {
@@ -111,12 +118,13 @@ export async function resolveBetterAuthProxyStateByUserId(
   const orgAdmin =
     Boolean(row.orgAdmin) || Boolean(row.platformAdmin) || roles.includes("admin");
   const twoFactorEnabled = Boolean(row.twoFactorEnabled);
+  const hasPasskey = await userHasPasskey(row.id);
   const requiresTwoFactorSetup =
     roleRequiresTwoFactor({
       platformAdmin: row.platformAdmin,
       orgAdmin,
       roles,
-    }) && !twoFactorEnabled;
+    }) && !isMfaSatisfied({ twoFactorEnabled, hasPasskey });
   return {
     userId: row.externalUserId?.trim() || row.id,
     authUserId: row.id,
@@ -130,11 +138,14 @@ export async function resolveBetterAuthProxyStateByUserId(
       platform_admin: row.platformAdmin,
       must_change_password: row.mustChangePassword,
       two_factor_enabled: twoFactorEnabled,
+      has_passkey: hasPasskey,
+      mfa_satisfied: isMfaSatisfied({ twoFactorEnabled, hasPasskey }),
     },
     orgAdmin,
     platformAdmin: row.platformAdmin,
     mustChangePassword: row.mustChangePassword,
     twoFactorEnabled,
+    hasPasskey,
     requiresTwoFactorSetup,
   };
 }
@@ -149,7 +160,7 @@ export function isMustChangePasswordAllowedPath(pathname: string): boolean {
     "/api/account/security",
     "/api/account/security-event",
     "/api/account/two-factor",
-    "/api/account/confirm-email",
+    "/api/account/passkeys",
     "/api/account/sessions",
     "/api/auth",
     "/api/auth/me",
@@ -174,6 +185,7 @@ export function isTwoFactorSetupAllowedPath(pathname: string): boolean {
     "/api/account/security",
     "/api/account/security-event",
     "/api/account/two-factor",
+    "/api/account/passkeys",
     "/api/account/sessions",
     "/api/auth",
     "/api/auth/me",

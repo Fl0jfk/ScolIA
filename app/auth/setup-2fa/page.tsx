@@ -8,7 +8,7 @@ import SwitchAccountLink from "@/app/components/auth/SwitchAccountLink";
 import { authClient } from "@/app/lib/auth-client";
 import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
 
-type Step = "password" | "verify" | "done";
+type Mode = "choose" | "passkey" | "totp-password" | "totp-verify" | "done";
 
 async function prepareTwoFactorSetup(): Promise<void> {
   try {
@@ -17,7 +17,7 @@ async function prepareTwoFactorSetup(): Promise<void> {
       credentials: "include",
     });
   } catch {
-    /* best-effort : enable() pourra encore échouer proprement */
+    /* best-effort */
   }
 }
 
@@ -25,7 +25,7 @@ function Setup2faForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect_url") || "/dashboard";
-  const [step, setStep] = useState<Step>("password");
+  const [mode, setMode] = useState<Mode>("choose");
   const [password, setPassword] = useState("");
   const [totpUri, setTotpUri] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
@@ -34,9 +34,14 @@ function Setup2faForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [canSkipMfa, setCanSkipMfa] = useState(false);
+  const [passkeySupported, setPasskeySupported] = useState(true);
 
   useEffect(() => {
     void prepareTwoFactorSetup();
+    setPasskeySupported(
+      typeof window !== "undefined" &&
+        typeof window.PublicKeyCredential !== "undefined",
+    );
   }, []);
 
   useEffect(() => {
@@ -45,10 +50,21 @@ function Setup2faForm() {
       try {
         const res = await fetch("/api/auth/me", { credentials: "include" });
         const data = (await res.json()) as {
-          user?: { roles?: string[]; orgAdmin?: boolean; platformAdmin?: boolean } | null;
+          user?: {
+            roles?: string[];
+            orgAdmin?: boolean;
+            platformAdmin?: boolean;
+            mfaSatisfied?: boolean;
+            hasPasskey?: boolean;
+            twoFactorEnabled?: boolean;
+          } | null;
         };
         const u = data.user;
         if (!u || cancelled) return;
+        if (u.mfaSatisfied || u.hasPasskey || u.twoFactorEnabled) {
+          setMode("done");
+          return;
+        }
         setCanSkipMfa(
           !roleRequiresTwoFactor({
             platformAdmin: Boolean(u.platformAdmin),
@@ -57,7 +73,7 @@ function Setup2faForm() {
           }),
         );
       } catch {
-        /* si /me échoue, on n’affiche pas « Passer » (sécurité) */
+        /* si /me échoue, on n’affiche pas « Passer » */
       }
     })();
     return () => {
@@ -79,28 +95,6 @@ function Setup2faForm() {
     };
   }, [totpUri]);
 
-  function resetToPasswordStep() {
-    setStep("password");
-    setTotpUri(null);
-    setQrDataUrl(null);
-    setBackupCodes([]);
-    setCode("");
-    setError(null);
-  }
-
-  async function restartSetup() {
-    setBusy(true);
-    setError(null);
-    try {
-      await prepareTwoFactorSetup();
-      resetToPasswordStep();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Impossible de recommencer.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function skipSetup() {
     setBusy(true);
     setError(null);
@@ -114,12 +108,42 @@ function Setup2faForm() {
     }
   }
 
-  async function enable(e: React.FormEvent) {
+  async function registerPasskey() {
+    setBusy(true);
+    setError(null);
+    setMode("passkey");
+    try {
+      const { data, error: regError } = await authClient.passkey.addPasskey({
+        name: "Téléphone",
+        authenticatorAttachment: "cross-platform",
+      });
+      if (regError) {
+        throw new Error(
+          regError.message ||
+            "Enregistrement annulé ou impossible. Scannez le QR avec votre téléphone (Chrome / Safari).",
+        );
+      }
+      if (!data) throw new Error("Aucune passkey enregistrée.");
+      await fetch("/api/account/security-event", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "passkey_registered" }),
+      });
+      setMode("done");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur passkey");
+      setMode("choose");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function enableTotp(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      // Purge un éventuel secret orphelin (abandon précédent) avant de régénérer.
       await prepareTwoFactorSetup();
       const { data, error: enableError } = await authClient.twoFactor.enable({
         password,
@@ -134,7 +158,7 @@ function Setup2faForm() {
       if (!uri) throw new Error("URI TOTP manquante.");
       setTotpUri(uri);
       setBackupCodes(codes);
-      setStep("verify");
+      setMode("totp-verify");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -142,7 +166,7 @@ function Setup2faForm() {
     }
   }
 
-  async function verify(e: React.FormEvent) {
+  async function verifyTotp(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
@@ -151,7 +175,6 @@ function Setup2faForm() {
         code: code.trim(),
       });
       if (verifyError) throw new Error(verifyError.message || "Code invalide.");
-      // Filet : force twoFactorEnabled si Better-Auth a accepté le code sans promouvoir le flag.
       const completeRes = await fetch("/api/account/security-event", {
         method: "POST",
         credentials: "include",
@@ -159,9 +182,9 @@ function Setup2faForm() {
         body: JSON.stringify({ action: "two_factor_enabled" }),
       });
       if (!completeRes.ok) {
-        throw new Error("Code accepté mais activation MFA incomplète. Réessayez ou recommencez.");
+        throw new Error("Code accepté mais activation MFA incomplète. Réessayez.");
       }
-      setStep("done");
+      setMode("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -173,11 +196,11 @@ function Setup2faForm() {
     <div className="flex min-h-[calc(100vh-3.5rem)] items-center justify-center px-4 py-10">
       <div className="w-full max-w-lg space-y-4 rounded-2xl border border-amber-200 bg-white p-8 shadow-xl">
         <div>
-          <h1 className="text-xl font-semibold text-amber-950">Sécurité renforcée (2FA)</h1>
+          <h1 className="text-xl font-semibold text-amber-950">Sécurité renforcée</h1>
           <p className="mt-2 text-sm text-amber-900/80">
             {canSkipMfa
-              ? "La double authentification est recommandée, mais facultative pour les professeurs, surveillants et CPE. Direction et personnel administratif doivent l’activer. Si vous l’activez, elle restera demandée à chaque connexion."
-              : "Les comptes direction et personnel administratif doivent activer une application d’authentification (Google Authenticator, Authy, etc.) pour sécuriser l’accès à l’intranet."}
+              ? "Recommandé pour sécuriser votre compte. Facultatif pour les professeurs, surveillants et CPE."
+              : "Obligatoire pour la direction et le personnel administratif."}
           </p>
         </div>
 
@@ -187,8 +210,82 @@ function Setup2faForm() {
           </p>
         ) : null}
 
-        {step === "password" ? (
-          <form onSubmit={enable} className="space-y-3">
+        {mode === "choose" ? (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-950">
+              <p className="font-semibold">Recommandé : passkey sur votre téléphone</p>
+              <p className="mt-1 text-emerald-900/80">
+                Sur les PC de l’établissement, Windows Hello est souvent bloqué. Le navigateur
+                affichera un <strong>QR code</strong> : scannez-le avec votre téléphone (Face ID /
+                empreinte). Aucune appli OTP à gérer.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={busy || !passkeySupported}
+              onClick={() => void registerPasskey()}
+              className="w-full rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
+            >
+              {busy ? "En attente du téléphone…" : "Enregistrer une passkey (téléphone)"}
+            </button>
+            {!passkeySupported ? (
+              <p className="text-xs text-amber-800">
+                Ce navigateur ne gère pas les passkeys. Utilisez Chrome / Edge / Safari récents, ou
+                l’option appli OTP ci-dessous.
+              </p>
+            ) : null}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setError(null);
+                setMode("totp-password");
+              }}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-60"
+            >
+              Préférer une appli OTP (Google Authenticator…)
+            </button>
+            {canSkipMfa ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void skipSetup()}
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-60"
+              >
+                Passer cette étape
+              </button>
+            ) : null}
+            <SwitchAccountLink />
+          </div>
+        ) : null}
+
+        {mode === "passkey" ? (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-700">
+              Suivez l’invite du navigateur : choisissez <strong>téléphone / tablette</strong>,
+              scannez le QR, puis validez avec Face ID ou empreinte.
+            </p>
+            <p className="text-xs text-slate-500">Ne fermez pas cette page pendant la validation.</p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setBusy(false);
+                setMode("choose");
+              }}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700"
+            >
+              Annuler
+            </button>
+          </div>
+        ) : null}
+
+        {mode === "totp-password" ? (
+          <form onSubmit={enableTotp} className="space-y-3">
+            <p className="text-sm text-slate-600">
+              Secours si vous ne pouvez pas utiliser de passkey. Vous aurez un QR à scanner dans
+              une appli d’authentification.
+            </p>
             <label className="block space-y-1 text-sm">
               <span className="font-medium text-slate-800">Mot de passe actuel</span>
               <PasswordInput
@@ -204,27 +301,29 @@ function Setup2faForm() {
               disabled={busy}
               className="w-full rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
             >
-              {busy ? "Génération…" : "Générer le QR code"}
+              {busy ? "Génération…" : "Générer le QR OTP"}
             </button>
-            {canSkipMfa ? (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void skipSetup()}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-60"
-              >
-                Passer cette étape
-              </button>
-            ) : null}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setError(null);
+                setMode("choose");
+              }}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700"
+            >
+              Retour
+            </button>
+            <SwitchAccountLink />
           </form>
         ) : null}
 
-        {step === "verify" ? (
-          <form onSubmit={verify} className="space-y-4">
+        {mode === "totp-verify" ? (
+          <form onSubmit={verifyTotp} className="space-y-4">
             {qrDataUrl ? (
               <div className="flex justify-center">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={qrDataUrl} alt="QR code 2FA" className="rounded-lg border border-slate-200" />
+                <img src={qrDataUrl} alt="QR code OTP" className="rounded-lg border border-slate-200" />
               </div>
             ) : null}
             {backupCodes.length > 0 ? (
@@ -256,37 +355,30 @@ function Setup2faForm() {
               disabled={busy}
               className="w-full rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
             >
-              {busy ? "Vérification…" : "Activer la 2FA"}
+              {busy ? "Vérification…" : "Activer l’OTP"}
             </button>
             <button
               type="button"
               disabled={busy}
-              onClick={() => void restartSetup()}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-60"
+              onClick={() => {
+                setTotpUri(null);
+                setBackupCodes([]);
+                setCode("");
+                setMode("choose");
+              }}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700"
             >
-              Recommencer (nouveau QR)
+              Choisir une autre méthode
             </button>
-            {canSkipMfa ? (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void skipSetup()}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 disabled:opacity-60"
-              >
-                Passer sans activer
-              </button>
-            ) : null}
-            <p className="text-xs text-slate-500">
-              Si vous aviez déjà scanné un ancien QR, utilisez « Recommencer » puis scannez uniquement
-              le nouveau code.
-            </p>
+            <SwitchAccountLink />
           </form>
         ) : null}
 
-        {step === "done" ? (
+        {mode === "done" ? (
           <div className="space-y-3">
             <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              Double authentification activée. Conservez vos codes de secours hors ligne.
+              Sécurité activée. À la prochaine connexion, utilisez votre passkey téléphone (ou
+              votre code OTP si vous l’avez choisi).
             </p>
             <button
               type="button"
@@ -300,8 +392,6 @@ function Setup2faForm() {
             </button>
           </div>
         ) : null}
-
-        {step !== "done" ? <SwitchAccountLink /> : null}
       </div>
     </div>
   );

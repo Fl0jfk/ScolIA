@@ -22,6 +22,8 @@ export type ClientAppUser = {
   orgAdmin: boolean;
   platformAdmin: boolean;
   twoFactorEnabled: boolean;
+  hasPasskey: boolean;
+  mfaSatisfied: boolean;
   isSignedIn: boolean;
   authSource: "better-auth" | "none";
   externalUserId?: string;
@@ -61,9 +63,13 @@ function mapApiUser(u: {
   orgAdmin?: boolean;
   platformAdmin?: boolean;
   twoFactorEnabled?: boolean;
+  hasPasskey?: boolean;
+  mfaSatisfied?: boolean;
   authSource?: "better-auth";
 }): ClientAppUser {
   const roles = Array.isArray(u.roles) ? u.roles : [];
+  const twoFactorEnabled = Boolean(u.twoFactorEnabled);
+  const hasPasskey = Boolean(u.hasPasskey);
   return {
     id: u.id,
     businessUserId: u.businessUserId?.trim() || u.externalUserId?.trim() || u.id,
@@ -75,7 +81,9 @@ function mapApiUser(u: {
     roles,
     orgAdmin: Boolean(u.orgAdmin || u.platformAdmin || roles.includes("admin")),
     platformAdmin: Boolean(u.platformAdmin),
-    twoFactorEnabled: Boolean(u.twoFactorEnabled),
+    twoFactorEnabled,
+    hasPasskey,
+    mfaSatisfied: Boolean(u.mfaSatisfied) || twoFactorEnabled || hasPasskey,
     isSignedIn: true,
     authSource: u.authSource ?? "better-auth",
     externalUserId: u.externalUserId,

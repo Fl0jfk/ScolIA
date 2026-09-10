@@ -10,6 +10,8 @@ import {
   resolveBusinessUserId,
 } from "@/app/lib/auth-roles-db";
 import { normalizeIntranetRoles } from "@/app/lib/intranet-roles";
+import { userHasPasskey } from "@/app/lib/passkey-db";
+import { isMfaSatisfied } from "@/app/lib/two-factor-policy";
 
 export type AuthSource = "better-auth";
 
@@ -26,6 +28,8 @@ export type AppUser = {
   orgAdmin: boolean;
   platformAdmin: boolean;
   twoFactorEnabled: boolean;
+  hasPasskey: boolean;
+  mfaSatisfied: boolean;
   externalUserId?: string;
   authSource: AuthSource;
 };
@@ -71,6 +75,8 @@ async function betterAuthSessionToAppUser(): Promise<AppUser | null> {
     const businessUserId =
       u.externalUserId?.trim() ||
       (etablissementId ? await resolveBusinessUserId(u.id, etablissementId) : u.id);
+    const twoFactorEnabled = Boolean(u.twoFactorEnabled);
+    const hasPasskey = await userHasPasskey(u.id);
 
     return {
       id: u.id,
@@ -86,7 +92,9 @@ async function betterAuthSessionToAppUser(): Promise<AppUser | null> {
       platformAdmin:
         Boolean(u.platformAdmin) ||
         isPlatformMasterFromAppUser({ roles, platformAdmin: u.platformAdmin }),
-      twoFactorEnabled: Boolean(u.twoFactorEnabled),
+      twoFactorEnabled,
+      hasPasskey,
+      mfaSatisfied: isMfaSatisfied({ twoFactorEnabled, hasPasskey }),
       externalUserId: u.externalUserId ?? undefined,
       authSource: "better-auth",
     };
