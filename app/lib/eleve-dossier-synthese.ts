@@ -238,7 +238,7 @@ export async function buildEleveSyntheseSnapshot(params: {
   absences?: EleveSyntheseSnapshot["absences"];
   finances?: EleveSyntheseSnapshot["finances"];
   groupes?: Array<{ code: string; libelle: string; type: string }>;
-  /** false = skip internat S3 + photo signée (GET fiche rapide). */
+  /** false = skip internat S3 + photo signée + groupes EDT (GET fiche rapide). */
   includeHeavyExtras?: boolean;
 }): Promise<EleveSyntheseSnapshot> {
   const includeHeavy = params.includeHeavyExtras === true;
@@ -317,15 +317,17 @@ export async function buildEleveSyntheseSnapshot(params: {
   const { groupesAcademiques, groupesInternes } = splitGroupesForSynthese(params.groupes ?? []);
 
   let groupesEdt: EleveSyntheseSnapshot["groupesEdt"] = [];
-  try {
-    const cfg = await loadAppConfig();
-    groupesEdt = teachingGroupsForClasse(
-      params.eleve.classe,
-      cfg.teachingGroups.groups,
-      schoolClassesMatch,
-    );
-  } catch {
-    groupesEdt = [];
+  if (includeHeavy) {
+    try {
+      const cfg = await loadAppConfig();
+      groupesEdt = teachingGroupsForClasse(
+        params.eleve.classe,
+        cfg.teachingGroups.groups,
+        schoolClassesMatch,
+      );
+    } catch {
+      groupesEdt = [];
+    }
   }
 
   return {

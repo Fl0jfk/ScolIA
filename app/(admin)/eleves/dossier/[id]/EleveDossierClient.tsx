@@ -310,6 +310,7 @@ export default function EleveDossierClient() {
   const [dragOver, setDragOver] = useState(false);
   const [accompagnementDragOver, setAccompagnementDragOver] = useState(false);
   const [staleCache, setStaleCache] = useState(false);
+  const [extrasReady, setExtrasReady] = useState(false);
   const dataRef = useRef<DossierPayload | null>(null);
   dataRef.current = data;
 
@@ -367,7 +368,34 @@ export default function EleveDossierClient() {
         return;
       }
       const payload = j as DossierPayload;
-      setData(payload);
+      setData((prev) => {
+        if (prev?.eleve.id === id && (prev.notes?.length || prev.documents?.length || prev.absences?.length)) {
+          return {
+            ...payload,
+            notes: prev.notes,
+            competences: prev.competences,
+            absences: prev.absences,
+            sanctions: prev.sanctions,
+            carnet: prev.carnet,
+            documents: prev.documents,
+            accompagnements: prev.accompagnements,
+            pap: prev.pap,
+            classmates: prev.classmates,
+            foyers: prev.foyers.length > 0 ? prev.foyers : payload.foyers,
+            synthese:
+              prev.synthese && payload.synthese
+                ? {
+                    ...payload.synthese,
+                    notesTrimestre: prev.synthese.notesTrimestre,
+                    absences: prev.synthese.absences,
+                    finances: prev.synthese.finances,
+                    groupesEdt: prev.synthese.groupesEdt ?? payload.synthese.groupesEdt,
+                  }
+                : payload.synthese,
+          };
+        }
+        return payload;
+      });
       setStaleCache(false);
       setError(null);
       try {
@@ -375,6 +403,27 @@ export default function EleveDossierClient() {
       } catch {
         /* quota / private mode */
       }
+      setExtrasReady(false);
+      void fetch(`/api/eleves/${id}/dossier?part=extras`, { cache: "no-store" })
+        .then(async (extrasRes) => {
+          if (!extrasRes.ok) {
+            setExtrasReady(true);
+            return;
+          }
+          const extras = (await extrasRes.json().catch(() => null)) as DossierPayload | null;
+          if (extras && extras.eleve?.id === id) {
+            setData(extras);
+            try {
+              sessionStorage.setItem(cacheKey, JSON.stringify(extras));
+            } catch {
+              /* quota / private mode */
+            }
+          }
+          setExtrasReady(true);
+        })
+        .catch(() => {
+          setExtrasReady(true);
+        });
       const firstTiroir = payload.meta?.tiroirs?.[0];
       if (firstTiroir) {
         setUploadMeta((m) =>
@@ -1713,9 +1762,13 @@ export default function EleveDossierClient() {
           </div>
           {(data.notes || []).length === 0 ? (
             <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/60 p-8 text-center">
-              <p className="text-sm font-semibold text-slate-700">Aucune moyenne enregistrée</p>
+              <p className="text-sm font-semibold text-slate-700">
+                {extrasReady ? "Aucune moyenne enregistrée" : "Chargement des notes…"}
+              </p>
               <p className="mt-1 text-xs text-slate-500">
-                Les moyennes apparaîtront dès qu&apos;un devoir sera saisi pour cet élève.
+                {extrasReady
+                  ? "Les moyennes apparaîtront dès qu’un devoir sera saisi pour cet élève."
+                  : "Les moyennes et compétences arrivent juste après la fiche."}
               </p>
             </div>
           ) : (

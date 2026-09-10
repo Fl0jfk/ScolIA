@@ -100,7 +100,7 @@ function canEditStructure(
   );
 }
 
-export async function GET(_req: Request, ctx: Ctx) {
+export async function GET(req: Request, ctx: Ctx) {
   try {
   const gate = await requireAppUser();
   if (!gate.ok) {
@@ -178,6 +178,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   const needScol = sections.includes("scolarite");
   const needFactu = sections.includes("facturation");
   const needFamille = sections.includes("famille");
+  const loadExtras = new URL(req.url).searchParams.get("part") === "extras";
 
   // Rattrapage hors chemin critique : sync scolarité en arrière-plan.
   after(async () => {
@@ -192,43 +193,20 @@ export async function GET(_req: Request, ctx: Ctx) {
     }
   });
 
-  const [
-    scolarites,
-    links,
-    documentsRaw,
-    sites,
-    annees,
-    notesRaw,
-    competencesRaw,
-    groupesEleve,
-    absencesRaw,
-    sanctionsRaw,
-    carnetRaw,
-    financesSynthese,
-    classmates,
-    accompagnementDocs,
-  ] = await Promise.all([
+  // GET ?part=extras = notes / VS / docs / camarades / factu / foyers.
+  // GET socle = identité + scolarité + sites (premier écran).
+  const [scolarites, links, sites, annees, groupesEleve, extrasPack] = await Promise.all([
     db
       .select()
       .from(eleveScolarite)
       .where(and(eq(eleveScolarite.etablissementId, etabId), eq(eleveScolarite.eleveId, id)))
       .orderBy(desc(eleveScolarite.createdAt)),
-    needFamille
+    needFamille && loadExtras
       ? db
           .select()
           .from(eleveFoyerLink)
           .where(and(eq(eleveFoyerLink.etablissementId, etabId), eq(eleveFoyerLink.eleveId, id)))
       : Promise.resolve([] as (typeof eleveFoyerLink.$inferSelect)[]),
-    needDocs
-      ? listEleveDocumentsForViewer({
-          etablissementId: etabId,
-          eleveId: id,
-          userId: authUserId,
-          roles,
-          orgAdmin,
-          platformAdmin,
-        }).catch(() => [])
-      : Promise.resolve([]),
     db
       .select({
         siteId: etablissementSite.siteId,
@@ -247,44 +225,64 @@ export async function GET(_req: Request, ctx: Ctx) {
       .from(anneeScolaire)
       .where(eq(anneeScolaire.etablissementId, etabId))
       .orderBy(desc(anneeScolaire.label)),
-    needNotes
-      ? listMoyennesForEleve(etabId, id).catch(() => [])
-      : Promise.resolve([]),
-    needNotes
-      ? listCompetencesForEleve(etabId, id).catch(() => [])
-      : Promise.resolve([]),
     listGroupesForEleve(etabId, id).catch(() => []),
-    needVs
-      ? listAbsencesForEleve(etabId, id, { limit: 40 }).catch(() => [])
-      : Promise.resolve([]),
-    needVs
-      ? listSanctionsForEleve(etabId, id, { limit: 30 }).catch(() => [])
-      : Promise.resolve([]),
-    needVs
-      ? listCarnetForEleve(etabId, id, { limit: 30 }).catch(() => [])
-      : Promise.resolve([]),
-    needFactu
-      ? countFacturesEnRetardForEleve(etabId, id, parisDateKey(new Date()))
-          .then((enRetard) => ({
-            available: true as const,
-            label: enRetard > 0 ? `${enRetard} facture(s) en retard` : "Facturation à jour",
-            detail:
-              enRetard > 0
-                ? "Échéance dépassée — voir l’onglet Finances"
-                : "Aucune facture émise en retard pour ce foyer.",
-          }))
-          .catch(() => undefined)
-      : Promise.resolve(undefined),
-    row.classe
-      ? listClassmatesForEleve(etabId, row.classe, {
-          excludeEleveId: id,
-          assignedClasses: assignedClassesForProf,
-        })
-      : Promise.resolve([]),
-    getLatestAccompagnementDocumentsForEleve({ etablissementId: etabId, eleveId: id }).catch(
-      () => [],
-    ),
+    loadExtras
+      ? Promise.all([
+          needDocs
+            ? listEleveDocumentsForViewer({
+                etablissementId: etabId,
+                eleveId: id,
+                userId: authUserId,
+                roles,
+                orgAdmin,
+                platformAdmin,
+              }).catch(() => [])
+            : Promise.resolve([]),
+          needNotes ? listMoyennesForEleve(etabId, id).catch(() => []) : Promise.resolve([]),
+          needNotes ? listCompetencesForEleve(etabId, id).catch(() => []) : Promise.resolve([]),
+          needVs
+            ? listAbsencesForEleve(etabId, id, { limit: 40 }).catch(() => [])
+            : Promise.resolve([]),
+          needVs
+            ? listSanctionsForEleve(etabId, id, { limit: 30 }).catch(() => [])
+            : Promise.resolve([]),
+          needVs
+            ? listCarnetForEleve(etabId, id, { limit: 30 }).catch(() => [])
+            : Promise.resolve([]),
+          needFactu
+            ? countFacturesEnRetardForEleve(etabId, id, parisDateKey(new Date()))
+                .then((enRetard) => ({
+                  available: true as const,
+                  label: enRetard > 0 ? `${enRetard} facture(s) en retard` : "Facturation à jour",
+                  detail:
+                    enRetard > 0
+                      ? "Échéance dépassée — voir l’onglet Finances"
+                      : "Aucune facture émise en retard pour ce foyer.",
+                }))
+                .catch(() => undefined)
+            : Promise.resolve(undefined),
+          row.classe
+            ? listClassmatesForEleve(etabId, row.classe, {
+                excludeEleveId: id,
+                assignedClasses: assignedClassesForProf,
+              })
+            : Promise.resolve([]),
+          getLatestAccompagnementDocumentsForEleve({
+            etablissementId: etabId,
+            eleveId: id,
+          }).catch(() => []),
+        ])
+      : Promise.resolve(null),
   ]);
+  const documentsRaw = extrasPack?.[0] ?? [];
+  const notesRaw = extrasPack?.[1] ?? [];
+  const competencesRaw = extrasPack?.[2] ?? [];
+  const absencesRaw = extrasPack?.[3] ?? [];
+  const sanctionsRaw = extrasPack?.[4] ?? [];
+  const carnetRaw = extrasPack?.[5] ?? [];
+  const financesSynthese = extrasPack?.[6];
+  const classmates = extrasPack?.[7] ?? [];
+  const accompagnementDocs = extrasPack?.[8] ?? [];
 
   // Foyers : 2 requêtes max au lieu de N+1
   const foyers: Array<{
@@ -415,17 +413,20 @@ export async function GET(_req: Request, ctx: Ctx) {
     }).catch((auditErr) => console.error("[eleves/dossier] audit view", auditErr));
   });
 
-  let catalog;
-  try {
-    catalog = await buildEleveDossierClassCatalog(sites);
-  } catch (catalogErr) {
-    console.error("[eleves/dossier] catalog", catalogErr);
-    catalog = {
-      sites: sites.map((s) => ({ siteId: s.siteId, label: s.label, kind: s.kind })),
-      siteLabelById: new Map(sites.map((s) => [s.siteId, s.label])),
-      classToSiteId: new Map<string, string>(),
-      classOptions: [],
-    };
+  const catalogFallback = {
+    sites: sites.map((s) => ({ siteId: s.siteId, label: s.label, kind: s.kind })),
+    siteLabelById: new Map(sites.map((s) => [s.siteId, s.label])),
+    classToSiteId: new Map<string, string>(),
+    classOptions: [],
+  };
+  let catalog = catalogFallback;
+  if (loadExtras) {
+    try {
+      catalog = await buildEleveDossierClassCatalog(sites, { etablissementId: etabId });
+    } catch (catalogErr) {
+      console.error("[eleves/dossier] catalog", catalogErr);
+      catalog = catalogFallback;
+    }
   }
   const currentScolarite = scolarites[0] ?? null;
   const siteIdFromScolarite = currentScolarite?.siteId ?? null;
@@ -503,7 +504,9 @@ export async function GET(_req: Request, ctx: Ctx) {
     };
   }
 
-  const mefLabel = (await lookupMefLabel(etabId, row.mef)) || row.mef;
+  const mefLabel = loadExtras
+    ? (await lookupMefLabel(etabId, row.mef)) || row.mef
+    : row.mef;
 
   const synthese = await buildEleveSyntheseSnapshot({
     eleve: {
@@ -533,6 +536,7 @@ export async function GET(_req: Request, ctx: Ctx) {
   });
 
   return NextResponse.json({
+    part: loadExtras ? "extras" : "core",
     eleve: profRestrictedView ? sanitizeEleveRowForProfViewer(row) : row,
     sections,
     scolarites,

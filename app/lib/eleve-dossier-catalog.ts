@@ -237,13 +237,15 @@ function overlayClasseSiteMappings(
 
 export async function buildEleveDossierClassCatalog(
   sites: DossierSiteRef[],
+  opts?: { etablissementId?: string | null },
 ): Promise<EleveDossierClassCatalog> {
   const cacheKey = sites
     .map((s) => `${s.siteId}:${s.label}:${s.kind ?? ""}`)
     .sort()
     .join("|");
   const cached = catalogCache.get(cacheKey);
-  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  const etabId =
+    opts?.etablissementId ?? (await resolveCurrentEtablissementId().catch(() => null));
   const mappings = etabId ? await loadClasseSiteMappings(etabId) : [];
 
   if (cached && Date.now() - cached.at < CATALOG_CACHE_MS) {
