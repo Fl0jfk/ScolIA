@@ -524,12 +524,10 @@ function createAuth() {
         rpID: resolvePasskeyRpId(),
         rpName: resolvePasskeyRpName(),
         /**
-         * PC pro : Windows Hello souvent bloqué par l’org.
-         * On privilégie les passkeys cross-platform (téléphone via QR, clé USB).
-         * L’UI peut encore demander « cet appareil » en passant platform.
+         * Ne pas forcer cross-platform ici : ça casse certains navigateurs au login
+         * (popup annulée sans QR). L’UI registration passe encore cross-platform.
          */
         authenticatorSelection: {
-          authenticatorAttachment: "cross-platform",
           residentKey: "preferred",
           userVerification: "preferred",
         },

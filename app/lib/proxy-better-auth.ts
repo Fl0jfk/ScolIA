@@ -8,7 +8,7 @@ import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
 import { isPlatformTenantSlug } from "@/app/lib/platform-tenant";
 import { roleRequiresTwoFactor, isMfaSatisfied } from "@/app/lib/two-factor-policy";
-import { userHasPasskey } from "@/app/lib/passkey-db";
+import { checkUserHasPasskey } from "@/app/lib/passkey-db";
 import type { TenantConfig } from "@/app/lib/tenant-types";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { user } from "@/db/schema";
@@ -68,10 +68,17 @@ export async function resolveBetterAuthProxyState(
     const businessUserId = row?.externalUserId?.trim() || u.id;
     const mustChangePassword = Boolean(row?.mustChangePassword ?? u.mustChangePassword);
     const twoFactorEnabled = Boolean(row?.twoFactorEnabled ?? u.twoFactorEnabled);
-    const hasPasskey = await userHasPasskey(u.id);
+    const passkeyStatus = await checkUserHasPasskey(u.id);
+    const hasPasskey = passkeyStatus.hasPasskey;
+    const mfaSatisfied = isMfaSatisfied({ twoFactorEnabled, hasPasskey });
+    /**
+     * Si le contrôle passkey échoue (pool BDD saturé), on ne renvoie PAS en setup-2fa
+     * et on ne casse pas la session — sinon boucle déco / onboarding MFA.
+     */
     const requiresTwoFactorSetup =
       roleRequiresTwoFactor({ platformAdmin, orgAdmin, roles }) &&
-      !isMfaSatisfied({ twoFactorEnabled, hasPasskey });
+      !mfaSatisfied &&
+      !passkeyStatus.checkFailed;
 
     return {
       userId: businessUserId,
@@ -87,7 +94,7 @@ export async function resolveBetterAuthProxyState(
         must_change_password: mustChangePassword,
         two_factor_enabled: twoFactorEnabled,
         has_passkey: hasPasskey,
-        mfa_satisfied: isMfaSatisfied({ twoFactorEnabled, hasPasskey }),
+        mfa_satisfied: mfaSatisfied,
       },
       orgAdmin,
       platformAdmin,
@@ -118,13 +125,17 @@ export async function resolveBetterAuthProxyStateByUserId(
   const orgAdmin =
     Boolean(row.orgAdmin) || Boolean(row.platformAdmin) || roles.includes("admin");
   const twoFactorEnabled = Boolean(row.twoFactorEnabled);
-  const hasPasskey = await userHasPasskey(row.id);
+  const passkeyStatus = await checkUserHasPasskey(row.id);
+  const hasPasskey = passkeyStatus.hasPasskey;
+  const mfaSatisfied = isMfaSatisfied({ twoFactorEnabled, hasPasskey });
   const requiresTwoFactorSetup =
     roleRequiresTwoFactor({
       platformAdmin: row.platformAdmin,
       orgAdmin,
       roles,
-    }) && !isMfaSatisfied({ twoFactorEnabled, hasPasskey });
+    }) &&
+    !mfaSatisfied &&
+    !passkeyStatus.checkFailed;
   return {
     userId: row.externalUserId?.trim() || row.id,
     authUserId: row.id,
@@ -139,7 +150,7 @@ export async function resolveBetterAuthProxyStateByUserId(
       must_change_password: row.mustChangePassword,
       two_factor_enabled: twoFactorEnabled,
       has_passkey: hasPasskey,
-      mfa_satisfied: isMfaSatisfied({ twoFactorEnabled, hasPasskey }),
+      mfa_satisfied: mfaSatisfied,
     },
     orgAdmin,
     platformAdmin: row.platformAdmin,

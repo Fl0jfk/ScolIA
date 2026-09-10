@@ -5,6 +5,34 @@ import { useRouter, useSearchParams } from "next/navigation";
 import PasswordInput from "@/app/components/auth/PasswordInput";
 import { authClient, rememberMfaEmailHint } from "@/app/lib/auth-client";
 
+function passkeyErrorMessage(err: unknown): string {
+  const code =
+    err && typeof err === "object" && "code" in err
+      ? String((err as { code?: string }).code || "")
+      : "";
+  const msg =
+    err instanceof Error
+      ? err.message
+      : err && typeof err === "object" && "message" in err
+        ? String((err as { message?: string }).message || "")
+        : "";
+
+  if (
+    /AUTH_CANCELLED|ERROR_CEREMONY_ABORTED|cancelled|canceled|abort/i.test(
+      `${code} ${msg}`,
+    )
+  ) {
+    return "Passkey annulée ou indisponible sur ce PC (Windows Hello souvent bloqué). Utilisez e-mail + mot de passe.";
+  }
+  if (/not.?allowed|NotAllowedError/i.test(`${code} ${msg}`)) {
+    return "Le navigateur a refusé la passkey. Sur les postes de l’établissement, préférez e-mail + mot de passe.";
+  }
+  if (/RP_ID|security.?error|InvalidState/i.test(`${code} ${msg}`)) {
+    return "Cette passkey ne correspond pas à ce site (localhost ≠ scolia.fr). Réenregistrez-la depuis Sécurité, ou connectez-vous par mot de passe.";
+  }
+  return msg || "Connexion passkey impossible. Utilisez e-mail + mot de passe.";
+}
+
 export default function BetterAuthSignInPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -31,7 +59,7 @@ export default function BetterAuthSignInPage() {
         const { data } = await authClient.getSession();
         if (cancelled) return;
         if (data?.session) {
-          const u = data.user as { mustChangePassword?: boolean; twoFactorEnabled?: boolean } | undefined;
+          const u = data.user as { mustChangePassword?: boolean } | undefined;
           if (u?.mustChangePassword) {
             router.replace(
               `/auth/change-password-required?redirect_url=${encodeURIComponent(redirectTo)}`,
@@ -60,18 +88,14 @@ export default function BetterAuthSignInPage() {
         autoFill: false,
       });
       if (passkeyError) {
-        throw new Error(
-          passkeyError.message ||
-            "Passkey annulée. Scannez le QR avec votre téléphone, ou connectez-vous par mot de passe.",
-        );
+        throw passkeyError;
       }
       if (!data?.session) {
         throw new Error("Connexion passkey incomplète.");
       }
-      router.push(redirectTo);
-      router.refresh();
+      window.location.assign(redirectTo);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Connexion passkey impossible.");
+      setError(passkeyErrorMessage(err));
     } finally {
       setPasskeyLoading(false);
     }
@@ -108,8 +132,7 @@ export default function BetterAuthSignInPage() {
       );
       return;
     }
-    router.push(redirectTo);
-    router.refresh();
+    window.location.assign(redirectTo);
   }
 
   if (checkingSession) {
@@ -136,7 +159,7 @@ export default function BetterAuthSignInPage() {
           <div>
             <h1 className="text-xl font-semibold text-emerald-950">Connexion intranet</h1>
             <p className="mt-1 text-sm text-emerald-800/70">
-              Passkey téléphone, ou e-mail + mot de passe
+              E-mail et mot de passe (passkey en option)
             </p>
           </div>
         </div>
@@ -144,31 +167,6 @@ export default function BetterAuthSignInPage() {
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
             {error}
           </p>
-        ) : null}
-
-        {passkeySupported ? (
-          <>
-            <button
-              type="button"
-              disabled={passkeyLoading || loading}
-              onClick={() => void onPasskeySignIn()}
-              className="w-full rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2.5 text-sm font-medium text-white hover:brightness-110 disabled:opacity-60"
-            >
-              {passkeyLoading ? "En attente du téléphone…" : "Se connecter avec une passkey"}
-            </button>
-            <p className="text-center text-xs text-emerald-800/70">
-              Le navigateur propose un QR à scanner avec votre téléphone (Windows Hello non
-              requis).
-            </p>
-            <div className="relative py-1">
-              <div className="absolute inset-0 flex items-center" aria-hidden>
-                <div className="w-full border-t border-emerald-100" />
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="bg-white px-2 text-emerald-800/60">ou</span>
-              </div>
-            </div>
-          </>
         ) : null}
 
         <label className="block space-y-1 text-sm">
@@ -195,10 +193,36 @@ export default function BetterAuthSignInPage() {
         <button
           type="submit"
           disabled={loading || passkeyLoading}
-          className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-950 hover:bg-emerald-100 disabled:opacity-60"
+          className="w-full rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2.5 text-sm font-medium text-white hover:brightness-110 disabled:opacity-60"
         >
-          {loading ? "Connexion…" : "Se connecter avec le mot de passe"}
+          {loading ? "Connexion…" : "Se connecter"}
         </button>
+
+        {passkeySupported ? (
+          <>
+            <div className="relative py-1">
+              <div className="absolute inset-0 flex items-center" aria-hidden>
+                <div className="w-full border-t border-emerald-100" />
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="bg-white px-2 text-emerald-800/60">ou</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={passkeyLoading || loading}
+              onClick={() => void onPasskeySignIn()}
+              className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-950 hover:bg-emerald-100 disabled:opacity-60"
+            >
+              {passkeyLoading ? "Invite navigateur…" : "Se connecter avec une passkey"}
+            </button>
+            <p className="text-center text-xs text-emerald-800/70">
+              Le navigateur ouvre sa propre fenêtre (téléphone / clé). Sur PC pro sans Windows
+              Hello, le mot de passe reste le plus fiable.
+            </p>
+          </>
+        ) : null}
+
         <p className="text-center text-sm">
           <a
             href="/auth/forgot-password"

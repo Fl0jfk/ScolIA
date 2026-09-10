@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 import PasswordInput from "@/app/components/auth/PasswordInput";
 import SwitchAccountLink from "@/app/components/auth/SwitchAccountLink";
@@ -22,7 +22,6 @@ async function prepareTwoFactorSetup(): Promise<void> {
 }
 
 function Setup2faForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect_url") || "/dashboard";
   const [mode, setMode] = useState<Mode>("choose");
@@ -62,7 +61,7 @@ function Setup2faForm() {
         const u = data.user;
         if (!u || cancelled) return;
         if (u.mfaSatisfied || u.hasPasskey || u.twoFactorEnabled) {
-          setMode("done");
+          window.location.assign(redirectTo);
           return;
         }
         setCanSkipMfa(
@@ -79,7 +78,7 @@ function Setup2faForm() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [redirectTo]);
 
   useEffect(() => {
     if (!totpUri) {
@@ -95,13 +94,17 @@ function Setup2faForm() {
     };
   }, [totpUri]);
 
+  async function goToApp() {
+    // Navigation hard : le proxy doit revoir hasPasskey sans cache RSC.
+    window.location.assign(redirectTo);
+  }
+
   async function skipSetup() {
     setBusy(true);
     setError(null);
     try {
       await prepareTwoFactorSetup();
-      router.replace(redirectTo);
-      router.refresh();
+      goToApp();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Impossible de continuer sans MFA.");
       setBusy(false);
@@ -120,7 +123,7 @@ function Setup2faForm() {
       if (regError) {
         throw new Error(
           regError.message ||
-            "Enregistrement annulé ou impossible. Scannez le QR avec votre téléphone (Chrome / Safari).",
+            "Enregistrement annulé. Choisissez « téléphone / tablette » dans la fenêtre du navigateur, ou utilisez l’appli OTP.",
         );
       }
       if (!data) throw new Error("Aucune passkey enregistrée.");
@@ -131,10 +134,13 @@ function Setup2faForm() {
         body: JSON.stringify({ action: "passkey_registered" }),
       });
       setMode("done");
+      // Laisse le temps d’afficher le succès puis entre dans l’intranet.
+      window.setTimeout(() => {
+        goToApp();
+      }, 600);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur passkey");
       setMode("choose");
-    } finally {
       setBusy(false);
     }
   }
@@ -185,6 +191,9 @@ function Setup2faForm() {
         throw new Error("Code accepté mais activation MFA incomplète. Réessayez.");
       }
       setMode("done");
+      window.setTimeout(() => {
+        goToApp();
+      }, 600);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally {
@@ -213,11 +222,11 @@ function Setup2faForm() {
         {mode === "choose" ? (
           <div className="space-y-3">
             <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-950">
-              <p className="font-semibold">Recommandé : passkey sur votre téléphone</p>
+              <p className="font-semibold">Passkey téléphone (si le navigateur le propose)</p>
               <p className="mt-1 text-emerald-900/80">
-                Sur les PC de l’établissement, Windows Hello est souvent bloqué. Le navigateur
-                affichera un <strong>QR code</strong> : scannez-le avec votre téléphone (Face ID /
-                empreinte). Aucune appli OTP à gérer.
+                Une fenêtre du navigateur s’ouvre : choisissez téléphone / tablette. Sur certains PC
+                pro, Windows Hello est bloqué et le QR n’apparaît pas — dans ce cas utilisez l’appli
+                OTP ci-dessous.
               </p>
             </div>
             <button
@@ -377,15 +386,11 @@ function Setup2faForm() {
         {mode === "done" ? (
           <div className="space-y-3">
             <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-              Sécurité activée. À la prochaine connexion, utilisez votre passkey téléphone (ou
-              votre code OTP si vous l’avez choisi).
+              Sécurité activée. Redirection vers l’intranet…
             </p>
             <button
               type="button"
-              onClick={() => {
-                router.replace(redirectTo);
-                router.refresh();
-              }}
+              onClick={() => goToApp()}
               className="w-full rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2.5 text-sm font-bold text-white"
             >
               Continuer vers l’intranet

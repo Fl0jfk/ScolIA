@@ -17,7 +17,13 @@ export function getDb() {
     throw new Error("DATABASE_URL manquante — configure PostgreSQL Scaleway.");
   }
   if (!client) {
-    client = postgres(url, { max: 10, prepare: false });
+    client = postgres(url, {
+      max: 5,
+      prepare: false,
+      idle_timeout: 20,
+      max_lifetime: 60 * 10,
+      connect_timeout: 15,
+    });
     dbInstance = drizzle(client, { schema });
   }
   return dbInstance!;

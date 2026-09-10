@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getBetterAuth } from "@/app/lib/auth-server";
+import { checkUserHasPasskey } from "@/app/lib/passkey-db";
 import { consumeRateLimit } from "@/app/lib/rate-limit";
 import {
   clearIncompleteTwoFactorSetup,
@@ -43,14 +44,21 @@ export async function POST(req: Request) {
     .where(eq(user.id, userId))
     .limit(1);
 
-  if (row?.twoFactorEnabled) {
+  const passkeyStatus = await checkUserHasPasskey(userId);
+  if (row?.twoFactorEnabled || passkeyStatus.hasPasskey) {
     return NextResponse.json({
       ok: true,
       alreadyEnabled: true,
       cleared: false,
+      hasPasskey: passkeyStatus.hasPasskey,
     });
   }
 
   const cleared = await clearIncompleteTwoFactorSetup(userId);
-  return NextResponse.json({ ok: true, alreadyEnabled: false, cleared });
+  return NextResponse.json({
+    ok: true,
+    alreadyEnabled: false,
+    cleared,
+    hasPasskey: false,
+  });
 }
