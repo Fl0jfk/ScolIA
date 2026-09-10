@@ -78,7 +78,8 @@ export type IntranetModule = {
 const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/dashboard",
   "/api/app/context",
-  "/api/teams-chat",
+  /** Messagerie bulles (overlay global) — auth session dans les routes. */
+  "/api/messaging",
   "/api/tenant/public",
   "/api/tenant/diagnostics",
   /** Compte : MDP / e-mail / events — sinon « Accès refusé à ce module » au premier login. */
@@ -308,6 +309,19 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/channels",
       external: false,
+    },
+  },
+  {
+    id: "messagerie",
+    pathPrefixes: ["/messagerie", "/api/messaging"],
+    allowedRoles: [...ROLES_EXCEPT_PARENT].filter((r) => r !== "eleve"),
+    dashboard: {
+      id: 60,
+      name: "Messagerie",
+      img: "",
+      link: "/messagerie",
+      external: false,
+      description: "Messages 1:1 avec le personnel — bulles style Messenger.",
     },
   },
   {

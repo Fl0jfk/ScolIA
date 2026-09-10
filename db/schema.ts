@@ -21,6 +21,7 @@ import { charlemagneP3Schema } from "./schema-charlemagne-p3";
 import { charlemagneP4Schema } from "./schema-charlemagne-p4";
 import { charlemagneP5Schema } from "./schema-charlemagne-p5";
 import { fichesDialogueSchema } from "./schema-fiches-dialogue";
+import { messagingSchema } from "./schema-messaging";
 
 export { etablissement };
 export * from "./schema-ent-relational";
@@ -31,6 +32,7 @@ export * from "./schema-charlemagne-p3";
 export * from "./schema-charlemagne-p4";
 export * from "./schema-charlemagne-p5";
 export * from "./schema-fiches-dialogue";
+export * from "./schema-messaging";
 export * from "./schema-portes-ouvertes";
 
 /** Utilisateur Better-Auth (multi-tenant via etablissement_id). */
@@ -842,6 +844,7 @@ export const appSchema = {
   ...charlemagneP4Schema,
   ...charlemagneP5Schema,
   ...fichesDialogueSchema,
+  ...messagingSchema,
 };
 
 export const schema = {
