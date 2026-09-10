@@ -782,14 +782,10 @@ export default function RhPlanningPanel() {
                       : undefined
                   }
                   renderCard={(slot) => {
-                    const full =
-                      teacherGridSlots.find((s) => s.id === slot.id) ||
-                      (teacherSlots.find((s) => s.id === slot.id) as TeacherPlanningSlot | undefined);
+                    const full = teacherGridSlots.find((s) => s.id === slot.id);
                     if (!full) return null;
                     const colorKey = full.subject || "cours";
-                    const badge = teacherGridWeekBadgeLabel(
-                      "weekLane" in full && full.weekLane ? full.weekLane : slot.weekLane || "full",
-                    );
+                    const badge = teacherGridWeekBadgeLabel(full.weekLane);
                     return (
                       <div className={`${planningSlotCardClass(colorKey)} relative`}>
                         {badge ? (
