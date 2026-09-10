@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { MessagingConversationDto, MessagingPeer } from "@/app/lib/messaging/types";
+import type {
+  MessagingConversationDto,
+  MessagingMyPresenceDto,
+  MessagingPeer,
+  MessagingPresenceStatus,
+} from "@/app/lib/messaging/types";
 import {
   IconSearch,
   IconMessageCircle,
@@ -10,6 +15,8 @@ import {
   IconUsers,
   IconX,
 } from "./MessagingIcons";
+import MessagingPresenceBadge from "./MessagingPresenceBadge";
+import MessagingStatusPicker from "./MessagingStatusPicker";
 
 type Props = {
   open: boolean;
@@ -20,6 +27,13 @@ type Props = {
   onOpenConversation: (conversation: MessagingConversationDto) => void;
   onStartWithPeer: (peer: MessagingPeer) => void;
   onCreateGroup: (title: string, memberIds: string[]) => void;
+  presenceOf?: (userId: string | null | undefined) => MessagingPresenceStatus;
+  presenceForConversation?: (conv: MessagingConversationDto) => MessagingPresenceStatus;
+  myPresence?: MessagingMyPresenceDto;
+  onSetManualStatus?: (
+    status: Exclude<MessagingPresenceStatus, "offline">,
+    durationHours: 0 | 1 | 4 | 24,
+  ) => Promise<unknown>;
 };
 
 type DirectoryUser = MessagingPeer;
@@ -28,48 +42,55 @@ type Tab = "recent" | "people" | "group";
 function ConvAvatar({
   conv,
   unread = 0,
+  presence = "offline",
 }: {
   conv: MessagingConversationDto;
   unread?: number;
+  presence?: MessagingPresenceStatus;
 }) {
   const peer = conv.peer;
+  const avatar =
+    conv.kind === "group" ? (
+      <div className="relative flex h-11 w-11 overflow-hidden rounded-full bg-gradient-to-br from-sky-500 to-indigo-600">
+        {conv.membersPreview.slice(0, 2).length === 0 ? (
+          <span className="flex h-full w-full items-center justify-center text-xs font-bold text-white">
+            {(conv.title || "G").slice(0, 1).toUpperCase()}
+          </span>
+        ) : (
+          <div className="absolute inset-0 grid grid-cols-2">
+            {conv.membersPreview.slice(0, 2).map((m) => (
+              <div key={m.id} className="overflow-hidden bg-slate-200">
+                {m.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={m.imageUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-[9px] font-bold text-slate-700">
+                    {m.name.slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    ) : (
+      <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-sky-100 text-sm font-semibold text-sky-800">
+        {peer?.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={peer.imageUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          (peer?.name || conv.title || "?").slice(0, 1).toUpperCase()
+        )}
+      </div>
+    );
+
   return (
     <div className="relative shrink-0">
-      {conv.kind === "group" ? (
-        <div className="relative flex h-11 w-11 overflow-hidden rounded-full bg-gradient-to-br from-sky-500 to-indigo-600">
-          {conv.membersPreview.slice(0, 2).length === 0 ? (
-            <span className="flex h-full w-full items-center justify-center text-xs font-bold text-white">
-              {(conv.title || "G").slice(0, 1).toUpperCase()}
-            </span>
-          ) : (
-            <div className="absolute inset-0 grid grid-cols-2">
-              {conv.membersPreview.slice(0, 2).map((m) => (
-                <div key={m.id} className="overflow-hidden bg-slate-200">
-                  {m.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.imageUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <span className="flex h-full w-full items-center justify-center text-[9px] font-bold text-slate-700">
-                      {m.name.slice(0, 1).toUpperCase()}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-sky-100 text-sm font-semibold text-sky-800">
-          {peer?.imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={peer.imageUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            (peer?.name || conv.title || "?").slice(0, 1).toUpperCase()
-          )}
-        </div>
-      )}
+      <MessagingPresenceBadge status={presence} dotClassName="h-3 w-3">
+        {avatar}
+      </MessagingPresenceBadge>
       {unread > 0 ? (
-        <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold text-white ring-2 ring-white">
+        <span className="absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-bold text-white ring-2 ring-white">
           {unread > 9 ? "9+" : unread}
         </span>
       ) : null}
@@ -77,16 +98,24 @@ function ConvAvatar({
   );
 }
 
-function PeerAvatar({ peer }: { peer: MessagingPeer }) {
+function PeerAvatar({
+  peer,
+  presence = "offline",
+}: {
+  peer: MessagingPeer;
+  presence?: MessagingPresenceStatus;
+}) {
   return (
-    <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-sky-100 text-xs font-semibold text-sky-800">
-      {peer.imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={peer.imageUrl} alt="" className="h-full w-full object-cover" />
-      ) : (
-        (peer.name || "?").slice(0, 1).toUpperCase()
-      )}
-    </div>
+    <MessagingPresenceBadge status={presence} dotClassName="h-2.5 w-2.5">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-sky-100 text-xs font-semibold text-sky-800">
+        {peer.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={peer.imageUrl} alt="" className="h-full w-full object-cover" />
+        ) : (
+          (peer.name || "?").slice(0, 1).toUpperCase()
+        )}
+      </div>
+    </MessagingPresenceBadge>
   );
 }
 
@@ -98,6 +127,10 @@ export default function MessagingMainPanel({
   onOpenConversation,
   onStartWithPeer,
   onCreateGroup,
+  presenceOf,
+  presenceForConversation,
+  myPresence,
+  onSetManualStatus,
 }: Props) {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("recent");
@@ -109,6 +142,9 @@ export default function MessagingMainPanel({
   const [searchResults, setSearchResults] = useState<
     Array<{ messageId: string; conversationId: string; body: string | null; createdAt: string }>
   >([]);
+  const [directoryPresence, setDirectoryPresence] = useState<
+    Record<string, MessagingPresenceStatus>
+  >({});
 
   useEffect(() => {
     if (!open) return;
@@ -121,6 +157,36 @@ export default function MessagingMainPanel({
       .catch(() => setUsers([]))
       .finally(() => setLoadingUsers(false));
   }, [open]);
+
+  useEffect(() => {
+    if (!open || users.length === 0) return;
+    const ids = users.map((u) => u.id).slice(0, 200);
+    let cancelled = false;
+    const load = () => {
+      void fetch(
+        `/api/messaging/presence?userIds=${encodeURIComponent(ids.join(","))}`,
+        { cache: "no-store" },
+      )
+        .then((r) => r.json())
+        .then((data: { presence?: Record<string, MessagingPresenceStatus> }) => {
+          if (!cancelled && data.presence) setDirectoryPresence(data.presence);
+        })
+        .catch(() => undefined);
+    };
+    load();
+    const timer = setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [open, users]);
+
+  const peerPresence = (userId: string): MessagingPresenceStatus =>
+    presenceOf?.(userId) ?? directoryPresence[userId] ?? "offline";
+
+  const convPresence = (c: MessagingConversationDto): MessagingPresenceStatus =>
+    presenceForConversation?.(c) ??
+    (c.kind === "dm" ? peerPresence(c.peer?.id ?? "") : "offline");
 
   useEffect(() => {
     if (!open) {
@@ -230,6 +296,12 @@ export default function MessagingMainPanel({
           />
         </div>
 
+        {myPresence && onSetManualStatus ? (
+          <div className="relative mt-3">
+            <MessagingStatusPicker myPresence={myPresence} onSetManual={onSetManualStatus} />
+          </div>
+        ) : null}
+
         <div className="relative mt-3 flex gap-1 rounded-full bg-black/15 p-1">
           {(
             [
@@ -301,7 +373,7 @@ export default function MessagingMainPanel({
                   className="mb-0.5 flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition hover:bg-sky-50"
                   onClick={() => onOpenConversation(c)}
                 >
-                  <ConvAvatar conv={c} unread={c.unreadCount} />
+                  <ConvAvatar conv={c} unread={c.unreadCount} presence={convPresence(c)} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
                       <p className="truncate text-sm font-semibold text-slate-800">{c.title}</p>
@@ -338,7 +410,7 @@ export default function MessagingMainPanel({
                   className="mb-0.5 flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left hover:bg-sky-50"
                   onClick={() => onStartWithPeer(u)}
                 >
-                  <PeerAvatar peer={u} />
+                  <PeerAvatar peer={u} presence={peerPresence(u.id)} />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-slate-800">{u.name}</p>
                   </div>
@@ -389,7 +461,7 @@ export default function MessagingMainPanel({
                         }}
                         className="rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                       />
-                      <PeerAvatar peer={u} />
+                      <PeerAvatar peer={u} presence={peerPresence(u.id)} />
                       <span className="truncate text-sm text-slate-800">{u.name}</span>
                     </label>
                   );

@@ -5,6 +5,7 @@ import { useSessionUser } from "@/app/hooks/useAppUser";
 import {
   MESSAGING_FAB_CLASS,
   MESSAGING_FAB_POSITION,
+  MESSAGING_HEAD_CLASS,
   MESSAGING_MAX_DOCKED,
   MESSAGING_MAX_DOCKED_NARROW,
   MESSAGING_NARROW_MQ,
@@ -21,11 +22,14 @@ import type {
   MessagingConversationDto,
   MessagingMessageDto,
   MessagingPeer,
+  MessagingPresenceStatus,
   MessagingSseEvent,
 } from "@/app/lib/messaging/types";
 import { useMessagingConversations, useMessagingStream } from "./useMessagingData";
 import MessagingMainPanel from "./MessagingMainPanel";
 import MessagingConversationPanel from "./MessagingConversationPanel";
+import MessagingPresenceBadge from "./MessagingPresenceBadge";
+import { useMessagingPresence } from "./useMessagingPresence";
 import { IconMessageCircle } from "./MessagingIcons";
 import { MessagingCallProvider, useMessagingCall } from "./MessagingCallProvider";
 import MessagingCallOverlay from "./MessagingCallOverlay";
@@ -37,54 +41,74 @@ type OpenPanel = {
 function ConversationAvatar({
   conv,
   sizeClass = "h-14 w-14",
+  presence,
+  showPresence = true,
 }: {
   conv: MessagingConversationDto;
   sizeClass?: string;
+  presence?: MessagingPresenceStatus;
+  showPresence?: boolean;
 }) {
-  if (conv.kind === "group") {
-    const previews = conv.membersPreview.slice(0, 2);
-    return (
-      <div className={`relative ${sizeClass} overflow-hidden rounded-full bg-gradient-to-br from-sky-500 to-indigo-600`}>
-        {previews.length === 0 ? (
-          <span className="flex h-full w-full items-center justify-center text-sm font-bold text-white">
-            {(conv.title || "G").slice(0, 1).toUpperCase()}
-          </span>
-        ) : (
-          <div className="absolute inset-0 grid grid-cols-2">
-            {previews.map((m, i) => (
-              <div
-                key={m.id}
-                className={`overflow-hidden bg-slate-200 ${previews.length === 1 ? "col-span-2" : ""}`}
-              >
-                {m.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.imageUrl} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <span className="flex h-full w-full items-center justify-center text-[10px] font-bold text-slate-700">
-                    {m.name.slice(0, 1).toUpperCase()}
-                  </span>
-                )}
-                {i === 0 && previews.length === 1 ? null : null}
+  const inner =
+    conv.kind === "group" ? (
+      (() => {
+        const previews = conv.membersPreview.slice(0, 2);
+        return (
+          <div
+            className={`relative ${sizeClass} overflow-hidden rounded-full bg-gradient-to-br from-sky-500 to-indigo-600`}
+          >
+            {previews.length === 0 ? (
+              <span className="flex h-full w-full items-center justify-center text-sm font-bold text-white">
+                {(conv.title || "G").slice(0, 1).toUpperCase()}
+              </span>
+            ) : (
+              <div className="absolute inset-0 grid grid-cols-2">
+                {previews.map((m) => (
+                  <div
+                    key={m.id}
+                    className={`overflow-hidden bg-slate-200 ${previews.length === 1 ? "col-span-2" : ""}`}
+                  >
+                    {m.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={m.imageUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center text-[10px] font-bold text-slate-700">
+                        {m.name.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        )}
-      </div>
+        );
+      })()
+    ) : (
+      (() => {
+        const peer = conv.peer;
+        return (
+          <div className={`overflow-hidden rounded-full bg-slate-200 ${sizeClass}`}>
+            {peer?.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={peer.imageUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <span className="flex h-full w-full items-center justify-center text-sm font-semibold text-slate-700">
+                {(peer?.name || conv.title || "?").slice(0, 1).toUpperCase()}
+              </span>
+            )}
+          </div>
+        );
+      })()
     );
-  }
 
-  const peer = conv.peer;
+  if (!showPresence) return inner;
   return (
-    <div className={`overflow-hidden rounded-full bg-slate-200 ${sizeClass}`}>
-      {peer?.imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={peer.imageUrl} alt="" className="h-full w-full object-cover" />
-      ) : (
-        <span className="flex h-full w-full items-center justify-center text-sm font-semibold text-slate-700">
-          {(peer?.name || conv.title || "?").slice(0, 1).toUpperCase()}
-        </span>
-      )}
-    </div>
+    <MessagingPresenceBadge
+      status={presence ?? "offline"}
+      dotClassName={sizeClass.includes("h-10") ? "h-2.5 w-2.5" : "h-3.5 w-3.5"}
+    >
+      {inner}
+    </MessagingPresenceBadge>
   );
 }
 
@@ -102,7 +126,8 @@ export default function MessagingOverlay() {
 
 function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
   const enabled = true;
-  const { handleSseEvent, startCall } = useMessagingCall();
+  const { handleSseEvent, startCall, call } = useMessagingCall();
+  const callBusy = Boolean(call && call.phase !== "idle");
 
   const storageKey = useMemo(() => messagingDockStorageKey(currentUserId), [currentUserId]);
   const headsKey = useMemo(() => messagingHeadsExpandedKey(currentUserId), [currentUserId]);
@@ -116,6 +141,19 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
   const [maxDock, setMaxDock] = useState(MESSAGING_MAX_DOCKED);
 
   const { conversations, refresh, totalUnread } = useMessagingConversations(enabled);
+
+  const {
+    statusOf,
+    statusForConversation,
+    applySseEvent: applyPresenceSse,
+    myPresence,
+    setManualStatus,
+  } = useMessagingPresence({
+    enabled,
+    currentUserId,
+    conversations,
+    callBusy,
+  });
 
   useEffect(() => {
     if (!enabled) return;
@@ -169,6 +207,17 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
     [dockedIds, maxDock, persistDock, setExpanded],
   );
 
+  /** Pendant une visio : ouvrir automatiquement la conversation pour chatter en parallèle. */
+  useEffect(() => {
+    if (!call?.conversationId || call.phase === "idle") return;
+    const conv = conversations.find((c) => c.id === call.conversationId);
+    if (!conv) return;
+    const alreadyOpen =
+      openPanels.some((p) => p.conversation.id === conv.id) ||
+      mobileFull?.conversation.id === conv.id;
+    if (!alreadyOpen) openConversation(conv);
+  }, [call?.conversationId, call?.phase, conversations, openConversation, openPanels, mobileFull]);
+
   const closePanel = useCallback(
     (conversationId: string) => {
       setOpenPanels((prev) => prev.filter((p) => p.conversation.id !== conversationId));
@@ -214,6 +263,7 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
       if (event.type.startsWith("call_")) {
         handleSseEvent(event);
       }
+      applyPresenceSse(event);
       window.dispatchEvent(
         new CustomEvent("scolia-messaging-event", {
           detail: {
@@ -234,7 +284,7 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
         void refresh();
       }
     },
-    [handleSseEvent, refresh],
+    [handleSseEvent, applyPresenceSse, refresh],
   );
 
   useMessagingStream({
@@ -366,6 +416,10 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
             onOpenConversation={openConversation}
             onStartWithPeer={(peer) => void startWithPeer(peer)}
             onCreateGroup={(title, ids) => void createGroup(title, ids)}
+            presenceOf={statusOf}
+            presenceForConversation={statusForConversation}
+            myPresence={myPresence}
+            onSetManualStatus={setManualStatus}
           />
         </div>
 
@@ -373,14 +427,25 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
         {headsExpanded
           ? recentForHeads.map((conv, index) => {
               const panelIsOpen = openPanels.some((p) => p.conversation.id === conv.id);
+              const presence = statusForConversation(conv);
+              const presenceLabel =
+                presence === "online"
+                  ? "en ligne"
+                  : presence === "busy"
+                    ? "occupé"
+                    : presence === "dnd"
+                      ? "ne pas déranger"
+                      : presence === "away"
+                        ? "absent"
+                        : "hors ligne";
               return (
                 <button
                   key={conv.id}
                   type="button"
-                  title={conv.title}
+                  title={`${conv.title} — ${presenceLabel}`}
                   style={{ transitionDelay: `${index * 40}ms` }}
-                  className={`${MESSAGING_FAB_CLASS} relative origin-bottom animate-[fadeInUp_0.25s_ease-out] ring-2 ${
-                    panelIsOpen ? "ring-sky-400" : "ring-white/90"
+                  className={`${MESSAGING_HEAD_CLASS} relative origin-bottom animate-[fadeInUp_0.25s_ease-out] ${
+                    panelIsOpen ? "outline outline-2 outline-offset-2 outline-sky-400" : ""
                   }`}
                   onClick={() => {
                     if (panelIsOpen) {
@@ -392,9 +457,9 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
                     }
                   }}
                 >
-                  <ConversationAvatar conv={conv} />
+                  <ConversationAvatar conv={conv} presence={presence} />
                   {conv.unreadCount > 0 ? (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white ring-2 ring-white">
+                    <span className="absolute -right-0.5 -top-0.5 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white ring-2 ring-white">
                       {conv.unreadCount > 9 ? "9+" : conv.unreadCount}
                     </span>
                   ) : null}
@@ -449,7 +514,11 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
                   className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-slate-50"
                   onClick={() => void forwardToConversation(c)}
                 >
-                  <ConversationAvatar conv={c} sizeClass="h-10 w-10" />
+                  <ConversationAvatar
+                    conv={c}
+                    sizeClass="h-10 w-10"
+                    presence={statusForConversation(c)}
+                  />
                   <span className="truncate text-sm font-medium">{c.title}</span>
                 </button>
               ))}

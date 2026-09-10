@@ -212,3 +212,24 @@ export function IconCamOff(props: IconProps) {
     </Icon>
   );
 }
+
+export function IconPictureInPicture(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M2 10V6a2 2 0 0 1 2-2h12v4" />
+      <rect width="12" height="10" x="10" y="12" rx="2" />
+      <path d="M2 14v4a2 2 0 0 0 2 2h8" />
+    </Icon>
+  );
+}
+
+export function IconMaximize(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+      <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+      <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+      <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    </Icon>
+  );
+}

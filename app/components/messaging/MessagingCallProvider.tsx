@@ -15,6 +15,8 @@ import type { MessagingSseEvent } from "@/app/lib/messaging/types";
 
 type CallPhase = "idle" | "outgoing" | "incoming" | "connecting" | "active";
 
+export type CallViewMode = "split" | "pip";
+
 type RemotePeer = {
   userId: string;
   name: string;
@@ -37,6 +39,7 @@ type ActiveCall = {
   title: string;
   kind: "dm" | "group";
   phase: CallPhase;
+  viewMode: CallViewMode;
   localStream: MediaStream | null;
   remotes: RemotePeer[];
   muted: boolean;
@@ -57,6 +60,7 @@ type MessagingCallContextValue = {
   hangUp: () => Promise<void>;
   toggleMute: () => void;
   toggleCam: () => void;
+  setViewMode: (mode: CallViewMode) => void;
   handleSseEvent: (event: MessagingSseEvent) => void;
 };
 
@@ -243,6 +247,7 @@ export function MessagingCallProvider({
           title: args.title,
           kind: args.kind,
           phase: "outgoing",
+          viewMode: "split",
           localStream: localStreamRef.current,
           remotes: [],
           muted: false,
@@ -282,6 +287,7 @@ export function MessagingCallProvider({
           title: args.title,
           kind: args.kind,
           phase: "idle",
+          viewMode: "split",
           localStream: null,
           remotes: [],
           muted: false,
@@ -307,6 +313,7 @@ export function MessagingCallProvider({
         title: invite.title,
         kind: invite.kind,
         phase: "connecting",
+        viewMode: "split",
         localStream: localStreamRef.current,
         remotes: [],
         muted: false,
@@ -378,6 +385,10 @@ export function MessagingCallProvider({
     const next = !(callRef.current?.camOff ?? false);
     for (const t of stream.getVideoTracks()) t.enabled = !next;
     setCall((prev) => (prev ? { ...prev, camOff: next } : prev));
+  }, []);
+
+  const setViewMode = useCallback((mode: CallViewMode) => {
+    setCall((prev) => (prev ? { ...prev, viewMode: mode } : prev));
   }, []);
 
   const handleSseEvent = useCallback(
@@ -510,6 +521,7 @@ export function MessagingCallProvider({
       hangUp,
       toggleMute,
       toggleCam,
+      setViewMode,
       handleSseEvent,
     }),
     [
@@ -519,6 +531,7 @@ export function MessagingCallProvider({
       hangUp,
       incoming,
       rejectIncoming,
+      setViewMode,
       startCall,
       toggleCam,
       toggleMute,

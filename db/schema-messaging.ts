@@ -148,12 +148,38 @@ export const messagingReaction = pgTable(
   ],
 );
 
+/** Présence temps réel (online / away / busy / dnd / offline) — multi-onglets via connections. */
+export type MessagingPresenceStatus = "online" | "away" | "busy" | "dnd" | "offline";
+
+export const messagingPresence = pgTable(
+  "messaging_presence",
+  {
+    userId: text("user_id").primaryKey(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    status: text("status").$type<MessagingPresenceStatus>().notNull().default("offline"),
+    /** Nombre de flux SSE ouverts (onglets). */
+    connections: integer("connections").notNull().default(0),
+    /** Statut choisi manuellement (occupe / NPD) — prioritaire jusqu’à manualUntil. */
+    manualStatus: text("manual_status").$type<MessagingPresenceStatus>(),
+    manualUntil: timestamp("manual_until", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("messaging_presence_etab_idx").on(t.etablissementId),
+    index("messaging_presence_etab_status_idx").on(t.etablissementId, t.status),
+  ],
+);
+
 export const messagingSchema = {
   messagingConversation,
   messagingParticipant,
   messagingMessage,
   messagingAttachment,
   messagingReaction,
+  messagingPresence,
 };
 
 export type MessagingConversationRow = typeof messagingConversation.$inferSelect;
@@ -161,3 +187,4 @@ export type MessagingParticipantRow = typeof messagingParticipant.$inferSelect;
 export type MessagingMessageRow = typeof messagingMessage.$inferSelect;
 export type MessagingAttachmentRow = typeof messagingAttachment.$inferSelect;
 export type MessagingReactionRow = typeof messagingReaction.$inferSelect;
+export type MessagingPresenceRow = typeof messagingPresence.$inferSelect;

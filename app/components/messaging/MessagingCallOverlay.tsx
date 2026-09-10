@@ -1,60 +1,46 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import {
-  IconCamOff,
-  IconMic,
-  IconMicOff,
-  IconPhoneOff,
-  IconVideoCall,
-  IconX,
-} from "./MessagingIcons";
+import { useEffect, useRef, useState } from "react";
+import { IconVideoCall } from "./MessagingIcons";
 import { useMessagingCall } from "./MessagingCallProvider";
+import MessagingCallStage from "./MessagingCallStage";
 
-function VideoTile({
-  stream,
-  muted,
-  label,
-  mirror,
+/**
+ * - Sonnerie entrante (modal)
+ * - Mode split flottant (panneau gauche) pour l’overlay global
+ * - Mode PiP déplaçable
+ * Sur /messagerie, le mode split est rendu dans la page (voir MessageriePageClient).
+ */
+export default function MessagingCallOverlay({
+  embedSplitInPage = false,
 }: {
-  stream: MediaStream | null;
-  muted?: boolean;
-  label: string;
-  mirror?: boolean;
+  /** Si true, le split est géré par la page messagerie — ici seulement PiP + sonnerie. */
+  embedSplitInPage?: boolean;
 }) {
-  const ref = useRef<HTMLVideoElement | null>(null);
+  const { call, incoming, acceptIncoming, rejectIncoming, setViewMode } = useMessagingCall();
+  const [pipPos, setPipPos] = useState({ x: 24, y: 96 });
+  const dragRef = useRef<{ ox: number; oy: number; sx: number; sy: number } | null>(null);
+
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.srcObject = stream;
-  }, [stream]);
-
-  return (
-    <div className="relative overflow-hidden rounded-xl bg-slate-900">
-      <video
-        ref={ref}
-        autoPlay
-        playsInline
-        muted={muted}
-        className={`h-full w-full object-cover ${mirror ? "scale-x-[-1]" : ""}`}
-      />
-      <span className="absolute bottom-2 left-2 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white">
-        {label}
-      </span>
-    </div>
-  );
-}
-
-export default function MessagingCallOverlay() {
-  const {
-    call,
-    incoming,
-    acceptIncoming,
-    rejectIncoming,
-    hangUp,
-    toggleMute,
-    toggleCam,
-  } = useMessagingCall();
+    if (!call || call.viewMode !== "pip") return;
+    const onMove = (ev: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      setPipPos({
+        x: Math.max(8, Math.min(window.innerWidth - 300, d.sx + (ev.clientX - d.ox))),
+        y: Math.max(8, Math.min(window.innerHeight - 260, d.sy + (ev.clientY - d.oy))),
+      });
+    };
+    const onUp = () => {
+      dragRef.current = null;
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, [call]);
 
   if (incoming && !call) {
     return (
@@ -89,101 +75,47 @@ export default function MessagingCallOverlay() {
 
   if (!call || call.phase === "idle") return null;
 
-  const tiles = [
-    {
-      key: "local",
-      stream: call.localStream,
-      label: call.camOff ? "Vous (cam off)" : "Vous",
-      muted: true,
-      mirror: true,
-    },
-    ...call.remotes.map((r) => ({
-      key: r.userId,
-      stream: r.stream,
-      label: r.name,
-      muted: false,
-      mirror: false,
-    })),
-  ];
-
-  const gridClass =
-    tiles.length <= 1
-      ? "grid-cols-1"
-      : tiles.length === 2
-        ? "grid-cols-1 sm:grid-cols-2"
-        : tiles.length <= 4
-          ? "grid-cols-2"
-          : "grid-cols-2 lg:grid-cols-3";
-
-  return (
-    <div className="fixed inset-0 z-[160] flex flex-col bg-slate-950/95 text-white">
-      <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-        <div>
-          <p className="text-sm font-semibold">{call.title}</p>
-          <p className="text-xs text-white/60">
-            {call.phase === "outgoing"
-              ? "Appel en cours…"
-              : call.phase === "connecting"
-                ? "Connexion…"
-                : `${1 + call.remotes.length} participant${1 + call.remotes.length > 1 ? "s" : ""}`}
-          </p>
+  if (call.viewMode === "pip") {
+    return (
+      <div
+        className="fixed z-[158] w-[280px] overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/20"
+        style={{ left: pipPos.x, top: pipPos.y }}
+      >
+        <div
+          className="cursor-grab bg-slate-900/90 px-2 py-1 text-[10px] font-medium text-white/80 active:cursor-grabbing"
+          onPointerDown={(e) => {
+            dragRef.current = {
+              ox: e.clientX,
+              oy: e.clientY,
+              sx: pipPos.x,
+              sy: pipPos.y,
+            };
+          }}
+        >
+          Visio · glisser pour déplacer · double-clic = agrandir
         </div>
-        <button
-          type="button"
-          className="rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white"
-          onClick={() => void hangUp()}
-          aria-label="Fermer"
+        <div
+          className="h-[200px]"
+          onDoubleClick={() => setViewMode("split")}
         >
-          <IconX className="h-5 w-5" />
-        </button>
-      </header>
-
-      <div className={`grid flex-1 gap-2 overflow-auto p-3 ${gridClass}`}>
-        {tiles.map((t) => (
-          <VideoTile
-            key={t.key}
-            stream={t.stream}
-            label={t.label}
-            muted={t.muted}
-            mirror={t.mirror}
-          />
-        ))}
+          <MessagingCallStage compact className="h-full" />
+        </div>
       </div>
+    );
+  }
 
-      {call.error ? (
-        <p className="px-4 pb-2 text-center text-sm text-red-300">{call.error}</p>
-      ) : null}
+  // Split géré par la page messagerie
+  if (embedSplitInPage) return null;
 
-      <div className="flex items-center justify-center gap-4 border-t border-white/10 px-4 py-4">
-        <button
-          type="button"
-          title={call.muted ? "Réactiver le micro" : "Couper le micro"}
-          className={`rounded-full p-3 ${call.muted ? "bg-red-600" : "bg-white/15 hover:bg-white/25"}`}
-          onClick={toggleMute}
-        >
-          {call.muted ? <IconMicOff className="h-5 w-5" /> : <IconMic className="h-5 w-5" />}
-        </button>
-        <button
-          type="button"
-          title={call.camOff ? "Allumer la caméra" : "Couper la caméra"}
-          className={`rounded-full p-3 ${call.camOff ? "bg-red-600" : "bg-white/15 hover:bg-white/25"}`}
-          onClick={toggleCam}
-        >
-          {call.camOff ? (
-            <IconCamOff className="h-5 w-5" />
-          ) : (
-            <IconVideoCall className="h-5 w-5" />
-          )}
-        </button>
-        <button
-          type="button"
-          title="Raccrocher"
-          className="rounded-full bg-red-600 p-3 hover:bg-red-500"
-          onClick={() => void hangUp()}
-        >
-          <IconPhoneOff className="h-5 w-5" />
-        </button>
+  // Split flottant (dashboard / overlay) : vidéo à gauche, messagerie reste utilisable à droite
+  return (
+    <div className="pointer-events-none fixed inset-y-3 left-3 z-[155] flex w-[min(52vw,640px)] max-w-[calc(100vw-2rem)] flex-col sm:inset-y-4 sm:left-4">
+      <div className="pointer-events-auto flex min-h-0 flex-1 overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/15">
+        <MessagingCallStage className="h-full w-full" />
       </div>
+      <p className="pointer-events-none mt-1 text-center text-[10px] text-slate-500">
+        Continuez à chatter à droite · PiP via l’icône en haut de la visio
+      </p>
     </div>
   );
 }

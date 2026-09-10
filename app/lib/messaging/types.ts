@@ -17,6 +17,18 @@ export type MessagingPeer = {
   imageUrl: string | null;
 };
 
+/** Présence sur le site (bulles messagerie). */
+export type MessagingPresenceStatus = "online" | "away" | "busy" | "dnd" | "offline";
+
+/** Durées proposées pour un statut manuel. */
+export type MessagingPresenceDurationHours = 1 | 4 | 24 | 0;
+
+export type MessagingMyPresenceDto = {
+  status: MessagingPresenceStatus;
+  manualStatus: MessagingPresenceStatus | null;
+  manualUntil: string | null;
+};
+
 export type MessagingAttachmentDto = {
   id: string;
   s3Key: string;
@@ -77,6 +89,7 @@ export type MessagingSseEventType =
   | "reaction"
   | "conversation_updated"
   | "heartbeat"
+  | "presence"
   | "call_invite"
   | "call_accept"
   | "call_reject"

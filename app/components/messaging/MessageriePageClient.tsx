@@ -19,6 +19,10 @@ import {
   useMessagingCall,
 } from "@/app/components/messaging/MessagingCallProvider";
 import MessagingCallOverlay from "@/app/components/messaging/MessagingCallOverlay";
+import MessagingCallStage from "@/app/components/messaging/MessagingCallStage";
+import MessagingPresenceBadge from "@/app/components/messaging/MessagingPresenceBadge";
+import MessagingStatusPicker from "@/app/components/messaging/MessagingStatusPicker";
+import { useMessagingPresence } from "@/app/components/messaging/useMessagingPresence";
 import { IconSearch, IconMessageCircle, IconUsers } from "@/app/components/messaging/MessagingIcons";
 
 export default function MessageriePageClient() {
@@ -56,8 +60,21 @@ function MessageriePageBody({
   currentUserId: string;
   enabled: boolean;
 }) {
-  const { handleSseEvent, startCall } = useMessagingCall();
+  const { handleSseEvent, startCall, call } = useMessagingCall();
+  const callBusy = Boolean(call && call.phase !== "idle");
   const { conversations, refresh, totalUnread } = useMessagingConversations(enabled);
+  const {
+    statusForConversation,
+    statusOf,
+    applySseEvent: applyPresenceSse,
+    myPresence,
+    setManualStatus,
+  } = useMessagingPresence({
+    enabled,
+    currentUserId,
+    conversations,
+    callBusy,
+  });
   const [selected, setSelected] = useState<MessagingConversationDto | null>(null);
   const [users, setUsers] = useState<MessagingPeer[]>([]);
   const [query, setQuery] = useState("");
@@ -92,6 +109,7 @@ function MessageriePageBody({
       if (ev.type.startsWith("call_")) {
         handleSseEvent(ev);
       }
+      applyPresenceSse(ev);
       window.dispatchEvent(
         new CustomEvent("scolia-messaging-event", {
           detail: {
@@ -152,6 +170,12 @@ function MessageriePageBody({
     }
   };
 
+  useEffect(() => {
+    if (!call?.conversationId) return;
+    const conv = conversations.find((c) => c.id === call.conversationId);
+    if (conv) setSelected(conv);
+  }, [call?.conversationId, conversations]);
+
   const q = query.trim().toLowerCase();
   const filteredUsers = q
     ? users.filter(
@@ -159,11 +183,13 @@ function MessageriePageBody({
       )
     : [];
 
+  const inSplitCall = Boolean(call && call.phase !== "idle" && call.viewMode === "split");
+
   return (
     <DashboardThemeRoot>
-      <MessagingCallOverlay />
-      <div className="mx-auto flex h-[calc(100vh-6rem)] max-w-6xl flex-col gap-4 p-4 md:p-6">
-        <header className="flex items-center justify-between gap-3">
+      <MessagingCallOverlay embedSplitInPage />
+      <div className="mx-auto flex h-[calc(100vh-6rem)] max-w-7xl flex-col gap-4 p-4 md:p-6">
+        <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <IconMessageCircle className="h-6 w-6 text-sky-600" />
             <div>
@@ -171,20 +197,32 @@ function MessageriePageBody({
               <p className="text-xs text-slate-500">
                 Discussions 1:1 et groupes — personnel
                 {totalUnread > 0 ? ` · ${totalUnread} non lu${totalUnread > 1 ? "s" : ""}` : ""}
+                {inSplitCall ? " · Visio en cours (chat toujours dispo)" : ""}
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-full bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-sky-700"
-            onClick={() => setShowNewGroup(true)}
-          >
-            <IconUsers className="h-3.5 w-3.5" />
-            Nouveau groupe
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="w-[220px]">
+              <MessagingStatusPicker myPresence={myPresence} onSetManual={setManualStatus} />
+            </div>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-full bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-sky-700"
+              onClick={() => setShowNewGroup(true)}
+            >
+              <IconUsers className="h-3.5 w-3.5" />
+              Nouveau groupe
+            </button>
+          </div>
         </header>
 
-        <div className="grid min-h-0 flex-1 gap-3 md:grid-cols-[320px_1fr]">
+        <div
+          className={`grid min-h-0 flex-1 gap-3 ${
+            inSplitCall
+              ? "lg:grid-cols-[minmax(280px,360px)_minmax(0,1.15fr)_minmax(300px,1fr)]"
+              : "md:grid-cols-[320px_1fr]"
+          }`}
+        >
           <aside className="flex min-h-0 flex-col overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
             <div className="border-b border-slate-100 p-2">
               <div className="relative">
@@ -210,9 +248,11 @@ function MessageriePageBody({
                       className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-slate-50"
                       onClick={() => void startWithPeer(u)}
                     >
-                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-sky-100 text-xs font-semibold text-sky-800">
-                        {u.name.slice(0, 1).toUpperCase()}
-                      </span>
+                      <MessagingPresenceBadge status={statusOf(u.id)} dotClassName="h-2.5 w-2.5">
+                        <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-sky-100 text-xs font-semibold text-sky-800">
+                          {u.name.slice(0, 1).toUpperCase()}
+                        </span>
+                      </MessagingPresenceBadge>
                       <span className="truncate text-sm">{u.name}</span>
                     </button>
                   ))}
@@ -230,26 +270,33 @@ function MessageriePageBody({
                   }`}
                   onClick={() => setSelected(c)}
                 >
-                  <span className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-sky-100 text-xs font-semibold text-sky-800">
-                    {c.kind === "group" ? (
-                      c.membersPreview[0]?.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={c.membersPreview[0].imageUrl}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        (c.title || "G").slice(0, 1).toUpperCase()
-                      )
-                    ) : c.peer?.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={c.peer.imageUrl} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      (c.peer?.name || c.title || "?").slice(0, 1).toUpperCase()
-                    )}
+                  <span className="relative shrink-0">
+                    <MessagingPresenceBadge
+                      status={statusForConversation(c)}
+                      dotClassName="h-2.5 w-2.5"
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-sky-100 text-xs font-semibold text-sky-800">
+                        {c.kind === "group" ? (
+                          c.membersPreview[0]?.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={c.membersPreview[0].imageUrl}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            (c.title || "G").slice(0, 1).toUpperCase()
+                          )
+                        ) : c.peer?.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={c.peer.imageUrl} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          (c.peer?.name || c.title || "?").slice(0, 1).toUpperCase()
+                        )}
+                      </span>
+                    </MessagingPresenceBadge>
                     {c.unreadCount > 0 ? (
-                      <span className="absolute -right-0.5 -top-0.5 rounded-full bg-red-500 px-1 text-[9px] text-white">
+                      <span className="absolute -right-0.5 -top-0.5 z-10 rounded-full bg-red-500 px-1 text-[9px] text-white">
                         {c.unreadCount}
                       </span>
                     ) : null}
@@ -269,6 +316,12 @@ function MessageriePageBody({
               ))}
             </div>
           </aside>
+
+          {inSplitCall ? (
+            <section className="hidden min-h-0 overflow-hidden rounded-xl ring-1 ring-slate-800 lg:block">
+              <MessagingCallStage className="h-full" />
+            </section>
+          ) : null}
 
           <section className="min-h-0">
             {selected ? (
@@ -296,6 +349,11 @@ function MessageriePageBody({
                 Sélectionnez ou démarrez une conversation
               </div>
             )}
+            {inSplitCall ? (
+              <div className="mt-3 overflow-hidden rounded-xl ring-1 ring-slate-800 lg:hidden">
+                <MessagingCallStage className="h-[280px]" />
+              </div>
+            ) : null}
           </section>
         </div>
       </div>

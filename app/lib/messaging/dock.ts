@@ -7,6 +7,10 @@ export const MESSAGING_NARROW_MQ = "(max-width: 640px)";
 export const MESSAGING_FAB_CLASS =
   "flex h-14 w-14 items-center justify-center overflow-hidden rounded-full shadow-[0_14px_34px_rgba(15,23,42,0.35)] transition-all hover:scale-[1.04] active:scale-[0.97]";
 
+/** Chat heads : pas d’overflow pour laisser passer anneau + pastille de présence. */
+export const MESSAGING_HEAD_CLASS =
+  "flex h-14 w-14 items-center justify-center rounded-full shadow-[0_14px_34px_rgba(15,23,42,0.35)] transition-all hover:scale-[1.04] active:scale-[0.97]";
+
 /** Au-dessus de l’IA (bottom-4 + h-14 + gap). */
 export const MESSAGING_FAB_POSITION = "fixed bottom-[5.25rem] right-4 z-[129]";
 

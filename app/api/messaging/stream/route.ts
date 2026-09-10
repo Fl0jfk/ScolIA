@@ -1,5 +1,9 @@
 import { requireMessagingContext } from "@/app/lib/messaging/access";
 import { subscribe, type MessagingBusEvent } from "@/app/lib/messaging/events";
+import {
+  heartbeatPresence,
+  touchPresenceConnection,
+} from "@/app/lib/messaging/presence";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,10 +17,12 @@ export async function GET() {
   if (!gate.ok) return gate.response;
 
   const userId = gate.ctx.userId;
+  const etablissementId = gate.ctx.etablissementId;
   const encoder = new TextEncoder();
   let unsubscribe: (() => void) | null = null;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let closed = false;
+  let presenceOpen: Promise<void> | null = null;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -30,6 +36,12 @@ export async function GET() {
       };
 
       send({ type: "heartbeat" });
+
+      presenceOpen = touchPresenceConnection(etablissementId, userId, 1)
+        .then(() => undefined)
+        .catch((error) => {
+          console.error("[messaging/stream] presence open failed", error);
+        });
 
       unsubscribe = subscribe(userId, (event: MessagingBusEvent) => {
         send({
@@ -46,12 +58,21 @@ export async function GET() {
 
       heartbeat = setInterval(() => {
         send({ type: "heartbeat" });
+        void heartbeatPresence(etablissementId, userId).catch(() => undefined);
       }, 25_000);
     },
     cancel() {
       closed = true;
       if (heartbeat) clearInterval(heartbeat);
       unsubscribe?.();
+      void (async () => {
+        await presenceOpen;
+        try {
+          await touchPresenceConnection(etablissementId, userId, -1);
+        } catch (error) {
+          console.error("[messaging/stream] presence close failed", error);
+        }
+      })();
     },
   });
 
