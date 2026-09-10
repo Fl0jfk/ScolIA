@@ -48,6 +48,13 @@ export async function ensureUserMembership(opts: {
         updatedAt: new Date(),
       },
     });
+  try {
+    const { valkeyDel } = await import("@/app/lib/valkey");
+    const { valkeyKeyMemberships } = await import("@/app/lib/valkey-keys");
+    await valkeyDel(valkeyKeyMemberships(opts.userId));
+  } catch {
+    /* cache optionnel */
+  }
 }
 
 export async function userHasActiveMembership(
@@ -74,7 +81,14 @@ export async function userHasActiveMembership(
 export async function listActiveMembershipsForUser(
   userId: string,
 ): Promise<UserMembershipRow[]> {
-  if (!isDatabaseConfigured()) return [];
+  if (!isDatabaseConfigured() || !userId.trim()) return [];
+
+  const { valkeyGetJson, valkeySetJson } = await import("@/app/lib/valkey");
+  const { VALKEY_TTL, valkeyKeyMemberships } = await import("@/app/lib/valkey-keys");
+  const cacheKey = valkeyKeyMemberships(userId);
+  const cached = await valkeyGetJson<UserMembershipRow[]>(cacheKey);
+  if (cached) return cached;
+
   const db = getDb();
   const rows = await db
     .select({
@@ -91,7 +105,7 @@ export async function listActiveMembershipsForUser(
     .where(and(eq(userMembership.userId, userId), eq(userMembership.active, true)))
     .orderBy(etablissement.name);
 
-  return rows.map((r: {
+  const mapped = rows.map((r: {
     id: string;
     userId: string;
     etablissementId: string;
@@ -103,6 +117,8 @@ export async function listActiveMembershipsForUser(
     ...r,
     context: asContext(r.context),
   }));
+  void valkeySetJson(cacheKey, mapped, VALKEY_TTL.memberships);
+  return mapped;
 }
 
 /** Memberships staff (accès web intranet). */

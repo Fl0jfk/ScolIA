@@ -6,10 +6,11 @@ import { etablissement } from "@/db/schema";
 import type { TenantConfig } from "@/app/lib/tenant-types";
 import { isPlatformTenantSlug } from "@/app/lib/platform-tenant";
 import { resolveTenantBySlug } from "@/app/lib/tenant-registry";
-import {
-  ensureUserMembership,
-  userHasActiveMembership,
-} from "@/app/lib/user-membership";
+import { userHasActiveMembership } from "@/app/lib/user-membership";
+
+/** Cache process : slug → id (évite 1 SELECT Postgres par navigation proxy). */
+const etabIdBySlug = new Map<string, { id: string; expiresAt: number }>();
+const ETAB_CACHE_TTL_MS = 10 * 60 * 1000;
 
 export async function ensureEtablissementFromTenant(
   tenant: TenantConfig,
@@ -17,13 +18,22 @@ export async function ensureEtablissementFromTenant(
   if (!isDatabaseConfigured()) {
     throw new Error("DATABASE_URL requise pour Better-Auth.");
   }
+  const cached = etabIdBySlug.get(tenant.slug);
+  if (cached && cached.expiresAt > Date.now()) return cached.id;
+
   const db = getDb();
   const [existing] = await db
     .select({ id: etablissement.id })
     .from(etablissement)
     .where(eq(etablissement.slug, tenant.slug))
     .limit(1);
-  if (existing) return existing.id;
+  if (existing) {
+    etabIdBySlug.set(tenant.slug, {
+      id: existing.id,
+      expiresAt: Date.now() + ETAB_CACHE_TTL_MS,
+    });
+    return existing.id;
+  }
 
   const [created] = await db
     .insert(etablissement)
@@ -34,6 +44,10 @@ export async function ensureEtablissementFromTenant(
     })
     .returning({ id: etablissement.id });
 
+  etabIdBySlug.set(tenant.slug, {
+    id: created.id,
+    expiresAt: Date.now() + ETAB_CACHE_TTL_MS,
+  });
   return created.id;
 }
 
@@ -71,18 +85,14 @@ export async function assertUserBelongsToTenant(opts: {
 
   const tenantEtablissementId = await ensureEtablissementFromTenant(opts.tenant);
   const userId = opts.userId.trim();
-  if (userId && (await userHasActiveMembership(userId, tenantEtablissementId))) {
+  const userEtab = opts.userEtablissementId?.trim() || "";
+
+  // Chemin chaud : même établissement maison → pas de SELECT membership.
+  if (userId && userEtab && userEtab === tenantEtablissementId) {
     return { ok: true };
   }
 
-  const userEtab = opts.userEtablissementId?.trim() || "";
-  if (userId && userEtab && userEtab === tenantEtablissementId) {
-    // Legacy : appartenance uniquement sur user.etablissement_id → matérialiser en membership
-    await ensureUserMembership({
-      userId,
-      etablissementId: tenantEtablissementId,
-      context: "staff",
-    });
+  if (userId && (await userHasActiveMembership(userId, tenantEtablissementId))) {
     return { ok: true };
   }
 

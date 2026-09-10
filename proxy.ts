@@ -353,12 +353,15 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
 
   const roles = betterAuthState.roles;
 
-  const tenantGate = await assertUserBelongsToTenant({
-    userId: betterAuthState.authUserId,
-    userEtablissementId: betterAuthState.homeEtablissementId,
-    platformAdmin: betterAuthState.platformAdmin,
-    tenant,
-  });
+  const [tenantGate, memberships] = await Promise.all([
+    assertUserBelongsToTenant({
+      userId: betterAuthState.authUserId,
+      userEtablissementId: betterAuthState.homeEtablissementId,
+      platformAdmin: betterAuthState.platformAdmin,
+      tenant,
+    }),
+    listActiveMembershipsForUser(betterAuthState.authUserId),
+  ]);
   if (!tenantGate.ok) {
     if (pathname.startsWith("/api/")) {
       return withTenantHeaders(
@@ -380,7 +383,6 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
   }
 
   // Après matérialisation éventuelle du membership staff (legacy).
-  const memberships = await listActiveMembershipsForUser(betterAuthState.authUserId);
   const hasStaffMembership = memberships.some((m) => m.context === "staff");
   const hasParentOrEleveSignal = memberships.some(
     (m) => m.context === "parent" || m.context === "eleve",

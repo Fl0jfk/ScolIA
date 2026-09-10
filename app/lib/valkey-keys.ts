@@ -8,6 +8,8 @@ export const VALKEY_TTL = {
   passkeyPresence: 60,
   /** Snapshot proxy auth (rôles, flags) */
   proxyAuth: 45,
+  /** Memberships user (canal staff / famille) */
+  memberships: 60,
   /** Liste conversations messagerie */
   messagingConversations: 20,
   /** Page messages (très courte — fraîcheur chat) */
@@ -38,6 +40,10 @@ export function valkeyKeyProxyAuth(
   etablissementId: string | null,
 ): string {
   return `${NS}:proxy:${authUserId}:${etablissementId ?? "_"}`;
+}
+
+export function valkeyKeyMemberships(userId: string): string {
+  return `${NS}:memberships:${userId}`;
 }
 
 export function valkeyKeyMessagingConversations(
