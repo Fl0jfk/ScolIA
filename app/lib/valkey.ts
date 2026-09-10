@@ -147,18 +147,18 @@ export function getValkey(): Redis | null {
 
 async function ensureConnected(v: Redis): Promise<boolean> {
   if (v.status === "ready") return true;
-  if (v.status === "connecting" || v.status === "connect" || v.status === "wait") {
+  if (
+    v.status === "connecting" ||
+    v.status === "connect" ||
+    v.status === "wait" ||
+    v.status === "end" ||
+    v.status === "close"
+  ) {
     try {
       await withTimeout(v.connect(), CMD_TIMEOUT_MS);
-      return v.status === "ready";
-    } catch {
-      return false;
-    }
-  }
-  if (v.status === "end" || v.status === "close") {
-    try {
-      await withTimeout(v.connect(), CMD_TIMEOUT_MS);
-      return v.status === "ready";
+      // Relecture après await : TS ne ré-élargit pas le littéral de status.
+      const status = v.status as string;
+      return status === "ready";
     } catch {
       return false;
     }
