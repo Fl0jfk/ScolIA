@@ -10,6 +10,8 @@ import {
   MESSAGING_MAX_DOCKED_NARROW,
   MESSAGING_NARROW_MQ,
   MESSAGING_RECENT_LIST,
+  MESSAGING_ROOT_ATTR,
+  MESSAGING_ROOT_SELECTOR,
   messagingDockStorageKey,
   messagingHeadsExpandedKey,
   pushDockedConversation,
@@ -188,6 +190,43 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
     [headsKey],
   );
 
+  const closeAllMessagingUi = useCallback(() => {
+    setPanelOpen(false);
+    setHeadsExpanded(false);
+    writeHeadsExpanded(headsKey, false);
+    setOpenPanels([]);
+    setMobileFull(null);
+    setForwardMessage(null);
+  }, [headsKey]);
+
+  /** Clic hors messagerie → ferme panneau, bulles, fenêtres dockées et modales. */
+  useEffect(() => {
+    const hasOpenUi =
+      panelOpen ||
+      headsExpanded ||
+      openPanels.length > 0 ||
+      Boolean(mobileFull) ||
+      Boolean(forwardMessage);
+    if (!hasOpenUi) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(MESSAGING_ROOT_SELECTOR)) return;
+      closeAllMessagingUi();
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [
+    panelOpen,
+    headsExpanded,
+    openPanels.length,
+    mobileFull,
+    forwardMessage,
+    closeAllMessagingUi,
+  ]);
+
   const openConversation = useCallback(
     (conversation: MessagingConversationDto) => {
       const narrow = window.matchMedia(MESSAGING_NARROW_MQ).matches;
@@ -357,7 +396,10 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
   return (
     <>
       {/* Fenêtres de chat dockées — style Facebook, au-dessus de la pile */}
-      <div className="pointer-events-none fixed bottom-[12.5rem] right-4 z-[128] hidden flex-row-reverse items-end gap-3 sm:flex">
+      <div
+        {...{ [MESSAGING_ROOT_ATTR]: "" }}
+        className="pointer-events-none fixed bottom-[12.5rem] right-4 z-[128] hidden flex-row-reverse items-end gap-3 sm:flex"
+      >
         {openPanels.map((p) => (
           <div key={p.conversation.id} className="pointer-events-auto animate-[fadeIn_0.2s_ease-out]">
             <MessagingConversationPanel
@@ -389,7 +431,10 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
       </div>
 
       {/* Colonne : chat heads (si expand) + FAB principal — alignée sur l’IA (right-4) */}
-      <div className={`${MESSAGING_FAB_POSITION} flex flex-col-reverse items-center gap-3`}>
+      <div
+        {...{ [MESSAGING_ROOT_ATTR]: "" }}
+        className={`${MESSAGING_FAB_POSITION} flex flex-col-reverse items-center gap-3`}
+      >
         <div className="relative">
           <button
             type="button"
@@ -470,32 +515,45 @@ function MessagingOverlayInner({ currentUserId }: { currentUserId: string }) {
       </div>
 
       {mobileFull ? (
-        <MessagingConversationPanel
-          conversationId={mobileFull.conversation.id}
-          title={mobileFull.conversation.title}
-          peer={mobileFull.conversation.peer}
-          kind={mobileFull.conversation.kind}
-          membersPreview={mobileFull.conversation.membersPreview}
-          memberCount={mobileFull.conversation.memberCount}
-          currentUserId={currentUserId}
-          variant="mobile-full"
-          onClose={() => setMobileFull(null)}
-          onForwardRequest={setForwardMessage}
-          onStartVideoCall={() =>
-            void startCall({
-              conversationId: mobileFull.conversation.id,
-              title: mobileFull.conversation.title,
-              kind: mobileFull.conversation.kind,
-            })
-          }
-        />
+        <div {...{ [MESSAGING_ROOT_ATTR]: "" }}>
+          <MessagingConversationPanel
+            conversationId={mobileFull.conversation.id}
+            title={mobileFull.conversation.title}
+            peer={mobileFull.conversation.peer}
+            kind={mobileFull.conversation.kind}
+            membersPreview={mobileFull.conversation.membersPreview}
+            memberCount={mobileFull.conversation.memberCount}
+            currentUserId={currentUserId}
+            variant="mobile-full"
+            onClose={() => setMobileFull(null)}
+            onForwardRequest={setForwardMessage}
+            onStartVideoCall={() =>
+              void startCall({
+                conversationId: mobileFull.conversation.id,
+                title: mobileFull.conversation.title,
+                kind: mobileFull.conversation.kind,
+              })
+            }
+          />
+        </div>
       ) : null}
 
       <MessagingCallOverlay />
 
       {forwardMessage ? (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[80vh] w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div
+          {...{ [MESSAGING_ROOT_ATTR]: "" }}
+          className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 p-4"
+          role="presentation"
+          onClick={() => setForwardMessage(null)}
+        >
+          <div
+            className="max-h-[80vh] w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Transférer un message"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b px-4 py-3">
               <h3 className="text-sm font-semibold">Transférer vers…</h3>
               <button

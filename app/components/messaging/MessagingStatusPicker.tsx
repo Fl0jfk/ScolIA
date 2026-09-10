@@ -5,6 +5,7 @@ import type {
   MessagingMyPresenceDto,
   MessagingPresenceStatus,
 } from "@/app/lib/messaging/types";
+import { MESSAGING_ROOT_ATTR } from "@/app/lib/messaging/dock";
 import { PRESENCE_DOT_COLORS, PRESENCE_LABELS } from "./MessagingPresenceBadge";
 
 type Duration = 0 | 1 | 4 | 24;
@@ -116,11 +117,13 @@ export default function MessagingStatusPicker({ myPresence, onSetManual }: Props
         <>
           <button
             type="button"
+            {...{ [MESSAGING_ROOT_ATTR]: "" }}
             className="fixed inset-0 z-[200]"
             aria-label="Fermer"
             onClick={() => setOpen(false)}
           />
           <div
+            {...{ [MESSAGING_ROOT_ATTR]: "" }}
             className="fixed z-[201] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
             style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}
           >

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { IconVideoCall } from "./MessagingIcons";
 import { useMessagingCall } from "./MessagingCallProvider";
 import MessagingCallStage from "./MessagingCallStage";
+import { MESSAGING_ROOT_ATTR } from "@/app/lib/messaging/dock";
 
 /**
  * - Sonnerie entrante (modal)
@@ -44,7 +45,10 @@ export default function MessagingCallOverlay({
 
   if (incoming && !call) {
     return (
-      <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/50 p-4">
+      <div
+        {...{ [MESSAGING_ROOT_ATTR]: "" }}
+        className="fixed inset-0 z-[160] flex items-center justify-center bg-black/50 p-4"
+      >
         <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
           <div className="bg-gradient-to-br from-sky-600 to-indigo-700 px-5 py-6 text-center text-white">
             <IconVideoCall className="mx-auto mb-3 h-10 w-10" />
@@ -78,6 +82,7 @@ export default function MessagingCallOverlay({
   if (call.viewMode === "pip") {
     return (
       <div
+        {...{ [MESSAGING_ROOT_ATTR]: "" }}
         className="fixed z-[158] w-[280px] overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/20"
         style={{ left: pipPos.x, top: pipPos.y }}
       >
@@ -109,7 +114,10 @@ export default function MessagingCallOverlay({
 
   // Split flottant (dashboard / overlay) : vidéo à gauche, messagerie reste utilisable à droite
   return (
-    <div className="pointer-events-none fixed inset-y-3 left-3 z-[155] flex w-[min(52vw,640px)] max-w-[calc(100vw-2rem)] flex-col sm:inset-y-4 sm:left-4">
+    <div
+      {...{ [MESSAGING_ROOT_ATTR]: "" }}
+      className="pointer-events-none fixed inset-y-3 left-3 z-[155] flex w-[min(52vw,640px)] max-w-[calc(100vw-2rem)] flex-col sm:inset-y-4 sm:left-4"
+    >
       <div className="pointer-events-auto flex min-h-0 flex-1 overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/15">
         <MessagingCallStage className="h-full w-full" />
       </div>

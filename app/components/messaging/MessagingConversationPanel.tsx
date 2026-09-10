@@ -8,6 +8,7 @@ import type {
   MessagingMessageDto,
   MessagingPeer,
 } from "@/app/lib/messaging/types";
+import { MESSAGING_ROOT_ATTR } from "@/app/lib/messaging/dock";
 import MessagingMessageBubble from "./MessagingMessageBubble";
 import MessagingComposer from "./MessagingComposer";
 
@@ -151,7 +152,7 @@ export default function MessagingConversationPanel({
     kind === "group" ? "Quelqu’un écrit…" : `${peer?.name ?? "Contact"} écrit…`;
 
   return (
-    <div className={`${shell} ${className}`}>
+    <div {...{ [MESSAGING_ROOT_ATTR]: "" }} className={`${shell} ${className}`}>
       <header className="flex items-center gap-2 border-b border-slate-200/80 bg-gradient-to-r from-white to-sky-50/60 px-3 py-2.5">
         {kind === "group" ? (
           <div className="relative flex h-9 w-9 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-sky-500 to-indigo-600">

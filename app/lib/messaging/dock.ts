@@ -3,6 +3,10 @@ export const MESSAGING_MAX_DOCKED_NARROW = 2;
 export const MESSAGING_RECENT_LIST = 10;
 export const MESSAGING_NARROW_MQ = "(max-width: 640px)";
 
+/** Marqueur DOM pour ignorer les clics « extérieur » (fermeture overlay). */
+export const MESSAGING_ROOT_ATTR = "data-scolia-messaging";
+export const MESSAGING_ROOT_SELECTOR = `[${MESSAGING_ROOT_ATTR}]`;
+
 /** Même taille / alignement que la bulle IA (h-14 w-14, right-4). */
 export const MESSAGING_FAB_CLASS =
   "flex h-14 w-14 items-center justify-center overflow-hidden rounded-full shadow-[0_14px_34px_rgba(15,23,42,0.35)] transition-all hover:scale-[1.04] active:scale-[0.97]";

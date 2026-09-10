@@ -8,6 +8,7 @@ import type {
   MessagingPeer,
   MessagingPresenceStatus,
 } from "@/app/lib/messaging/types";
+import { MESSAGING_ROOT_ATTR } from "@/app/lib/messaging/dock";
 import {
   IconSearch,
   IconMessageCircle,
@@ -251,7 +252,10 @@ export default function MessagingMainPanel({
   if (!open) return null;
 
   return (
-    <div className="absolute bottom-0 right-[4.75rem] z-[131] flex h-[520px] w-[380px] origin-bottom-right animate-[fadeIn_0.18s_ease-out] flex-col overflow-hidden rounded-2xl bg-white/95 shadow-[0_20px_50px_rgba(15,23,42,0.28)] ring-1 ring-slate-200/80 backdrop-blur-xl max-sm:right-0 max-sm:bottom-[4.75rem] max-sm:w-[min(380px,calc(100vw-1.5rem))]">
+    <div
+      {...{ [MESSAGING_ROOT_ATTR]: "" }}
+      className="absolute bottom-0 right-[4.75rem] z-[131] flex h-[520px] w-[380px] origin-bottom-right animate-[fadeIn_0.18s_ease-out] flex-col overflow-hidden rounded-2xl bg-white/95 shadow-[0_20px_50px_rgba(15,23,42,0.28)] ring-1 ring-slate-200/80 backdrop-blur-xl max-sm:right-0 max-sm:bottom-[4.75rem] max-sm:w-[min(380px,calc(100vw-1.5rem))]"
+    >
       {/* Header style Messenger classic */}
       <header className="relative overflow-hidden bg-gradient-to-br from-sky-600 via-blue-600 to-indigo-700 px-4 pb-3 pt-3 text-white">
         <div className="pointer-events-none absolute -right-6 -top-8 h-28 w-28 rounded-full bg-white/10" />
