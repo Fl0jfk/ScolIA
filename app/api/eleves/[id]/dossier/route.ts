@@ -12,9 +12,8 @@ import {
   foyer,
   foyerResponsable,
 } from "@/db/schema";
-import { requireAuth } from "@/app/lib/intranet-auth";
+import { requireAppUser } from "@/app/lib/intranet-session";
 import { resolveCurrentEtablissementId, syncEleveScolariteFromEleveRow, ensureEleveFoyerFromParentContacts } from "@/app/lib/ent-core-db";
-import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
 import {
   canDeleteEleveAccompagnementDocument,
   canDeleteEleveDocument,
@@ -49,11 +48,8 @@ import {
   sanitizeEleveRowForProfViewer,
   teacherCanAccessEleveClasse,
 } from "@/app/lib/eleve-dossier-prof";
-import { getAppSession } from "@/app/lib/intranet-session";
 import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { hasRole } from "@/app/lib/intranet-role-utils";
-import { loadAppConfig } from "@/app/lib/app-config";
-import { resolveEleveLiveCourse } from "@/app/lib/rh/planning-class-live";
 import { buildEleveDossierClassCatalog } from "@/app/lib/eleve-dossier-catalog";
 import { buildEleveSyntheseSnapshot } from "@/app/lib/eleve-dossier-synthese";
 import {
@@ -72,7 +68,6 @@ import { listCarnetForEleve } from "@/app/lib/vs-carnet-db";
 import { countFacturesEnRetardForEleve } from "@/app/lib/facturation-db";
 import { listGroupesForEleve } from "@/app/lib/groupes-pedagogiques-db";
 import { parisDateKey } from "@/app/lib/paris-time";
-import { ensureEleveScolariteGrilleRepasColumn } from "@/app/lib/eleve-scolarite-schema";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -108,26 +103,12 @@ function canEditStructure(
   );
 }
 
-async function resolveViewer(etabId: string) {
-  const session = await getAppSession();
-  if (!session?.user) return null;
-  const roles =
-    session.user.roles.length > 0
-      ? session.user.roles
-      : await listUserRolesFromDb(session.user.id, etabId);
-  return {
-    userId: session.user.id,
-    businessUserId: session.user.businessUserId,
-    roles,
-    orgAdmin: Boolean(session.user.orgAdmin),
-    platformAdmin: Boolean(session.user.platformAdmin),
-  };
-}
-
 export async function GET(_req: Request, ctx: Ctx) {
   try {
-  const gate = await requireAuth();
-  if (!gate.ok) return gate.response;
+  const gate = await requireAppUser();
+  if (!gate.ok) {
+    return NextResponse.json({ error: "Non autorisé.", code: "AUTH_REQUIRED" }, { status: 401 });
+  }
 
   const { id } = await ctx.params;
   const etabId = await resolveCurrentEtablissementId();
@@ -135,11 +116,11 @@ export async function GET(_req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
   }
 
-  const viewer = await resolveViewer(etabId);
-  if (!viewer) {
-    return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
-  }
-  const { userId: authUserId, businessUserId, roles, orgAdmin, platformAdmin } = viewer;
+  const authUserId = gate.user.id;
+  const businessUserId = gate.user.businessUserId;
+  const roles = gate.user.roles;
+  const orgAdmin = Boolean(gate.user.orgAdmin);
+  const platformAdmin = Boolean(gate.user.platformAdmin);
   const { canOpenEleveDossierDetail } = await import("@/app/lib/accueil-access");
   if (!canOpenEleveDossierDetail({ roles, orgAdmin, platformAdmin })) {
     return NextResponse.json(
@@ -194,8 +175,6 @@ export async function GET(_req: Request, ctx: Ctx) {
     });
   }
 
-  await ensureEleveScolariteGrilleRepasColumn();
-
   const needDocs = sections.includes("documents");
   const needNotes = sections.includes("notes");
   const needVs = sections.includes("vie_scolaire");
@@ -222,7 +201,6 @@ export async function GET(_req: Request, ctx: Ctx) {
     documentsRaw,
     sites,
     annees,
-    enCoursMaintenant,
     notesRaw,
     competencesRaw,
     groupesEleve,
@@ -272,25 +250,6 @@ export async function GET(_req: Request, ctx: Ctx) {
       .from(anneeScolaire)
       .where(eq(anneeScolaire.etablissementId, etabId))
       .orderBy(desc(anneeScolaire.label)),
-    (async () => {
-      try {
-        const cfg = await loadAppConfig();
-        return resolveEleveLiveCourse({
-          classe: row.classe,
-          zone: cfg.identity.schoolHolidayZone ?? null,
-        });
-      } catch {
-        try {
-          return resolveEleveLiveCourse({ classe: row.classe });
-        } catch {
-          return {
-            activity: null,
-            reason: "pas_edt" as const,
-            label: "Emploi du temps indisponible",
-          };
-        }
-      }
-    })(),
     needNotes
       ? listMoyennesForEleve(etabId, id).catch(() => [])
       : Promise.resolve([]),
@@ -616,7 +575,11 @@ export async function GET(_req: Request, ctx: Ctx) {
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),
     },
     pendingAccessRequests: [],
-    enCoursMaintenant,
+    enCoursMaintenant: {
+      activity: null,
+      reason: "pas_edt" as const,
+      label: "Emploi du temps indisponible",
+    },
     synthese,
   });
   } catch (error) {

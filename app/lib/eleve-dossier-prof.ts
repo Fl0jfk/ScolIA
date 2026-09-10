@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, eleveScolarite, type EleveRow } from "@/db/schema";
 import {
@@ -132,16 +132,46 @@ export async function listClassmatesForEleve(
   ) {
     return [];
   }
-  const rows = await listElevesDossierFromDb(etablissementId, {
-    classe: cls,
-    status: "inscrit",
-    assignedClasses:
-      PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
-        ? undefined
-        : opts?.assignedClasses,
-  });
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: eleve.id,
+      nom: eleve.nom,
+      prenom: eleve.prenom,
+      classe: eleve.classe,
+      sourceKey: eleve.sourceKey,
+    })
+    .from(eleve)
+    .where(
+      and(
+        eq(eleve.etablissementId, etablissementId),
+        eq(eleve.status, "inscrit"),
+        sql`translate(lower(btrim(COALESCE(${eleve.classe}, ''))), ' -_', '') LIKE ${`%${cls
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .replace(/[\s\-_]+/g, "")
+          .replace(/[%_]/g, "")}%`}`,
+      ),
+    )
+    .orderBy(eleve.nom, eleve.prenom);
+
   return rows
-    .filter((r) => r.id !== opts?.excludeEleveId)
+    .filter((r) => {
+      if (r.id === opts?.excludeEleveId) return false;
+      if (isExcludedFromDossierList({ nom: r.nom, prenom: r.prenom, sourceKey: r.sourceKey })) {
+        return false;
+      }
+      if (!schoolClassesMatch(r.classe, cls)) return false;
+      if (
+        opts?.assignedClasses?.length &&
+        !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY &&
+        !teacherCanAccessEleveClasse(r.classe, opts.assignedClasses)
+      ) {
+        return false;
+      }
+      return true;
+    })
     .map((r) => ({ id: r.id, nom: r.nom, prenom: r.prenom }));
 }
 
