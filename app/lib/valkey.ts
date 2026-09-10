@@ -41,11 +41,21 @@ export function getValkey(): Redis | null {
   }
 
   try {
+    const useTls = url.startsWith("rediss://");
     const redis = new Redis(url, {
       maxRetriesPerRequest: 1,
       enableReadyCheck: true,
       lazyConnect: true,
       connectTimeout: 5_000,
+      // Scaleway Managed Redis : certificat managé — accepter la chaîne fournie.
+      ...(useTls
+        ? {
+            tls: {
+              rejectUnauthorized:
+                process.env.VALKEY_TLS_REJECT_UNAUTHORIZED !== "0",
+            },
+          }
+        : {}),
       // Ne pas faire planter Next si Valkey down.
       retryStrategy(times) {
         if (times > 8) return null;
