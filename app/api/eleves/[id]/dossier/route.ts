@@ -639,19 +639,21 @@ type DossierBody = {
 };
 
 export async function POST(req: Request, ctx: Ctx) {
-  const gate = await requireAuth();
-  if (!gate.ok) return gate.response;
+  const gate = await requireAppUser();
+  if (!gate.ok) {
+    return NextResponse.json({ error: "Non autorisé.", code: "AUTH_REQUIRED" }, { status: 401 });
+  }
   const { id } = await ctx.params;
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) {
     return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
   }
 
-  const viewer = await resolveViewer(etabId);
-  if (!viewer) {
-    return NextResponse.json({ error: "Non authentifié." }, { status: 401 });
-  }
-  const { userId: authUserId, businessUserId, roles, orgAdmin, platformAdmin } = viewer;
+  const authUserId = gate.user.id;
+  const businessUserId = gate.user.businessUserId;
+  const roles = gate.user.roles;
+  const orgAdmin = Boolean(gate.user.orgAdmin);
+  const platformAdmin = Boolean(gate.user.platformAdmin);
   const { loadModuleAccess } = await import("@/app/lib/module-access-store");
   const { dossierSectionsForRolesWithAccess } = await import("@/app/lib/module-access");
   const access = await loadModuleAccess();
@@ -891,6 +893,9 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ error: "Grille repas invalide." }, { status: 400 });
     }
 
+    const { ensureEleveScolariteGrilleRepasColumn } = await import(
+      "@/app/lib/eleve-scolarite-schema"
+    );
     await ensureEleveScolariteGrilleRepasColumn();
 
     let scolariteId = String(body.scolariteId || "").trim();
