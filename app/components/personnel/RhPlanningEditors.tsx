@@ -72,6 +72,67 @@ export function detectTeacherSlotWeekMode(
   return viewingWeek;
 }
 
+/** Position horizontale d’un créneau dans la grille combinée A/B. */
+export type TeacherGridWeekLane = "full" | "A" | "B";
+
+export type TeacherGridSlot = TeacherPlanningSlot & {
+  weekLane: TeacherGridWeekLane;
+};
+
+/**
+ * Fusionne weekA + weekB pour l’affichage côte à côte :
+ * - même contenu A et B → pleine largeur ;
+ * - A seulement → moitié gauche ;
+ * - B seulement → moitié droite ;
+ * - contenus différents au même horaire → A à gauche, B à droite.
+ */
+export function buildTeacherCombinedGridSlots(doc: TeacherPlanningDoc): TeacherGridSlot[] {
+  type Bucket = { A: TeacherPlanningSlot[]; B: TeacherPlanningSlot[] };
+  const byTime = new Map<string, Bucket>();
+  const timeKey = (s: TeacherPlanningSlot) => `${s.day}|${s.start}|${s.end}`;
+
+  for (const s of doc.weekA) {
+    const key = timeKey(s);
+    const bucket = byTime.get(key) || { A: [], B: [] };
+    bucket.A.push(s);
+    byTime.set(key, bucket);
+  }
+  for (const s of doc.weekB) {
+    const key = timeKey(s);
+    const bucket = byTime.get(key) || { A: [], B: [] };
+    bucket.B.push(s);
+    byTime.set(key, bucket);
+  }
+
+  const result: TeacherGridSlot[] = [];
+  for (const bucket of byTime.values()) {
+    const matchedBIds = new Set<string>();
+    for (const a of bucket.A) {
+      const fp = teacherSlotFingerprint(a);
+      const twin = bucket.B.find(
+        (b) => !matchedBIds.has(b.id) && teacherSlotFingerprint(b) === fp,
+      );
+      if (twin) {
+        matchedBIds.add(twin.id);
+        result.push({ ...a, weekLane: "full" });
+      } else {
+        result.push({ ...a, weekLane: "A" });
+      }
+    }
+    for (const b of bucket.B) {
+      if (matchedBIds.has(b.id)) continue;
+      result.push({ ...b, weekLane: "B" });
+    }
+  }
+  return result;
+}
+
+export function teacherGridWeekBadgeLabel(lane: TeacherGridWeekLane): string | null {
+  if (lane === "A") return "Sem. A";
+  if (lane === "B") return "Sem. B";
+  return null;
+}
+
 /** Applique une édition de créneau (y compris déplacement semaine A / B / les deux). */
 export function applyTeacherSlotQuickEdit(
   doc: TeacherPlanningDoc,
@@ -611,6 +672,15 @@ function emptyMissionSlot(day: PlanningWeekday = 1): StaffMissionSlot {
   };
 }
 
+export type WeekGridSlotBase = {
+  id: string;
+  day: PlanningWeekday;
+  start: string;
+  end: string;
+  /** Pleine largeur, moitié gauche (A) ou droite (B). */
+  weekLane?: TeacherGridWeekLane;
+};
+
 export function WeekGrid({
   slots,
   renderCard,
@@ -620,14 +690,22 @@ export function WeekGrid({
   onEmptyClick,
   timetableGrid = null,
 }: {
-  slots: { id: string; day: PlanningWeekday; start: string; end: string }[];
-  renderCard: (slot: (typeof slots)[number]) => ReactNode;
+  slots: WeekGridSlotBase[];
+  renderCard: (slot: WeekGridSlotBase) => ReactNode;
   /** Mode édition : clic créneau / clic vide pour ajouter. */
   editable?: boolean;
   selectedSlotId?: string | null;
   onSlotClick?: (slotId: string) => void;
-  /** Clic sur une zone vide de la journée (heure arrondie). */
-  onEmptyClick?: (day: PlanningWeekday, start: string, end: string) => void;
+  /**
+   * Clic sur une zone vide de la journée (heure arrondie).
+   * `preferredWeek` : moitié gauche → A, moitié droite → B (grille combinée).
+   */
+  onEmptyClick?: (
+    day: PlanningWeekday,
+    start: string,
+    end: string,
+    preferredWeek?: "A" | "B",
+  ) => void;
   timetableGrid?: TimetableGrid | null;
 }) {
   const DAY_START_MIN = 7 * 60;
@@ -642,7 +720,7 @@ export function WeekGrid({
   }, []);
 
   const byDay = useMemo(() => {
-    const map = new Map<PlanningWeekday, typeof slots>();
+    const map = new Map<PlanningWeekday, WeekGridSlotBase[]>();
     for (const d of PLANNING_WEEKDAYS) map.set(d, []);
     for (const s of slots) {
       map.get(s.day)?.push(s);
@@ -665,12 +743,24 @@ export function WeekGrid({
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   };
 
-  const blockStyle = (start: string, end: string) => {
+  const blockStyle = (start: string, end: string, lane: TeacherGridWeekLane = "full") => {
     const s = Math.max(DAY_START_MIN, toMin(start));
     const e = Math.min(DAY_END_MIN, toMin(end));
     const top = (s - DAY_START_MIN) * PX_PER_MIN;
     const height = Math.max(28, (e - s) * PX_PER_MIN);
-    return { top, height };
+    if (lane === "A") {
+      return { top, height, left: 4, width: "calc(50% - 6px)", right: "auto" as const };
+    }
+    if (lane === "B") {
+      return {
+        top,
+        height,
+        left: "calc(50% + 2px)",
+        width: "calc(50% - 6px)",
+        right: "auto" as const,
+      };
+    }
+    return { top, height, left: 4, right: 4, width: "auto" as const };
   };
 
   const handleDayBackgroundClick = (
@@ -681,21 +771,25 @@ export function WeekGrid({
     if ((e.target as HTMLElement).closest("[data-planning-slot]")) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const y = e.clientY - rect.top;
+    const xRatio = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
+    const preferredWeek: "A" | "B" = xRatio < 0.5 ? "A" : "B";
     const rawMin = DAY_START_MIN + y / PX_PER_MIN;
     if (timetableGrid) {
       const approx = minToHhmm(Math.round(rawMin));
       const start = snapToLessonStart(timetableGrid, approx);
       const range = resolveSlotRangeFromDuration(timetableGrid, start, 1);
       if (!range || range.start >= range.end) return;
-      onEmptyClick(day, range.start, range.end);
+      onEmptyClick(day, range.start, range.end, preferredWeek);
       return;
     }
     const snapped = Math.round(rawMin / 30) * 30;
     const start = minToHhmm(snapped);
     const end = minToHhmm(snapped + 60);
     if (start >= end) return;
-    onEmptyClick(day, start, end);
+    onEmptyClick(day, start, end, preferredWeek);
   };
+
+  const hasHalfLanes = slots.some((s) => s.weekLane === "A" || s.weekLane === "B");
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-slate-50/30 to-indigo-50/20 shadow-sm">
@@ -732,7 +826,13 @@ export function WeekGrid({
             }`}
             style={{ height: totalHeight }}
             onClick={(e) => handleDayBackgroundClick(day, e)}
-            title={editable ? "Cliquez dans le vide pour ajouter un créneau" : undefined}
+            title={
+              editable
+                ? hasHalfLanes
+                  ? "Cliquez à gauche pour un créneau semaine A, à droite pour B"
+                  : "Cliquez dans le vide pour ajouter un créneau"
+                : undefined
+            }
           >
             {hours.map((m) => (
               <div
@@ -752,16 +852,18 @@ export function WeekGrid({
               title="Pause méridienne (indicatif)"
             />
             {(byDay.get(day) || []).map((slot) => {
-              const { top, height } = blockStyle(slot.start, slot.end);
+              const lane = slot.weekLane || "full";
+              const { top, height, left, right, width } = blockStyle(slot.start, slot.end, lane);
               const selected = selectedSlotId === slot.id;
               return (
                 <div
                   key={slot.id}
                   data-planning-slot={slot.id}
-                  className={`absolute left-1 right-1 z-[1] overflow-hidden ${
+                  data-week-lane={lane}
+                  className={`absolute z-[1] overflow-hidden ${
                     editable ? "cursor-pointer" : ""
                   } ${selected ? "ring-2 ring-indigo-500 ring-offset-1 rounded-lg z-[2]" : ""}`}
-                  style={{ top, height }}
+                  style={{ top, height, left, right, width }}
                   onClick={(e) => {
                     if (!editable || !onSlotClick) return;
                     e.stopPropagation();
@@ -779,8 +881,12 @@ export function WeekGrid({
       </div>
       <p className="border-t border-slate-100 px-3 py-1.5 text-[10px] text-slate-400">
         {editable
-          ? "Cliquez un créneau pour le modifier · cliquez dans le vide pour en ajouter un (7h–19h)."
-          : "Grille horaire réelle (7h–19h) — les trous et la pause midi restent visibles."}
+          ? hasHalfLanes
+            ? "Sem. A à gauche · Sem. B à droite · pleine largeur = toutes semaines. Cliquez la moitié libre pour ajouter l’autre semaine."
+            : "Cliquez un créneau pour le modifier · cliquez dans le vide pour en ajouter un (7h–19h)."
+          : hasHalfLanes
+            ? "Sem. A à gauche · Sem. B à droite · pleine largeur = cours toutes semaines (7h–19h)."
+            : "Grille horaire réelle (7h–19h) — les trous et la pause midi restent visibles."}
       </p>
     </div>
   );

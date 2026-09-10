@@ -4,7 +4,9 @@ import { useCallback, useMemo, useState } from "react";
 import {
   TeacherSlotEditor,
   WeekGrid,
+  buildTeacherCombinedGridSlots,
   newId,
+  teacherGridWeekBadgeLabel,
 } from "@/app/components/personnel/RhPlanningEditors";
 import {
   estimateTeacherWeeklyHours,
@@ -48,6 +50,7 @@ export default function TeacherPlanningSelfEditor({
   const [msg, setMsg] = useState<string | null>(null);
 
   const teacherSlots = weekView === "A" ? teacher.weekA : teacher.weekB;
+  const teacherGridSlots = useMemo(() => buildTeacherCombinedGridSlots(teacher), [teacher]);
 
   const hours = useMemo(() => estimateTeacherWeeklyHours(teacher), [teacher]);
   const overlapWarnings = useMemo(
@@ -152,8 +155,8 @@ export default function TeacherPlanningSelfEditor({
       <div className="flex flex-wrap items-center gap-2">
         {(
           [
-            ["A", "Semaine type A"],
-            ["B", "Semaine type B"],
+            ["A", "Liste / PDF · A"],
+            ["B", "Liste / PDF · B"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -166,7 +169,7 @@ export default function TeacherPlanningSelfEditor({
           </button>
         ))}
 
-        {teacherSlots.length > 0 ? (
+        {teacher.weekA.length + teacher.weekB.length > 0 ? (
           <button
             type="button"
             disabled={exportingPdf}
@@ -227,12 +230,23 @@ export default function TeacherPlanningSelfEditor({
       {msg ? <p className="text-sm text-emerald-700">{msg}</p> : null}
 
       <WeekGrid
-        slots={teacherSlots}
+        slots={teacherGridSlots}
         renderCard={(slot) => {
-          const full = teacherSlots.find((s) => s.id === slot.id)!;
+          const full = teacherGridSlots.find((s) => s.id === slot.id);
+          if (!full) return null;
           const colorKey = full.subject || "cours";
+          const badge = teacherGridWeekBadgeLabel(full.weekLane);
           return (
             <div className={`${planningSlotCardClass(colorKey)} group relative`}>
+              {badge ? (
+                <span
+                  className={`absolute right-0.5 top-0.5 rounded px-1 py-px text-[9px] font-black leading-none ${
+                    badge === "Sem. A" ? "bg-indigo-600 text-white" : "bg-violet-600 text-white"
+                  }`}
+                >
+                  {badge}
+                </span>
+              ) : null}
               <p className={planningSlotTimeClass(colorKey)}>
                 {full.start}–{full.end}
               </p>

@@ -23,9 +23,11 @@ import {
   TeacherSlotQuickModal,
   WeekGrid,
   applyTeacherSlotQuickEdit,
+  buildTeacherCombinedGridSlots,
   detectTeacherSlotWeekMode,
   newId,
   removeTeacherSlotEverywhere,
+  teacherGridWeekBadgeLabel,
   type TeacherSlotWeekMode,
 } from "@/app/components/personnel/RhPlanningEditors";
 import type { PlanningWeekday } from "@/app/lib/rh/planning-types";
@@ -317,10 +319,15 @@ export default function RhPlanningPanel() {
   };
 
   const teacherSlots = weekView === "A" ? teacher?.weekA || [] : teacher?.weekB || [];
+  const teacherGridSlots = useMemo(
+    () => (teacher ? buildTeacherCombinedGridSlots(teacher) : []),
+    [teacher],
+  );
 
   const openQuickEdit = (slotId: string) => {
     if (!teacher) return;
     const slot =
+      teacherGridSlots.find((s) => s.id === slotId) ||
       teacherSlots.find((s) => s.id === slotId) ||
       teacher.weekA.find((s) => s.id === slotId) ||
       teacher.weekB.find((s) => s.id === slotId);
@@ -331,7 +338,12 @@ export default function RhPlanningPanel() {
     setEditMode(true);
   };
 
-  const openQuickCreate = (day: PlanningWeekday, start: string, end: string) => {
+  const openQuickCreate = (
+    day: PlanningWeekday,
+    start: string,
+    end: string,
+    preferredWeek?: "A" | "B",
+  ) => {
     setQuickSlot({
       id: newId("slot"),
       day,
@@ -342,7 +354,9 @@ export default function RhPlanningPanel() {
       room: "",
     });
     setQuickSlotPreviousId(null);
-    setQuickWeekMode(weekView === "B" ? "B" : "A");
+    const mode = preferredWeek || (weekView === "B" ? "B" : "A");
+    setQuickWeekMode(mode);
+    if (mode === "A" || mode === "B") setWeekView(mode);
     setEditMode(true);
   };
 
@@ -424,7 +438,9 @@ export default function RhPlanningPanel() {
   };
 
   const hasExportableSlots =
-    (kind === "teacher" && teacher && teacherSlots.length > 0) ||
+    (kind === "teacher" &&
+      teacher &&
+      (teacher.weekA.length > 0 || teacher.weekB.length > 0)) ||
     (kind === "staff" &&
       staff &&
       (staff.mode === "fixed" ? staff.fixedSlots.length > 0 : (activeRotation?.slots.length ?? 0) > 0));
@@ -619,8 +635,8 @@ export default function RhPlanningPanel() {
                 <>
                   {(
                     [
-                      ["A", "Semaine type A"],
-                      ["B", "Semaine type B"],
+                      ["A", "Liste / PDF · A"],
+                      ["B", "Liste / PDF · B"],
                     ] as const
                   ).map(([id, label]) => (
                     <button
@@ -737,14 +753,15 @@ export default function RhPlanningPanel() {
               <>
                 {canEdit ? (
                   <p className="text-xs text-slate-600 rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2">
-                    <span className="font-bold text-indigo-900">Édition visuelle :</span> cliquez un
-                    créneau pour changer classe / horaires / semaine A ou B. Cliquez dans une zone
-                    vide du calendrier pour ajouter un créneau
+                    <span className="font-bold text-indigo-900">Édition visuelle :</span> la grille
+                    montre A et B ensemble — Sem. A à gauche, Sem. B à droite, pleine largeur =
+                    toutes semaines. Cliquez un créneau pour le modifier, ou la moitié libre pour
+                    ajouter l’autre semaine
                     {editMode || previewMode ? "" : " (passe en mode édition automatiquement)"}.
                   </p>
                 ) : null}
                 <WeekGrid
-                  slots={teacherSlots}
+                  slots={teacherGridSlots}
                   editable={Boolean(canEdit)}
                   selectedSlotId={quickSlotPreviousId}
                   timetableGrid={catalog?.timetableGrid ?? null}
@@ -758,17 +775,34 @@ export default function RhPlanningPanel() {
                   }
                   onEmptyClick={
                     canEdit
-                      ? (day, start, end) => {
+                      ? (day, start, end, preferredWeek) => {
                           if (!editMode && !previewMode) setEditMode(true);
-                          openQuickCreate(day, start, end);
+                          openQuickCreate(day, start, end, preferredWeek);
                         }
                       : undefined
                   }
                   renderCard={(slot) => {
-                    const full = teacherSlots.find((s) => s.id === slot.id) as TeacherPlanningSlot;
+                    const full =
+                      teacherGridSlots.find((s) => s.id === slot.id) ||
+                      (teacherSlots.find((s) => s.id === slot.id) as TeacherPlanningSlot | undefined);
+                    if (!full) return null;
                     const colorKey = full.subject || "cours";
+                    const badge = teacherGridWeekBadgeLabel(
+                      "weekLane" in full && full.weekLane ? full.weekLane : slot.weekLane || "full",
+                    );
                     return (
-                      <div className={planningSlotCardClass(colorKey)}>
+                      <div className={`${planningSlotCardClass(colorKey)} relative`}>
+                        {badge ? (
+                          <span
+                            className={`absolute right-0.5 top-0.5 rounded px-1 py-px text-[9px] font-black leading-none ${
+                              badge === "Sem. A"
+                                ? "bg-indigo-600 text-white"
+                                : "bg-violet-600 text-white"
+                            }`}
+                          >
+                            {badge}
+                          </span>
+                        ) : null}
                         <p className={planningSlotTimeClass(colorKey)}>
                           {full.start}–{full.end}
                         </p>
