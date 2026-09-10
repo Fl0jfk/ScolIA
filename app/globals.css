@@ -194,3 +194,25 @@ select:disabled {
   }
 }
 
+@keyframes nav-progress-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(420%);
+  }
+}
+
+.nav-progress-bar {
+  animation: nav-progress-slide 1.05s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-progress-bar {
+    animation: none;
+    width: 100%;
+    opacity: 0.85;
+  }
+}
+
+

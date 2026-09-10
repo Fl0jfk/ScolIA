@@ -10,6 +10,7 @@ import { AdminBootstrapProvider } from "../contexts/admin-bootstrap";
 import { DataProvider } from "../contexts/data";
 import { Metadata } from "next";
 import { Suspense } from "react";
+import NavigationProgress from "../components/NavigationProgress";
 
 export const metadata: Metadata = {
   title: "Intranet scolaire",
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <DataProvider>
         <AdminBootstrapProvider>
           <Suspense fallback={null}>
+            <NavigationProgress />
             <TenantCanonicalHostGuard />
             <OnboardingGate>
               <ModuleTourProvider>

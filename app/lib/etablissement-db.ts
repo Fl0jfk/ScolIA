@@ -21,34 +21,48 @@ export async function ensureEtablissementFromTenant(
   const cached = etabIdBySlug.get(tenant.slug);
   if (cached && cached.expiresAt > Date.now()) return cached.id;
 
-  const db = getDb();
-  const [existing] = await db
-    .select({ id: etablissement.id })
-    .from(etablissement)
-    .where(eq(etablissement.slug, tenant.slug))
-    .limit(1);
-  if (existing) {
-    etabIdBySlug.set(tenant.slug, {
-      id: existing.id,
-      expiresAt: Date.now() + ETAB_CACHE_TTL_MS,
-    });
-    return existing.id;
+  const lookup = async (): Promise<string> => {
+    const db = getDb();
+    const [existing] = await db
+      .select({ id: etablissement.id })
+      .from(etablissement)
+      .where(eq(etablissement.slug, tenant.slug))
+      .limit(1);
+    if (existing) return existing.id;
+
+    const [created] = await db
+      .insert(etablissement)
+      .values({
+        slug: tenant.slug,
+        name: tenant.label?.trim() || tenant.slug,
+        dataBucket: tenant.dataBucket,
+      })
+      .returning({ id: etablissement.id });
+    return created.id;
+  };
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const id = await lookup();
+      etabIdBySlug.set(tenant.slug, {
+        id,
+        expiresAt: Date.now() + ETAB_CACHE_TTL_MS,
+      });
+      return id;
+    } catch (error) {
+      lastError = error;
+      const msg = error instanceof Error ? error.message : String(error);
+      // Pool saturé / connexion coupée : courte pause puis retry.
+      if (!/53300|too many clients|CONNECT_TIMEOUT|connection|ECONNRESET/i.test(msg)) {
+        throw error;
+      }
+      await new Promise((r) => setTimeout(r, 120 * (attempt + 1)));
+    }
   }
-
-  const [created] = await db
-    .insert(etablissement)
-    .values({
-      slug: tenant.slug,
-      name: tenant.label?.trim() || tenant.slug,
-      dataBucket: tenant.dataBucket,
-    })
-    .returning({ id: etablissement.id });
-
-  etabIdBySlug.set(tenant.slug, {
-    id: created.id,
-    expiresAt: Date.now() + ETAB_CACHE_TTL_MS,
-  });
-  return created.id;
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Impossible de résoudre l’établissement.");
 }
 
 export async function resolveEtablissementIdBySlug(slug: string): Promise<string | null> {
