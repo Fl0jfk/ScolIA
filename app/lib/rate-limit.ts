@@ -3,10 +3,12 @@ import "server-only";
 import { eq, sql } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { appRateLimit } from "@/db/schema";
+import { isValkeyConfigured, valkeyDel, valkeyIncr } from "@/app/lib/valkey";
+import { valkeyKeyRateLimit } from "@/app/lib/valkey-keys";
 
 type Bucket = { count: number; resetAt: number };
 
-/** Repli mémoire si BDD indisponible (dev / bootstrap). */
+/** Repli mémoire si Valkey / BDD indisponibles (dev / bootstrap). */
 const memoryBuckets = new Map<string, Bucket>();
 
 function asRetryAfterSec(resetAtMs: number, now = Date.now()): number {
@@ -44,14 +46,33 @@ function consumeMemory(opts: {
   return { ok: true, remaining: opts.limit - current.count };
 }
 
+async function consumeValkey(opts: {
+  key: string;
+  limit: number;
+  windowMs: number;
+}): Promise<{ ok: true; remaining: number } | { ok: false; retryAfterSec: number } | null> {
+  if (!isValkeyConfigured()) return null;
+  const rk = valkeyKeyRateLimit(opts.key);
+  const ttlSec = Math.max(1, Math.ceil(opts.windowMs / 1000));
+  const count = await valkeyIncr(rk, ttlSec);
+  if (count === null || !Number.isFinite(count)) return null;
+  if (count > opts.limit) {
+    return { ok: false, retryAfterSec: ttlSec };
+  }
+  return { ok: true, remaining: Math.max(0, opts.limit - count) };
+}
+
 /**
- * Rate-limit durable (Postgres) — partagé entre réplicas Scaleway.
+ * Rate-limit : Valkey (partagé multi-réplica) → Postgres → mémoire.
  */
 export async function consumeRateLimit(opts: {
   key: string;
   limit: number;
   windowMs: number;
 }): Promise<{ ok: true; remaining: number } | { ok: false; retryAfterSec: number }> {
+  const fromValkey = await consumeValkey(opts);
+  if (fromValkey) return fromValkey;
+
   if (!isDatabaseConfigured()) {
     return consumeMemory(opts);
   }
@@ -107,6 +128,7 @@ export async function consumeRateLimit(opts: {
 /** Efface un bucket (ex. après succès légitime). */
 export async function clearRateLimit(key: string): Promise<void> {
   memoryBuckets.delete(key);
+  await valkeyDel(valkeyKeyRateLimit(key));
   if (!isDatabaseConfigured()) return;
   try {
     const db = getDb();

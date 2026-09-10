@@ -141,6 +141,24 @@ export async function GET() {
     const email = user.email ?? "";
     const isOrgAdmin = isOrgAdminFromAppUser(user);
 
+    let signalsEtabId = user.etablissementId?.trim() || "default";
+    try {
+      const { requireTenantId } = await import("@/app/lib/tenant-scope");
+      const tenant = await requireTenantId();
+      if (tenant.ok) signalsEtabId = tenant.ctx.etablissementId;
+    } catch {
+      /* ignore */
+    }
+    const { valkeyGetJson, valkeySetJson } = await import("@/app/lib/valkey");
+    const { VALKEY_TTL, valkeyKeyDashboardSignals } = await import(
+      "@/app/lib/valkey-keys"
+    );
+    const signalsCacheKey = valkeyKeyDashboardSignals(signalsEtabId, authUserId);
+    const cachedSignals = await valkeyGetJson<Record<string, unknown>>(signalsCacheKey);
+    if (cachedSignals) {
+      return NextResponse.json(cachedSignals);
+    }
+
     const { loadModuleAccess } = await import("@/app/lib/module-access-store");
     const moduleAccess = await loadModuleAccess();
     const accessibleModuleIds = new Set(
@@ -678,6 +696,7 @@ export async function GET() {
         anneeScolaireLabel,
         unseenAccompagnementAlerts,
       });
+      void valkeySetJson(signalsCacheKey, signals, VALKEY_TTL.dashboardSignals);
       return NextResponse.json(signals);
     } catch (err) {
       console.error("[dashboard/signals] getDashboardSignals", err);

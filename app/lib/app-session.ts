@@ -76,7 +76,8 @@ async function betterAuthSessionToAppUser(): Promise<AppUser | null> {
       u.externalUserId?.trim() ||
       (etablissementId ? await resolveBusinessUserId(u.id, etablissementId) : u.id);
     const twoFactorEnabled = Boolean(u.twoFactorEnabled);
-    const hasPasskey = await userHasPasskey(u.id);
+    // Skip round-trip Scaleway si TOTP déjà OK (cache 60s sinon via passkey-db).
+    const hasPasskey = twoFactorEnabled ? false : await userHasPasskey(u.id);
 
     return {
       id: u.id,

@@ -12,6 +12,10 @@ import { checkUserHasPasskey } from "@/app/lib/passkey-db";
 import type { TenantConfig } from "@/app/lib/tenant-types";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { user } from "@/db/schema";
+import {
+  cacheGetProxyAuth,
+  cacheSetProxyAuth,
+} from "@/app/lib/valkey-cache";
 
 export type BetterAuthProxyState = {
   userId: string;
@@ -49,6 +53,12 @@ export async function resolveBetterAuthProxyState(
       twoFactorEnabled?: boolean;
     };
 
+    const cacheScope = tenant?.slug?.trim() || u.etablissementId || "_";
+    const cached = await cacheGetProxyAuth<BetterAuthProxyState>(u.id, cacheScope);
+    if (cached?.authUserId === u.id) {
+      return cached;
+    }
+
     const db = getDb();
     const [row] = await db.select().from(user).where(eq(user.id, u.id)).limit(1);
     const homeEtablissementId = row?.etablissementId ?? u.etablissementId ?? null;
@@ -68,19 +78,26 @@ export async function resolveBetterAuthProxyState(
     const businessUserId = row?.externalUserId?.trim() || u.id;
     const mustChangePassword = Boolean(row?.mustChangePassword ?? u.mustChangePassword);
     const twoFactorEnabled = Boolean(row?.twoFactorEnabled ?? u.twoFactorEnabled);
-    const passkeyStatus = await checkUserHasPasskey(u.id);
-    const hasPasskey = passkeyStatus.hasPasskey;
-    const mfaSatisfied = isMfaSatisfied({ twoFactorEnabled, hasPasskey });
+    const mfaRequired = roleRequiresTwoFactor({ platformAdmin, orgAdmin, roles });
     /**
-     * Si le contrôle passkey échoue (pool BDD saturé), on ne renvoie PAS en setup-2fa
-     * et on ne casse pas la session — sinon boucle déco / onboarding MFA.
+     * Évite un round-trip Scaleway quand MFA déjà OK (TOTP) ou non exigée.
+     * Cache Valkey + mémoire pour les navigations suivantes.
      */
+    let hasPasskey = false;
+    let passkeyCheckFailed = false;
+    if (mfaRequired && !twoFactorEnabled) {
+      const passkeyStatus = await checkUserHasPasskey(u.id);
+      hasPasskey = passkeyStatus.hasPasskey;
+      passkeyCheckFailed = passkeyStatus.checkFailed;
+    } else if (twoFactorEnabled) {
+      // MFA déjà satisfaite via TOTP — pas besoin de requêter passkey pour le gate.
+      hasPasskey = false;
+    }
+    const mfaSatisfied = isMfaSatisfied({ twoFactorEnabled, hasPasskey });
     const requiresTwoFactorSetup =
-      roleRequiresTwoFactor({ platformAdmin, orgAdmin, roles }) &&
-      !mfaSatisfied &&
-      !passkeyStatus.checkFailed;
+      mfaRequired && !mfaSatisfied && !passkeyCheckFailed;
 
-    return {
+    const state: BetterAuthProxyState = {
       userId: businessUserId,
       authUserId: u.id,
       email: String(u.email || row?.email || "").trim(),
@@ -103,6 +120,8 @@ export async function resolveBetterAuthProxyState(
       hasPasskey,
       requiresTwoFactorSetup,
     };
+    void cacheSetProxyAuth(u.id, cacheScope, state);
+    return state;
   } catch (error) {
     console.error("[resolveBetterAuthProxyState]", error);
     return null;
@@ -125,17 +144,20 @@ export async function resolveBetterAuthProxyStateByUserId(
   const orgAdmin =
     Boolean(row.orgAdmin) || Boolean(row.platformAdmin) || roles.includes("admin");
   const twoFactorEnabled = Boolean(row.twoFactorEnabled);
-  const passkeyStatus = await checkUserHasPasskey(row.id);
-  const hasPasskey = passkeyStatus.hasPasskey;
+  const mfaRequired = roleRequiresTwoFactor({
+    platformAdmin: row.platformAdmin,
+    orgAdmin,
+    roles,
+  });
+  let hasPasskey = false;
+  let passkeyCheckFailed = false;
+  if (mfaRequired && !twoFactorEnabled) {
+    const passkeyStatus = await checkUserHasPasskey(row.id);
+    hasPasskey = passkeyStatus.hasPasskey;
+    passkeyCheckFailed = passkeyStatus.checkFailed;
+  }
   const mfaSatisfied = isMfaSatisfied({ twoFactorEnabled, hasPasskey });
-  const requiresTwoFactorSetup =
-    roleRequiresTwoFactor({
-      platformAdmin: row.platformAdmin,
-      orgAdmin,
-      roles,
-    }) &&
-    !mfaSatisfied &&
-    !passkeyStatus.checkFailed;
+  const requiresTwoFactorSetup = mfaRequired && !mfaSatisfied && !passkeyCheckFailed;
   return {
     userId: row.externalUserId?.trim() || row.id,
     authUserId: row.id,

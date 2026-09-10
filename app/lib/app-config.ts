@@ -75,6 +75,14 @@ let cache: { at: number; bundle: AppConfigBundle; allEstablishments: Establishme
 
 export function invalidateAppConfigCache() {
   cache = null;
+  const slug = process.env.DEFAULT_TENANT_SLUG?.trim() || "default";
+  void import("@/app/lib/valkey")
+    .then(({ valkeyDel }) =>
+      import("@/app/lib/valkey-keys").then(({ valkeyKeyAppConfig }) =>
+        valkeyDel(valkeyKeyAppConfig(slug)),
+      ),
+    )
+    .catch(() => undefined);
 }
 
 function isOnboardingComplete(config: AppConfigBundle): boolean {
@@ -218,6 +226,27 @@ function withInferredOrganizationKind(identity: SiteIdentity, establishments: Es
 export async function loadAppConfig(): Promise<AppConfigBundle> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.bundle;
 
+  const slug = process.env.DEFAULT_TENANT_SLUG?.trim() || "default";
+  try {
+    const { valkeyGetJson, valkeySetJson } = await import("@/app/lib/valkey");
+    const { VALKEY_TTL, valkeyKeyAppConfig } = await import("@/app/lib/valkey-keys");
+    const vk = valkeyKeyAppConfig(slug);
+    const fromValkey = await valkeyGetJson<{
+      bundle: AppConfigBundle;
+      allEstablishments: Establishment[];
+    }>(vk);
+    if (fromValkey?.bundle) {
+      cache = {
+        at: Date.now(),
+        bundle: fromValkey.bundle,
+        allEstablishments: fromValkey.allEstablishments,
+      };
+      return fromValkey.bundle;
+    }
+  } catch {
+    /* Valkey optionnel */
+  }
+
   const [
     identityRaw,
     estRaw,
@@ -307,6 +336,17 @@ export async function loadAppConfig(): Promise<AppConfigBundle> {
     classAllocation: defaultClassAllocationSettings(),
   };
   cache = { at: Date.now(), bundle, allEstablishments };
+  void import("@/app/lib/valkey")
+    .then(({ valkeySetJson }) =>
+      import("@/app/lib/valkey-keys").then(({ VALKEY_TTL, valkeyKeyAppConfig }) =>
+        valkeySetJson(
+          valkeyKeyAppConfig(slug),
+          { bundle, allEstablishments },
+          VALKEY_TTL.appConfig,
+        ),
+      ),
+    )
+    .catch(() => undefined);
   return bundle;
 }
 

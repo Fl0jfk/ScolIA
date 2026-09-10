@@ -701,6 +701,9 @@ export async function POST(req: Request, ctx: Ctx) {
   const body = (await req.json()) as DossierBody;
   const action = String(body.action || "");
 
+  const { cacheInvalidateElevesDossiers } = await import("@/app/lib/valkey-cache");
+  void cacheInvalidateElevesDossiers(etabId);
+
   const db = getDb();
   const [row] = await db
     .select()

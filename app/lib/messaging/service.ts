@@ -29,6 +29,23 @@ import type {
   MessagingSendAttachmentInput,
   MessagingUserDto,
 } from "@/app/lib/messaging/types";
+import {
+  cacheInvalidateMessagingForUsers,
+  cacheInvalidateMessagingMessages,
+  messagingConversationsCacheKey,
+  VALKEY_TTL,
+} from "@/app/lib/valkey-cache";
+import { valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
+import { valkeyKeyMessagingMessages } from "@/app/lib/valkey-keys";
+
+async function bustMessagingCaches(
+  etablissementId: string,
+  conversationId: string,
+  userIds: string[],
+): Promise<void> {
+  await cacheInvalidateMessagingForUsers(etablissementId, userIds);
+  await cacheInvalidateMessagingMessages(etablissementId, conversationId);
+}
 
 export class MessagingError extends Error {
   readonly status: number;
@@ -480,6 +497,7 @@ export async function getOrCreateConversation(
       userIds: [userAId, userBId],
       payload: { conversationId },
     });
+    void bustMessagingCaches(etablissementId, conversationId, [userAId, userBId]);
   }
 
   const me = await db
@@ -587,6 +605,7 @@ export async function createGroupConversation(
     userIds: allIds,
     payload: { conversationId },
   });
+  void bustMessagingCaches(etablissementId, conversationId, allIds);
 
   const conv = (
     await db
@@ -610,6 +629,10 @@ export async function listConversationsForUser(
   etablissementId: string,
   userId: string,
 ): Promise<MessagingConversationDto[]> {
+  const cacheKey = messagingConversationsCacheKey(etablissementId, userId);
+  const cached = await valkeyGetJson<MessagingConversationDto[]>(cacheKey);
+  if (cached) return cached;
+
   const db = getDb();
   const mine = await db
     .select({
@@ -654,6 +677,7 @@ export async function listConversationsForUser(
       ),
     );
   }
+  void valkeySetJson(cacheKey, result, VALKEY_TTL.messagingConversations);
   return result;
 }
 
@@ -665,6 +689,20 @@ export async function listMessages(
 ): Promise<{ messages: MessagingMessageDto[]; nextCursor: string | null }> {
   await assertParticipant(etablissementId, conversationId, userId);
   const limit = Math.min(Math.max(opts?.limit ?? 40, 1), 100);
+  const cursorKey = opts?.cursor?.trim() || "head";
+  // Cache uniquement la première page (head) — cursors = navigation rare.
+  const cacheKey =
+    cursorKey === "head"
+      ? valkeyKeyMessagingMessages(etablissementId, conversationId, `u:${userId}:head`)
+      : null;
+  if (cacheKey) {
+    const cached = await valkeyGetJson<{
+      messages: MessagingMessageDto[];
+      nextCursor: string | null;
+    }>(cacheKey);
+    if (cached) return cached;
+  }
+
   const db = getDb();
 
   const conditions = [
@@ -715,10 +753,14 @@ export async function listMessages(
   messages.reverse();
 
   const oldest = page[page.length - 1];
-  return {
+  const payload = {
     messages,
     nextCursor: hasMore && oldest ? oldest.createdAt.toISOString() : null,
   };
+  if (cacheKey) {
+    void valkeySetJson(cacheKey, payload, VALKEY_TTL.messagingMessages);
+  }
+  return payload;
 }
 
 export type SendMessageInput = {
@@ -856,6 +898,7 @@ export async function sendMessage(
   }
 
   const userIds = await participantUserIds(etablissementId, conversationId);
+  void bustMessagingCaches(etablissementId, conversationId, userIds);
   publish({
     type: "message",
     etablissementId,
@@ -933,6 +976,7 @@ export async function editMessage(
   );
 
   const userIds = await participantUserIds(etablissementId, row.conversationId);
+  void bustMessagingCaches(etablissementId, row.conversationId, userIds);
   publish({
     type: "message",
     etablissementId,
@@ -998,6 +1042,7 @@ export async function softDeleteMessage(
   );
 
   const userIds = await participantUserIds(etablissementId, row.conversationId);
+  void bustMessagingCaches(etablissementId, row.conversationId, userIds);
   publish({
     type: "message",
     etablissementId,
@@ -1085,6 +1130,7 @@ export async function setReaction(
 
   const reactions = reactionDtos(all);
   const userIds = await participantUserIds(etablissementId, message.conversationId);
+  void cacheInvalidateMessagingMessages(etablissementId, message.conversationId);
   publish({
     type: "reaction",
     etablissementId,
@@ -1125,6 +1171,7 @@ export async function markRead(
     );
 
   const userIds = await participantUserIds(etablissementId, conversationId);
+  void cacheInvalidateMessagingForUsers(etablissementId, [userId]);
   publish({
     type: "read",
     etablissementId,

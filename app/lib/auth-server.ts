@@ -34,6 +34,10 @@ import {
   INVITATION_VALIDITY_HOURS,
 } from "@/app/lib/invitation-window";
 import { MFA_TRUST_STAFF_SECONDS, roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
+import {
+  createValkeySecondaryStorage,
+  isValkeyConfigured,
+} from "@/app/lib/valkey";
 
 type MailAttachment = {
   filename: string;
@@ -366,6 +370,10 @@ function createAuth() {
     (process.env.NODE_ENV === "production" &&
       process.env.REQUIRE_EMAIL_VERIFICATION !== "false");
 
+  const valkeySecondary = isValkeyConfigured()
+    ? createValkeySecondaryStorage("ba:")
+    : null;
+
   return betterAuth({
     appName: "ScolIA",
     secret: process.env.BETTER_AUTH_SECRET!,
@@ -383,6 +391,11 @@ function createAuth() {
       provider: "pg",
       schema: authSchema,
     }),
+    ...(valkeySecondary
+      ? {
+          secondaryStorage: valkeySecondary,
+        }
+      : {}),
     emailAndPassword: {
       enabled: true,
       requireEmailVerification,
@@ -451,6 +464,13 @@ function createAuth() {
     session: {
       expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 12,
+      // Miroir Valkey + Postgres : sessions survivant à un flush cache.
+      ...(valkeySecondary
+        ? {
+            storeSessionInDatabase: true,
+            preserveSessionInDatabase: true,
+          }
+        : {}),
       cookieCache: {
         enabled: true,
         maxAge: 60 * 5,
@@ -478,7 +498,7 @@ function createAuth() {
     },
     rateLimit: {
       enabled: true,
-      storage: "database",
+      storage: valkeySecondary ? "secondary-storage" : "database",
       window: 60,
       max: 100,
       customRules: {

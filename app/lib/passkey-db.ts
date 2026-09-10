@@ -3,25 +3,52 @@ import "server-only";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { passkey } from "@/db/schema";
+import {
+  cacheGetPasskeyPresence,
+  cacheInvalidatePasskeyPresence,
+  cacheSetPasskeyPresence,
+} from "@/app/lib/valkey-cache";
+
+/** Cache process court (L1) — Valkey en L2 partagé. */
+const PASSKEY_CACHE_TTL_MS = 60_000;
+const passkeyPresenceCache = new Map<
+  string,
+  { hasPasskey: boolean; expiresAt: number }
+>();
+
+export function invalidatePasskeyPresenceCache(userId?: string): void {
+  if (!userId) {
+    passkeyPresenceCache.clear();
+    return;
+  }
+  passkeyPresenceCache.delete(userId);
+  void cacheInvalidatePasskeyPresence(userId);
+}
+
+function readMemoryCache(userId: string): boolean | null {
+  const hit = passkeyPresenceCache.get(userId);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    passkeyPresenceCache.delete(userId);
+    return null;
+  }
+  return hit.hasPasskey;
+}
+
+function writeMemoryCache(userId: string, hasPasskey: boolean): void {
+  passkeyPresenceCache.set(userId, {
+    hasPasskey,
+    expiresAt: Date.now() + PASSKEY_CACHE_TTL_MS,
+  });
+}
 
 /**
  * true si l’utilisateur a au moins une passkey.
  * Ne jette jamais : une panne BDD ne doit pas déconnecter la session (proxy).
  */
 export async function userHasPasskey(userId: string): Promise<boolean> {
-  if (!userId || !isDatabaseConfigured()) return false;
-  try {
-    const db = getDb();
-    const [row] = await db
-      .select({ id: passkey.id })
-      .from(passkey)
-      .where(eq(passkey.userId, userId))
-      .limit(1);
-    return Boolean(row?.id);
-  } catch (error) {
-    console.error("[userHasPasskey]", error);
-    return false;
-  }
+  const checked = await checkUserHasPasskey(userId);
+  return checked.hasPasskey;
 }
 
 /**
@@ -34,6 +61,15 @@ export async function checkUserHasPasskey(
   if (!userId || !isDatabaseConfigured()) {
     return { hasPasskey: false, checkFailed: false };
   }
+  const mem = readMemoryCache(userId);
+  if (mem !== null) {
+    return { hasPasskey: mem, checkFailed: false };
+  }
+  const fromValkey = await cacheGetPasskeyPresence(userId);
+  if (fromValkey !== null) {
+    writeMemoryCache(userId, fromValkey);
+    return { hasPasskey: fromValkey, checkFailed: false };
+  }
   try {
     const db = getDb();
     const [row] = await db
@@ -41,7 +77,10 @@ export async function checkUserHasPasskey(
       .from(passkey)
       .where(eq(passkey.userId, userId))
       .limit(1);
-    return { hasPasskey: Boolean(row?.id), checkFailed: false };
+    const hasPasskey = Boolean(row?.id);
+    writeMemoryCache(userId, hasPasskey);
+    void cacheSetPasskeyPresence(userId, hasPasskey);
+    return { hasPasskey, checkFailed: false };
   } catch (error) {
     console.error("[checkUserHasPasskey]", error);
     return { hasPasskey: false, checkFailed: true };
@@ -66,6 +105,8 @@ export async function countPasskeysByUserIds(
       .groupBy(passkey.userId);
     for (const r of rows) {
       out.set(r.userId, Number(r.n));
+      writeMemoryCache(r.userId, Number(r.n) > 0);
+      void cacheSetPasskeyPresence(r.userId, Number(r.n) > 0);
     }
   } catch (error) {
     console.error("[countPasskeysByUserIds]", error);
@@ -114,6 +155,7 @@ export async function deletePasskeyForUser(
       .delete(passkey)
       .where(and(eq(passkey.id, passkeyId), eq(passkey.userId, userId)))
       .returning({ id: passkey.id });
+    invalidatePasskeyPresenceCache(userId);
     return deleted.length > 0;
   } catch (error) {
     console.error("[deletePasskeyForUser]", error);

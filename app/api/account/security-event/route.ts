@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { getBetterAuth } from "@/app/lib/auth-server";
 import { consumeRateLimit } from "@/app/lib/rate-limit";
-import {
-  writeSecurityAudit,
-  type SecurityAuditAction,
-} from "@/app/lib/security-audit";
+import { writeSecurityAudit, type SecurityAuditAction } from "@/app/lib/security-audit";
+import { invalidatePasskeyPresenceCache } from "@/app/lib/passkey-db";
 import { forcePromoteTwoFactorEnabled } from "@/app/lib/two-factor-setup";
 
 const ALLOWED: SecurityAuditAction[] = [
@@ -46,6 +44,9 @@ export async function POST(req: Request) {
   let promoted = false;
   if (action === "two_factor_enabled") {
     promoted = await forcePromoteTwoFactorEnabled(session.user.id);
+  }
+  if (action === "passkey_registered") {
+    invalidatePasskeyPresenceCache(session.user.id);
   }
 
   await writeSecurityAudit({

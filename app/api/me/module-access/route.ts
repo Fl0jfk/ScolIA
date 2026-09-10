@@ -16,21 +16,41 @@ export async function GET() {
   if (!gate.ok) return gate.response;
 
   try {
-    const access = await loadModuleAccess();
-    const appUser = await requireViewUser();
+    const appUserEarly = await requireViewUser();
+    if (appUserEarly.ok) {
+      const etab = appUserEarly.user.etablissementId?.trim() || "default";
+      const { valkeyGetJson, valkeySetJson } = await import("@/app/lib/valkey");
+      const { VALKEY_TTL, valkeyKeyModuleAccessUser } = await import(
+        "@/app/lib/valkey-keys"
+      );
+      const cacheKey = valkeyKeyModuleAccessUser(etab, appUserEarly.user.id);
+      const cached = await valkeyGetJson<{
+        moduleIds: string[];
+        dossierSections: string[];
+      }>(cacheKey);
+      if (cached?.moduleIds) {
+        return NextResponse.json(cached);
+      }
 
-    if (appUser.ok) {
-      const isOrgAdmin = isOrgAdminFromAppUser(appUser.user);
+      const access = await loadModuleAccess();
+      const isOrgAdmin = isOrgAdminFromAppUser(appUserEarly.user);
       const lookup = {
-        userId: appUser.user.id,
-        businessUserId: appUser.user.businessUserId,
+        userId: appUserEarly.user.id,
+        businessUserId: appUserEarly.user.businessUserId,
       };
       const moduleIds = [
-        ...accessibleModuleIdsForRoles(appUser.user.roles, isOrgAdmin, access, lookup),
+        ...accessibleModuleIdsForRoles(
+          appUserEarly.user.roles,
+          isOrgAdmin,
+          access,
+          lookup,
+        ),
       ];
       try {
         const { loadAppConfig } = await import("@/app/lib/app-config");
-        const { resolvePhotocopiesOpsEmails } = await import("@/app/lib/photocopies-couleur-ops");
+        const { resolvePhotocopiesOpsEmails } = await import(
+          "@/app/lib/photocopies-couleur-ops"
+        );
         const { isPhotocopiesOpsHandlerResolved } = await import(
           "@/app/lib/photocopies-couleur-ops-server"
         );
@@ -38,11 +58,11 @@ export async function GET() {
         const ops = resolvePhotocopiesOpsEmails(bundle.notifications);
         if (
           isPhotocopiesOpsHandlerResolved({
-            email: appUser.user.email,
+            email: appUserEarly.user.email,
             opsEmails: ops,
             moduleAccess: access,
             lookup,
-            roles: appUser.user.roles,
+            roles: appUserEarly.user.roles,
           }) &&
           !moduleIds.includes("photocopies-couleur")
         ) {
@@ -65,14 +85,21 @@ export async function GET() {
       }
       const dossierSections = [
         ...dossierSectionsForRolesWithAccess(
-          appUser.user.roles,
-          { orgAdmin: isOrgAdmin, platformAdmin: appUser.user.platformAdmin },
+          appUserEarly.user.roles,
+          {
+            orgAdmin: isOrgAdmin,
+            platformAdmin: appUserEarly.user.platformAdmin,
+          },
           access,
           lookup,
         ),
       ];
-      return NextResponse.json({ moduleIds, dossierSections });
+      const payload = { moduleIds, dossierSections };
+      void valkeySetJson(cacheKey, payload, VALKEY_TTL.moduleAccessUser);
+      return NextResponse.json(payload);
     }
+
+    const access = await loadModuleAccess();
 
     // Repli session compat : évite un dashboard sans aucun module si requireViewUser échoue.
     const user = await safeCurrentUser();

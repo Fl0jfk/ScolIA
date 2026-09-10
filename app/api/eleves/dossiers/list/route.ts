@@ -38,6 +38,8 @@ import { listObservedClassNames } from "@/app/lib/classe-site-mapping";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { etablissementSite } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
+import { VALKEY_TTL, valkeyKeyElevesDossiersList } from "@/app/lib/valkey-keys";
 
 export async function GET(req: NextRequest) {
   try {
@@ -74,6 +76,19 @@ export async function GET(req: NextRequest) {
     orgAdmin: user.orgAdmin,
     platformAdmin: user.platformAdmin,
   });
+
+  const cacheKey = valkeyKeyElevesDossiersList({
+    etablissementId: tenant.ctx.etablissementId,
+    viewerKey: `${user.businessUserId}:${profScoped ? "prof" : fullHub ? "hub" : "other"}`,
+    siteId,
+    classe,
+    status,
+    metaOnly,
+  });
+  const cachedPayload = await valkeyGetJson<Record<string, unknown>>(cacheKey);
+  if (cachedPayload) {
+    return NextResponse.json(cachedPayload);
+  }
 
   let assignedClasses: string[] | undefined;
   if (profScoped) {
@@ -150,7 +165,7 @@ export async function GET(req: NextRequest) {
             )
         : dossierClassOptionsForSite(catalog, undefined, extraClasses);
     const siteLabelById = Object.fromEntries(catalog.siteLabelById.entries());
-    return NextResponse.json({
+    const metaPayload = {
       eleves: [],
       assignedClasses: assignedClasses ?? [],
       canViewFullHub: fullHub,
@@ -160,7 +175,9 @@ export async function GET(req: NextRequest) {
       sites: sites.map((s) => ({ siteId: s.siteId, label: s.label })),
       siteLabelById,
       classOptions,
-    });
+    };
+    void valkeySetJson(cacheKey, metaPayload, VALKEY_TTL.elevesDossiersList);
+    return NextResponse.json(metaPayload);
   }
 
   const [elevesRaw, sites] = await Promise.all([
@@ -272,7 +289,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({
+  const listPayload = {
     eleves: eleves.map((e) =>
       profScoped
         ? { ...e, ine: null, sourceKey: undefined }
@@ -286,7 +303,9 @@ export async function GET(req: NextRequest) {
     sites: sites.map((s) => ({ siteId: s.siteId, label: s.label })),
     siteLabelById,
     classOptions,
-  });
+  };
+  void valkeySetJson(cacheKey, listPayload, VALKEY_TTL.elevesDossiersList);
+  return NextResponse.json(listPayload);
   } catch (error) {
     console.error("[eleves/dossiers/list]", error);
     return NextResponse.json(

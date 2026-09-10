@@ -13,6 +13,7 @@ Repo **docslapro / ScolIA** : ENT / intranet scolaire (Next.js App Router, Drizz
 | Sync schéma (dev) | `npx drizzle-kit push --force` |
 | Tests OCR match | `npm run test:ocr-match` |
 | Lint | `npm run lint` |
+| Valkey local (optionnel) | `docker run -d --name scolia-valkey -p 6379:6379 valkey/valkey:8` puis `VALKEY_URL=redis://127.0.0.1:6379` |
 
 ## Compte de test local (après `seed:dev`)
 
@@ -105,11 +106,12 @@ La page **Absence accueil** (`/accueil/absences`, module `accueil-absences`) enr
 
 ### Secrets optionnels (dashboard)
 
-Non requis pour booter localement. Utile pour OCR / S3 / MCP Scaleway :
+Non requis pour booter localement. Utile pour OCR / S3 / MCP Scaleway / cache Valkey :
 
 - `MISTRAL_API_KEY`
 - `SCW_ACCESS_KEY`, `SCW_SECRET_KEY`, `SCW_DEFAULT_ORGANIZATION_ID`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`
 - `MCP_DATABASE_URL` (Postgres Scaleway lecture seule, si tests contre la vraie base)
+- `VALKEY_URL` (ou `REDIS_URL`) — cache partagé auth / messagerie / dossiers / dashboard. Sans URL, l’app tourne avec repli mémoire + Postgres.
 
 ### Fichiers env Cloud
 
