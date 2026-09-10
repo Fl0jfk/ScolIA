@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 import PasswordInput from "@/app/components/auth/PasswordInput";
 import SwitchAccountLink from "@/app/components/auth/SwitchAccountLink";
 import { authClient } from "@/app/lib/auth-client";
+import { resolvePasskeyRegisterHints } from "@/app/lib/passkey-client-hints";
 import { roleRequiresTwoFactor } from "@/app/lib/two-factor-policy";
 
 type Mode = "choose" | "passkey" | "totp-password" | "totp-verify" | "done";
@@ -34,6 +35,9 @@ function Setup2faForm() {
   const [error, setError] = useState<string | null>(null);
   const [canSkipMfa, setCanSkipMfa] = useState(false);
   const [passkeySupported, setPasskeySupported] = useState(true);
+  const [passkeyHelp, setPasskeyHelp] = useState(
+    "Sur PC, priorité au téléphone (QR). Sur mobile, Face ID / empreinte.",
+  );
 
   useEffect(() => {
     void prepareTwoFactorSetup();
@@ -41,6 +45,7 @@ function Setup2faForm() {
       typeof window !== "undefined" &&
         typeof window.PublicKeyCredential !== "undefined",
     );
+    setPasskeyHelp(resolvePasskeyRegisterHints().helpText);
   }, []);
 
   useEffect(() => {
@@ -115,15 +120,18 @@ function Setup2faForm() {
     setBusy(true);
     setError(null);
     setMode("passkey");
+    const hints = resolvePasskeyRegisterHints();
     try {
       const { data, error: regError } = await authClient.passkey.addPasskey({
-        name: "Téléphone",
-        authenticatorAttachment: "cross-platform",
+        name: hints.name,
+        authenticatorAttachment: hints.authenticatorAttachment,
       });
       if (regError) {
         throw new Error(
           regError.message ||
-            "Enregistrement annulé. Choisissez « téléphone / tablette » dans la fenêtre du navigateur, ou utilisez l’appli OTP.",
+            (hints.authenticatorAttachment === "platform"
+              ? "Enregistrement annulé. Validez Face ID / empreinte, ou utilisez l’appli OTP."
+              : "Enregistrement annulé. Choisissez téléphone / QR dans la fenêtre du navigateur, ou utilisez l’appli OTP."),
         );
       }
       if (!data) throw new Error("Aucune passkey enregistrée.");
@@ -134,7 +142,6 @@ function Setup2faForm() {
         body: JSON.stringify({ action: "passkey_registered" }),
       });
       setMode("done");
-      // Laisse le temps d’afficher le succès puis entre dans l’intranet.
       window.setTimeout(() => {
         goToApp();
       }, 600);
@@ -222,12 +229,8 @@ function Setup2faForm() {
         {mode === "choose" ? (
           <div className="space-y-3">
             <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-950">
-              <p className="font-semibold">Passkey téléphone (si le navigateur le propose)</p>
-              <p className="mt-1 text-emerald-900/80">
-                Une fenêtre du navigateur s’ouvre : choisissez téléphone / tablette. Sur certains PC
-                pro, Windows Hello est bloqué et le QR n’apparaît pas — dans ce cas utilisez l’appli
-                OTP ci-dessous.
-              </p>
+              <p className="font-semibold">Passkey</p>
+              <p className="mt-1 text-emerald-900/80">{passkeyHelp}</p>
             </div>
             <button
               type="button"
@@ -235,7 +238,7 @@ function Setup2faForm() {
               onClick={() => void registerPasskey()}
               className="w-full rounded-xl bg-gradient-to-r from-[#2F6B4A] to-[#1E4A32] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
             >
-              {busy ? "En attente du téléphone…" : "Enregistrer une passkey (téléphone)"}
+              {busy ? "Enregistrement…" : "Enregistrer une passkey"}
             </button>
             {!passkeySupported ? (
               <p className="text-xs text-amber-800">
@@ -270,10 +273,7 @@ function Setup2faForm() {
 
         {mode === "passkey" ? (
           <div className="space-y-3">
-            <p className="text-sm text-slate-700">
-              Suivez l’invite du navigateur : choisissez <strong>téléphone / tablette</strong>,
-              scannez le QR, puis validez avec Face ID ou empreinte.
-            </p>
+            <p className="text-sm text-slate-700">{passkeyHelp}</p>
             <p className="text-xs text-slate-500">Ne fermez pas cette page pendant la validation.</p>
             <button
               type="button"

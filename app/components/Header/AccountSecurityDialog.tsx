@@ -7,6 +7,7 @@ import PasswordInput from "@/app/components/auth/PasswordInput";
 import PasswordRequirementsChecklist from "@/app/components/auth/PasswordRequirementsChecklist";
 import SessionsManager from "@/app/components/account/SessionsManager";
 import { useAppUser } from "@/app/hooks/useAppUser";
+import { resolvePasskeyRegisterHints } from "@/app/lib/passkey-client-hints";
 import { validatePasswordPolicy } from "@/app/lib/password-policy";
 
 type Mode = "menu" | "password" | "email" | "sessions" | "signature" | "passkeys";
@@ -149,10 +150,11 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
     setError(null);
     setSuccess(null);
     try {
+      const hints = resolvePasskeyRegisterHints();
       const { authClient } = await import("@/app/lib/auth-client");
       const { data, error: regError } = await authClient.passkey.addPasskey({
-        name: "Téléphone",
-        authenticatorAttachment: "cross-platform",
+        name: hints.name,
+        authenticatorAttachment: hints.authenticatorAttachment,
       });
       if (regError) throw new Error(regError.message || "Enregistrement annulé.");
       if (!data) throw new Error("Aucune passkey enregistrée.");
@@ -162,7 +164,11 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "passkey_registered" }),
       });
-      setSuccess("Passkey enregistrée (téléphone).");
+      setSuccess(
+        hints.authenticatorAttachment === "platform"
+          ? "Passkey enregistrée sur cet appareil."
+          : "Passkey téléphone enregistrée.",
+      );
       await loadPasskeys();
       await refresh();
     } catch (err) {
@@ -324,8 +330,8 @@ export default function AccountSecurityDialog({ open, onClose }: Props) {
                 ← Retour
               </button>
               <p className="text-sm text-slate-600">
-                Sur les PC pro sans Windows Hello : utilisez un QR téléphone. La passkey reste sur
-                votre mobile.
+                Sur PC : priorité téléphone (QR), pas Windows Hello. Sur mobile : Face ID /
+                empreinte sur cet appareil.
               </p>
               {passkeysLoading ? (
                 <p className="text-sm text-slate-500">Chargement…</p>
