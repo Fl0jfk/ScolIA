@@ -50,6 +50,67 @@ export async function listMembersFromDb(etablissementId: string): Promise<Direct
   return rows.sort((a, b) => (a.displayName ?? a.email).localeCompare(b.displayName ?? b.email, "fr"));
 }
 
+/** Liste staff pour Droits modules — sans ALTER ni scan passkeys. */
+export async function listStaffMembersLite(
+  etablissementId: string,
+): Promise<DirectoryMemberRow[]> {
+  if (!isDatabaseConfigured()) return [];
+  const db = getDb();
+  const users = await db
+    .select({
+      id: user.id,
+      externalUserId: user.externalUserId,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      name: user.name,
+      emailVerified: user.emailVerified,
+      mustChangePassword: user.mustChangePassword,
+      twoFactorEnabled: user.twoFactorEnabled,
+      platformAdmin: user.platformAdmin,
+      orgAdmin: user.orgAdmin,
+      invitationSentAt: user.invitationSentAt,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    })
+    .from(user)
+    .where(eq(user.etablissementId, etablissementId));
+  const rolesByUserId = await listUserRolesBatchFromDb(
+    users.map((u) => u.id),
+    etablissementId,
+  );
+  const rows: DirectoryMemberRow[] = [];
+  for (const u of users) {
+    const roles = rolesByUserId.get(u.id) ?? [];
+    if (roles.includes("parent") || roles.includes("eleve")) continue;
+    rows.push({
+      userId: u.id,
+      externalUserId: u.externalUserId ?? u.id,
+      email: u.email,
+      firstName: u.firstName ?? undefined,
+      lastName: u.lastName ?? undefined,
+      displayName: u.name,
+      roles,
+      pending: isAccountActivationPending({
+        emailVerified: u.emailVerified,
+        mustChangePassword: u.mustChangePassword,
+        twoFactorEnabled: u.twoFactorEnabled,
+        hasPasskey: false,
+        platformAdmin: u.platformAdmin,
+        orgAdmin: u.orgAdmin || roles.includes("admin"),
+        roles,
+      }),
+      mfaEnabled: u.twoFactorEnabled,
+      invitationSentAt: u.invitationSentAt ? u.invitationSentAt.toISOString() : null,
+      createdAt: u.createdAt.toISOString(),
+      updatedAt: u.updatedAt.toISOString(),
+    });
+  }
+  return rows.sort((a, b) =>
+    (a.displayName ?? a.email).localeCompare(b.displayName ?? b.email, "fr"),
+  );
+}
+
 export async function mergeMemberSources(
   memberRows: DirectoryMemberRow[],
   dbRows: DirectoryMemberRow[],

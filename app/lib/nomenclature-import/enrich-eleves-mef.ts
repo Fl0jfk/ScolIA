@@ -13,7 +13,23 @@ export type MefLabelMaps = {
 };
 
 /** Construit les maps code ↔ libellé depuis Nomenclature.xml (type mef). */
+const mefMapsCache = new Map<string, { maps: MefLabelMaps; expiresAt: number }>();
+const MEF_MAPS_TTL_MS = 10 * 60_000;
+
+export async function lookupMefLabel(
+  etablissementId: string,
+  raw: string | undefined | null,
+): Promise<string> {
+  const value = String(raw ?? "").trim();
+  if (!value) return "";
+  const maps = await buildMefLabelMaps(etablissementId);
+  return resolveMefDisplayValue(value, maps) || value;
+}
+
 export async function buildMefLabelMaps(etablissementId: string): Promise<MefLabelMaps> {
+  const cached = mefMapsCache.get(etablissementId);
+  if (cached && cached.expiresAt > Date.now()) return cached.maps;
+
   const rows = await listNomenclatureByType(etablissementId, "mef");
   const codeToLabel = new Map<string, string>();
   const labelToCode = new Map<string, string>();
@@ -35,7 +51,9 @@ export async function buildMefLabelMaps(etablissementId: string): Promise<MefLab
     }
   }
 
-  return { codeToLabel, labelToCode };
+  const maps = { codeToLabel, labelToCode };
+  mefMapsCache.set(etablissementId, { maps, expiresAt: Date.now() + MEF_MAPS_TTL_MS });
+  return maps;
 }
 
 /** Remplace un CODE_MEF brut par son libellé Siècle quand disponible. */

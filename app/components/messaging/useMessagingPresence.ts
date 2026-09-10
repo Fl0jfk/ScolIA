@@ -148,7 +148,7 @@ export function useMessagingPresence({
     const timer = setInterval(() => {
       void refresh();
       void refreshMe();
-    }, 30_000);
+    }, 120_000);
     return () => clearInterval(timer);
   }, [enabled, refresh, refreshMe, peerKey]);
 

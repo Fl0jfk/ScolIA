@@ -238,18 +238,23 @@ export async function buildEleveSyntheseSnapshot(params: {
   absences?: EleveSyntheseSnapshot["absences"];
   finances?: EleveSyntheseSnapshot["finances"];
   groupes?: Array<{ code: string; libelle: string; type: string }>;
+  /** false = skip internat S3 + photo signée (GET fiche rapide). */
+  includeHeavyExtras?: boolean;
 }): Promise<EleveSyntheseSnapshot> {
+  const includeHeavy = params.includeHeavyExtras === true;
   let internatStudent: InternatStudent | null = null;
   let roomLabel: string | null = null;
-  try {
-    const roster = await getInternatStudents();
-    internatStudent = matchInternatStudent(roster, params.eleve);
-    if (internatStudent?.roomId) {
-      const rooms = await getInternatRooms();
-      roomLabel = rooms.find((r) => r.id === internatStudent!.roomId)?.label ?? null;
+  if (includeHeavy) {
+    try {
+      const roster = await getInternatStudents();
+      internatStudent = matchInternatStudent(roster, params.eleve);
+      if (internatStudent?.roomId) {
+        const rooms = await getInternatRooms();
+        roomLabel = rooms.find((r) => r.id === internatStudent!.roomId)?.label ?? null;
+      }
+    } catch {
+      internatStudent = null;
     }
-  } catch {
-    internatStudent = null;
   }
 
   const demiPension = Boolean(params.scolarite?.demiPension);
@@ -272,17 +277,19 @@ export async function buildEleveSyntheseSnapshot(params: {
     : null;
 
   let photoUrl: string | null = null;
-  try {
-    photoUrl = await getElevePhotoUrl({
-      ine: params.eleve.ine ?? "",
-      nom: params.eleve.nom,
-      prenom: params.eleve.prenom,
-      folderName:
-        params.eleve.folderName?.trim() ||
-        buildEleveFolderName(params.eleve.nom, params.eleve.prenom),
-    });
-  } catch {
-    photoUrl = null;
+  if (includeHeavy) {
+    try {
+      photoUrl = await getElevePhotoUrl({
+        ine: params.eleve.ine ?? "",
+        nom: params.eleve.nom,
+        prenom: params.eleve.prenom,
+        folderName:
+          params.eleve.folderName?.trim() ||
+          buildEleveFolderName(params.eleve.nom, params.eleve.prenom),
+      });
+    } catch {
+      photoUrl = null;
+    }
   }
 
   const notesLines = (params.notesMoyennes || []).filter((m) => m.moyenne != null);

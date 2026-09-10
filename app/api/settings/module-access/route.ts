@@ -3,7 +3,7 @@ import { requireModule } from "@/app/lib/intranet-auth";
 import { isDatabaseConfigured } from "@/db/index";
 import { getTenant } from "@/app/lib/tenant-context";
 import { ensureEtablissementFromTenant } from "@/app/lib/etablissement-db";
-import { listMembersFromDb } from "@/app/lib/members-db";
+import { listStaffMembersLite } from "@/app/lib/members-db";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
 import {
   defaultDossierSectionsForRole,
@@ -37,7 +37,7 @@ export async function GET() {
       ? await ensureEtablissementFromTenant(tenant)
       : null;
     const members = etablissementId
-      ? await listMembersFromDb(etablissementId)
+      ? await listStaffMembersLite(etablissementId)
       : await listDirectoryMembers();
 
     const staff = members

@@ -52,10 +52,7 @@ import { hasGlobalAdminRole, INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet
 import { hasRole } from "@/app/lib/intranet-role-utils";
 import { buildEleveDossierClassCatalog } from "@/app/lib/eleve-dossier-catalog";
 import { buildEleveSyntheseSnapshot } from "@/app/lib/eleve-dossier-synthese";
-import {
-  buildMefLabelMaps,
-  resolveMefDisplayValue,
-} from "@/app/lib/nomenclature-import/enrich-eleves-mef";
+import { lookupMefLabel } from "@/app/lib/nomenclature-import/enrich-eleves-mef";
 import {
   countMidiFromGrille,
   parseEleveGrilleRepas,
@@ -506,8 +503,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     };
   }
 
-  const mefMaps = await buildMefLabelMaps(etabId);
-  const mefLabel = resolveMefDisplayValue(row.mef, mefMaps) || row.mef;
+  const mefLabel = (await lookupMefLabel(etabId, row.mef)) || row.mef;
 
   const synthese = await buildEleveSyntheseSnapshot({
     eleve: {
@@ -533,6 +529,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     absences: absencesSynthese,
     finances: financesSynthese,
     groupes: groupesEleve,
+    includeHeavyExtras: false,
   });
 
   return NextResponse.json({
