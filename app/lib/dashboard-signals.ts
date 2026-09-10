@@ -1599,7 +1599,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "accueil-absences-declare",
         label: "Déclarer",
         detail: "Absence au standard",
-        href: moduleHref("accueil-absences"),
+        href: `${moduleHref("accueil-absences")}?tab=declarer`,
       });
     }
     if (has("absences-accueil-consultation")) {
@@ -1607,11 +1607,11 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         id: "accueil-absences-consult",
         label: "Consulter",
         detail: "Saisies accueil du jour",
-        href: moduleHref("absences-accueil-consultation"),
+        href: `${moduleHref("accueil-absences")}?tab=consulter`,
       });
     }
-    // Modules VS encore en WIP : slides uniquement si ENABLE_VS_WIP_DASHBOARD_SHORTCUTS.
-    if (ENABLE_VS_WIP_DASHBOARD_SHORTCUTS && has("vs-appels")) {
+    // Appels en classe : onglet du module Absences dès que le module est accessible.
+    if (has("vs-appels")) {
       absenceViews.push({
         id: "vs-appels-presence",
         label: "Appels",
@@ -1619,10 +1619,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           vsAppelsCount > 0
             ? `${vsAppelsCount} appel(s) manquant(s)`
             : "Présence & appels de classe",
-        href:
-          vsAppelsCount > 0
-            ? `${moduleHref("vs-appels")}?tab=appel`
-            : moduleHref("vs-appels"),
+        href: `${moduleHref("accueil-absences")}?tab=appels`,
         count: vsAppelsCount > 0 ? vsAppelsCount : undefined,
         badge: vsAppelsCount > 0 ? String(vsAppelsCount) : undefined,
       });
@@ -1695,13 +1692,12 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         slides: warnSlides,
       });
     } else if (absenceViews.length > 1) {
-      // Plusieurs vues (ex. admin / CPE) : une tuile stable → hub Vie scolaire
-      // où Déclarer + Consulter sont tous accessibles (pas de carrousel vide).
+      // Plusieurs vues : une tuile → module Absences (onglets selon droits).
       shortcuts.push({
         id: "vs-absences-accueil",
         pillarId: "vie_scolaire",
         moduleId,
-        href: "/vie-scolaire",
+        href: moduleHref("accueil-absences"),
         label: "Absences",
         emoji: "☎️",
         rich: true,

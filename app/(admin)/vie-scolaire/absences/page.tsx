@@ -1,13 +1,11 @@
-import { redirect } from "next/navigation";
+import { Suspense } from "react";
+import VsAbsencesHubClient from "@/app/components/vie-scolaire/VsAbsencesHubClient";
 
-/** Ancienne URL — fusionnée dans Appels & absences. */
-export default async function VsAbsencesLegacyRedirect({
-  searchParams,
-}: {
-  searchParams: Promise<{ filtre?: string }>;
-}) {
-  const { filtre } = await searchParams;
-  const q = new URLSearchParams({ tab: "absences" });
-  if (filtre) q.set("filtre", filtre);
-  redirect(`/vie-scolaire/presence?${q.toString()}`);
+/** Module Absences unifié : onglets selon les droits (déclarer / consulter / appels). */
+export default function VsAbsencesHubPage() {
+  return (
+    <Suspense fallback={<p className="p-10 text-center text-slate-500">Chargement…</p>}>
+      <VsAbsencesHubClient />
+    </Suspense>
+  );
 }

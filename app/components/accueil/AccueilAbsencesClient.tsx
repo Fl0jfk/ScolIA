@@ -43,7 +43,7 @@ function defaultEtablissementForHit(
   return match?.label || "";
 }
 
-export default function AccueilAbsencesClient() {
+export default function AccueilAbsencesClient({ embedded = false }: { embedded?: boolean }) {
   const { data: appCtx } = useAppContext();
   const activeEstablishments = getActiveEstablishments(appCtx?.establishments || []);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -226,14 +226,7 @@ export default function AccueilAbsencesClient() {
     }
   };
 
-  return (
-    <ModulePageShell>
-      <ModulePageHeader
-        eyebrow="Standard"
-        title="Absence accueil"
-        description="Téléphone à l’oreille : 3 lettres, on déclare. Élèves tout de suite. Professeurs : niveau (école / collège / lycée), validation par la bonne direction, puis calendrier absences profs et mail à la personne qui déclare au rectorat. Personnel OGEC : circuit RH / compta."
-      />
-
+  const body = (
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
           <label className="block">
@@ -532,6 +525,18 @@ export default function AccueilAbsencesClient() {
           </ul>
         </section>
       </div>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <ModulePageShell>
+      <ModulePageHeader
+        eyebrow="Standard"
+        title="Absence accueil"
+        description="Téléphone à l’oreille : 3 lettres, on déclare. Élèves tout de suite. Professeurs : niveau (école / collège / lycée), validation par la bonne direction, puis calendrier absences profs et mail à la personne qui déclare au rectorat. Personnel OGEC : circuit RH / compta."
+      />
+      {body}
     </ModulePageShell>
   );
 }

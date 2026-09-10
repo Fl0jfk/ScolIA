@@ -55,7 +55,11 @@ function formatDayTitleFr(iso: string): string {
   }).format(dt);
 }
 
-export default function AccueilAbsencesConsultationClient() {
+export default function AccueilAbsencesConsultationClient({
+  embedded = false,
+}: {
+  embedded?: boolean;
+}) {
   const today = parisDateKey(new Date());
   const [date, setDate] = useState(today);
   const [kindFilter, setKindFilter] = useState<KindFilter>("tous");
@@ -174,24 +178,20 @@ export default function AccueilAbsencesConsultationClient() {
   const selectClassName =
     "mt-1 block w-full min-w-[10rem] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100";
 
-  return (
-    <ModulePageShell>
-      <ModulePageHeader
-        eyebrow="Vie scolaire"
-        title="Absences déclarées à l’accueil"
-        description="Élèves et professeurs signalés absents par le standard. Filtrez par niveau (école / collège / lycée) ou classe ; les professeurs suivent le niveau choisi à la déclaration. Corrigez une erreur de saisie si besoin."
-        actions={
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void load()}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {busy ? "Actualisation…" : "Actualiser"}
-          </button>
-        }
-      />
+  const refreshBtn = (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => void load()}
+      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+    >
+      {busy ? "Actualisation…" : "Actualiser"}
+    </button>
+  );
 
+  const body = (
+    <>
+      {embedded ? <div className="mb-4 flex justify-end">{refreshBtn}</div> : null}
       <div className="mb-6 space-y-4">
         <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -371,6 +371,20 @@ export default function AccueilAbsencesConsultationClient() {
           </ul>
         )}
       </section>
+    </>
+  );
+
+  if (embedded) return body;
+
+  return (
+    <ModulePageShell>
+      <ModulePageHeader
+        eyebrow="Vie scolaire"
+        title="Absences déclarées à l’accueil"
+        description="Élèves et professeurs signalés absents par le standard. Filtrez par niveau (école / collège / lycée) ou classe ; les professeurs suivent le niveau choisi à la déclaration. Corrigez une erreur de saisie si besoin."
+        actions={refreshBtn}
+      />
+      {body}
     </ModulePageShell>
   );
 }

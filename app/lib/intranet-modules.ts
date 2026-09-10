@@ -567,16 +567,16 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "accueil-absences",
-    pathPrefixes: ["/accueil/absences", "/api/accueil/absences"],
+    pathPrefixes: ["/accueil/absences", "/api/accueil/absences", "/vie-scolaire/absences"],
     allowedRoles: [...DIRECTIONS, "administratif", "accueil", "cpe", "comptabilite", "surveillant"],
     dashboard: {
       id: 243,
       name: "Absences",
       img: "",
-      link: "/accueil/absences",
+      link: "/vie-scolaire/absences",
       external: false,
       description:
-        "Déclarer au standard et consulter les absences saisies à l’accueil — vues selon les droits",
+        "Déclarer au standard, consulter les saisies et appels — onglets selon les droits",
     },
   },
   {
@@ -602,15 +602,17 @@ export const INTRANET_MODULES: IntranetModule[] = [
     pathPrefixes: [
       "/vie-scolaire/absences-accueil",
       "/api/vie-scolaire/absences-accueil",
+      "/vie-scolaire/absences",
     ],
     allowedRoles: [...DIRECTIONS, "cpe", "surveillant", "administratif"],
-    // Tuile dashboard absorbée dans « Absences » (accueil-absences) — vues selon droits.
+    // Tuile dashboard absorbée dans « Absences » (accueil-absences) — onglets selon droits.
   },
   {
     id: "vs-appels",
     pathPrefixes: [
       "/vie-scolaire/presence",
       "/vie-scolaire/appels",
+      "/vie-scolaire/absences",
       "/api/vie-scolaire/appels",
     ],
     // Module masqué (UI + signaux) — en cours de développement ; API conservée.
@@ -619,8 +621,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "vs-absences",
-    pathPrefixes: ["/vie-scolaire/absences", "/api/vie-scolaire/absences"],
-    // Module masqué — tuile absorbée dans Absences (accueil) quand réactivé.
+    pathPrefixes: ["/api/vie-scolaire/absences"],
+    // Module masqué — suivi absents élèves dans Appels (presence) ; hub Absences = accueil.
     allowedRoles: [],
   },
   {

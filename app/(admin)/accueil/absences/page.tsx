@@ -1,5 +1,6 @@
-import AccueilAbsencesClient from "@/app/components/accueil/AccueilAbsencesClient";
+import { redirect } from "next/navigation";
 
+/** Ancienne URL — module Absences unifié (`?tab=declarer`). */
 export default function AccueilAbsencesPage() {
-  return <AccueilAbsencesClient />;
+  redirect("/vie-scolaire/absences?tab=declarer");
 }

@@ -281,14 +281,14 @@ function ModuleQuickActions({
     return (
       <div className="mt-auto flex flex-wrap gap-2 pt-3">
         <Link
-          href="/accueil/absences"
+          href="/vie-scolaire/absences?tab=declarer"
           className="rounded-full bg-[var(--dash-primary)] px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:brightness-110"
         >
           Déclarer
         </Link>
         {canConsult ? (
           <Link
-            href="/vie-scolaire/absences-accueil"
+            href="/vie-scolaire/absences?tab=consulter"
             className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
           >
             Consulter
@@ -296,7 +296,7 @@ function ModuleQuickActions({
         ) : null}
         {canAppels ? (
           <Link
-            href="/vie-scolaire/presence"
+            href="/vie-scolaire/absences?tab=appels"
             className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
           >
             Appels
@@ -333,9 +333,11 @@ function ModuleCard({
         ? "Absences déclarées à l'accueil"
         : category.name;
   const href =
-    isAbsencesHub && !canDeclare && canConsult
-      ? moduleHref("absences-accueil-consultation")
-      : category.link || moduleHref(category.moduleId);
+    isAbsencesHub && canDeclare && !canConsult
+      ? "/vie-scolaire/absences?tab=declarer"
+      : isAbsencesHub && !canDeclare && canConsult
+        ? "/vie-scolaire/absences?tab=consulter"
+        : category.link || moduleHref(category.moduleId);
   const emoji = MODULE_EMOJI[category.moduleId] || "›";
 
   return (

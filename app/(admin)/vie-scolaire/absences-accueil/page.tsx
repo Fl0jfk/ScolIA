@@ -1,10 +1,6 @@
-import { Suspense } from "react";
-import AccueilAbsencesConsultationClient from "@/app/components/vie-scolaire/AccueilAbsencesConsultationClient";
+import { redirect } from "next/navigation";
 
+/** Ancienne URL — module Absences unifié (`?tab=consulter`). */
 export default function AbsencesAccueilConsultationPage() {
-  return (
-    <Suspense fallback={<p className="p-10 text-center text-slate-500">Chargement…</p>}>
-      <AccueilAbsencesConsultationClient />
-    </Suspense>
-  );
+  redirect("/vie-scolaire/absences?tab=consulter");
 }
