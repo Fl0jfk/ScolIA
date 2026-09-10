@@ -557,11 +557,12 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [...DIRECTIONS, "administratif", "accueil", "cpe", "comptabilite", "surveillant"],
     dashboard: {
       id: 243,
-      name: "Absence accueil",
+      name: "Absences",
       img: "",
       link: "/accueil/absences",
       external: false,
-      description: "Déclarer une absence au standard — élèves, professeurs, personnel",
+      description:
+        "Déclarer au standard et consulter les absences saisies à l’accueil — vues selon les droits",
     },
   },
   {
@@ -589,14 +590,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/api/vie-scolaire/absences-accueil",
     ],
     allowedRoles: [...DIRECTIONS, "cpe", "surveillant", "administratif"],
-    dashboard: {
-      id: 246,
-      name: "Absences déclarées accueil",
-      img: "",
-      link: "/vie-scolaire/absences-accueil",
-      external: false,
-      description: "Élèves prévenus à l’accueil (et profs) — absents des autres écrans vie scolaire",
-    },
+    // Tuile dashboard absorbée dans « Absences » (accueil-absences) — vues selon droits.
   },
   {
     id: "vs-appels",
@@ -606,20 +600,13 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/api/vie-scolaire/appels",
     ],
     // Module masqué (UI + signaux) — en cours de développement ; API conservée.
+    // Tuile absorbée dans « Absences » (accueil-absences) dès réactivation des rôles.
     allowedRoles: [],
-    dashboard: {
-      id: 242,
-      name: "Appels & absences",
-      img: "",
-      link: "/vie-scolaire/presence",
-      external: false,
-      description: "Appel de classe, absents, justificatifs et relances CPE",
-    },
   },
   {
     id: "vs-absences",
     pathPrefixes: ["/vie-scolaire/absences", "/api/vie-scolaire/absences"],
-    // Module masqué — tuile absorbée dans vs-appels quand réactivé.
+    // Module masqué — tuile absorbée dans Absences (accueil) quand réactivé.
     allowedRoles: [],
   },
   {
@@ -627,28 +614,12 @@ export const INTRANET_MODULES: IntranetModule[] = [
     pathPrefixes: ["/vie-scolaire/sanctions", "/api/vie-scolaire/sanctions"],
     // Module masqué (UI + signaux) — en cours de développement ; API conservée.
     allowedRoles: [],
-    dashboard: {
-      id: 244,
-      name: "Sanctions",
-      img: "",
-      link: "/vie-scolaire/sanctions",
-      external: false,
-      description: "Catalogue court — avertissement, colle, blâme",
-    },
   },
   {
     id: "vs-carnet",
     pathPrefixes: ["/vie-scolaire/carnet", "/api/vie-scolaire/carnet"],
     // Module masqué (UI + signaux) — en cours de développement ; API conservée.
     allowedRoles: [],
-    dashboard: {
-      id: 245,
-      name: "Carnet",
-      img: "",
-      link: "/vie-scolaire/carnet",
-      external: false,
-      description: "Correspondance établissement → famille + accusé",
-    },
   },
   {
     id: "stages",
@@ -1118,14 +1089,9 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "internat",
     "vs-calendrier",
     "accueil-absences",
-    "absences-accueil-consultation",
-    "vs-appels",
-    "vs-absences",
-    "vs-sanctions",
-    "vs-carnet",
     "groupes-pedagogiques",
   ],
-  "pillar-compta-rh": ["rh", "mon-planning", "conformite-rgpd", "absences", "demandes-hse"],
+  "pillar-compta-rh": ["rh", "mon-planning", "absences", "demandes-hse"],
 };
 
 export function canAccessIntranetPath(

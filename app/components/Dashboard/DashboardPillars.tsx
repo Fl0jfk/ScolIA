@@ -69,6 +69,7 @@ function ShortcutSlidesCarousel({
   emoji = "🚪",
   fallbackColor = "#475569",
   notifCount = 0,
+  alertTone = false,
 }: {
   slides: DashboardShortcutSlide[];
   href: string;
@@ -78,6 +79,8 @@ function ShortcutSlidesCarousel({
   emoji?: string;
   fallbackColor?: string;
   notifCount?: number;
+  /** Fond alerte (absences / photocopies multi-signaux). */
+  alertTone?: boolean;
 }) {
   const [index, setIndex] = useState(0);
 
@@ -96,7 +99,13 @@ function ShortcutSlidesCarousel({
   }, [slides.length, slideKey]);
 
   const slide = slides[index] ?? slides[0]!;
-  const bg = slide.colorHex || fallbackColor;
+  const slideCount =
+    typeof slide.count === "number" && slide.count > 0
+      ? slide.count
+      : slides.some((s) => typeof s.count === "number" && (s.count || 0) > 0)
+        ? 0
+        : notifCount;
+  const bg = slide.colorHex || (alertTone ? "#f43f5e" : fallbackColor);
   const fg = slideTextColor(bg);
   const linkHref = slide.href || href;
 
@@ -143,7 +152,7 @@ function ShortcutSlidesCarousel({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1">
                   <p className="truncate text-[11px] font-semibold tracking-tight">{title}</p>
-                  <NotificationCountBadge count={notifCount} />
+                  <NotificationCountBadge count={slideCount} />
                 </div>
                 <p className="mt-0.5 truncate text-[9px] font-semibold leading-snug opacity-90">
                   {[slide.label, slide.detail].filter(Boolean).join(" · ")}
@@ -342,16 +351,19 @@ function ShortcutTile({
 }) {
   if (item.slides && item.slides.length > 0) {
     const isTravels = item.moduleId === "travels";
+    const isRooms = item.moduleId === "prof-room";
+    const alertTone = item.tone === "warn" || item.tone === "action";
     return (
       <ShortcutSlidesCarousel
         slides={item.slides}
         href={item.href}
         highlight={highlight}
         title={item.label}
-        chip={isTravels ? "Aujourd'hui" : "En cours"}
+        chip={isTravels ? "Aujourd'hui" : alertTone ? "À traiter" : "En cours"}
         emoji={item.emoji || MODULE_EMOJI[item.moduleId] || (isTravels ? "🚌" : "🚪")}
-        fallbackColor={isTravels ? "#0284c7" : "#475569"}
+        fallbackColor={isTravels ? "#0284c7" : isRooms ? "#475569" : alertTone ? "#f43f5e" : "#475569"}
         notifCount={badgeCountFallback(item, notifCount)}
+        alertTone={alertTone && !isTravels && !isRooms}
       />
     );
   }

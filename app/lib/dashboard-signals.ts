@@ -43,13 +43,22 @@ export type DashboardShortcutTone = "neutral" | "info" | "action" | "warn";
  */
 export const ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS = false;
 export const ENABLE_VS_APPELS_MANQUANTS_DASHBOARD_NOTIFS = false;
+/**
+ * Raccourcis dashboard pour vs-appels / vs-absences / sanctions / carnet.
+ * Laisser `false` tant que ces modules ont `allowedRoles: []` (WIP).
+ * Quand on réactive les rôles, repasser à `true` — les vues seront fusionnées
+ * dans la tuile « Absences » (slides).
+ */
+export const ENABLE_VS_WIP_DASHBOARD_SHORTCUTS = false;
 
-/** Slide d’un carrousel (salles en cours, sorties du jour, …). */
+/** Slide d’un carrousel (salles en cours, sorties du jour, multi-signaux…). */
 export type DashboardShortcutSlide = {
   id: string;
   label: string;
   detail?: string;
   badge?: string;
+  /** Compteur rouge propre à cette face (tourniquet multi-signaux). */
+  count?: number;
   /** Couleur d’accent (hex). */
   colorHex?: string;
   /** Lien spécifique à la slide (sinon href du shortcut). */
@@ -94,7 +103,7 @@ export type DashboardNotification = {
 
 /** Compteur rouge sur une tuile : match exact sur l’id, sinon orphelins du module (ex. dossiers partagés). */
 export function notificationCountForShortcut(
-  item: { id: string; moduleId: string },
+  item: { id: string; moduleId: string; slides?: DashboardShortcutSlide[] },
   notifications: DashboardNotification[],
 ): number {
   const related = notifications.filter((n) => n.moduleId === item.moduleId && n.count > 0);
@@ -102,6 +111,12 @@ export function notificationCountForShortcut(
 
   const exact = related.filter((n) => n.id === item.id);
   if (exact.length > 0) return exact.reduce((sum, n) => sum + n.count, 0);
+
+  // Tuile multi-signaux (slides) : total des notifs du module pour le fallback,
+  // le carrousel affiche ensuite le count par face.
+  if (item.slides && item.slides.length > 0) {
+    return related.reduce((sum, n) => sum + n.count, 0);
+  }
 
   if (item.id !== item.moduleId) return 0;
 
@@ -838,22 +853,21 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           viewerIsAbsenceProcessor(a, { email, userId, roles }, absenceNotifications, establishments),
       );
 
+      const absenceQueueSlides: DashboardShortcutSlide[] = [];
+
       if (pendingManager.length > 0) {
         const firstName = personLabelFromAbsence(pendingManager[0]!);
         const more = pendingManager.length - 1;
-        shortcuts.push({
+        absenceQueueSlides.push({
           id: "absences-pending",
-          pillarId: "compta_rh",
-          moduleId: "absences",
-          href: "/rh?tab=dashboard&section=absences&view=a-traiter",
           label: "Absences à traiter",
-          rich: true,
           badge: `${pendingManager.length} à traiter`,
+          count: pendingManager.length,
+          href: "/rh?tab=dashboard&section=absences&view=a-traiter",
           detail:
             pendingManager.length === 1
               ? `${firstName} — demande d'autorisation en attente`
               : `${firstName} + ${more} autre${more > 1 ? "s" : ""} — autorisations en attente`,
-          tone: "warn",
         });
         pushNotif({
           id: "absences-pending",
@@ -871,30 +885,43 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       if (pendingProcessor.length > 0) {
         const firstName = personLabelFromAbsence(pendingProcessor[0]!);
         const more = pendingProcessor.length - 1;
-        shortcuts.push({
+        absenceQueueSlides.push({
           id: "absences-admin-queue",
-          pillarId: "compta_rh",
-          moduleId: "absences",
-          href: "/rh?tab=dashboard&section=absences&view=traitement",
-          label: "Dossiers à traiter (RH / rectorat)",
-          rich: true,
+          label: "Dossiers à traiter",
           badge: `${pendingProcessor.length} à clôturer`,
+          count: pendingProcessor.length,
+          href: "/rh?tab=dashboard&section=absences&view=traitement",
           detail:
             pendingProcessor.length === 1
               ? `${firstName} — absence validée, à clôturer`
               : `${firstName} + ${more} autre${more > 1 ? "s" : ""} — à clôturer (RH / rectorat)`,
-          tone: "warn",
         });
         pushNotif({
           id: "absences-admin-queue",
           moduleId: "absences",
-          label: "Traitement absences",
+          label: "Dossiers à traiter",
           count: pendingProcessor.length,
           href: "/rh?tab=dashboard&section=absences&view=traitement",
           detail:
             pendingProcessor.length === 1
               ? `${firstName} — dossier validé à traiter`
               : `${pendingProcessor.length} dossiers validés à traiter (pièces, rectorat / RH)`,
+        });
+      }
+
+      if (absenceQueueSlides.length > 0) {
+        const totalQueue = absenceQueueSlides.reduce((sum, s) => sum + (s.count || 0), 0);
+        shortcuts.push({
+          id: "absences-queue",
+          pillarId: "compta_rh",
+          moduleId: "absences",
+          href: absenceQueueSlides[0]!.href || "/rh?tab=dashboard&section=absences",
+          label: "Absences",
+          rich: true,
+          badge: `${totalQueue}`,
+          detail: absenceQueueSlides.map((s) => s.label).join(" · "),
+          tone: "warn",
+          slides: absenceQueueSlides,
         });
       }
 
@@ -909,7 +936,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           detail: count === 1 ? `1 ${labelSingular} aujourd'hui` : `${count} ${labelPlural} aujourd'hui`,
           tone: "neutral",
         });
-      } else if (pendingManager.length === 0 && pendingProcessor.length === 0) {
+      } else if (absenceQueueSlides.length === 0) {
         shortcuts.push({
           id: "absences",
           pillarId: "compta_rh",
@@ -1218,7 +1245,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
   }
 
-  // —— Services : Photocopies ——
+  // —— Services : Photocopies (une seule tuile, multi-signaux en tourniquet) ——
   {
     const photoHome = moduleHref("photocopies-couleur");
     const isOps =
@@ -1229,19 +1256,19 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       const pendingDirList = photocopiePendingForDirection(roles, photocopies, establishments);
       const pendingDir = pendingDirList.length;
       const opsPending = isOps ? photocopiesOpsPendingCount(photocopies) : 0;
-      const isProf = hasRole(roles, "professeur");
+      const canCreate = hasRole(roles, "professeur") || canCreatePhotocopiesDemand(roles);
+
+      const photoSlides: DashboardShortcutSlide[] = [];
 
       if (isOps && opsPending > 0) {
         const first = photocopies.find((p) => p.status === "ACCEPTEE");
         const who = first?.createdBy?.name?.trim();
-        shortcuts.push({
+        photoSlides.push({
           id: "photocopies-ops-queue",
-          pillarId: "administratif",
-          moduleId: "photocopies-couleur",
-          href: `${photoHome}#file-impression`,
-          label: "Photocopies à imprimer",
-          rich: true,
+          label: "À imprimer",
           badge: `${opsPending} à faire`,
+          count: opsPending,
+          href: `${photoHome}#file-impression`,
           detail:
             opsPending === 1
               ? who
@@ -1250,7 +1277,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
               : who
                 ? `${who} + ${opsPending - 1} autre${opsPending > 2 ? "s" : ""} — à imprimer`
                 : `${opsPending} demandes de photocopies à imprimer`,
-          tone: "warn",
         });
         pushNotif({
           id: "photocopies-ops-queue",
@@ -1265,47 +1291,19 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
                 : "1 photocopie couleur à imprimer"
               : `${opsPending} photocopies couleur à imprimer`,
         });
-      } else if (isOps) {
-        shortcuts.push({
-          id: "photocopies-ops-empty",
-          pillarId: "administratif",
-          moduleId: "photocopies-couleur",
-          href: `${photoHome}#file-impression`,
-          label: "Photocopies couleur",
-          rich: true,
-          detail: "File d'impression — rien en attente",
-          tone: "neutral",
-        });
-      }
-
-      if (isProf || canCreatePhotocopiesDemand(roles)) {
-        // Tuile d’entrée : pas de signal / animation — juste l’accès au formulaire.
-        shortcuts.push({
-          id: "photocopies-new",
-          pillarId: "administratif",
-          moduleId: "photocopies-couleur",
-          href: photoHome,
-          label: "Photocopies couleur",
-          rich: true,
-          detail: "Demander une impression couleur",
-          tone: "neutral",
-        });
       }
 
       if (readyCount > 0) {
-        shortcuts.push({
+        photoSlides.push({
           id: "photocopies-ready",
-          pillarId: "administratif",
-          moduleId: "photocopies-couleur",
-          href: photoHome,
-          label: "Photocopies prêtes",
-          rich: true,
+          label: "Prêtes à retirer",
           badge: `${readyCount} prête${readyCount > 1 ? "s" : ""}`,
+          count: readyCount,
+          href: photoHome,
           detail:
             readyCount === 1
               ? "Votre demande de photocopies est prête à retirer"
               : `${readyCount} demandes de photocopies prêtes à retirer`,
-          tone: "warn",
         });
         pushNotif({
           id: "photocopies-ready",
@@ -1323,14 +1321,12 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       if (pendingDir > 0) {
         const first = pendingDirList[0]!;
         const who = first.createdBy?.name?.trim();
-        shortcuts.push({
+        photoSlides.push({
           id: "photo-dir",
-          pillarId: "administratif",
-          moduleId: "photocopies-couleur",
-          href: photoHome,
-          label: "Photocopies à valider",
-          rich: true,
+          label: "À valider",
           badge: `${pendingDir} à traiter`,
+          count: pendingDir,
+          href: photoHome,
           detail:
             pendingDir === 1
               ? who
@@ -1339,7 +1335,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
               : who
                 ? `${who} + ${pendingDir - 1} autre${pendingDir > 2 ? "s" : ""} — à valider`
                 : `${pendingDir} photocopies à valider`,
-          tone: "warn",
         });
         pushNotif({
           id: "photo-dir",
@@ -1353,6 +1348,35 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
                 ? `Demande de ${who} à valider`
                 : "1 photocopie à valider"
               : `${pendingDir} photocopies à valider`,
+        });
+      }
+
+      if (photoSlides.length > 0) {
+        const totalPhoto = photoSlides.reduce((sum, s) => sum + (s.count || 0), 0);
+        shortcuts.push({
+          id: "photocopies-couleur",
+          pillarId: "services",
+          moduleId: "photocopies-couleur",
+          href: photoSlides[0]!.href || photoHome,
+          label: "Photocopies couleur",
+          rich: true,
+          badge: `${totalPhoto}`,
+          detail: photoSlides.map((s) => s.label).join(" · "),
+          tone: "warn",
+          slides: photoSlides,
+        });
+      } else if (isOps || canCreate) {
+        shortcuts.push({
+          id: "photocopies-couleur",
+          pillarId: "services",
+          moduleId: "photocopies-couleur",
+          href: isOps ? `${photoHome}#file-impression` : photoHome,
+          label: "Photocopies couleur",
+          rich: true,
+          detail: isOps
+            ? "File d'impression — rien en attente"
+            : "Demander une impression couleur",
+          tone: "neutral",
         });
       }
     }
@@ -1461,54 +1485,15 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       label: "Notes & bulletins",
     });
   }
-  if (has("vs-appels") || has("vs-absences")) {
+  // Signaux VS présence / absences élèves → absorbés dans la tuile « Absences » plus bas.
+  {
     const vsJustifCount = ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS ? vsAbsencesJustifFamille : 0;
     const vsATraiterCount = ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS ? vsAbsencesATraiter : 0;
     const vsAppelsCount = ENABLE_VS_APPELS_MANQUANTS_DASHBOARD_NOTIFS ? vsAppelsManquants : 0;
-    const warnCount =
-      (has("vs-appels") ? vsAppelsCount : 0) +
-      (has("vs-absences")
-        ? Math.max(vsJustifCount, vsATraiterCount > 0 ? vsATraiterCount : 0)
-        : 0);
-    const detailParts: string[] = [];
-    if (has("vs-appels") && vsAppelsCount > 0) {
-      detailParts.push(`${vsAppelsCount} appel(s) manquant(s)`);
-    }
-    if (has("vs-absences") && vsJustifCount > 0) {
-      detailParts.push(`${vsJustifCount} justificatif(s) famille`);
-    } else if (has("vs-absences") && vsATraiterCount > 0) {
-      detailParts.push(`${vsATraiterCount} absence(s) à traiter`);
-    }
-    if (warnCount > 0) {
-      shortcuts.push({
-        id: "vs-presence",
-        pillarId: "vie_scolaire",
-        moduleId: "vs-appels",
-        href:
-          has("vs-absences") && vsJustifCount > 0
-            ? `${moduleHref("vs-absences")}&filtre=justif_famille`
-            : has("vs-appels") && vsAppelsCount > 0
-              ? `${moduleHref("vs-appels")}?tab=appel`
-              : moduleHref("vs-appels"),
-        label: "Appels & absences",
-        rich: true,
-        detail: detailParts.join(" · "),
-        badge: String(warnCount),
-        tone: "warn",
-      });
-    } else {
-      shortcuts.push({
-        id: "vs-presence",
-        pillarId: "vie_scolaire",
-        moduleId: "vs-appels",
-        href: moduleHref("vs-appels"),
-        label: "Appels & absences",
-      });
-    }
     if (ENABLE_VS_APPELS_MANQUANTS_DASHBOARD_NOTIFS && has("vs-appels") && vsAppelsCount > 0) {
       pushNotif({
         id: "vs-appels-manquants",
-        moduleId: "vs-appels",
+        moduleId: "accueil-absences",
         label: "Appels manquants",
         count: vsAppelsCount,
         href: `${moduleHref("vs-appels")}?tab=appel`,
@@ -1518,7 +1503,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     if (ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS && has("vs-absences") && vsATraiterCount > 0) {
       pushNotif({
         id: "vs-absences-a-traiter",
-        moduleId: "vs-absences",
+        moduleId: "accueil-absences",
         label: "Absences à traiter",
         count: vsATraiterCount,
         href: `${moduleHref("vs-absences")}`,
@@ -1528,7 +1513,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     if (ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS && has("vs-absences") && vsJustifCount > 0) {
       pushNotif({
         id: "vs-absences-justif-famille",
-        moduleId: "vs-absences",
+        moduleId: "accueil-absences",
         label: "Justificatifs famille",
         count: vsJustifCount,
         href: `${moduleHref("vs-absences")}&filtre=justif_famille`,
@@ -1536,7 +1521,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       });
     }
   }
-  if (has("vs-sanctions")) {
+  if (ENABLE_VS_WIP_DASHBOARD_SHORTCUTS && has("vs-sanctions")) {
     if (vsSanctionsAujourdhui > 0) {
       shortcuts.push({
         id: "vs-sanctions",
@@ -1567,7 +1552,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       });
     }
   }
-  if (has("vs-carnet")) {
+  if (ENABLE_VS_WIP_DASHBOARD_SHORTCUTS && has("vs-carnet")) {
     if (vsCarnetNonSignees > 0) {
       shortcuts.push({
         id: "vs-carnet",
@@ -1598,27 +1583,119 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       });
     }
   }
-  if (has("accueil-absences")) {
-    shortcuts.push({
-      id: "accueil-absences",
-      pillarId: "vie_scolaire",
-      moduleId: "accueil-absences",
-      href: moduleHref("accueil-absences"),
-      label: "Absence accueil",
-      emoji: "☎️",
-      detail: "Déclarer une absence au standard",
-    });
-  }
-  if (has("absences-accueil-consultation")) {
-    shortcuts.push({
-      id: "absences-accueil-consultation",
-      pillarId: "vie_scolaire",
-      moduleId: "absences-accueil-consultation",
-      href: moduleHref("absences-accueil-consultation"),
-      label: "Absences déclarées accueil",
-      emoji: "📋",
-      detail: "Consulter les absences saisies à l’accueil",
-    });
+  if (
+    has("accueil-absences") ||
+    has("absences-accueil-consultation") ||
+    has("vs-appels") ||
+    has("vs-absences")
+  ) {
+    const vsJustifCount = ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS ? vsAbsencesJustifFamille : 0;
+    const vsATraiterCount = ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS ? vsAbsencesATraiter : 0;
+    const vsAppelsCount = ENABLE_VS_APPELS_MANQUANTS_DASHBOARD_NOTIFS ? vsAppelsManquants : 0;
+
+    const absenceViews: DashboardShortcutSlide[] = [];
+    if (has("accueil-absences")) {
+      absenceViews.push({
+        id: "accueil-absences-declare",
+        label: "Déclarer",
+        detail: "Absence au standard",
+        href: moduleHref("accueil-absences"),
+      });
+    }
+    if (has("absences-accueil-consultation")) {
+      absenceViews.push({
+        id: "accueil-absences-consult",
+        label: "Consulter",
+        detail: "Saisies accueil du jour",
+        href: moduleHref("absences-accueil-consultation"),
+      });
+    }
+    // Modules VS encore en WIP : slides uniquement si ENABLE_VS_WIP_DASHBOARD_SHORTCUTS.
+    if (ENABLE_VS_WIP_DASHBOARD_SHORTCUTS && has("vs-appels")) {
+      absenceViews.push({
+        id: "vs-appels-presence",
+        label: "Appels",
+        detail:
+          vsAppelsCount > 0
+            ? `${vsAppelsCount} appel(s) manquant(s)`
+            : "Présence & appels de classe",
+        href:
+          vsAppelsCount > 0
+            ? `${moduleHref("vs-appels")}?tab=appel`
+            : moduleHref("vs-appels"),
+        count: vsAppelsCount > 0 ? vsAppelsCount : undefined,
+        badge: vsAppelsCount > 0 ? String(vsAppelsCount) : undefined,
+      });
+    }
+    if (ENABLE_VS_WIP_DASHBOARD_SHORTCUTS && has("vs-absences")) {
+      const vsCount = Math.max(vsJustifCount, vsATraiterCount);
+      absenceViews.push({
+        id: "vs-absences-eleves",
+        label: "Absences élèves",
+        detail:
+          vsJustifCount > 0
+            ? `${vsJustifCount} justificatif(s) famille`
+            : vsATraiterCount > 0
+              ? `${vsATraiterCount} absence(s) à traiter`
+              : "Justificatifs & relances",
+        href:
+          vsJustifCount > 0
+            ? `${moduleHref("vs-absences")}&filtre=justif_famille`
+            : moduleHref("vs-absences"),
+        count: vsCount > 0 ? vsCount : undefined,
+        badge: vsCount > 0 ? String(vsCount) : undefined,
+      });
+    }
+
+    const warnSlides = absenceViews.filter((s) => (s.count || 0) > 0);
+    const primaryHref = absenceViews[0]?.href || moduleHref("accueil-absences");
+    const moduleId = has("accueil-absences")
+      ? "accueil-absences"
+      : has("absences-accueil-consultation")
+        ? "absences-accueil-consultation"
+        : has("vs-appels")
+          ? "vs-appels"
+          : "vs-absences";
+
+    /** Libellé selon les vues accessibles — l’accueil (déclaration seule) garde son repère métier. */
+    const tileLabel =
+      absenceViews.length === 1 && absenceViews[0]?.id === "accueil-absences-declare"
+        ? "Absence déclarée à l'accueil"
+        : absenceViews.length === 1 && absenceViews[0]?.id === "accueil-absences-consult"
+          ? "Absences déclarées à l'accueil"
+          : "Absences";
+
+    if (absenceViews.length > 1 || warnSlides.length > 0) {
+      shortcuts.push({
+        id: "vs-absences-accueil",
+        pillarId: "vie_scolaire",
+        moduleId,
+        href: warnSlides[0]?.href || primaryHref,
+        label: tileLabel,
+        emoji: "☎️",
+        rich: true,
+        detail: absenceViews.map((v) => v.label).join(" · "),
+        badge: warnSlides.length > 0 ? String(warnSlides.reduce((n, s) => n + (s.count || 0), 0)) : undefined,
+        tone: warnSlides.length > 0 ? "warn" : "neutral",
+        slides: absenceViews,
+      });
+    } else if (absenceViews[0]) {
+      const only = absenceViews[0];
+      shortcuts.push({
+        id: "vs-absences-accueil",
+        pillarId: "vie_scolaire",
+        moduleId,
+        href: only.href || primaryHref,
+        label: tileLabel,
+        emoji: "☎️",
+        detail:
+          only.id === "accueil-absences-declare"
+            ? "Déclarer une absence au standard"
+            : only.id === "accueil-absences-consult"
+              ? "Consulter les saisies du jour"
+              : only.detail,
+      });
+    }
   }
   if (has("vs-calendrier")) {
     shortcuts.push({
@@ -1683,7 +1760,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
   }));
 
   return {
-    shortcuts: remapped,
+    shortcuts: remapped.filter((s) => s.id !== "vs-presence"),
     todayNews: news.items,
     hasCurrentWeek: news.hasCurrentWeek,
     notifications,

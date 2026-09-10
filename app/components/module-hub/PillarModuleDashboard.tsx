@@ -14,8 +14,11 @@ import {
 } from "@/app/lib/dashboard-pillars";
 import { stageDashboardUpload } from "@/app/lib/dashboard-upload-bridge";
 import type { DashboardCategory } from "@/app/lib/intranet-modules";
-import type { DashboardShortcut } from "@/app/lib/dashboard-signals";
-import { notificationCountForModule } from "@/app/lib/dashboard-signals";
+import {
+  notificationCountForModule,
+  type DashboardNotification,
+  type DashboardShortcut,
+} from "@/app/lib/dashboard-signals";
 import { useDashboardSignals } from "@/app/hooks/useDashboardSignals";
 import { MODULE_EMOJI, moduleHref } from "@/app/lib/pillar-module-routes";
 import NotificationCountBadge from "@/app/components/Dashboard/NotificationCountBadge";
@@ -37,18 +40,51 @@ type PreviewLine = {
   href: string;
 };
 
+function hubNotificationCount(moduleId: string, notifications: DashboardNotification[]): number {
+  if (moduleId === "rh") {
+    return (
+      notificationCountForModule("rh", notifications) +
+      notificationCountForModule("absences", notifications) +
+      notificationCountForModule("demandes-hse", notifications)
+    );
+  }
+  return notificationCountForModule(moduleId, notifications);
+}
+
 function previewLinesForModule(
   moduleId: string,
   shortcuts: DashboardShortcut[],
   max = 6,
 ): PreviewLine[] {
-  const related = shortcuts.filter((s) => s.moduleId === moduleId);
+  const relatedIds =
+    moduleId === "rh"
+      ? new Set(["rh", "absences", "demandes-hse"])
+      : moduleId === "accueil-absences"
+        ? new Set(["accueil-absences", "absences-accueil-consultation"])
+        : new Set([moduleId]);
+
+  const related = shortcuts.filter((s) => relatedIds.has(s.moduleId));
+  const fromSlides: PreviewLine[] = [];
+  for (const s of related) {
+    if (!s.slides?.length) continue;
+    for (const slide of s.slides) {
+      fromSlides.push({
+        id: slide.id,
+        title: slide.label,
+        detail: slide.detail,
+        badge: slide.badge || (slide.count && slide.count > 0 ? String(slide.count) : undefined),
+        href: slide.href || s.href,
+      });
+    }
+  }
+
   const dynamic = related.filter(
     (s) => s.pillarOnly || s.rich || Boolean(s.detail) || Boolean(s.badge),
   );
   const hasUnitTrips = dynamic.some((s) => s.id.startsWith("travels-up-"));
   const ordered = dynamic
     .filter((s) => !(hasUnitTrips && (s.id === "travels-week" || s.id === "travels-today")))
+    .filter((s) => !s.slides?.length)
     .sort((a, b) => {
       const score = (s: DashboardShortcut) => {
         const tone =
@@ -58,8 +94,8 @@ function previewLinesForModule(
       return score(b) - score(a);
     });
 
-  const lines: PreviewLine[] = [];
-  const seen = new Set<string>();
+  const lines: PreviewLine[] = [...fromSlides];
+  const seen = new Set(fromSlides.map((l) => `${l.title}|${l.detail || ""}|${l.badge || ""}`));
   for (const s of ordered) {
     if (lines.length >= max) break;
     const key = `${s.label}|${s.detail || ""}|${s.badge || ""}`;
@@ -74,7 +110,7 @@ function previewLinesForModule(
       href: s.href,
     });
   }
-  return lines;
+  return lines.slice(0, max);
 }
 
 function OcrQuickDrop() {
@@ -139,7 +175,13 @@ function OcrQuickDrop() {
   );
 }
 
-function ModuleQuickActions({ moduleId }: { moduleId: string }) {
+function ModuleQuickActions({
+  moduleId,
+  accessibleModuleIds,
+}: {
+  moduleId: string;
+  accessibleModuleIds?: Set<string>;
+}) {
   if (moduleId === "travels") {
     return (
       <div className="mt-auto flex flex-wrap gap-2 pt-3">
@@ -222,8 +264,44 @@ function ModuleQuickActions({ moduleId }: { moduleId: string }) {
           href="/photocopies-couleur"
           className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
         >
-          Nouvelle demande
+          Ouvrir
         </Link>
+        <Link
+          href="/photocopies-couleur#file-impression"
+          className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
+        >
+          File impression
+        </Link>
+      </div>
+    );
+  }
+  if (moduleId === "accueil-absences") {
+    const canConsult = accessibleModuleIds?.has("absences-accueil-consultation");
+    const canAppels = accessibleModuleIds?.has("vs-appels");
+    return (
+      <div className="mt-auto flex flex-wrap gap-2 pt-3">
+        <Link
+          href="/accueil/absences"
+          className="rounded-full bg-[var(--dash-primary)] px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:brightness-110"
+        >
+          Déclarer
+        </Link>
+        {canConsult ? (
+          <Link
+            href="/vie-scolaire/absences-accueil"
+            className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
+          >
+            Consulter
+          </Link>
+        ) : null}
+        {canAppels ? (
+          <Link
+            href="/vie-scolaire/presence"
+            className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
+          >
+            Appels
+          </Link>
+        ) : null}
       </div>
     );
   }
@@ -236,14 +314,28 @@ function ModuleCard({
   index,
   pillarId,
   notifCount = 0,
+  accessibleModuleIds,
 }: {
   category: DashboardCategory;
   previews: PreviewLine[];
   index: number;
   pillarId: DashboardPillarId;
   notifCount?: number;
+  accessibleModuleIds?: Set<string>;
 }) {
-  const href = category.link || moduleHref(category.moduleId);
+  const canDeclare = accessibleModuleIds?.has("accueil-absences") ?? false;
+  const canConsult = accessibleModuleIds?.has("absences-accueil-consultation") ?? false;
+  const isAbsencesHub = category.moduleId === "accueil-absences";
+  const displayName =
+    isAbsencesHub && canDeclare && !canConsult
+      ? "Absence déclarée à l'accueil"
+      : isAbsencesHub && !canDeclare && canConsult
+        ? "Absences déclarées à l'accueil"
+        : category.name;
+  const href =
+    isAbsencesHub && !canDeclare && canConsult
+      ? moduleHref("absences-accueil-consultation")
+      : category.link || moduleHref(category.moduleId);
   const emoji = MODULE_EMOJI[category.moduleId] || "›";
 
   return (
@@ -282,7 +374,7 @@ function ModuleCard({
             </span>
             <div className="min-w-0 flex items-center gap-2">
               <h2 className="truncate text-lg font-semibold tracking-tight text-[var(--dash-ink)] sm:text-xl">
-                {category.name}
+                {displayName}
               </h2>
               <NotificationCountBadge count={notifCount} />
             </div>
@@ -327,7 +419,10 @@ function ModuleCard({
           </AnimatePresence>
         </div>
 
-        <ModuleQuickActions moduleId={category.moduleId} />
+        <ModuleQuickActions
+          moduleId={category.moduleId}
+          accessibleModuleIds={accessibleModuleIds}
+        />
       </div>
     </motion.article>
   );
@@ -412,7 +507,8 @@ export default function PillarModuleDashboard({
                   category={cat}
                   index={i}
                   pillarId={pillarId}
-                  notifCount={notificationCountForModule(cat.moduleId, notifications)}
+                  accessibleModuleIds={accessibleModuleIds}
+                  notifCount={hubNotificationCount(cat.moduleId, notifications)}
                   previews={
                     loadingSignals
                       ? []

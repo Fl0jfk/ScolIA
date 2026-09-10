@@ -1,6 +1,6 @@
 import type { DashboardSignals } from "@/app/lib/dashboard-signals";
 
-const STORAGE_KEY_PREFIX = "scola.dashboard-signals:v2:";
+const STORAGE_KEY_PREFIX = "scola.dashboard-signals:v3:";
 /** Au-delà : le cache n'est plus affiché (données trop vieilles). */
 const MAX_AGE_MS = 10 * 60 * 1000;
 
