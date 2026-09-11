@@ -41,7 +41,6 @@ function dossierMatchesQuery(list: StageConvention[], query: string): boolean {
         c.student.firstName,
         c.student.lastName,
         c.student.className,
-        c.student.ine,
         c.company.name,
         c.stageLabel,
         STAGE_CONVENTION_STATUS_LABELS[c.status],
