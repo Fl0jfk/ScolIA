@@ -479,7 +479,7 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
   },
   {
     moduleId: "requests-staff",
-    title: "Demande",
+    title: "Demandes",
     steps: [
       {
         title: "Demandes internes",

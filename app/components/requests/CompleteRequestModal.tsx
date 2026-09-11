@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Camera, Paperclip } from "lucide-react";
 
 export type CompleteRequestTarget = {
   id: string;
   subject: string;
   requester: { fullName: string; email: string };
 };
+
+const MAX_FILES = 12;
+
+function appendFiles(prev: File[], incoming: File[]): File[] {
+  return [...prev, ...incoming].slice(0, MAX_FILES);
+}
 
 export default function CompleteRequestModal({
   target,
@@ -26,6 +33,11 @@ export default function CompleteRequestModal({
   const [wantMessage, setWantMessage] = useState(true);
   const [message, setMessage] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputId = useId();
+  const fileInputId = useId();
 
   useEffect(() => {
     if (!target) return;
@@ -33,6 +45,16 @@ export default function CompleteRequestModal({
     setMessage("");
     setFiles([]);
   }, [target?.id]);
+
+  useEffect(() => {
+    const urls = files.map((f) => (f.type.startsWith("image/") ? URL.createObjectURL(f) : ""));
+    setPreviewUrls(urls);
+    return () => {
+      for (const u of urls) {
+        if (u) URL.revokeObjectURL(u);
+      }
+    };
+  }, [files]);
 
   if (!target) return null;
 
@@ -44,6 +66,11 @@ export default function CompleteRequestModal({
       return;
     }
     onCompleteWithoutMessage(target.id);
+  };
+
+  const onPickFiles = (list: FileList | null) => {
+    if (!list?.length) return;
+    setFiles((prev) => appendFiles(prev, Array.from(list)));
   };
 
   return (
@@ -82,7 +109,7 @@ export default function CompleteRequestModal({
 
         <p className="text-sm text-slate-700 leading-relaxed">
           Voulez-vous envoyer un message
-          {files.length > 0 || wantMessage ? " (avec pièce jointe éventuelle) " : " "}
+          {files.length > 0 || wantMessage ? " (avec photo ou pièce jointe) " : " "}
           à <span className="font-semibold">{target.requester.fullName}</span> (
           <span className="break-all">{target.requester.email}</span>) ?
         </p>
@@ -100,7 +127,7 @@ export default function CompleteRequestModal({
             <span className="min-w-0">
               <span className="block text-sm font-bold text-emerald-950">Oui, envoyer un message</span>
               <span className="block text-[11px] text-emerald-900/70 mt-0.5">
-                Le demandeur reçoit un e-mail de clôture avec votre texte et les fichiers joints.
+                Idéal pour la maintenance : photo du travail fait + court texte au demandeur.
               </span>
             </span>
           </label>
@@ -123,7 +150,7 @@ export default function CompleteRequestModal({
         </div>
 
         {wantMessage ? (
-          <div className="mt-4 space-y-2 rounded-xl border border-sky-200 bg-sky-50/60 p-3">
+          <div className="mt-4 space-y-3 rounded-xl border border-sky-200 bg-sky-50/60 p-3">
             <label className="block text-[10px] font-black uppercase tracking-wide text-sky-900" htmlFor="complete-msg">
               Message au demandeur
             </label>
@@ -133,35 +160,89 @@ export default function CompleteRequestModal({
               onChange={(e) => setMessage(e.target.value)}
               rows={3}
               disabled={busy}
-              placeholder="Ex. : Voici le document demandé, n’hésitez pas à nous recontacter…"
+              placeholder="Ex. : Intervention terminée, voici la photo…"
               className="w-full rounded-lg border border-sky-200 bg-white p-2 text-sm text-slate-800 disabled:opacity-60"
             />
-            <label className="block text-[10px] font-bold text-sky-800">Pièce(s) jointe(s) (optionnel)</label>
-            <input
-              type="file"
-              multiple
-              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,application/pdf"
-              disabled={busy}
-              className="w-full text-[11px] text-slate-600 file:mr-2 file:rounded file:border-0 file:bg-sky-200 file:px-2 file:py-1"
-              onChange={(e) => {
-                const list = e.target.files ? Array.from(e.target.files) : [];
-                setFiles((prev) => [...prev, ...list].slice(0, 12));
-                e.target.value = "";
-              }}
-            />
+
+            <div>
+              <p className="text-[10px] font-bold text-sky-800 mb-2">Preuve / pièce jointe (optionnel)</p>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  ref={cameraInputRef}
+                  id={cameraInputId}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  disabled={busy || files.length >= MAX_FILES}
+                  className="sr-only"
+                  onChange={(e) => {
+                    onPickFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <input
+                  ref={fileInputRef}
+                  id={fileInputId}
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,application/pdf"
+                  disabled={busy || files.length >= MAX_FILES}
+                  className="sr-only"
+                  onChange={(e) => {
+                    onPickFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={busy || files.length >= MAX_FILES}
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-300 bg-white px-3 py-3 text-sm font-bold text-sky-950 hover:bg-sky-100 disabled:opacity-50"
+                >
+                  <Camera className="h-4 w-4 shrink-0" aria-hidden />
+                  Prendre une photo
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || files.length >= MAX_FILES}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-300 bg-white px-3 py-3 text-sm font-bold text-sky-950 hover:bg-sky-100 disabled:opacity-50"
+                >
+                  <Paperclip className="h-4 w-4 shrink-0" aria-hidden />
+                  Joindre un fichier
+                </button>
+              </div>
+              <p className="mt-1.5 text-[10px] text-sky-800/80">
+                Sur téléphone, « Prendre une photo » ouvre l’appareil photo (ex. preuve d’intervention).
+              </p>
+            </div>
+
             {files.length > 0 ? (
-              <ul className="space-y-1">
+              <ul className="space-y-1.5">
                 {files.map((f, i) => (
                   <li
-                    key={`${f.name}-${i}`}
-                    className="flex justify-between gap-2 text-[11px] text-slate-600 bg-white rounded-md px-2 py-1 border border-sky-100"
+                    key={`${f.name}-${f.size}-${i}`}
+                    className="flex items-center gap-2 text-[11px] text-slate-600 bg-white rounded-md px-2 py-1.5 border border-sky-100"
                   >
-                    <span className="truncate">{f.name}</span>
+                    {previewUrls[i] ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- blob preview local
+                      <img
+                        src={previewUrls[i]}
+                        alt=""
+                        className="h-10 w-10 shrink-0 rounded object-cover border border-sky-100"
+                      />
+                    ) : (
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-sky-100 text-sky-800">
+                        <Paperclip className="h-4 w-4" aria-hidden />
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1 truncate font-medium">{f.name}</span>
                     <button
                       type="button"
                       disabled={busy}
-                      className="shrink-0 text-red-700 font-bold disabled:opacity-50"
+                      className="shrink-0 text-red-700 font-bold disabled:opacity-50 px-1"
                       onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                      aria-label={`Retirer ${f.name}`}
                     >
                       ×
                     </button>

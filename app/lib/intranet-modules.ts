@@ -409,7 +409,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
     ],
     dashboard: {
       id: 3,
-      name: "Demande",
+      name: "Demandes",
       img: "",
       link: "/requests",
       external: false,

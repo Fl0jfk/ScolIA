@@ -1250,7 +1250,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         pillarId: "administratif",
         moduleId: "requests-staff",
         href: requestSlides[0]!.href || requestsHome,
-        label: "Demande",
+        label: "Demandes",
         rich: true,
         badge: `${total}`,
         detail: requestSlides.map((s) => s.detail || s.label).join(" · "),
@@ -1263,7 +1263,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         pillarId: "administratif",
         moduleId: "requests-staff",
         href: requestsHome,
-        label: "Demande",
+        label: "Demandes",
       });
     }
   }

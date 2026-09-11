@@ -21,7 +21,7 @@ import Logo from "../../../public/Logo header.png";
 
 const MOBILE_MODULE_LINKS = [
   { href: "/documents", label: "Cloud personnel", icon: "📁" },
-  { href: "/requests", label: "Demande", icon: "📋" },
+  { href: "/requests", label: "Demandes", icon: "📋" },
   { href: "/prof-room?new=1", label: "Faire une réservation de salle", icon: "🏫" },
   { href: "/rh?tab=absences&view=se-declarer#nouvelle-absence", label: "Demander une autorisation d'absence", icon: "📅" },
 ] as const;
