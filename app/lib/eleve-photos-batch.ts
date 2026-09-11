@@ -65,11 +65,27 @@ export type ElevePhotoJob = {
 
 const JOB_PREFIX = "eleves/photo-jobs/";
 const INBOX_PREFIX = "eleves/photos/inbox/";
-/** Budget d’une invocation worker — on s’arrête avant le timeout Scaleway. */
-const RUN_BUDGET_MS = 45_000;
-/** Évite de réécrire le JSON job (souvent Mo) à chaque photo — saturation S3 / CPU. */
-const JOB_PERSIST_EVERY_N = 20;
-const JOB_PERSIST_EVERY_MS = 5_000;
+
+/**
+ * Traitement basse priorité (2–3× / an) : on privilégie la fluidité de l’ENT
+ * plutôt que la vitesse du matching photos.
+ */
+const RUN_BUDGET_MS = 20_000;
+/** Plafond dur par segment — laisse respirer Postgres / S3 entre les lots. */
+const MAX_ITEMS_PER_SEGMENT = 8;
+/** Pause entre chaque photo (S3 + matching). */
+const PAUSE_BETWEEN_ITEMS_MS = 250;
+/** Pause avant le segment suivant (`after`). */
+const PAUSE_BETWEEN_SEGMENTS_MS = 4_000;
+/** Pause entre chaque UPDATE photo_key. */
+const PAUSE_BETWEEN_DB_UPDATES_MS = 80;
+/** Évite de réécrire le JSON job (souvent Mo) trop souvent. */
+const JOB_PERSIST_EVERY_N = 8;
+const JOB_PERSIST_EVERY_MS = 8_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function jobKey(jobId: string): string {
   return `${JOB_PREFIX}${jobId}.json`;
@@ -163,6 +179,8 @@ export async function stageElevePhotoFiles(
       contentType: ct,
       status: "pending",
     });
+    // Laisse respirer S3 pendant un gros dépôt (basse priorité).
+    await sleep(40);
   }
 
   job.status = "uploading";
@@ -270,10 +288,12 @@ export async function runElevePhotoJob(jobId: string): Promise<ElevePhotoJob | n
   const started = Date.now();
   let lastPersistAt = started;
   let sincePersist = 0;
+  let processedThisSegment = 0;
   const photoUpdates: Array<{ eleveId: string; photoKey: string }> = [];
 
   for (let i = 0; i < job.items.length; i++) {
     if (Date.now() - started > RUN_BUDGET_MS) break;
+    if (processedThisSegment >= MAX_ITEMS_PER_SEGMENT) break;
     const current = job.items[i]!;
     if (current.status !== "pending") continue;
 
@@ -308,9 +328,10 @@ export async function runElevePhotoJob(jobId: string): Promise<ElevePhotoJob | n
       if (!job.errors.includes(msg)) job.errors.push(msg);
     }
 
+    processedThisSegment += 1;
     const done = job.items.filter((it) => it.status !== "pending").length;
     job.percent = Math.round((done / job.items.length) * 100);
-    job.label = `${done}/${job.items.length} photo(s) traitées…`;
+    job.label = `${done}/${job.items.length} photo(s) — traitement lent (basse priorité)…`;
     sincePersist += 1;
     const dueByCount = sincePersist >= JOB_PERSIST_EVERY_N;
     const dueByTime = Date.now() - lastPersistAt >= JOB_PERSIST_EVERY_MS;
@@ -319,20 +340,28 @@ export async function runElevePhotoJob(jobId: string): Promise<ElevePhotoJob | n
       sincePersist = 0;
       lastPersistAt = Date.now();
     }
+
+    if (PAUSE_BETWEEN_ITEMS_MS > 0) {
+      await sleep(PAUSE_BETWEEN_ITEMS_MS);
+    }
   }
 
-  await putJson("eleves/photo-index.json", index);
-  try {
-    const { invalidateElevePhotoIndexCache } = await import("@/app/lib/eleve-photos");
-    invalidateElevePhotoIndexCache();
-  } catch {
-    /* optional */
+  if (processedThisSegment > 0) {
+    await putJson("eleves/photo-index.json", index);
+    try {
+      const { invalidateElevePhotoIndexCache } = await import("@/app/lib/eleve-photos");
+      invalidateElevePhotoIndexCache();
+    } catch {
+      /* optional */
+    }
   }
   if (photoUpdates.length) {
     try {
       const etabId = await resolveCurrentEtablissementId();
       if (etabId) {
-        await updateElevePhotoKeysInDb(etabId, photoUpdates);
+        await updateElevePhotoKeysInDb(etabId, photoUpdates, {
+          pauseMs: PAUSE_BETWEEN_DB_UPDATES_MS,
+        });
       }
     } catch (e) {
       console.warn("[eleve-photos-batch] updateElevePhotoKeysInDb", e);
@@ -352,7 +381,7 @@ export async function runElevePhotoJob(jobId: string): Promise<ElevePhotoJob | n
         }.`;
   } else {
     job.status = "processing";
-    job.label = `${job.items.filter((it) => it.status !== "pending").length}/${job.items.length} traitées — poursuite…`;
+    job.label = `${job.items.filter((it) => it.status !== "pending").length}/${job.items.length} traitées — pause puis poursuite (basse priorité)…`;
   }
 
   await writeElevePhotoJob(job);
@@ -361,11 +390,14 @@ export async function runElevePhotoJob(jobId: string): Promise<ElevePhotoJob | n
 
 /**
  * Enchaîne le traitement sans dépendre du navigateur ni d’un cookie session.
- * Chaque segment s’exécute dans un `after()` (durée max de la route parente).
+ * Pause volontaire entre segments pour ne pas monopoliser le conteneur / la BDD.
  */
 export function scheduleElevePhotoContinuation(jobId: string, _origin?: string): void {
   after(async () => {
     try {
+      if (PAUSE_BETWEEN_SEGMENTS_MS > 0) {
+        await sleep(PAUSE_BETWEEN_SEGMENTS_MS);
+      }
       const updated = await runElevePhotoJob(jobId);
       if (updated && updated.status === "processing") {
         scheduleElevePhotoContinuation(jobId);

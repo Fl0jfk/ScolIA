@@ -52,7 +52,7 @@ export async function POST(req: Request) {
       total: job.items.length,
       label: job.label,
       message:
-        "Upload terminé. Le serveur associe les photos en arrière-plan (écrasement des anciennes). Vous pouvez quitter cette page.",
+        "Upload terminé. Association en cours en arrière-plan lent (basse priorité) — l’ENT reste utilisable. Vous pouvez quitter cette page.",
     });
   } catch (e: unknown) {
     return NextResponse.json(

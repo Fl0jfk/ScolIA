@@ -278,29 +278,29 @@ export async function listElevesFromDb(
 
 /**
  * Met à jour uniquement `photo_key` (batch photos) — sans upsert massif ni sync internat.
+ * Séquentiel volontairement : ne doit jamais saturer le pool Postgres.
  */
 export async function updateElevePhotoKeysInDb(
   etablissementId: string,
   updates: Array<{ eleveId: string; photoKey: string }>,
+  opts?: { pauseMs?: number },
 ): Promise<number> {
   if (!updates.length) return 0;
   const db = getDb();
+  const pauseMs = Math.max(0, opts?.pauseMs ?? 0);
   let n = 0;
-  const chunk = 50;
-  for (let i = 0; i < updates.length; i += chunk) {
-    const slice = updates.slice(i, i + chunk);
-    await Promise.all(
-      slice.map(async (u) => {
-        const id = u.eleveId.trim();
-        const photoKey = u.photoKey.trim();
-        if (!id || !photoKey) return;
-        await db
-          .update(eleve)
-          .set({ photoKey })
-          .where(and(eq(eleve.id, id), eq(eleve.etablissementId, etablissementId)));
-        n += 1;
-      }),
-    );
+  for (const u of updates) {
+    const id = u.eleveId.trim();
+    const photoKey = u.photoKey.trim();
+    if (!id || !photoKey) continue;
+    await db
+      .update(eleve)
+      .set({ photoKey })
+      .where(and(eq(eleve.id, id), eq(eleve.etablissementId, etablissementId)));
+    n += 1;
+    if (pauseMs > 0) {
+      await new Promise((r) => setTimeout(r, pauseMs));
+    }
   }
   return n;
 }

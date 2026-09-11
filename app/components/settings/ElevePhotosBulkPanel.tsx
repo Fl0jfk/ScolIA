@@ -6,8 +6,8 @@ import { dash } from "@/app/lib/dashboard-brand";
 
 const IMAGE_RE = /\.(jpe?g|png|webp|gif)$/i;
 /** Lots d’upload (réception seule) — le matching se fait ensuite en batch serveur. */
-const MAX_FILES_PER_CHUNK = 40;
-const MAX_BYTES_PER_CHUNK = 10 * 1024 * 1024;
+const MAX_FILES_PER_CHUNK = 15;
+const MAX_BYTES_PER_CHUNK = 6 * 1024 * 1024;
 
 type UploadPhase = "idle" | "uploading" | "processing" | "done" | "error";
 
@@ -280,8 +280,10 @@ export default function ElevePhotosBulkPanel() {
           <strong className="font-semibold text-slate-800">NOM Prenom.jpg</strong> (espaces,{" "}
           <code className="rounded bg-white/70 px-1">_</code> ou{" "}
           <code className="rounded bg-white/70 px-1">-</code> acceptés). Une fois l’envoi terminé, le
-          serveur associe les photos en arrière-plan et <strong>remplace</strong> les photos déjà
-          présentes (nouvelle année scolaire). Vous pouvez quitter la page après l’upload.
+          serveur associe les photos en <strong>arrière-plan lent</strong> (basse priorité : l’ENT
+          reste utilisable) et <strong>remplace</strong> uniquement les photos des élèves
+          reconnus. Vous pouvez quitter la page après l’upload — comptez plusieurs minutes pour un
+          gros lot.
         </>
       }
     >
