@@ -478,7 +478,7 @@ export default function AbsencesPageClient({
           "Relance envoyée. La personne peut indiquer ses créneaux de rattrapage dans « Se déclarer ».",
         );
       }
-      if (action === "VALIDER" && item?.data.scope !== "ogec") {
+      if (action === "VALIDER" && item && item.data.scope !== "ogec") {
         const treatment = resolvedHoursTreatment(item, managerHoursTreatment);
         const emails = Array.isArray(payload?.validationRecipients)
           ? (payload.validationRecipients as unknown[]).filter((e) => typeof e === "string")
