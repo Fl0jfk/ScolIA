@@ -1,7 +1,23 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Camera, Paperclip } from "lucide-react";
+
+function IconCamera({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  );
+}
+
+function IconPaperclip({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
+  );
+}
 
 export type CompleteRequestTarget = {
   id: string;
@@ -199,7 +215,7 @@ export default function CompleteRequestModal({
                   onClick={() => cameraInputRef.current?.click()}
                   className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-300 bg-white px-3 py-3 text-sm font-bold text-sky-950 hover:bg-sky-100 disabled:opacity-50"
                 >
-                  <Camera className="h-4 w-4 shrink-0" aria-hidden />
+                  <IconCamera className="h-4 w-4 shrink-0" />
                   Prendre une photo
                 </button>
                 <button
@@ -208,7 +224,7 @@ export default function CompleteRequestModal({
                   onClick={() => fileInputRef.current?.click()}
                   className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-300 bg-white px-3 py-3 text-sm font-bold text-sky-950 hover:bg-sky-100 disabled:opacity-50"
                 >
-                  <Paperclip className="h-4 w-4 shrink-0" aria-hidden />
+                  <IconPaperclip className="h-4 w-4 shrink-0" />
                   Joindre un fichier
                 </button>
               </div>
@@ -233,7 +249,7 @@ export default function CompleteRequestModal({
                       />
                     ) : (
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-sky-100 text-sky-800">
-                        <Paperclip className="h-4 w-4" aria-hidden />
+                        <IconPaperclip className="h-4 w-4" />
                       </span>
                     )}
                     <span className="min-w-0 flex-1 truncate font-medium">{f.name}</span>
