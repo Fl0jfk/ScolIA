@@ -1,9 +1,21 @@
 /**
  * Normalisation régime scolaire (Siècle CODE_REGIME / Excel Charlemagne).
- * Codes Siècle courants : 0 externe, 1 DP, 2 interne, 3 interne-externe.
  *
- * Attention : ne jamais traiter « 1 » comme un booléen « oui → Interne »
- * (c’est le code demi-pension Siècle).
+ * Source officielle — nomenclature BCN (Base Centrale de Nomenclatures),
+ * documentée par l’API Particulier (Éducation nationale) :
+ * https://particulier.api.gouv.fr/catalogue/education_nationale/statut_eleve_scolarise_v4
+ *
+ * | Code | Libellé BCN |
+ * | 0 | Externe libre |
+ * | 1 | Externe surveillé |
+ * | 2 | Demi-pensionnaire dans l’établissement |
+ * | 3 | Interne dans l’établissement |
+ * | 4 | Interne externé (inscrit internat, ne dort pas sur place) |
+ * | 5 | Interne hébergé (dort dans un autre établissement) |
+ * | 6 | Demi-pensionnaire hors établissement |
+ *
+ * Pour l’appel de nuit / module internat : seuls les codes qui dorment
+ * dans l’établissement (3) — éventuellement 5 si on gère l’hébergement croisé.
  */
 
 export type EleveRegimeKind = "interne" | "demi_pension" | "externe" | "inconnu";
@@ -27,13 +39,15 @@ export function classifyRegime(raw: string | undefined | null): EleveRegimeKind 
   const s = normalizeRegimeLabel(String(raw ?? ""));
   if (!s) return "inconnu";
 
-  // Codes numériques Siècle / STS
-  if (s === "2" || s === "3") return "interne";
-  if (s === "1") return "demi_pension";
-  if (s === "0") return "externe";
+  // Codes numériques BCN / Siècle BEE (API Particulier)
+  if (s === "3" || s === "5") return "interne";
+  if (s === "2" || s === "6") return "demi_pension";
+  if (s === "0" || s === "1" || s === "4") return "externe";
+  // 4 = interne externé → ne dort pas : traité comme externe pour l'appel nuit
 
   if (/\binterne[- ]?externe\b/.test(s) || s === "ie" || s.includes("int ext")) {
-    return "interne";
+    // « Interne externé » BCN : pas de nuit sur place
+    return "externe";
   }
   if (
     /\binterne\b/.test(s) ||
@@ -42,7 +56,6 @@ export function classifyRegime(raw: string | undefined | null): EleveRegimeKind 
     s.startsWith("int ") ||
     s.includes("internat")
   ) {
-    // « externe » contient parfois « externe » seul — déjà exclu ci-dessus pour interne-externe
     if (/\bexterne\b/.test(s) && !/\binterne\b/.test(s)) return "externe";
     return "interne";
   }
@@ -57,7 +70,7 @@ export function classifyRegime(raw: string | undefined | null): EleveRegimeKind 
   }
   if (s.includes("externe") || s === "ext" || s === "e") return "externe";
 
-  // Booléens de colonne « Interne » (oui/non) — jamais le chiffre 1 (code DP Siècle).
+  // Booléens de colonne « Interne » (oui/non) — jamais les chiffres 0–6 (codes BCN).
   if (s === "oui" || s === "o" || s === "yes" || s === "true" || s === "x") return "interne";
   if (s === "non" || s === "no" || s === "false") return "externe";
 
@@ -66,7 +79,7 @@ export function classifyRegime(raw: string | undefined | null): EleveRegimeKind 
 
 /**
  * Libellé canonique pour stockage (référentiel / Excel).
- * Codes Siècle et synonymes → Interne | Demi-pension | Externe.
+ * Codes BCN et synonymes → Interne | Demi-pension | Externe.
  */
 export function canonicalRegimeLabel(raw: string | undefined | null): string | undefined {
   const trimmed = String(raw ?? "").trim();

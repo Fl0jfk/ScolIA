@@ -114,10 +114,11 @@ function boolXml(v: boolean): string {
 function regimeToCode(raw: string | null | undefined): string {
   const s = String(raw ?? "").trim();
   if (!s) return "0";
-  if (s === "0" || s === "1" || s === "2" || s === "3") return s;
+  // Codes BCN déjà numériques
+  if (/^[0-6]$/.test(s)) return s;
   const lower = s.toLowerCase();
-  if (lower.includes("interne")) return "2";
-  if (lower.includes("demi") || lower.includes("dp")) return "1";
+  if (lower.includes("interne")) return "3";
+  if (lower.includes("demi") || lower.includes("dp")) return "2";
   return "0";
 }
 

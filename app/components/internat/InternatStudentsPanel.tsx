@@ -504,7 +504,7 @@ export default function InternatStudentsPanel({
               <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5 space-y-4 text-sm">
                 <p className="font-bold text-slate-800">Import & synchronisation</p>
                 <p className="text-slate-600 text-xs leading-relaxed">
-                  Préférez un XML Siècle (CODE_REGIME 2/3 = internes). Un Excel sans régime ne doit
+                  Préférez un XML Siècle (CODE_REGIME 3 = interne BCN). Un Excel sans régime ne doit
                   contenir que la liste des internes ; sinon le roster se gonfle. Les photos se gèrent
                   dans Paramètres.
                 </p>

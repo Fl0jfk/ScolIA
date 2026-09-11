@@ -201,7 +201,7 @@ export async function POST(req: Request) {
       if (!entries.length) {
         return NextResponse.json(
           {
-            error: `XML lu (${parsed.total} scolarisés / ${parsed.totalInFile} dans le fichier) mais 0 interne détecté (CODE_REGIME 2/3 ou libellé Interne). Vérifiez les régimes.`,
+            error: `XML lu (${parsed.total} scolarisés / ${parsed.totalInFile} dans le fichier) mais 0 interne détecté (CODE_REGIME 3/5 BCN ou libellé Interne). Vérifiez les régimes.`,
             totalEleves: parsed.total,
             totalInFile: parsed.totalInFile,
             skippedSortis: parsed.skippedSortis,
@@ -311,7 +311,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error: anyRegime
-            ? "Après normalisation, aucun régime interne détecté. Réimportez un XML Siècle avec CODE_REGIME 2/3."
+            ? "Après normalisation, aucun régime interne détecté. Réimportez un XML Siècle avec CODE_REGIME 3 (interne BCN)."
             : "Référentiel sans colonne régime — importez un XML Siècle avec régime.",
           elevesCount: eleves.length,
           regimesRewritten: rewritten,
