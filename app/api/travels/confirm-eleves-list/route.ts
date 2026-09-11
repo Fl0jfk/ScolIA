@@ -5,6 +5,7 @@ import { getJson, putJson } from "@/app/lib/s3-storage";
 import {
   applyParticipantElevesToTripData,
   buildElevesListCsvForTransporter,
+  clampPanierRepasAssignments,
   eleveParticipantKey,
 } from "@/app/lib/travels-eleves-list";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
@@ -12,6 +13,7 @@ import type { EleveConfig } from "@/app/lib/eleves-config";
 import { collectEleveParentEmails } from "@/app/lib/eleves-parent-emails";
 import { assertTravelsTripAccess } from "@/app/lib/travels-rbac-server";
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
+import { getTotalMeals } from "@/app/lib/travels-cuisine-form";
 import {
   buildParentsCalendarMailCopy,
   buildTravelsParentsTripIcs,
@@ -68,7 +70,13 @@ export async function POST(req: Request) {
         prenom: String(p.prenom || "").trim(),
         classe: p.classe ? String(p.classe).trim() : undefined,
         droitImageOk: p.droitImageOk !== false,
+        panierRepas: p.panierRepas === true,
       }));
+
+    const mealsOrdered = getTotalMeals(
+      trip.data.piqueNiqueDetails as Parameters<typeof getTotalMeals>[0],
+    );
+    participants = clampPanierRepasAssignments(participants, mealsOrdered);
 
     if (participants.length === 0) {
       return NextResponse.json(

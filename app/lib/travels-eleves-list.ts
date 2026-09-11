@@ -49,6 +49,7 @@ function collectParticipantParentPhones(eleve: {
 export function toParticipantEleve(
   e: Pick<EleveConfig, "ine" | "nom" | "prenom" | "classe">,
   droitImageOk = true,
+  panierRepas = false,
 ): TravelsParticipantEleve {
   return {
     ine: eleveParticipantKey(e),
@@ -56,7 +57,48 @@ export function toParticipantEleve(
     prenom: e.prenom,
     classe: e.classe,
     droitImageOk,
+    panierRepas: panierRepas === true,
   };
+}
+
+/** Nombre de paniers attribués dans la liste nominative. */
+export function countPanierRepasAssigned(participants: TravelsParticipantEleve[]): number {
+  return participants.filter((p) => p.panierRepas === true).length;
+}
+
+/** Plafonne les paniers au nombre de repas commandés (garde les premiers cochés). */
+export function clampPanierRepasAssignments(
+  participants: TravelsParticipantEleve[],
+  mealsOrdered: number,
+): TravelsParticipantEleve[] {
+  const limit = Number.isFinite(mealsOrdered) && mealsOrdered > 0 ? Math.floor(mealsOrdered) : 0;
+  if (limit <= 0) {
+    return participants.map((p) => ({ ...p, panierRepas: false }));
+  }
+  let kept = 0;
+  return participants.map((p) => {
+    if (!p.panierRepas) return { ...p, panierRepas: false };
+    if (kept >= limit) return { ...p, panierRepas: false };
+    kept += 1;
+    return { ...p, panierRepas: true };
+  });
+}
+
+/** CSV liste nominative paniers repas pour la cuisine. */
+export function buildPanierRepasListCsv(participants: TravelsParticipantEleve[]): string {
+  const withPanier = participants.filter((p) => p.panierRepas === true);
+  const header = "Nom;Prénom;Classe;INE";
+  const rows = withPanier
+    .slice()
+    .sort((a, b) =>
+      `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr", { sensitivity: "base" }),
+    )
+    .map((p) =>
+      [p.nom, p.prenom, p.classe || "", p.ine.startsWith("local:") ? "" : p.ine]
+        .map((c) => csvCell(String(c)))
+        .join(";"),
+    );
+  return [header, ...rows].join("\n");
 }
 
 /**

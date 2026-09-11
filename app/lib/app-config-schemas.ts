@@ -162,6 +162,11 @@ export type NotificationsConfig = {
   travelsCompta: string[];
   /** Destinataires commande cuisine / restauration (1 ou plusieurs). */
   travelsCuisine?: string[];
+  /**
+   * Destinataires de la liste nominative « qui a un panier repas ».
+   * Si vide : repli sur `travelsCuisine`.
+   */
+  travelsCuisineListePaniers?: string[];
   travelsZeendoc?: string;
   hseOps?: string;
   /** @deprecated Préférer photocopiesOpsEmails */
@@ -389,6 +394,17 @@ export function resolveTravelsCuisineEmails(
   return fb ? [fb] : [];
 }
 
+/** Destinataires liste nominative paniers repas (repli cuisine si non configuré). */
+export function resolveTravelsCuisineListePaniersEmails(
+  notifications: Pick<NotificationsConfig, "travelsCuisine" | "travelsCuisineListePaniers">,
+): string[] {
+  const dedicated = [
+    ...new Set((notifications.travelsCuisineListePaniers || []).map((e) => e.trim()).filter(Boolean)),
+  ];
+  if (dedicated.length > 0) return dedicated;
+  return resolveTravelsCuisineEmails(notifications, "");
+}
+
 export function parseSiteIdentity(raw: unknown, opts?: { allowEmptyName?: boolean }): SiteIdentity {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const addr = o.address && typeof o.address === "object" ? (o.address as Record<string, unknown>) : {};
@@ -542,6 +558,10 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
     travelsCompta: compta,
     travelsCuisine: (() => {
       const list = emailsList(o.travelsCuisine);
+      return list.length > 0 ? list : undefined;
+    })(),
+    travelsCuisineListePaniers: (() => {
+      const list = emailsList(o.travelsCuisineListePaniers);
       return list.length > 0 ? list : undefined;
     })(),
     travelsZeendoc: str(o.travelsZeendoc) || undefined,

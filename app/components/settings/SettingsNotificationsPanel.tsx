@@ -125,6 +125,18 @@ export default function SettingsNotificationsPanel({
             onChange={(emails) => patch({ travelsCuisine: emails })}
           />
         </SettingsField>
+        <SettingsField
+          label="Liste paniers repas (nominative)"
+          hint="Qui reçoit la liste des élèves avec panier repas. Si vide : mêmes destinataires que Cuisine."
+          as="div"
+        >
+          <DirectoryPeopleSelect
+            members={directoryMembers}
+            loading={membersLoading}
+            selectedEmails={emailsOf(notifications.travelsCuisineListePaniers)}
+            onChange={(emails) => patch({ travelsCuisineListePaniers: emails })}
+          />
+        </SettingsField>
         <SettingsField label="Zeendoc / envoi PDF" as="div">
           <DirectoryPersonSelect
             members={directoryMembers}

@@ -130,7 +130,8 @@ async function hydrateTravel(
       ine: p.eleveKey,
       nom: p.nom,
       prenom: p.prenom,
-      droitImageOk: true,
+      droitImageOk: p.droitImageOk !== false,
+      panierRepas: p.panierRepas === true,
       ...(p.classe ? { classe: p.classe } : {}),
     }));
 
@@ -291,6 +292,8 @@ export async function upsertTravelInDb(
         nom: String(p.nom ?? ""),
         prenom: String(p.prenom ?? ""),
         classe: p.classe ? String(p.classe) : null,
+        droitImageOk: p.droitImageOk !== false,
+        panierRepas: p.panierRepas === true,
         sortOrder: i,
       })),
     );

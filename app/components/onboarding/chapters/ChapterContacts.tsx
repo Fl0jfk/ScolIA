@@ -177,6 +177,28 @@ export default function ChapterContacts(props: Props) {
             placeholder="chef@…, second@…"
           />
         </OnboardingField>
+        <OnboardingField label="E-mails liste paniers repas (virgules, optionnel)">
+          <input
+            className={onboardingInputClass}
+            value={
+              Array.isArray(notifications.travelsCuisineListePaniers)
+                ? notifications.travelsCuisineListePaniers.join(", ")
+                : typeof notifications.travelsCuisineListePaniers === "string"
+                  ? notifications.travelsCuisineListePaniers
+                  : ""
+            }
+            onChange={(e) =>
+              setNotifications({
+                ...notifications,
+                travelsCuisineListePaniers: e.target.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              })
+            }
+            placeholder="Si vide → mêmes destinataires que cuisine"
+          />
+        </OnboardingField>
         <p className={`mb-2 text-sm font-medium ${dash.ink}`}>Transporteurs habituels</p>
         {(travels.transportProviders || []).map((p, idx) => (
           <div key={idx} className="mb-2 grid grid-cols-2 gap-2">

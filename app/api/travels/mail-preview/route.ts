@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { loadAppConfig } from "@/app/lib/app-config";
-import { resolveTravelsCuisineEmails } from "@/app/lib/app-config-schemas";
+import { resolveTravelsCuisineEmails, resolveTravelsCuisineListePaniersEmails } from "@/app/lib/app-config-schemas";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getJson } from "@/app/lib/s3-storage";
 import { assertTravelsTripAccess } from "@/app/lib/travels-rbac-server";
@@ -12,6 +12,7 @@ const VALID_TYPES: MailPreviewType[] = [
   "transport_initial",
   "cuisine_initial",
   "cuisine_amendment",
+  "panier_repas_list",
   "cancel_trip_transport",
   "cancel_trip_cuisine",
 ];
@@ -36,7 +37,10 @@ export async function POST(req: Request) {
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
 
     const config = await loadAppConfig();
-    const chefEmails = resolveTravelsCuisineEmails(config.notifications, "");
+    const chefEmails =
+      type === "panier_repas_list"
+        ? resolveTravelsCuisineListePaniersEmails(config.notifications)
+        : resolveTravelsCuisineEmails(config.notifications, "");
 
     const preview = await buildTravelsMailPreviewFromConfig(trip, type, {
       userName: body.userName || trip.ownerName,

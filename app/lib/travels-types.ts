@@ -61,6 +61,8 @@ export type TravelsParticipantEleve = {
   classe?: string;
   /** Défaut true — responsabilité établissement (rappel UI). */
   droitImageOk: boolean;
+  /** Panier repas demandé pour cet élève (si commande cuisine active). */
+  panierRepas?: boolean;
 };
 
 export type TravelsParentComLog = {
@@ -215,6 +217,14 @@ export type TravelsTripData = {
   listeElevesConfirmedAt?: string;
   listeElevesConfirmedBy?: { userId: string; email?: string; name?: string };
   listeEnvoyeeTransporteurAt?: string;
+  /** Horodatage envoi de la liste nominative « qui a un panier repas ». */
+  panierRepasListSentAt?: string;
+  panierRepasListSnapshot?: {
+    sentAt: string;
+    count: number;
+    mealsOrdered: number;
+    eleves: Array<{ ine: string; nom: string; prenom: string; classe?: string }>;
+  };
   /** Historique des envois com’ parents (métadonnées, pas les photos). */
   parentComLogs?: TravelsParentComLog[];
   /** Heure / lieu de rendez-vous parents (legacy — un créneau). */

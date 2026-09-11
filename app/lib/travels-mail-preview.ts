@@ -9,6 +9,7 @@ export type MailPreviewType =
   | "transport_initial"
   | "cuisine_initial"
   | "cuisine_amendment"
+  | "panier_repas_list"
   | "cancel_trip_transport"
   | "cancel_trip_cuisine";
 
@@ -127,6 +128,30 @@ function buildTravelsMailPreview(
             `Jours : ${selectedDays.join(", ")}`,
           ].join("\n"),
       attachments: [{ filename: `Commande_Cuisine_${trip.id}.pdf`, description: "Bon de commande cuisine" }],
+    };
+  }
+
+  if (type === "panier_repas_list") {
+    const withPanier = (data.participantEleves || []).filter((p) => p.panierRepas === true);
+    const lines = withPanier.map(
+      (p, i) => `${i + 1}. ${p.nom} ${p.prenom}${p.classe ? ` (${p.classe})` : ""}`,
+    );
+    return {
+      type,
+      to: chefEmails,
+      cc: [trip.ownerEmail].filter(Boolean) as string[],
+      subject: `Liste paniers repas — ${data.title} — ${withPanier.length}`,
+      text: [
+        "Bonjour,",
+        "",
+        `Liste nominative des élèves avec panier repas pour « ${data.title} » (${dateRange}).`,
+        `Organisateur : ${userName}`,
+        "",
+        ...lines,
+        "",
+        "CSV joint.",
+      ].join("\n"),
+      attachments: [{ filename: `Liste_paniers_${trip.id}.csv`, description: "Liste nominative paniers" }],
     };
   }
 

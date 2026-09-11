@@ -195,6 +195,8 @@ export const travelParticipant = pgTable(
     nom: text("nom").notNull().default(""),
     prenom: text("prenom").notNull().default(""),
     classe: text("classe"),
+    droitImageOk: boolean("droit_image_ok").notNull().default(true),
+    panierRepas: boolean("panier_repas").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (t) => [index("travel_participant_travel_idx").on(t.etablissementId, t.travelId)],

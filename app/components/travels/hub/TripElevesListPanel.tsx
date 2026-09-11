@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import {
   applyParticipantElevesToTripData,
+  countPanierRepasAssigned,
   eleveParticipantKey,
   parentEmailCoverage,
   toParticipantEleve,
@@ -13,6 +14,7 @@ import {
   defaultParentCalendarFromTrip,
   newCalendarPointId,
 } from "@/app/lib/travels-parent-calendar";
+import { emptyCuisineDetails, getTotalMeals } from "@/app/lib/travels-cuisine-form";
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
 import type {
   TravelsCalendarPoint,
@@ -49,7 +51,8 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   const [browseClass, setBrowseClass] = useState<string | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [droitByKey, setDroitByKey] = useState<Record<string, boolean>>({});
-  const [busy, setBusy] = useState<"save" | "confirm" | null>(null);
+  const [panierByKey, setPanierByKey] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState<"save" | "confirm" | "panier" | null>(null);
   const [classFilter, setClassFilter] = useState("");
   const [calendar, setCalendar] = useState<TravelsParentCalendar>(() =>
     defaultParentCalendarFromTrip(trip.data),
@@ -59,6 +62,12 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   const confirmed = trip.data.listeElevesStatus === "confirmed";
   const calendarReady = calendarHasDepotAndRecuperation(calendar);
   const tripClassesRaw = trip.data.classes;
+  const mealsOrdered = getTotalMeals(
+    (trip.data.piqueNiqueDetails as Parameters<typeof getTotalMeals>[0]) ?? emptyCuisineDetails(),
+  );
+  const cuisineActive = Boolean(
+    (trip.data.piqueNiqueDetails as { active?: boolean } | undefined)?.active && mealsOrdered > 0,
+  );
 
   useEffect(() => {
     setCalendar(defaultParentCalendarFromTrip(trip.data));
@@ -100,8 +109,14 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     const keys = new Set(existing.map((p) => eleveParticipantKey(p)));
     setSelectedKeys(keys);
     const droits: Record<string, boolean> = {};
-    for (const p of existing) droits[eleveParticipantKey(p)] = p.droitImageOk !== false;
+    const paniers: Record<string, boolean> = {};
+    for (const p of existing) {
+      const key = eleveParticipantKey(p);
+      droits[key] = p.droitImageOk !== false;
+      paniers[key] = p.panierRepas === true;
+    }
     setDroitByKey(droits);
+    setPanierByKey(paniers);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync from trip only
   }, [trip.id, trip.data.participantEleves, trip.data.listeElevesStatus]);
 
@@ -178,16 +193,39 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     for (const key of selectedKeys) {
       const full = elevesByKey.get(key);
       if (full) {
-        list.push(toParticipantEleve(full, droitByKey[key] !== false));
+        list.push(
+          toParticipantEleve(
+            full,
+            droitByKey[key] !== false,
+            cuisineActive && panierByKey[key] === true,
+          ),
+        );
         continue;
       }
       const snap = (trip.data.participantEleves || []).find((p) => eleveParticipantKey(p) === key);
       if (snap) {
-        list.push({ ...snap, droitImageOk: droitByKey[key] !== false });
+        list.push({
+          ...snap,
+          droitImageOk: droitByKey[key] !== false,
+          panierRepas: cuisineActive && panierByKey[key] === true,
+        });
       }
     }
     return list;
-  }, [selectedKeys, elevesByKey, droitByKey, trip.data.participantEleves]);
+  }, [
+    selectedKeys,
+    elevesByKey,
+    droitByKey,
+    panierByKey,
+    cuisineActive,
+    trip.data.participantEleves,
+  ]);
+
+  const panierAssigned = useMemo(
+    () => countPanierRepasAssigned(buildParticipants()),
+    [buildParticipants],
+  );
+  const panierRemaining = Math.max(0, mealsOrdered - panierAssigned);
 
   const coverage = useMemo(() => {
     const participants = buildParticipants();
@@ -206,8 +244,14 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     const key = eleveParticipantKey(e);
     setSelectedKeys((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else {
+      if (next.has(key)) {
+        next.delete(key);
+        setPanierByKey((p) => {
+          const copy = { ...p };
+          delete copy[key];
+          return copy;
+        });
+      } else {
         next.add(key);
         setDroitByKey((d) => ({ ...d, [key]: d[key] !== false }));
       }
@@ -220,6 +264,27 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
       const next = new Set(prev);
       next.delete(key);
       return next;
+    });
+    setPanierByKey((p) => {
+      const copy = { ...p };
+      delete copy[key];
+      return copy;
+    });
+  };
+
+  const togglePanierRepas = (key: string) => {
+    if (!cuisineActive || !canEdit) return;
+    setPanierByKey((prev) => {
+      const currentlyOn = prev[key] === true;
+      if (currentlyOn) return { ...prev, [key]: false };
+      const assigned = Object.entries(prev).filter(([k, v]) => v && selectedKeys.has(k)).length;
+      if (assigned >= mealsOrdered) {
+        alert(
+          `Tous les paniers commandés sont déjà attribués (${mealsOrdered}). Retirez-en un avant d’en ajouter.`,
+        );
+        return prev;
+      }
+      return { ...prev, [key]: true };
     });
   };
 
@@ -240,10 +305,22 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
 
   const removeWholeClassFromList = (classe: string) => {
     const next = new Set(selectedKeys);
+    const removeKeys: string[] = [];
     for (const e of eleves) {
-      if (schoolClassesMatch(e.classe, classe)) next.delete(eleveParticipantKey(e));
+      if (schoolClassesMatch(e.classe, classe)) {
+        const key = eleveParticipantKey(e);
+        next.delete(key);
+        removeKeys.push(key);
+      }
     }
     setSelectedKeys(next);
+    if (removeKeys.length) {
+      setPanierByKey((p) => {
+        const copy = { ...p };
+        for (const k of removeKeys) delete copy[k];
+        return copy;
+      });
+    }
   };
 
   const updatePoint = (id: string, patch: Partial<TravelsCalendarPoint>) => {
@@ -334,6 +411,11 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     if (participants.length === 0) {
       return alert("Ajoutez au moins un élève à la liste.");
     }
+    if (cuisineActive && panierAssigned > mealsOrdered) {
+      return alert(
+        `Trop de paniers attribués (${panierAssigned}) pour ${mealsOrdered} commandés. Corrigez avant de confirmer.`,
+      );
+    }
     if (!calendarHasDepotAndRecuperation(calendar)) {
       return alert(
         "Renseignez l’heure de dépôt et l’heure de reprise avant de confirmer (points d’attention parents).",
@@ -364,6 +446,60 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
         j.transportSkippedReason || null,
       ].filter(Boolean);
       alert(bits.length ? `Liste confirmée.\n${bits.join("\n")}` : "Liste confirmée.");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const sendPanierRepasList = async () => {
+    if (!canEdit || !cuisineActive) return;
+    const participants = buildParticipants();
+    if (panierAssigned === 0) {
+      return alert("Cochez au moins un élève avec panier repas.");
+    }
+    if (panierAssigned > mealsOrdered) {
+      return alert(
+        `Trop de paniers attribués (${panierAssigned}) pour ${mealsOrdered} commandés.`,
+      );
+    }
+    if (
+      !confirm(
+        `Envoyer la liste de ${panierAssigned} élève(s) avec panier repas (sur ${mealsOrdered} commandés) ?`,
+      )
+    ) {
+      return;
+    }
+    setBusy("panier");
+    try {
+      // Persister d’abord la sélection si brouillon
+      const data = applyParticipantElevesToTripData(trip.data, participants, {
+        resetConfirmation: false,
+      });
+      data.parentCalendar = calendar;
+      const draftTrip: TravelsTrip = { ...trip, data };
+      const saveRes = await fetch("/api/travels/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: trip.id, data: draftTrip }),
+      });
+      if (!saveRes.ok) {
+        const j = await saveRes.json().catch(() => ({}));
+        throw new Error(j.error || "Enregistrement préalable impossible");
+      }
+
+      const res = await fetch("/api/travels/send-panier-repas-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tripId: trip.id, participantEleves: participants }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Envoi impossible");
+      if (j.trip) onTripUpdated(j.trip as TravelsTrip);
+      alert(
+        `Liste paniers envoyée (${j.count}/${j.mealsOrdered}).\nDestinataires : ${(j.sentTo || []).join(", ") || "—"}`,
+      );
     } catch (e) {
       alert(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -557,7 +693,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
               ) : (
                 <ul className="max-h-72 divide-y divide-indigo-100 overflow-y-auto rounded-xl border border-indigo-100 bg-white">
                   {selectedParticipants.map(({ key, eleve }) => (
-                    <li key={key} className="flex items-center gap-3 px-3 py-2 text-sm">
+                    <li key={key} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
                       <span className="min-w-0 flex-1">
                         <span className="font-medium text-slate-800">
                           {eleve.nom} {eleve.prenom}
@@ -590,10 +726,97 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
               )}
             </div>
 
+            {cuisineActive && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 space-y-3">
+                <div className="flex flex-wrap items-start gap-2">
+                  <div className="mr-auto min-w-0">
+                    <h3 className="text-sm font-black text-amber-950">
+                      3 — Paniers repas ({panierAssigned} / {mealsOrdered})
+                    </h3>
+                    <p className="mt-1 text-xs text-amber-900/80">
+                      Cochez les élèves qui ont vraiment besoin d’un panier. Il reste{" "}
+                      <strong>{panierRemaining}</strong> panier
+                      {panierRemaining > 1 ? "s" : ""} à attribuer sur la commande cuisine.
+                    </p>
+                  </div>
+                  <span
+                    className={`rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-wide ring-1 ${
+                      panierRemaining === 0
+                        ? "bg-emerald-50 text-emerald-800 ring-emerald-200"
+                        : "bg-white text-amber-900 ring-amber-200"
+                    }`}
+                  >
+                    {panierRemaining === 0 ? "Complet" : `${panierRemaining} restant${panierRemaining > 1 ? "s" : ""}`}
+                  </span>
+                </div>
+
+                {selectedParticipants.length === 0 ? (
+                  <p className="text-sm text-amber-900/60">
+                    Ajoutez d’abord des élèves à la liste (étape 2).
+                  </p>
+                ) : (
+                  <ul className="max-h-64 divide-y divide-amber-100 overflow-y-auto rounded-xl border border-amber-100 bg-white">
+                    {selectedParticipants.map(({ key, eleve }) => {
+                      const on = panierByKey[key] === true;
+                      const disableAdd = !on && panierRemaining <= 0;
+                      return (
+                        <li key={key} className="flex items-center gap-3 px-3 py-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            disabled={!canEdit || disableAdd}
+                            onChange={() => togglePanierRepas(key)}
+                            className="rounded border-amber-300"
+                            title={
+                              disableAdd
+                                ? "Tous les paniers commandés sont déjà attribués"
+                                : undefined
+                            }
+                          />
+                          <span className="min-w-0 flex-1 font-medium text-slate-800">
+                            {eleve.nom} {eleve.prenom}
+                            <span className="ml-2 text-xs font-normal text-slate-400">
+                              {eleve.classe}
+                            </span>
+                          </span>
+                          {on ? (
+                            <span className="text-[10px] font-bold uppercase text-amber-800">
+                              Panier
+                            </span>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+
+                {trip.data.panierRepasListSentAt && (
+                  <p className="text-xs text-amber-900/70">
+                    Liste envoyée le{" "}
+                    {new Date(trip.data.panierRepasListSentAt).toLocaleString("fr-FR")}
+                    {trip.data.panierRepasListSnapshot?.count != null
+                      ? ` (${trip.data.panierRepasListSnapshot.count} élève(s))`
+                      : ""}
+                    .
+                  </p>
+                )}
+
+                {canEdit && (
+                  <TripButton
+                    variant="secondary"
+                    disabled={!!busy || panierAssigned === 0}
+                    onClick={() => void sendPanierRepasList()}
+                  >
+                    {busy === "panier" ? "…" : "Envoyer la liste paniers par e-mail"}
+                  </TripButton>
+                )}
+              </div>
+            )}
+
             <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-4 space-y-3">
               <div>
                 <h3 className="text-sm font-black text-sky-950">
-                  3 — Horaires parents (dépôt &amp; reprise)
+                  {cuisineActive ? "4" : "3"} — Horaires parents (dépôt &amp; reprise)
                 </h3>
                 <p className="mt-1 text-xs text-sky-900/80">
                   À valider avec la liste : entre le dépôt et la reprise, le calendrier couvre
