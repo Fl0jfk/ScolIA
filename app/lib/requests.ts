@@ -4,6 +4,7 @@ import { getMistralApiKey } from "@/app/lib/tenant-config";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
+  sendMailWithTimeout,
 } from "@/app/lib/tenant-mail";
 import { s3Key } from "@/app/lib/s3-path";
 import { LEGACY_ROUTE_TO_BRANCH, normalizeRequestBranchId, normalizeRequestEmail, isCorbeilleBranchId} from "@/app/lib/requests-board";
@@ -876,7 +877,7 @@ export async function notifyRequestStatusMilestone(
     }
   }
 
-  await transporter.sendMail({
+  await sendMailWithTimeout(transporter, {
     from: `"Demandes" <${smtp.user}>`,
     to: record.requester.email,
     subject: `Votre demande — ${statusLabel} (${record.id})`,
@@ -895,14 +896,16 @@ export async function notifyRequestStatusMilestone(
     ...(mailAttachments.length > 0 ? { attachments: mailAttachments } : {}),
   });
   const { to: staffTo, cc: staffCc } = await staffMailTargets(record);
-  await transporter.sendMail({
-    from: `"Demandes" <${smtp.user}>`,
-    to: staffTo,
-    ...(staffCc ? { cc: staffCc } : {}),
-    subject: `[Demande ${record.id}] ${now.replace("_", " ")}`,
-    text: base,
-    ...(mailAttachments.length > 0 ? { attachments: mailAttachments } : {}),
-  });
+  if (staffTo.trim()) {
+    await sendMailWithTimeout(transporter, {
+      from: `"Demandes" <${smtp.user}>`,
+      to: staffTo,
+      ...(staffCc ? { cc: staffCc } : {}),
+      subject: `[Demande ${record.id}] ${now.replace("_", " ")}`,
+      text: base,
+      ...(mailAttachments.length > 0 ? { attachments: mailAttachments } : {}),
+    });
+  }
 }
 
 export async function notifyRequesterOnly(record: RequestRecord, note: string) {
@@ -910,7 +913,7 @@ export async function notifyRequesterOnly(record: RequestRecord, note: string) {
   if (!mail) return;
   if (!note.trim()) return;
   const { smtp, transporter } = mail;
-  await transporter.sendMail({
+  await sendMailWithTimeout(transporter, {
     from: `"Demandes" <${smtp.user}>`,
     to: record.requester.email,
     subject: `Message concernant votre demande (${record.id})`,

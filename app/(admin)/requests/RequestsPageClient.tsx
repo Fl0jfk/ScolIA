@@ -247,6 +247,7 @@ export default function RequestsPage() {
   const [pinnedCardId, setPinnedCardId] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [completeTarget, setCompleteTarget] = useState<CompleteRequestTarget | null>(null);
+  const [completeError, setCompleteError] = useState<string | null>(null);
   const [activePile, setActivePile] = useState<PileKey | null>(null);
   const [dropPileTarget, setDropPileTarget] = useState<PileKey | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -410,6 +411,7 @@ export default function RequestsPage() {
       void moveStatus(requestId, "TERMINEE");
       return;
     }
+    setCompleteError(null);
     setCompleteTarget({
       id: item.id,
       subject: item.subject,
@@ -418,12 +420,24 @@ export default function RequestsPage() {
   };
 
   const completeWithoutMessage = async (requestId: string) => {
-    setCompleteTarget(null);
-    await moveStatus(requestId, "TERMINEE");
+    const t0 = Date.now();
+    setCompleteError(null);
+    setSubmittingId(requestId);
+    try {
+      await patchRequest(requestId, { id: requestId, status: "TERMINEE" });
+      setCompleteTarget(null);
+    } catch (e) {
+      setCompleteError(e instanceof Error ? e.message : "Échec de la clôture");
+      await refreshBoard();
+    } finally {
+      await waitBoardMutationMinVisible(t0);
+      setSubmittingId(null);
+    }
   };
 
   const completeWithMessage = async (requestId: string, message: string, files: File[]) => {
     const t0 = Date.now();
+    setCompleteError(null);
     setSubmittingId(requestId);
     try {
       if (files.length > 0) {
@@ -443,7 +457,8 @@ export default function RequestsPage() {
         });
       }
       setCompleteTarget(null);
-    } catch {
+    } catch (e) {
+      setCompleteError(e instanceof Error ? e.message : "Échec de la clôture / de l’envoi");
       await refreshBoard();
     } finally {
       await waitBoardMutationMinVisible(t0);
@@ -908,8 +923,10 @@ export default function RequestsPage() {
       <CompleteRequestModal
         target={completeTarget}
         busy={Boolean(completeTarget && submittingId === completeTarget.id)}
+        error={completeError}
         onClose={() => {
           if (submittingId) return;
+          setCompleteError(null);
           setCompleteTarget(null);
         }}
         onCompleteWithoutMessage={(id) => void completeWithoutMessage(id)}

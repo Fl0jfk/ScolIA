@@ -2,8 +2,10 @@ import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { NextResponse } from "next/server";
 
 import { requireAuth } from "@/app/lib/intranet-auth";
-import { REQUEST_STATUSES, RequestAttachment, RequestComment, RequestRecord, RequestStatus, assertEligibleRequestAttachment, finalizeRequestPurgeMetadata, getDefaultRequestBranchForStaffEmail, getDelegateTargetEmailsForRequest, getRequestPoolEmails, getRequestsIndex, isLeaderForRequestBranch, isUserInRequestPool, notifyRequesterOnly, notifyRequestStatusMilestone, resolveRequestRouteById, saveRequestFile, saveRequestsIndex, uploadBuffersAsRequestAttachments, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD, isManualOnlyDirectionRoute} from "@/app/lib/requests";
+import { REQUEST_STATUSES, RequestAttachment, RequestComment, RequestRecord, RequestStatus, assertEligibleRequestAttachment, finalizeRequestPurgeMetadata, getDefaultRequestBranchForStaffEmail, getDelegateTargetEmailsForRequest, getRequestsIndex, isLeaderForRequestBranch, isUserInRequestPool, notifyRequesterOnly, notifyRequestStatusMilestone, resolveRequestRouteById, saveRequestFile, uploadBuffersAsRequestAttachments, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD, isManualOnlyDirectionRoute} from "@/app/lib/requests";
 import { isCorbeilleBranchId, normalizeRequestBranchId, normalizeRequestEmail} from "@/app/lib/requests-board";
+import { getRequestsOrgConfig } from "@/app/lib/requests-org-config";
+import { buildViewerOversightContext, hasOversightOnBranch } from "@/app/lib/requests-oversight";
 import { canAccessRequestsStaffBoard, requestsStaffAccessOptionsFromUser } from "@/app/lib/requests-staff-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 
@@ -97,7 +99,6 @@ export async function PATCH(req: Request) {
       const finalized = finalizeRequestPurgeMetadata(current, delegated, now);
       index[pos] = finalized;
       await saveRequestFile(finalized);
-      await saveRequestsIndex( index);
       return NextResponse.json({ success: true, request: finalized });
     }
     if (action === "claim" || action === "release_claim") {
@@ -153,7 +154,6 @@ export async function PATCH(req: Request) {
         const finalizedClaim = finalizeRequestPurgeMetadata(current, updatedClaim, now);
         index[pos] = finalizedClaim;
         await saveRequestFile(finalizedClaim);
-        await saveRequestsIndex( index);
         return NextResponse.json({ success: true, request: finalizedClaim });
       }
       if (toCorbeille) {
@@ -188,7 +188,6 @@ export async function PATCH(req: Request) {
         const finalizedBasket = finalizeRequestPurgeMetadata(current, updatedBasket, now);
         index[pos] = finalizedBasket;
         await saveRequestFile(finalizedBasket);
-        await saveRequestsIndex( index);
         return NextResponse.json({ success: true, request: finalizedBasket });
       }
       const existing = current.assignedTo.claimedBy;
@@ -206,7 +205,6 @@ export async function PATCH(req: Request) {
       const finalizedRel = finalizeRequestPurgeMetadata(current, updatedRel, now);
       index[pos] = finalizedRel;
       await saveRequestFile(finalizedRel);
-      await saveRequestsIndex( index);
       return NextResponse.json({ success: true, request: finalizedRel });
     }
     if (action === "claim_self") {
@@ -258,7 +256,6 @@ export async function PATCH(req: Request) {
       const finalizedSelf = finalizeRequestPurgeMetadata(current, updatedSelf, now);
       index[pos] = finalizedSelf;
       await saveRequestFile(finalizedSelf);
-      await saveRequestsIndex( index);
       return NextResponse.json({ success: true, request: finalizedSelf });
     }
     if (action === "transmit_to_direction") {
@@ -294,7 +291,6 @@ export async function PATCH(req: Request) {
       const finalizedDir = finalizeRequestPurgeMetadata(current, updatedDir, now);
       index[pos] = finalizedDir;
       await saveRequestFile(finalizedDir);
-      await saveRequestsIndex(index);
       return NextResponse.json({ success: true, request: finalizedDir });
     }
     const priorStatusForNotify = current.status;
@@ -304,18 +300,36 @@ export async function PATCH(req: Request) {
       const claimedBy = current.assignedTo.claimedBy?.email;
       const claimedMe = Boolean(claimedBy) && normalizeRequestEmail(claimedBy!) === normalizeRequestEmail(actorEmail);
       const inPool = await isUserInRequestPool(current, actorEmail);
-      if (!claimedMe && !inPool) {
+      const branchLeader = await isLeaderForRequestBranch(
+        current.assignedTo.routeId,
+        current.assignedTo.unit,
+        actorEmail,
+      );
+      const org = await getRequestsOrgConfig();
+      const oversight = buildViewerOversightContext(org, actorEmail);
+      const canOversee = hasOversightOnBranch(oversight, org, actorEmail, current.assignedTo);
+      const canManageStatus = claimedMe || inPool || branchLeader || canOversee;
+      if (!canManageStatus) {
         return NextResponse.json({ error: "Vous n'avez pas accès à cette demande." }, { status: 403 });
       }
+      let nextAssignedTo = updated.assignedTo;
       if (!claimedBy && (status === "EN_ATTENTE" || status === "TERMINEE")) {
-        return NextResponse.json(
-          { error: "Prenez d'abord la demande en charge (colonne En cours)." },
-          { status: 400 },
-        );
+        if (!actorEmail) {
+          return NextResponse.json(
+            { error: "Prenez d'abord la demande en charge (colonne En cours)." },
+            { status: 400 },
+          );
+        }
+        // Oversight / responsable / file : prise en charge implicite à la clôture ou mise en attente.
+        nextAssignedTo = {
+          ...updated.assignedTo,
+          claimedBy: { email: actorEmail, name: actorName, userId: userId ?? null, at: now },
+        };
       }
       updated = {
         ...updated,
         status,
+        assignedTo: nextAssignedTo,
         history: [
           ...updated.history,
           {
@@ -415,7 +429,6 @@ export async function PATCH(req: Request) {
     const finalized = finalizeRequestPurgeMetadata(current, updated, now);
     index[pos] = finalized;
     await saveRequestFile(finalized);
-    await saveRequestsIndex( index);
     try {
       const reachedMilestone = finalized.status !== priorStatusForNotify && (finalized.status === "EN_COURS" || finalized.status === "EN_ATTENTE" || finalized.status === "TERMINEE");
       if (reachedMilestone) {

@@ -11,12 +11,14 @@ export type CompleteRequestTarget = {
 export default function CompleteRequestModal({
   target,
   busy,
+  error,
   onClose,
   onCompleteWithoutMessage,
   onCompleteWithMessage,
 }: {
   target: CompleteRequestTarget | null;
   busy?: boolean;
+  error?: string | null;
   onClose: () => void;
   onCompleteWithoutMessage: (requestId: string) => void;
   onCompleteWithMessage: (requestId: string, message: string, files: File[]) => void;
@@ -168,6 +170,15 @@ export default function CompleteRequestModal({
               </ul>
             ) : null}
           </div>
+        ) : null}
+
+        {error ? (
+          <p
+            role="alert"
+            className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+          >
+            {error}
+          </p>
         ) : null}
 
         <div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
