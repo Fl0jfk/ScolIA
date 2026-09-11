@@ -279,7 +279,9 @@ export default function ElevePhotosBulkPanel() {
           Déposez jusqu’à 1500 photos (ou plus). Les fichiers doivent être nommés{" "}
           <strong className="font-semibold text-slate-800">NOM Prenom.jpg</strong> (espaces,{" "}
           <code className="rounded bg-white/70 px-1">_</code> ou{" "}
-          <code className="rounded bg-white/70 px-1">-</code> acceptés). Une fois l’envoi terminé, le
+          <code className="rounded bg-white/70 px-1">-</code> acceptés — y compris noms composés
+          du type <code className="rounded bg-white/70 px-1">LE ROUX Sophie.jpg</code>). Une fois
+          l’envoi terminé, le
           serveur associe les photos en <strong>arrière-plan lent</strong> (basse priorité : l’ENT
           reste utilisable) et <strong>remplace</strong> uniquement les photos des élèves
           reconnus. Vous pouvez quitter la page après l’upload — comptez plusieurs minutes pour un

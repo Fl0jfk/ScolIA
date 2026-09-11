@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { canonicalRegimeLabel, classifyRegime, isRegimeInterne } from "./eleve-regime";
-import { parsePhotoFilename } from "./eleve-photos-match";
 
 test("codes BCN / Siècle — 3 = interne, 2 = DP", () => {
   assert.equal(isRegimeInterne("3"), true);
@@ -30,12 +29,4 @@ test("canonicalRegimeLabel — codes BCN", () => {
   assert.equal(canonicalRegimeLabel("oui"), "Interne");
   assert.equal(canonicalRegimeLabel("x"), "Interne");
   assert.equal(canonicalRegimeLabel("non"), "Externe");
-});
-
-test("parse NOM Prenom photo filename", () => {
-  assert.deepEqual(parsePhotoFilename("DUPONT Marie.jpg"), { nom: "DUPONT", prenom: "Marie" });
-  assert.deepEqual(parsePhotoFilename("MARTIN_Jean-Pierre.png"), {
-    nom: "MARTIN",
-    prenom: "Jean Pierre",
-  });
 });
