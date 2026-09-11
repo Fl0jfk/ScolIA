@@ -508,7 +508,7 @@ export default function DashboardPillars({
           !s.pillarOnly,
       );
       const richModules = new Set(list.filter((s) => s.rich).map((s) => s.moduleId));
-      return list.filter((s) => {
+      const filtered = list.filter((s) => {
         if (s.rich) return true;
         if (
           richModules.has(s.moduleId) &&
@@ -525,6 +525,24 @@ export default function DashboardPillars({
           return false;
         }
         return true;
+      });
+      // Garde-fou : jamais deux tuiles « Absences » (RH) côte à côte.
+      const absenceRank = (s: DashboardShortcut) => {
+        if (s.tone === "warn") return 0;
+        if (s.tone === "action") return 1;
+        if (s.rich) return 2;
+        return 3;
+      };
+      let bestAbsence: DashboardShortcut | null = null;
+      for (const s of filtered) {
+        if (s.moduleId !== "absences" || s.label !== "Absences") continue;
+        if (!bestAbsence || absenceRank(s) < absenceRank(bestAbsence)) {
+          bestAbsence = s;
+        }
+      }
+      return filtered.filter((s) => {
+        if (s.moduleId !== "absences" || s.label !== "Absences") return true;
+        return s === bestAbsence;
       });
     },
     [shortcuts, roles, orgAdmin],

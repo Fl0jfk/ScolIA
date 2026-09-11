@@ -909,23 +909,42 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         });
       }
 
-      if (absenceQueueSlides.length > 0) {
-        const totalQueue = absenceQueueSlides.reduce((sum, s) => sum + (s.count || 0), 0);
+      // Une seule tuile « Absences » : file à traiter + absents du jour fusionnés (pas de doublon).
+      if (count > 0) {
+        absenceQueueSlides.push({
+          id: "absences-today",
+          label:
+            count === 1
+              ? `1 ${labelSingular} aujourd'hui`
+              : `${count} ${labelPlural} aujourd'hui`,
+          count,
+          href: "/rh?tab=dashboard&section=absences&view=calendrier",
+          detail:
+            count === 1
+              ? `1 ${labelSingular} aujourd'hui`
+              : `${count} ${labelPlural} aujourd'hui`,
+        });
+      }
+
+      const actionSlides = absenceQueueSlides.filter((s) => s.id !== "absences-today");
+      const todaySlide = absenceQueueSlides.find((s) => s.id === "absences-today");
+
+      if (actionSlides.length > 0) {
+        const totalQueue = actionSlides.reduce((sum, s) => sum + (s.count || 0), 0);
+        const slides = todaySlide ? [...actionSlides, todaySlide] : actionSlides;
         shortcuts.push({
           id: "absences-queue",
           pillarId: "compta_rh",
           moduleId: "absences",
-          href: absenceQueueSlides[0]!.href || "/rh?tab=dashboard&section=absences",
+          href: actionSlides[0]!.href || "/rh?tab=dashboard&section=absences",
           label: "Absences",
           rich: true,
           badge: `${totalQueue}`,
-          detail: absenceQueueSlides.map((s) => s.label).join(" · "),
+          detail: slides.map((s) => s.label).join(" · "),
           tone: "warn",
-          slides: absenceQueueSlides,
+          slides,
         });
-      }
-
-      if (count > 0) {
+      } else if (todaySlide) {
         shortcuts.push({
           id: "absences-today",
           pillarId: "compta_rh",
@@ -933,10 +952,10 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           href: "/rh?tab=dashboard&section=absences&view=calendrier",
           label: "Absences",
           rich: true,
-          detail: count === 1 ? `1 ${labelSingular} aujourd'hui` : `${count} ${labelPlural} aujourd'hui`,
+          detail: todaySlide.detail || todaySlide.label,
           tone: "neutral",
         });
-      } else if (absenceQueueSlides.length === 0) {
+      } else {
         shortcuts.push({
           id: "absences",
           pillarId: "compta_rh",
