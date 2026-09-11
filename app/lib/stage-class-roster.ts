@@ -170,7 +170,10 @@ export async function listStageRosterClassNames(schoolYear?: string): Promise<st
   ]);
   const conventionRows = (
     await Promise.all(index.map((e) => getStageConvention(e.id)))
-  ).filter((c): c is StageConvention => Boolean(c) && isRosterVisibleConvention(c, year));
+  ).filter((c): c is StageConvention => {
+    if (!c) return false;
+    return isRosterVisibleConvention(c, year);
+  });
   const fromConventions = conventionRows
     .map((c) => String(c.student.className ?? "").trim())
     .filter(Boolean);
@@ -195,12 +198,13 @@ export async function buildStageClassRoster(
 
   const conventions = (
     await Promise.all(index.map((e) => getStageConvention(e.id)))
-  ).filter(
-    (c): c is StageConvention =>
-      Boolean(c) &&
+  ).filter((c): c is StageConvention => {
+    if (!c) return false;
+    return (
       isRosterVisibleConvention(c, year) &&
-      schoolClassesMatch(c.student.className, className),
-  );
+      schoolClassesMatch(c.student.className, className)
+    );
+  });
 
   const studentMap = new Map<string, StageRosterStudent>();
 
