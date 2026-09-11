@@ -24,39 +24,47 @@ test("professeur + parent : MFA facultative", () => {
   );
 });
 
-test("professeur + direction : MFA obligatoire", () => {
+test("professeur + direction : MFA facultative (temporaire)", () => {
   assert.equal(
     roleRequiresTwoFactor({
       platformAdmin: false,
       orgAdmin: false,
       roles: ["professeur", "direction_lycee"],
     }),
-    true,
+    false,
   );
 });
 
-test("professeur orgAdmin : MFA obligatoire", () => {
+test("professeur orgAdmin sans rôle admin : MFA facultative", () => {
   assert.equal(
     roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: true, roles: ["professeur"] }),
-    true,
+    false,
   );
 });
 
-test("personnel administratif / admin / direction / compta : MFA obligatoire", () => {
+test("direction / administratif / compta : MFA facultative ; admin seule obligatoire", () => {
   assert.equal(
     roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["administratif"] }),
-    true,
+    false,
   );
   assert.equal(
     roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["direction"] }),
-    true,
+    false,
+  );
+  assert.equal(
+    roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["direction_lycee"] }),
+    false,
+  );
+  assert.equal(
+    roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["comptabilite"] }),
+    false,
   );
   assert.equal(
     roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["admin"] }),
     true,
   );
   assert.equal(
-    roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: ["comptabilite"] }),
+    roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: true, roles: ["admin"] }),
     true,
   );
 });
@@ -84,14 +92,14 @@ test("surveillant / CPE / Accueil : MFA facultative", () => {
   );
 });
 
-test("CPE + direction : MFA obligatoire", () => {
+test("CPE + direction : MFA facultative", () => {
   assert.equal(
     roleRequiresTwoFactor({
       platformAdmin: false,
       orgAdmin: false,
       roles: ["cpe", "direction_college"],
     }),
-    true,
+    false,
   );
 });
 
@@ -131,8 +139,16 @@ test("parent / élève seuls : pas de MFA obligatoire", () => {
   );
 });
 
-test("aucun rôle : MFA obligatoire (profil inconnu)", () => {
-  assert.equal(roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: [] }), true);
+test("aucun rôle : MFA seulement si orgAdmin", () => {
+  assert.equal(roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: false, roles: [] }), false);
+  assert.equal(roleRequiresTwoFactor({ platformAdmin: false, orgAdmin: true, roles: [] }), true);
+});
+
+test("platformAdmin : MFA obligatoire", () => {
+  assert.equal(
+    roleRequiresTwoFactor({ platformAdmin: true, orgAdmin: false, roles: ["professeur"] }),
+    true,
+  );
 });
 
 test("rôle professeur_* : MFA facultative", () => {
@@ -174,7 +190,7 @@ test("professeur avec MFA déjà activée : pas en attente (on la laisse)", () =
   );
 });
 
-test("personnel sans MFA : toujours en attente", () => {
+test("direction / administratif sans MFA : plus en attente", () => {
   assert.equal(
     isAccountActivationPending({
       emailVerified: true,
@@ -183,6 +199,31 @@ test("personnel sans MFA : toujours en attente", () => {
       platformAdmin: false,
       orgAdmin: false,
       roles: ["administratif"],
+    }),
+    false,
+  );
+  assert.equal(
+    isAccountActivationPending({
+      emailVerified: true,
+      mustChangePassword: false,
+      twoFactorEnabled: false,
+      platformAdmin: false,
+      orgAdmin: false,
+      roles: ["direction_lycee"],
+    }),
+    false,
+  );
+});
+
+test("admin sans MFA : toujours en attente", () => {
+  assert.equal(
+    isAccountActivationPending({
+      emailVerified: true,
+      mustChangePassword: false,
+      twoFactorEnabled: false,
+      platformAdmin: false,
+      orgAdmin: true,
+      roles: ["admin"],
     }),
     true,
   );

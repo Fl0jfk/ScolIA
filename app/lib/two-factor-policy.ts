@@ -1,22 +1,16 @@
 import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { hasGlobalAdminRole, hasMasterRole, normRole } from "@/app/lib/intranet-role-utils";
 
-/** Rôles famille / portail — pas de 2FA TOTP obligatoire pour l’instant. */
+/** Rôles famille / portail — pas de 2FA TOTP obligatoire. */
 const FAMILY_ONLY_ROLES = new Set(["parent", "eleve"]);
 
 /**
- * MFA obligatoire uniquement pour la direction et le personnel administratif.
- * Professeurs, surveillants, CPE, Accueil (et le reste du personnel de terrain) : facultative.
- * Ceux qui l’ont déjà activée la gardent à la connexion.
+ * MFA obligatoire uniquement pour le rôle admin (et master plateforme).
+ * Direction, administratif, compta, professeurs, etc. : facultative pour l’instant
+ * (déblocage connexion direction / personnel). Ceux qui l’ont déjà activée
+ * la gardent à la connexion Better-Auth.
  */
-const MFA_REQUIRED_STAFF_ROLES = new Set([
-  "admin",
-  "master",
-  "administratif",
-  "comptabilite",
-  "direction",
-  ...INTRANET_DIRECTION_SLUGS,
-]);
+const MFA_REQUIRED_STAFF_ROLES = new Set(["admin", "master"]);
 
 export const MFA_TRUST_STAFF_SECONDS = 60 * 60 * 24 * 30; // 30 jours
 export const MFA_TRUST_DIRECTION_SECONDS = 60 * 60 * 24 * 7; // 7 jours
@@ -34,16 +28,13 @@ export type MfaTrustPolicy = {
 export function isMfaRequiredStaffRole(role: string): boolean {
   const n = normRole(role);
   if (MFA_REQUIRED_STAFF_ROLES.has(role) || MFA_REQUIRED_STAFF_ROLES.has(n)) return true;
-  if (n.includes("direction")) return true;
-  if (n.includes("administratif") || n === "admin") return true;
-  if (n.includes("comptab")) return true;
   return false;
 }
 
 /**
  * Indique si le compte doit activer la 2FA (TOTP).
- * Obligatoire pour admin, direction et personnel administratif (dont comptabilité).
- * Facultative pour les professeurs, surveillants, CPE — y compris cumulés avec parent/élève.
+ * Obligatoire uniquement pour admin / master / platformAdmin.
+ * Facultative pour direction, administratif, professeurs, etc.
  * Si la MFA est déjà activée, Better-Auth continue de la demander à la connexion.
  */
 export function roleRequiresTwoFactor(opts: {
@@ -51,10 +42,15 @@ export function roleRequiresTwoFactor(opts: {
   orgAdmin: boolean;
   roles: string[];
 }): boolean {
-  if (opts.platformAdmin || opts.orgAdmin) return true;
+  if (opts.platformAdmin) return true;
 
   const roles = opts.roles.filter(Boolean);
-  if (roles.length === 0) return true;
+  if (roles.length === 0) {
+    // Profil sans rôle : ne forcer que si flag orgAdmin (compte admin établissement).
+    return Boolean(opts.orgAdmin);
+  }
+
+  if (hasGlobalAdminRole(roles) || hasMasterRole(roles)) return true;
 
   const staffRoles = roles.filter((role) => !FAMILY_ONLY_ROLES.has(role));
   if (staffRoles.length === 0) return false;

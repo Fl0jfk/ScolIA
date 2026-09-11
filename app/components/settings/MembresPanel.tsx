@@ -306,19 +306,20 @@ export default function MembresPanel() {
           `• supprimer la double authentification actuelle\n` +
           `• envoyer un e-mail (lien 24 h) pour tout recommencer (nouveau MDP + nouvelle MFA)\n\n` +
           `À utiliser seulement si la personne a perdu l’accès ou doit repartir de zéro.`
-        : `Réinitialiser le mot de passe de ${name} (${u.email}) ?\n\n` +
-          `Ce compte a déjà la double authentification : elle sera conservée.\n` +
-          `Le lien d’invitation va uniquement :\n` +
+        : `Réinitialiser l’accès de ${name} (${u.email}) ?\n\n` +
+          `Ce compte a déjà la double authentification.\n` +
+          `Le lien d’invitation va :\n` +
           `• invalider l’ancien mot de passe\n` +
-          `• envoyer un e-mail (lien 24 h) pour en créer un nouveau\n\n` +
-          `La personne se connectera ensuite avec e-mail + mot de passe (+ son code MFA habituel).`
+          `• supprimer la MFA (plus obligatoire pour ce profil)\n` +
+          `• envoyer un e-mail (lien 24 h) pour créer un nouveau mot de passe\n\n` +
+          `Connexion ensuite avec e-mail + mot de passe uniquement.`
       : recent
         ? `Réenvoyer le lien d’invitation à ${name} (${u.email}) ?\n\n` +
           `Un lien a déjà été envoyé il y a moins de 24 heures. Un nouveau lien invalidera l’ancien.`
         : `Envoyer un lien d’invitation à ${name} (${u.email}) ?\n\n` +
           `La personne reçoit un e-mail pour créer son mot de passe (lien valable 24 h).\n` +
           (mfaRequired
-            ? `La double authentification sera obligatoire (direction / personnel administratif).\n`
+            ? `La double authentification sera obligatoire (rôle admin).\n`
             : `Connexion ensuite avec e-mail + mot de passe — sans double authentification obligatoire.\n`) +
           `Un éventuel ancien mot de passe ne fonctionnera plus.`;
 

@@ -119,8 +119,11 @@ export async function POST(req: Request) {
       orgAdmin: Boolean(userRow?.orgAdmin) || roles.includes("admin"),
       roles,
     });
-    /** Prof / surveillant / CPE : on conserve une MFA déjà activée. */
-    const resetMfa = hadMfa && mfaRequired;
+    /**
+     * Toujours purger une MFA déjà activée lors d’une réinvitation :
+     * débloque direction / personnel si OTP perdu, et force un nouveau setup pour admin.
+     */
+    const resetMfa = hadMfa;
     const result = await sendPasswordActivationToUser(resolved.target, { resetMfa });
     if (!result.ok) {
       return NextResponse.json(
@@ -135,10 +138,12 @@ export async function POST(req: Request) {
 
     const message = hadMfa
       ? resetMfa
-        ? `Lien d’invitation envoyé à ${result.email}. L’ancien mot de passe et la MFA ont été réinitialisés — la personne repart de zéro (nouveau MDP puis nouvelle MFA). Lien valable 24 heures.`
+        ? mfaRequired
+          ? `Lien d’invitation envoyé à ${result.email}. L’ancien mot de passe et la MFA ont été réinitialisés — la personne repart de zéro (nouveau MDP puis nouvelle MFA). Lien valable 24 heures.`
+          : `Lien d’invitation envoyé à ${result.email}. L’ancien mot de passe et la MFA ont été réinitialisés — nouveau MDP via le lien (24 h), puis connexion sans MFA obligatoire.`
         : `Lien d’invitation envoyé à ${result.email}. Nouveau mot de passe à créer via le lien (24 h). La double authentification déjà en place est conservée.`
       : mfaRequired
-        ? `Lien d’invitation envoyé à ${result.email}. Valable 24 heures — mot de passe puis double authentification obligatoires (direction / personnel administratif).`
+        ? `Lien d’invitation envoyé à ${result.email}. Valable 24 heures — mot de passe puis double authentification obligatoires (rôle admin).`
         : `Lien d’invitation envoyé à ${result.email}. Valable 24 heures — connexion ensuite avec e-mail et mot de passe (sans double authentification obligatoire).`;
 
     return NextResponse.json({
