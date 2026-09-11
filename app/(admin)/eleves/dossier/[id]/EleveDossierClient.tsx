@@ -21,6 +21,7 @@ import {
 } from "@/app/lib/eleve-pap";
 import EleveFinancesPanel from "@/app/components/eleves/EleveFinancesPanel";
 import EleveDossierSidebar from "@/app/components/eleves/EleveDossierSidebar";
+import ElevePhotoLazy from "@/app/components/eleves/ElevePhotoLazy";
 import { scolariteStatutLabel } from "@/app/lib/eleve-dossier-labels";
 import {
   formatFoyerFacturationLabel,
@@ -897,21 +898,16 @@ export default function EleveDossierClient() {
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
               <div className="shrink-0">
-                {synth?.photoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={synth.photoUrl}
-                    alt=""
-                    className="h-24 w-24 rounded-2xl object-cover ring-1 ring-slate-200"
-                  />
-                ) : (
-                  <div
-                    className="flex h-24 w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 text-2xl font-black tracking-wide text-white shadow-inner"
-                    aria-hidden
-                  >
-                    {synth?.initials || `${e.prenom.charAt(0)}${e.nom.charAt(0)}`.toUpperCase()}
-                  </div>
-                )}
+                <ElevePhotoLazy
+                  eleveId={id}
+                  photoUrl={synth?.photoUrl}
+                  initials={
+                    synth?.initials ||
+                    `${e.prenom.charAt(0)}${e.nom.charAt(0)}`.toUpperCase()
+                  }
+                  className="h-24 w-24 rounded-2xl ring-1 ring-slate-200"
+                  initialsClassName="flex h-24 w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-700 to-slate-900 text-2xl font-black tracking-wide text-white shadow-inner"
+                />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400">

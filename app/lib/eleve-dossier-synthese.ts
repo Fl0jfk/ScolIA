@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getElevePhotoUrl } from "@/app/lib/eleve-photos";
+import { elevePhotoProxyPath } from "@/app/lib/eleve-photos";
 import { getInternatRooms, getInternatStudents } from "@/app/lib/internat-storage";
 import type { InternatStudent } from "@/app/lib/internat-types";
 import {
@@ -9,7 +9,6 @@ import {
   resolveSiteLabel,
   type EleveDossierClassCatalog,
 } from "@/app/lib/eleve-dossier-catalog";
-import { buildEleveFolderName } from "@/app/lib/eleves-config";
 import {
   MEAL_DAY_ORDER,
   parseEleveGrilleRepas,
@@ -217,6 +216,7 @@ export function regimeLabel(regime: EleveRegimeRestauration): string {
 }
 
 export async function buildEleveSyntheseSnapshot(params: {
+  eleveId?: string;
   eleve: {
     nom: string;
     prenom: string;
@@ -238,7 +238,7 @@ export async function buildEleveSyntheseSnapshot(params: {
   absences?: EleveSyntheseSnapshot["absences"];
   finances?: EleveSyntheseSnapshot["finances"];
   groupes?: Array<{ code: string; libelle: string; type: string }>;
-  /** false = skip internat S3 + photo signée + groupes EDT (GET fiche rapide). */
+  /** false = skip internat S3 + groupes EDT (GET fiche rapide). Photo = proxy lazy, jamais bloquant. */
   includeHeavyExtras?: boolean;
 }): Promise<EleveSyntheseSnapshot> {
   const includeHeavy = params.includeHeavyExtras === true;
@@ -276,21 +276,9 @@ export async function buildEleveSyntheseSnapshot(params: {
     ? classOptionLabel(params.eleve.classe, siteLabel)
     : null;
 
-  let photoUrl: string | null = null;
-  if (includeHeavy) {
-    try {
-      photoUrl = await getElevePhotoUrl({
-        ine: params.eleve.ine ?? "",
-        nom: params.eleve.nom,
-        prenom: params.eleve.prenom,
-        folderName:
-          params.eleve.folderName?.trim() ||
-          buildEleveFolderName(params.eleve.nom, params.eleve.prenom),
-      });
-    } catch {
-      photoUrl = null;
-    }
-  }
+  const photoUrl = params.eleveId?.trim()
+    ? elevePhotoProxyPath(params.eleveId.trim())
+    : null;
 
   const notesLines = (params.notesMoyennes || []).filter((m) => m.moyenne != null);
   let notesValue = "—";

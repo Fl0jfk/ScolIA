@@ -11,6 +11,7 @@ import {
   accompagnementKindDef,
   type AccompagnementKind,
 } from "@/app/lib/eleve-pap";
+import ElevePhotoLazy from "@/app/components/eleves/ElevePhotoLazy";
 
 type EleveAccompagnementListDoc = {
   kind: AccompagnementKind;
@@ -474,11 +475,12 @@ export default function ElevesDossiersListClient() {
                 const rowMain = (
                   <>
                       {e.photoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={e.photoUrl}
-                          alt=""
-                          className="h-12 w-12 shrink-0 rounded-2xl object-cover ring-1 ring-slate-200 sm:h-14 sm:w-14"
+                        <ElevePhotoLazy
+                          eleveId={e.id}
+                          photoUrl={e.photoUrl}
+                          initials={initials}
+                          className="h-12 w-12 shrink-0 rounded-2xl ring-1 ring-slate-200 sm:h-14 sm:w-14"
+                          initialsClassName="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-600 to-slate-800 text-sm font-black tracking-wide text-white shadow-inner sm:h-14 sm:w-14 sm:text-base"
                         />
                       ) : (
                         <div

@@ -49,6 +49,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       prenom: eleve.prenom,
       ine: eleve.ine,
       photoKey: eleve.photoKey,
+      folderName: eleve.folderName,
       classe: eleve.classe,
     })
     .from(eleve)
@@ -70,7 +71,7 @@ export async function GET(_req: Request, ctx: Ctx) {
     prenom: row.prenom,
     ine: row.ine || "",
     photoKey: row.photoKey ?? undefined,
-    folderName: "",
+    folderName: row.folderName || "",
   });
   if (!url) {
     return NextResponse.json({ error: "Photo introuvable." }, { status: 404 });

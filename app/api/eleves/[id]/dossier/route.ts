@@ -512,6 +512,7 @@ export async function GET(req: Request, ctx: Ctx) {
     : row.mef;
 
   const synthese = await buildEleveSyntheseSnapshot({
+    eleveId: row.id,
     eleve: {
       nom: row.nom,
       prenom: row.prenom,
