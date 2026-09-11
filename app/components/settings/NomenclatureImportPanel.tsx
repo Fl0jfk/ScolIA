@@ -67,6 +67,24 @@ const CYCLE_LABEL: Record<ImportCycle, string> = {
   lycee: "Lycée",
 };
 
+/** Fallback UI si l’API met trop longtemps (évite une page « vide / cassée »). */
+const DEFAULT_IMPORT_SLOTS: ImportSlot[] = [
+  { kind: "communs", label: "Communs", filenameHint: "Communs.xml", required: true, order: 0, cycleScoped: true },
+  { kind: "nomenclature", label: "Nomenclature", filenameHint: "Nomenclature.xml", required: true, order: 1, cycleScoped: true },
+  { kind: "geographique", label: "Géographique", filenameHint: "Geographique.xml", required: false, order: 2, cycleScoped: true },
+  { kind: "etablissements", label: "Établissements", filenameHint: "Etablissements.xml", required: false, order: 3, cycleScoped: true },
+  { kind: "structures", label: "Structures", filenameHint: "Structures.xml", required: true, order: 4, cycleScoped: true },
+  { kind: "eleves", label: "Élèves", filenameHint: "ElevesSansAdresses.xml", required: false, order: 5, cycleScoped: true },
+  {
+    kind: "responsables",
+    label: "Responsables (parents + adresses)",
+    filenameHint: "ResponsablesAvecAdresses.xml",
+    required: false,
+    order: 6,
+    cycleScoped: true,
+  },
+];
+
 /** Aligné sur /api/nomenclature/import (MAX_XML_BYTES). */
 const MAX_CLIENT_XML_BYTES = 100 * 1024 * 1024;
 const MAX_CLIENT_XML_LABEL = "100 Mo";
@@ -83,7 +101,7 @@ export default function NomenclatureImportPanel() {
   const [exports, setExports] = useState<ExportRow[]>([]);
   const [refEtabCount, setRefEtabCount] = useState(0);
   const [anomalies, setAnomalies] = useState<AnomalyRow[]>([]);
-  const [slots, setSlots] = useState<ImportSlot[]>([]);
+  const [slots, setSlots] = useState<ImportSlot[]>(DEFAULT_IMPORT_SLOTS);
   const [importStatus, setImportStatus] = useState<ImportStatusRow[]>([]);
   const [omogenConfigured, setOmogenConfigured] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -92,6 +110,7 @@ export default function NomenclatureImportPanel() {
   const [omogenBusy, setOmogenBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [officialDivisions, setOfficialDivisions] = useState<DivisionRow[]>([]);
   const [siecleLockedCollègeLycée, setSiecleLockedCollègeLycée] = useState(false);
   const [unmatchedEleveClasses, setUnmatchedEleveClasses] = useState<string[]>([]);
@@ -99,26 +118,41 @@ export default function NomenclatureImportPanel() {
   const [lockedByPole, setLockedByPole] = useState<Partial<Record<string, string[]>>>({});
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
-      const [importRes, exportRes, omogenRes, classesRes] = await Promise.all([
+      const settled = await Promise.allSettled([
         fetch("/api/nomenclature/import", { cache: "no-store" }),
         fetch("/api/nomenclature/export-siecle", { cache: "no-store" }),
         fetch("/api/nomenclature/omogen-sync", { cache: "no-store" }),
         fetch("/api/nomenclature/classes", { cache: "no-store" }),
       ]);
+
+      const importRes = settled[0].status === "fulfilled" ? settled[0].value : null;
+      const exportRes = settled[1].status === "fulfilled" ? settled[1].value : null;
+      const omogenRes = settled[2].status === "fulfilled" ? settled[2].value : null;
+      const classesRes = settled[3].status === "fulfilled" ? settled[3].value : null;
+
+      if (!importRes) {
+        throw new Error("Chargement Éducation nationale trop long ou indisponible (serveur saturé).");
+      }
       const data = await importRes.json();
-      const exportData = await exportRes.json();
-      const omogenData = omogenRes.ok ? await omogenRes.json() : null;
       if (!importRes.ok) throw new Error(data?.error || "Chargement impossible");
       setCounts(data.counts || []);
       setLogs(data.logs || []);
       setRefEtabCount(data.refEtablissementCount ?? 0);
       setAnomalies(data.anomalies || []);
-      setSlots(data.slots || []);
+      setSlots(Array.isArray(data.slots) && data.slots.length ? data.slots : DEFAULT_IMPORT_SLOTS);
       setImportStatus(data.importStatus || []);
-      if (exportRes.ok) setExports(exportData.exports || []);
-      setOmogenConfigured(Boolean(omogenData?.configured));
-      if (classesRes.ok) {
+
+      if (exportRes?.ok) {
+        const exportData = await exportRes.json();
+        setExports(exportData.exports || []);
+      }
+      if (omogenRes?.ok) {
+        const omogenData = await omogenRes.json();
+        setOmogenConfigured(Boolean(omogenData?.configured));
+      }
+      if (classesRes?.ok) {
         const classesData = await classesRes.json();
         const divisions = (classesData.divisions || []).map(
           (d: {
@@ -136,9 +170,14 @@ export default function NomenclatureImportPanel() {
         setSiecleLockedCollègeLycée(Boolean(classesData.siecleLockedCollègeLycée));
         setUnmatchedEleveClasses(classesData.unmatchedEleveClasses || []);
         setLockedByPole(classesData.lockedClassesByPole || {});
+      } else if (classesRes && !classesRes.ok) {
+        setError((prev) => prev || "Classes Siècle : chargement incomplet (réessayez dans un instant).");
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
+      setSlots((prev) => (prev.length ? prev : DEFAULT_IMPORT_SLOTS));
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -398,6 +437,11 @@ export default function NomenclatureImportPanel() {
             Année scolaire courante (exports Siècle)
           </Link>
         </p>
+        {loading ? (
+          <p className="mt-3 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+            Chargement de l’historique et des classes… (peut prendre un moment si un gros import photos tourne encore).
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap gap-2 items-center">

@@ -4,9 +4,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { nomenclatureImportLog } from "@/db/schema";
 import { countElevesInDb, resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { getJson } from "@/app/lib/s3-storage";
-import { listUnmatchedEleveClasses } from "@/app/lib/nomenclature-classes";
 
 const SIECLE_ELEVE_MAP_KEY = "siecle/eleve-id-map.json";
 
@@ -140,15 +138,14 @@ export async function buildNomenclatureImportAnomalies(
   try {
     const etabId = await resolveCurrentEtablissementId();
     if (etabId === etablissementId) {
-      const registry = await loadElevesRegistry();
       const dbCount = await countElevesInDb(etablissementId);
-      if (registry.length > 0 && dbCount === 0) {
+      if (eleveRapport && Number(eleveRapport.total ?? 0) > 0 && dbCount === 0) {
         anomalies.push({
           id: "registry-sans-bdd",
           severity: "warn",
-          label: "Élèves en fichier, pas en BDD",
-          detail: "Le référentiel S3 existe mais la table eleve est vide — vérifiez ENT_CORE_DB et les migrations.",
-          count: registry.length,
+          label: "Élèves importés, table vide",
+          detail: "Un import élèves est journalisé mais la table eleve est vide — vérifiez ENT_CORE_DB et les migrations.",
+          count: Number(eleveRapport.total),
         });
       }
     }
@@ -186,25 +183,7 @@ export async function buildNomenclatureImportAnomalies(
     });
   }
 
-  try {
-    const eleves = await loadElevesRegistry();
-    const eleveClasses = eleves
-      .filter((e) => !e.status || e.status === "inscrit")
-      .map((e) => String(e.classe || "").trim())
-      .filter(Boolean);
-    const unmatched = await listUnmatchedEleveClasses(etablissementId, eleveClasses);
-    if (unmatched.length > 0) {
-      anomalies.push({
-        id: "eleves-classes-hors-siecle",
-        severity: "info",
-        label: "Classes hors Structures (ignorées dans les filtres)",
-        detail: `Libellés absents de Structures.xml (souvent N-1 / autre établissement) : ${unmatched.slice(0, 8).join(", ")}${unmatched.length > 8 ? "…" : ""}. Conservés sur la fiche, exclus des recherches par classe année en cours.`,
-        count: unmatched.length,
-      });
-    }
-  } catch {
-    // best-effort
-  }
+  // Classes hors Structures : calculé côté /api/nomenclature/classes (évite un 2e scan élèves ici).
 
   return anomalies;
 }

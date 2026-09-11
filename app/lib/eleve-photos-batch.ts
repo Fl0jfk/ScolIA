@@ -16,10 +16,14 @@ import {
   parsePhotoFilename,
   photoRelativePathForEleve,
 } from "@/app/lib/eleve-photos-match";
-import { loadElevesRegistry, saveElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { loadElevePhotoIndex, type ElevePhotoIndex } from "@/app/lib/eleve-photos";
 import { sanitizeS3FileName } from "@/app/lib/s3-path";
+import {
+  resolveCurrentEtablissementId,
+  updateElevePhotoKeysInDb,
+} from "@/app/lib/ent-core-db";
 
 export type ElevePhotoJobItemStatus =
   | "pending"
@@ -63,6 +67,9 @@ const JOB_PREFIX = "eleves/photo-jobs/";
 const INBOX_PREFIX = "eleves/photos/inbox/";
 /** Budget d’une invocation worker — on s’arrête avant le timeout Scaleway. */
 const RUN_BUDGET_MS = 45_000;
+/** Évite de réécrire le JSON job (souvent Mo) à chaque photo — saturation S3 / CPU. */
+const JOB_PERSIST_EVERY_N = 20;
+const JOB_PERSIST_EVERY_MS = 5_000;
 
 function jobKey(jobId: string): string {
   return `${JOB_PREFIX}${jobId}.json`;
@@ -261,7 +268,9 @@ export async function runElevePhotoJob(jobId: string): Promise<ElevePhotoJob | n
   const index = await loadElevePhotoIndex();
   const nextEleves = [...eleves];
   const started = Date.now();
-  let touchedRegistry = false;
+  let lastPersistAt = started;
+  let sincePersist = 0;
+  const photoUpdates: Array<{ eleveId: string; photoKey: string }> = [];
 
   for (let i = 0; i < job.items.length; i++) {
     if (Date.now() - started > RUN_BUDGET_MS) break;
@@ -278,9 +287,12 @@ export async function runElevePhotoJob(jobId: string): Promise<ElevePhotoJob | n
           (e) => identityKey(e.nom, e.prenom) === result.eleveKey,
         );
         if (idx >= 0) {
-          nextEleves[idx] = { ...nextEleves[idx]!, photoKey: result.photoKey };
+          const target = nextEleves[idx]!;
+          nextEleves[idx] = { ...target, photoKey: result.photoKey };
           job.updated += 1;
-          touchedRegistry = true;
+          if (target.id?.trim()) {
+            photoUpdates.push({ eleveId: target.id.trim(), photoKey: result.photoKey });
+          }
         }
       } else if (result.item.status === "unmatched") {
         if (!job.unmatched.includes(result.item.fileName)) {
@@ -299,7 +311,14 @@ export async function runElevePhotoJob(jobId: string): Promise<ElevePhotoJob | n
     const done = job.items.filter((it) => it.status !== "pending").length;
     job.percent = Math.round((done / job.items.length) * 100);
     job.label = `${done}/${job.items.length} photo(s) traitées…`;
-    await writeElevePhotoJob(job);
+    sincePersist += 1;
+    const dueByCount = sincePersist >= JOB_PERSIST_EVERY_N;
+    const dueByTime = Date.now() - lastPersistAt >= JOB_PERSIST_EVERY_MS;
+    if (dueByCount || dueByTime) {
+      await writeElevePhotoJob(job);
+      sincePersist = 0;
+      lastPersistAt = Date.now();
+    }
   }
 
   await putJson("eleves/photo-index.json", index);
@@ -309,11 +328,14 @@ export async function runElevePhotoJob(jobId: string): Promise<ElevePhotoJob | n
   } catch {
     /* optional */
   }
-  if (touchedRegistry) {
+  if (photoUpdates.length) {
     try {
-      await saveElevesRegistry(nextEleves);
+      const etabId = await resolveCurrentEtablissementId();
+      if (etabId) {
+        await updateElevePhotoKeysInDb(etabId, photoUpdates);
+      }
     } catch (e) {
-      console.warn("[eleve-photos-batch] saveElevesRegistry", e);
+      console.warn("[eleve-photos-batch] updateElevePhotoKeysInDb", e);
     }
   }
 

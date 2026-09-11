@@ -276,6 +276,35 @@ export async function listElevesFromDb(
   return rows.map(eleveRowToConfig);
 }
 
+/**
+ * Met à jour uniquement `photo_key` (batch photos) — sans upsert massif ni sync internat.
+ */
+export async function updateElevePhotoKeysInDb(
+  etablissementId: string,
+  updates: Array<{ eleveId: string; photoKey: string }>,
+): Promise<number> {
+  if (!updates.length) return 0;
+  const db = getDb();
+  let n = 0;
+  const chunk = 50;
+  for (let i = 0; i < updates.length; i += chunk) {
+    const slice = updates.slice(i, i + chunk);
+    await Promise.all(
+      slice.map(async (u) => {
+        const id = u.eleveId.trim();
+        const photoKey = u.photoKey.trim();
+        if (!id || !photoKey) return;
+        await db
+          .update(eleve)
+          .set({ photoKey })
+          .where(and(eq(eleve.id, id), eq(eleve.etablissementId, etablissementId)));
+        n += 1;
+      }),
+    );
+  }
+  return n;
+}
+
 /** Upsert élèves par sourceKey — préserve les UUID (foyers, documents, export Siècle). */
 export async function upsertElevesInDb(
   etablissementId: string,
