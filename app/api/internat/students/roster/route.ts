@@ -175,7 +175,7 @@ export async function POST(req: Request) {
     if (action === "importSiecle" || name.endsWith(".xml")) {
       const text = new TextDecoder("latin1").decode(buf);
       const parsed = parseSiecleElevesXmlServer(text);
-      if (!parsed.eleves.length) {
+      if (!parsed.eleves.length && !parsed.sortis.length) {
         return NextResponse.json(
           {
             error: parsed.skippedSortis
@@ -187,9 +187,14 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
-      // Merge dans le référentiel global
+      // Merge : actifs + sortis (Externe) pour corriger les faux régimes Interne.
       const existing = await loadElevesRegistry();
-      const merged = mergeElevesLists(existing, parsed.eleves);
+      const replaceRegime = parsed.withRegimeCount > 0 || parsed.sortis.length > 0;
+      const merged = mergeElevesLists(
+        existing,
+        [...parsed.eleves, ...parsed.sortis],
+        { replaceRegime },
+      );
       await saveElevesRegistry(merged.eleves);
 
       const entries = elevesToInternatRosterEntries(parsed.eleves);
@@ -207,7 +212,7 @@ export async function POST(req: Request) {
       }
       const result = await persistAndApply(entries, access.userName);
       const sortisNote = parsed.skippedSortis
-        ? `, ${parsed.skippedSortis} sorti(s) exclus`
+        ? `, ${parsed.skippedSortis} sorti(s) → Externe`
         : "";
       return NextResponse.json({
         ...result,

@@ -24,7 +24,7 @@ test("isDateSortiePassee — strictement avant aujourd'hui", () => {
   assert.equal(isDateSortiePassee(undefined, now), false);
 });
 
-test("parse Siècle exclut DATE_SORTIE passée, garde sans date / future", () => {
+test("parse Siècle : sortis → Externe, actifs avec CODE_REGIME canonique", () => {
   const now = new Date(2026, 8, 11);
   const xml = `<?xml version="1.0"?>
 <BEE_ELEVES>
@@ -38,7 +38,7 @@ test("parse Siècle exclut DATE_SORTIE passée, garde sans date / future", () =>
     <ID_NATIONAL>BBB</ID_NATIONAL><CODE_REGIME>2</CODE_REGIME>
   </ELEVE>
   <ELEVE ELEVE_ID="3">
-    <NOM_DE_FAMILLE>FUTUR</NOM_DE_FAMILLE><PRENOM>Carole</PRENOM>
+    <NOM_DE_FAMILLE>DP</NOM_DE_FAMILLE><PRENOM>Carole</PRENOM>
     <ID_NATIONAL>CCC</ID_NATIONAL><CODE_REGIME>1</CODE_REGIME>
     <DATE_SORTIE>30/06/2027</DATE_SORTIE>
   </ELEVE>
@@ -48,11 +48,13 @@ test("parse Siècle exclut DATE_SORTIE passée, garde sans date / future", () =>
   assert.equal(parsed.totalInFile, 3);
   assert.equal(parsed.skippedSortis, 1);
   assert.equal(parsed.total, 2);
-  assert.equal(parsed.internesCount, 1); // Bob seulement (Carole = DP code 1)
-  assert.deepEqual(
-    parsed.eleves.map((e) => e.nom).sort(),
-    ["ACTIF", "FUTUR"],
-  );
+  assert.equal(parsed.sortis.length, 1);
+  assert.equal(parsed.sortis[0]?.regime, "Externe");
+  assert.equal(parsed.sortis[0]?.nom, "SORTI");
+  assert.equal(parsed.internesCount, 1); // Bob seulement
+  assert.equal(parsed.eleves.find((e) => e.nom === "ACTIF")?.regime, "Interne");
+  assert.equal(parsed.eleves.find((e) => e.nom === "DP")?.regime, "Demi-pension");
+  assert.equal(parsed.withRegimeCount, 2);
   assert.equal(parsed.siecleEleveIdMap["1"], undefined);
   assert.equal(parsed.siecleEleveIdMap["2"], "BBB");
 });

@@ -7,7 +7,6 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { nomenclatureImportLog, refNomenclature } from "@/db/schema";
 import {
-  extractSiecleEleveIdMapFromXml,
   importSiecleElevesXml,
   importSiecleResponsablesXml,
 } from "@/app/lib/nomenclature-import/siecle-people-import";
@@ -240,7 +239,7 @@ export async function importSiecleXmlBuffer(
       updates: result.updates,
       rows: result.rows,
       message: result.message,
-      eleveIdMap: extractSiecleEleveIdMapFromXml(xml),
+      eleveIdMap: result.eleveIdMap,
     };
   }
 

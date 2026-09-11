@@ -117,14 +117,23 @@ export async function buildNomenclatureImportAnomalies(
     });
   }
 
-  const mapHit = await getJson<Record<string, string>>(SIECLE_ELEVE_MAP_KEY);
-  const mapSize = mapHit?.data ? Object.keys(mapHit.data).length : 0;
+  const mapHit = await getJson<Record<string, string> | { __root?: unknown }>(SIECLE_ELEVE_MAP_KEY);
+  let mapSize = 0;
+  if (mapHit?.data && typeof mapHit.data === "object") {
+    const raw = mapHit.data as Record<string, unknown>;
+    const body =
+      "__root" in raw && raw.__root && typeof raw.__root === "object"
+        ? (raw.__root as Record<string, unknown>)
+        : raw;
+    mapSize = Object.keys(body).filter((k) => k !== "id" && k !== "__root").length;
+  }
   if (eleveRapport && mapSize === 0) {
     anomalies.push({
       id: "map-siecle-vide",
       severity: "error",
       label: "Map Siècle ELEVE_ID vide",
-      detail: "La correspondance ELEVE_ID → INE n'a pas été enregistrée.",
+      detail:
+        "La correspondance ELEVE_ID → INE n'a pas été enregistrée (souvent ELEVE_ID manquant dans le XML). Sans elle, ResponsablesAvecAdresses ne peut pas s'importer.",
     });
   }
 

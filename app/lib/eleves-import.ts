@@ -355,7 +355,11 @@ function personIdentityKey(nom: string, prenom: string): string {
   return `${normalizePersonPart(nom)}§${normalizePersonPart(prenom)}`;
 }
 
-function mergeEleveFields(existing: EleveConfig, incoming: EleveConfig): EleveConfig {
+function mergeEleveFields(
+  existing: EleveConfig,
+  incoming: EleveConfig,
+  opts?: { replaceRegime?: boolean },
+): EleveConfig {
   const nom = incoming.nom.trim() || existing.nom;
   const prenom = incoming.prenom.trim() || existing.prenom;
   const classe = incoming.classe?.trim() || existing.classe;
@@ -382,7 +386,13 @@ function mergeEleveFields(existing: EleveConfig, incoming: EleveConfig): EleveCo
   if (incoming.parent2Phone?.trim()) merged.parent2Phone = incoming.parent2Phone.trim();
   if (incoming.dateNaissance?.trim()) merged.dateNaissance = incoming.dateNaissance.trim();
   if (incoming.lieuNaissance?.trim()) merged.lieuNaissance = incoming.lieuNaissance.trim();
-  if (incoming.regime?.trim()) merged.regime = incoming.regime.trim();
+  if (opts?.replaceRegime && "regime" in incoming) {
+    const t = incoming.regime?.trim();
+    if (t) merged.regime = t;
+    else delete merged.regime;
+  } else if (incoming.regime?.trim()) {
+    merged.regime = incoming.regime.trim();
+  }
   if (incoming.sexe) merged.sexe = incoming.sexe;
   if (incoming.photoKey?.trim()) merged.photoKey = incoming.photoKey.trim();
 
@@ -594,10 +604,12 @@ export function eleveMatchKey(e: EleveConfig): string {
 /**
  * Fusionne l'import dans la liste existante : mise à jour par INE ou identité (nom + prénom),
  * actualisation classe / MEF / e-mails, nouveaux ajoutés, absents du fichier conservés.
+ * `replaceRegime` : force le régime Siècle (y compris Externe pour les sortis).
  */
 export function mergeElevesLists(
   existing: EleveConfig[],
   incoming: EleveConfig[],
+  opts?: { replaceRegime?: boolean },
 ): { eleves: EleveConfig[]; stats: ElevesMergeStats } {
   const result = [...existing];
   const touched = new Set<number>();
@@ -607,7 +619,7 @@ export function mergeElevesLists(
   for (const inc of incoming) {
     const idx = findExistingEleveIndex(result, inc);
     if (idx >= 0) {
-      result[idx] = mergeEleveFields(result[idx], inc);
+      result[idx] = mergeEleveFields(result[idx]!, inc, opts);
       touched.add(idx);
       updated++;
     } else {

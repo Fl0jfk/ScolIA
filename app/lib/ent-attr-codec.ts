@@ -85,13 +85,13 @@ export function flattenToAttrs(
 }
 
 /**
- * Stockage collection : un gros tableau racine (`__root` / listes JSON historiques)
+ * Stockage collection : un gros tableau / objet racine (`__root`)
  * est gardé en une seule feuille pour éviter des milliers de lignes EAV
- * (échecs d’insert, courses delete/insert, perf).
+ * (échecs d’insert, courses delete/insert, perf) — ex. map ELEVE_ID→INE Siècle.
  */
 export function flattenCollectionRecord(record: Record<string, unknown>): AttrPair[] {
   const keys = Object.keys(record).filter((k) => k !== "id");
-  if (keys.length === 1 && keys[0] === "__root" && Array.isArray(record.__root)) {
+  if (keys.length === 1 && keys[0] === "__root") {
     return [{ path: "__root", value: encodeLeaf(record.__root) }];
   }
   return flattenToAttrs(record);

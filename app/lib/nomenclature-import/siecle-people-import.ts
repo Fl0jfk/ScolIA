@@ -35,15 +35,34 @@ const SIECLE_ELEVE_MAP_KEY = "siecle/eleve-id-map.json";
 
 type SiecleEleveIdMap = Record<string, string>;
 
-async function loadSiecleEleveIdMap(): Promise<SiecleEleveIdMap> {
-  const hit = await getJson<SiecleEleveIdMap>(SIECLE_ELEVE_MAP_KEY);
-  if (!hit?.data || typeof hit.data !== "object") return {};
-  return hit.data;
+function sanitizeEleveIdMap(raw: unknown): SiecleEleveIdMap {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: SiecleEleveIdMap = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (k === "id" || k === "__root") continue;
+    if (typeof v !== "string") continue;
+    const id = k.trim();
+    const ine = v.trim().toUpperCase();
+    if (id && ine) out[id] = ine;
+  }
+  return out;
 }
 
+async function loadSiecleEleveIdMap(): Promise<SiecleEleveIdMap> {
+  const hit = await getJson<SiecleEleveIdMap | { __root?: unknown }>(SIECLE_ELEVE_MAP_KEY);
+  if (!hit?.data || typeof hit.data !== "object") return {};
+  const data = hit.data as Record<string, unknown>;
+  if ("__root" in data && data.__root && typeof data.__root === "object") {
+    return sanitizeEleveIdMap(data.__root);
+  }
+  return sanitizeEleveIdMap(data);
+}
+
+/** Stocke la map en une seule feuille `__root` (évite des milliers d'attrs EAV). */
 async function saveSiecleEleveIdMap(map: SiecleEleveIdMap): Promise<void> {
   const prev = await loadSiecleEleveIdMap();
-  await putJson(SIECLE_ELEVE_MAP_KEY, { ...prev, ...map });
+  const merged = { ...prev, ...map };
+  await putJson(SIECLE_ELEVE_MAP_KEY, { __root: merged });
 }
 
 function parenteLabel(code: string): string {
@@ -69,9 +88,10 @@ export async function importSiecleElevesXml(
   rows: number;
   internesCount: number;
   message: string;
+  eleveIdMap: SiecleEleveIdMap;
 }> {
   const parsed = parseSiecleElevesXmlServer(xml);
-  if (!parsed.eleves.length) {
+  if (!parsed.eleves.length && !parsed.sortis.length) {
     throw new Error(
       parsed.skippedSortis
         ? `Aucun élève scolarisé dans le XML (${parsed.skippedSortis} sorti(s) exclus — DATE_SORTIE antérieure à aujourd'hui).`
@@ -81,6 +101,8 @@ export async function importSiecleElevesXml(
 
   const mefMaps = await buildMefLabelMaps(etablissementId);
   const withMefLabels = enrichElevesMefLabels(parsed.eleves, mefMaps).eleves;
+  // Sortis : régime forcé Externe pour casser les faux « Interne » laissés par un ancien import.
+  const sortisForMerge = enrichElevesMefLabels(parsed.sortis, mefMaps).eleves;
 
   const sansIne = withMefLabels.filter((e) => !e.ine?.trim()).length;
   const sansClasse = withMefLabels.filter((e) => !e.classe?.trim()).length;
@@ -88,9 +110,24 @@ export async function importSiecleElevesXml(
   const cycleNote = cycle ? ` · ${siecleCycleLabel(cycle)}` : "";
 
   const existing = await loadElevesRegistry();
-  const merged = mergeElevesLists(existing, withMefLabels);
+  const replaceRegime = parsed.withRegimeCount > 0 || parsed.sortis.length > 0;
+  const merged = mergeElevesLists(
+    existing,
+    [...withMefLabels, ...sortisForMerge],
+    { replaceRegime },
+  );
   const normalized = await normalizeElevesToSiecleClasses(etablissementId, merged.eleves);
   await saveElevesRegistry(normalized.eleves);
+
+  // Resync internat explicite après correction des régimes (sortis + CODE_REGIME).
+  if (replaceRegime) {
+    try {
+      const { syncInternatFromElevesRegime } = await import("@/app/lib/internat-import");
+      await syncInternatFromElevesRegime(normalized.eleves, `siecle-eleves:${filename}`);
+    } catch (error) {
+      console.error("[siecle-eleves] sync internat régime", error);
+    }
+  }
 
   const mapSize = Object.keys(parsed.siecleEleveIdMap).length;
   if (mapSize) {
@@ -110,6 +147,7 @@ export async function importSiecleElevesXml(
       total: parsed.total,
       totalInFile: parsed.totalInFile,
       skippedSortis: parsed.skippedSortis,
+      withRegimeCount: parsed.withRegimeCount,
       internesCount: parsed.internesCount,
       siecleIds: mapSize,
       sansIne,
@@ -123,16 +161,22 @@ export async function importSiecleElevesXml(
     ? " Aucun ELEVE_ID→INE (attribut ELEVE_ID manquant ?) — les responsables ne pourront pas être liés."
     : ` Map ELEVE_ID→INE : ${mapSize}.`;
   const sortisNote = parsed.skippedSortis
-    ? ` ${parsed.skippedSortis} sorti(s) exclus (DATE_SORTIE avant aujourd'hui).`
+    ? ` ${parsed.skippedSortis} sorti(s) repassés en Externe (DATE_SORTIE avant aujourd'hui).`
     : "";
+  const regimeNote =
+    parsed.withRegimeCount === 0 && parsed.eleves.length > 0
+      ? " Attention : aucun CODE_REGIME dans le XML — les régimes erronés du référentiel n'ont pas tous pu être corrigés."
+      : ` ${parsed.internesCount} interne(s) détecté(s) via CODE_REGIME.`;
 
   return {
     inserts: merged.stats.added,
     updates: merged.stats.updated,
     rows: parsed.total,
     internesCount: parsed.internesCount,
+    eleveIdMap: parsed.siecleEleveIdMap,
     message:
-      `${filename} (élèves${cycleNote}) : ${parsed.total} scolarisés / ${parsed.totalInFile} dans le fichier — ${merged.stats.added} ajouté(s), ${merged.stats.updated} mis à jour, ${parsed.internesCount} interne(s) · sync BDD par sourceKey.` +
+      `${filename} (élèves${cycleNote}) : ${parsed.total} scolarisés / ${parsed.totalInFile} dans le fichier — ${merged.stats.added} ajouté(s), ${merged.stats.updated} mis à jour · sync BDD par sourceKey.` +
+      regimeNote +
       mapWarn +
       sortisNote +
       (sansIne ? ` ${sansIne} sans INE.` : "") +
@@ -277,7 +321,7 @@ export async function importSiecleResponsablesXml(
   }
   if (!Object.keys(idMap).length) {
     throw new Error(
-      "Importez d'abord ElevesSansAdresses.xml (même session ou précédemment) pour établir la correspondance ELEVE_ID → INE.",
+      "Correspondance ELEVE_ID → INE introuvable. Réimportez ElevesSansAdresses.xml (le message d'import doit afficher « Map ELEVE_ID→INE : N ») puis réessayez ResponsablesAvecAdresses.xml dans la même session ou juste après.",
     );
   }
 
