@@ -23,26 +23,6 @@ import { outingIndexEntry } from "@/app/lib/internat-outing";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { valkeyCached, valkeyDel } from "@/app/lib/valkey";
 import { VALKEY_TTL, valkeyKeyInternatStudents } from "@/app/lib/valkey-keys";
-import {
-  INTERNAT_S3,
-  emptyRollCall,
-  type InternatActivity,
-  type InternatAlert,
-  type InternatIncident,
-  type InternatJournalEntry,
-  type InternatMessage,
-  type InternatModuleConfig,
-  type InternatOuting,
-  type InternatOutingIndexEntry,
-  type InternatRollCall,
-  type InternatRollCallPeriod,
-  type InternatBuilding,
-  type InternatRoom,
-  type InternatStudent,
-  type InternatStudyGroup,
-  type InternatSupervisorShift,
-} from "@/app/lib/internat-types";
-import { outingIndexEntry } from "@/app/lib/internat-outing";
 
 function rollCallKey(date: string, period: InternatRollCallPeriod = "soir") {
   const suffix = period === "matin" ? "-matin" : "";
