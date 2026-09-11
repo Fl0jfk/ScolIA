@@ -15,6 +15,8 @@ import {
   formatHoursTreatmentCreatorMailLine,
   formatHoursTreatmentMailLine,
   formatMakeupPreferenceMailLines,
+  isRattrapageTreatment,
+  requiresProcessorAfterValidation,
 } from "@/app/lib/absence-hours-treatment";
 import {
   formatJustificatifMailLine,
@@ -147,10 +149,16 @@ export async function notifyAbsenceCreated(input: {
 /**
  * Après validation direction : calendrier (géré par l’appelant via calendarVisible)
  * + mail à la personne qui déclare au rectorat / ONISE (profs) ou à la compta (OGEC).
+ * Professeurs en rattrapage interne : pas de mail au secrétariat rectorat (rien à déclarer).
  */
 export async function notifyAbsenceValidated(
   record: AbsenceRecord,
-): Promise<{ sent: boolean; recipients: string[] }> {
+): Promise<{ sent: boolean; recipients: string[]; skippedReason?: string }> {
+  const scope = resolveAbsenceScope(record);
+  if (scope === "professeur" && !requiresProcessorAfterValidation(record)) {
+    return { sent: false, recipients: [], skippedReason: "rattrapage_interne" };
+  }
+
   let recipients: string[] = [];
   try {
     recipients = await resolveAbsenceValidationRecipients(record);
@@ -158,7 +166,6 @@ export async function notifyAbsenceValidated(
     console.error("Absences validation recipients error:", err);
     return { sent: false, recipients: [] };
   }
-  const scope = resolveAbsenceScope(record);
   if (recipients.length === 0) {
     if (scope === "professeur") {
       console.warn(
@@ -255,6 +262,24 @@ export async function notifyAbsenceCreatorValidated(record: AbsenceRecord): Prom
   const treatment = record.hoursTreatment
     ? formatHoursTreatmentCreatorMailLine(record.hoursTreatment, scope)
     : "";
+  const needsProcessor = requiresProcessorAfterValidation(record);
+  const followUp =
+    scope === "professeur" && isRattrapageTreatment(record.hoursTreatment)
+      ? [
+          `Les heures seront rattrapées en interne : aucune déclaration au rectorat n’est requise de la part du secrétariat.`,
+          record.directionConfirmedMakeupSlots
+            ? `Moment de rattrapage retenu : ${record.directionConfirmedMakeupSlots}`
+            : `Si ce n’est pas déjà fait, indiquez dans l’application quand vous comptez rattraper vos heures.`,
+          ``,
+          `Suivi dans l’application :`,
+          link,
+        ]
+      : needsProcessor
+        ? [
+            `Le dossier est maintenant chez la personne qui assure le traitement administratif (rectorat / RH). Vous pouvez suivre l’avancement et déposer une pièce si elle vous est demandée :`,
+            link,
+          ]
+        : [`Suivi dans l’application :`, link];
   await mail.transporter.sendMail({
     from: `"Absences" <${mail.smtp.user}>`,
     to: email,
@@ -270,8 +295,7 @@ export async function notifyAbsenceCreatorValidated(record: AbsenceRecord): Prom
       treatment,
       ...formatMakeupPreferenceMailLines(record),
       ``,
-      `Le dossier est maintenant chez la personne qui assure le traitement administratif (rectorat / RH). Vous pouvez suivre l’avancement et déposer une pièce si elle vous est demandée :`,
-      link,
+      ...followUp,
       ``,
       `Cordialement,`,
       `L'établissement`,
@@ -402,6 +426,7 @@ export async function notifyAbsenceMakeupSlotsProvided(record: AbsenceRecord): P
 }
 
 export async function notifyAbsenceJustificatifDeposited(record: AbsenceRecord): Promise<void> {
+  if (!requiresProcessorAfterValidation(record)) return;
   const recipients = await resolveAbsenceValidationRecipients(record);
   if (recipients.length === 0) return;
   const mail = await getMailer();

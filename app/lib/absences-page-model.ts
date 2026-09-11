@@ -1,7 +1,10 @@
 import type { AbsencePeriodType } from "@/app/lib/absence-period";
 import {
   formatTransmissionSummary,
+  isRattrapageTreatment,
+  isRectoratDeclarationTreatment,
   needsMakeupSlotsFromStaff,
+  suggestHoursTreatmentFromPreference,
   type AbsenceHoursTreatment,
 } from "@/app/lib/absence-hours-treatment";
 
@@ -74,29 +77,52 @@ export function canDepositJustificatif(item: AbsenceItem) {
   );
 }
 
-export function validationConfirmMessage(item: AbsenceItem) {
+export function validationConfirmMessage(
+  item: AbsenceItem,
+  hoursTreatment?: AbsenceHoursTreatment | string | null,
+) {
   const base = "Valider cette absence ? La décision direction est définitive.";
   if (item.data.scope === "ogec") {
     return `${base}\n\nLe calendrier est mis à jour. La RH traite ensuite le dossier dans l’application (pièces, clôture).`;
   }
-  return `${base}\n\nLe calendrier absences professeurs est mis à jour. La personne en charge du rectorat / de l’instance traite ensuite le dossier dans l’application.`;
+  if (isRattrapageTreatment(hoursTreatment)) {
+    return `${base}\n\nLe calendrier absences professeurs est mis à jour. Rattrapage interne : pas de passage par la personne qui déclare au rectorat.`;
+  }
+  if (isRectoratDeclarationTreatment(hoursTreatment)) {
+    return `${base}\n\nLe calendrier absences professeurs est mis à jour. La personne en charge du rectorat / de l’instance traite ensuite le dossier dans l’application.`;
+  }
+  return `${base}\n\nLe calendrier absences professeurs est mis à jour.`;
 }
 
 export function transmissionLabel(item: AbsenceItem) {
   if (itemDecision(item) !== "VALIDEE") return null;
   if (item.workflowStatus !== "CLOTUREE") {
-    return item.data.scope === "ogec"
-      ? "Validée par la direction — en traitement RH."
-      : "Validée par la direction — en traitement rectorat / instance.";
+    if (item.data.scope === "ogec") {
+      return "Validée par la direction — en traitement RH.";
+    }
+    if (isRattrapageTreatment(item.hoursTreatment)) {
+      return "Validée par la direction — rattrapage interne (sans déclaration rectorat).";
+    }
+    return "Validée par la direction — en traitement rectorat / instance.";
   }
   if (item.adminTreatedAt) {
     return item.data.scope === "ogec"
       ? "Traitée par la RH."
-      : "Traitée administrativement (rectorat / instance).";
+      : isRattrapageTreatment(item.hoursTreatment)
+        ? "Validée — rattrapage interne (clôturée, sans déclaration rectorat)."
+        : "Traitée administrativement (rectorat / instance).";
   }
   return formatTransmissionSummary(item.data.scope, item.data.etablissement, item.hoursTreatment);
 }
 
 export function resolvedHoursTreatment(item: AbsenceItem, draft: Record<string, string>) {
-  return draft[item.id] ?? item.hoursTreatment ?? "";
+  if (draft[item.id]) return draft[item.id];
+  if (item.hoursTreatment) return item.hoursTreatment;
+  return (
+    suggestHoursTreatmentFromPreference(
+      item.data.scope,
+      item.data.etablissement,
+      item.staffPreferredTreatment,
+    ) ?? ""
+  );
 }

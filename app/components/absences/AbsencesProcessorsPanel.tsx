@@ -122,8 +122,9 @@ export default function AbsencesProcessorsPanel() {
       <div className="rounded-3xl border border-slate-200 bg-white p-5">
         <h3 className="font-black text-slate-900">Qui traite après validation ?</h3>
         <p className="mt-1 text-sm text-slate-600">
-          Après validation, ces personnes reçoivent un e-mail avec un lien vers l’intranet pour
-          demander une pièce (sans repasser par la validation) puis clôturer le dossier.
+          Professeurs : mail et file uniquement si la direction valide une déclaration rectorat /
+          ONISE (pas le rattrapage interne). OGEC : toutes les absences validées restent chez la RH.
+          Ces personnes peuvent demander une pièce puis clôturer le dossier.
         </p>
       </div>
 

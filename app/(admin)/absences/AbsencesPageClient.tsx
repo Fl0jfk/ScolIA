@@ -37,6 +37,7 @@ import {
   emptyMakeupSlotDraft,
   isRattrapageTreatment,
   needsMakeupSlotsFromStaff,
+  requiresProcessorAfterValidation,
   validateHoursTreatmentForAbsence,
   type MakeupSlotDraft,
 } from "@/app/lib/absence-hours-treatment";
@@ -423,7 +424,7 @@ export default function AbsencesPageClient({
         alert(treatmentCheck.error);
         return;
       }
-      if (!confirm(validationConfirmMessage(item))) return;
+      if (!confirm(validationConfirmMessage(item, treatmentCheck.treatment))) return;
     }
     if (action === "REFUSER" && !confirm("Êtes-vous sûr de refuser cette absence ? Cette action est définitive.")) return;
     if (
@@ -478,10 +479,15 @@ export default function AbsencesPageClient({
         );
       }
       if (action === "VALIDER" && item?.data.scope !== "ogec") {
+        const treatment = resolvedHoursTreatment(item, managerHoursTreatment);
         const emails = Array.isArray(payload?.validationRecipients)
           ? (payload.validationRecipients as unknown[]).filter((e) => typeof e === "string")
           : [];
-        if (emails.length === 0) {
+        if (isRattrapageTreatment(treatment)) {
+          alert(
+            "Absence validée et affichée au calendrier. Rattrapage interne : pas d’envoi au secrétariat rectorat.",
+          );
+        } else if (emails.length === 0) {
           alert(
             "Absence validée et affichée au calendrier. Aucune personne n’est configurée pour le traitement rectorat (Absences → Paramétrage).",
           );
@@ -689,6 +695,7 @@ export default function AbsencesPageClient({
       sorted.filter((i) => {
         if (!isWaitingAdminTreatment(i)) return false;
         if (i.source === "admin_manual" || i.source === "admin_pdf") return false;
+        if (!requiresProcessorAfterValidation(asRecord(i))) return false;
         if (!processorNotifications) return viewerIsProcessor || canTreat;
         return viewerIsAbsenceProcessor(
           asRecord(i),
@@ -965,7 +972,7 @@ export default function AbsencesPageClient({
                       <>
                         <option value="RATTRAPAGE_INTERNE">Un rattrapage des heures</option>
                         <option value="DECLARATION_INSTANCE">
-                          Sans rattrapage (déclaration instance — impact service / rémunération)
+                          Sans rattrapage (déclaration au rectorat / instance)
                         </option>
                       </>
                     )}
@@ -1393,9 +1400,10 @@ export default function AbsencesPageClient({
                       </button>
                       {!item.staffPreferredMakeupSlots &&
                       !item.directionConfirmedMakeupSlots &&
-                      (isRattrapageTreatment(resolvedHoursTreatment(item, managerHoursTreatment)) ||
-                        isRattrapageTreatment(item.staffPreferredTreatment) ||
-                        !resolvedHoursTreatment(item, managerHoursTreatment)) ? (
+                      isRattrapageTreatment(
+                        resolvedHoursTreatment(item, managerHoursTreatment) ||
+                          item.staffPreferredTreatment,
+                      ) ? (
                         <button
                           type="button"
                           onClick={() => updateWorkflow(item.id, "RELANCER_CRENEAUX_RATTRAPAGE", item)}
@@ -1418,8 +1426,9 @@ export default function AbsencesPageClient({
           <div className="bg-white border border-slate-200 rounded-3xl p-4">
             <h3 className="font-black text-slate-900">Dossiers à traiter</h3>
             <p className="text-xs text-slate-500">
-              La direction a déjà validé. Demandez une pièce si besoin (ça va à la personne, pas à la
-              direction), puis marquez le dossier traité une fois le rectorat / la RH à jour.
+              Professeurs : uniquement les absences à déclarer au rectorat / instance (pas le
+              rattrapage interne). OGEC : dossiers RH validés. Demandez une pièce si besoin, puis
+              marquez traité une fois la déclaration faite.
             </p>
           </div>
           {loading ? (
@@ -1444,6 +1453,12 @@ export default function AbsencesPageClient({
                 {item.hoursTreatment ? (
                   <p className="text-sm text-indigo-700 mt-1 font-semibold">
                     {formatAbsenceHoursTreatment(item.hoursTreatment)}
+                  </p>
+                ) : null}
+                {item.staffPreferredTreatment ? (
+                  <p className="text-sm text-slate-600 mt-1">
+                    <span className="font-bold">Préférence du déclarant : </span>
+                    {formatStaffPreferredTreatment(item.staffPreferredTreatment)}
                   </p>
                 ) : null}
                 {item.staffPreferredMakeupSlots ? (

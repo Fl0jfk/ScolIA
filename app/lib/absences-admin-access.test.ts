@@ -66,11 +66,40 @@ test("Pauline est reconnue par userId", () => {
   );
 });
 
-test("file processeur : validée et non clôturée", () => {
-  const row = prof("Lycée") as AbsenceRecord;
+test("file processeur : validée et non clôturée — déclaration rectorat", () => {
+  const row = {
+    ...prof("Lycée"),
+    hoursTreatment: "DECLARATION_RECTORAT",
+  } as AbsenceRecord;
   assert.equal(isAbsencePendingForProcessor(row), true);
   assert.equal(isAbsencePendingForProcessor({ ...row, workflowStatus: "CLOTUREE" }), false);
   assert.equal(isAbsencePendingForProcessor({ ...row, managerDecision: "EN_ATTENTE" }), false);
+});
+
+test("file processeur profs : rattrapage interne exclu (rien à déclarer au rectorat)", () => {
+  const row = {
+    ...prof("Lycée"),
+    hoursTreatment: "RATTRAPAGE_INTERNE",
+  } as AbsenceRecord;
+  assert.equal(isAbsencePendingForProcessor(row), false);
+});
+
+test("file processeur OGEC : rattrapage reste à traiter par la RH", () => {
+  const row = {
+    ...prof("Lycée"),
+    data: {
+      scope: "ogec" as const,
+      etablissement: null,
+      startDate: "2026-08-30",
+      endDate: "2026-08-30",
+      startAt: "",
+      endAt: "",
+      reason: "RDV",
+      details: "",
+    },
+    hoursTreatment: "RATTRAPAGE",
+  } as AbsenceRecord;
+  assert.equal(isAbsencePendingForProcessor(row), true);
 });
 
 test("ingest calendrier n’entre pas dans la file rectorat", () => {
@@ -116,6 +145,11 @@ test("Sarah ne voit pas un dossier encore en attente direction", () => {
     ...prof("Lycée"),
     managerDecision: "EN_ATTENTE" as const,
     workflowStatus: "OUVERTE" as const,
+    hoursTreatment: "DECLARATION_RECTORAT" as const,
+  };
+  const validated = {
+    ...prof("Lycée"),
+    hoursTreatment: "DECLARATION_RECTORAT" as const,
   };
   const sarah = { email: "sarah.buno@ac-normandie.fr", userId: "u-sarah", roles: ["administratif"] };
   assert.equal(
@@ -123,7 +157,7 @@ test("Sarah ne voit pas un dossier encore en attente direction", () => {
     false,
   );
   assert.equal(
-    processorMayAccessValidatedAbsence(prof("Lycée") as AbsenceRecord, sarah, notifications, establishments),
+    processorMayAccessValidatedAbsence(validated as AbsenceRecord, sarah, notifications, establishments),
     true,
   );
 });

@@ -216,7 +216,7 @@ export default function SettingsNotificationsPanel({
         {activeEstablishmentKinds.has("college") ? (
           <SettingsField
             label="Professeurs — collège"
-            hint="Personne qui déclare les absences professeurs au rectorat. Notifiée après validation direction, y compris saisie accueil."
+            hint="Personne qui déclare les absences professeurs au rectorat. Notifiée seulement quand la direction valide une déclaration instance (pas le rattrapage interne), y compris saisie accueil."
             as="div"
           >
             <DirectoryPersonSelect
@@ -231,7 +231,7 @@ export default function SettingsNotificationsPanel({
         {activeEstablishmentKinds.has("lycee") ? (
           <SettingsField
             label="Professeurs — lycée"
-            hint="Personne qui déclare les absences professeurs au rectorat. Notifiée après validation direction, y compris saisie accueil."
+            hint="Personne qui déclare les absences professeurs au rectorat. Notifiée seulement quand la direction valide une déclaration instance (pas le rattrapage interne), y compris saisie accueil."
             as="div"
           >
             <DirectoryPersonSelect
@@ -266,7 +266,11 @@ export default function SettingsNotificationsPanel({
       </SettingsSection>
 
       {showInternat ? (
-        <SettingsSection icon="🌙" title="Internat" description="Appel du soir et alertes urgence.">
+        <SettingsSection
+          icon="🌙"
+          title="Internat"
+          description="Appel du soir (lun–jeu) et alertes urgence."
+        >
           <SettingsField label="Qui reçoit l’appel ?" as="div">
             <DirectoryPersonSelect
               members={directoryMembers}

@@ -113,13 +113,52 @@ export function hoursTreatmentFieldLabel(scope: AbsenceScope) {
   return scope === "ogec" ? "Traitement des heures" : "Traitement de l'absence";
 }
 
+/** Préférence déclarant = sans rattrapage (déclaration instance / rectorat / ONISE). */
+export function isDeclarationPreference(value?: string | null): boolean {
+  return (
+    value === "DECLARATION_INSTANCE" ||
+    value === "DECLARATION_ONISE" ||
+    value === "DECLARATION_RECTORAT"
+  );
+}
+
+/** Décision direction professeurs qui nécessite un traitement secrétariat (rectorat / ONISE). */
+export function isRectoratDeclarationTreatment(value?: string | null): boolean {
+  return value === "DECLARATION_RECTORAT" || value === "DECLARATION_ONISE";
+}
+
+/**
+ * Préremplit le choix direction à partir de la préférence du déclarant.
+ * Professeurs : DECLARATION_INSTANCE → ONISE (école) ou rectorat (collège / lycée).
+ * OGEC : mapping direct rattrapage / déduction.
+ */
+export function suggestHoursTreatmentFromPreference(
+  scope: AbsenceScope,
+  etablissement: Etablissement | null,
+  staffPreferredTreatment?: string | null,
+): AbsenceHoursTreatment | null {
+  const pref = String(staffPreferredTreatment || "").trim();
+  if (!pref) return null;
+  if (scope === "ogec") {
+    if (pref === "RATTRAPAGE" || pref === "DEDUCTION_SALAIRE") return pref;
+    return null;
+  }
+  if (pref === "RATTRAPAGE_INTERNE" || pref === "RATTRAPAGE") return "RATTRAPAGE_INTERNE";
+  if (isDeclarationPreference(pref)) {
+    return inferEstablishmentKind({ label: etablissement || "" }) === "ecole"
+      ? "DECLARATION_ONISE"
+      : "DECLARATION_RECTORAT";
+  }
+  return null;
+}
+
 /** Libellé de la préférence exprimée par le déclarant (pas la décision direction). */
 export function formatStaffPreferredTreatment(value?: string | null): string | null {
   if (!value) return null;
   if (value === "RATTRAPAGE" || value === "RATTRAPAGE_INTERNE") return "Rattrapage des heures";
   if (value === "DEDUCTION_SALAIRE") return "Déduction / perte de rémunération";
   if (value === "DECLARATION_INSTANCE" || value === "DECLARATION_ONISE" || value === "DECLARATION_RECTORAT") {
-    return "Sans rattrapage (déclaration instance — impact service / rémunération)";
+    return "Sans rattrapage (déclaration au rectorat / instance)";
   }
   return value;
 }
@@ -221,11 +260,38 @@ export function needsMakeupSlotsFromStaff(record: {
   directionConfirmedMakeupSlots?: string | null;
   makeupSlotsRelanceAt?: string | null;
 }): boolean {
-  if (record.workflowStatus === "CLOTUREE") return false;
   if (record.managerDecision === "REFUSEE") return false;
   if (hasMakeupSlotsInfo(record)) return false;
-  if (record.makeupSlotsRelanceAt) return true;
+
+  // Décision direction = déclaration / déduction : jamais de demande de créneaux.
+  if (
+    record.managerDecision === "VALIDEE" &&
+    record.hoursTreatment &&
+    !isRattrapageTreatment(record.hoursTreatment)
+  ) {
+    return false;
+  }
+
+  // Préférence explicite sans rattrapage (en attente direction) : pas de créneaux.
+  if (
+    record.managerDecision === "EN_ATTENTE" &&
+    (isDeclarationPreference(record.staffPreferredTreatment) ||
+      record.staffPreferredTreatment === "DEDUCTION_SALAIRE")
+  ) {
+    return false;
+  }
+
   if (record.managerDecision === "VALIDEE" && isRattrapageTreatment(record.hoursTreatment)) {
+    // Rattrapage prof clôturé auto : on peut encore demander les créneaux si relance active.
+    if (record.workflowStatus === "CLOTUREE") {
+      return Boolean(record.makeupSlotsRelanceAt);
+    }
+    return true;
+  }
+
+  if (record.workflowStatus === "CLOTUREE") return false;
+
+  if (record.makeupSlotsRelanceAt && isRattrapageTreatment(record.hoursTreatment || record.staffPreferredTreatment)) {
     return true;
   }
   if (
@@ -235,6 +301,20 @@ export function needsMakeupSlotsFromStaff(record: {
     return true;
   }
   return false;
+}
+
+/**
+ * Professeurs : la collègue rectorat ne traite que les déclarations instance.
+ * OGEC : tout dossier validé reste chez la RH / compta (flux distinct).
+ */
+export function requiresProcessorAfterValidation(record: {
+  data?: { scope?: string | null } | null;
+  hoursTreatment?: string | null;
+}): boolean {
+  const scope = record.data?.scope;
+  if (scope === "ogec") return true;
+  if (scope === "professeur") return isRectoratDeclarationTreatment(record.hoursTreatment);
+  return Boolean(record.hoursTreatment);
 }
 
 export function formatTransmissionSummary(

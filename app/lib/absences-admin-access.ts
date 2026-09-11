@@ -1,5 +1,6 @@
 import type { Establishment, NotificationsConfig } from "@/app/lib/app-config-schemas";
 import type { AbsenceRecord } from "@/app/lib/absences-types";
+import { requiresProcessorAfterValidation } from "@/app/lib/absence-hours-treatment";
 import { hasGlobalAdminRole, hasMasterRole } from "@/app/lib/intranet-role-utils";
 import { isAnyDirectionRole } from "@/app/lib/establishment-catalog";
 import {
@@ -14,12 +15,16 @@ export type AbsenceProcessorViewer = {
   roles?: string[];
 };
 
-/** File rectorat / RH : validée par la direction, pas encore close administrativement. */
+/**
+ * File rectorat / RH : validée par la direction, pas encore close administrativement.
+ * Professeurs : uniquement les dossiers à déclarer (rectorat / ONISE) — pas le rattrapage interne.
+ * OGEC : inchangé (toute absence validée reste chez la RH).
+ */
 export function isAbsencePendingForProcessor(abs: AbsenceRecord): boolean {
   if (abs.managerDecision !== "VALIDEE") return false;
   if (abs.workflowStatus === "CLOTUREE") return false;
   if (abs.source === "admin_manual" || abs.source === "admin_pdf") return false;
-  return true;
+  return requiresProcessorAfterValidation(abs);
 }
 
 /** Le traiteur (rectorat / RH) voit le dossier une fois la direction passée. */

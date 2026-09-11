@@ -507,28 +507,34 @@ export async function PATCH(req: Request) {
           ? String(body.directionConfirmedMakeupSlots).trim() || null
           : null;
       const decidedAt = new Date().toISOString();
-      const needsMakeupRelance =
+      const isMakeup =
         isRattrapageTreatment(hoursTreatment) &&
         !hasMakeupSlotsInfo({
           staffPreferredMakeupSlots: current.staffPreferredMakeupSlots,
           directionConfirmedMakeupSlots,
         });
+      // Professeurs en rattrapage : pas de file rectorat → clôture admin auto.
+      // Les créneaux manquants restent demandables au déclarant même après clôture.
+      const autoCloseProfRattrapage =
+        current.data.scope === "professeur" && isRattrapageTreatment(hoursTreatment);
       updated = {
         ...updated,
         managerDecision: "VALIDEE",
-        workflowStatus: current.justification?.fileUrl ? "JUSTIFICATIF_DEPOSE" : "A_TRAITER",
+        workflowStatus: autoCloseProfRattrapage
+          ? "CLOTUREE"
+          : current.justification?.fileUrl
+            ? "JUSTIFICATIF_DEPOSE"
+            : "A_TRAITER",
         calendarVisible: true,
-        closedAt: null,
+        closedAt: autoCloseProfRattrapage ? decidedAt : null,
         hoursTreatment,
         directionConfirmedMakeupSlots,
-        makeupSlotsRelanceAt: needsMakeupRelance
-          ? decidedAt
-          : hasMakeupSlotsInfo({
-                staffPreferredMakeupSlots: current.staffPreferredMakeupSlots,
-                directionConfirmedMakeupSlots,
-              })
-            ? null
-            : current.makeupSlotsRelanceAt ?? null,
+        makeupSlotsRelanceAt: isMakeup ? decidedAt : null,
+        adminTreatedAt: autoCloseProfRattrapage ? decidedAt : null,
+        adminTreatedBy: autoCloseProfRattrapage ? actor : null,
+        adminNote: autoCloseProfRattrapage
+          ? "Clôture automatique — rattrapage interne, sans déclaration rectorat."
+          : current.adminNote ?? null,
         history: [
           ...(current.history || []),
           {
@@ -537,7 +543,17 @@ export async function PATCH(req: Request) {
             action: "DECISION_VALIDEE",
             note: managerNote || undefined,
           },
-          ...(needsMakeupRelance
+          ...(autoCloseProfRattrapage
+            ? [
+                {
+                  at: decidedAt,
+                  by: actor,
+                  action: "TRAITEMENT_ADMIN",
+                  note: "Clôture automatique — rattrapage interne (pas de déclaration rectorat).",
+                },
+              ]
+            : []),
+          ...(isMakeup
             ? [
                 {
                   at: decidedAt,
@@ -596,12 +612,13 @@ export async function PATCH(req: Request) {
       }
     } else if (action === "RELANCER_CRENEAUX_RATTRAPAGE") {
       const treatmentHint =
-        current.hoursTreatment ||
-        current.staffPreferredTreatment ||
-        (current.data.scope === "ogec" ? "RATTRAPAGE" : "RATTRAPAGE_INTERNE");
-      if (!isRattrapageTreatment(String(treatmentHint)) && current.managerDecision === "VALIDEE") {
+        current.hoursTreatment || current.staffPreferredTreatment || "";
+      if (!isRattrapageTreatment(String(treatmentHint))) {
         return NextResponse.json(
-          { error: "Cette absence n’est pas en rattrapage d’heures." },
+          {
+            error:
+              "Cette absence n’est pas en rattrapage d’heures (préférence ou décision = déclaration / déduction).",
+          },
           { status: 400 },
         );
       }
@@ -644,7 +661,20 @@ export async function PATCH(req: Request) {
           { status: 400 },
         );
       }
-      if (current.workflowStatus === "CLOTUREE" || current.managerDecision === "REFUSEE") {
+      if (current.managerDecision === "REFUSEE") {
+        return NextResponse.json(
+          { error: "Cette absence est refusée ; les créneaux ne peuvent plus être modifiés." },
+          { status: 400 },
+        );
+      }
+      // Autorisé après clôture auto rattrapage interne (créneaux encore demandés au déclarant).
+      if (
+        current.workflowStatus === "CLOTUREE" &&
+        !(
+          current.managerDecision === "VALIDEE" &&
+          isRattrapageTreatment(current.hoursTreatment)
+        )
+      ) {
         return NextResponse.json(
           { error: "Cette absence est clôturée ; les créneaux ne peuvent plus être modifiés." },
           { status: 400 },
@@ -840,6 +870,14 @@ export async function PATCH(req: Request) {
     await saveAbsenceRecord(updated);
 
     if (action === "VALIDER") {
+      if (updated.workflowStatus === "CLOTUREE" && updated.adminTreatedAt) {
+        try {
+          updated = await applyPostValidationPrivacy(updated, index);
+          await saveAbsenceRecord(updated);
+        } catch (privErr) {
+          console.error("Absences post-validation privacy error:", privErr);
+        }
+      }
       try {
         const { recipients } = await notifyAbsenceValidated(updated);
         validationRecipients = recipients;
