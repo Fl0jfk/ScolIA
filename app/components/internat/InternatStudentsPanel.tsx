@@ -175,7 +175,36 @@ export default function InternatStudentsPanel({
     }
   };
 
-  const uploadExcelOrSiecle = async (file: File) => {
+  const normalizeRegimesAndSync = async () => {
+    if (
+      !confirm(
+        "Normaliser les régimes du référentiel (codes Siècle 0/1/2/3 → Externe / Demi-pension / Interne) puis resynchroniser l'internat ? Les élèves hors régime interne passeront en sortie (fiches conservées).",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setRosterMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/internat/students/roster", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "normalizeRegimesAndSync" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Normalisation impossible");
+      setRosterMessage(data.message);
+      await loadRoster();
+      await onRefresh();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadExcelOrSiecle = async (file: File, forceAllAsInternes = false) => {
     setBusy(true);
     setRosterMessage(null);
     setError(null);
@@ -184,9 +213,23 @@ export default function InternatStudentsPanel({
       fd.set("file", file);
       const isXml = file.name.toLowerCase().endsWith(".xml");
       fd.set("action", isXml ? "importSiecle" : "importFile");
+      if (forceAllAsInternes) fd.set("forceAllAsInternes", "1");
       const res = await fetch("/api/internat/students/roster", { method: "POST", body: fd });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Import impossible");
+      if (!res.ok) {
+        if (data?.needsForceConfirm && !forceAllAsInternes) {
+          const ok = confirm(
+            `${data.error}\n\nConfirmer l'import de TOUTES les lignes comme internes ? (uniquement si le fichier est déjà une liste d'internes)`,
+          );
+          if (ok) {
+            await uploadExcelOrSiecle(file, true);
+            return;
+          }
+          setError("Import annulé — préférez un XML Siècle avec CODE_REGIME.");
+          return;
+        }
+        throw new Error(data?.error || "Import impossible");
+      }
       setRosterMessage(data.message || "Import OK.");
       await loadRoster();
       await onRefresh();
@@ -461,8 +504,9 @@ export default function InternatStudentsPanel({
               <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5 space-y-4 text-sm">
                 <p className="font-bold text-slate-800">Import & synchronisation</p>
                 <p className="text-slate-600 text-xs leading-relaxed">
-                  Synchronisez les internes depuis le référentiel élèves (régime interne) ou importez un
-                  Excel / XML Siècle. Les photos se gèrent dans Paramètres.
+                  Préférez un XML Siècle (CODE_REGIME 2/3 = internes). Un Excel sans régime ne doit
+                  contenir que la liste des internes ; sinon le roster se gonfle. Les photos se gèrent
+                  dans Paramètres.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <input
@@ -500,6 +544,15 @@ export default function InternatStudentsPanel({
                     className="bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold text-xs"
                   >
                     Sync référentiel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void normalizeRegimesAndSync()}
+                    className="bg-amber-700 text-white px-3 py-2 rounded-xl font-bold text-xs"
+                    title="Corrige les codes 0/1/2/3 encore stockés bruts, puis resync internat"
+                  >
+                    Normaliser régimes
                   </button>
                   <Link
                     href="/parametres?tab=photos"

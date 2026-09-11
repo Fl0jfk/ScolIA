@@ -16,6 +16,7 @@ import {
 } from "@/app/lib/internat-storage";
 import { loadElevesRegistry, saveElevesRegistry } from "@/app/lib/eleves-registry";
 import { mergeElevesLists, parseElevesExcelBuffer } from "@/app/lib/eleves-import";
+import { canonicalRegimeLabel, isRegimeInterne } from "@/app/lib/eleve-regime";
 import { parseSiecleElevesXmlServer } from "@/app/lib/siecle-eleves-parse";
 
 async function persistAndApply(
@@ -208,6 +209,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
     const withRegime = parsed.eleves.filter((e) => e.regime && String(e.regime).trim());
+    const forceAllAsInternes = String(form.get("forceAllAsInternes") || "") === "1";
+    const EXCEL_NO_REGIME_SOFT_LIMIT = 120;
+
+    if (!withRegime.length && parsed.eleves.length > EXCEL_NO_REGIME_SOFT_LIMIT && !forceAllAsInternes) {
+      return NextResponse.json(
+        {
+          error: `Fichier sans colonne régime (${parsed.eleves.length} lignes). Sans confirmation, on refuse d'importer tout le monde comme internes (risque de gonfler le roster). Réimportez un XML Siècle / Excel avec CODE_REGIME, ou confirmez l'import forcé.`,
+          needsForceConfirm: true,
+          totalEleves: parsed.eleves.length,
+        },
+        { status: 400 },
+      );
+    }
+
     const entries =
       withRegime.length > 0
         ? elevesToInternatRosterEntries(parsed.eleves)
@@ -217,20 +232,31 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error: withRegime.length
-            ? "Aucune ligne avec régime interne dans le fichier."
+            ? "Aucune ligne avec régime interne dans le fichier (codes Siècle 2/3 ou libellé Interne)."
             : "Aucune ligne élève lue.",
+          totalEleves: parsed.eleves.length,
+          internesDetected: parsed.eleves.filter((e) => isRegimeInterne(e.regime)).length,
         },
         { status: 400 },
       );
     }
 
-    // Enrichir aussi le référentiel (merge)
+    // Enrichir le référentiel : avec régimes → merge ; sans régime → ne PAS forcer « Interne »
+    // sur tout l'établissement (c'était la cause des ~400 faux internes).
     const existing = await loadElevesRegistry();
-    const toMerge =
-      withRegime.length > 0
-        ? parsed.eleves
-        : parsed.eleves.map((e) => ({ ...e, regime: e.regime || "Interne" }));
-    await saveElevesRegistry(mergeElevesLists(existing, toMerge).eleves);
+    if (withRegime.length > 0) {
+      await saveElevesRegistry(mergeElevesLists(existing, parsed.eleves).eleves);
+    } else if (forceAllAsInternes) {
+      const toMerge = parsed.eleves.map((e) => ({ ...e, regime: e.regime || "Interne" }));
+      await saveElevesRegistry(mergeElevesLists(existing, toMerge).eleves);
+    } else {
+      // Identité / contacts uniquement — régimes existants conservés
+      const identityOnly = parsed.eleves.map((e) => {
+        const { regime: _regime, ...rest } = e;
+        return rest;
+      });
+      await saveElevesRegistry(mergeElevesLists(existing, identityOnly).eleves);
+    }
 
     const result = await persistAndApply(entries, access.userName);
     return NextResponse.json({
@@ -241,6 +267,46 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const action = String(body.action || "apply");
+
+  if (action === "normalizeRegimesAndSync") {
+    const eleves = await loadElevesRegistry();
+    let rewritten = 0;
+    const normalized = eleves.map((e) => {
+      const next = canonicalRegimeLabel(e.regime);
+      if (!next || !e.regime?.trim()) return e;
+      if (next === e.regime.trim()) return e;
+      rewritten += 1;
+      return { ...e, regime: next };
+    });
+    if (rewritten > 0) {
+      await saveElevesRegistry(normalized);
+    }
+    const entries = elevesToInternatRosterEntries(rewritten > 0 ? normalized : eleves);
+    if (!entries.length) {
+      const anyRegime = eleves.filter((e) => e.regime).length;
+      return NextResponse.json(
+        {
+          error: anyRegime
+            ? "Après normalisation, aucun régime interne détecté. Réimportez un XML Siècle avec CODE_REGIME 2/3."
+            : "Référentiel sans colonne régime — importez un XML Siècle avec régime.",
+          elevesCount: eleves.length,
+          regimesRewritten: rewritten,
+        },
+        { status: 400 },
+      );
+    }
+    const result = await persistAndApply(entries, access.userName);
+    return NextResponse.json({
+      ...result,
+      regimesRewritten: rewritten,
+      message: formatApplyMessage(
+        rewritten > 0
+          ? `Normalisation régimes (${rewritten} corrigé(s)) + sync`
+          : "Sync référentiel",
+        result,
+      ),
+    });
+  }
 
   if (action === "syncFromEleves") {
     const eleves = await loadElevesRegistry();

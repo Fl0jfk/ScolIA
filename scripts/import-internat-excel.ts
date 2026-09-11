@@ -139,6 +139,16 @@ async function main() {
 
   const withRegime = parsed.eleves.filter((e) => e.regime?.trim());
   const internes = parsed.eleves.filter((e) => isRegimeInterne(e.regime));
+  const forceAll = process.argv.includes("--force-all-internes");
+  const EXCEL_NO_REGIME_SOFT_LIMIT = 120;
+
+  if (!withRegime.length && parsed.eleves.length > EXCEL_NO_REGIME_SOFT_LIMIT && !forceAll) {
+    throw new Error(
+      `Fichier sans colonne régime (${parsed.eleves.length} lignes). Refus d'importer tout comme internes. ` +
+        `Ajoutez CODE_REGIME, ou passez --force-all-internes si le fichier est déjà uniquement des internes.`,
+    );
+  }
+
   const entries: InternatRosterEntry[] =
     withRegime.length > 0
       ? elevesToInternatRosterEntries(parsed.eleves)
@@ -191,10 +201,17 @@ async function main() {
   );
 
   const existing = await listElevesFromDb(etab.id);
-  const toMerge =
-    withRegime.length > 0
-      ? parsed.eleves
-      : parsed.eleves.map((e) => ({ ...e, regime: e.regime || "Interne" }));
+  let toMerge = parsed.eleves;
+  if (!withRegime.length) {
+    if (forceAll) {
+      toMerge = parsed.eleves.map((e) => ({ ...e, regime: e.regime || "Interne" }));
+    } else {
+      toMerge = parsed.eleves.map((e) => {
+        const { regime: _r, ...rest } = e;
+        return rest;
+      });
+    }
+  }
   const merged = mergeElevesLists(existing, toMerge).eleves;
 
   await replaceElevesInDb(etab.id, merged);

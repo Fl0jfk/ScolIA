@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { buildEleveFolderName, normalizeEleveDateNaissance, validateElevesJson } from "@/app/lib/eleves-config";
+import { canonicalRegimeLabel } from "@/app/lib/eleve-regime";
 
 export type ElevesImportSource = "pronote" | "ecoledirecte" | "auto";
 
@@ -467,14 +468,8 @@ function parseRowsToEleves(
     if (lieuNaissance) entry.lieuNaissance = lieuNaissance;
     const regimeRaw = cellStr(row, colMap.regime);
     if (regimeRaw) {
-      const n = normalizeHeader(regimeRaw);
-      if (n === "oui" || n === "o" || n === "yes" || n === "true" || n === "1" || n === "x") {
-        entry.regime = "Interne";
-      } else if (n === "non" || n === "no" || n === "false" || n === "0") {
-        entry.regime = "Externe";
-      } else {
-        entry.regime = regimeRaw;
-      }
+      // Codes Siècle 0/1/2/3 + libellés ; « 1 » = demi-pension (jamais Interne).
+      entry.regime = canonicalRegimeLabel(regimeRaw) ?? regimeRaw;
     }
     const sexeRaw = cellStr(row, colMap.sexe).toUpperCase();
     if (sexeRaw === "F" || sexeRaw === "2" || sexeRaw.startsWith("F")) entry.sexe = "F";

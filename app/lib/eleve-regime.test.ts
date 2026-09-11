@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyRegime, isRegimeInterne } from "./eleve-regime";
+import { canonicalRegimeLabel, classifyRegime, isRegimeInterne } from "./eleve-regime";
 import { parsePhotoFilename } from "./eleve-photos-match";
 
 test("détecte les codes Siècle internes", () => {
@@ -17,6 +17,15 @@ test("détecte les codes Siècle internes", () => {
 test("classifie DP", () => {
   assert.equal(classifyRegime("DP"), "demi_pension");
   assert.equal(classifyRegime("1"), "demi_pension");
+});
+
+test("canonicalRegimeLabel — codes Siècle et booléens", () => {
+  assert.equal(canonicalRegimeLabel("1"), "Demi-pension");
+  assert.equal(canonicalRegimeLabel("2"), "Interne");
+  assert.equal(canonicalRegimeLabel("0"), "Externe");
+  assert.equal(canonicalRegimeLabel("oui"), "Interne");
+  assert.equal(canonicalRegimeLabel("x"), "Interne");
+  assert.equal(canonicalRegimeLabel("non"), "Externe");
 });
 
 test("parse NOM Prenom photo filename", () => {

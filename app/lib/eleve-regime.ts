@@ -1,6 +1,9 @@
 /**
  * Normalisation régime scolaire (Siècle CODE_REGIME / Excel Charlemagne).
  * Codes Siècle courants : 0 externe, 1 DP, 2 interne, 3 interne-externe.
+ *
+ * Attention : ne jamais traiter « 1 » comme un booléen « oui → Interne »
+ * (c’est le code demi-pension Siècle).
  */
 
 export type EleveRegimeKind = "interne" | "demi_pension" | "externe" | "inconnu";
@@ -54,5 +57,28 @@ export function classifyRegime(raw: string | undefined | null): EleveRegimeKind 
   }
   if (s.includes("externe") || s === "ext" || s === "e") return "externe";
 
+  // Booléens de colonne « Interne » (oui/non) — jamais le chiffre 1 (code DP Siècle).
+  if (s === "oui" || s === "o" || s === "yes" || s === "true" || s === "x") return "interne";
+  if (s === "non" || s === "no" || s === "false") return "externe";
+
   return "inconnu";
+}
+
+/**
+ * Libellé canonique pour stockage (référentiel / Excel).
+ * Codes Siècle et synonymes → Interne | Demi-pension | Externe.
+ */
+export function canonicalRegimeLabel(raw: string | undefined | null): string | undefined {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return undefined;
+  switch (classifyRegime(trimmed)) {
+    case "interne":
+      return "Interne";
+    case "demi_pension":
+      return "Demi-pension";
+    case "externe":
+      return "Externe";
+    case "inconnu":
+      return trimmed;
+  }
 }
