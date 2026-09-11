@@ -7,6 +7,15 @@ import {
   siecleCycleLabel,
   type SiecleImportCycle,
 } from "@/app/lib/nomenclature-import/siecle-import-cycle";
+import {
+  attrValue,
+  codeFromElement,
+  extractSiecleElements,
+  firstNonEmpty,
+  parseSiecleDate,
+  tagValue,
+  type SiecleElement,
+} from "@/app/lib/nomenclature-import/siecle-xml-parse-utils";
 
 export type RefEtablissementRow = {
   codeRne: string;
@@ -21,70 +30,76 @@ export type RefEtablissementRow = {
   dateFermeture?: string | null;
 };
 
-function tagValue(block: string, tag: string): string {
-  const m = block.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, "i"));
-  return (m?.[1] ?? "").trim();
-}
-
-function parseSiecleDate(raw: string): string | null {
-  const v = raw.trim();
-  if (!v) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-  const fr = v.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (fr) return `${fr[3]}-${fr[2]}-${fr[1]}`;
-  return null;
-}
-
-function* iterateXmlBlocks(xml: string, tag: string): Generator<string> {
-  const open = `<${tag}`;
-  const close = `</${tag}>`;
-  let pos = 0;
-  while (pos < xml.length) {
-    const start = xml.indexOf(open, pos);
-    if (start === -1) break;
-    const innerStart = xml.indexOf(">", start);
-    if (innerStart === -1) break;
-    const end = xml.indexOf(close, innerStart);
-    if (end === -1) break;
-    yield xml.slice(innerStart + 1, end);
-    pos = end + close.length;
-  }
-}
-
-export function parseEtablissementBlock(block: string): RefEtablissementRow | null {
-  const codeRne =
-    tagValue(block, "CODE_RNE") ||
-    tagValue(block, "CODE_ETABLISSEMENT") ||
-    tagValue(block, "RNE");
+/**
+ * Parse un bloc ETABLISSEMENT Siècle.
+ * CODE_RNE est souvent en **attribut** (`<ETABLISSEMENT CODE_RNE="…">`), parfois en balise enfant.
+ */
+export function parseEtablissementElement(el: SiecleElement): RefEtablissementRow | null {
+  const codeRne = firstNonEmpty(
+    codeFromElement(el, ["CODE_RNE", "CODE_ETABLISSEMENT", "RNE", "UAI", "UAJ"], [
+      "CODE_RNE",
+      "CODE_ETABLISSEMENT",
+      "RNE",
+      "UAI",
+      "UAJ",
+    ]),
+  );
   if (!codeRne) return null;
 
   const adresseParts = [
-    tagValue(block, "ADRESSE1"),
-    tagValue(block, "ADRESSE2"),
-    tagValue(block, "CODE_POSTAL"),
-    tagValue(block, "COMMUNE"),
-    tagValue(block, "VILLE"),
+    tagValue(el.inner, "ADRESSE1"),
+    tagValue(el.inner, "ADRESSE2"),
+    tagValue(el.inner, "ADRESSE_1"),
+    tagValue(el.inner, "ADRESSE_2"),
+    tagValue(el.inner, "CODE_POSTAL"),
+    tagValue(el.inner, "COMMUNE"),
+    tagValue(el.inner, "VILLE"),
+    tagValue(el.inner, "LIBELLE_COMMUNE"),
   ].filter(Boolean);
 
   return {
     codeRne,
-    codeNature: tagValue(block, "CODE_NATURE") || tagValue(block, "NATURE") || undefined,
-    codeType: tagValue(block, "CODE_TYPE") || tagValue(block, "TYPE") || undefined,
-    codeSecteur: tagValue(block, "CODE_SECTEUR") || tagValue(block, "SECTEUR") || undefined,
-    sigle: tagValue(block, "SIGLE") || undefined,
+    codeNature:
+      firstNonEmpty(
+        attrValue(el.attrs, "CODE_NATURE"),
+        tagValue(el.inner, "CODE_NATURE"),
+        tagValue(el.inner, "NATURE"),
+      ) || undefined,
+    codeType:
+      firstNonEmpty(
+        attrValue(el.attrs, "CODE_TYPE"),
+        tagValue(el.inner, "CODE_TYPE"),
+        tagValue(el.inner, "TYPE"),
+      ) || undefined,
+    codeSecteur:
+      firstNonEmpty(
+        attrValue(el.attrs, "CODE_SECTEUR"),
+        tagValue(el.inner, "CODE_SECTEUR"),
+        tagValue(el.inner, "SECTEUR"),
+      ) || undefined,
+    sigle: firstNonEmpty(attrValue(el.attrs, "SIGLE"), tagValue(el.inner, "SIGLE")) || undefined,
     denomPrinc:
-      tagValue(block, "DENOM_PRINC") ||
-      tagValue(block, "DENOMINATION_PRINCIPALE") ||
-      tagValue(block, "NOM") ||
-      undefined,
+      firstNonEmpty(
+        tagValue(el.inner, "DENOM_PRINC"),
+        tagValue(el.inner, "DENOMINATION_PRINCIPALE"),
+        tagValue(el.inner, "NOM_ETABLISSEMENT"),
+        tagValue(el.inner, "NOM"),
+        attrValue(el.attrs, "DENOM_PRINC"),
+      ) || undefined,
     denomCompl:
-      tagValue(block, "DENOM_COMPL") ||
-      tagValue(block, "DENOMINATION_COMPLEMENTAIRE") ||
-      undefined,
+      firstNonEmpty(
+        tagValue(el.inner, "DENOM_COMPL"),
+        tagValue(el.inner, "DENOMINATION_COMPLEMENTAIRE"),
+      ) || undefined,
     adresse: adresseParts.length ? adresseParts.join(", ") : undefined,
-    dateOuverture: parseSiecleDate(tagValue(block, "DATE_OUVERTURE")),
-    dateFermeture: parseSiecleDate(tagValue(block, "DATE_FERMETURE")),
+    dateOuverture: parseSiecleDate(tagValue(el.inner, "DATE_OUVERTURE")) ?? null,
+    dateFermeture: parseSiecleDate(tagValue(el.inner, "DATE_FERMETURE")) ?? null,
   };
+}
+
+/** @deprecated Préférer parseEtablissementElement (attrs + inner). Conservé pour Communs. */
+export function parseEtablissementBlock(block: string): RefEtablissementRow | null {
+  return parseEtablissementElement({ attrs: "", inner: block });
 }
 
 export async function upsertRefEtablissementRows(
@@ -131,6 +146,16 @@ export async function upsertRefEtablissementRows(
   return { inserts, updates };
 }
 
+function collectEtablissementElements(xml: string): SiecleElement[] {
+  const primary = extractSiecleElements(xml, "ETABLISSEMENT");
+  if (primary.length) return primary;
+  // Variantes rares / Communs imbriqués
+  return [
+    ...extractSiecleElements(xml, "UAJ"),
+    ...extractSiecleElements(xml, "PARAMETRES"),
+  ];
+}
+
 export async function importSiecleEtablissementsXml(
   etablissementId: string,
   filename: string,
@@ -142,6 +167,7 @@ export async function importSiecleEtablissementsXml(
   let totalRows = 0;
   let inserts = 0;
   let updates = 0;
+  let skippedNoRne = 0;
   const cycle = opts?.cycle;
   const cycleNote = cycle ? ` · ${siecleCycleLabel(cycle)}` : "";
 
@@ -153,15 +179,27 @@ export async function importSiecleEtablissementsXml(
     batch = [];
   };
 
-  for (const block of iterateXmlBlocks(xml, "ETABLISSEMENT")) {
-    const row = parseEtablissementBlock(block);
-    if (!row) continue;
+  const elements = collectEtablissementElements(xml);
+  for (const el of elements) {
+    const row = parseEtablissementElement(el);
+    if (!row) {
+      skippedNoRne += 1;
+      continue;
+    }
     batch.push(row);
     totalRows += 1;
     if (batch.length >= batchSize) await flush();
   }
 
   await flush();
+
+  if (!totalRows) {
+    throw new Error(
+      `Aucun établissement avec CODE_RNE / UAI lisible dans ${filename} ` +
+        `(${elements.length} bloc(s) ETABLISSEMENT/UAJ trouvé(s), ${skippedNoRne} sans code). ` +
+        `Vérifiez que le fichier est bien Etablissements.xml dézippé (BEE_ETABLISSEMENTS).`,
+    );
+  }
 
   const db = getDb();
   await db.insert(nomenclatureImportLog).values({
@@ -170,7 +208,13 @@ export async function importSiecleEtablissementsXml(
     statut: "ok",
     nbInserts: inserts,
     nbUpdates: updates,
-    rapportJson: { kind: "etablissements", ...(cycle ? { cycle } : {}), rows: totalRows },
+    rapportJson: {
+      kind: "etablissements",
+      ...(cycle ? { cycle } : {}),
+      rows: totalRows,
+      blocks: elements.length,
+      skippedNoRne,
+    },
   });
 
   return {

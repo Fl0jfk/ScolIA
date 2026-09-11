@@ -88,7 +88,8 @@ export async function importSiecleElevesXml(
   const normalized = await normalizeElevesToSiecleClasses(etablissementId, merged.eleves);
   await saveElevesRegistry(normalized.eleves);
 
-  if (Object.keys(parsed.siecleEleveIdMap).length) {
+  const mapSize = Object.keys(parsed.siecleEleveIdMap).length;
+  if (mapSize) {
     await saveSiecleEleveIdMap(parsed.siecleEleveIdMap);
   }
 
@@ -96,7 +97,7 @@ export async function importSiecleElevesXml(
   await db.insert(nomenclatureImportLog).values({
     etablissementId,
     fichier: filename,
-    statut: "ok",
+    statut: mapSize ? "ok" : "partiel",
     nbInserts: merged.stats.added,
     nbUpdates: merged.stats.updated,
     rapportJson: {
@@ -104,13 +105,17 @@ export async function importSiecleElevesXml(
       ...(cycle ? { cycle } : {}),
       total: parsed.total,
       internesCount: parsed.internesCount,
-      siecleIds: Object.keys(parsed.siecleEleveIdMap).length,
+      siecleIds: mapSize,
       sansIne,
       sansClasse,
       classesNormalized: normalized.normalized,
       classesUnresolved: normalized.unresolved,
     },
   });
+
+  const mapWarn = !mapSize
+    ? " Aucun ELEVE_ID→INE (attribut ELEVE_ID manquant ?) — les responsables ne pourront pas être liés."
+    : ` Map ELEVE_ID→INE : ${mapSize}.`;
 
   return {
     inserts: merged.stats.added,
@@ -119,6 +124,7 @@ export async function importSiecleElevesXml(
     internesCount: parsed.internesCount,
     message:
       `${filename} (élèves${cycleNote}) : ${parsed.total} lus — ${merged.stats.added} ajouté(s), ${merged.stats.updated} mis à jour, ${parsed.internesCount} interne(s) · sync BDD par sourceKey.` +
+      mapWarn +
       (sansIne ? ` ${sansIne} sans INE.` : "") +
       (sansClasse ? ` ${sansClasse} sans classe.` : ""),
   };

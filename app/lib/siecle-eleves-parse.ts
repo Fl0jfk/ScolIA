@@ -1,5 +1,11 @@
 import { buildEleveFolderName, type EleveConfig } from "@/app/lib/eleves-config";
 import { isRegimeInterne } from "@/app/lib/eleve-regime";
+import {
+  attrValue,
+  extractSiecleElements,
+  firstNonEmpty,
+  tagValue,
+} from "@/app/lib/nomenclature-import/siecle-xml-parse-utils";
 
 function normalizeSiecleDate(raw: string): string {
   const s = raw.trim();
@@ -10,19 +16,18 @@ function normalizeSiecleDate(raw: string): string {
   return "";
 }
 
-function tagFromBlock(block: string, name: string): string {
-  const m = block.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, "i"));
-  return (m?.[1] || "").replace(/<!\[CDATA\[|\]\]>/g, "").trim();
-}
-
-/** Map Siècle ELEVE_ID → INE (ID_NATIONAL) pour jointure Responsables.xml. */
+/**
+ * Map Siècle ELEVE_ID → INE (ID_NATIONAL) pour jointure Responsables.xml.
+ * Siècle v5 met ELEVE_ID en **attribut** de `<ELEVE ELEVE_ID="…">` (parfois aussi en balise enfant).
+ */
 export function buildSiecleEleveIdToIneMap(xmlText: string): Record<string, string> {
   const map: Record<string, string> = {};
-  const blocks = xmlText.split(/<ELEVE\b/i).slice(1);
-  for (const block of blocks) {
-    const chunk = block.includes("</ELEVE>") ? block.slice(0, block.indexOf("</ELEVE>")) : block;
-    const siecleId = tagFromBlock(chunk, "ELEVE_ID");
-    const ine = tagFromBlock(chunk, "ID_NATIONAL").toUpperCase();
+  for (const el of extractSiecleElements(xmlText, "ELEVE")) {
+    const siecleId = firstNonEmpty(attrValue(el.attrs, "ELEVE_ID"), tagValue(el.inner, "ELEVE_ID"));
+    const ine = firstNonEmpty(
+      tagValue(el.inner, "ID_NATIONAL"),
+      attrValue(el.attrs, "ID_NATIONAL"),
+    ).toUpperCase();
     if (siecleId && ine) map[siecleId] = ine;
   }
   return map;
@@ -35,25 +40,35 @@ export function parseSiecleElevesXmlServer(xmlText: string): {
   total: number;
   siecleEleveIdMap: Record<string, string>;
 } {
-  // Next.js server : utiliser regex robuste sans DOM (évite dépendance linkedom)
   const eleves: EleveConfig[] = [];
   let internesCount = 0;
-  const blocks = xmlText.split(/<ELEVE\b/i).slice(1);
 
-  for (const block of blocks) {
-    const chunk = block.includes("</ELEVE>") ? block.slice(0, block.indexOf("</ELEVE>")) : block;
-    const tag = tagFromBlock.bind(null, chunk);
-    const nom = tag("NOM_DE_FAMILLE");
-    const prenom = tag("PRENOM");
+  for (const el of extractSiecleElements(xmlText, "ELEVE")) {
+    const nom = firstNonEmpty(
+      tagValue(el.inner, "NOM_DE_FAMILLE"),
+      tagValue(el.inner, "NOM"),
+      attrValue(el.attrs, "NOM_DE_FAMILLE"),
+    );
+    const prenom = firstNonEmpty(
+      tagValue(el.inner, "PRENOM"),
+      tagValue(el.inner, "PRENOM_1"),
+      attrValue(el.attrs, "PRENOM"),
+    );
     if (!nom || !prenom) continue;
 
-    const ine = tag("ID_NATIONAL");
-    const codeRegime = tag("CODE_REGIME");
-    const codeSexe = tag("CODE_SEXE");
-    const dateNaiss = tag("DATE_NAISS");
-    const email = tag("MEL");
-    const codeStructure = tag("CODE_STRUCTURE");
-    const codeMef = tag("CODE_MEF");
+    const ine = firstNonEmpty(
+      tagValue(el.inner, "ID_NATIONAL"),
+      attrValue(el.attrs, "ID_NATIONAL"),
+    );
+    const codeRegime = tagValue(el.inner, "CODE_REGIME");
+    const codeSexe = tagValue(el.inner, "CODE_SEXE");
+    const dateNaiss = tagValue(el.inner, "DATE_NAISS");
+    const email = firstNonEmpty(tagValue(el.inner, "MEL"), tagValue(el.inner, "EMAIL"));
+    const codeStructure = firstNonEmpty(
+      tagValue(el.inner, "CODE_STRUCTURE"),
+      tagValue(el.inner, "CODE_DIVISION"),
+    );
+    const codeMef = tagValue(el.inner, "CODE_MEF");
     const sexe: "M" | "F" | undefined =
       codeSexe === "2" ? "F" : codeSexe === "1" ? "M" : undefined;
     const dateNaissance = normalizeSiecleDate(dateNaiss);

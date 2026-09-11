@@ -149,11 +149,11 @@ export function rankSiecleImportFilename(name: string): number {
   if (n.includes("commun")) return 0;
   if (n.includes("nomenclature")) return 1;
   if (n.includes("geograph")) return 2;
-  if (n.includes("structure")) return 3;
-  if (n.includes("eleve")) return 4;
-  if (n.includes("responsable")) return 5;
-  if (n.includes("etablissement")) return 6;
-  return 4;
+  if (n.includes("etablissement")) return 3;
+  if (n.includes("structure")) return 4;
+  if (n.includes("eleve")) return 5;
+  if (n.includes("responsable")) return 6;
+  return 5;
 }
 
 export async function importSiecleXmlBuffersBatch(
