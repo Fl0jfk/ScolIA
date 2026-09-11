@@ -72,7 +72,11 @@ export async function importSiecleElevesXml(
 }> {
   const parsed = parseSiecleElevesXmlServer(xml);
   if (!parsed.eleves.length) {
-    throw new Error("Aucun élève lu dans le XML Siècle.");
+    throw new Error(
+      parsed.skippedSortis
+        ? `Aucun élève scolarisé dans le XML (${parsed.skippedSortis} sorti(s) exclus — DATE_SORTIE antérieure à aujourd'hui).`
+        : "Aucun élève lu dans le XML Siècle.",
+    );
   }
 
   const mefMaps = await buildMefLabelMaps(etablissementId);
@@ -104,6 +108,8 @@ export async function importSiecleElevesXml(
       kind: "eleves",
       ...(cycle ? { cycle } : {}),
       total: parsed.total,
+      totalInFile: parsed.totalInFile,
+      skippedSortis: parsed.skippedSortis,
       internesCount: parsed.internesCount,
       siecleIds: mapSize,
       sansIne,
@@ -116,6 +122,9 @@ export async function importSiecleElevesXml(
   const mapWarn = !mapSize
     ? " Aucun ELEVE_ID→INE (attribut ELEVE_ID manquant ?) — les responsables ne pourront pas être liés."
     : ` Map ELEVE_ID→INE : ${mapSize}.`;
+  const sortisNote = parsed.skippedSortis
+    ? ` ${parsed.skippedSortis} sorti(s) exclus (DATE_SORTIE avant aujourd'hui).`
+    : "";
 
   return {
     inserts: merged.stats.added,
@@ -123,8 +132,9 @@ export async function importSiecleElevesXml(
     rows: parsed.total,
     internesCount: parsed.internesCount,
     message:
-      `${filename} (élèves${cycleNote}) : ${parsed.total} lus — ${merged.stats.added} ajouté(s), ${merged.stats.updated} mis à jour, ${parsed.internesCount} interne(s) · sync BDD par sourceKey.` +
+      `${filename} (élèves${cycleNote}) : ${parsed.total} scolarisés / ${parsed.totalInFile} dans le fichier — ${merged.stats.added} ajouté(s), ${merged.stats.updated} mis à jour, ${parsed.internesCount} interne(s) · sync BDD par sourceKey.` +
       mapWarn +
+      sortisNote +
       (sansIne ? ` ${sansIne} sans INE.` : "") +
       (sansClasse ? ` ${sansClasse} sans classe.` : ""),
   };

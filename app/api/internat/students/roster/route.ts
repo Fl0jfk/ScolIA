@@ -176,7 +176,16 @@ export async function POST(req: Request) {
       const text = new TextDecoder("latin1").decode(buf);
       const parsed = parseSiecleElevesXmlServer(text);
       if (!parsed.eleves.length) {
-        return NextResponse.json({ error: "Aucun élève lu dans le XML Siècle." }, { status: 400 });
+        return NextResponse.json(
+          {
+            error: parsed.skippedSortis
+              ? `XML lu (${parsed.totalInFile} élèves) mais tous exclus (DATE_SORTIE antérieure à aujourd'hui : ${parsed.skippedSortis}).`
+              : "Aucun élève lu dans le XML Siècle.",
+            totalInFile: parsed.totalInFile,
+            skippedSortis: parsed.skippedSortis,
+          },
+          { status: 400 },
+        );
       }
       // Merge dans le référentiel global
       const existing = await loadElevesRegistry();
@@ -187,19 +196,29 @@ export async function POST(req: Request) {
       if (!entries.length) {
         return NextResponse.json(
           {
-            error: `XML lu (${parsed.total} élèves) mais 0 interne détecté (CODE_REGIME 2/3 ou libellé Interne). Vérifiez les régimes.`,
+            error: `XML lu (${parsed.total} scolarisés / ${parsed.totalInFile} dans le fichier) mais 0 interne détecté (CODE_REGIME 2/3 ou libellé Interne). Vérifiez les régimes.`,
             totalEleves: parsed.total,
+            totalInFile: parsed.totalInFile,
+            skippedSortis: parsed.skippedSortis,
             internesCount: parsed.internesCount,
           },
           { status: 400 },
         );
       }
       const result = await persistAndApply(entries, access.userName);
+      const sortisNote = parsed.skippedSortis
+        ? `, ${parsed.skippedSortis} sorti(s) exclus`
+        : "";
       return NextResponse.json({
         ...result,
         totalEleves: parsed.total,
+        totalInFile: parsed.totalInFile,
+        skippedSortis: parsed.skippedSortis,
         internesDetected: parsed.internesCount,
-        message: formatApplyMessage(`Siècle (${parsed.internesCount} internes détectés)`, result),
+        message: formatApplyMessage(
+          `Siècle (${parsed.internesCount} internes${sortisNote})`,
+          result,
+        ),
       });
     }
 

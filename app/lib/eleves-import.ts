@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { buildEleveFolderName, normalizeEleveDateNaissance, validateElevesJson } from "@/app/lib/eleves-config";
 import { canonicalRegimeLabel } from "@/app/lib/eleve-regime";
+import { isDateSortiePassee } from "@/app/lib/siecle-eleves-parse";
 
 export type ElevesImportSource = "pronote" | "ecoledirecte" | "auto";
 
@@ -24,6 +25,7 @@ type FieldKey =
   | "parent2Phone"
   | "folderName"
   | "dateNaissance"
+  | "dateSortie"
   | "lieuNaissance"
   | "regime"
   | "sexe";
@@ -173,6 +175,15 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "date of birth",
     "dob",
   ],
+  dateSortie: [
+    "date sortie",
+    "date de sortie",
+    "datesortie",
+    "date fin",
+    "date de fin",
+    "date radiation",
+    "date_sortie",
+  ],
   lieuNaissance: [
     "lieu naissance",
     "lieu de naissance",
@@ -254,6 +265,7 @@ function matchColumn(header: string, _source: ElevesImportSource): FieldKey | nu
     "email",
     "folderName",
     "dateNaissance",
+    "dateSortie",
     "lieuNaissance",
     "regime",
     "sexe",
@@ -464,6 +476,11 @@ function parseRowsToEleves(
     if (p2Tel) entry.parent2Phone = p2Tel;
     const dateNaissance = normalizeEleveDateNaissance(cellRaw(row, colMap.dateNaissance));
     if (dateNaissance) entry.dateNaissance = dateNaissance;
+    const dateSortie = normalizeEleveDateNaissance(cellRaw(row, colMap.dateSortie));
+    // Même règle que Siècle : sortie strictement avant aujourd'hui → exclu.
+    if (dateSortie && isDateSortiePassee(dateSortie)) {
+      continue;
+    }
     const lieuNaissance = cellStr(row, colMap.lieuNaissance);
     if (lieuNaissance) entry.lieuNaissance = lieuNaissance;
     const regimeRaw = cellStr(row, colMap.regime);
