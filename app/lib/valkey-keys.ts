@@ -27,6 +27,10 @@ export const VALKEY_TTL = {
   moduleAccessConfig: 30,
   /** Rate-limit applicatif */
   rateLimit: 0, // TTL = fenêtre passée à incr
+  /** Job import photos (état + progression) */
+  photoJob: 6 * 60 * 60,
+  /** Roster matching photos (1 lecture BDD / job) */
+  photoJobRoster: 2 * 60 * 60,
 } as const;
 
 const NS = "scola";
@@ -114,4 +118,14 @@ export function valkeyKeyModuleAccessConfig(tenantSlug: string): string {
 
 export function valkeyKeyRateLimit(key: string): string {
   return `${NS}:rl:${key}`;
+}
+
+/** État d’un job d’import photos élèves (gros JSON — hors hot path auth). */
+export function valkeyKeyPhotoJob(jobId: string): string {
+  return `${NS}:photos:job:${jobId}`;
+}
+
+/** Roster slim (id/nom/prénom/ine) pour matching photos — 1 charge BDD / job. */
+export function valkeyKeyPhotoJobRoster(jobId: string): string {
+  return `${NS}:photos:roster:${jobId}`;
 }

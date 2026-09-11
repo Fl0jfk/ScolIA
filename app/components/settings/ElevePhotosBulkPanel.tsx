@@ -23,6 +23,7 @@ type JobStatusResponse = {
   errors?: string[];
   error?: string;
   message?: string;
+  updatedAt?: string;
 };
 
 type ProgressState = {
@@ -112,8 +113,13 @@ async function fetchJob(jobId: string): Promise<JobStatusResponse> {
   return data;
 }
 
-/** Coup de pouce si l’utilisateur reste sur la page (reprise d’un segment). */
-async function kickProcess(jobId: string): Promise<void> {
+/** Coup de pouce uniquement si le job semble bloqué (pas à chaque poll). */
+async function kickProcessIfStalled(jobId: string, updatedAt?: string): Promise<void> {
+  if (updatedAt) {
+    const age = Date.now() - new Date(updatedAt).getTime();
+    // La chaîne `after()` gère la suite ; on ne relance que si silence > 90s.
+    if (Number.isFinite(age) && age < 90_000) return;
+  }
   await fetch("/api/eleves/photos/bulk/process", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -172,7 +178,7 @@ export default function ElevePhotosBulkPanel() {
                 : prev,
             );
             if (job.status === "processing" || job.status === "queued") {
-              void kickProcess(jobId);
+              void kickProcessIfStalled(jobId, job.updatedAt);
             }
             if (job.status === "completed" || job.status === "failed") {
               stopPoll();
@@ -282,10 +288,10 @@ export default function ElevePhotosBulkPanel() {
           <code className="rounded bg-white/70 px-1">-</code> acceptés — y compris noms composés
           du type <code className="rounded bg-white/70 px-1">LE ROUX Sophie.jpg</code>). Une fois
           l’envoi terminé, le
-          serveur associe les photos en <strong>arrière-plan lent</strong> (basse priorité : l’ENT
-          reste utilisable) et <strong>remplace</strong> uniquement les photos des élèves
-          reconnus. Vous pouvez quitter la page après l’upload — comptez plusieurs minutes pour un
-          gros lot.
+          serveur associe les photos en <strong>arrière-plan lent</strong> (basse priorité :
+          index S3 + cache, <strong>sans saturer la BDD</strong>) et{" "}
+          <strong>remplace</strong> uniquement les photos des élèves reconnus. Vous pouvez
+          quitter la page après l’upload — comptez plusieurs minutes pour un gros lot.
         </>
       }
     >

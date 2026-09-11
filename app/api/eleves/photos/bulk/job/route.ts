@@ -47,5 +47,6 @@ export async function GET(req: Request) {
     unmatched: job.unmatched,
     errors: job.errors,
     error: job.error,
+    updatedAt: job.updatedAt,
   });
 }
