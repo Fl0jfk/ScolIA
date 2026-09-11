@@ -4,7 +4,8 @@ import { eq } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { etablissementSite } from "@/db/schema";
 import { eleveMatchKey } from "@/app/lib/eleves-import";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { isEleveScolarise } from "@/app/lib/eleves-config";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { loadMefSecteurMap } from "@/app/lib/mef-secteurs";
 import { resolveEleveSecteur } from "@/app/lib/onedrive-eleves";
 import type { CertificateSecteur } from "@/app/lib/certificates-types";
@@ -18,6 +19,10 @@ import {
 } from "@/app/lib/eleve-dossier-catalog";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import {
+  filterObservedClassesForCurrentYearUi,
+  loadOfficialSchoolClasses,
+} from "@/app/lib/nomenclature-classes";
 
 export type CertificateStudentOption = {
   key: string;
@@ -74,10 +79,12 @@ export async function loadCertificateStudentPicker(opts?: {
   sites: CertificateStudentSiteOption[];
   classOptions: DossierClassOption[];
 }> {
-  const eleves = await loadElevesRegistry();
+  const eleves = await loadElevesActifsRegistry();
   const mefMap = await loadMefSecteurMap();
   const sitesRaw = await loadDossierSites();
   const catalog = await buildEleveDossierClassCatalog(sitesRaw);
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  const official = etabId ? await loadOfficialSchoolClasses(etabId) : null;
 
   const q = opts?.q?.trim().toLowerCase() || "";
   const classeFilter = opts?.classe?.trim() || "";
@@ -87,6 +94,7 @@ export async function loadCertificateStudentPicker(opts?: {
   const observedClasses: string[] = [];
 
   for (const e of eleves) {
+    if (!isEleveScolarise(e)) continue;
     const nom = String(e.nom || "").trim();
     const prenom = String(e.prenom || "").trim();
     if (!nom || !prenom) continue;
@@ -135,7 +143,7 @@ export async function loadCertificateStudentPicker(opts?: {
   const classOptions = dossierClassOptionsForSite(
     catalog,
     siteFilter || undefined,
-    observedClasses,
+    filterObservedClassesForCurrentYearUi(observedClasses, official),
   );
 
   return { students, sites, classOptions };

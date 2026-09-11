@@ -1,5 +1,5 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
-import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import {
   getStagePeriodsForClass,
   listStageEnabledClassNames,
@@ -106,7 +106,7 @@ function eleveMatchesClass(eleve: EleveConfig, className: string): boolean {
 }
 
 async function loadEleves(): Promise<EleveConfig[]> {
-  return loadElevesRegistry();
+  return loadElevesActifsRegistry();
 }
 
 function isTerminalStatus(status: StageConventionStatus): boolean {

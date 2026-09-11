@@ -35,6 +35,10 @@ import {
   resolveElevePhotoS3Key,
 } from "@/app/lib/eleve-photos";
 import { listObservedClassNames } from "@/app/lib/classe-site-mapping";
+import {
+  filterObservedClassesForCurrentYearUi,
+  loadOfficialSchoolClasses,
+} from "@/app/lib/nomenclature-classes";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { etablissementSite } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -140,10 +144,12 @@ export async function GET(req: NextRequest) {
     .where(eq(etablissementSite.etablissementId, tenant.ctx.etablissementId));
 
   if (metaOnly) {
-    const [sites, extraClasses] = await Promise.all([
+    const [sites, observedRaw, official] = await Promise.all([
       sitesPromise,
       listObservedClassNames(tenant.ctx.etablissementId),
+      loadOfficialSchoolClasses(tenant.ctx.etablissementId),
     ]);
+    const extraClasses = filterObservedClassesForCurrentYearUi(observedRaw, official);
     const catalog = await buildEleveDossierClassCatalog(sites);
     const classOptions =
       profScoped && !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
@@ -180,16 +186,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(metaPayload);
   }
 
-  const [elevesRaw, sites] = await Promise.all([
+  const [elevesRaw, sites, official] = await Promise.all([
     listElevesDossierFromDb(tenant.ctx.etablissementId, {
       classe: profScoped && classe ? classe : fullHub ? classe : undefined,
-      status: fullHub ? status : undefined,
+      status:
+        fullHub && status && status !== "all"
+          ? status
+          : fullHub
+            ? undefined
+            : "inscrit",
       assignedClasses:
         profScoped && !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
           ? assignedClasses
           : undefined,
     }),
     sitesPromise,
+    loadOfficialSchoolClasses(tenant.ctx.etablissementId),
   ]);
 
   const catalog = await buildEleveDossierClassCatalog(sites);
@@ -245,9 +257,12 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  const extraClasses = [
-    ...new Set(eleves.map((e) => e.classe).filter((c): c is string => Boolean(c?.trim()))),
-  ];
+  const extraClasses = filterObservedClassesForCurrentYearUi(
+    [
+      ...new Set(eleves.map((e) => e.classe).filter((c): c is string => Boolean(c?.trim()))),
+    ],
+    official,
+  );
   const classOptions =
     profScoped && !PROFESSEUR_DOSSIER_SEE_ALL_CLASSES_TEMPORARY
       ? (assignedClasses ?? [])

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, count, eq, sql } from "drizzle-orm";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import {
   anneeScolaire,
@@ -21,7 +21,11 @@ import {
 import { flattenToAttrs, inflateFromAttrs } from "@/app/lib/ent-attr-codec";
 import type { Establishment } from "@/app/lib/app-config-schemas";
 import type { EleveConfig } from "@/app/lib/eleves-config";
-import { buildEleveFolderName, normalizeEleveDateNaissance } from "@/app/lib/eleves-config";
+import {
+  buildEleveFolderName,
+  normalizeEleveDateNaissance,
+  normalizeEleveStatus,
+} from "@/app/lib/eleves-config";
 import { slugPilotageKey } from "@/app/lib/pilotage-eleves-logic";
 import type { ClassAllocationTeacherAssignment } from "@/app/lib/class-allocation-teachers";
 import { classKey } from "@/app/lib/stage-referents-config";
@@ -180,6 +184,7 @@ function dateOrNull(raw: string | undefined | null): string | null {
 }
 
 export function eleveRowToConfig(row: EleveRow): EleveConfig {
+  const status = normalizeEleveStatus(row.status);
   return {
     id: row.id,
     ine: row.ine ?? "",
@@ -187,6 +192,7 @@ export function eleveRowToConfig(row: EleveRow): EleveConfig {
     prenom: row.prenom,
     folderName: row.folderName,
     ...(row.classe ? { classe: row.classe } : {}),
+    ...(status ? { status } : {}),
     ...(row.email ? { email: row.email } : {}),
     ...(row.parentEmail ? { parentEmail: row.parentEmail } : {}),
     ...(row.parent1Email ? { parent1Email: row.parent1Email } : {}),
@@ -209,6 +215,7 @@ function eleveConfigToValues(etablissementId: string, e: EleveConfig) {
   const prenom = e.prenom.trim();
   const folderName = e.folderName?.trim() || buildEleveFolderName(nom, prenom);
   const ine = emptyToNull(e.ine?.toUpperCase());
+  const status = normalizeEleveStatus(e.status);
   return {
     etablissementId,
     sourceKey: eleveSourceKey(e),
@@ -232,6 +239,7 @@ function eleveConfigToValues(etablissementId: string, e: EleveConfig) {
     sexe: e.sexe === "M" || e.sexe === "F" ? e.sexe : null,
     photoKey: emptyToNull(e.photoKey),
     pilotageKey: slugPilotageKey(e.ine, folderName),
+    ...(status ? { status } : {}),
     updatedAt: new Date(),
   };
 }
@@ -245,9 +253,26 @@ export async function countElevesInDb(etablissementId: string): Promise<number> 
   return Number(row?.n ?? 0);
 }
 
-export async function listElevesFromDb(etablissementId: string): Promise<EleveConfig[]> {
+export async function listElevesFromDb(
+  etablissementId: string,
+  opts?: { status?: string | string[] },
+): Promise<EleveConfig[]> {
   const db = getDb();
-  const rows = await db.select().from(eleve).where(eq(eleve.etablissementId, etablissementId));
+  const conditions = [eq(eleve.etablissementId, etablissementId)];
+  if (opts?.status != null) {
+    const statuses = (Array.isArray(opts.status) ? opts.status : [opts.status])
+      .map((s) => String(s).trim())
+      .filter(Boolean);
+    if (statuses.length === 1) {
+      conditions.push(eq(eleve.status, statuses[0]!));
+    } else if (statuses.length > 1) {
+      conditions.push(inArray(eleve.status, statuses));
+    }
+  }
+  const rows = await db
+    .select()
+    .from(eleve)
+    .where(and(...conditions));
   return rows.map(eleveRowToConfig);
 }
 
@@ -321,7 +346,11 @@ export async function upsertElevesInDb(
         await ensureEleveScolariteCourante(
           etablissementId,
           existing.id,
-          { classe: patch.classe, regime: patch.regime },
+          {
+            classe: patch.classe,
+            regime: patch.regime,
+            status: normalizeEleveStatus(e.status) ?? normalizeEleveStatus(patch.status),
+          },
           catalog,
         );
       } else {
@@ -330,7 +359,11 @@ export async function upsertElevesInDb(
         await ensureEleveScolariteCourante(
           etablissementId,
           created.id,
-          { classe: values.classe, regime: values.regime },
+          {
+            classe: values.classe,
+            regime: values.regime,
+            status: normalizeEleveStatus(e.status) ?? "inscrit",
+          },
           catalog,
         );
       }
@@ -347,7 +380,11 @@ export async function upsertElevesInDb(
 export async function ensureEleveScolariteCourante(
   etablissementId: string,
   eleveId: string,
-  input: { classe: string | null; regime?: string | null },
+  input: {
+    classe: string | null;
+    regime?: string | null;
+    status?: string | null;
+  },
   catalog?: EleveDossierClassCatalog,
 ): Promise<void> {
   const classe = input.classe?.trim() || null;
@@ -355,6 +392,8 @@ export async function ensureEleveScolariteCourante(
 
   const db = getDb();
   const anneeId = await ensureCurrentAnneeScolaire(etablissementId);
+  const eleveStatus = normalizeEleveStatus(input.status);
+  const scolariteStatut = eleveStatus === "ancien" || eleveStatus === "archive" ? "terminee" : "en_cours";
 
   let resolvedCatalog = catalog;
   if (!resolvedCatalog) {
@@ -397,7 +436,7 @@ export async function ensureEleveScolariteCourante(
       existing.classe !== classe ||
       (siteId != null && existing.siteId !== siteId) ||
       (hasRegimeInfo && existing.demiPension !== demiPension) ||
-      existing.statut !== "en_cours";
+      existing.statut !== scolariteStatut;
 
     if (changed) {
       await db
@@ -406,7 +445,7 @@ export async function ensureEleveScolariteCourante(
           classe,
           ...(siteId ? { siteId } : {}),
           ...(hasRegimeInfo ? { demiPension } : {}),
-          statut: "en_cours",
+          statut: scolariteStatut,
           updatedAt: new Date(),
         })
         .where(eq(eleveScolarite.id, existing.id));
@@ -421,7 +460,7 @@ export async function ensureEleveScolariteCourante(
     classe,
     ...(siteId ? { siteId } : {}),
     demiPension,
-    statut: "en_cours",
+    statut: scolariteStatut,
   });
 }
 

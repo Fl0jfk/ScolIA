@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { isEleveScolarise } from "@/app/lib/eleves-config";
 import {
+  filterObservedClassesForCurrentYearUi,
   loadOfficialSchoolClasses,
   listUnmatchedEleveClasses,
   RECTORAT_LOCKED_POLES,
@@ -17,8 +19,12 @@ export async function GET() {
 
   const official = await loadOfficialSchoolClasses(etabId);
   const eleves = await loadElevesRegistry();
-  const eleveClasses = eleves.map((e) => String(e.classe || "").trim()).filter(Boolean);
+  const eleveClasses = eleves
+    .filter(isEleveScolarise)
+    .map((e) => String(e.classe || "").trim())
+    .filter(Boolean);
   const unmatched = await listUnmatchedEleveClasses(etabId, eleveClasses);
+  const currentYearClasses = filterObservedClassesForCurrentYearUi(eleveClasses, official);
 
   const lockedDivisions = official.divisions.filter(
     (d) =>
@@ -46,6 +52,7 @@ export async function GET() {
     }),
     ecoleFromSiecle: official.classesByPole.ÉCOLE || [],
     unmatchedEleveClasses: unmatched,
+    currentYearEleveClasses: currentYearClasses,
     readOnly: false,
     siecleLockedCollègeLycée: official.hasLockedSiecle,
   });

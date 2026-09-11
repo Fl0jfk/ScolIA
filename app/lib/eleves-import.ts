@@ -395,6 +395,7 @@ function mergeEleveFields(
   }
   if (incoming.sexe) merged.sexe = incoming.sexe;
   if (incoming.photoKey?.trim()) merged.photoKey = incoming.photoKey.trim();
+  if (incoming.status) merged.status = incoming.status;
 
   return merged;
 }
@@ -487,10 +488,14 @@ function parseRowsToEleves(
     const dateNaissance = normalizeEleveDateNaissance(cellRaw(row, colMap.dateNaissance));
     if (dateNaissance) entry.dateNaissance = dateNaissance;
     const dateSortie = normalizeEleveDateNaissance(cellRaw(row, colMap.dateSortie));
-    // Même règle que Siècle : sortie strictement avant aujourd'hui → exclu.
+    // Même règle que Siècle : sortie passée → Ancien (pas d'apparition dans les classes).
     if (dateSortie && isDateSortiePassee(dateSortie)) {
+      entry.status = "ancien";
+      entry.regime = "Externe";
+      eleves.push(entry);
       continue;
     }
+    entry.status = "inscrit";
     const lieuNaissance = cellStr(row, colMap.lieuNaissance);
     if (lieuNaissance) entry.lieuNaissance = lieuNaissance;
     const regimeRaw = cellStr(row, colMap.regime);

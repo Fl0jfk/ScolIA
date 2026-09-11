@@ -456,8 +456,16 @@ export default function NomenclatureImportPanel() {
           ) : null}
           {unmatchedEleveClasses.length > 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 mb-3">
-              <span className="font-bold">Classes collège/lycée élèves non reconnues : </span>
-              {unmatchedEleveClasses.join(", ")}
+              <p className="font-bold mb-1">
+                Classes hors Structures Siècle ({unmatchedEleveClasses.length}) — ignorées dans les
+                filtres
+              </p>
+              <p className="mb-1">{unmatchedEleveClasses.join(", ")}</p>
+              <p className="text-amber-900/80">
+                Souvent des libellés N-1 ou d&apos;un autre établissement (élèves arrivés en cours
+                d&apos;année). Conservés sur la fiche pour l&apos;historique, exclus des recherches
+                par classe année en cours.
+              </p>
             </div>
           ) : null}
           <ul className="grid gap-1 sm:grid-cols-2 max-h-56 overflow-y-auto text-xs">

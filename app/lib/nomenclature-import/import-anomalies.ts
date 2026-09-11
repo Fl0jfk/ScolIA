@@ -188,14 +188,17 @@ export async function buildNomenclatureImportAnomalies(
 
   try {
     const eleves = await loadElevesRegistry();
-    const eleveClasses = eleves.map((e) => String(e.classe || "").trim()).filter(Boolean);
+    const eleveClasses = eleves
+      .filter((e) => !e.status || e.status === "inscrit")
+      .map((e) => String(e.classe || "").trim())
+      .filter(Boolean);
     const unmatched = await listUnmatchedEleveClasses(etablissementId, eleveClasses);
     if (unmatched.length > 0) {
       anomalies.push({
         id: "eleves-classes-hors-siecle",
-        severity: "warn",
-        label: "Classes collège/lycée hors Siècle",
-        detail: `Classes collège/lycée absentes de Structures.xml : ${unmatched.slice(0, 8).join(", ")}${unmatched.length > 8 ? "…" : ""}. Réimportez Structures.xml ou corrigez l'affectation élèves.`,
+        severity: "info",
+        label: "Classes hors Structures (ignorées dans les filtres)",
+        detail: `Libellés absents de Structures.xml (souvent N-1 / autre établissement) : ${unmatched.slice(0, 8).join(", ")}${unmatched.length > 8 ? "…" : ""}. Conservés sur la fiche, exclus des recherches par classe année en cours.`,
         count: unmatched.length,
       });
     }

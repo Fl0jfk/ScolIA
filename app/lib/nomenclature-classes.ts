@@ -303,6 +303,48 @@ export function mergeOfficialAndLocalClasses(
   return out.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
 }
 
+/**
+ * Classes observées (élèves) retenues pour les filtres UI année en cours.
+ * Collège/lycée hors Structures Siècle (N-1, autre établissement) → exclus.
+ * L’école reste libre.
+ */
+export function filterObservedClassesForCurrentYearUi(
+  classNames: string[],
+  official: OfficialClassesResult | null | undefined,
+): string[] {
+  if (!official?.hasLockedSiecle) {
+    return [...new Set(classNames.map((c) => c.trim()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, "fr", { sensitivity: "base", numeric: true }),
+    );
+  }
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of classNames) {
+    const t = String(raw || "").trim();
+    if (!t) continue;
+    const pole = inferPoleFromClassName(t);
+    if (isLockedPole(pole)) {
+      const canonical = resolveCanonicalSiecleClass(
+        t,
+        official.canonicalByFold,
+        official.lockedClasses,
+      );
+      if (!canonical) continue;
+      const key = foldSchoolClass(canonical);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(canonical);
+      continue;
+    }
+    const key = foldSchoolClass(t);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base", numeric: true }));
+}
+
 /** Fusionne classesByPole : collège/lycée Siècle + école depuis config/catalogue local. */
 export function mergeClassesByPoleWithSiecle(
   official: OfficialClassesResult,

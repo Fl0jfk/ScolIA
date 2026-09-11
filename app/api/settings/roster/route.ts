@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { classifyRegime } from "@/app/lib/eleve-regime";
-import { countElevesRegistry, loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { countElevesRegistry, loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import {
   loadSchoolRoster,
   listTeacherDirectoryOptions,
@@ -25,7 +25,7 @@ export async function GET() {
     countElevesRegistry(),
     listTeacherDirectoryOptions(),
     listStageReferentClassNames(),
-    loadElevesRegistry(),
+    loadElevesActifsRegistry(),
   ]);
 
   const elevesSansClasse = eleves.filter((e) => !String(e.classe || "").trim()).length;

@@ -344,9 +344,16 @@ export default function SchoolRosterPanel() {
           </div>
         ) : null}
         {unmatchedEleveClasses.length > 0 ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950 mb-3">
-            <p className="font-bold">Classes collège/lycée non reconnues ({unmatchedEleveClasses.length})</p>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950 mb-3 space-y-1">
+            <p className="font-bold">
+              Classes hors Structures Siècle ({unmatchedEleveClasses.length}) — ignorées dans les
+              filtres
+            </p>
             <p>{unmatchedEleveClasses.join(", ")}</p>
+            <p className="text-amber-900/80">
+              Souvent N-1 ou autre établissement. Conservées sur la fiche élève, exclues des listes
+              de classes année en cours (dossiers, stages, roster).
+            </p>
           </div>
         ) : null}
         <div className="flex flex-wrap gap-2">

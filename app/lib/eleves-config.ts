@@ -81,6 +81,37 @@ export function normalizeEleveDateNaissance(raw: unknown): string {
   return "";
 }
 
+/** Statut fiche élève (colonne `eleve.status`). */
+export type EleveStatus = "preinscrit" | "inscrit" | "ancien" | "archive";
+
+export const ELEVE_STATUS_VALUES: readonly EleveStatus[] = [
+  "preinscrit",
+  "inscrit",
+  "ancien",
+  "archive",
+] as const;
+
+export function normalizeEleveStatus(raw: unknown): EleveStatus | undefined {
+  const v = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (
+    v === "preinscrit" ||
+    v === "inscrit" ||
+    v === "ancien" ||
+    v === "archive"
+  ) {
+    return v;
+  }
+  return undefined;
+}
+
+/** Élève encore scolarisé dans l’établissement (apparaît dans les classes / effectifs). */
+export function isEleveScolarise(eleve: { status?: string | null }): boolean {
+  const s = normalizeEleveStatus(eleve.status);
+  return s == null || s === "inscrit";
+}
+
 export type EleveConfig = {
   /** UUID Postgres quand l’élève vient de la BDD (dossier). */
   id?: string;
@@ -90,6 +121,8 @@ export type EleveConfig = {
   folderName: string;
   /** Classe (ex. 3e2, 2nde A) — recommandé pour le suivi stages par classe. */
   classe?: string;
+  /** preinscrit | inscrit | ancien | archive — sortis Siècle → ancien. */
+  status?: EleveStatus;
   /** E-mail élève (optionnel, pour notifications stages). */
   email?: string;
   /** E-mail responsable légal (optionnel). */
@@ -142,6 +175,7 @@ export function validateElevesJson(
     const mef = String(o.mef ?? o.formation ?? "").trim();
     const secteur = String(o.secteur ?? "").trim();
     const classe = String(o.classe ?? "").trim();
+    const status = normalizeEleveStatus(o.status);
     const email = String(o.email ?? "").trim();
     const parentEmail = String(o.parentEmail ?? "").trim();
     const parent1Email = String(o.parent1Email ?? "").trim();
@@ -175,6 +209,7 @@ export function validateElevesJson(
       prenom,
       folderName,
       ...(classe ? { classe } : {}),
+      ...(status ? { status } : {}),
       ...(email ? { email } : {}),
       ...(parentEmail ? { parentEmail } : {}),
       ...(parent1Email ? { parent1Email } : {}),

@@ -119,7 +119,7 @@ export async function listObservedClassNames(etablissementId: string): Promise<s
   const rows = await db
     .selectDistinct({ classe: eleve.classe })
     .from(eleve)
-    .where(eq(eleve.etablissementId, etablissementId));
+    .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.status, "inscrit")));
   const seen = new Set<string>();
   const out: string[] = [];
   for (const r of rows) {

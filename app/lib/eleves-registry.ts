@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { EleveConfig } from "@/app/lib/eleves-config";
-import { validateElevesJson } from "@/app/lib/eleves-config";
+import { isEleveScolarise, validateElevesJson } from "@/app/lib/eleves-config";
 import {
   countElevesInDb,
   isEntCoreDbEnabled,
@@ -20,6 +20,7 @@ function normalizeName(str: string): string {
     .trim();
 }
 
+/** Tous les élèves (y compris anciens) — matching OCR / historique. */
 export async function loadElevesRegistry(): Promise<EleveConfig[]> {
   if (!isEntCoreDbEnabled()) {
     throw new Error("[eleves] Postgres requis (ENT_CORE_DB) — plus de registre JSON");
@@ -29,6 +30,22 @@ export async function loadElevesRegistry(): Promise<EleveConfig[]> {
     throw new Error("[eleves] établissement introuvable");
   }
   return listElevesFromDb(etabId);
+}
+
+/** Élèves encore scolarisés uniquement — classes, effectifs, stages, certificats. */
+export async function loadElevesActifsRegistry(): Promise<EleveConfig[]> {
+  if (!isEntCoreDbEnabled()) {
+    throw new Error("[eleves] Postgres requis (ENT_CORE_DB) — plus de registre JSON");
+  }
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) {
+    throw new Error("[eleves] établissement introuvable");
+  }
+  return listElevesFromDb(etabId, { status: "inscrit" });
+}
+
+export function filterElevesScolarises(eleves: EleveConfig[]): EleveConfig[] {
+  return eleves.filter(isEleveScolarise);
 }
 
 export async function saveElevesRegistry(eleves: EleveConfig[]): Promise<EleveConfig[]> {

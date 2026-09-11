@@ -59,8 +59,8 @@ type Preinsc = {
 };
 
 const STATUS_OPTIONS = [
-  { value: "", label: "Tous statuts" },
   { value: "inscrit", label: "Scolarisé" },
+  { value: "all", label: "Tous statuts" },
   { value: "preinscrit", label: "Préinscription" },
   { value: "ancien", label: "Ancien" },
 ];
@@ -100,7 +100,7 @@ export default function ElevesDossiersListClient() {
     const nextClasse = searchParams.get("classe")?.trim() || "";
     const nextQ = searchParams.get("q")?.trim() || "";
     const nextSite = searchParams.get("site")?.trim() || "";
-    const nextStatus = searchParams.get("status")?.trim() || "";
+    const nextStatus = searchParams.get("status")?.trim() || "inscrit";
     const nextTab = searchParams.get("tab");
     setClasseFilter(nextClasse);
     setQ(nextQ);
@@ -231,7 +231,10 @@ export default function ElevesDossiersListClient() {
   }, [canManagePreinscriptions]);
 
   const hasActiveSearch = Boolean(
-    q.trim() || classeFilter || siteFilter || statusFilter,
+    q.trim() ||
+      classeFilter ||
+      siteFilter ||
+      (statusFilter && statusFilter !== "inscrit"),
   );
 
   const filtered = useMemo(() => {
@@ -240,7 +243,7 @@ export default function ElevesDossiersListClient() {
     return eleves.filter((e) => {
       if (siteFilter && e.siteId !== siteFilter) return false;
       if (classeFilter && !schoolClassesMatch(e.classe, classeFilter)) return false;
-      if (statusFilter && e.status !== statusFilter) return false;
+      if (statusFilter && statusFilter !== "all" && e.status !== statusFilter) return false;
       if (!needle) return true;
       return personMatchesSearchQuery(
         {
@@ -439,8 +442,9 @@ export default function ElevesDossiersListClient() {
             <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/80 px-6 py-12 text-center">
               <p className="text-base font-semibold text-slate-800">Affinez la recherche</p>
               <p className="mt-2 text-sm text-slate-500">
-                Tapez un nom, choisissez un établissement ou une classe, ou incluez les anciens élèves via le
-                filtre statut.
+                Tapez un nom, choisissez un établissement ou une classe. Les anciens élèves
+                (sortis) sont exclus par défaut — choisissez « Ancien » ou « Tous statuts » pour
+                les inclure.
               </p>
             </div>
           ) : listLoading ? (

@@ -50,6 +50,8 @@ test("parse Siècle : CODE_REGIME BCN 3=interne, 2=DP ; sortis → Externe", () 
   assert.equal(parsed.total, 2);
   assert.equal(parsed.sortis.length, 1);
   assert.equal(parsed.sortis[0]?.regime, "Externe");
+  assert.equal(parsed.sortis[0]?.status, "ancien");
+  assert.equal(parsed.eleves.find((e) => e.nom === "ACTIF")?.status, "inscrit");
   assert.equal(parsed.internesCount, 1); // Bob (code 3)
   assert.equal(parsed.eleves.find((e) => e.nom === "ACTIF")?.regime, "Interne");
   assert.equal(parsed.eleves.find((e) => e.nom === "DP")?.regime, "Demi-pension");

@@ -161,7 +161,7 @@ export async function importSiecleElevesXml(
     ? " Aucun ELEVE_ID→INE (attribut ELEVE_ID manquant ?) — les responsables ne pourront pas être liés."
     : ` Map ELEVE_ID→INE : ${mapSize}.`;
   const sortisNote = parsed.skippedSortis
-    ? ` ${parsed.skippedSortis} sorti(s) repassés en Externe (DATE_SORTIE avant aujourd'hui).`
+    ? ` ${parsed.skippedSortis} sorti(s) → statut Ancien + régime Externe (exclus des classes).`
     : "";
   const regimeNote =
     parsed.withRegimeCount === 0 && parsed.eleves.length > 0

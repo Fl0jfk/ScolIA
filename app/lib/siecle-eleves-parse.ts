@@ -1,4 +1,8 @@
-import { buildEleveFolderName, type EleveConfig } from "@/app/lib/eleves-config";
+import {
+  buildEleveFolderName,
+  type EleveConfig,
+  type EleveStatus,
+} from "@/app/lib/eleves-config";
 import { canonicalRegimeLabel, isRegimeInterne } from "@/app/lib/eleve-regime";
 import {
   attrValue,
@@ -39,7 +43,7 @@ export function isDateSortiePassee(
 
 function eleveFromSiecleBlock(
   el: { attrs: string; inner: string },
-  opts: { forceRegime?: string },
+  opts: { forceRegime?: string; status?: EleveStatus },
 ): EleveConfig | null {
   const nom = firstNonEmpty(
     tagValue(el.inner, "NOM_DE_FAMILLE"),
@@ -79,6 +83,7 @@ function eleveFromSiecleBlock(
     nom,
     prenom,
     folderName,
+    ...(opts.status ? { status: opts.status } : {}),
     ...(codeStructure ? { classe: codeStructure } : {}),
     ...(codeMef ? { mef: codeMef } : {}),
     ...(email ? { email } : {}),
@@ -145,7 +150,10 @@ export function parseSiecleElevesXmlServer(
     const sorti = isDateSortiePassee(dateSortieRaw, now);
 
     if (sorti) {
-      const row = eleveFromSiecleBlock(el, { forceRegime: "Externe" });
+      const row = eleveFromSiecleBlock(el, {
+        forceRegime: "Externe",
+        status: "ancien",
+      });
       if (!row) continue;
       totalInFile += 1;
       skippedSortis += 1;
@@ -153,7 +161,7 @@ export function parseSiecleElevesXmlServer(
       continue;
     }
 
-    const row = eleveFromSiecleBlock(el, {});
+    const row = eleveFromSiecleBlock(el, { status: "inscrit" });
     if (!row) continue;
     totalInFile += 1;
 
