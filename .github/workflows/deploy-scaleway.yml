@@ -21,7 +21,8 @@
 # Runtime conteneur (console cloud, pas GitHub) :
 #   DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL, AUTH_PROVIDER=better-auth,
 #   ENT_CORE_DB=1, ACCESS_KEY_ID, SECRET_ACCESS_KEY, REGISTRY_BUCKET,
-#   VALKEY_URL (ou REDIS_URL — Managed Redis Scaleway / Valkey compatible),
+#   VALKEY_URL (ou REDIS_URL — Managed Redis Scaleway / Valkey compatible).
+   Ne jamais poser VALKEY_DISABLED=1 en production.
 #   MISTRAL_API_KEY, EASYTRANSAC_*, MAILER_*, TRAVEL_EMAIL_INGEST_SECRET, OCR_WORKER_SECRET
 # EasyTransac notification URL : /api/billing/easytransac/webhook
 # Polling e-mail voyages : Cron → POST /api/travels/poll-email

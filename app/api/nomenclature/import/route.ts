@@ -11,6 +11,14 @@ import {
 import { getDb } from "@/db/index";
 import { nomenclatureImportLog, refEtablissement, refNomenclature } from "@/db/schema";
 import { desc, eq, sql } from "drizzle-orm";
+import { valkeyCached, valkeyDel } from "@/app/lib/valkey";
+import {
+  VALKEY_TTL,
+  valkeyKeyNomenclatureImportPanel,
+  valkeyKeySiecleExports,
+} from "@/app/lib/valkey-keys";
+import { invalidateOfficialSchoolClassesCache } from "@/app/lib/nomenclature-classes";
+import { invalidateElevesRegistryCache } from "@/app/lib/eleves-registry";
 
 /** XML Siècle Élèves/Responsables dépassent souvent 7–10 Mo. */
 export const maxDuration = 300;
@@ -29,49 +37,56 @@ export async function GET() {
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
 
-  const db = getDb();
-  const [counts, logs, refEtabCount, anomalies, importStatus] = await Promise.all([
-    db
-      .select({
-        type: refNomenclature.type,
-        n: sql<number>`count(*)::int`,
-      })
-      .from(refNomenclature)
-      .where(eq(refNomenclature.etablissementId, etabId))
-      .groupBy(refNomenclature.type),
-    db
-      .select({
-        id: nomenclatureImportLog.id,
-        fichier: nomenclatureImportLog.fichier,
-        statut: nomenclatureImportLog.statut,
-        nbInserts: nomenclatureImportLog.nbInserts,
-        nbUpdates: nomenclatureImportLog.nbUpdates,
-        dateImport: nomenclatureImportLog.dateImport,
-        rapportJson: nomenclatureImportLog.rapportJson,
-      })
-      .from(nomenclatureImportLog)
-      .where(eq(nomenclatureImportLog.etablissementId, etabId))
-      .orderBy(desc(nomenclatureImportLog.dateImport))
-      .limit(30),
-    db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(refEtablissement)
-      .then((rows) => rows[0]?.n ?? 0),
-    buildNomenclatureImportAnomalies(etabId),
-    buildSiecleImportStatus(etabId),
-  ]);
-
-  return NextResponse.json({
-    counts,
-    logs,
-    refEtablissementCount: refEtabCount,
-    anomalies,
-    importStatus,
-    slots: SIECLE_IMPORT_SLOTS,
-    cycles: SIECLE_IMPORT_CYCLES,
-    maxXmlBytes: MAX_XML_BYTES,
-    maxXmlLabel: MAX_XML_LABEL,
+  const payload = await valkeyCached({
+    key: valkeyKeyNomenclatureImportPanel(etabId),
+    ttlSeconds: VALKEY_TTL.nomenclatureImportPanel,
+    loader: async () => {
+      const db = getDb();
+      const [counts, logs, refEtabCount, anomalies, importStatus] = await Promise.all([
+        db
+          .select({
+            type: refNomenclature.type,
+            n: sql<number>`count(*)::int`,
+          })
+          .from(refNomenclature)
+          .where(eq(refNomenclature.etablissementId, etabId))
+          .groupBy(refNomenclature.type),
+        db
+          .select({
+            id: nomenclatureImportLog.id,
+            fichier: nomenclatureImportLog.fichier,
+            statut: nomenclatureImportLog.statut,
+            nbInserts: nomenclatureImportLog.nbInserts,
+            nbUpdates: nomenclatureImportLog.nbUpdates,
+            dateImport: nomenclatureImportLog.dateImport,
+            rapportJson: nomenclatureImportLog.rapportJson,
+          })
+          .from(nomenclatureImportLog)
+          .where(eq(nomenclatureImportLog.etablissementId, etabId))
+          .orderBy(desc(nomenclatureImportLog.dateImport))
+          .limit(30),
+        db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(refEtablissement)
+          .then((rows) => rows[0]?.n ?? 0),
+        buildNomenclatureImportAnomalies(etabId),
+        buildSiecleImportStatus(etabId),
+      ]);
+      return {
+        counts,
+        logs,
+        refEtablissementCount: refEtabCount,
+        anomalies,
+        importStatus,
+        slots: SIECLE_IMPORT_SLOTS,
+        cycles: SIECLE_IMPORT_CYCLES,
+        maxXmlBytes: MAX_XML_BYTES,
+        maxXmlLabel: MAX_XML_LABEL,
+      };
+    },
   });
+
+  return NextResponse.json(payload);
 }
 
 export async function POST(req: Request) {
@@ -162,6 +177,12 @@ export async function POST(req: Request) {
   for (const r of batchReports) {
     reports.push(r);
   }
+
+  await Promise.all([
+    valkeyDel(valkeyKeyNomenclatureImportPanel(etabId), valkeyKeySiecleExports(etabId)),
+    invalidateOfficialSchoolClassesCache(etabId),
+    invalidateElevesRegistryCache(etabId),
+  ]);
 
   return NextResponse.json({ ok: true, cycle, reports });
 }

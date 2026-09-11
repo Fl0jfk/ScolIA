@@ -8,6 +8,8 @@ import {
 import { getDb } from "@/db/index";
 import { desc, eq } from "drizzle-orm";
 import { nomenclatureImportLog } from "@/db/schema";
+import { valkeyCached, valkeyDel } from "@/app/lib/valkey";
+import { VALKEY_TTL, valkeyKeySiecleExports } from "@/app/lib/valkey-keys";
 
 export async function GET() {
   const gate = await requireAdmin();
@@ -15,28 +17,35 @@ export async function GET() {
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
 
-  const db = getDb();
-  const logs = await db
-    .select()
-    .from(nomenclatureImportLog)
-    .where(eq(nomenclatureImportLog.etablissementId, etabId))
-    .orderBy(desc(nomenclatureImportLog.dateImport))
-    .limit(30);
+  const payload = await valkeyCached({
+    key: valkeyKeySiecleExports(etabId),
+    ttlSeconds: VALKEY_TTL.siecleExports,
+    loader: async () => {
+      const db = getDb();
+      const logs = await db
+        .select()
+        .from(nomenclatureImportLog)
+        .where(eq(nomenclatureImportLog.etablissementId, etabId))
+        .orderBy(desc(nomenclatureImportLog.dateImport))
+        .limit(30);
 
-  const exports = logs
-    .filter((l) => {
-      const rapport = l.rapportJson as { sens?: string } | null;
-      return rapport?.sens === "export" || l.source === "siecle_export";
-    })
-    .map((l) => ({
-      id: l.id,
-      fichier: l.fichier,
-      dateImport: l.dateImport,
-      statut: l.statut,
-      rapport: l.rapportJson,
-    }));
+      const exports = logs
+        .filter((l) => {
+          const rapport = l.rapportJson as { sens?: string } | null;
+          return rapport?.sens === "export" || l.source === "siecle_export";
+        })
+        .map((l) => ({
+          id: l.id,
+          fichier: l.fichier,
+          dateImport: l.dateImport,
+          statut: l.statut,
+          rapport: l.rapportJson,
+        }));
+      return { exports };
+    },
+  });
 
-  return NextResponse.json({ exports });
+  return NextResponse.json(payload);
 }
 
 export async function POST() {
@@ -48,6 +57,7 @@ export async function POST() {
   try {
     const bundle = await buildSiecleExportBundle(etabId);
     await recordSiecleExportLog(etabId, bundle);
+    await valkeyDel(valkeyKeySiecleExports(etabId));
 
     return new NextResponse(new Uint8Array(bundle.zipBuffer), {
       headers: {

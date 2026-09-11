@@ -31,6 +31,16 @@ export const VALKEY_TTL = {
   photoJob: 6 * 60 * 60,
   /** Roster matching photos (1 lecture BDD / job) */
   photoJobRoster: 2 * 60 * 60,
+  /** Référentiel élèves (table eleve — lecture lourde) */
+  elevesRegistry: 45,
+  /** Classes officielles Siècle (Structures) */
+  officialClasses: 120,
+  /** Panneau Éducation nationale (GET import) */
+  nomenclatureImportPanel: 30,
+  /** Historique exports Siècle */
+  siecleExports: 45,
+  /** Roster internat (S3, partagé entre instances) */
+  internatStudents: 45,
 } as const;
 
 const NS = "scola";
@@ -128,4 +138,27 @@ export function valkeyKeyPhotoJob(jobId: string): string {
 /** Roster slim (id/nom/prénom/ine) pour matching photos — 1 charge BDD / job. */
 export function valkeyKeyPhotoJobRoster(jobId: string): string {
   return `${NS}:photos:roster:${jobId}`;
+}
+
+export function valkeyKeyElevesRegistry(
+  etablissementId: string,
+  status: "all" | "inscrit" = "all",
+): string {
+  return `${NS}:eleves:reg:${etablissementId}:${status}`;
+}
+
+export function valkeyKeyOfficialClasses(etablissementId: string): string {
+  return `${NS}:siecle:classes:${etablissementId}`;
+}
+
+export function valkeyKeyNomenclatureImportPanel(etablissementId: string): string {
+  return `${NS}:siecle:import-panel:${etablissementId}`;
+}
+
+export function valkeyKeySiecleExports(etablissementId: string): string {
+  return `${NS}:siecle:exports:${etablissementId}`;
+}
+
+export function valkeyKeyInternatStudents(etablissementId: string): string {
+  return `${NS}:internat:students:${etablissementId}`;
 }

@@ -8,6 +8,8 @@ import { loadMefSecteurMapFromNomenclature } from "@/app/lib/mef-secteurs-nomenc
 import { normMefCode } from "@/app/lib/mef-secteurs";
 import { listGroupes } from "@/app/lib/groupes-pedagogiques-db";
 import { guessClassLevelFromClasse } from "@/app/lib/class-allocation-level-heuristic";
+import { valkeyCached, valkeyDel } from "@/app/lib/valkey";
+import { VALKEY_TTL, valkeyKeyOfficialClasses } from "@/app/lib/valkey-keys";
 
 export type SiecleDivision = NomenclatureEntry;
 
@@ -165,11 +167,17 @@ export async function listSiecleLockedClasses(etablissementId: string): Promise<
   return official.lockedClasses;
 }
 
-/**
- * Charge les classes officielles Siècle.
- * Seuls collège et lycée sont imposés par le rectorat ; l'école reste hors périmètre pour l'instant.
- */
-export async function loadOfficialSchoolClasses(
+export async function invalidateOfficialSchoolClassesCache(
+  etablissementId: string,
+): Promise<void> {
+  await valkeyDel(valkeyKeyOfficialClasses(etablissementId));
+}
+
+type OfficialClassesCachePayload = Omit<OfficialClassesResult, "canonicalByFold"> & {
+  canonicalByFoldEntries: Array<[string, string]>;
+};
+
+async function loadOfficialSchoolClassesUncached(
   etablissementId: string,
 ): Promise<OfficialClassesResult> {
   const divisions = await listSiecleDivisions(etablissementId);
@@ -202,6 +210,38 @@ export async function loadOfficialSchoolClasses(
     classesByPole,
     divisions,
     canonicalByFold: buildCanonicalByFold(lockedDivisions, mefMap),
+  };
+}
+
+/**
+ * Charge les classes officielles Siècle.
+ * Seuls collège et lycée sont imposés par le rectorat ; l'école reste hors périmètre pour l'instant.
+ */
+export async function loadOfficialSchoolClasses(
+  etablissementId: string,
+): Promise<OfficialClassesResult> {
+  const cached = await valkeyCached({
+    key: valkeyKeyOfficialClasses(etablissementId),
+    ttlSeconds: VALKEY_TTL.officialClasses,
+    loader: async (): Promise<OfficialClassesCachePayload> => {
+      const fresh = await loadOfficialSchoolClassesUncached(etablissementId);
+      return {
+        hasLockedSiecle: fresh.hasLockedSiecle,
+        lockedClasses: fresh.lockedClasses,
+        lockedClassesByPole: fresh.lockedClassesByPole,
+        classesByPole: fresh.classesByPole,
+        divisions: fresh.divisions,
+        canonicalByFoldEntries: [...fresh.canonicalByFold.entries()],
+      };
+    },
+  });
+  return {
+    hasLockedSiecle: cached.hasLockedSiecle,
+    lockedClasses: cached.lockedClasses,
+    lockedClassesByPole: cached.lockedClassesByPole,
+    classesByPole: cached.classesByPole,
+    divisions: cached.divisions,
+    canonicalByFold: new Map(cached.canonicalByFoldEntries || []),
   };
 }
 

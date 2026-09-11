@@ -10,6 +10,8 @@ import {
   upsertElevesInDb,
 } from "@/app/lib/ent-core-db";
 import { personMatchesSearchQuery } from "@/app/lib/person-name-search";
+import { valkeyCached, valkeyDel } from "@/app/lib/valkey";
+import { VALKEY_TTL, valkeyKeyElevesRegistry } from "@/app/lib/valkey-keys";
 
 function normalizeName(str: string): string {
   return str
@@ -18,6 +20,15 @@ function normalizeName(str: string): string {
     .toLowerCase()
     .replace(/[-\s]+/g, " ")
     .trim();
+}
+
+export async function invalidateElevesRegistryCache(etablissementId?: string): Promise<void> {
+  const etabId = etablissementId || (await resolveCurrentEtablissementId());
+  if (!etabId) return;
+  await valkeyDel(
+    valkeyKeyElevesRegistry(etabId, "all"),
+    valkeyKeyElevesRegistry(etabId, "inscrit"),
+  );
 }
 
 /** Tous les élèves (y compris anciens) — matching OCR / historique. */
@@ -29,7 +40,11 @@ export async function loadElevesRegistry(): Promise<EleveConfig[]> {
   if (!etabId) {
     throw new Error("[eleves] établissement introuvable");
   }
-  return listElevesFromDb(etabId);
+  return valkeyCached({
+    key: valkeyKeyElevesRegistry(etabId, "all"),
+    ttlSeconds: VALKEY_TTL.elevesRegistry,
+    loader: () => listElevesFromDb(etabId),
+  });
 }
 
 /** Élèves encore scolarisés uniquement — classes, effectifs, stages, certificats. */
@@ -41,7 +56,11 @@ export async function loadElevesActifsRegistry(): Promise<EleveConfig[]> {
   if (!etabId) {
     throw new Error("[eleves] établissement introuvable");
   }
-  return listElevesFromDb(etabId, { status: "inscrit" });
+  return valkeyCached({
+    key: valkeyKeyElevesRegistry(etabId, "inscrit"),
+    ttlSeconds: VALKEY_TTL.elevesRegistry,
+    loader: () => listElevesFromDb(etabId, { status: "inscrit" }),
+  });
 }
 
 export function filterElevesScolarises(eleves: EleveConfig[]): EleveConfig[] {
@@ -57,6 +76,7 @@ export async function saveElevesRegistry(eleves: EleveConfig[]): Promise<EleveCo
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) throw new Error("[eleves] établissement introuvable");
   await upsertElevesInDb(etabId, validated.eleves);
+  await invalidateElevesRegistryCache(etabId);
 
   // Zéro friction : régimes connus → ajouts / sorties internat (fiche conservée).
   if (validated.eleves.some((e) => e.regime?.trim()) && process.env.ENT_IMPORT_SCRIPT !== "1") {

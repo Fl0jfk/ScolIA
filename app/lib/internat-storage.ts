@@ -20,6 +20,29 @@ import {
   type InternatSupervisorShift,
 } from "@/app/lib/internat-types";
 import { outingIndexEntry } from "@/app/lib/internat-outing";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { valkeyCached, valkeyDel } from "@/app/lib/valkey";
+import { VALKEY_TTL, valkeyKeyInternatStudents } from "@/app/lib/valkey-keys";
+import {
+  INTERNAT_S3,
+  emptyRollCall,
+  type InternatActivity,
+  type InternatAlert,
+  type InternatIncident,
+  type InternatJournalEntry,
+  type InternatMessage,
+  type InternatModuleConfig,
+  type InternatOuting,
+  type InternatOutingIndexEntry,
+  type InternatRollCall,
+  type InternatRollCallPeriod,
+  type InternatBuilding,
+  type InternatRoom,
+  type InternatStudent,
+  type InternatStudyGroup,
+  type InternatSupervisorShift,
+} from "@/app/lib/internat-types";
+import { outingIndexEntry } from "@/app/lib/internat-outing";
 
 function rollCallKey(date: string, period: InternatRollCallPeriod = "soir") {
   const suffix = period === "matin" ? "-matin" : "";
@@ -82,8 +105,18 @@ export async function getInternatStudents(): Promise<InternatStudent[]> {
   if (studentsCache && Date.now() - studentsCache.at < INTERNAT_MEM_CACHE_MS) {
     return studentsCache.data;
   }
-  const hit = await getJson<InternatStudent[]>(INTERNAT_S3.students);
-  const data = Array.isArray(hit?.data) ? hit.data : [];
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  const loadFromS3 = async () => {
+    const hit = await getJson<InternatStudent[]>(INTERNAT_S3.students);
+    return Array.isArray(hit?.data) ? hit.data : [];
+  };
+  const data = etabId
+    ? await valkeyCached({
+        key: valkeyKeyInternatStudents(etabId),
+        ttlSeconds: VALKEY_TTL.internatStudents,
+        loader: loadFromS3,
+      })
+    : await loadFromS3();
   studentsCache = { at: Date.now(), data };
   return data;
 }
@@ -91,6 +124,8 @@ export async function getInternatStudents(): Promise<InternatStudent[]> {
 export async function saveInternatStudents(students: InternatStudent[]) {
   await putJson(INTERNAT_S3.students, students);
   studentsCache = { at: Date.now(), data: students };
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  if (etabId) await valkeyDel(valkeyKeyInternatStudents(etabId));
 }
 
 export async function getInternatActivities(): Promise<InternatActivity[]> {
