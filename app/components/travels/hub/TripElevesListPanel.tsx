@@ -22,6 +22,10 @@ import type {
 } from "@/app/lib/travels-types";
 import { TripAlert, TripButton, TripInput, TripSection } from "@/app/components/travels/TripDetailUI";
 import { schoolClassesMatch } from "@/app/lib/school-classes-catalog";
+import {
+  isTripSelectedClass,
+  prioritizeClassesForTrip,
+} from "@/app/lib/travels-classes";
 
 type Props = {
   trip: TravelsTrip;
@@ -37,6 +41,8 @@ const KIND_LABEL: Record<TravelsCalendarPoint["kind"], string> = {
 
 export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   const [eleves, setEleves] = useState<EleveConfig[]>([]);
+  /** Classes année en cours (Siècle) — fournies par l’API, pas le distinct brut élèves. */
+  const [catalogClasses, setCatalogClasses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   /** Classe en cours de parcours (pour ajouter des élèves). */
@@ -52,6 +58,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   const needsBus = complexNeedsBus(trip);
   const confirmed = trip.data.listeElevesStatus === "confirmed";
   const calendarReady = calendarHasDepotAndRecuperation(calendar);
+  const tripClassesRaw = trip.data.classes;
 
   useEffect(() => {
     setCalendar(defaultParentCalendarFromTrip(trip.data));
@@ -68,11 +75,14 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch("/api/eleves")
+    setLoadError(null);
+    fetch("/api/travels/eleves-picker")
       .then(async (r) => {
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || "Chargement élèves impossible");
-        if (!cancelled) setEleves(Array.isArray(j.eleves) ? j.eleves : []);
+        if (cancelled) return;
+        setEleves(Array.isArray(j.eleves) ? j.eleves : []);
+        setCatalogClasses(Array.isArray(j.classes) ? j.classes : []);
       })
       .catch((e) => {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : "Erreur");
@@ -92,8 +102,6 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     const droits: Record<string, boolean> = {};
     for (const p of existing) droits[eleveParticipantKey(p)] = p.droitImageOk !== false;
     setDroitByKey(droits);
-    const classes = [...new Set(existing.map((p) => p.classe).filter(Boolean) as string[])];
-    if (classes.length && !browseClass) setBrowseClass(classes[0]!);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync from trip only
   }, [trip.id, trip.data.participantEleves, trip.data.listeElevesStatus]);
 
@@ -103,19 +111,29 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     return map;
   }, [eleves]);
 
-  const allClasses = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of eleves) {
-      if (e.classe?.trim()) set.add(e.classe.trim());
-    }
-    return [...set].sort((a, b) => a.localeCompare(b, "fr"));
-  }, [eleves]);
+  const allClasses = useMemo(
+    () => prioritizeClassesForTrip(catalogClasses, tripClassesRaw),
+    [catalogClasses, tripClassesRaw],
+  );
 
   const filteredClasses = useMemo(() => {
     const q = classFilter.trim().toLowerCase();
     if (!q) return allClasses;
     return allClasses.filter((c) => c.toLowerCase().includes(q));
   }, [allClasses, classFilter]);
+
+  /** Première classe du séjour (ou première du catalogue) pour ouvrir le parcours. */
+  useEffect(() => {
+    if (browseClass || allClasses.length === 0) return;
+    const fromParticipants = (trip.data.participantEleves || [])
+      .map((p) => p.classe?.trim())
+      .filter(Boolean) as string[];
+    const preferred =
+      allClasses.find((c) => fromParticipants.some((p) => schoolClassesMatch(c, p))) ||
+      allClasses.find((c) => isTripSelectedClass(c, tripClassesRaw)) ||
+      allClasses[0]!;
+    setBrowseClass(preferred);
+  }, [allClasses, browseClass, trip.data.participantEleves, tripClassesRaw]);
 
   const elevesInBrowseClass = useMemo(() => {
     if (!browseClass) return [];
@@ -425,21 +443,30 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                 placeholder="Filtrer une classe…"
                 className="mb-2 w-full max-w-xs rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
+              {allClasses.some((c) => isTripSelectedClass(c, tripClassesRaw)) && (
+                <p className="mb-2 text-[11px] text-slate-500">
+                  Les classes choisies à la création du séjour apparaissent en premier.
+                </p>
+              )}
               <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto">
                 {filteredClasses.map((c) => {
                   const active = browseClass === c;
                   const n = countSelectedInClass(c);
+                  const fromTrip = isTripSelectedClass(c, tripClassesRaw);
                   return (
                     <button
                       key={c}
                       type="button"
                       onClick={() => setBrowseClass(c)}
+                      title={fromTrip ? "Classe du séjour" : undefined}
                       className={`rounded-full px-3 py-1.5 text-xs ring-1 transition ${
                         active
                           ? "bg-indigo-600 text-white ring-indigo-600"
                           : n > 0
                             ? "bg-indigo-50 text-indigo-900 ring-indigo-200"
-                            : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+                            : fromTrip
+                              ? "bg-violet-50 text-violet-900 ring-violet-200 hover:bg-violet-100"
+                              : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
                       }`}
                     >
                       {c}
@@ -448,7 +475,9 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                   );
                 })}
                 {filteredClasses.length === 0 && (
-                  <p className="text-sm text-slate-500">Aucune classe dans le fichier élèves.</p>
+                  <p className="text-sm text-slate-500">
+                    Aucune classe année en cours (élèves inscrits / Structures Siècle).
+                  </p>
                 )}
               </div>
             </div>
