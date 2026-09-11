@@ -479,11 +479,11 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
   },
   {
     moduleId: "requests-staff",
-    title: "Demandes",
+    title: "Demande",
     steps: [
       {
         title: "Demandes internes",
-        body: "Soumettez et traitez les demandes de l'établissement (matériel, locaux, impressions…).",
+        body: "Soumettez et suivez vos demandes, ou traitez celles de votre service (matériel, locaux, impressions…).",
       },
       {
         target: "requests-inbox",

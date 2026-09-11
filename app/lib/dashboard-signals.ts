@@ -1166,7 +1166,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     }
   }
 
-  // —— Services : Demandes ——
+  // —— Services : Demande (une tuile — créer / suivre / file staff) ——
   if (has("requests-staff")) {
     const requestsHome = moduleHref("requests-staff");
     const claimedMine = requestsBoard.filter((r) => {
@@ -1178,23 +1178,22 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     });
     const unassigned = requestsBoard.filter((r) => !r.assignedTo?.claimedBy && r.status !== "TERMINEE");
 
+    const requestSlides: DashboardShortcutSlide[] = [];
+
     if (claimedMine.length > 0) {
       const first = claimedMine[0]!;
       const who = first.requesterName?.trim();
       const topic = first.subject?.trim();
-      shortcuts.push({
+      requestSlides.push({
         id: "requests-claimed",
-        pillarId: "administratif",
-        moduleId: "requests-staff",
-        href: requestsHome,
-        label: "Demandes",
-        rich: true,
+        label: claimedMine.length === 1 ? "1 attribuée" : `${claimedMine.length} attribuées`,
         badge: claimedMine.length === 1 ? "1 attribuée" : `${claimedMine.length} attribuées`,
+        count: claimedMine.length,
+        href: requestsHome,
         detail:
           claimedMine.length === 1
             ? [who ? `De ${who}` : "Demande attribuée", topic].filter(Boolean).join(" — ")
             : `${claimedMine.length} demandes vous ont été attribuées`,
-        tone: "action",
       });
       pushNotif({
         id: "requests-claimed",
@@ -1214,14 +1213,12 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
       const first = unassigned[0]!;
       const who = first.requesterName?.trim();
       const topic = first.subject?.trim();
-      shortcuts.push({
+      requestSlides.push({
         id: "requests-pool",
-        pillarId: "administratif",
-        moduleId: "requests-staff",
-        href: requestsHome,
-        label: "File demandes",
-        rich: true,
+        label: "File non assignée",
         badge: `${unassigned.length} non assignée${unassigned.length > 1 ? "s" : ""}`,
+        count: unassigned.length,
+        href: requestsHome,
         detail:
           unassigned.length === 1
             ? [who ? `${who}` : "1 demande", topic || "non assignée dans votre file"]
@@ -1230,7 +1227,6 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             : who
               ? `${who} + ${unassigned.length - 1} autre${unassigned.length > 2 ? "s" : ""} — file non assignée`
               : `${unassigned.length} demandes non assignées dans votre file`,
-        tone: "warn",
       });
       pushNotif({
         id: "requests-pool",
@@ -1246,20 +1242,28 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             : `${unassigned.length} demandes non assignées dans votre file`,
       });
     }
-    if (claimedMine.length === 0 && unassigned.length === 0) {
+
+    if (requestSlides.length > 0) {
+      const total = requestSlides.reduce((sum, s) => sum + (s.count || 0), 0);
       shortcuts.push({
-        id: "requests-new",
+        id: "requests",
         pillarId: "administratif",
         moduleId: "requests-staff",
-        href: "/faire-une-demande",
-        label: "Faire une demande",
+        href: requestSlides[0]!.href || requestsHome,
+        label: "Demande",
+        rich: true,
+        badge: `${total}`,
+        detail: requestSlides.map((s) => s.detail || s.label).join(" · "),
+        tone: claimedMine.length > 0 ? "action" : "warn",
+        slides: requestSlides,
       });
+    } else {
       shortcuts.push({
-        id: "requests-mine",
+        id: "requests",
         pillarId: "administratif",
         moduleId: "requests-staff",
-        href: "/mes-demandes",
-        label: "Voir mes demandes",
+        href: requestsHome,
+        label: "Demande",
       });
     }
   }
