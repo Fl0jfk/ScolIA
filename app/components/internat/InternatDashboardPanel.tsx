@@ -50,11 +50,13 @@ export default function InternatDashboardPanel({ stats }: { stats: InternatDashb
   }
 
   const tonightLabel =
-    stats.tonightRollCall.status === "validee"
-      ? "Validé"
-      : stats.tonightRollCall.status === "en_cours"
-        ? "En cours"
-        : "Non démarré";
+    stats.tonightRollCall.status === "non_applicable"
+      ? "Pas ce soir"
+      : stats.tonightRollCall.status === "validee"
+        ? "Validé"
+        : stats.tonightRollCall.status === "en_cours"
+          ? "En cours"
+          : "Non démarré";
 
   return (
     <div className="space-y-6">
@@ -76,7 +78,15 @@ export default function InternatDashboardPanel({ stats }: { stats: InternatDashb
           hint={`${stats.occupancy.occupiedBeds} / ${stats.occupancy.totalBeds} place(s)`}
           accent="bg-emerald-50 border-emerald-100"
         />
-        <StatCard label="Appel ce soir" value={tonightLabel} />
+        <StatCard
+          label="Appel ce soir"
+          value={tonightLabel}
+          hint={
+            stats.tonightRollCall.status === "non_applicable"
+              ? "Uniquement lundi → jeudi"
+              : undefined
+          }
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

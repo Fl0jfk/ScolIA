@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InternatRollCall, InternatRollMark, InternatStudent } from "@/app/lib/internat-types";
 import { studentDisplayName } from "@/app/lib/internat-types";
-import { todayDateParis } from "@/app/lib/internat-stats";
+import { isInternatEveningRollCallDay, todayDateParis } from "@/app/lib/internat-stats";
 import {
   INTERNAT_NIVEAUX,
   niveauDisplayLabel,
@@ -277,6 +277,7 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
 
   const locked = rollCall?.status === "validee";
   const markedCount = filtered.filter((s) => getMark(rollCall, s)).length;
+  const eveningNotApplicable = period === "soir" && !isInternatEveningRollCallDay(date);
 
   const saveLabel =
     saveStatus === "saving"
@@ -294,6 +295,15 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
 
   return (
     <div className="space-y-4 max-w-3xl mx-auto pb-24 sm:pb-8">
+      {eveningNotApplicable && (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          <p className="font-bold text-slate-900">Pas d’appel du soir ce jour</p>
+          <p className="mt-0.5 text-slate-600">
+            L’appel du soir est prévu le lundi, mardi, mercredi et jeudi uniquement (internes
+            absents le vendredi soir et le week-end).
+          </p>
+        </div>
+      )}
       <div className="sticky top-0 z-20 -mx-1 px-1 py-2 bg-slate-50/95 backdrop-blur-sm space-y-3 border-b border-slate-200/80">
         <div className="flex flex-wrap gap-2 items-center justify-between">
           <div className="flex flex-wrap gap-2 items-center">

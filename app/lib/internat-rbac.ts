@@ -16,6 +16,7 @@ export function canAccessInternatModule(roles: string[]) {
 /**
  * Signal dashboard / rappel opérationnel « appel du soir » :
  * uniquement le rôle `internat` (surveillants et CPE gardent l’accès module sans spam quotidien).
+ * Affiché uniquement les soirs d’hébergement (lundi → jeudi).
  */
 export function canSeeInternatRollCallSignal(roles: string[]) {
   return hasRole(roles, "internat");

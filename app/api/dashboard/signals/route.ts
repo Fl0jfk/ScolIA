@@ -25,7 +25,7 @@ import { canAccessRequestsStaffBoardForUser } from "@/app/lib/requests-staff-acc
 import { getRequestsIndex, isLeaderForRequestBranch } from "@/app/lib/requests";
 import { getAllBranchStaffEmailsFromRouting } from "@/app/lib/requests-routing-config";
 import { isVisibleOnStaffBoard } from "@/app/lib/requests-board";
-import { todayDateParis } from "@/app/lib/internat-stats";
+import { isInternatEveningRollCallDay, todayDateParis } from "@/app/lib/internat-stats";
 import {
   hasVotedMoodPulse,
   moodPulseTodayKey,
@@ -412,15 +412,19 @@ export async function GET() {
       canSeeInternatRollCallSignal(roles)
     ) {
       try {
-        const roll = await getInternatRollCall(todayDateParis());
-        if (roll.status === "validee") {
-          internatRollCallStatus = "validee";
-        } else {
-          const marks = { ...roll.boys.marks, ...roll.girls.marks };
-          internatRollCallStatus =
-            Object.keys(marks).length > 0 || roll.boys.completed || roll.girls.completed
-              ? "en_cours"
-              : "non_demarre";
+        const today = todayDateParis();
+        // Appel du soir uniquement lun–jeu (pas vendredi / week-end).
+        if (isInternatEveningRollCallDay(today)) {
+          const roll = await getInternatRollCall(today);
+          if (roll.status === "validee") {
+            internatRollCallStatus = "validee";
+          } else {
+            const marks = { ...roll.boys.marks, ...roll.girls.marks };
+            internatRollCallStatus =
+              Object.keys(marks).length > 0 || roll.boys.completed || roll.girls.completed
+                ? "en_cours"
+                : "non_demarre";
+          }
         }
       } catch {
         internatRollCallStatus = "non_demarre";

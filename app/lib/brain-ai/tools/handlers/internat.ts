@@ -14,6 +14,7 @@ const ROLL_STATUS_LABELS: Record<string, string> = {
   non_demarre: "non démarré",
   en_cours: "en cours",
   validee: "validé",
+  non_applicable: "non concerné (hors lun–jeu)",
 };
 
 export async function handleGetInternatStatus(ctx: BrainToolCtx): Promise<BrainToolResult> {
@@ -58,6 +59,7 @@ export async function handleGetInternatStatus(ctx: BrainToolCtx): Promise<BrainT
     },
     tonightRollCall: {
       status: stats.tonightRollCall.status,
+      applicable: stats.tonightRollCall.applicable,
       statusLabel: rollLabel,
       present: stats.tonightRollCall.presentCount,
       absent: stats.tonightRollCall.absentCount,

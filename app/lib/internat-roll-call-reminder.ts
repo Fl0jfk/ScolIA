@@ -1,6 +1,6 @@
 import { loadAppConfig } from "@/app/lib/app-config";
 import { notifyInternatRollCallIncomplete } from "@/app/lib/internat-notify";
-import { todayDateParis } from "@/app/lib/internat-stats";
+import { isInternatEveningRollCallDay, todayDateParis } from "@/app/lib/internat-stats";
 import { getInternatRollCall, getInternatStudents, saveInternatRollCall } from "@/app/lib/internat-storage";
 
 function parisHour() {
@@ -20,13 +20,18 @@ export async function runInternatRollCallReminder(options?: { force?: boolean })
     return { sent: false, reason: "disabled" };
   }
 
+  const date = todayDateParis();
+  // Toujours hors lun–jeu : pas de rappel (cron inclus) — internes absents.
+  if (!isInternatEveningRollCallDay(date)) {
+    return { sent: false, reason: "not_evening_roll_call_day", date };
+  }
+
   const targetHour = config.rollCallReminderHour ?? 21;
   const hour = parisHour();
   if (!options?.force && hour !== targetHour) {
     return { sent: false, reason: "wrong_hour", hour, targetHour };
   }
 
-  const date = todayDateParis();
   const [rollCall, students] = await Promise.all([getInternatRollCall(date), getInternatStudents()]);
 
   if (rollCall.status === "validee") {

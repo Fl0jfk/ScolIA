@@ -42,7 +42,9 @@ export type InternatDashboardStats = {
   problematicRoomCount: number;
   tonightRollCall: {
     date: string;
-    status: "non_demarre" | "en_cours" | "validee";
+    /** False hors lun–jeu (internes absents le vendredi soir / week-end). */
+    applicable: boolean;
+    status: "non_demarre" | "en_cours" | "validee" | "non_applicable";
     presentCount: number;
     absentCount: number;
     excusedCount: number;
@@ -70,6 +72,24 @@ function pad2(n: number) {
 export function todayDateParis() {
   const d = new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** Jour de la semaine (0 = dimanche … 6 = samedi) pour une date `YYYY-MM-DD` (Paris). */
+export function parisWeekdayFromDateKey(dateKey: string): number {
+  const wd = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Paris",
+    weekday: "short",
+  }).format(new Date(`${dateKey}T12:00:00`));
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wd);
+}
+
+/**
+ * Appel du soir internat : lundi → jeudi uniquement.
+ * Vendredi soir / week-end : les internes ne sont pas hébergés.
+ */
+export function isInternatEveningRollCallDay(dateKey = todayDateParis()): boolean {
+  const wd = parisWeekdayFromDateKey(dateKey);
+  return wd >= 1 && wd <= 4;
 }
 
 function countMarks(marks: Record<string, InternatRollMark>) {
@@ -191,6 +211,7 @@ export function buildDashboardStats(params: {
     })
     .filter(Boolean) as InternatDashboardStats["roomsOverCapacity"];
 
+  const eveningApplicable = isInternatEveningRollCallDay(tonightRollCall.date);
   const allMarks = { ...tonightRollCall.boys.marks, ...tonightRollCall.girls.marks };
   const tonightCounts = countMarks(allMarks);
 
@@ -198,8 +219,11 @@ export function buildDashboardStats(params: {
   const girlsComplete = sectionIsComplete(tonightRollCall.girls, students, "F");
 
   let tonightStatus: InternatDashboardStats["tonightRollCall"]["status"] = "non_demarre";
-  if (tonightRollCall.status === "validee") tonightStatus = "validee";
-  else if (Object.keys(allMarks).length > 0 || tonightRollCall.boys.completed || tonightRollCall.girls.completed) {
+  if (!eveningApplicable) {
+    tonightStatus = "non_applicable";
+  } else if (tonightRollCall.status === "validee") {
+    tonightStatus = "validee";
+  } else if (Object.keys(allMarks).length > 0 || tonightRollCall.boys.completed || tonightRollCall.girls.completed) {
     tonightStatus = "en_cours";
   }
 
@@ -265,6 +289,7 @@ export function buildDashboardStats(params: {
     problematicRoomCount: roomInsights.filter((r) => r.isProblematic).length,
     tonightRollCall: {
       date: tonightRollCall.date,
+      applicable: eveningApplicable,
       status: tonightStatus,
       presentCount: tonightCounts.present,
       absentCount: tonightCounts.absent,
