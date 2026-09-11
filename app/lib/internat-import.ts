@@ -165,6 +165,12 @@ export async function applyInternatRoster(params: {
   entries: InternatRosterEntry[];
   students: InternatStudent[];
   appliedBy: string;
+  /**
+   * Si fourni : ne passe en sortie que les élèves actuellement actifs
+   * qui sont dans ce périmètre (ex. élèves du XML lycée importé).
+   * Évite de sortir les internes d’un autre cycle (collège) absents du fichier.
+   */
+  sortieScopeKeys?: Set<string>;
 }): Promise<{
   students: InternatStudent[];
   added: number;
@@ -257,6 +263,13 @@ export async function applyInternatRoster(params: {
   for (let i = 0; i < list.length; i++) {
     const prev = list[i]!;
     if (matchedIds.has(prev.id) || !prev.actif) continue;
+    if (params.sortieScopeKeys && params.sortieScopeKeys.size > 0) {
+      const ine = prev.eleveRef.ine?.trim().toUpperCase();
+      const scopeKey = ine
+        ? `ine:${ine}`
+        : `name:${String(prev.eleveRef.nom).trim().toUpperCase()}|${String(prev.eleveRef.prenom).trim().toUpperCase()}`;
+      if (!params.sortieScopeKeys.has(scopeKey)) continue;
+    }
     list[i] = {
       ...prev,
       actif: false,
