@@ -9,6 +9,10 @@ import {
   listWatcherAssignmentsForUser,
   conventionMatchesWatcherAssignments,
 } from "@/app/lib/stage-watchers-config";
+import {
+  conventionMatchesStageSecteurs,
+  resolveStageViewerSecteurs,
+} from "@/app/lib/stage-sector-scope";
 import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
 import { currentStageSchoolYear } from "@/app/lib/stage-types";
 
@@ -53,6 +57,7 @@ export async function GET(req: Request) {
       canReviewPreconvention(roles) || canViewAllConventions(roles)
         ? null
         : [...restaurationWatch, ...cpeWatch];
+    const viewerSecteurs = await resolveStageViewerSecteurs(roles, gate.ctx.userId);
 
     type Row = {
       conventionId: string;
@@ -70,6 +75,9 @@ export async function GET(req: Request) {
         continue;
       }
       if (scopeAssignments && !conventionMatchesWatcherAssignments(c, scopeAssignments)) {
+        continue;
+      }
+      if (!conventionMatchesStageSecteurs(c, viewerSecteurs)) {
         continue;
       }
       const dates = expandStagePresenceDates(c.schedule).filter((d) => d >= from && d <= to);

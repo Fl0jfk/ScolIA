@@ -127,6 +127,16 @@ function StagesContent() {
     if (!res.ok) throw new Error(data?.error || "Erreur");
     setDetail(data);
     setSelectedId(id);
+    setConventions((prev) => {
+      const next = data.convention as StageConvention;
+      const idx = prev.findIndex((c) => c.id === next.id);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = next;
+        return copy;
+      }
+      return [next, ...prev];
+    });
     setTab("conventions");
   }, []);
 
@@ -521,7 +531,11 @@ function StagesContent() {
             Élèves en stage sur la période — utiles pour la restauration et le suivi CPE.
           </p>
           <div className="mt-4">
-            <StageRepasAbsencesPanel />
+            <StageRepasAbsencesPanel
+              onOpenConvention={(id) => {
+                void loadDetail(id);
+              }}
+            />
           </div>
         </section>
       )}

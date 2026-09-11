@@ -146,6 +146,18 @@ function studentKey(nom: string, prenom: string, ine?: string): string {
   return `name:${normalizeName(nom)}|${normalizeName(prenom)}`;
 }
 
+function isRosterVisibleConvention(c: StageConvention, schoolYear: string): boolean {
+  if (c.status === "archived" || c.status === "cancelled") return false;
+  if (c.schoolYear === schoolYear) return true;
+  // Même année calendaire de stage mais schoolYear mal renseigné / N-1 encore actif :
+  // Absences repas les listait déjà ; le suivi classe doit les retrouver.
+  return (
+    c.status === "signed" ||
+    c.status === "signatures_pending" ||
+    c.status === "convention_ready"
+  );
+}
+
 /**
  * Classes disponibles dans le suivi : config stages activée + classes
  * ayant déjà un dossier (stages volontaires hors config, ex. terminale).
@@ -156,9 +168,11 @@ export async function listStageRosterClassNames(schoolYear?: string): Promise<st
     listStageEnabledClassNames(year),
     getConventionsIndex(),
   ]);
-  const fromConventions = index
-    .filter((e) => e.schoolYear === year)
-    .map((e) => String(e.className ?? "").trim())
+  const conventionRows = (
+    await Promise.all(index.map((e) => getStageConvention(e.id)))
+  ).filter((c): c is StageConvention => Boolean(c) && isRosterVisibleConvention(c, year));
+  const fromConventions = conventionRows
+    .map((c) => String(c.student.className ?? "").trim())
     .filter(Boolean);
   return [...new Set([...enabled, ...fromConventions])].sort((a, b) =>
     a.localeCompare(b, "fr", { sensitivity: "base" }),
@@ -180,12 +194,13 @@ export async function buildStageClassRoster(
   const classEleves = eleves.filter((e) => eleveMatchesClass(e, className));
 
   const conventions = (
-    await Promise.all(
-      index
-        .filter((e) => e.schoolYear === year && schoolClassesMatch(e.className, className))
-        .map((e) => getStageConvention(e.id)),
-    )
-  ).filter((c): c is StageConvention => Boolean(c));
+    await Promise.all(index.map((e) => getStageConvention(e.id)))
+  ).filter(
+    (c): c is StageConvention =>
+      Boolean(c) &&
+      isRosterVisibleConvention(c, year) &&
+      schoolClassesMatch(c.student.className, className),
+  );
 
   const studentMap = new Map<string, StageRosterStudent>();
 

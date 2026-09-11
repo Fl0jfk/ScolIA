@@ -30,7 +30,8 @@ export function inferStageSecteurFromClass(className: string, level?: string): S
 export function classNameMatchesStageSecteurs(className: string, secteurs: Secteur[]): boolean {
   if (secteurs.length === 0) return true;
   const secteur = inferSecteurFromFolderName(className.trim());
-  if (!secteur) return false;
+  // Classe atypique (CAP, BTS, ULIS…) : ne pas masquer — Absences repas les montrait déjà.
+  if (!secteur) return true;
   return secteurs.includes(secteur);
 }
 
@@ -43,7 +44,7 @@ export function conventionMatchesStageSecteurs(
     convention.student.className,
     convention.student.level,
   );
-  if (!secteur) return false;
+  if (!secteur) return true;
   return secteurs.includes(secteur);
 }
 
@@ -53,6 +54,10 @@ export function offerMatchesStageSecteurs(offer: StageOffer, secteurs: Secteur[]
     const secteur = inferSecteurFromFolderName(String(level ?? "").trim());
     if (secteur && secteurs.includes(secteur)) return true;
   }
+  // Niveaux non reconnus : laisser passer pour éviter des offres « fantômes ».
+  if (offer.targetLevels.every((level) => !inferSecteurFromFolderName(String(level ?? "").trim()))) {
+    return true;
+  }
   return false;
 }
 
@@ -60,6 +65,11 @@ export async function resolveStageViewerSecteurs(
   roles: string[],
   userId: string,
 ): Promise<Secteur[]> {
+  // Secrétariat / surveillant : même périmètre global que « Absences repas »
+  // (sinon un élève visible aux repas disparaissait de Conventions / Suivi classe).
+  if (roles.includes("administratif") || roles.includes("surveillant")) {
+    return [];
+  }
   return resolvePilotageSecteursForRoles(roles, userId);
 }
 

@@ -13,7 +13,11 @@ type AbsenceRow = {
 
 type DayBucket = { date: string; absences: AbsenceRow[] };
 
-export default function StageRepasAbsencesPanel() {
+export default function StageRepasAbsencesPanel({
+  onOpenConvention,
+}: {
+  onOpenConvention?: (conventionId: string) => void;
+}) {
   const [days, setDays] = useState<DayBucket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +106,17 @@ export default function StageRepasAbsencesPanel() {
                   key={`${a.conventionId}-${a.date}`}
                   className="flex flex-wrap items-baseline gap-2 py-1.5 text-sm"
                 >
-                  <span className="font-semibold text-stone-900">{a.studentName}</span>
+                  {onOpenConvention ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenConvention(a.conventionId)}
+                      className="font-semibold text-[#2F6B4A] underline hover:no-underline"
+                    >
+                      {a.studentName}
+                    </button>
+                  ) : (
+                    <span className="font-semibold text-stone-900">{a.studentName}</span>
+                  )}
                   <span className="text-stone-500">{a.className}</span>
                   <span className="text-xs text-stone-500">· {a.companyName}</span>
                 </li>
