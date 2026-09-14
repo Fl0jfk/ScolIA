@@ -8,6 +8,7 @@ export function stageActorFirstName(
         firstName?: string | null;
         lastName?: string | null;
         fullName?: string | null;
+        name?: string | null;
       }
     | null
     | undefined,
@@ -15,7 +16,7 @@ export function stageActorFirstName(
   const first = user?.firstName?.trim();
   if (first) return first;
 
-  const full = user?.fullName?.trim();
+  const full = (user?.fullName ?? user?.name)?.trim();
   if (full) {
     const token = full.split(/\s+/).find(Boolean);
     if (token && !/^utilisateur$/i.test(token) && !token.includes("@")) {
@@ -29,7 +30,35 @@ export function stageActorFirstName(
 /** Libellé PDF « Validée par X » — prénom seul ; évite le fallback « Utilisateur ». */
 export function stageAdminReviewPdfName(byName: string | undefined | null): string {
   const raw = String(byName ?? "").trim();
-  if (!raw || /^utilisateur$/i.test(raw)) return "l'administration";
+  if (!raw || /^utilisateur$/i.test(raw) || /^administratif$/i.test(raw)) {
+    return "l'administration";
+  }
   const token = raw.split(/\s+/).find(Boolean);
   return token || "l'administration";
+}
+
+/**
+ * Résout le prénom pour la bannière PDF (y compris anciennes validations
+ * enregistrées comme « Utilisateur » via l'id adminReview.by).
+ */
+export async function resolveStageAdminReviewPdfName(adminReview: {
+  by: string;
+  byName: string;
+}): Promise<string> {
+  const fromStored = stageAdminReviewPdfName(adminReview.byName);
+  if (fromStored !== "l'administration") return fromStored;
+
+  try {
+    const { resolveMemberProfileById } = await import("@/app/lib/members-db");
+    const profile = await resolveMemberProfileById(adminReview.by);
+    if (!profile) return fromStored;
+    return stageActorFirstName({
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      name: profile.name,
+      fullName: profile.name,
+    });
+  } catch {
+    return fromStored;
+  }
 }
