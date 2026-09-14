@@ -114,7 +114,9 @@ function isTerminalStatus(status: StageConventionStatus): boolean {
 }
 
 function rosterStatusFromConventions(conventions: StageRosterConvention[]): StageRosterStudentStatus {
-  const active = conventions.filter((c) => !isTerminalStatus(c.status));
+  const active = conventions.filter(
+    (c) => !isTerminalStatus(c.status) && c.status !== "draft",
+  );
   if (active.length === 0) return "sans_stage";
   const signed = active.filter((c) => c.status === "signed");
   const inProgress = active.filter((c) => c.status !== "signed");
@@ -147,7 +149,8 @@ function studentKey(nom: string, prenom: string, ine?: string): string {
 }
 
 function isRosterVisibleConvention(c: StageConvention, schoolYear: string): boolean {
-  if (c.status === "archived" || c.status === "cancelled") return false;
+  // Brouillon élève : visible uniquement côté élève, pas dans le suivi admin / classe.
+  if (c.status === "archived" || c.status === "cancelled" || c.status === "draft") return false;
   if (c.schoolYear === schoolYear) return true;
   // Même année calendaire de stage mais schoolYear mal renseigné / N-1 encore actif :
   // Absences repas les listait déjà ; le suivi classe doit les retrouver.

@@ -2,13 +2,12 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import type { StageConvention, StageConventionStatus } from "@/app/lib/stage-types";
-import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
+import { STAGE_CONVENTION_STATUS_LABELS, STAGE_OFFER_KIND_LABELS } from "@/app/lib/stage-types";
 import type { StagesHubPermissions } from "@/app/components/stages/stages-hub-types";
 
 type ConventionListFilter = "all" | "en_cours" | "signed" | "cancelled";
 
 const IN_PROGRESS_STATUSES = new Set<StageConventionStatus>([
-  "draft",
   "preconvention_submitted",
   "admin_review",
   "admin_rejected",
@@ -26,6 +25,8 @@ function normalizeSearch(value: string): string {
 }
 
 function conventionMatchesFilter(c: StageConvention, filter: ConventionListFilter): boolean {
+  // Brouillon élève : hors vue administrative.
+  if (c.status === "draft") return false;
   if (filter === "all") return true;
   if (filter === "signed") return c.status === "signed";
   if (filter === "cancelled") return c.status === "cancelled";
@@ -50,6 +51,62 @@ function dossierMatchesQuery(list: StageConvention[], query: string): boolean {
     );
     return blob.includes(q);
   });
+}
+
+function statusTone(status: StageConventionStatus): string {
+  switch (status) {
+    case "signed":
+      return "bg-emerald-100 text-emerald-900 ring-emerald-200";
+    case "signatures_pending":
+    case "convention_ready":
+      return "bg-sky-100 text-sky-950 ring-sky-200";
+    case "admin_review":
+    case "preconvention_submitted":
+    case "convention_deposited":
+      return "bg-amber-100 text-amber-950 ring-amber-200";
+    case "admin_rejected":
+      return "bg-orange-100 text-orange-950 ring-orange-200";
+    case "cancelled":
+      return "bg-stone-200 text-stone-700 ring-stone-300";
+    default:
+      return "bg-stone-100 text-stone-700 ring-stone-200";
+  }
+}
+
+function formatPeriodShort(c: StageConvention): string {
+  const start = c.schedule.periodStart?.slice(0, 10);
+  const end = c.schedule.periodEnd?.slice(0, 10);
+  if (!start || !end) return "Période non renseignée";
+  const fmt = (iso: string) =>
+    new Date(`${iso}T12:00:00`).toLocaleDateString("fr-FR", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  return `${fmt(start)} → ${fmt(end)}`;
+}
+
+function sortConventionsInDossier(list: StageConvention[]): StageConvention[] {
+  const rank = (status: StageConventionStatus) => {
+    if (status === "admin_review" || status === "preconvention_submitted") return 0;
+    if (status === "signatures_pending" || status === "convention_ready") return 1;
+    if (status === "admin_rejected" || status === "convention_deposited") return 2;
+    if (status === "signed") return 3;
+    return 4;
+  };
+  return [...list].sort((a, b) => {
+    const byStatus = rank(a.status) - rank(b.status);
+    if (byStatus !== 0) return byStatus;
+    return (b.schedule.periodStart || "").localeCompare(a.schedule.periodStart || "");
+  });
+}
+
+function kindLabel(c: StageConvention): string {
+  const kind = c.internshipKind;
+  if (kind in STAGE_OFFER_KIND_LABELS) {
+    return STAGE_OFFER_KIND_LABELS[kind as keyof typeof STAGE_OFFER_KIND_LABELS];
+  }
+  return kind;
 }
 
 export default function StagesConventionsPanel({
@@ -90,6 +147,7 @@ export default function StagesConventionsPanel({
       map.set(key, list);
     }
     return [...map.entries()]
+      .map(([key, list]) => [key, sortConventionsInDossier(list)] as const)
       .filter(([, list]) => dossierMatchesQuery(list, query))
       .sort(([keyA], [keyB]) => keyA.localeCompare(keyB, "fr", { sensitivity: "base" }));
   }, [conventions, query, statusFilter]);
@@ -98,12 +156,15 @@ export default function StagesConventionsPanel({
     let enCours = 0;
     let signed = 0;
     let cancelled = 0;
+    let visible = 0;
     for (const c of conventions) {
+      if (c.status === "draft") continue;
+      visible += 1;
       if (c.status === "signed") signed += 1;
       else if (c.status === "cancelled") cancelled += 1;
       else if (IN_PROGRESS_STATUSES.has(c.status)) enCours += 1;
     }
-    return { all: conventions.length, enCours, signed, cancelled };
+    return { all: visible, enCours, signed, cancelled };
   }, [conventions]);
 
   const filters: Array<{ id: ConventionListFilter; label: string; count: number }> = [
@@ -139,8 +200,8 @@ export default function StagesConventionsPanel({
           <h2 className="text-lg font-bold text-[#1F3D2B]">Dossiers élèves</h2>
           <p className="text-sm text-stone-600 max-w-3xl">
             Les conventions <strong>signées</strong> restent ici (filtre « Signées »). Seules les
-            archives de fin d&apos;année disparaissent de cette liste. Le tableau de bord, lui,
-            ne montre que les dossiers encore en attente.
+            archives de fin d&apos;année disparaissent de cette liste. Les brouillons élèves ne
+            s&apos;affichent pas ici.
           </p>
         </div>
 
@@ -178,7 +239,7 @@ export default function StagesConventionsPanel({
 
         {dossiers.length === 0 ? (
           <p className="rounded-xl border border-stone-200 bg-white px-4 py-8 text-center text-sm text-stone-500">
-            {conventions.length === 0
+            {counts.all === 0
               ? "Aucun dossier de convention pour l’instant."
               : "Aucun dossier ne correspond à cette recherche ou à ce filtre."}
           </p>
@@ -188,18 +249,25 @@ export default function StagesConventionsPanel({
           const first = list[0]!;
           const openHere = list.some((c) => c.id === selectedId);
           const signedCount = list.filter((c) => c.status === "signed").length;
+          const pendingCount = list.filter(
+            (c) =>
+              c.status === "admin_review" ||
+              c.status === "signatures_pending" ||
+              c.status === "preconvention_submitted",
+          ).length;
+
           return (
-            <div
+            <section
               key={key}
-              className={`rounded-xl border bg-white p-4 transition-shadow ${
+              className={`overflow-hidden rounded-2xl border bg-white transition-shadow ${
                 openHere
-                  ? "border-[#2F6B4A]/40 shadow-md ring-1 ring-[#2F6B4A]/15"
+                  ? "border-[#2F6B4A]/45 shadow-md ring-1 ring-[#2F6B4A]/15"
                   : "border-stone-200 shadow-sm"
               }`}
             >
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-3 text-left"
+                className="flex w-full items-start justify-between gap-3 bg-gradient-to-r from-[#f4f8f5] to-white px-4 py-3.5 text-left"
                 onClick={() => {
                   if (openHere) {
                     onCloseDetail();
@@ -213,63 +281,118 @@ export default function StagesConventionsPanel({
                 }}
                 aria-expanded={openHere}
               >
-                <div>
-                  <p className="font-semibold text-[#1F3D2B]">
-                    {first.student.firstName} {first.student.lastName} — {first.student.className}
+                <div className="min-w-0 space-y-1.5">
+                  <p className="text-base font-bold text-[#1F3D2B]">
+                    {first.student.firstName} {first.student.lastName}
+                    <span className="ml-2 text-sm font-semibold text-stone-500">
+                      {first.student.className}
+                    </span>
                   </p>
-                  <p className="text-xs text-stone-500">
-                    {list.length} convention(s)
-                    {signedCount > 0 ? ` · ${signedCount} signée(s)` : ""}
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-md bg-[#2F6B4A]/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-[#2F6B4A]">
+                      {list.length} convention{list.length > 1 ? "s" : ""}
+                    </span>
+                    {pendingCount > 0 ? (
+                      <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-950">
+                        {pendingCount} en cours
+                      </span>
+                    ) : null}
+                    {signedCount > 0 ? (
+                      <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-900">
+                        {signedCount} signée{signedCount > 1 ? "s" : ""}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
-                <span className="text-xs font-semibold text-[#2F6B4A]">
-                  {openHere ? "Réduire ▲" : "Ouvrir ▼"}
+                <span className="shrink-0 rounded-lg border border-[#2F6B4A]/25 bg-white px-2.5 py-1 text-xs font-semibold text-[#2F6B4A]">
+                  {openHere ? "Réduire ▲" : "Voir ▼"}
                 </span>
               </button>
 
-              <ul className="mt-3 space-y-2">
-                {list.map((c) => {
+              <div className="space-y-3 border-t border-stone-100 bg-stone-50/60 p-3">
+                {list.map((c, index) => {
                   const active = c.id === selectedId;
+                  const title =
+                    c.stageLabel?.trim() ||
+                    c.company.name?.trim() ||
+                    `Convention ${index + 1}`;
                   return (
-                    <li key={c.id}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          className={`rounded-lg px-2 py-1 text-sm font-medium ${
-                            active
-                              ? "bg-[#2F6B4A] text-white"
-                              : "text-[#2F6B4A] underline hover:bg-emerald-50"
-                          }`}
-                          onClick={() => {
-                            if (active) onCloseDetail();
-                            else onLoadDetail(c.id);
-                          }}
+                    <article
+                      key={c.id}
+                      className={`rounded-xl border bg-white p-3 shadow-sm transition ${
+                        active
+                          ? "border-[#2F6B4A] ring-2 ring-[#2F6B4A]/20"
+                          : "border-stone-200 hover:border-[#2F6B4A]/35"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-start gap-3">
+                        <div
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#2F6B4A] text-sm font-black text-white"
+                          aria-hidden
                         >
-                          {c.company.name} · {STAGE_CONVENTION_STATUS_LABELS[c.status]}
-                        </button>
-                        {permissions?.canFileToOneDrive && oneDriveEnabled && (
-                          <>
-                            {c.oneDriveFiling?.filedAt ? (
-                              <span className="text-xs font-semibold text-emerald-700">OneDrive ✓</span>
-                            ) : c.status === "signed" ? (
-                              <button
-                                type="button"
-                                disabled={!oneDriveConnected || filingConventionId === c.id || busy}
-                                onClick={() => onFileOneDrive(c.id)}
-                                className="rounded border border-[#2F6B4A]/40 px-2 py-0.5 text-xs font-semibold text-[#2F6B4A] disabled:opacity-50"
-                              >
-                                {filingConventionId === c.id ? "Envoi…" : "→ OneDrive"}
-                              </button>
+                          {index + 1}
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-sm font-bold text-[#1F3D2B]">{title}</h3>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${statusTone(c.status)}`}
+                            >
+                              {STAGE_CONVENTION_STATUS_LABELS[c.status]}
+                            </span>
+                          </div>
+                          <p className="text-xs text-stone-600">
+                            <span className="font-semibold text-stone-800">
+                              {c.company.name || "Entreprise non renseignée"}
+                            </span>
+                            <span className="mx-1.5 text-stone-300">·</span>
+                            {kindLabel(c)}
+                          </p>
+                          <p className="text-xs font-medium text-stone-500">{formatPeriodShort(c)}</p>
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
+                                active
+                                  ? "bg-[#2F6B4A] text-white"
+                                  : "border border-[#2F6B4A]/30 bg-[#f4f8f5] text-[#2F6B4A] hover:bg-[#e8f2ec]"
+                              }`}
+                              onClick={() => {
+                                if (active) onCloseDetail();
+                                else onLoadDetail(c.id);
+                              }}
+                            >
+                              {active ? "Masquer le détail" : "Ouvrir le détail"}
+                            </button>
+                            {permissions?.canFileToOneDrive && oneDriveEnabled ? (
+                              <>
+                                {c.oneDriveFiling?.filedAt ? (
+                                  <span className="text-xs font-semibold text-emerald-700">
+                                    OneDrive ✓
+                                  </span>
+                                ) : c.status === "signed" ? (
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      !oneDriveConnected || filingConventionId === c.id || busy
+                                    }
+                                    onClick={() => onFileOneDrive(c.id)}
+                                    className="rounded-lg border border-[#2F6B4A]/40 px-2.5 py-1 text-xs font-semibold text-[#2F6B4A] disabled:opacity-50"
+                                  >
+                                    {filingConventionId === c.id ? "Envoi…" : "→ OneDrive"}
+                                  </button>
+                                ) : null}
+                              </>
                             ) : null}
-                          </>
-                        )}
+                          </div>
+                        </div>
                       </div>
-                      {active && detailPanel}
-                    </li>
+                      {active ? <div className="mt-3 border-t border-stone-100 pt-3">{detailPanel}</div> : null}
+                    </article>
                   );
                 })}
-              </ul>
-            </div>
+              </div>
+            </section>
           );
         })}
       </div>

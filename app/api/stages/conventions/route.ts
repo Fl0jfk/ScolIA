@@ -92,7 +92,7 @@ export async function GET(req: Request) {
       : [];
     const conventions = all
       .filter((c): c is NonNullable<typeof c> => Boolean(c))
-      .filter((c) => c.status !== "archived")
+      .filter((c) => c.status !== "archived" && c.status !== "draft")
       .filter((c) =>
         conventionVisibleToUser(
           c,

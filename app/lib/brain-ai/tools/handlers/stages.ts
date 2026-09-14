@@ -33,6 +33,7 @@ export async function handleGetStagesOverview(ctx: BrainToolCtx): Promise<BrainT
   const userEmail = (ctx.email || "").trim().toLowerCase();
   const conventions = allConventions
     .filter((c): c is NonNullable<typeof c> => Boolean(c))
+    .filter((c) => c.status !== "archived" && c.status !== "draft")
     .filter((c) => conventionVisibleToUser(c, ctx.roles, userEmail, ctx.userId!));
 
   const pendingOffers = offers.filter((o) => o.status === "pending");

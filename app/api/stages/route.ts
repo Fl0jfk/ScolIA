@@ -73,7 +73,9 @@ export async function GET() {
       conventions = conventions.filter((c) => conventionMatchesStageSecteurs(c, viewerSecteurs));
     }
 
-    const activeConventions = conventions.filter((c) => c.status !== "archived");
+    const activeConventions = conventions.filter(
+      (c) => c.status !== "archived" && c.status !== "draft",
+    );
     const pendingOffers = 0;
     const adminQueue = activeConventions.filter(
       (c) =>
