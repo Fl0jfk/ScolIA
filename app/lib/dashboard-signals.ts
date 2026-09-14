@@ -19,6 +19,7 @@ import { isTripTravelDatePast } from "@/app/lib/travels-trip-helpers";
 import { moduleHref } from "@/app/lib/pillar-module-routes";
 import { canEnterTravelsDetail } from "@/app/lib/accueil-access";
 import { pickExactCurrentWeekSheet } from "@/app/lib/dashboard-week-sheet-active";
+import { parseTimeToMinutes } from "@/app/lib/dashboard-week-sheet-time";
 import type { WeekSheetData, WeekSheetEvent } from "@/app/lib/dashboard-week-sheet-types";
 import { WEEK_DAYS, type WeekDayKey } from "@/app/lib/dashboard-week-sheet-types";
 import { canAccessHseModule, canCreateHseDemand, getHseRoleFlags, type HseRecordLike } from "@/app/lib/demandes-hse-access";
@@ -258,8 +259,12 @@ function weekDayFromDateKey(dateKey: string): WeekDayKey | null {
 }
 
 function formatEventTime(ev: WeekSheetEvent): string | undefined {
-  if (!ev.startTime) return undefined;
-  return ev.endTime ? `${ev.startTime} – ${ev.endTime}` : ev.startTime;
+  const start = ev.startTime?.trim();
+  if (!start) return undefined;
+  const end = ev.endTime?.trim();
+  // Sans heure de fin valide : uniquement le début (« à 8h30 »), jamais de « – … » inventé.
+  if (!end || parseTimeToMinutes(end) === null) return `à ${start}`;
+  return `${start} – ${end}`;
 }
 
 function isDirectionRole(roles: string[]): boolean {

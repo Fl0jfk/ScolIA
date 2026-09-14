@@ -12,7 +12,7 @@ type Props = {
   hasCurrentWeek: boolean;
   loading?: boolean;
   onWeekSheetUpdated?: () => void;
-  /** Largeur fixe ≈ 2× météo (défaut true hors mobile full-bleed). */
+  /** Largeur fixe élargie (~+50 % vs 2× météo ; défaut true hors mobile full-bleed). */
   wide?: boolean;
 };
 
@@ -22,7 +22,7 @@ function isPdfFile(file: File): boolean {
   return type === "application/pdf" || type === "application/x-pdf" || name.endsWith(".pdf");
 }
 
-/** Même hauteur / forme que `DashboardWeather` ; largeur ≈ 2×. */
+/** Même hauteur / forme que `DashboardWeather` ; largeur élargie (~+50 %). */
 export default function DashboardTodayNews({
   items,
   hasCurrentWeek,

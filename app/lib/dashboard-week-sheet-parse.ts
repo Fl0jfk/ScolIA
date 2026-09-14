@@ -42,11 +42,14 @@ function normalizeEvent(raw: MistralEvent, index: number): WeekSheetEvent | null
   // Annonces sans horaire (consignes journée) : 8h00 pour rester visibles le jour J.
   let startTime = raw.startTime?.trim() || "8h00";
   if (parseTimeToMinutes(startTime) === null) startTime = "8h00";
+  const endRaw = raw.endTime?.trim();
+  const endTime =
+    endRaw && parseTimeToMinutes(endRaw) !== null ? endRaw : undefined;
   return {
     id: `ev-${index}`,
     day,
     startTime,
-    endTime: raw.endTime?.trim() || undefined,
+    endTime,
     title,
     location: raw.location?.trim() || undefined,
   };
@@ -95,6 +98,7 @@ function buildPrompt(ocrText: string, singleWeek: boolean): string {
     `Pour chaque semaine, extrais TOUS les créneaux / rendez-vous / réunions / activités du lundi au vendredi.\n` +
     `IMPORTANT : chaque activité distincte = une entrée séparée dans events (absence d'un prof, réunion, consigne horaire, etc.).\n` +
     `Si une activité n'a pas d'horaire précis, mets startTime à "8h00".\n` +
+    `Si seule l'heure de début est indiquée (pas de fin), mets startTime et OMETS endTime — ne l'invente jamais.\n` +
     `Ne mets JAMAIS d'information dans "notes" : laisse notes vide ou omets le champ.\n` +
     `Année civile courante : ${year}. Si le PDF n'indique pas l'année, utilise ${year}.\n` +
     `Réponds UNIQUEMENT en JSON valide avec ce schéma :\n` +

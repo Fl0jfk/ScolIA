@@ -5,5 +5,8 @@ export const DASH_CHIP_SHELL =
 /** Largeur météo (référence). */
 export const DASH_WEATHER_WIDTH = "w-40 lg:w-[13rem]";
 
-/** Actualité = exactement 2× la météo. */
-export const DASH_NEWS_WIDTH = "w-80 lg:w-[26rem]";
+/**
+ * Actualité ≈ +50 % vs l’ancienne largeur 2× météo.
+ * Progressive pour ne pas écraser « Bonjour » sur tablette / petit bureau.
+ */
+export const DASH_NEWS_WIDTH = "w-[24rem] lg:w-[32rem] xl:w-[39rem]";
