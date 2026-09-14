@@ -269,7 +269,7 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
   if (
     complexNeedsBus(trip) &&
     trip.data.pendingAmendedQuote &&
-    !["VALIDE", "REJETE", "ANNULE"].includes(status)
+    !["VALIDE", "FINALISE_DIR_ATTENTE_ELEVES", "REJETE", "ANNULE"].includes(status)
   ) {
     out.push({
       id: `${trip.id}_transport_pending`,
@@ -300,7 +300,9 @@ export function computeTripReminders(trip: TravelsTrip): TripReminder[] {
     days != null &&
     days <= 4 &&
     days >= 0 &&
-    (status === "VALIDE" || complexNeedsBus(trip)) &&
+    (status === "VALIDE" ||
+      status === "FINALISE_DIR_ATTENTE_ELEVES" ||
+      complexNeedsBus(trip)) &&
     !sent.bus_liste_j3
   ) {
     const busBit = complexNeedsBus(trip) ? " (envoi transporteur)" : "";

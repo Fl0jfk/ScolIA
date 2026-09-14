@@ -64,6 +64,7 @@ function expectedPathFor(trip: TravelsTrip, withBus: boolean): string[] {
       "EN_ATTENTE_DIR_INITIAL (pédagogie)",
       "EN_ATTENTE_COMPTA (finances)",
       "EN_ATTENTE_DIR_FINAL (finale)",
+      "FINALISE_DIR_ATTENTE_ELEVES (liste élèves si absente)",
       "VALIDE",
     ];
   }
@@ -73,6 +74,7 @@ function expectedPathFor(trip: TravelsTrip, withBus: boolean): string[] {
       "PROF_LOGISTICS (sans bus → passer finances)",
       "EN_ATTENTE_COMPTA (finances)",
       "EN_ATTENTE_DIR_FINAL (finale)",
+      "FINALISE_DIR_ATTENTE_ELEVES (liste élèves si absente)",
       "VALIDE",
     ];
   }
@@ -82,6 +84,7 @@ function expectedPathFor(trip: TravelsTrip, withBus: boolean): string[] {
     "EN_ATTENTE_BUS_SIGNATURE (signature direction si seul choix créateur)",
     "EN_ATTENTE_COMPTA (finances)",
     "EN_ATTENTE_DIR_FINAL (finale)",
+    "FINALISE_DIR_ATTENTE_ELEVES (liste élèves si absente)",
     "VALIDE",
   ];
 }
@@ -280,7 +283,16 @@ export function buildTripWorkflowAudit(trip: TravelsTrip): TripWorkflowAudit {
       blockers.push("Passage en validation finale sans budget clairement validé — à vérifier.");
     }
     advice.push(
-      "Dernière étape : la direction clique sur « Validation finale » dans le circuit de validation.",
+      "Dernière étape direction : « Validation finale ». Si la liste élèves n’est pas confirmée, le dossier passera en attente de liste (cuisine bloquée).",
+    );
+  } else if (status === "FINALISE_DIR_ATTENTE_ELEVES") {
+    expectedActorsNow.push("createur");
+    if (!listeElevesConfirmed) {
+      missingForCurrentStep.push("liste nominative élèves confirmée (onglet Élèves)");
+      blockers.push("Liste des élèves non confirmée — bloque le passage en Finalisé et la commande cuisine.");
+    }
+    advice.push(
+      "Le créateur doit confirmer la liste élèves (et horaires dépôt/reprise). Ensuite le dossier passe en Finalisé ; si cuisine active, le mail chef part automatiquement.",
     );
   } else if (status === "BESOIN_MODIFICATION") {
     expectedActorsNow.push("createur");
@@ -291,8 +303,12 @@ export function buildTripWorkflowAudit(trip: TravelsTrip): TripWorkflowAudit {
   }
 
   // Rappels transverses utiles
-  if (withBus && status === "VALIDE" && !listeElevesConfirmed) {
-    advice.push("Séjour validé avec bus : penser à confirmer la liste nominative des élèves avant le départ.");
+  if (
+    withBus &&
+    (status === "VALIDE" || status === "FINALISE_DIR_ATTENTE_ELEVES") &&
+    !listeElevesConfirmed
+  ) {
+    advice.push("Séjour validé direction avec bus : confirmer la liste nominative des élèves avant le départ.");
   }
 
   return {

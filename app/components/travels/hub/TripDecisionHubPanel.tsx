@@ -112,7 +112,9 @@ export function TripDecisionHubPanel(p: TripDecisionHubPanelProps) {
                 {loadingAction === "regenerate-circular" ? "Génération…" : "Régénérer circulaire"}
               </TripButton>
             )}
-            {canSign && trip.status === "VALIDE" && reopenStepOptions.length > 0 && (
+            {canSign &&
+              (trip.status === "VALIDE" || trip.status === "FINALISE_DIR_ATTENTE_ELEVES") &&
+              reopenStepOptions.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 rounded-xl bg-white/5 border border-white/10 px-3 py-2">
                 <label htmlFor="reopen-step-select" className="text-xs text-slate-300 shrink-0">
                   Réouvrir :

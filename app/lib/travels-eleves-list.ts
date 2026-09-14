@@ -206,6 +206,7 @@ export function parentEmailCoverage(
   return { withMail, withoutMail, emails: [...emailSet] };
 }
 
-function isListeElevesConfirmed(data: TravelsTripData | undefined): boolean {
+/** Liste nominative officiellement confirmée (onglet Élèves). */
+export function isListeElevesConfirmed(data: TravelsTripData | undefined): boolean {
   return data?.listeElevesStatus === "confirmed" && (data.participantEleves?.length || 0) > 0;
 }

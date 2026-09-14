@@ -38,6 +38,7 @@ const ACTIVE_STATUSES = new Set([
   "PROF_LOGISTICS",
   "EN_ATTENTE_COMPTA",
   "EN_ATTENTE_DIR_FINAL",
+  "FINALISE_DIR_ATTENTE_ELEVES",
   "BESOIN_MODIFICATION",
 ]);
 
@@ -128,7 +129,12 @@ export function buildTravelsDirectionDashboard(
 
     // Compteurs année : on garde l'historique (passés inclus), hors annulés/rejetés.
     if (inSchoolYear(t, sy.start, sy.end)) tripsYear += 1;
-    if (t.status === "VALIDE" && inSchoolYear(t, sy.start, sy.end)) validatedYear += 1;
+    if (
+      (t.status === "VALIDE" || t.status === "FINALISE_DIR_ATTENTE_ELEVES") &&
+      inSchoolYear(t, sy.start, sy.end)
+    ) {
+      validatedYear += 1;
+    }
 
     // Files opérationnelles : plus de dossiers dont la date de séjour est passée.
     if (past) continue;

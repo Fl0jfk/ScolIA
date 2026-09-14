@@ -6,6 +6,8 @@ const TRAVELS_STATUSES = [
   "EN_ATTENTE_BUS_SIGNATURE",
   "EN_ATTENTE_COMPTA",
   "EN_ATTENTE_DIR_FINAL",
+  /** Direction a validé ; liste nominative élèves encore à confirmer (bloque la commande cuisine). */
+  "FINALISE_DIR_ATTENTE_ELEVES",
   "VALIDE",
   "BESOIN_MODIFICATION",
   "REJETE",
@@ -21,12 +23,18 @@ export const TRAVELS_STATUS_LABELS: Record<string, string> = {
   EN_ATTENTE_BUS_SIGNATURE: "Signature devis bus",
   EN_ATTENTE_COMPTA: "Validation finances",
   EN_ATTENTE_DIR_FINAL: "Validation finale",
+  FINALISE_DIR_ATTENTE_ELEVES: "Finalisé direction — liste élèves",
   VALIDE: "Finalisé",
   BESOIN_MODIFICATION: "Modifications demandées",
   REJETE: "Refusé",
   SEANCE_ANNULEE: "Séance annulée",
   ANNULE: "Sortie annulée",
 };
+
+/** Dossier passé par la validation finale direction (liste élèves éventuellement encore en attente). */
+export function isTravelsDirectionFinalizedStatus(status: string | null | undefined): boolean {
+  return status === "VALIDE" || status === "FINALISE_DIR_ATTENTE_ELEVES";
+}
 
 export type TravelsTripType = "SIMPLE" | "COMPLEX";
 

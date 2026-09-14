@@ -421,9 +421,16 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
         "Renseignez l’heure de dépôt et l’heure de reprise avant de confirmer (points d’attention parents).",
       );
     }
-    const msg = needsBus
-      ? `Confirmer la liste de ${participants.length} élève(s) et les horaires parents ?\n\n• Envoi CSV au transporteur\n• Envoi du calendrier (.ics) aux parents (départ + reprise)`
-      : `Confirmer la liste de ${participants.length} élève(s) et les horaires parents ?\n\n• Envoi du calendrier (.ics) aux parents (départ + reprise)`;
+    const msg =
+      trip.status === "FINALISE_DIR_ATTENTE_ELEVES"
+        ? needsBus
+          ? `Confirmer la liste de ${participants.length} élève(s) et les horaires parents ?\n\n• Envoi CSV au transporteur\n• Envoi du calendrier (.ics) aux parents\n• Passage en Finalisé` +
+            (cuisineActive ? "\n• Envoi de la commande cuisine au chef" : "")
+          : `Confirmer la liste de ${participants.length} élève(s) et les horaires parents ?\n\n• Envoi du calendrier (.ics) aux parents\n• Passage en Finalisé` +
+            (cuisineActive ? "\n• Envoi de la commande cuisine au chef" : "")
+        : needsBus
+          ? `Confirmer la liste de ${participants.length} élève(s) et les horaires parents ?\n\n• Envoi CSV au transporteur\n• Envoi du calendrier (.ics) aux parents (départ + reprise)`
+          : `Confirmer la liste de ${participants.length} élève(s) et les horaires parents ?\n\n• Envoi du calendrier (.ics) aux parents (départ + reprise)`;
     if (!confirm(msg)) return;
     setBusy("confirm");
     try {
@@ -444,6 +451,9 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
         j.parentsNotified ? `Parents : ${j.parentsNotified} (calendrier .ics)` : null,
         j.parentsSkippedReason || null,
         j.transportSkippedReason || null,
+        j.finalizedAfterListe ? "Dossier passé en Finalisé (validation direction + liste OK)." : null,
+        j.cuisineSent ? "Commande cuisine envoyée au chef." : null,
+        j.cuisineError ? `Cuisine non envoyée : ${j.cuisineError}` : null,
       ].filter(Boolean);
       alert(bits.length ? `Liste confirmée.\n${bits.join("\n")}` : "Liste confirmée.");
     } catch (e) {
@@ -530,6 +540,15 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
           <TripAlert tone="warning" icon="🔒" title="Lecture seule">
             Vous ne pouvez pas modifier cette liste (réservé au créateur de la sortie, à la
             direction ou à l&apos;administratif).
+          </TripAlert>
+        )}
+
+        {trip.status === "FINALISE_DIR_ATTENTE_ELEVES" && !confirmed && (
+          <TripAlert tone="warning" icon="⚠️" title="Action requise — liste élèves">
+            La direction a finalisé le projet. Confirmez la liste nominative des élèves
+            {cuisineActive
+              ? " : tant qu’elle n’est pas confirmée, la commande de cantine n’est pas envoyée au chef."
+              : " pour passer le dossier en « Finalisé »."}
           </TripAlert>
         )}
 

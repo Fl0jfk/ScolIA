@@ -20,6 +20,9 @@ describe("resolveRequalifyToBusStatus", () => {
     assert.deepEqual(resolveRequalifyToBusStatus("VALIDE"), {
       status: "PROF_LOGISTICS",
     });
+    assert.deepEqual(resolveRequalifyToBusStatus("FINALISE_DIR_ATTENTE_ELEVES"), {
+      status: "PROF_LOGISTICS",
+    });
   });
 
   it("ajuste previousStatus en BESOIN_MODIFICATION", () => {

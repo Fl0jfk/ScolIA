@@ -160,7 +160,7 @@ export async function POST(req: Request) {
       if (trip.status === "SEANCE_ANNULEE") {
         return NextResponse.json({ error: "Séance déjà annulée." }, { status: 400 });
       }
-      if (trip.status === "VALIDE" || trip.status === "REJETE") {
+      if (trip.status === "VALIDE" || trip.status === "FINALISE_DIR_ATTENTE_ELEVES" || trip.status === "REJETE") {
         return NextResponse.json({ error: "Impossible d'annuler ce dossier à ce stade." }, { status: 400 });
       }
       const now = new Date().toISOString();

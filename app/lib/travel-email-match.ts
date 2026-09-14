@@ -13,6 +13,7 @@ export function tripAlreadyHasSignedBusQuote(trip: {
   if (
     status === "EN_ATTENTE_COMPTA" ||
     status === "EN_ATTENTE_DIR_FINAL" ||
+    status === "FINALISE_DIR_ATTENTE_ELEVES" ||
     status === "VALIDE"
   ) {
     if (d.selectedBusQuote && typeof d.selectedBusQuote === "object") return true;

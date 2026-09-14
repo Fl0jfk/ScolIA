@@ -1,6 +1,7 @@
 "use client";
 
 import type { TravelsTrip } from "@/app/lib/travels-types";
+import { isTravelsDirectionFinalizedStatus } from "@/app/lib/travels-types";
 import { TripButton, TripDocumentChip, TripSection } from "@/app/components/travels/TripDetailUI";
 import { TripDocumentsDropZone } from "@/app/components/travels/TripDocumentsDropZone";
 
@@ -39,7 +40,7 @@ export function TripDocumentsHubPanel(p: TripDocumentsHubPanelProps) {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
             <p className="text-sm text-slate-600">{documentCount} document{documentCount > 1 ? "s" : ""} au total</p>
             <div className="flex flex-wrap gap-2">
-              {trip.status === "VALIDE" && (canSign || isOwner) && (
+              {isTravelsDirectionFinalizedStatus(trip.status) && (canSign || isOwner) && (
                 <TripButton variant="secondary" size="sm" onClick={handleRegenerateCircular} disabled={!!loadingAction}>
                   {loadingAction === "regenerate-circular" ? "Génération…" : "Régénérer circulaire"}
                 </TripButton>

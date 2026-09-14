@@ -67,7 +67,9 @@ export function TripCuisineHubPanel({
                         ? `Envoyé le ${new Date(cuisineOrderSentAt!).toLocaleDateString("fr-FR")}`
                         : trip.status === "VALIDE"
                           ? "Statut validé — envoi cuisine non tracé dans le dossier"
-                          : "Pas encore envoyé (validation finale)"}
+                          : trip.status === "FINALISE_DIR_ATTENTE_ELEVES"
+                            ? "En attente de la liste élèves confirmée (bloqué)"
+                            : "Pas encore envoyé (validation finale + liste élèves)"}
                     </p>
                     {(trip.data.cuisineAmendments?.length || 0) > 0 && (
                       <p className="text-[10px] text-amber-700 mt-1">{trip.data.cuisineAmendments!.length} rectification(s)</p>

@@ -140,7 +140,7 @@ export async function POST(req: Request) {
 
     const hadSignedQuote = Boolean(data.signedQuoteUrl);
     let nextStatus = trip.status;
-    if (hadSignedQuote && ["EN_ATTENTE_COMPTA", "EN_ATTENTE_DIR_FINAL", "VALIDE", "EN_ATTENTE_BUS_SIGNATURE"].includes(String(trip.status))) {
+    if (hadSignedQuote && ["EN_ATTENTE_COMPTA", "EN_ATTENTE_DIR_FINAL", "FINALISE_DIR_ATTENTE_ELEVES", "VALIDE", "EN_ATTENTE_BUS_SIGNATURE"].includes(String(trip.status))) {
       nextStatus = "EN_ATTENTE_BUS_SIGNATURE";
     }
 

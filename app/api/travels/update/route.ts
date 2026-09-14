@@ -125,7 +125,12 @@ export async function POST(req: Request) {
     }
     const previousStatus = existingOnS3 && typeof existingOnS3.status === "string" ? existingOnS3.status : null;
     const newStatus = typeof objectToSave.status === "string" ? objectToSave.status : "";
-    if (previousStatus === "VALIDE" && newStatus !== "VALIDE" && newStatus !== previousStatus) {
+    const leavingFinalized =
+      (previousStatus === "VALIDE" || previousStatus === "FINALISE_DIR_ATTENTE_ELEVES") &&
+      newStatus !== previousStatus &&
+      newStatus !== "VALIDE" &&
+      newStatus !== "FINALISE_DIR_ATTENTE_ELEVES";
+    if (leavingFinalized) {
       if (!isValidTravelsReopenFromValideStatus(newStatus)) {
         return NextResponse.json({ error: "Étape de réouverture invalide." }, { status: 400 });
       }
@@ -212,6 +217,20 @@ export async function POST(req: Request) {
         });
       } catch (mailErr) {
         console.error("Erreur notification compta Travels:", mailErr);
+      }
+    }
+    if (
+      newStatus === "FINALISE_DIR_ATTENTE_ELEVES" &&
+      previousStatus !== "FINALISE_DIR_ATTENTE_ELEVES"
+    ) {
+      try {
+        const { notifyOrganizerListeElevesNeeded } = await import("@/app/lib/travels-notify");
+        await notifyOrganizerListeElevesNeeded({
+          tripId,
+          trip: objectToSave as TravelsTripForNotify,
+        });
+      } catch (mailErr) {
+        console.error("Erreur notification liste élèves Travels:", mailErr);
       }
     }
     if (isNewProject && !suppressNewTripEmail) {

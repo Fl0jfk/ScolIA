@@ -336,16 +336,17 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
       stepLabel,
       who: "Direction",
       headline: canSign
-        ? "Dernière étape : validation finale par la direction."
+        ? "Dernière étape direction : validation finale."
         : "Budget OK — en attente de la validation finale direction.",
       what: canSign
-        ? "Tout le circuit amont est passé. Cliquez sur « Validation finale » pour clôturer / finaliser le séjour."
-        : "La compta a validé. Il reste uniquement le feu vert final de la direction.",
+        ? "Tout le circuit amont est passé. Cliquez sur « Validation finale ». Si la liste élèves n’est pas encore confirmée, le dossier passera en attente de liste (la commande cuisine restera bloquée)."
+        : "La compta a validé. Il reste le feu vert final de la direction, puis éventuellement la liste élèves du créateur.",
       steps: canSign
         ? [
             "Vérifiez rapidement le dossier (effectifs, transport, budget).",
             "Descendez au panneau « Circuit de validation ».",
             "Cliquez sur « Validation finale ».",
+            "Si la liste élèves n’est pas confirmée : un mail part au professeur organisateur ; la cuisine attendra.",
           ]
         : [
             "La direction ouvre le panneau « Circuit de validation ».",
@@ -358,6 +359,47 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
       ctaTab: "overview",
       ctaLabel: canSign ? "Aller à la décision" : "Voir le dossier",
       focusQuestion: "Le séjour attend la validation finale. Que doit faire la direction ?",
+    });
+  }
+
+  if (status === "FINALISE_DIR_ATTENTE_ELEVES") {
+    const cuisineActive = Boolean(trip.data?.piqueNiqueDetails?.active);
+    return finish({
+      stepLabel,
+      who: "Créateur du séjour (professeur organisateur)",
+      headline: isOwner
+        ? "La direction a validé — à vous de finaliser la liste des élèves."
+        : "En attente de la liste nominative des élèves (créateur).",
+      what: isOwner
+        ? cuisineActive
+          ? "Ouvrez l’onglet Élèves, sélectionnez les participants et confirmez la liste. Tant que ce n’est pas fait, la commande cantine n’est pas envoyée au chef."
+          : "Ouvrez l’onglet Élèves, sélectionnez les participants et confirmez la liste pour passer le dossier en « Finalisé »."
+        : cuisineActive
+          ? "Le professeur organisateur doit confirmer la liste élèves. La commande cuisine au chef est bloquée en attendant."
+          : "Le professeur organisateur doit confirmer la liste élèves pour clôturer le dossier.",
+      steps: isOwner
+        ? [
+            "Ouvrez l’onglet « Élèves ».",
+            "Sélectionnez tous les élèves participants (et paniers repas si besoin).",
+            "Renseignez les horaires de dépôt / reprise.",
+            "Cliquez sur « Confirmer la liste »." +
+              (cuisineActive ? " La commande cuisine partira ensuite automatiquement." : ""),
+          ]
+        : [
+            "Le créateur ouvre l’onglet Élèves.",
+            "Il confirme la liste nominative (et les horaires parents).",
+            cuisineActive
+              ? "Ensuite le dossier passe en Finalisé et la commande cuisine part au chef."
+              : "Ensuite le dossier passe en Finalisé.",
+          ],
+      youMustAct: isOwner,
+      whileWaiting: isOwner
+        ? undefined
+        : "Vous pouvez relancer l’organisateur ; la direction n’a plus d’action de validation ici.",
+      ctaTab: "eleves",
+      ctaLabel: isOwner ? "Ouvrir Élèves" : "Voir Élèves",
+      focusQuestion:
+        "La direction a finalisé. Que doit faire le créateur pour la liste élèves et la cuisine ?",
     });
   }
 

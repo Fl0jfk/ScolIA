@@ -388,56 +388,91 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     if (!canSign) return alert("Vous n'êtes pas autorisé(e) à valider ce dossier.");
     setLoadingAction("final-validation");
     try {
-      let tripBase = trip;
-      let cuisineSent = false;
+      const { isListeElevesConfirmed } = await import("@/app/lib/travels-eleves-list");
+      const listeOk = isListeElevesConfirmed(trip.data);
       const finalAttachments = [...(trip.data.attachments || [])];
 
-      if (trip.data.piqueNiqueDetails?.active) {
-        const cuisineRes = await fetch('/api/travels/send-cuisine', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tripId: trip.id,
-            userEmail: user?.primaryEmailAddress?.emailAddress,
-            organizerEmail: trip.ownerEmail,
-            userName: trip.ownerName,
-            mode: 'initial',
-          }),
-        });
-        if (cuisineRes.ok) {
-          cuisineSent = true;
-          const cuisinePayload = await cuisineRes.json().catch(() => ({}));
-          if (cuisinePayload.trip) {
-            tripBase = cuisinePayload.trip;
-            setTrip(cuisinePayload.trip);
+      // Liste déjà confirmée → finalisation complète + commande cuisine éventuelle
+      if (listeOk) {
+        let tripBase = trip;
+        let cuisineSent = false;
+
+        if (trip.data.piqueNiqueDetails?.active) {
+          const cuisineRes = await fetch("/api/travels/send-cuisine", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tripId: trip.id,
+              userEmail: user?.primaryEmailAddress?.emailAddress,
+              organizerEmail: trip.ownerEmail,
+              userName: trip.ownerName,
+              mode: "initial",
+            }),
+          });
+          if (cuisineRes.ok) {
+            cuisineSent = true;
+            const cuisinePayload = await cuisineRes.json().catch(() => ({}));
+            if (cuisinePayload.trip) {
+              tripBase = cuisinePayload.trip;
+              setTrip(cuisinePayload.trip);
+            }
+          } else {
+            const errPayload = await cuisineRes.json().catch(() => ({}));
+            alert(
+              `Attention : le mail cuisine n'a pas pu être envoyé (${errPayload?.error || "erreur inconnue"}).`,
+            );
           }
-        } else {
-          const errPayload = await cuisineRes.json().catch(() => ({}));
-          alert(`Attention : le mail cuisine n'a pas pu être envoyé (${errPayload?.error || "erreur inconnue"}).`);
         }
+
+        const historyNote = [
+          "Dossier validé (liste élèves déjà confirmée).",
+          tripBase.data.piqueNiqueDetails?.active
+            ? cuisineSent
+              ? "Commande cuisine envoyée."
+              : "Commande cuisine non envoyée."
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        await handleAction("VALIDE", historyNote, { attachments: finalAttachments }, tripBase);
+
+        const alertParts = ["Dossier finalisé !"];
+        alertParts.push(
+          "La circulaire n'est plus générée automatiquement — utilisez « Régénérer circulaire » dans Documents si besoin.",
+        );
+        if (tripBase.data.piqueNiqueDetails?.active && cuisineSent) {
+          alertParts.push(
+            "Le bon de commande cuisine a été envoyé (chef + copies direction et organisateur).",
+          );
+        }
+        alert(alertParts.join("\n\n"));
+        return;
       }
 
-      const historyNote = [
-        "Dossier validé.",
-        tripBase.data.piqueNiqueDetails?.active
-          ? cuisineSent
-            ? "Commande cuisine envoyée."
-            : "Commande cuisine non envoyée."
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" ");
-
-      await handleAction("VALIDE", historyNote, { attachments: finalAttachments }, tripBase);
-
-      const alertParts = ["Dossier validé !"];
-      alertParts.push(
-        "La circulaire n'est plus générée automatiquement — utilisez « Régénérer circulaire » dans Documents si besoin.",
+      // Liste absente ou non confirmée → finalisé direction, attente liste (pas de mail chef)
+      const cuisineHint = trip.data.piqueNiqueDetails?.active
+        ? " La commande cuisine au chef ne partira qu’après confirmation de la liste des élèves."
+        : "";
+      await handleAction(
+        "FINALISE_DIR_ATTENTE_ELEVES",
+        `Validation finale direction — en attente de la liste nominative des élèves.${cuisineHint}`,
+        { attachments: finalAttachments },
       );
-      if (tripBase.data.piqueNiqueDetails?.active && cuisineSent) {
-        alertParts.push("Le bon de commande cuisine a été envoyé (chef + copies direction et organisateur).");
-      }
-      alert(alertParts.join("\n\n"));
+
+      alert(
+        [
+          "Validation direction enregistrée.",
+          "Le dossier est « Finalisé direction — liste élèves » : un e-mail a été envoyé au professeur organisateur pour qu’il finalise la liste nominative (onglet Élèves).",
+          trip.data.piqueNiqueDetails?.active
+            ? "Tant que la liste n’est pas confirmée, le bon de commande cantine n’est PAS envoyé au chef."
+            : null,
+          "Dès confirmation de la liste, le dossier passera en « Finalisé »" +
+            (trip.data.piqueNiqueDetails?.active ? " et la commande cuisine partira automatiquement." : "."),
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      );
     } catch (err) {
       console.error(err);
       alert(err instanceof Error ? err.message : "Erreur lors de la validation finale.");
@@ -635,10 +670,16 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     await handleAction(restoreStatus, "Demande de modification annulée");
   };
   const handleReopenDossier = async (targetStatus: string, stepLabel: string) => {
-    if (!canSign || trip.status !== "VALIDE" || loadingAction) return;
+    if (
+      !canSign ||
+      (trip.status !== "VALIDE" && trip.status !== "FINALISE_DIR_ATTENTE_ELEVES") ||
+      loadingAction
+    ) {
+      return;
+    }
     if (
       !confirm(
-        `Réouvrir ce dossier à l'étape « ${stepLabel} » ?\n\nLe statut ne sera plus « Finalisé » et le circuit de validation reprendra à cette étape.`,
+        `Réouvrir ce dossier à l'étape « ${stepLabel} » ?\n\nLe statut ne sera plus finalisé côté direction et le circuit de validation reprendra à cette étape.`,
       )
     ) {
       return;
@@ -1408,23 +1449,26 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
             { n: "2", label: "Choix du devis", key: "PROF_LOGISTICS" },
             { n: "3", label: "Finances", key: "EN_ATTENTE_COMPTA" },
             { n: "4", label: "Validation", key: "EN_ATTENTE_DIR_FINAL" },
-            { n: "5", label: "Finalisé", key: "VALIDE" },
+            { n: "5", label: "Liste élèves", key: "FINALISE_DIR_ATTENTE_ELEVES" },
+            { n: "6", label: "Finalisé", key: "VALIDE" },
           ]
         : [
             { n: "1", label: "Pédagogie", key: "EN_ATTENTE_DIR_INITIAL" },
             { n: "2", label: "Finances", key: "EN_ATTENTE_COMPTA" },
             { n: "3", label: "Validation", key: "EN_ATTENTE_DIR_FINAL" },
-            { n: "4", label: "Finalisé", key: "VALIDE" },
+            { n: "4", label: "Liste élèves", key: "FINALISE_DIR_ATTENTE_ELEVES" },
+            { n: "5", label: "Finalisé", key: "VALIDE" },
           ]
       : [
           { n: "1", label: "Pédagogie", key: "EN_ATTENTE_DIR_INITIAL" },
           { n: "2", label: "Finances", key: "EN_ATTENTE_COMPTA" },
           { n: "3", label: "Validation", key: "EN_ATTENTE_DIR_FINAL" },
-          { n: "4", label: "Finalisé", key: "VALIDE" },
+          { n: "4", label: "Liste élèves", key: "FINALISE_DIR_ATTENTE_ELEVES" },
+          { n: "5", label: "Finalisé", key: "VALIDE" },
         ];
   const reopenStepOptions: { value: string; label: string }[] = [];
   for (const s of currentSteps) {
-    if (s.key === "VALIDE") continue;
+    if (s.key === "VALIDE" || s.key === "FINALISE_DIR_ATTENTE_ELEVES") continue;
     reopenStepOptions.push({ value: s.key, label: s.label });
   }
   if (withBusLogistics && !reopenStepOptions.some((o) => o.value === "EN_ATTENTE_BUS_SIGNATURE")) {

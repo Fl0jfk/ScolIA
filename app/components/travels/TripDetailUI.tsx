@@ -7,6 +7,10 @@ import { establishmentKindEmoji, inferEstablishmentKind } from "@/app/lib/establ
 
 const STATUS_MAP: Record<string, { label: string; tone: string }> = {
   VALIDE: { label: "Finalisé", tone: "bg-emerald-100 text-emerald-800 ring-emerald-200" },
+  FINALISE_DIR_ATTENTE_ELEVES: {
+    label: "Finalisé direction — liste élèves",
+    tone: "bg-teal-100 text-teal-900 ring-teal-200",
+  },
   REJETE: { label: "Refusé", tone: "bg-rose-100 text-rose-800 ring-rose-200" },
   SEANCE_ANNULEE: { label: "Séance annulée", tone: "bg-slate-200 text-slate-700 ring-slate-300" },
   ANNULE: { label: "Sortie annulée", tone: "bg-red-100 text-red-800 ring-red-200" },

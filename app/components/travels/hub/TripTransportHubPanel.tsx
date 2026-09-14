@@ -366,7 +366,7 @@ export function TripTransportHubPanel({
                       Devis choisi — en attente de signature par la direction.
                     </p>
                   )}
-                  {(trip.status === "EN_ATTENTE_COMPTA" || trip.status === "EN_ATTENTE_DIR_FINAL" || trip.status === "VALIDE") && (
+                  {(trip.status === "EN_ATTENTE_COMPTA" || trip.status === "EN_ATTENTE_DIR_FINAL" || trip.status === "FINALISE_DIR_ATTENTE_ELEVES" || trip.status === "VALIDE") && (
                     <p className="inline-flex items-center gap-2 text-emerald-700 font-bold text-sm bg-emerald-50 px-4 py-2 rounded-full">
                       ✓ Commandé et signé
                     </p>

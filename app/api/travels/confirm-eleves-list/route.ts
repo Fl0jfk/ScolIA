@@ -317,22 +317,78 @@ export async function POST(req: Request) {
       ? `Calendrier .ics envoyé à ${parentsNotified} parent(s)`
       : parentsSkippedReason || undefined;
 
-    const updatedTrip: TravelsTrip = {
-      ...trip,
-      updatedAt: now,
-      data,
-      history: [
-        ...(Array.isArray(trip.history) ? trip.history : []),
+    const wasAwaitingListe = trip.status === "FINALISE_DIR_ATTENTE_ELEVES";
+    let cuisineSent = false;
+    let cuisineError: string | null = null;
+    let history = [
+      ...(Array.isArray(trip.history) ? trip.history : []),
+      {
+        date: now,
+        user: userName,
+        action: historyAction,
+        note: [sentTo.length ? `Transporteur : ${sentTo.join(", ")}` : null, parentNote]
+          .filter(Boolean)
+          .join(" · ") || undefined,
+      },
+    ];
+
+    if (wasAwaitingListe) {
+      history = [
+        ...history,
         {
           date: now,
           user: userName,
-          action: historyAction,
-          note: [sentTo.length ? `Transporteur : ${sentTo.join(", ")}` : null, parentNote]
-            .filter(Boolean)
-            .join(" · ") || undefined,
+          action: "VALIDE",
+          note: "Liste élèves confirmée — dossier passé en Finalisé.",
         },
-      ],
+      ];
+    }
+
+    let updatedTrip: TravelsTrip = {
+      ...trip,
+      status: wasAwaitingListe ? "VALIDE" : trip.status,
+      updatedAt: now,
+      data,
+      history,
     };
+
+    // Après validation direction en attente de liste : déclencher la cuisine si besoin
+    if (
+      wasAwaitingListe &&
+      data.piqueNiqueDetails?.active &&
+      !data.cuisineOrderSentAt
+    ) {
+      const { sendCuisineOrderForTrip } = await import("@/app/lib/travels-cuisine-send");
+      const cuisineResult = await sendCuisineOrderForTrip({
+        trip: updatedTrip as import("@/app/lib/travels-cuisine-send").CuisineTripRecord,
+        tripId,
+        mode: "initial",
+        userName,
+        userEmail: actorEmail,
+        organizerEmail: trip.ownerEmail,
+        requireListeElevesConfirmed: true,
+        persist: false,
+      });
+      if (cuisineResult.ok) {
+        cuisineSent = true;
+        updatedTrip = {
+          ...(cuisineResult.trip as TravelsTrip),
+          status: "VALIDE",
+        };
+      } else {
+        cuisineError = cuisineResult.error;
+        history = [
+          ...(Array.isArray(updatedTrip.history) ? updatedTrip.history : []),
+          {
+            date: new Date().toISOString(),
+            user: userName,
+            action: "Commande cuisine non envoyée",
+            note: cuisineResult.error,
+          },
+        ];
+        updatedTrip = { ...updatedTrip, history };
+      }
+    }
 
     await putJson(`travels/${tripId}.json`, updatedTrip);
     const indexHit = await getJson<TravelsTrip[]>("travels/index.json");
@@ -352,6 +408,9 @@ export async function POST(req: Request) {
       parentsNotified,
       parentsSkippedReason,
       icsAttached,
+      finalizedAfterListe: wasAwaitingListe,
+      cuisineSent,
+      cuisineError,
     });
   } catch (e) {
     console.error("[confirm-eleves-list]", e);
