@@ -388,11 +388,11 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     if (!canSign) return alert("Vous n'êtes pas autorisé(e) à valider ce dossier.");
     setLoadingAction("final-validation");
     try {
-      const { isListeElevesConfirmed } = await import("@/app/lib/travels-eleves-list");
-      const listeOk = isListeElevesConfirmed(trip.data);
+      const { isTripListeReadyForFinalisation } = await import("@/app/lib/travels-eleves-list");
+      const listeOk = isTripListeReadyForFinalisation(trip.data);
       const finalAttachments = [...(trip.data.attachments || [])];
 
-      // Liste déjà confirmée → finalisation complète + commande cuisine éventuelle
+      // Liste + (si cuisine) « qui mange » déjà OK → finalisation complète
       if (listeOk) {
         let tripBase = trip;
         let cuisineSent = false;
@@ -450,13 +450,13 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
         return;
       }
 
-      // Liste absente ou non confirmée → finalisé direction, attente liste (pas de mail chef)
+      // Liste / qui mange incomplets → finalisé direction, attente (pas de mail chef)
       const cuisineHint = trip.data.piqueNiqueDetails?.active
-        ? " La commande cuisine au chef ne partira qu’après confirmation de la liste des élèves."
+        ? " La commande cuisine (chef + collègue « qui mange ») ne partira qu’après confirmation de la liste et attribution des paniers."
         : "";
       await handleAction(
         "FINALISE_DIR_ATTENTE_ELEVES",
-        `Validation finale direction — en attente de la liste nominative des élèves.${cuisineHint}`,
+        `Validation finale direction — en attente de la liste nominative des élèves${trip.data.piqueNiqueDetails?.active ? " et du « qui mange »" : ""}.${cuisineHint}`,
         { attachments: finalAttachments },
       );
 
@@ -465,10 +465,12 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           "Validation direction enregistrée.",
           "Le dossier est « Finalisé direction — liste élèves » : un e-mail a été envoyé au professeur organisateur pour qu’il finalise la liste nominative (onglet Élèves).",
           trip.data.piqueNiqueDetails?.active
-            ? "Tant que la liste n’est pas confirmée, le bon de commande cantine n’est PAS envoyé au chef."
+            ? "Tant que la liste et le « qui mange » (paniers nominatifs) ne sont pas confirmés, la commande cantine n’est PAS envoyée (ni au chef, ni à la collègue décompte)."
             : null,
-          "Dès confirmation de la liste, le dossier passera en « Finalisé »" +
-            (trip.data.piqueNiqueDetails?.active ? " et la commande cuisine partira automatiquement." : "."),
+          "Dès confirmation, le dossier passera en « Finalisé »" +
+            (trip.data.piqueNiqueDetails?.active
+              ? " : commande cuisine au chef + liste « qui mange » à la collègue."
+              : "."),
         ]
           .filter(Boolean)
           .join("\n\n"),

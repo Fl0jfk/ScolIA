@@ -133,9 +133,12 @@ export async function notifyOrganizerListeElevesNeeded(params: {
     ? [
         ``,
         `IMPORTANT — Commande de cantine :`,
-        `Tant que la liste des élèves n’est pas finalisée (confirmée) dans l’onglet « Élèves »,`,
-        `le bon de commande cuisine n’est PAS envoyé au chef.`,
-        `Dès que vous aurez confirmé la liste, le dossier passera en « Finalisé » et la commande cantine partira automatiquement.`,
+        `Tant que la liste des élèves n’est pas finalisée (confirmée) ET que les paniers`,
+        `n’ont pas été attribués nominativement (« qui mange »),`,
+        `le bon de commande cuisine n’est PAS envoyé au chef,`,
+        `et la collègue décompte ne reçoit pas la liste des élèves qui mangent.`,
+        `Dès confirmation : le dossier passe en « Finalisé », la commande part au chef,`,
+        `et la collègue reçoit la commande + la liste « qui mange ».`,
       ]
     : [
         ``,

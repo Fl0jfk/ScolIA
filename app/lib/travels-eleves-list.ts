@@ -1,4 +1,5 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
+import { getTotalMeals } from "@/app/lib/travels-cuisine-form";
 import type { TravelsParticipantEleve, TravelsTripData } from "@/app/lib/travels-types";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -209,4 +210,37 @@ export function parentEmailCoverage(
 /** Liste nominative officiellement confirmée (onglet Élèves). */
 export function isListeElevesConfirmed(data: TravelsTripData | undefined): boolean {
   return data?.listeElevesStatus === "confirmed" && (data.participantEleves?.length || 0) > 0;
+}
+
+/** Nombre de repas / paniers commandés côté cuisine (0 si inactive). */
+export function getCuisineMealsOrdered(data: TravelsTripData | undefined): number {
+  const details = data?.piqueNiqueDetails;
+  if (!details?.active) return 0;
+  const n = getTotalMeals(details as Parameters<typeof getTotalMeals>[0]);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/**
+ * Si une commande cuisine est active avec des repas > 0,
+ * chaque panier doit être attribué nominativement (« qui mange »).
+ * Sinon (pas de cuisine / 0 repas) → considéré OK.
+ */
+export function isCuisineWhoEatsComplete(data: TravelsTripData | undefined): boolean {
+  const meals = getCuisineMealsOrdered(data);
+  if (meals <= 0) return true;
+  const assigned = countPanierRepasAssigned(data?.participantEleves || []);
+  return assigned === meals;
+}
+
+/** Liste confirmée + (si cuisine) attribution complète des paniers. */
+export function isTripListeReadyForFinalisation(data: TravelsTripData | undefined): boolean {
+  return isListeElevesConfirmed(data) && isCuisineWhoEatsComplete(data);
+}
+
+export function cuisineWhoEatsMissingMessage(data: TravelsTripData | undefined): string | null {
+  const meals = getCuisineMealsOrdered(data);
+  if (meals <= 0) return null;
+  const assigned = countPanierRepasAssigned(data?.participantEleves || []);
+  if (assigned === meals) return null;
+  return `Attribuez exactement ${meals} panier(s) repas nominatif(s) (« qui mange ») — actuellement ${assigned}/${meals}.`;
 }

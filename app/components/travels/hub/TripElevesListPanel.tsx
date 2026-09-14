@@ -5,7 +5,9 @@ import type { EleveConfig } from "@/app/lib/eleves-config";
 import {
   applyParticipantElevesToTripData,
   countPanierRepasAssigned,
+  cuisineWhoEatsMissingMessage,
   eleveParticipantKey,
+  isCuisineWhoEatsComplete,
   parentEmailCoverage,
   toParticipantEleve,
 } from "@/app/lib/travels-eleves-list";
@@ -13,6 +15,7 @@ import {
   calendarHasDepotAndRecuperation,
   defaultParentCalendarFromTrip,
   newCalendarPointId,
+  parentHorairesRequiredForTrip,
 } from "@/app/lib/travels-parent-calendar";
 import { emptyCuisineDetails, getTotalMeals } from "@/app/lib/travels-cuisine-form";
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
@@ -59,8 +62,10 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   );
 
   const needsBus = complexNeedsBus(trip);
+  const horairesRequired = parentHorairesRequiredForTrip(trip);
   const confirmed = trip.data.listeElevesStatus === "confirmed";
   const calendarReady = calendarHasDepotAndRecuperation(calendar);
+  const canConfirmHoraires = !horairesRequired || calendarReady;
   const tripClassesRaw = trip.data.classes;
   const mealsOrdered = getTotalMeals(
     (trip.data.piqueNiqueDetails as Parameters<typeof getTotalMeals>[0]) ?? emptyCuisineDetails(),
@@ -411,26 +416,43 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
     if (participants.length === 0) {
       return alert("Ajoutez au moins un élève à la liste.");
     }
-    if (cuisineActive && panierAssigned > mealsOrdered) {
+    if (cuisineActive) {
+      const whoEatsData = {
+        ...trip.data,
+        participantEleves: participants,
+        piqueNiqueDetails: trip.data.piqueNiqueDetails,
+      };
+      if (!isCuisineWhoEatsComplete(whoEatsData)) {
+        return alert(
+          cuisineWhoEatsMissingMessage(whoEatsData) ||
+            `Attribuez exactement ${mealsOrdered} panier(s) repas (« qui mange ») avant de confirmer.`,
+        );
+      }
+    }
+    if (horairesRequired && !calendarReady) {
       return alert(
-        `Trop de paniers attribués (${panierAssigned}) pour ${mealsOrdered} commandés. Corrigez avant de confirmer.`,
+        "Séjour complexe : renseignez l’heure de dépôt et l’heure de reprise avant de confirmer (points d’attention parents).",
       );
     }
-    if (!calendarHasDepotAndRecuperation(calendar)) {
-      return alert(
-        "Renseignez l’heure de dépôt et l’heure de reprise avant de confirmer (points d’attention parents).",
-      );
-    }
+    const cuisineBits = cuisineActive
+      ? "\n• Envoi commande cuisine au chef\n• Envoi « qui mange » + commande à la collègue décompte"
+      : "";
+    const horairesBits = calendarReady
+      ? "\n• Envoi du calendrier (.ics) aux parents (départ + reprise)"
+      : horairesRequired
+        ? ""
+        : "\n• Horaires parents non renseignés (facultatifs) — pas d’envoi calendrier";
     const msg =
       trip.status === "FINALISE_DIR_ATTENTE_ELEVES"
-        ? needsBus
-          ? `Confirmer la liste de ${participants.length} élève(s) et les horaires parents ?\n\n• Envoi CSV au transporteur\n• Envoi du calendrier (.ics) aux parents\n• Passage en Finalisé` +
-            (cuisineActive ? "\n• Envoi de la commande cuisine au chef" : "")
-          : `Confirmer la liste de ${participants.length} élève(s) et les horaires parents ?\n\n• Envoi du calendrier (.ics) aux parents\n• Passage en Finalisé` +
-            (cuisineActive ? "\n• Envoi de la commande cuisine au chef" : "")
-        : needsBus
-          ? `Confirmer la liste de ${participants.length} élève(s) et les horaires parents ?\n\n• Envoi CSV au transporteur\n• Envoi du calendrier (.ics) aux parents (départ + reprise)`
-          : `Confirmer la liste de ${participants.length} élève(s) et les horaires parents ?\n\n• Envoi du calendrier (.ics) aux parents (départ + reprise)`;
+        ? `Confirmer la liste de ${participants.length} élève(s) ?\n\n` +
+          (needsBus ? "• Envoi CSV au transporteur\n" : "") +
+          (calendarReady ? "• Envoi du calendrier (.ics) aux parents\n" : "") +
+          "• Passage en Finalisé" +
+          cuisineBits
+        : `Confirmer la liste de ${participants.length} élève(s) ?\n\n` +
+          (needsBus ? "• Envoi CSV au transporteur" : "• Confirmation de la liste") +
+          horairesBits +
+          cuisineBits;
     if (!confirm(msg)) return;
     setBusy("confirm");
     try {
@@ -452,7 +474,9 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
         j.parentsSkippedReason || null,
         j.transportSkippedReason || null,
         j.finalizedAfterListe ? "Dossier passé en Finalisé (validation direction + liste OK)." : null,
-        j.cuisineSent ? "Commande cuisine envoyée au chef." : null,
+        j.cuisineSent
+          ? "Commande cuisine envoyée au chef + liste « qui mange » à la collègue décompte."
+          : null,
         j.cuisineError ? `Cuisine non envoyée : ${j.cuisineError}` : null,
       ].filter(Boolean);
       alert(bits.length ? `Liste confirmée.\n${bits.join("\n")}` : "Liste confirmée.");
@@ -547,8 +571,11 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
           <TripAlert tone="warning" icon="⚠️" title="Action requise — liste élèves">
             La direction a finalisé le projet. Confirmez la liste nominative des élèves
             {cuisineActive
-              ? " : tant qu’elle n’est pas confirmée, la commande de cantine n’est pas envoyée au chef."
+              ? " et attribuez tous les paniers (« qui mange ») : tant que ce n’est pas fait, la commande cantine n’est envoyée ni au chef ni à la collègue décompte."
               : " pour passer le dossier en « Finalisé »."}
+            {horairesRequired
+              ? " Pour un séjour complexe, les horaires dépôt / reprise parents sont obligatoires."
+              : " Pour une sortie de proximité, les horaires parents restent facultatifs."}
           </TripAlert>
         )}
 
@@ -750,7 +777,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                 <div className="flex flex-wrap items-start gap-2">
                   <div className="mr-auto min-w-0">
                     <h3 className="text-sm font-black text-amber-950">
-                      3 — Paniers repas ({panierAssigned} / {mealsOrdered})
+                      3 — Qui mange / paniers repas ({panierAssigned} / {mealsOrdered}) — obligatoire
                     </h3>
                     <p className="mt-1 text-xs text-amber-900/80">
                       Cochez les élèves qui ont vraiment besoin d’un panier. Il reste{" "}
@@ -887,10 +914,22 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                 </div>
               ))}
 
-              {!calendarReady && (
+              {!calendarReady && horairesRequired && (
                 <p className="text-xs font-semibold text-amber-800">
-                  Indiquez au minimum une heure de dépôt et une heure de reprise pour pouvoir
-                  confirmer.
+                  Séjour complexe : indiquez au minimum une heure de dépôt et une heure de reprise
+                  pour pouvoir confirmer.
+                </p>
+              )}
+              {!calendarReady && !horairesRequired && (
+                <p className="text-xs text-slate-500">
+                  Sortie de proximité : les horaires parents sont facultatifs. Vous pouvez les
+                  renseigner si besoin ; sinon la confirmation de liste reste possible.
+                </p>
+              )}
+              {cuisineActive && panierAssigned !== mealsOrdered && (
+                <p className="text-xs font-semibold text-amber-800">
+                  Commande cuisine active : attribuez exactement {mealsOrdered} panier(s) nominatif(s)
+                  (« qui mange ») — actuellement {panierAssigned}/{mealsOrdered}.
                 </p>
               )}
             </div>
@@ -919,14 +958,21 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                 </TripButton>
                 <TripButton
                   variant="primary"
-                  disabled={!!busy || selectedKeys.size === 0 || !calendarReady}
+                  disabled={
+                    !!busy ||
+                    selectedKeys.size === 0 ||
+                    !canConfirmHoraires ||
+                    (cuisineActive && panierAssigned !== mealsOrdered)
+                  }
                   onClick={() => void confirmList()}
                 >
                   {busy === "confirm"
                     ? "…"
                     : needsBus
-                      ? "Confirmer liste + horaires (transporteur)"
-                      : "Confirmer liste + horaires parents"}
+                      ? "Confirmer liste (+ transporteur)"
+                      : horairesRequired
+                        ? "Confirmer liste + horaires parents"
+                        : "Confirmer la liste des élèves"}
                 </TripButton>
               </div>
             )}

@@ -5,7 +5,7 @@
 import { loadAppConfig } from "@/app/lib/app-config";
 import { resolveTravelsCuisineEmails } from "@/app/lib/app-config-schemas";
 import { getJson, putJson } from "@/app/lib/s3-storage";
-import { isListeElevesConfirmed } from "@/app/lib/travels-eleves-list";
+import { isListeElevesConfirmed, isCuisineWhoEatsComplete, cuisineWhoEatsMissingMessage } from "@/app/lib/travels-eleves-list";
 import { buildCuisineOrderPdfBase64 } from "@/app/lib/travels-cuisine-pdf";
 import {
   CUISINE_DAYS,
@@ -85,6 +85,16 @@ export async function sendCuisineOrderForTrip(
       ok: false,
       error:
         "La liste des élèves doit être confirmée (onglet Élèves) avant l’envoi de la commande cuisine au chef.",
+      status: 400,
+    };
+  }
+
+  if (requireListe && !isCuisineWhoEatsComplete(trip.data as TravelsTripData)) {
+    return {
+      ok: false,
+      error:
+        cuisineWhoEatsMissingMessage(trip.data as TravelsTripData) ||
+        "Attribuez nominativement les paniers repas (« qui mange ») avant l’envoi cuisine.",
       status: 400,
     };
   }
@@ -215,6 +225,27 @@ export async function sendCuisineOrderForTrip(
     const index = Array.isArray(indexHit?.data) ? indexHit.data : [];
     const nextIndex = index.map((t) => (t.id === tripId ? { ...t, ...updatedTrip } : t));
     await putJson("travels/index.json", nextIndex);
+  }
+
+  // Collègue décompte : commande cuisine (PDF) + qui mange (CSV)
+  if (mode === "initial" && isCuisineWhoEatsComplete(updatedTrip.data as TravelsTripData)) {
+    try {
+      const { sendPanierRepasListForTrip } = await import("@/app/lib/travels-panier-repas-send");
+      const panier = await sendPanierRepasListForTrip({
+        trip: updatedTrip as unknown as TravelsTrip,
+        tripId,
+        userName,
+        userEmail,
+        attachCuisineOrderPdf: true,
+        persist: params.persist !== false,
+      });
+      if (panier.ok) {
+        return { ok: true, trip: panier.trip as unknown as CuisineTripRecord, mode };
+      }
+      console.warn("[send-cuisine] liste qui mange non envoyée:", panier.error);
+    } catch (err) {
+      console.warn("[send-cuisine] liste qui mange non envoyée:", err);
+    }
   }
 
   return { ok: true, trip: updatedTrip, mode };

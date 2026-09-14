@@ -1,4 +1,9 @@
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
+import {
+  cuisineWhoEatsMissingMessage,
+  isCuisineWhoEatsComplete,
+} from "@/app/lib/travels-eleves-list";
+import { calendarHasDepotAndRecuperation } from "@/app/lib/travels-parent-calendar";
 import { TRAVELS_STATUS_LABELS, type TravelsTrip } from "@/app/lib/travels-types";
 
 type TripWorkflowAudit = {
@@ -291,8 +296,24 @@ export function buildTripWorkflowAudit(trip: TravelsTrip): TripWorkflowAudit {
       missingForCurrentStep.push("liste nominative élèves confirmée (onglet Élèves)");
       blockers.push("Liste des élèves non confirmée — bloque le passage en Finalisé et la commande cuisine.");
     }
+    const cuisineActive = Boolean(d.piqueNiqueDetails?.active);
+    if (cuisineActive && !isCuisineWhoEatsComplete(d)) {
+      missingForCurrentStep.push("attribution nominative des paniers (« qui mange »)");
+      blockers.push(
+        cuisineWhoEatsMissingMessage(d) ||
+          "Paniers repas non attribués — bloque l’envoi cuisine (chef + collègue décompte).",
+      );
+    }
+    if (trip.type === "COMPLEX" && !calendarHasDepotAndRecuperation(d.parentCalendar)) {
+      missingForCurrentStep.push("horaires dépôt / reprise parents (obligatoires en COMPLEX)");
+      blockers.push("Horaires parents manquants (séjour complexe).");
+    }
     advice.push(
-      "Le créateur doit confirmer la liste élèves (et horaires dépôt/reprise). Ensuite le dossier passe en Finalisé ; si cuisine active, le mail chef part automatiquement.",
+      "Le créateur confirme la liste élèves" +
+        (cuisineActive ? " + « qui mange »" : "") +
+        (trip.type === "COMPLEX" ? " + horaires dépôt/reprise." : ".") +
+        " Ensuite Finalisé" +
+        (cuisineActive ? " : mail chef + mail collègue décompte." : "."),
     );
   } else if (status === "BESOIN_MODIFICATION") {
     expectedActorsNow.push("createur");

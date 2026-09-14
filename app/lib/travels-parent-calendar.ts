@@ -218,6 +218,15 @@ export function calendarHasDepotAndRecuperation(cal: TravelsParentCalendar | nul
   return hasDepot && hasRecup;
 }
 
+/**
+ * Horaires dépôt / reprise parents :
+ * — obligatoires pour les séjours COMPLEX (parents doivent savoir quand déposer / récupérer) ;
+ * — facultatifs pour les sorties SIMPLE (proximité).
+ */
+export function parentHorairesRequiredForTrip(trip: { type?: string | null }): boolean {
+  return String(trip.type || "") === "COMPLEX";
+}
+
 function formatFrDate(iso: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
   const [y, m, d] = iso.split("-");

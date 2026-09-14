@@ -364,6 +364,7 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
 
   if (status === "FINALISE_DIR_ATTENTE_ELEVES") {
     const cuisineActive = Boolean(trip.data?.piqueNiqueDetails?.active);
+    const complex = trip.type === "COMPLEX";
     return finish({
       stepLabel,
       who: "Créateur du séjour (professeur organisateur)",
@@ -372,24 +373,33 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
         : "En attente de la liste nominative des élèves (créateur).",
       what: isOwner
         ? cuisineActive
-          ? "Ouvrez l’onglet Élèves, sélectionnez les participants et confirmez la liste. Tant que ce n’est pas fait, la commande cantine n’est pas envoyée au chef."
+          ? "Ouvrez l’onglet Élèves, sélectionnez les participants, attribuez tous les paniers (« qui mange ») et confirmez. Tant que ce n’est pas fait, ni le chef ni la collègue décompte ne reçoivent la commande."
           : "Ouvrez l’onglet Élèves, sélectionnez les participants et confirmez la liste pour passer le dossier en « Finalisé »."
         : cuisineActive
-          ? "Le professeur organisateur doit confirmer la liste élèves. La commande cuisine au chef est bloquée en attendant."
+          ? "Le professeur organisateur doit confirmer la liste élèves et le « qui mange ». Cuisine bloquée en attendant."
           : "Le professeur organisateur doit confirmer la liste élèves pour clôturer le dossier.",
       steps: isOwner
         ? [
             "Ouvrez l’onglet « Élèves ».",
-            "Sélectionnez tous les élèves participants (et paniers repas si besoin).",
-            "Renseignez les horaires de dépôt / reprise.",
+            "Sélectionnez tous les élèves participants.",
+            ...(cuisineActive
+              ? ["Attribuez exactement autant de paniers repas que de repas commandés (« qui mange »)."]
+              : []),
+            ...(complex
+              ? ["Renseignez obligatoirement les horaires de dépôt / reprise parents."]
+              : ["Horaires parents facultatifs (sortie de proximité)."]),
             "Cliquez sur « Confirmer la liste »." +
-              (cuisineActive ? " La commande cuisine partira ensuite automatiquement." : ""),
+              (cuisineActive
+                ? " Ensuite : commande au chef + liste « qui mange » à la collègue décompte."
+                : ""),
           ]
         : [
             "Le créateur ouvre l’onglet Élèves.",
-            "Il confirme la liste nominative (et les horaires parents).",
+            "Il confirme la liste nominative" +
+              (cuisineActive ? " et le « qui mange »" : "") +
+              (complex ? " avec horaires dépôt/reprise." : "."),
             cuisineActive
-              ? "Ensuite le dossier passe en Finalisé et la commande cuisine part au chef."
+              ? "Ensuite le dossier passe en Finalisé : mail chef + mail collègue décompte."
               : "Ensuite le dossier passe en Finalisé.",
           ],
       youMustAct: isOwner,
@@ -399,7 +409,7 @@ export function getTripNextGuidance(trip: TravelsTrip, ctx: GuidanceCtx): TripNe
       ctaTab: "eleves",
       ctaLabel: isOwner ? "Ouvrir Élèves" : "Voir Élèves",
       focusQuestion:
-        "La direction a finalisé. Que doit faire le créateur pour la liste élèves et la cuisine ?",
+        "La direction a finalisé. Que doit faire le créateur pour la liste élèves, les horaires et la cuisine ?",
     });
   }
 
