@@ -156,16 +156,7 @@ function normalizeDaySlot(raw: unknown): StageDaySlot {
 }
 
 export function formatDaySlotLabel(slot: StageDaySlot): string {
-  const weekdayNames = ["", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
-  const head = slot.date
-    ? new Date(slot.date).toLocaleDateString("fr-FR", {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-      })
-    : slot.weekday
-      ? weekdayNames[slot.weekday] ?? `J${slot.weekday}`
-      : "Jour";
+  const head = formatDaySlotDayLabel(slot);
 
   if (!slot.hasLunchBreak && slot.fullDayStart && slot.fullDayEnd) {
     return `${head} ${slot.fullDayStart}–${slot.fullDayEnd}`;
@@ -176,6 +167,103 @@ export function formatDaySlotLabel(slot: StageDaySlot): string {
     parts.push(`${slot.afternoonStart}–${slot.afternoonEnd}`);
   }
   return `${head} ${parts.join(" / ") || "—"}`;
+}
+
+/** Libellé du jour seul (ex. « lun. 8 sept. » ou « Lundi »). */
+export function formatDaySlotDayLabel(slot: StageDaySlot): string {
+  if (slot.date) {
+    return new Date(`${slot.date.slice(0, 10)}T12:00:00`).toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+  }
+  if (slot.weekday != null && STAGE_WEEKDAY_LABELS[slot.weekday]) {
+    return STAGE_WEEKDAY_LABELS[slot.weekday];
+  }
+  return "Jour";
+}
+
+export type StageDayTimeParts = {
+  continuous: boolean;
+  morning: string;
+  afternoon: string;
+  fullDay: string;
+};
+
+/** Créneaux séparés pour affichage colonnes (UI / PDF). */
+export function formatDaySlotTimeParts(slot: StageDaySlot): StageDayTimeParts {
+  const continuous =
+    !slot.hasLunchBreak &&
+    Boolean((slot.fullDayStart || slot.morningStart) && (slot.fullDayEnd || slot.morningEnd));
+  const fullStart = slot.fullDayStart || slot.morningStart || "";
+  const fullEnd = slot.fullDayEnd || slot.morningEnd || "";
+  const range = (start?: string | null, end?: string | null) =>
+    start && end ? `${start}–${end}` : "—";
+  return {
+    continuous,
+    morning: range(slot.morningStart, slot.morningEnd),
+    afternoon: range(slot.afternoonStart, slot.afternoonEnd),
+    fullDay: continuous && fullStart && fullEnd ? `${fullStart}–${fullEnd}` : "—",
+  };
+}
+
+export type StageScheduleWeekGroup = {
+  weekKey: string;
+  weekIndex: number;
+  rangeLabel: string;
+  days: StageDaySlot[];
+};
+
+/** Regroupe les jours datés par semaine civile (lundi → dimanche). */
+export function groupStageDaysByCalendarWeek(days: StageDaySlot[]): StageScheduleWeekGroup[] {
+  const dated = days.filter((d): d is StageDaySlot & { date: string } => Boolean(d.date));
+  if (dated.length === 0) {
+    return [{ weekKey: "template", weekIndex: 0, rangeLabel: "", days }];
+  }
+
+  const sorted = [...dated].sort((a, b) => a.date.localeCompare(b.date));
+  const map = new Map<string, StageDaySlot[]>();
+  for (const day of sorted) {
+    const weekKey = mondayOfIsoWeek(day.date);
+    const list = map.get(weekKey) ?? [];
+    list.push(day);
+    map.set(weekKey, list);
+  }
+
+  return [...map.entries()].map(([weekKey, weekDays], weekIndex) => {
+    const first = weekDays[0]?.date ?? weekKey;
+    const last = weekDays[weekDays.length - 1]?.date ?? weekKey;
+    return {
+      weekKey,
+      weekIndex,
+      rangeLabel: formatStageWeekRangeLabel(first, last),
+      days: weekDays,
+    };
+  });
+}
+
+export function mondayOfIsoWeek(isoDate: string): string {
+  const d = new Date(`${isoDate.slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return isoDate.slice(0, 10);
+  const dow = d.getDay(); // 0 = dimanche
+  const offset = dow === 0 ? -6 : 1 - dow;
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+export function formatStageWeekRangeLabel(startIso: string, endIso: string): string {
+  const fmt = (iso: string, withYear: boolean) =>
+    new Date(`${iso.slice(0, 10)}T12:00:00`).toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      ...(withYear ? { year: "numeric" as const } : {}),
+    });
+  if (startIso.slice(0, 10) === endIso.slice(0, 10)) {
+    return fmt(startIso, true);
+  }
+  return `du ${fmt(startIso, false)} au ${fmt(endIso, true)}`;
 }
 
 /** Génère les dates lun–sam (ou filtre) entre deux bornes ISO. */

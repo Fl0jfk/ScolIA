@@ -9,7 +9,12 @@ import {
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 import { buildSignatureSummary } from "@/app/lib/stage-signature-summary";
-import { formatPeriodRangeFr, STAGE_WEEKDAY_LABELS } from "@/app/lib/stage-schedule";
+import {
+  formatDaySlotTimeParts,
+  formatPeriodRangeFr,
+  groupStageDaysByCalendarWeek,
+  STAGE_WEEKDAY_LABELS,
+} from "@/app/lib/stage-schedule";
 import type { StagesHubPermissions } from "@/app/components/stages/stages-hub-types";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 
@@ -474,6 +479,8 @@ function ScheduleHoursPanel({
   days: StageDaySlot[];
   mode: StageConvention["schedule"]["mode"];
 }) {
+  const weekGroups = groupStageDaysByCalendarWeek(days);
+
   return (
     <div className="overflow-hidden rounded-xl border border-[#2F6B4A]/20 bg-gradient-to-br from-[#f3f8f5] via-white to-[#eef5f1]">
       <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[#2F6B4A]/15 px-4 py-3">
@@ -491,9 +498,28 @@ function ScheduleHoursPanel({
       {days.length === 0 ? (
         <p className="px-4 py-4 text-xs text-stone-500">Aucun horaire renseigné.</p>
       ) : (
-        <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
-          {days.map((day, index) => (
-            <DayHoursCard key={dayCardKey(day, index)} day={day} />
+        <div className="space-y-4 p-3">
+          {weekGroups.map((group) => (
+            <div key={group.weekKey} className="space-y-2">
+              {weekGroups.length > 1 && (
+                <div className="flex flex-wrap items-center gap-2 px-1">
+                  <span className="rounded-md bg-[#2F6B4A] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                    Semaine {group.weekIndex + 1}
+                  </span>
+                  <span className="text-xs font-medium text-[#1F3D2B]/80">
+                    {group.rangeLabel}
+                  </span>
+                  {group.weekIndex > 0 && (
+                    <span className="ml-auto hidden h-px flex-1 bg-[#2F6B4A]/15 sm:block" aria-hidden />
+                  )}
+                </div>
+              )}
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {group.days.map((day, index) => (
+                  <DayHoursCard key={dayCardKey(day, index)} day={day} />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
@@ -520,18 +546,19 @@ function dayCardTitle(day: StageDaySlot) {
 }
 
 function DayHoursCard({ day }: { day: StageDaySlot }) {
-  const continuous =
-    !day.hasLunchBreak &&
-    Boolean((day.fullDayStart || day.morningStart) && (day.fullDayEnd || day.morningEnd));
-  const fullStart = day.fullDayStart || day.morningStart || "";
-  const fullEnd = day.fullDayEnd || day.morningEnd || "";
+  const times = formatDaySlotTimeParts(day);
 
   return (
     <div className="rounded-lg border border-white/80 bg-white/90 p-3 shadow-sm shadow-[#1F3D2B]/5 ring-1 ring-stone-200/70">
       <p className="text-xs font-bold capitalize text-[#1F3D2B]">{dayCardTitle(day)}</p>
       <div className="mt-2 space-y-1.5">
-        {continuous ? (
-          <TimeChip label="Journée" start={fullStart} end={fullEnd} accent="full" />
+        {times.continuous ? (
+          <TimeChip
+            label="Journée"
+            start={(day.fullDayStart || day.morningStart || "").toString()}
+            end={(day.fullDayEnd || day.morningEnd || "").toString()}
+            accent="full"
+          />
         ) : (
           <>
             <TimeChip

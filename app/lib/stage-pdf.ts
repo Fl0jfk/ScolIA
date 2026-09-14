@@ -1,5 +1,9 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage, type RGB } from "pdf-lib";
-import { formatDaySlotLabel } from "@/app/lib/stage-schedule";
+import {
+  formatDaySlotDayLabel,
+  formatDaySlotTimeParts,
+  groupStageDaysByCalendarWeek,
+} from "@/app/lib/stage-schedule";
 import { stageSignatureProofRef } from "@/app/lib/stage-signature-proof";
 import {
   STAGE_OFFER_KIND_LABELS,
@@ -595,43 +599,149 @@ function drawPeriodBanner(ctx: PdfCtx, convention: StageConvention) {
 }
 
 function drawScheduleTable(ctx: PdfCtx, convention: StageConvention) {
-  const { palette, margin, contentW } = ctx;
-  const rows = convention.schedule.days.map((d) => formatDaySlotLabel(d));
-  const rowH = 16;
-  const headerH = 22;
-  const h = headerH + rows.length * rowH + 12;
-  ensureSpace(ctx, h + 10);
-  const yBottom = ctx.y - h;
+  const { palette, margin, contentW, font, bold } = ctx;
+  const days = convention.schedule.days || [];
+  const weeks = groupStageDaysByCalendarWeek(days);
+  const showWeekHeaders = weeks.length > 1 && weeks.some((w) => w.rangeLabel);
 
-  roundedRect(ctx.page, margin, yBottom, contentW, h, 14, {
-    fill: palette.white,
-    border: palette.line,
-    borderWidth: 0.65,
-  });
-  roundedRect(ctx.page, margin + 10, yBottom + h - headerH - 4, contentW - 20, headerH - 2, 9, {
-    fill: palette.accentSoft,
-  });
-  ctx.page.drawText(sanitizePdfText("Horaires de présence"), {
-    x: margin + 20,
-    y: yBottom + h - 18,
-    size: 8,
-    font: ctx.bold,
-    color: palette.accent,
-  });
+  const titleH = 22;
+  const colHeaderH = 14;
+  const rowH = 15;
+  const weekHeaderH = 16;
+  const padX = 12;
+  const dayColW = contentW * 0.36;
+  const timeColW = (contentW - dayColW) / 2;
 
-  let y = yBottom + h - headerH - 14;
-  for (const row of rows) {
-    const lines = wrapText(row, ctx.font, 8, contentW - 36);
-    ctx.page.drawText(sanitizePdfText(lines[0] || "—"), {
-      x: margin + 18,
-      y,
-      size: 8,
-      font: ctx.font,
-      color: palette.ink,
+  // En-tête global
+  ensureSpace(ctx, titleH + 24);
+  {
+    const h = titleH + 8;
+    const yBottom = ctx.y - h;
+    roundedRect(ctx.page, margin, yBottom, contentW, h, 12, {
+      fill: palette.white,
+      border: palette.line,
+      borderWidth: 0.65,
     });
-    y -= rowH;
+    roundedRect(ctx.page, margin + 8, yBottom + h - titleH - 2, contentW - 16, titleH - 2, 8, {
+      fill: palette.accentSoft,
+    });
+    ctx.page.drawText(sanitizePdfText("Horaires de présence"), {
+      x: margin + 18,
+      y: yBottom + h - 16,
+      size: 8,
+      font: bold,
+      color: palette.accent,
+    });
+    ctx.y = yBottom - 6;
   }
-  ctx.y = yBottom - 12;
+
+  if (days.length === 0) {
+    ensureSpace(ctx, 28);
+    ctx.page.drawText(sanitizePdfText("Aucun horaire renseigné."), {
+      x: margin + 14,
+      y: ctx.y - 14,
+      size: 8,
+      font,
+      color: palette.muted,
+    });
+    ctx.y -= 28;
+    return;
+  }
+
+  for (const week of weeks) {
+    const blockH =
+      (showWeekHeaders ? weekHeaderH + 4 : 0) + colHeaderH + week.days.length * rowH + 14;
+    ensureSpace(ctx, blockH);
+
+    const yTop = ctx.y;
+    const yBottom = yTop - blockH;
+    roundedRect(ctx.page, margin, yBottom, contentW, blockH, 12, {
+      fill: palette.white,
+      border: palette.line,
+      borderWidth: 0.55,
+    });
+
+    let y = yTop - 12;
+
+    if (showWeekHeaders) {
+      const weekTitle = sanitizePdfText(
+        `Semaine ${week.weekIndex + 1}  ·  ${week.rangeLabel}`,
+      );
+      ctx.page.drawText(weekTitle, {
+        x: margin + padX,
+        y,
+        size: 8,
+        font: bold,
+        color: palette.accent,
+      });
+      y -= weekHeaderH;
+      // Ligne de séparation sous le titre de semaine
+      ctx.page.drawRectangle({
+        x: margin + padX,
+        y: y + 6,
+        width: contentW - padX * 2,
+        height: 0.5,
+        color: palette.line,
+      });
+    }
+
+    // Colonnes
+    const drawColHeader = (label: string, x: number) => {
+      ctx.page.drawText(sanitizePdfText(label), {
+        x,
+        y,
+        size: 7,
+        font: bold,
+        color: palette.muted,
+      });
+    };
+    drawColHeader("Jour", margin + padX);
+    drawColHeader("Matin", margin + padX + dayColW);
+    drawColHeader("Après-midi", margin + padX + dayColW + timeColW);
+    y -= colHeaderH;
+
+    for (const day of week.days) {
+      const dayLabel = sanitizePdfText(formatDaySlotDayLabel(day));
+      const times = formatDaySlotTimeParts(day);
+
+      ctx.page.drawText(dayLabel, {
+        x: margin + padX,
+        y,
+        size: 8,
+        font: bold,
+        color: palette.ink,
+      });
+
+      if (times.continuous) {
+        const full = sanitizePdfText(`Journée ${times.fullDay}`);
+        ctx.page.drawText(full, {
+          x: margin + padX + dayColW,
+          y,
+          size: 8,
+          font,
+          color: palette.ink,
+        });
+      } else {
+        ctx.page.drawText(sanitizePdfText(times.morning), {
+          x: margin + padX + dayColW,
+          y,
+          size: 8,
+          font,
+          color: palette.ink,
+        });
+        ctx.page.drawText(sanitizePdfText(times.afternoon), {
+          x: margin + padX + dayColW + timeColW,
+          y,
+          size: 8,
+          font,
+          color: palette.ink,
+        });
+      }
+      y -= rowH;
+    }
+
+    ctx.y = yBottom - 8;
+  }
 }
 
 /** Marqueur PDF (subject) — page des signatures des parties. */
