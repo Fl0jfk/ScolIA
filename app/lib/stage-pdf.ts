@@ -193,11 +193,11 @@ function newPage(ctx: PdfCtx) {
   ctx.pageIndex += 1;
   paintPageBackground(ctx);
   drawPageFooter(ctx);
-  ctx.y = PAGE_H - 48;
+  ctx.y = PAGE_H - 36;
 }
 
 function ensureSpace(ctx: PdfCtx, needed: number) {
-  if (ctx.y - needed < 58) newPage(ctx);
+  if (ctx.y - needed < 48) newPage(ctx);
 }
 
 function paintPageBackground(ctx: PdfCtx) {
@@ -316,7 +316,7 @@ async function embedLogo(
       if (!png) return null;
       image = await doc.embedPng(png);
     }
-    const size = fitBox(logo.width || image.width, logo.height || image.height, 108, 64);
+    const size = fitBox(logo.width || image.width, logo.height || image.height, 86, 48);
     return { image, size };
   } catch (e) {
     console.warn("[stage-pdf] embed logo failed, trying rasterize", e);
@@ -324,7 +324,7 @@ async function embedLogo(
       const png = await rasterizeToPngBytes(raw);
       if (!png) return null;
       const image = await doc.embedPng(png);
-      const size = fitBox(logo.width || image.width, logo.height || image.height, 108, 64);
+      const size = fitBox(logo.width || image.width, logo.height || image.height, 86, 48);
       return { image, size };
     } catch (e2) {
       console.error("[stage-pdf] embed logo impossible", e2);
@@ -335,19 +335,19 @@ async function embedLogo(
 
 function drawHeader(ctx: PdfCtx, schoolYear: string, refId: string) {
   const { palette, margin, contentW } = ctx;
-  const headerH = 104;
-  ensureSpace(ctx, headerH + 16);
+  const headerH = 78;
+  ensureSpace(ctx, headerH + 8);
   const yBottom = ctx.y - headerH;
 
-  roundedRect(ctx.page, margin, yBottom, contentW, headerH, 20, {
+  roundedRect(ctx.page, margin, yBottom, contentW, headerH, 12, {
     fill: palette.white,
     border: palette.line,
-    borderWidth: 0.8,
+    borderWidth: 0.7,
   });
 
-  let textX = margin + 20;
+  let textX = margin + 14;
   if (ctx.logoImage && ctx.logoSize) {
-    const lx = margin + 16;
+    const lx = margin + 12;
     const ly = yBottom + (headerH - ctx.logoSize.height) / 2;
     ctx.page.drawImage(ctx.logoImage, {
       x: lx,
@@ -355,24 +355,24 @@ function drawHeader(ctx: PdfCtx, schoolYear: string, refId: string) {
       width: ctx.logoSize.width,
       height: ctx.logoSize.height,
     });
-    textX = lx + ctx.logoSize.width + 14;
+    textX = lx + ctx.logoSize.width + 12;
   }
 
-  roundedRect(ctx.page, textX, yBottom + 12, 48, 4, 2, {
+  roundedRect(ctx.page, textX, yBottom + 10, 40, 3, 1.5, {
     fill: palette.accent,
   });
 
   ctx.page.drawText(sanitizePdfText(ctx.schoolName), {
     x: textX,
-    y: yBottom + headerH - 30,
-    size: 11,
+    y: yBottom + headerH - 22,
+    size: 9.5,
     font: ctx.bold,
     color: palette.ink,
   });
   ctx.page.drawText(sanitizePdfText("Convention de stage"), {
     x: textX,
-    y: yBottom + headerH - 50,
-    size: 17,
+    y: yBottom + headerH - 40,
+    size: 14,
     font: ctx.bold,
     color: palette.accent,
   });
@@ -380,56 +380,56 @@ function drawHeader(ctx: PdfCtx, schoolYear: string, refId: string) {
     sanitizePdfText("Séquence d'observation et de sensibilisation en entreprise"),
     {
       x: textX,
-      y: yBottom + headerH - 68,
-      size: 8,
+      y: yBottom + headerH - 54,
+      size: 7.5,
       font: ctx.font,
       color: palette.muted,
     },
   );
 
   const badge = "Signature électronique";
-  const badgeW = ctx.bold.widthOfTextAtSize(sanitizePdfText(badge), 7) + 18;
-  const badgeH = 18;
-  const bx = margin + contentW - badgeW - 16;
-  const by = yBottom + headerH - 36;
-  roundedRect(ctx.page, bx, by, badgeW, badgeH, 9, {
+  const badgeW = ctx.bold.widthOfTextAtSize(sanitizePdfText(badge), 6.5) + 14;
+  const badgeH = 15;
+  const bx = margin + contentW - badgeW - 12;
+  const by = yBottom + headerH - 28;
+  roundedRect(ctx.page, bx, by, badgeW, badgeH, 7, {
     fill: palette.accentSoft,
   });
   ctx.page.drawText(sanitizePdfText(badge), {
-    x: bx + 9,
-    y: by + 5.5,
-    size: 7,
+    x: bx + 7,
+    y: by + 4,
+    size: 6.5,
     font: ctx.bold,
     color: palette.accent,
   });
 
-  const rightEdge = margin + contentW - 16;
+  const rightEdge = margin + contentW - 12;
   const yearLine = sanitizePdfText(`Année ${schoolYear}`);
-  const yearW = ctx.font.widthOfTextAtSize(yearLine, 6.5);
+  const yearW = ctx.font.widthOfTextAtSize(yearLine, 6);
   ctx.page.drawText(yearLine, {
     x: rightEdge - yearW,
-    y: yBottom + 28,
-    size: 6.5,
+    y: yBottom + 22,
+    size: 6,
     font: ctx.font,
     color: palette.soft,
   });
 
   const maxRefW = Math.min(badgeW + 8, contentW * 0.42);
   let refLine = sanitizePdfText(`N° ${refId}`);
-  while (ctx.font.widthOfTextAtSize(refLine, 6) > maxRefW && refLine.length > 14) {
+  while (ctx.font.widthOfTextAtSize(refLine, 5.5) > maxRefW && refLine.length > 14) {
     const keep = Math.max(8, refId.length - (refLine.length - 14));
     refLine = sanitizePdfText(`N° …${refId.slice(-keep)}`);
   }
-  const refW = ctx.font.widthOfTextAtSize(refLine, 6);
+  const refW = ctx.font.widthOfTextAtSize(refLine, 5.5);
   ctx.page.drawText(refLine, {
     x: rightEdge - refW,
-    y: yBottom + 16,
-    size: 6,
+    y: yBottom + 12,
+    size: 5.5,
     font: ctx.font,
     color: palette.soft,
   });
 
-  ctx.y = yBottom - 18;
+  ctx.y = yBottom - 8;
 }
 
 function drawPartyCard(
@@ -442,106 +442,106 @@ function drawPartyCard(
   rows: Array<{ label: string; value: string }>,
 ) {
   const { palette } = ctx;
-  roundedRect(ctx.page, x, yTop - h, w, h, 14, {
+  roundedRect(ctx.page, x, yTop - h, w, h, 10, {
     fill: palette.white,
     border: palette.line,
-    borderWidth: 0.7,
+    borderWidth: 0.6,
   });
-  roundedRect(ctx.page, x + 10, yTop - 22, w - 20, 14, 7, {
+  roundedRect(ctx.page, x + 8, yTop - 18, w - 16, 12, 5, {
     fill: palette.accentSoft,
   });
   ctx.page.drawText(sanitizePdfText(title), {
-    x: x + 18,
-    y: yTop - 18,
-    size: 8,
+    x: x + 14,
+    y: yTop - 15,
+    size: 7.5,
     font: ctx.bold,
     color: palette.accent,
   });
 
-  let y = yTop - 38;
+  let y = yTop - 32;
   for (const row of rows) {
     const label = `${row.label}  `;
     ctx.page.drawText(sanitizePdfText(label), {
-      x: x + 14,
+      x: x + 12,
       y,
-      size: 7,
+      size: 6.5,
       font: ctx.bold,
       color: palette.soft,
     });
-    const labelW = ctx.bold.widthOfTextAtSize(sanitizePdfText(label), 7);
-    const valueLines = wrapText(dash(row.value), ctx.font, 7.5, w - 28 - labelW);
+    const labelW = ctx.bold.widthOfTextAtSize(sanitizePdfText(label), 6.5);
+    const valueLines = wrapText(dash(row.value), ctx.font, 7, w - 24 - labelW);
     ctx.page.drawText(sanitizePdfText(valueLines[0] || "—"), {
-      x: x + 14 + labelW,
+      x: x + 12 + labelW,
       y,
-      size: 7.5,
+      size: 7,
       font: ctx.font,
       color: palette.ink,
     });
-    y -= 13;
-    for (let i = 1; i < valueLines.length && y > yTop - h + 10; i++) {
+    y -= 11;
+    for (let i = 1; i < valueLines.length && y > yTop - h + 8; i++) {
       ctx.page.drawText(sanitizePdfText(valueLines[i]!), {
-        x: x + 14,
+        x: x + 12,
         y,
-        size: 7.5,
+        size: 7,
         font: ctx.font,
         color: palette.ink,
       });
-      y -= 11;
+      y -= 9;
     }
   }
 }
 
 function drawArticleBlock(ctx: PdfCtx, num: number, title: string, bodyBlocks: string[]) {
   const { palette, margin, contentW, font, bold } = ctx;
-  const padX = 14;
-  const padY = 12;
-  const titleSize = 10;
-  const bodySize = 9;
-  const bodyGap = 3.2;
+  const padX = 10;
+  const padY = 7;
+  const titleSize = 8.5;
+  const bodySize = 8;
+  const bodyGap = 2;
   const innerW = contentW - padX * 2;
 
-  let contentH = 18; // title row
+  let contentH = 14; // title row
   const measured: Array<{ lines: string[]; height: number }> = [];
   for (const block of bodyBlocks) {
     const m = measureLines(block, font, bodySize, innerW, bodyGap);
     measured.push(m);
-    contentH += m.height + 6;
+    contentH += m.height + 3;
   }
   contentH += padY;
 
-  ensureSpace(ctx, contentH + 14);
+  ensureSpace(ctx, contentH + 6);
   const yBottom = ctx.y - contentH;
 
-  roundedRect(ctx.page, margin, yBottom, contentW, contentH, 16, {
+  roundedRect(ctx.page, margin, yBottom, contentW, contentH, 9, {
     fill: palette.white,
     border: palette.line,
-    borderWidth: 0.65,
+    borderWidth: 0.55,
   });
 
   // Pastille numéro
-  const pill = 22;
-  roundedRect(ctx.page, margin + padX, ctx.y - padY - pill + 4, pill, pill, 11, {
+  const pill = 16;
+  roundedRect(ctx.page, margin + padX, ctx.y - padY - pill + 3, pill, pill, 8, {
     fill: palette.accent,
   });
   const numStr = String(num);
-  const numW = bold.widthOfTextAtSize(numStr, 9);
+  const numW = bold.widthOfTextAtSize(numStr, 8);
   ctx.page.drawText(numStr, {
     x: margin + padX + (pill - numW) / 2,
-    y: ctx.y - padY - 11,
-    size: 9,
+    y: ctx.y - padY - 8,
+    size: 8,
     font: bold,
     color: palette.white,
   });
 
   ctx.page.drawText(sanitizePdfText(title), {
-    x: margin + padX + pill + 10,
-    y: ctx.y - padY - 10,
+    x: margin + padX + pill + 7,
+    y: ctx.y - padY - 7,
     size: titleSize,
     font: bold,
     color: palette.ink,
   });
 
-  let ty = ctx.y - padY - 28;
+  let ty = ctx.y - padY - 20;
   for (const m of measured) {
     for (const line of m.lines) {
       ctx.page.drawText(sanitizePdfText(line), {
@@ -553,10 +553,10 @@ function drawArticleBlock(ctx: PdfCtx, num: number, title: string, bodyBlocks: s
       });
       ty -= bodySize + bodyGap;
     }
-    ty -= 4;
+    ty -= 2;
   }
 
-  ctx.y = yBottom - 12;
+  ctx.y = yBottom - 5;
 }
 
 function drawBulletBlock(ctx: PdfCtx, num: number, title: string, intro: string, bullets: string[]) {
@@ -566,36 +566,36 @@ function drawBulletBlock(ctx: PdfCtx, num: number, title: string, intro: string,
 
 function drawPeriodBanner(ctx: PdfCtx, convention: StageConvention) {
   const { palette, margin, contentW } = ctx;
-  const h = convention.stageLabel ? 44 : 34;
-  ensureSpace(ctx, h + 12);
+  const h = convention.stageLabel ? 32 : 24;
+  ensureSpace(ctx, h + 6);
   const yBottom = ctx.y - h;
-  roundedRect(ctx.page, margin, yBottom, contentW, h, 14, {
+  roundedRect(ctx.page, margin, yBottom, contentW, h, 8, {
     fill: palette.periodBg,
     border: rgb(0.9, 0.82, 0.62),
-    borderWidth: 0.7,
+    borderWidth: 0.6,
   });
   ctx.page.drawText(
     sanitizePdfText(
       `Période  ·  du ${formatFrDate(convention.schedule.periodStart)} au ${formatFrDate(convention.schedule.periodEnd)}`,
     ),
     {
-      x: margin + 16,
-      y: yBottom + h - 18,
-      size: 10,
+      x: margin + 12,
+      y: yBottom + h - 14,
+      size: 8.5,
       font: ctx.bold,
       color: palette.ink,
     },
   );
   if (convention.stageLabel) {
     ctx.page.drawText(sanitizePdfText(convention.stageLabel), {
-      x: margin + 16,
-      y: yBottom + 10,
-      size: 8,
+      x: margin + 12,
+      y: yBottom + 7,
+      size: 7,
       font: ctx.font,
       color: palette.muted,
     });
   }
-  ctx.y = yBottom - 12;
+  ctx.y = yBottom - 5;
 }
 
 function drawScheduleTable(ctx: PdfCtx, convention: StageConvention) {
@@ -604,64 +604,64 @@ function drawScheduleTable(ctx: PdfCtx, convention: StageConvention) {
   const weeks = groupStageDaysByCalendarWeek(days);
   const showWeekHeaders = weeks.length > 1 && weeks.some((w) => w.rangeLabel);
 
-  const titleH = 22;
-  const colHeaderH = 14;
-  const rowH = 15;
-  const weekHeaderH = 16;
-  const padX = 12;
+  const titleH = 16;
+  const colHeaderH = 11;
+  const rowH = 12;
+  const weekHeaderH = 12;
+  const padX = 10;
   const dayColW = contentW * 0.36;
   const timeColW = (contentW - dayColW) / 2;
 
   // En-tête global
-  ensureSpace(ctx, titleH + 24);
+  ensureSpace(ctx, titleH + 14);
   {
-    const h = titleH + 8;
+    const h = titleH + 5;
     const yBottom = ctx.y - h;
-    roundedRect(ctx.page, margin, yBottom, contentW, h, 12, {
+    roundedRect(ctx.page, margin, yBottom, contentW, h, 8, {
       fill: palette.white,
       border: palette.line,
-      borderWidth: 0.65,
+      borderWidth: 0.55,
     });
-    roundedRect(ctx.page, margin + 8, yBottom + h - titleH - 2, contentW - 16, titleH - 2, 8, {
+    roundedRect(ctx.page, margin + 6, yBottom + h - titleH - 1, contentW - 12, titleH - 1, 5, {
       fill: palette.accentSoft,
     });
     ctx.page.drawText(sanitizePdfText("Horaires de présence"), {
-      x: margin + 18,
-      y: yBottom + h - 16,
-      size: 8,
+      x: margin + 14,
+      y: yBottom + h - 12,
+      size: 7.5,
       font: bold,
       color: palette.accent,
     });
-    ctx.y = yBottom - 6;
+    ctx.y = yBottom - 4;
   }
 
   if (days.length === 0) {
-    ensureSpace(ctx, 28);
+    ensureSpace(ctx, 22);
     ctx.page.drawText(sanitizePdfText("Aucun horaire renseigné."), {
-      x: margin + 14,
-      y: ctx.y - 14,
-      size: 8,
+      x: margin + 12,
+      y: ctx.y - 12,
+      size: 7.5,
       font,
       color: palette.muted,
     });
-    ctx.y -= 28;
+    ctx.y -= 22;
     return;
   }
 
   for (const week of weeks) {
     const blockH =
-      (showWeekHeaders ? weekHeaderH + 4 : 0) + colHeaderH + week.days.length * rowH + 14;
+      (showWeekHeaders ? weekHeaderH + 2 : 0) + colHeaderH + week.days.length * rowH + 8;
     ensureSpace(ctx, blockH);
 
     const yTop = ctx.y;
     const yBottom = yTop - blockH;
-    roundedRect(ctx.page, margin, yBottom, contentW, blockH, 12, {
+    roundedRect(ctx.page, margin, yBottom, contentW, blockH, 8, {
       fill: palette.white,
       border: palette.line,
-      borderWidth: 0.55,
+      borderWidth: 0.5,
     });
 
-    let y = yTop - 12;
+    let y = yTop - 9;
 
     if (showWeekHeaders) {
       const weekTitle = sanitizePdfText(
@@ -670,27 +670,25 @@ function drawScheduleTable(ctx: PdfCtx, convention: StageConvention) {
       ctx.page.drawText(weekTitle, {
         x: margin + padX,
         y,
-        size: 8,
+        size: 7.5,
         font: bold,
         color: palette.accent,
       });
       y -= weekHeaderH;
-      // Ligne de séparation sous le titre de semaine
       ctx.page.drawRectangle({
         x: margin + padX,
-        y: y + 6,
+        y: y + 5,
         width: contentW - padX * 2,
-        height: 0.5,
+        height: 0.4,
         color: palette.line,
       });
     }
 
-    // Colonnes
     const drawColHeader = (label: string, x: number) => {
       ctx.page.drawText(sanitizePdfText(label), {
         x,
         y,
-        size: 7,
+        size: 6.5,
         font: bold,
         color: palette.muted,
       });
@@ -707,7 +705,7 @@ function drawScheduleTable(ctx: PdfCtx, convention: StageConvention) {
       ctx.page.drawText(dayLabel, {
         x: margin + padX,
         y,
-        size: 8,
+        size: 7.5,
         font: bold,
         color: palette.ink,
       });
@@ -717,7 +715,7 @@ function drawScheduleTable(ctx: PdfCtx, convention: StageConvention) {
         ctx.page.drawText(full, {
           x: margin + padX + dayColW,
           y,
-          size: 8,
+          size: 7.5,
           font,
           color: palette.ink,
         });
@@ -725,14 +723,14 @@ function drawScheduleTable(ctx: PdfCtx, convention: StageConvention) {
         ctx.page.drawText(sanitizePdfText(times.morning), {
           x: margin + padX + dayColW,
           y,
-          size: 8,
+          size: 7.5,
           font,
           color: palette.ink,
         });
         ctx.page.drawText(sanitizePdfText(times.afternoon), {
           x: margin + padX + dayColW + timeColW,
           y,
-          size: 8,
+          size: 7.5,
           font,
           color: palette.ink,
         });
@@ -740,7 +738,7 @@ function drawScheduleTable(ctx: PdfCtx, convention: StageConvention) {
       y -= rowH;
     }
 
-    ctx.y = yBottom - 8;
+    ctx.y = yBottom - 4;
   }
 }
 
@@ -763,12 +761,12 @@ export function electronicSignatureBoxLayout(params: {
   /** Réserve haute (titre + bandeau validation admin). */
   headerReserve?: number;
 }): { x: number; y: number; width: number; height: number } {
-  const margin = 40;
+  const margin = 36;
   const contentW = params.pageWidth - margin * 2;
-  const gap = 12;
+  const gap = 8;
   const boxW = (contentW - gap) / 2;
-  const boxH = 96;
-  const headerReserve = params.headerReserve ?? 118;
+  const boxH = 84;
+  const headerReserve = params.headerReserve ?? 100;
   const col = params.index % 2;
   const row = Math.floor(params.index / 2);
   const x = margin + col * (boxW + gap);
@@ -871,41 +869,41 @@ async function drawSignatureGrid(
       ] as StageSignature[]);
 
   const { width: pageW, height: pageH } = ctx.page.getSize();
-  let headerY = pageH - 48;
+  let headerY = pageH - 36;
 
   ctx.page.drawText(sanitizePdfText(STAGE_ESIGN_PAGE_TITLE), {
-    x: 40,
+    x: 36,
     y: headerY,
-    size: 14,
+    size: 12,
     font: ctx.bold,
     color: palette.accent,
   });
-  headerY -= 16;
+  headerY -= 14;
 
   if (convention.adminReview?.approved) {
     const note = `Validee par ${convention.adminReview.byName} le ${new Date(convention.adminReview.at).toLocaleDateString("fr-FR")}${convention.adminReview.note ? ` — ${convention.adminReview.note}` : ""}.`;
-    const bannerH = 36;
+    const bannerH = 28;
     const bannerBottom = headerY - bannerH;
-    roundedRect(ctx.page, 40, bannerBottom, pageW - 80, bannerH, 10, {
+    roundedRect(ctx.page, 36, bannerBottom, pageW - 72, bannerH, 8, {
       fill: palette.accentSoft,
       border: palette.line,
-      borderWidth: 0.6,
+      borderWidth: 0.55,
     });
     ctx.page.drawText(sanitizePdfText("Validation administrative"), {
-      x: 52,
-      y: bannerBottom + bannerH - 14,
-      size: 8,
+      x: 46,
+      y: bannerBottom + bannerH - 11,
+      size: 7.5,
       font: ctx.bold,
       color: palette.accent,
     });
     ctx.page.drawText(sanitizePdfText(note), {
-      x: 52,
-      y: bannerBottom + 10,
-      size: 7.5,
+      x: 46,
+      y: bannerBottom + 7,
+      size: 7,
       font: ctx.font,
       color: palette.ink,
     });
-    headerY = bannerBottom - 12;
+    headerY = bannerBottom - 8;
   }
 
   ctx.page.drawText(
@@ -913,15 +911,15 @@ async function drawSignatureGrid(
       "Signatures des parties — confirmation e-mail, paraphe electronique ou document papier.",
     ),
     {
-      x: 40,
+      x: 36,
       y: headerY,
-      size: 8,
+      size: 7.5,
       font: ctx.font,
       color: palette.muted,
     },
   );
 
-  const headerReserve = pageH - (headerY - 18);
+  const headerReserve = pageH - (headerY - 14);
 
   for (let i = 0; i < list.length; i++) {
     const sig = list[i]!;
@@ -995,7 +993,7 @@ async function drawSignatureGrid(
   }
 
   const rows = Math.ceil(list.length / 2);
-  ctx.y = pageH - headerReserve - rows * (96 + 12) - 16;
+  ctx.y = pageH - headerReserve - rows * (84 + 8) - 12;
 }
 
 export async function renderStageConventionPdf(
@@ -1024,9 +1022,9 @@ export async function renderStageConventionPdf(
     page: doc.addPage([PAGE_W, PAGE_H]),
     font,
     bold,
-    margin: 36,
-    contentW: PAGE_W - 72,
-    y: PAGE_H - 40,
+    margin: 32,
+    contentW: PAGE_W - 64,
+    y: PAGE_H - 32,
     pageIndex: 1,
     palette: makePalette(school.accentHex),
     logoImage: embedded?.image ?? null,
@@ -1039,16 +1037,16 @@ export async function renderStageConventionPdf(
   drawHeader(ctx, convention.schoolYear, convention.id);
 
   drawText(ctx, "Entre les soussignés", {
-    size: 10,
+    size: 9,
     bold: true,
     color: ctx.palette.accent,
   });
-  ctx.y -= 8;
+  ctx.y -= 4;
 
-  const cardH = 96;
-  const cardGap = 12;
+  const cardH = 78;
+  const cardGap = 8;
   const cardW = (ctx.contentW - cardGap) / 2;
-  ensureSpace(ctx, cardH * 2 + cardGap + 20);
+  ensureSpace(ctx, cardH * 2 + cardGap + 12);
 
   const yCards = ctx.y;
   drawPartyCard(ctx, ctx.margin, yCards, cardW, cardH, "Organisme d'accueil", [
@@ -1086,7 +1084,7 @@ export async function renderStageConventionPdf(
       value: `${convention.teacherReferent.name} (${convention.teacherReferent.email})`,
     },
   ]);
-  ctx.y = yCards2 - cardH - 18;
+  ctx.y = yCards2 - cardH - 8;
 
   drawArticleBlock(ctx, 1, "Objet de la convention", [
     "La présente convention a pour objet la mise en oeuvre, au bénéfice de l'élève désigné, d'une séquence d'observation en milieu professionnel réalisée dans le cadre de sa formation scolaire.",
