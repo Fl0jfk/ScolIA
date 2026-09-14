@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import { normalizeStageSchedule, validateStageSchedule, defaultStageSchedule } from "@/app/lib/stage-schedule";
 import { resolveStagesDirectionEmail } from "@/app/lib/stage-config";
-import { generateAndStoreConventionPdf } from "@/app/lib/stage-pdf-store";
+import { generateAndStoreConventionPdf, isScoliaGeneratedConventionPdf } from "@/app/lib/stage-pdf-store";
 import {
   stampSignatureOnConventionPdf,
   annotateSignatureStatusOnConventionPdf,
@@ -128,11 +128,6 @@ function pushHistory(
     updatedAt: now,
     history: [...convention.history, { at: now, by, action, note }],
   };
-}
-
-/** PDF généré par ScolIA (préconvention en ligne) — régénérable sans écraser un dépôt externe. */
-function isScoliaGeneratedConventionPdf(convention: StageConvention): boolean {
-  return convention.history.some((h) => h.action === "ADMIN_VALIDE");
 }
 
 async function buildDefaultSignatures(convention: StageConvention): Promise<StageSignature[]> {

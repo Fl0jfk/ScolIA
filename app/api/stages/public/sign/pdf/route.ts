@@ -2,6 +2,10 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
+import {
+  buildFreshConventionPdfDownload,
+  isScoliaGeneratedConventionPdf,
+} from "@/app/lib/stage-pdf-store";
 import { getSignTokenRef, getStageConvention } from "@/app/lib/stage-storage";
 
 export async function GET(req: Request) {
@@ -13,7 +17,25 @@ export async function GET(req: Request) {
     if (!ref) return NextResponse.json({ error: "Lien invalide." }, { status: 404 });
 
     const convention = await getStageConvention(ref.conventionId);
-    if (!convention?.uploadedPdf?.s3Key) {
+    if (!convention) {
+      return NextResponse.json({ error: "Convention introuvable." }, { status: 404 });
+    }
+
+    const download = new URL(req.url).searchParams.get("download") === "1";
+
+    if (isScoliaGeneratedConventionPdf(convention)) {
+      const { bytes, fileName } = await buildFreshConventionPdfDownload(convention);
+      return new NextResponse(Buffer.from(bytes), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${fileName}"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (!convention.uploadedPdf?.s3Key) {
       return NextResponse.json({ error: "PDF introuvable." }, { status: 404 });
     }
 
@@ -28,7 +50,6 @@ export async function GET(req: Request) {
     if (!bytes) return NextResponse.json({ error: "Fichier vide." }, { status: 500 });
 
     const filename = convention.uploadedPdf.fileName || "convention.pdf";
-    const download = new URL(req.url).searchParams.get("download") === "1";
     return new NextResponse(Buffer.from(bytes), {
       status: 200,
       headers: {

@@ -130,7 +130,7 @@ export default function StageConventionDetail({
       <div className="flex flex-wrap gap-2">
         {c.uploadedPdf && (
           <a
-            href={`/api/stages/conventions/${c.id}/uploaded-pdf`}
+            href={`/api/stages/conventions/${c.id}/uploaded-pdf?t=${encodeURIComponent(c.updatedAt || c.id)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
@@ -139,10 +139,10 @@ export default function StageConventionDetail({
           </a>
         )}
         <a
-          href={`/api/stages/conventions/${c.id}/pdf`}
+          href={`/api/stages/conventions/${c.id}/pdf?t=${encodeURIComponent(c.updatedAt || c.id)}`}
           className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-800 hover:bg-stone-50"
         >
-          Télécharger PDF
+          Télécharger PDF à jour
         </a>
         {permissions?.canReviewPreconvention && c.status === "signatures_pending" && (
           <button

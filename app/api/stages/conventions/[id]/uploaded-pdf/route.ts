@@ -5,6 +5,10 @@ import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { canViewAllConventions, canViewReferentConventions } from "@/app/lib/stage-access";
 import { conventionVisibleToUser } from "@/app/lib/stage-referent";
+import {
+  buildFreshConventionPdfDownload,
+  isScoliaGeneratedConventionPdf,
+} from "@/app/lib/stage-pdf-store";
 import { getStageConvention } from "@/app/lib/stage-storage";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
@@ -22,8 +26,30 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
     const { id } = await ctx.params;
     const convention = await getStageConvention(id);
-    if (!convention?.uploadedPdf?.s3Key) {
-      if (convention?.oneDriveFiling) {
+    if (!convention) {
+      return NextResponse.json({ error: "Convention introuvable." }, { status: 404 });
+    }
+
+    const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
+    if (!conventionVisibleToUser(convention, roles, userEmail, gate.ctx.userId)) {
+      return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
+    }
+
+    // Préconvention ScolIA : toujours régénérer (données à jour + cases de signature).
+    if (isScoliaGeneratedConventionPdf(convention)) {
+      const { bytes, fileName } = await buildFreshConventionPdfDownload(convention);
+      return new NextResponse(Buffer.from(bytes), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `inline; filename="${fileName}"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (!convention.uploadedPdf?.s3Key) {
+      if (convention.oneDriveFiling) {
         return NextResponse.json(
           {
             error:
@@ -34,11 +60,6 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
         );
       }
       return NextResponse.json({ error: "PDF déposé introuvable." }, { status: 404 });
-    }
-
-    const userEmail = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() || "";
-    if (!conventionVisibleToUser(convention, roles, userEmail, gate.ctx.userId)) {
-      return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 
     const s3Client = await getTenantDataS3Client();

@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { canViewAllConventions } from "@/app/lib/stage-access";
-import { buildStageConventionPdf, conventionPdfFilename } from "@/app/lib/stage-pdf";
+import { buildFreshConventionPdfDownload } from "@/app/lib/stage-pdf-store";
 import { getStageConvention } from "@/app/lib/stage-storage";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -22,14 +22,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     const convention = await getStageConvention(id);
     if (!convention) return NextResponse.json({ error: "Convention introuvable." }, { status: 404 });
 
-    const bytes = await buildStageConventionPdf(convention);
-    const filename = conventionPdfFilename(convention);
+    const { bytes, fileName } = await buildFreshConventionPdfDownload(convention);
 
     return new NextResponse(Buffer.from(bytes), {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": `attachment; filename="${fileName}"`,
         "Cache-Control": "no-store",
       },
     });
