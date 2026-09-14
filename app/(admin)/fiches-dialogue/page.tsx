@@ -12,6 +12,7 @@ type Template = {
   key: string;
   label: string;
   calendrierMode: string;
+  starterMode?: string;
   description: string;
   etapesCount: number;
 };
@@ -33,11 +34,13 @@ export default function FichesDialogueHubPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
-    templateKey: "college_trimestriel",
+    templateKey: "college_6e",
     label: "",
     anneeLabel: "2025-2026",
     classesCibles: "",
     delaiFamilleJours: 7,
+    starterMode: "" as "" | "conseil_dabord" | "famille_dabord",
+    contactPpLabel: "via École Directe",
     appelEnabled: true,
     appelDateLimite: "",
     appelProcedure: "",
@@ -82,10 +85,13 @@ export default function FichesDialogueHubPage() {
             .map((s) => s.trim())
             .filter(Boolean),
           delaiFamilleJours: form.delaiFamilleJours,
+          ...(form.starterMode ? { starterMode: form.starterMode } : {}),
+          contactPpLabel: form.contactPpLabel.trim() || undefined,
           appelConfig: {
             enabled: form.appelEnabled,
             dateLimite: form.appelDateLimite || undefined,
             procedureHtml: form.appelProcedure || undefined,
+            contactPpLabel: form.contactPpLabel.trim() || undefined,
             documentsLabels: [
               "Formulaire d’appel",
               "Décision du conseil de classe (fiche de dialogue)",
@@ -181,6 +187,32 @@ export default function FichesDialogueHubPage() {
               }
             />
           </label>
+          <label className="block text-sm">
+            <span className={dash.textMid}>Qui commence</span>
+            <select
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+              value={form.starterMode}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  starterMode: e.target.value as typeof form.starterMode,
+                })
+              }
+            >
+              <option value="">Selon le modèle</option>
+              <option value="conseil_dabord">Conseil d’abord</option>
+              <option value="famille_dabord">Famille d’abord</option>
+            </select>
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            <span className={dash.textMid}>Canal contact PP (affiché aux familles)</span>
+            <input
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2"
+              value={form.contactPpLabel}
+              onChange={(e) => setForm({ ...form, contactPpLabel: e.target.value })}
+              placeholder="via École Directe"
+            />
+          </label>
           <label className="flex items-end gap-2 pb-2 text-sm">
             <input
               type="checkbox"
@@ -212,6 +244,14 @@ export default function FichesDialogueHubPage() {
         {templates.find((t) => t.key === form.templateKey)?.description && (
           <p className={`text-sm ${dash.textMid}`}>
             {templates.find((t) => t.key === form.templateKey)?.description}
+            {templates.find((t) => t.key === form.templateKey)?.starterMode
+              ? ` · Qui commence (modèle) : ${
+                  templates.find((t) => t.key === form.templateKey)?.starterMode ===
+                  "conseil_dabord"
+                    ? "conseil"
+                    : "famille"
+                }`
+              : ""}
           </p>
         )}
         <ModuleButton disabled={creating} onClick={() => void createCampagne()}>

@@ -234,3 +234,131 @@ export async function notifyFdAppelProcedure(params: {
   }
   return { sent: true };
 }
+
+/** Alerte PP + direction + admin : refus de la décision du conseil. */
+export async function notifyFdRefusStaff(params: {
+  to: string[];
+  elevePrenom: string;
+  eleveNom: string;
+  classe: string;
+  campagneLabel: string;
+  dateLimiteAppel?: string;
+  contactPpLabel?: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" };
+  if (!params.to.length) return { sent: false, reason: "no_recipients" };
+
+  const school = await schoolName();
+  const adminLink = await tenantAbsolutePath("/fiches-dialogue");
+  const text = [
+    "ALERTE — Refus de la décision du conseil de classe",
+    "",
+    `Élève : ${params.elevePrenom} ${params.eleveNom}`,
+    `Classe : ${params.classe || "non renseignée"}`,
+    `Campagne : ${params.campagneLabel}`,
+    "",
+    "La famille a refusé la décision définitive du conseil de classe.",
+    "Une procédure d’appel doit être engagée sans délai.",
+    params.dateLimiteAppel ? `Date limite d’appel : ${params.dateLimiteAppel}` : "",
+    params.contactPpLabel
+      ? `Canal indiqué à la famille : ${params.contactPpLabel}`
+      : "",
+    "",
+    `Suivi : ${adminLink}`,
+    "",
+    "Cordialement,",
+    school,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  for (const to of params.to) {
+    await sendMailWithTimeout(m.transporter, {
+      from: `"Fiches de dialogue — ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `[APPEL] Refus conseil — ${params.elevePrenom} ${params.eleveNom} (${params.classe})`,
+      text,
+    });
+  }
+  return { sent: true };
+}
+
+export async function notifyFdParentOtp(params: {
+  to: string;
+  elevePrenom: string;
+  eleveNom: string;
+  code: string;
+  expiresMinutes: number;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" };
+
+  const school = await schoolName();
+  const entry = await tenantAbsolutePath("/fiches-dialogue/remplir");
+  const text = [
+    "Bonjour,",
+    "",
+    `Voici votre code d’accès pour la fiche de dialogue de ${params.elevePrenom} ${params.eleveNom} :`,
+    "",
+    `  ${params.code}`,
+    "",
+    `Ce code expire dans ${params.expiresMinutes} minutes.`,
+    `Ouvrez ${entry} puis saisissez ce code.`,
+    "",
+    "Si vous n’êtes pas à l’origine de cette demande, ignorez ce message.",
+    "",
+    "Cordialement,",
+    school,
+  ].join("\n");
+
+  await sendMailWithTimeout(m.transporter, {
+    from: `"Fiches de dialogue — ${school}" <${m.smtp.user}>`,
+    to: params.to,
+    subject: `Code d’accès — fiche de dialogue ${params.elevePrenom} ${params.eleveNom}`,
+    text,
+  });
+  return { sent: true };
+}
+
+export async function notifyFdParent2Accord(params: {
+  to: string;
+  elevePrenom: string;
+  eleveNom: string;
+  deposantLabel: string;
+  resume: string;
+  deadlineLabel: string;
+  token: string;
+}): Promise<{ sent: boolean; reason?: string }> {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" };
+
+  const school = await schoolName();
+  const link = await tenantAbsolutePath(
+    `/fiches-dialogue/remplir?token=${encodeURIComponent(params.token)}`,
+  );
+  const text = [
+    "Bonjour,",
+    "",
+    `Une réponse a été déposée pour ${params.elevePrenom} ${params.eleveNom} par ${params.deposantLabel}.`,
+    "",
+    "Résumé :",
+    params.resume,
+    "",
+    `Vous pouvez confirmer (« j’accepte ») ou signaler un désaccord jusqu’au ${params.deadlineLabel}.`,
+    "Sans action de votre part avant cette date, la réponse sera considérée comme acceptée.",
+    "",
+    `Lien : ${link}`,
+    "",
+    "Cordialement,",
+    school,
+  ].join("\n");
+
+  await sendMailWithTimeout(m.transporter, {
+    from: `"Fiches de dialogue — ${school}" <${m.smtp.user}>`,
+    to: params.to,
+    subject: `À confirmer — fiche de dialogue ${params.elevePrenom} ${params.eleveNom}`,
+    text,
+  });
+  return { sent: true };
+}

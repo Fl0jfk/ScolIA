@@ -28,7 +28,10 @@ type FieldKey =
   | "dateSortie"
   | "lieuNaissance"
   | "regime"
-  | "sexe";
+  | "sexe"
+  | "lv1"
+  | "lv2"
+  | "options";
 
 const COLUMN_ALIASES: Record<FieldKey, string[]> = {
   nom: [
@@ -84,7 +87,6 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "filiere",
     "filière",
     "parcours",
-    "option",
   ],
   email: [
     "email eleve",
@@ -211,6 +213,36 @@ const COLUMN_ALIASES: Record<FieldKey, string[]> = {
     "statut regime",
   ],
   sexe: ["sexe", "genre", "sex", "code sexe", "code_sexe"],
+  lv1: [
+    "lv1",
+    "lva",
+    "lv a",
+    "langue 1",
+    "langue vivante 1",
+    "opt11",
+    "option lv1",
+  ],
+  lv2: [
+    "lv2",
+    "lvb",
+    "lv b",
+    "langue 2",
+    "langue vivante 2",
+    "opt21",
+    "option lv2",
+  ],
+  options: [
+    "options",
+    "option",
+    "options eleve",
+    "options élève",
+    "enseignements",
+    "opt31",
+    "opt41",
+    "opt51",
+    "specialites",
+    "spécialités",
+  ],
 };
 
 function normalizeHeader(value: unknown): string {
@@ -269,6 +301,9 @@ function matchColumn(header: string, _source: ElevesImportSource): FieldKey | nu
     "lieuNaissance",
     "regime",
     "sexe",
+    "lv1",
+    "lv2",
+    "options",
   ];
 
   for (const field of priority) {
@@ -396,6 +431,9 @@ function mergeEleveFields(
   if (incoming.sexe) merged.sexe = incoming.sexe;
   if (incoming.photoKey?.trim()) merged.photoKey = incoming.photoKey.trim();
   if (incoming.status) merged.status = incoming.status;
+  if (incoming.lv1?.trim()) merged.lv1 = incoming.lv1.trim();
+  if (incoming.lv2?.trim()) merged.lv2 = incoming.lv2.trim();
+  if (incoming.options?.length) merged.options = [...incoming.options];
 
   return merged;
 }
@@ -411,6 +449,24 @@ function findExistingEleveIndex(list: EleveConfig[], incoming: EleveConfig): num
   const candidates = list
     .map((e, index) => ({ e, index }))
     .filter(({ e }) => personIdentityKey(e.nom, e.prenom) === pk);
+
+  if (candidates.length === 0) return -1;
+
+  const incomingDob = incoming.dateNaissance?.trim() || "";
+  if (incomingDob) {
+    const byDob = candidates.filter(
+      ({ e }) => (e.dateNaissance?.trim() || "") === incomingDob,
+    );
+    if (byDob.length === 1) return byDob[0].index;
+    if (byDob.length > 1 && incoming.classe?.trim()) {
+      const wanted = incoming.classe.trim().toUpperCase();
+      const sameClass = byDob.find(
+        ({ e }) => (e.classe?.trim().toUpperCase() || "") === wanted,
+      );
+      if (sameClass) return sameClass.index;
+    }
+    if (byDob.length > 1) return byDob[0].index;
+  }
 
   if (candidates.length === 1) return candidates[0].index;
 
@@ -507,6 +563,18 @@ function parseRowsToEleves(
     if (sexeRaw === "F" || sexeRaw === "2" || sexeRaw.startsWith("F")) entry.sexe = "F";
     else if (sexeRaw === "M" || sexeRaw === "1" || sexeRaw.startsWith("M")) entry.sexe = "M";
 
+    const lv1 = cellStr(row, colMap.lv1);
+    if (lv1) entry.lv1 = lv1;
+    const lv2 = cellStr(row, colMap.lv2);
+    if (lv2) entry.lv2 = lv2;
+    const optionsCell = cellStr(row, colMap.options);
+    if (optionsCell) {
+      entry.options = optionsCell
+        .split(/[;|,]/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+    }
+
     eleves.push(entry);
   }
 
@@ -592,13 +660,6 @@ export function parseElevesJsonText(text: string): ElevesImportResult {
   };
 }
 
-type ElevesMergeStats = {
-  total: number;
-  added: number;
-  updated: number;
-  kept: number;
-};
-
 /** Clé de rapprochement (INE prioritaire, sinon nom + prénom). */
 export function eleveMatchKey(e: EleveConfig): string {
   const ine = e.ine?.trim().toUpperCase();
@@ -606,20 +667,32 @@ export function eleveMatchKey(e: EleveConfig): string {
   return `person:${personIdentityKey(e.nom, e.prenom)}`;
 }
 
+export type ElevesMergeStats = {
+  total: number;
+  added: number;
+  updated: number;
+  kept: number;
+  unmatched?: number;
+  unmatchedSamples?: Array<{ nom: string; prenom: string; dateNaissance?: string }>;
+};
+
 /**
- * Fusionne l'import dans la liste existante : mise à jour par INE ou identité (nom + prénom),
- * actualisation classe / MEF / e-mails, nouveaux ajoutés, absents du fichier conservés.
- * `replaceRegime` : force le régime Siècle (y compris Externe pour les sortis).
+ * Fusionne l'import dans la liste existante : mise à jour par INE ou identité (nom + prénom + DDN),
+ * actualisation classe / MEF / e-mails / LV / options, nouveaux ajoutés (sauf fillOnly),
+ * absents du fichier conservés.
+ * `fillOnly` : ne crée pas d’élève ; retourne les lignes non trouvées.
  */
 export function mergeElevesLists(
   existing: EleveConfig[],
   incoming: EleveConfig[],
-  opts?: { replaceRegime?: boolean },
+  opts?: { replaceRegime?: boolean; fillOnly?: boolean },
 ): { eleves: EleveConfig[]; stats: ElevesMergeStats } {
   const result = [...existing];
   const touched = new Set<number>();
   let added = 0;
   let updated = 0;
+  const unmatchedSamples: Array<{ nom: string; prenom: string; dateNaissance?: string }> = [];
+  let unmatched = 0;
 
   for (const inc of incoming) {
     const idx = findExistingEleveIndex(result, inc);
@@ -627,6 +700,15 @@ export function mergeElevesLists(
       result[idx] = mergeEleveFields(result[idx]!, inc, opts);
       touched.add(idx);
       updated++;
+    } else if (opts?.fillOnly) {
+      unmatched += 1;
+      if (unmatchedSamples.length < 30) {
+        unmatchedSamples.push({
+          nom: inc.nom,
+          prenom: inc.prenom,
+          ...(inc.dateNaissance ? { dateNaissance: inc.dateNaissance } : {}),
+        });
+      }
     } else {
       result.push(inc);
       added++;
@@ -642,6 +724,9 @@ export function mergeElevesLists(
       added,
       updated,
       kept,
+      ...(opts?.fillOnly
+        ? { unmatched, unmatchedSamples }
+        : {}),
     },
   };
 }

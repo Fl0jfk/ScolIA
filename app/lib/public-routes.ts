@@ -110,6 +110,7 @@ const VISITOR_PREFIXES = [
   "/stages/signer",
   "/stages/candidater",
   "/fiches-dialogue/remplir",
+  "/api/fiches-dialogue/public",
   "/certificates/verify",
   "/preinscription",
   "/api/toolbox/class-allocation/public",

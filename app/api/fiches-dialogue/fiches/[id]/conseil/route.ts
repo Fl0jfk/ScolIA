@@ -27,6 +27,9 @@ const ConseilSchema = z.object({
     )
     .min(1),
   auteurLabel: z.string().optional(),
+  /** false = brouillon PP ; true (défaut) = publication direction. */
+  publish: z.boolean().optional(),
+  useSavedSignature: z.boolean().optional(),
 });
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -44,6 +47,33 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ error: "Payload invalide." }, { status: 400 });
   }
 
+  const publish = body.data.publish !== false;
+  let signatures = body.data.signatures;
+
+  if (body.data.useSavedSignature) {
+    const { loadUserSignatureBytes } = await import("@/app/lib/user-signature-store");
+    const bytes = await loadUserSignatureBytes(scope.ctx.authUserId);
+    if (bytes?.length) {
+      const pngBase64 = Buffer.from(bytes).toString("base64");
+      signatures = signatures.map((s) =>
+        s.pngBase64
+          ? s
+          : {
+              ...s,
+              pngBase64,
+              method: s.method || "saved",
+            },
+      );
+    }
+  }
+
+  if (publish && !signatures.some((s) => s.role === "direction")) {
+    return NextResponse.json(
+      { error: "La publication nécessite une signature direction." },
+      { status: 400 },
+    );
+  }
+
   const result = await submitFdConseilDecision({
     etablissementId: scope.ctx.etablissementId,
     ficheId: id,
@@ -51,11 +81,12 @@ export async function POST(req: Request, ctx: Ctx) {
     payload: body.data.payload,
     auteurUserId: scope.ctx.authUserId,
     auteurLabel: body.data.auteurLabel ?? appUser.user.name,
-    signatures: body.data.signatures,
+    signatures,
+    publish,
   });
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, published: result.published });
 }

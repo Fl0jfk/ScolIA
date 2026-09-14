@@ -18,9 +18,14 @@ import {
   type FdEtapeKind,
   type FdEtapeRow,
   type FdFicheRow,
+  type FdParentAccordPayload,
   type FdReponsePayload,
 } from "@/db/schema";
-import { collectEleveParentEmails, isValidParentEmail } from "@/app/lib/eleves-parent-emails";
+import {
+  collectEleveParentEmails,
+  isValidParentEmail,
+  normalizeParentEmail,
+} from "@/app/lib/eleves-parent-emails";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { fileFicheDialoguePdfToDossier } from "@/app/lib/fiches-dialogue-filing";
 import {
@@ -28,7 +33,19 @@ import {
   notifyFdAppelProcedure,
   notifyFdDecisionPdf,
   notifyFdFamilleSaisie,
+  notifyFdParent2Accord,
+  notifyFdRefusStaff,
 } from "@/app/lib/fiches-dialogue-notify";
+import {
+  resolveStagesAdminEmails,
+  resolveStagesDirectionEmail,
+} from "@/app/lib/stage-config";
+import {
+  findPrincipalAssignments,
+  getStageReferentsConfig,
+} from "@/app/lib/stage-referents-config";
+import { currentStageSchoolYear } from "@/app/lib/stage-types";
+import type { FdStarterMode } from "@/db/schema-fiches-dialogue";
 import {
   buildFicheDialoguePdf,
   sectionsFromAcceptation,
@@ -90,6 +107,8 @@ export async function createFdCampagneFromTemplate(params: {
   delaiFamilleJours?: number;
   appelConfig?: FdAppelConfig;
   catalogueOverride?: FdCatalogueChoix;
+  starterMode?: FdStarterMode;
+  contactPpLabel?: string | null;
   createdByUserId?: string | null;
 }): Promise<{ campagne: FdCampagneRow; etapes: FdEtapeRow[] }> {
   const template = getFdTemplate(params.templateKey);
@@ -106,9 +125,11 @@ export async function createFdCampagneFromTemplate(params: {
       siteKey: params.siteKey ?? null,
       calendrierMode: template.calendrierMode as FdCalendrierMode,
       templateKey: template.key,
+      starterMode: params.starterMode ?? template.starterMode ?? "famille_dabord",
       statut: "brouillon",
       catalogue: params.catalogueOverride ?? template.catalogue,
       appelConfig: params.appelConfig ?? { enabled: true },
+      contactPpLabel: params.contactPpLabel ?? null,
       delaiFamilleJours: params.delaiFamilleJours ?? 7,
       classesCibles: params.classesCibles ?? [],
       createdByUserId: params.createdByUserId ?? null,
@@ -147,6 +168,8 @@ export async function updateFdCampagne(
     delaiFamilleJours: number;
     classesCibles: string[];
     calendrierMode: FdCalendrierMode;
+    starterMode: FdStarterMode;
+    contactPpLabel: string | null;
   }>,
 ): Promise<FdCampagneRow> {
   const db = getDb();
@@ -228,6 +251,13 @@ export async function generateFdFichesForCampagne(
     }
 
     const emails = collectEleveParentEmails(reg).filter(isValidParentEmail);
+    const optionsActuelles = [
+      ...new Set([
+        ...(reg.lv1 ? [`LV1 ${reg.lv1}`] : []),
+        ...(reg.lv2 ? [`LV2 ${reg.lv2}`] : []),
+        ...(reg.options ?? []),
+      ]),
+    ];
     try {
       await db.insert(fdFiche).values({
         etablissementId,
@@ -236,7 +266,9 @@ export async function generateFdFichesForCampagne(
         eleveNom: row.nom || reg.nom,
         elevePrenom: row.prenom || reg.prenom,
         classeActuelle: classe || row.classe || "",
-        optionsActuelles: [],
+        eleveDateNaissance: reg.dateNaissance || row.dateNaissance || null,
+        elevePhotoKey: reg.photoKey || row.photoKey || null,
+        optionsActuelles,
         parentEmails: emails,
         statut: "a_envoyer",
         etapeCouranteId: firstEtape.id,
@@ -297,6 +329,14 @@ function isFamilleEtape(kind: FdEtapeKind): boolean {
 
 function isConseilEtape(kind: FdEtapeKind): boolean {
   return kind === "conseil" || kind === "decision_finale_conseil";
+}
+
+/** true si la famille peut encore modifier (date limite non dépassée, pas gelée admin). */
+export function isFdEtapeOpenForFamille(etape: FdEtapeRow, at = new Date()): boolean {
+  if (etape.gelee) return false;
+  if (etape.opensAt && etape.opensAt.getTime() > at.getTime()) return false;
+  if (etape.closesAt && etape.closesAt.getTime() < at.getTime()) return false;
+  return true;
 }
 
 export async function sendFdFicheToFamille(params: {
@@ -411,12 +451,19 @@ export async function submitFdFamilleReponse(params: {
   payload: FdReponsePayload;
   auteurLabel?: string;
   signature?: { name: string; pngBase64?: string; method?: string; email?: string };
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}): Promise<{ ok: true; needsParent2?: boolean } | { ok: false; error: string }> {
   const fiche = await getFdFiche(params.etablissementId, params.ficheId);
   if (!fiche) return { ok: false, error: "Fiche introuvable." };
   const etape = await getEtape(params.etablissementId, params.etapeId);
   if (!etape) return { ok: false, error: "Étape introuvable." };
-  if (etape.gelee) return { ok: false, error: "Étape figée : modification impossible." };
+  if (!isFdEtapeOpenForFamille(etape)) {
+    return {
+      ok: false,
+      error: etape.gelee
+        ? "Étape figée : modification impossible."
+        : "La date limite de cette étape est dépassée (ou pas encore ouverte).",
+    };
+  }
   if (etape.kind !== "saisie_famille" && etape.kind !== "choix_definitifs") {
     return { ok: false, error: "Cette étape n’accepte pas une saisie de vœux." };
   }
@@ -497,13 +544,168 @@ export async function submitFdFamilleReponse(params: {
     anneeLabel: campagne.anneeLabel,
   });
 
+  const deposantEmail = params.signature?.email
+    ? normalizeParentEmail(params.signature.email)
+    : "";
+  const allEmails = (fiche.parentEmails ?? [])
+    .map(normalizeParentEmail)
+    .filter(isValidParentEmail);
+  const autres = allEmails.filter((e) => e && e !== deposantEmail);
+  const autreEmail = autres[0] ?? null;
+
+  const TACITE_DAYS = 10;
+  let statut: FdFicheRow["statut"] = "saisie_recue";
+  let parentAccord: FdParentAccordPayload | null = null;
+
+  if (autreEmail && deposantEmail) {
+    const deadlineFromDeposit = new Date(Date.now() + TACITE_DAYS * 24 * 60 * 60 * 1000);
+    const closesAt = etape.closesAt ? new Date(etape.closesAt) : null;
+    const accordDeadlineAt =
+      closesAt && closesAt.getTime() < deadlineFromDeposit.getTime()
+        ? closesAt
+        : deadlineFromDeposit;
+
+    parentAccord = {
+      deposantEmail,
+      deposantLabel: params.auteurLabel ?? "Famille",
+      depositedAt: now().toISOString(),
+      autreEmail,
+      statutAutre: "en_attente",
+      accordDeadlineAt: accordDeadlineAt.toISOString(),
+    };
+    statut = "en_attente_accord_parent2";
+
+    const tokenRow = await createFdAccessToken({
+      etablissementId: params.etablissementId,
+      ficheId: fiche.id,
+      etapeId: etape.id,
+      email: autreEmail,
+      purpose: "accord_parent2",
+      expiresInDays: Math.max(
+        1,
+        Math.ceil((accordDeadlineAt.getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
+      ),
+    });
+
+    const resumeLines = sections
+      .flatMap((s) => s.lines)
+      .slice(0, 12)
+      .join("\n");
+    await notifyFdParent2Accord({
+      to: autreEmail,
+      elevePrenom: fiche.elevePrenom,
+      eleveNom: fiche.eleveNom,
+      deposantLabel: parentAccord.deposantLabel || "l’autre responsable",
+      resume: resumeLines || "Vœux déposés (détail dans le lien).",
+      deadlineLabel: accordDeadlineAt.toLocaleString("fr-FR"),
+      token: tokenRow.token,
+    });
+  }
+
   await db
     .update(fdFiche)
-    .set({ statut: "saisie_recue", updatedAt: now() })
+    .set({
+      statut,
+      parentAccord,
+      conflictPayload: null,
+      updatedAt: now(),
+    })
     .where(eq(fdFiche.id, fiche.id));
 
   await revokeFdTokensForFiche(fiche.id, "saisie");
+  return { ok: true, needsParent2: statut === "en_attente_accord_parent2" };
+}
+
+/** Confirmation ou contradiction du 2e parent (ou application tacite). */
+export async function submitFdParentAccord(params: {
+  etablissementId: string;
+  ficheId: string;
+  email: string;
+  decision: "confirme" | "contredit";
+  motif?: string;
+  conflictValues?: Record<string, string | string[] | boolean | null>;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  await applyFdTacitParentAccordIfDue(params.etablissementId, params.ficheId);
+
+  const fiche = await getFdFiche(params.etablissementId, params.ficheId);
+  if (!fiche) return { ok: false, error: "Fiche introuvable." };
+  if (fiche.statut !== "en_attente_accord_parent2") {
+    return { ok: false, error: "Aucun accord parental en attente." };
+  }
+
+  const email = normalizeParentEmail(params.email);
+  const accord = fiche.parentAccord;
+  if (!accord?.autreEmail || normalizeParentEmail(accord.autreEmail) !== email) {
+    return { ok: false, error: "Vous n’êtes pas le destinataire de cette confirmation." };
+  }
+
+  const db = getDb();
+  if (params.decision === "confirme") {
+    await db
+      .update(fdFiche)
+      .set({
+        statut: "saisie_recue",
+        parentAccord: {
+          ...accord,
+          statutAutre: "confirme",
+          confirmeAt: now().toISOString(),
+        },
+        updatedAt: now(),
+      })
+      .where(eq(fdFiche.id, fiche.id));
+    await revokeFdTokensForFiche(fiche.id);
+    return { ok: true };
+  }
+
+  await db
+    .update(fdFiche)
+    .set({
+      statut: "en_conflit",
+      parentAccord: {
+        ...accord,
+        statutAutre: "contredit",
+        conflictMotif: params.motif?.trim() || undefined,
+        conflictValues: params.conflictValues,
+      },
+      conflictPayload: {
+        ...accord,
+        statutAutre: "contredit",
+        conflictMotif: params.motif?.trim() || undefined,
+        conflictValues: params.conflictValues,
+      },
+      updatedAt: now(),
+    })
+    .where(eq(fdFiche.id, fiche.id));
+  await revokeFdTokensForFiche(fiche.id);
   return { ok: true };
+}
+
+/** Si la date limite d’accord est dépassée → acceptation tacite. */
+export async function applyFdTacitParentAccordIfDue(
+  etablissementId: string,
+  ficheId: string,
+): Promise<boolean> {
+  const fiche = await getFdFiche(etablissementId, ficheId);
+  if (!fiche || fiche.statut !== "en_attente_accord_parent2") return false;
+  const accord = fiche.parentAccord;
+  if (!accord?.accordDeadlineAt || accord.statutAutre !== "en_attente") return false;
+  if (new Date(accord.accordDeadlineAt).getTime() > Date.now()) return false;
+
+  const db = getDb();
+  await db
+    .update(fdFiche)
+    .set({
+      statut: "saisie_recue",
+      parentAccord: {
+        ...accord,
+        statutAutre: "tacite",
+        taciteAt: now().toISOString(),
+      },
+      updatedAt: now(),
+    })
+    .where(eq(fdFiche.id, fiche.id));
+  await revokeFdTokensForFiche(fiche.id);
+  return true;
 }
 
 export async function freezeFdEtape(params: {
@@ -533,7 +735,9 @@ export async function submitFdConseilDecision(params: {
     pngBase64?: string;
     method?: string;
   }>;
-}): Promise<{ ok: true; pdfBytes: Uint8Array } | { ok: false; error: string }> {
+  /** false = brouillon PP (en_attente_direction), true = publication famille. */
+  publish?: boolean;
+}): Promise<{ ok: true; pdfBytes?: Uint8Array; published: boolean } | { ok: false; error: string }> {
   const fiche = await getFdFiche(params.etablissementId, params.ficheId);
   if (!fiche) return { ok: false, error: "Fiche introuvable." };
   const etape = await getEtape(params.etablissementId, params.etapeId);
@@ -543,6 +747,13 @@ export async function submitFdConseilDecision(params: {
   }
   const campagne = await getFdCampagne(params.etablissementId, fiche.campagneId);
   if (!campagne) return { ok: false, error: "Campagne introuvable." };
+
+  const publish = params.publish !== false;
+  const payload: FdConseilDecisionPayload = {
+    ...params.payload,
+    publiee: publish,
+    publishedAt: publish ? now().toISOString() : undefined,
+  };
 
   const db = getDb();
   await db
@@ -554,11 +765,11 @@ export async function submitFdConseilDecision(params: {
       auteurRole: "conseil",
       auteurUserId: params.auteurUserId ?? null,
       auteurLabel: params.auteurLabel ?? "Conseil de classe",
-      payload: params.payload,
+      payload,
     })
     .onConflictDoUpdate({
       target: [fdReponse.ficheId, fdReponse.etapeId, fdReponse.auteurRole],
-      set: { payload: params.payload, submittedAt: now(), auteurLabel: params.auteurLabel },
+      set: { payload, submittedAt: now(), auteurLabel: params.auteurLabel },
     });
 
   for (const sig of params.signatures) {
@@ -584,10 +795,22 @@ export async function submitFdConseilDecision(params: {
       });
   }
 
+  if (!publish) {
+    await db
+      .update(fdFiche)
+      .set({
+        statut: "en_attente_direction",
+        etapeCouranteId: etape.id,
+        updatedAt: now(),
+      })
+      .where(eq(fdFiche.id, fiche.id));
+    return { ok: true, published: false };
+  }
+
   const history = await loadFicheHistorySections(params.etablissementId, fiche, campagne.catalogue);
   const sections = [
     ...history,
-    ...sectionsFromConseil(campagne.catalogue, params.payload),
+    ...sectionsFromConseil(campagne.catalogue, payload),
   ];
   const pdfBytes = await buildFicheDialoguePdf({
     title:
@@ -663,7 +886,7 @@ export async function submitFdConseilDecision(params: {
       .where(eq(fdFiche.id, fiche.id));
   }
 
-  return { ok: true, pdfBytes };
+  return { ok: true, pdfBytes, published: true };
 }
 
 async function loadFicheHistorySections(
@@ -733,7 +956,14 @@ export async function submitFdAcceptation(params: {
   if (!etape || etape.kind !== "acceptation_famille") {
     return { ok: false, error: "Étape d’acceptation invalide." };
   }
-  if (etape.gelee) return { ok: false, error: "Étape figée." };
+  if (!isFdEtapeOpenForFamille(etape)) {
+    return {
+      ok: false,
+      error: etape.gelee
+        ? "Étape figée."
+        : "La date limite de cette étape est dépassée (ou pas encore ouverte).",
+    };
+  }
 
   const campagne = await getFdCampagne(params.etablissementId, fiche.campagneId);
   if (!campagne) return { ok: false, error: "Campagne introuvable." };
@@ -852,9 +1082,52 @@ export async function submitFdAcceptation(params: {
         to: emails,
         elevePrenom: fiche.elevePrenom,
         eleveNom: fiche.eleveNom,
-        appel: campagne.appelConfig,
+        appel: {
+          ...campagne.appelConfig,
+          contactPpLabel:
+            campagne.appelConfig.contactPpLabel ||
+            campagne.contactPpLabel ||
+            undefined,
+        },
         pdfBytes,
       });
+
+      const staffTo = new Set<string>();
+      try {
+        const year = currentStageSchoolYear();
+        const refs = await getStageReferentsConfig(year);
+        for (const a of findPrincipalAssignments(refs, fiche.classeActuelle)) {
+          if (a.email?.trim()) staffTo.add(a.email.trim().toLowerCase());
+        }
+        const directionEmail = await resolveStagesDirectionEmail(
+          fiche.classeActuelle,
+          fiche.classeActuelle,
+        );
+        if (directionEmail) staffTo.add(directionEmail.trim().toLowerCase());
+        for (const e of await resolveStagesAdminEmails(
+          fiche.classeActuelle,
+          fiche.classeActuelle,
+        )) {
+          staffTo.add(e.trim().toLowerCase());
+        }
+      } catch {
+        /* best-effort */
+      }
+      if (staffTo.size) {
+        await notifyFdRefusStaff({
+          to: [...staffTo],
+          elevePrenom: fiche.elevePrenom,
+          eleveNom: fiche.eleveNom,
+          classe: fiche.classeActuelle,
+          campagneLabel: campagne.label,
+          dateLimiteAppel: campagne.appelConfig.dateLimite,
+          contactPpLabel:
+            campagne.appelConfig.contactPpLabel ||
+            campagne.contactPpLabel ||
+            undefined,
+        });
+      }
+
       const etapes = await listFdEtapes(params.etablissementId, fiche.campagneId);
       const appelEtape = etapes.find((e) => e.kind === "appel");
       await db
@@ -889,6 +1162,8 @@ export async function getFdPublicContext(token: string) {
   const { resolveFdToken } = await import("@/app/lib/fiches-dialogue-tokens");
   const tokenRow = await resolveFdToken(token);
   if (!tokenRow) return null;
+
+  await applyFdTacitParentAccordIfDue(tokenRow.etablissementId, tokenRow.ficheId);
 
   const fiche = await getFdFiche(tokenRow.etablissementId, tokenRow.ficheId);
   if (!fiche) return null;

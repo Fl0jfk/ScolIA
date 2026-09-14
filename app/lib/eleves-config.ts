@@ -148,6 +148,12 @@ export type EleveConfig = {
   sexe?: "M" | "F";
   /** Clé S3 photo élève (eleves/photos/…). */
   photoKey?: string;
+  /** Langue vivante 1 (ex. Anglais). */
+  lv1?: string;
+  /** Langue vivante 2 (ex. Espagnol). */
+  lv2?: string;
+  /** Options / enseignements suivis actuellement. */
+  options?: string[];
 };
 
 export function validateElevesJson(
@@ -190,6 +196,15 @@ export function validateElevesJson(
     const sexe: "M" | "F" | undefined =
       sexeRaw === "F" || sexeRaw === "2" ? "F" : sexeRaw === "M" || sexeRaw === "1" ? "M" : undefined;
     const photoKey = String(o.photoKey ?? "").trim();
+    const lv1 = String(o.lv1 ?? o.lva ?? o.LV1 ?? "").trim();
+    const lv2 = String(o.lv2 ?? o.lvb ?? o.LV2 ?? "").trim();
+    const optionsRaw = o.options ?? o.optionsActuelles;
+    const options: string[] = Array.isArray(optionsRaw)
+      ? optionsRaw.map((x) => String(x).trim()).filter(Boolean)
+      : String(optionsRaw ?? "")
+          .split(/[;|,]/)
+          .map((x) => x.trim())
+          .filter(Boolean);
     if (!nom || !prenom || !folderName) {
       return {
         ok: false,
@@ -224,6 +239,9 @@ export function validateElevesJson(
       ...(regime ? { regime } : {}),
       ...(sexe ? { sexe } : {}),
       ...(photoKey ? { photoKey } : {}),
+      ...(lv1 ? { lv1 } : {}),
+      ...(lv2 ? { lv2 } : {}),
+      ...(options.length ? { options } : {}),
     });
   }
   return { ok: true, eleves };

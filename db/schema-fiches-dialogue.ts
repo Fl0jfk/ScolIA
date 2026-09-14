@@ -34,7 +34,10 @@ export type FdFicheStatut =
   | "a_envoyer"
   | "en_attente_famille"
   | "saisie_recue"
+  | "en_attente_accord_parent2"
+  | "en_conflit"
   | "en_conseil"
+  | "en_attente_direction"
   | "decision_envoyee"
   | "en_attente_acceptation"
   | "acceptee"
@@ -43,23 +46,50 @@ export type FdFicheStatut =
   | "cloturee"
   | "figee";
 
+/** Qui ouvre l’échange pour la campagne / le niveau. */
+export type FdStarterMode = "conseil_dabord" | "famille_dabord";
+
+export type FdCatalogueField = {
+  id: string;
+  type:
+    | "select"
+    | "multiselect"
+    | "text"
+    | "textarea"
+    | "checkbox"
+    | "etablissement"
+    | "etablissement_multi"
+    | "wizard_branch";
+  label: string;
+  required?: boolean;
+  /** Référence destinations | options | liste inline */
+  optionsFrom?: "destinations" | "options";
+  inlineOptions?: Array<{ id: string; label: string }>;
+  helpText?: string;
+  /** Branche conditionnelle (ex. afficher si destination = 1ere_g). */
+  showWhen?: { fieldId: string; equals: string | string[] };
+  maxSelect?: number;
+};
+
 export type FdCatalogueChoix = {
-  destinations: Array<{ id: string; label: string; niveauCible?: string }>;
+  destinations: Array<{
+    id: string;
+    label: string;
+    niveauCible?: string;
+    /** Offre interne à l’établissement (sinon = départ). */
+    interne?: boolean;
+  }>;
   options: Array<{
     id: string;
     label: string;
     kind: "lv" | "option_interne" | "specialite" | "autre";
   }>;
   /** Champs du formulaire famille (ordre d’affichage). */
-  fields: Array<{
-    id: string;
-    type: "select" | "multiselect" | "text" | "textarea" | "checkbox";
-    label: string;
-    required?: boolean;
-    /** Référence destinations | options | liste inline */
-    optionsFrom?: "destinations" | "options";
-    inlineOptions?: Array<{ id: string; label: string }>;
-    helpText?: string;
+  fields: FdCatalogueField[];
+  /** Voies d’ouverture configurables (niveau actuel → destinations possibles). */
+  voiesOuverture?: Array<{
+    niveauActuel: string;
+    destinationsIds: string[];
   }>;
 };
 
@@ -68,6 +98,13 @@ export type FdReponsePayload = {
   comment?: string;
   /** Si la famille force malgré un avis conseil précédent */
   forceMalgreAvis?: boolean;
+  /** Établissements souhaités (RNE), vœux classés. */
+  etablissementsVoeux?: Array<{
+    rang: number;
+    codeRne: string;
+    label: string;
+    chezNous?: boolean;
+  }>;
 };
 
 export type FdConseilDecisionPayload = {
@@ -76,6 +113,9 @@ export type FdConseilDecisionPayload = {
   optionsProposees?: string[];
   motif?: string;
   commentaire?: string;
+  /** true = proposition publiée aux familles. */
+  publiee?: boolean;
+  publishedAt?: string;
 };
 
 export type FdAcceptationPayload = {
@@ -83,11 +123,30 @@ export type FdAcceptationPayload = {
   motifRefus?: string;
 };
 
+export type FdParentAccordPayload = {
+  /** Email du 1er signataire (dépôt). */
+  deposantEmail?: string;
+  deposantLabel?: string;
+  depositedAt?: string;
+  /** Email du 2e parent notifié. */
+  autreEmail?: string;
+  /** confirmé | tacite | contredit | en_attente */
+  statutAutre?: "en_attente" | "confirme" | "tacite" | "contredit";
+  confirmeAt?: string;
+  taciteAt?: string;
+  /** Date limite d’accord (min(dépôt+10j, closesAt étape)). */
+  accordDeadlineAt?: string;
+  conflictMotif?: string;
+  conflictValues?: Record<string, string | string[] | boolean | null>;
+};
+
 export type FdAppelConfig = {
   enabled: boolean;
   dateLimite?: string;
   procedureHtml?: string;
   documentsLabels?: string[];
+  /** Canal de contact PP affiché aux familles (École Directe, Pronote…). */
+  contactPpLabel?: string;
 };
 
 export const fdCampagne = pgTable(
@@ -103,6 +162,8 @@ export const fdCampagne = pgTable(
     siteKey: text("site_key"),
     calendrierMode: text("calendrier_mode").$type<FdCalendrierMode>().notNull().default("trimestre"),
     templateKey: text("template_key"),
+    /** conseil_dabord | famille_dabord — surchargeable, pas figé collège/lycée. */
+    starterMode: text("starter_mode").$type<FdStarterMode>().notNull().default("famille_dabord"),
     statut: text("statut").$type<FdCampagneStatut>().notNull().default("brouillon"),
     catalogue: jsonb("catalogue").$type<FdCatalogueChoix>().notNull().default({
       destinations: [],
@@ -112,6 +173,8 @@ export const fdCampagne = pgTable(
     appelConfig: jsonb("appel_config").$type<FdAppelConfig>().notNull().default({
       enabled: true,
     }),
+    /** Libellé canal contact PP (École Directe, Pronote…). */
+    contactPpLabel: text("contact_pp_label"),
     delaiFamilleJours: integer("delai_famille_jours").notNull().default(7),
     classesCibles: jsonb("classes_cibles").$type<string[]>().notNull().default([]),
     createdByUserId: text("created_by_user_id"),
@@ -175,6 +238,8 @@ export const fdFiche = pgTable(
     eleveNom: text("eleve_nom").notNull(),
     elevePrenom: text("eleve_prenom").notNull(),
     classeActuelle: text("classe_actuelle").notNull().default(""),
+    eleveDateNaissance: date("eleve_date_naissance"),
+    elevePhotoKey: text("eleve_photo_key"),
     optionsActuelles: jsonb("options_actuelles").$type<string[]>().notNull().default([]),
     parentEmails: jsonb("parent_emails").$type<string[]>().notNull().default([]),
     statut: text("statut").$type<FdFicheStatut>().notNull().default("a_envoyer"),
@@ -185,6 +250,8 @@ export const fdFiche = pgTable(
     lastReminderAt: timestamp("last_reminder_at", { withTimezone: true }),
     reminderCount: integer("reminder_count").notNull().default(0),
     acceptation: jsonb("acceptation").$type<FdAcceptationPayload | null>(),
+    parentAccord: jsonb("parent_accord").$type<FdParentAccordPayload | null>(),
+    conflictPayload: jsonb("conflict_payload").$type<FdParentAccordPayload | null>(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     refusedAt: timestamp("refused_at", { withTimezone: true }),
     closedAt: timestamp("closed_at", { withTimezone: true }),

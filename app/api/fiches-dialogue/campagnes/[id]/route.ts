@@ -30,8 +30,20 @@ export async function GET(_req: Request, ctx: Ctx) {
   const campagne = await getFdCampagne(scope.ctx.etablissementId, id);
   if (!campagne) return NextResponse.json({ error: "Introuvable." }, { status: 404 });
   const etapes = await listFdEtapes(scope.ctx.etablissementId, id);
-  const fiches = await listFdFiches(scope.ctx.etablissementId, id);
+  const fichesRaw = await listFdFiches(scope.ctx.etablissementId, id);
   const stats = await getFdCampagneStats(scope.ctx.etablissementId, id);
+  /** Suivi admin : statut / fait-pas-fait, sans contenu des vœux ni e-mails en clair. */
+  const fiches = fichesRaw.map((f) => ({
+    id: f.id,
+    eleveNom: f.eleveNom,
+    elevePrenom: f.elevePrenom,
+    classeActuelle: f.classeActuelle,
+    statut: f.statut,
+    etapeCouranteId: f.etapeCouranteId,
+    parentEmailCount: (f.parentEmails ?? []).length,
+    lastSentAt: f.lastSentAt,
+    parentAccordStatut: f.parentAccord?.statutAutre ?? null,
+  }));
   return NextResponse.json({ campagne, etapes, fiches, stats });
 }
 
@@ -41,6 +53,8 @@ const PatchSchema = z.object({
   delaiFamilleJours: z.number().int().min(1).max(60).optional(),
   classesCibles: z.array(z.string()).optional(),
   calendrierMode: z.enum(["trimestre", "semestre", "personnalise"]).optional(),
+  starterMode: z.enum(["conseil_dabord", "famille_dabord"]).optional(),
+  contactPpLabel: z.string().max(120).optional().nullable(),
   catalogue: z
     .object({
       destinations: z.array(
@@ -110,6 +124,8 @@ export async function PATCH(req: Request, ctx: Ctx) {
       delaiFamilleJours: body.data.delaiFamilleJours,
       classesCibles: body.data.classesCibles,
       calendrierMode: body.data.calendrierMode,
+      starterMode: body.data.starterMode,
+      contactPpLabel: body.data.contactPpLabel,
       catalogue: body.data.catalogue,
       appelConfig: body.data.appelConfig,
     });

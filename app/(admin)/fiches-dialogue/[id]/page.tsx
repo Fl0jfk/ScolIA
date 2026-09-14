@@ -29,8 +29,9 @@ type Fiche = {
   classeActuelle: string;
   statut: string;
   etapeCouranteId: string | null;
-  parentEmails: string[];
+  parentEmailCount: number;
   lastSentAt: string | null;
+  parentAccordStatut: string | null;
 };
 
 type Campagne = {
@@ -40,6 +41,8 @@ type Campagne = {
   calendrierMode: string;
   statut: string;
   delaiFamilleJours: number;
+  starterMode?: string;
+  contactPpLabel?: string | null;
   classesCibles: string[];
   catalogue: {
     destinations: Array<{ id: string; label: string }>;
@@ -52,7 +55,10 @@ const STATUT_LABELS: Record<string, string> = {
   a_envoyer: "À envoyer",
   en_attente_famille: "En attente famille",
   saisie_recue: "Saisie reçue",
+  en_attente_accord_parent2: "Accord 2e parent",
+  en_conflit: "Conflit parents",
   en_conseil: "En conseil",
+  en_attente_direction: "Attente direction",
   decision_envoyee: "Décision envoyée",
   en_attente_acceptation: "Acceptation en attente",
   acceptee: "Acceptée",
@@ -162,20 +168,40 @@ export default function FichesDialogueCampagnePage() {
     }
   }
 
-  async function saveEtapeDates(etapeId: string, conseilDate: string) {
+  async function saveEtapeWindow(
+    etapeId: string,
+    patch: { conseilDate?: string; opensAt?: string; closesAt?: string },
+  ) {
     setBusy(`etape-${etapeId}`);
     try {
       const res = await fetch(`/api/fiches-dialogue/campagnes/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          etapes: [{ id: etapeId, conseilDate: conseilDate || null }],
+          etapes: [
+            {
+              id: etapeId,
+              conseilDate: patch.conseilDate === undefined ? undefined : patch.conseilDate || null,
+              opensAt:
+                patch.opensAt === undefined
+                  ? undefined
+                  : patch.opensAt
+                    ? new Date(patch.opensAt).toISOString()
+                    : null,
+              closesAt:
+                patch.closesAt === undefined
+                  ? undefined
+                  : patch.closesAt
+                    ? new Date(patch.closesAt).toISOString()
+                    : null,
+            },
+          ],
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Enregistrement impossible");
       setEtapes(json.etapes || []);
-      setMessage("Date de conseil enregistrée.");
+      setMessage("Dates d’étape enregistrées.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -183,11 +209,31 @@ export default function FichesDialogueCampagnePage() {
     }
   }
 
-  async function submitConseil() {
+  async function submitConseil(publish: boolean) {
     if (!conseilFicheId || !etapeCouranteDominante) return;
     setBusy("conseil");
     setError(null);
     try {
+      const signatures = publish
+        ? [
+            {
+              role: "professeur_principal" as const,
+              name: conseilForm.ppName.trim() || "Professeur principal",
+              method: "saved",
+            },
+            {
+              role: "direction" as const,
+              name: conseilForm.directionName.trim() || "Direction",
+              method: "saved",
+            },
+          ]
+        : [
+            {
+              role: "professeur_principal" as const,
+              name: conseilForm.ppName.trim() || "Professeur principal",
+              method: "saved",
+            },
+          ];
       const res = await fetch(`/api/fiches-dialogue/fiches/${conseilFicheId}/conseil`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -199,24 +245,19 @@ export default function FichesDialogueCampagnePage() {
             motif: conseilForm.motif || undefined,
             commentaire: conseilForm.commentaire || undefined,
           },
-          signatures: [
-            {
-              role: "professeur_principal",
-              name: conseilForm.ppName.trim() || "Professeur principal",
-              method: "pad",
-            },
-            {
-              role: "direction",
-              name: conseilForm.directionName.trim() || "Direction",
-              method: "pad",
-            },
-          ],
+          signatures,
+          publish,
+          useSavedSignature: true,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Décision impossible");
       setConseilFicheId(null);
-      setMessage("Décision enregistrée, PDF archivé et envoyé à la famille.");
+      setMessage(
+        publish
+          ? "Décision publiée, PDF archivé et envoyé à la famille."
+          : "Avis PP enregistré — en attente de validation direction.",
+      );
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -313,7 +354,10 @@ export default function FichesDialogueCampagnePage() {
             )}
         </div>
         <p className={`text-sm ${dash.textMid}`}>
-          Délai famille : {campagne.delaiFamilleJours} j · Classes cibles :{" "}
+          Délai famille : {campagne.delaiFamilleJours} j · Qui commence :{" "}
+          {campagne.starterMode === "conseil_dabord" ? "conseil" : "famille"}
+          {campagne.contactPpLabel ? ` · Contact PP : ${campagne.contactPpLabel}` : ""} ·
+          Classes cibles :{" "}
           {campagne.classesCibles?.length ? campagne.classesCibles.join(", ") : "toutes"}
           {campagne.appelConfig?.enabled
             ? ` · Appel activé${campagne.appelConfig.dateLimite ? ` (limite ${campagne.appelConfig.dateLimite})` : ""}`
@@ -340,17 +384,57 @@ export default function FichesDialogueCampagnePage() {
                   {e.description ? ` · ${e.description}` : ""}
                 </p>
               </div>
-              {(e.kind === "conseil" || e.kind === "decision_finale_conseil") && (
-                <label className="text-sm">
-                  Date conseil
-                  <input
-                    type="date"
-                    className="ml-2 rounded border border-slate-200 px-2 py-1"
-                    value={e.conseilDate ?? ""}
-                    onChange={(ev) => void saveEtapeDates(e.id, ev.target.value)}
-                  />
-                </label>
-              )}
+              <div className="flex flex-col gap-2 text-sm">
+                {(e.kind === "conseil" || e.kind === "decision_finale_conseil") && (
+                  <label>
+                    Date conseil
+                    <input
+                      type="date"
+                      className="ml-2 rounded border border-slate-200 px-2 py-1"
+                      value={e.conseilDate ?? ""}
+                      onChange={(ev) =>
+                        void saveEtapeWindow(e.id, { conseilDate: ev.target.value })
+                      }
+                    />
+                  </label>
+                )}
+                {(e.kind === "saisie_famille" ||
+                  e.kind === "choix_definitifs" ||
+                  e.kind === "acceptation_famille") && (
+                  <>
+                    <label>
+                      Ouverture
+                      <input
+                        type="datetime-local"
+                        className="ml-2 rounded border border-slate-200 px-2 py-1"
+                        value={
+                          e.opensAt
+                            ? new Date(e.opensAt).toISOString().slice(0, 16)
+                            : ""
+                        }
+                        onChange={(ev) =>
+                          void saveEtapeWindow(e.id, { opensAt: ev.target.value })
+                        }
+                      />
+                    </label>
+                    <label>
+                      Clôture
+                      <input
+                        type="datetime-local"
+                        className="ml-2 rounded border border-slate-200 px-2 py-1"
+                        value={
+                          e.closesAt
+                            ? new Date(e.closesAt).toISOString().slice(0, 16)
+                            : ""
+                        }
+                        onChange={(ev) =>
+                          void saveEtapeWindow(e.id, { closesAt: ev.target.value })
+                        }
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
             </li>
           ))}
         </ol>
@@ -379,7 +463,7 @@ export default function FichesDialogueCampagnePage() {
                 <th className="px-2 py-2">Élève</th>
                 <th className="px-2 py-2">Classe</th>
                 <th className="px-2 py-2">Statut</th>
-                <th className="px-2 py-2">Parents</th>
+                <th className="px-2 py-2">Contacts</th>
                 <th className="px-2 py-2">Actions</th>
               </tr>
             </thead>
@@ -390,16 +474,26 @@ export default function FichesDialogueCampagnePage() {
                     {f.elevePrenom} {f.eleveNom}
                   </td>
                   <td className="px-2 py-2">{f.classeActuelle || "—"}</td>
-                  <td className="px-2 py-2">{STATUT_LABELS[f.statut] || f.statut}</td>
-                  <td className="px-2 py-2">{f.parentEmails?.join(", ") || "—"}</td>
+                  <td className="px-2 py-2">
+                    {STATUT_LABELS[f.statut] || f.statut}
+                    {f.parentAccordStatut ? ` (${f.parentAccordStatut})` : ""}
+                  </td>
+                  <td className="px-2 py-2">
+                    {f.parentEmailCount > 0
+                      ? `${f.parentEmailCount} e-mail(s)`
+                      : "Aucun"}
+                  </td>
                   <td className="px-2 py-2">
                     {(f.statut === "saisie_recue" ||
                       f.statut === "en_conseil" ||
-                      f.statut === "en_attente_famille") &&
+                      f.statut === "en_attente_direction" ||
+                      f.statut === "en_attente_famille" ||
+                      f.statut === "en_conflit") &&
                       etapeCouranteDominante &&
                       (etapeCouranteDominante.kind === "conseil" ||
                         etapeCouranteDominante.kind === "decision_finale_conseil" ||
-                        f.statut === "saisie_recue") && (
+                        f.statut === "saisie_recue" ||
+                        f.statut === "en_attente_direction") && (
                         <button
                           type="button"
                           className="text-emerald-700 underline"
@@ -412,7 +506,9 @@ export default function FichesDialogueCampagnePage() {
                             }));
                           }}
                         >
-                          Saisir avis conseil
+                          {f.statut === "en_attente_direction"
+                            ? "Valider (direction)"
+                            : "Saisir avis conseil"}
                         </button>
                       )}
                   </td>
@@ -490,14 +586,18 @@ export default function FichesDialogueCampagnePage() {
               />
             </label>
           </div>
-          <div className="flex gap-2">
-            <ModuleButton disabled={!!busy} onClick={() => void submitConseil()}>
-              Enregistrer, PDF & mail
-            </ModuleButton>
+          <div className="flex flex-wrap gap-2">
             <ModuleButton
+              disabled={!!busy}
               variant="secondary"
-              onClick={() => setConseilFicheId(null)}
+              onClick={() => void submitConseil(false)}
             >
+              Enregistrer (PP → direction)
+            </ModuleButton>
+            <ModuleButton disabled={!!busy} onClick={() => void submitConseil(true)}>
+              Publier (direction + PDF + mail)
+            </ModuleButton>
+            <ModuleButton variant="secondary" onClick={() => setConseilFicheId(null)}>
               Annuler
             </ModuleButton>
           </div>

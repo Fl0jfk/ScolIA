@@ -24,14 +24,18 @@ export async function createFdAccessToken(params: {
   email?: string | null;
   purpose: string;
   expiresInDays?: number;
+  /** Prioritaire sur expiresInDays si > 0 (ex. OTP 30 min). */
+  expiresInMinutes?: number;
 }): Promise<FdTokenRow> {
   const db = getDb();
   const token = generateFdToken();
   const secureCode = generateFdSecureCode();
   const expiresAt =
-    params.expiresInDays && params.expiresInDays > 0
-      ? new Date(Date.now() + params.expiresInDays * 24 * 60 * 60 * 1000)
-      : null;
+    params.expiresInMinutes && params.expiresInMinutes > 0
+      ? new Date(Date.now() + params.expiresInMinutes * 60 * 1000)
+      : params.expiresInDays && params.expiresInDays > 0
+        ? new Date(Date.now() + params.expiresInDays * 24 * 60 * 60 * 1000)
+        : null;
 
   const [row] = await db
     .insert(fdToken)

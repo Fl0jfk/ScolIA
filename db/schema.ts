@@ -357,6 +357,12 @@ export const eleve = pgTable(
     sexe: text("sexe"),
     /** Clé objet photo (S3 / storage) — eleves/photos/…. */
     photoKey: text("photo_key"),
+    /** Langue vivante 1 (Charlemagne / fiche de dialogue). */
+    lv1: text("lv1"),
+    /** Langue vivante 2. */
+    lv2: text("lv2"),
+    /** Options / enseignements suivis actuellement. */
+    options: jsonb("options").$type<string[]>().notNull().default([]),
     pilotageKey: text("pilotage_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

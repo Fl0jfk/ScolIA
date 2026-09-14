@@ -30,6 +30,7 @@ export async function GET() {
       key: t.key,
       label: t.label,
       calendrierMode: t.calendrierMode,
+      starterMode: t.starterMode,
       description: t.description,
       etapesCount: t.etapes.length,
     })),
@@ -44,12 +45,15 @@ const CreateSchema = z.object({
   siteKey: z.string().max(64).optional().nullable(),
   classesCibles: z.array(z.string()).optional(),
   delaiFamilleJours: z.number().int().min(1).max(60).optional(),
+  starterMode: z.enum(["conseil_dabord", "famille_dabord"]).optional(),
+  contactPpLabel: z.string().max(120).optional().nullable(),
   appelConfig: z
     .object({
       enabled: z.boolean(),
       dateLimite: z.string().optional(),
       procedureHtml: z.string().optional(),
       documentsLabels: z.array(z.string()).optional(),
+      contactPpLabel: z.string().optional(),
     })
     .optional(),
 });
@@ -80,6 +84,8 @@ export async function POST(req: Request) {
       siteKey: body.data.siteKey,
       classesCibles: body.data.classesCibles,
       delaiFamilleJours: body.data.delaiFamilleJours,
+      starterMode: body.data.starterMode,
+      contactPpLabel: body.data.contactPpLabel,
       appelConfig: body.data.appelConfig,
       createdByUserId: scope.ctx.authUserId,
     });

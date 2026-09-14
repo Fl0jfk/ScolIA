@@ -207,6 +207,11 @@ export function eleveRowToConfig(row: EleveRow): EleveConfig {
     ...(row.regime ? { regime: row.regime } : {}),
     ...(row.sexe === "M" || row.sexe === "F" ? { sexe: row.sexe } : {}),
     ...(row.photoKey ? { photoKey: row.photoKey } : {}),
+    ...(row.lv1 ? { lv1: row.lv1 } : {}),
+    ...(row.lv2 ? { lv2: row.lv2 } : {}),
+    ...(Array.isArray(row.options) && row.options.length
+      ? { options: row.options.filter((x): x is string => typeof x === "string" && Boolean(x.trim())) }
+      : {}),
   };
 }
 
@@ -238,6 +243,11 @@ function eleveConfigToValues(etablissementId: string, e: EleveConfig) {
     regime: emptyToNull(e.regime),
     sexe: e.sexe === "M" || e.sexe === "F" ? e.sexe : null,
     photoKey: emptyToNull(e.photoKey),
+    lv1: emptyToNull(e.lv1),
+    lv2: emptyToNull(e.lv2),
+    options: Array.isArray(e.options)
+      ? e.options.map((x) => String(x).trim()).filter(Boolean)
+      : [],
     pilotageKey: slugPilotageKey(e.ine, folderName),
     ...(status ? { status } : {}),
     updatedAt: new Date(),
@@ -342,6 +352,9 @@ export async function upsertElevesInDb(
             parentPhone: eleve.parentPhone,
             parent1Phone: eleve.parent1Phone,
             parent2Phone: eleve.parent2Phone,
+            lv1: eleve.lv1,
+            lv2: eleve.lv2,
+            options: eleve.options,
             ine: eleve.ine,
             sourceKey: eleve.sourceKey,
           })
@@ -364,6 +377,11 @@ export async function upsertElevesInDb(
         if (!patch.parentPhone && cur?.parentPhone) patch.parentPhone = cur.parentPhone;
         if (!patch.parent1Phone && cur?.parent1Phone) patch.parent1Phone = cur.parent1Phone;
         if (!patch.parent2Phone && cur?.parent2Phone) patch.parent2Phone = cur.parent2Phone;
+        if (!patch.lv1 && cur?.lv1) patch.lv1 = cur.lv1;
+        if (!patch.lv2 && cur?.lv2) patch.lv2 = cur.lv2;
+        if ((!patch.options || patch.options.length === 0) && cur?.options?.length) {
+          patch.options = cur.options;
+        }
         // Conserver l’INE / sourceKey déjà posés si l’import n’en apporte pas.
         if (!patch.ine && cur?.ine) patch.ine = cur.ine;
         if (cur?.sourceKey?.startsWith("ine:") && !values.ine) {

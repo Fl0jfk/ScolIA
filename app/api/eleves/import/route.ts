@@ -44,7 +44,10 @@ export async function POST(req: Request) {
 
     const source = parseSource(String(formData.get("source") ?? "auto").trim());
     const modeRaw = String(formData.get("mode") ?? "merge").trim().toLowerCase();
-    const mode = modeRaw === "replace" ? "replace" : "merge";
+    const mode =
+      modeRaw === "replace" ? "replace" : modeRaw === "fill_only" || modeRaw === "fill-only"
+        ? "fill_only"
+        : "merge";
 
     let result;
     if (isExcelFile(file)) {
@@ -69,8 +72,10 @@ export async function POST(req: Request) {
     let finalEleves = result.eleves;
     let mergeStats: ReturnType<typeof mergeElevesLists>["stats"] | undefined;
 
-    if (mode === "merge" && existing.length > 0) {
-      const merged = mergeElevesLists(existing, result.eleves);
+    if ((mode === "merge" || mode === "fill_only") && existing.length > 0) {
+      const merged = mergeElevesLists(existing, result.eleves, {
+        fillOnly: mode === "fill_only",
+      });
       const validatedMerged = validateElevesJson(merged.eleves);
       if (!validatedMerged.ok) {
         return NextResponse.json({ error: validatedMerged.error }, { status: 400 });
