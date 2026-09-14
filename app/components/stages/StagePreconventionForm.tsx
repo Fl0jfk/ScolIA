@@ -139,6 +139,7 @@ export default function StagePreconventionForm({
   reminders = [],
   officialPeriods = [],
   showAdminHint = false,
+  submitLabel = "Envoyer à l'administratif",
 }: {
   convention: StageConvention;
   onChange: (next: StageConvention) => void;
@@ -150,6 +151,8 @@ export default function StagePreconventionForm({
   reminders?: StagePeriodReminder[];
   officialPeriods?: StageClassPeriod[];
   showAdminHint?: boolean;
+  /** Libellé du bouton d'envoi / validation (ex. page publique élève). */
+  submitLabel?: string;
 }) {
   const schedule = convention.schedule;
   const hoursTemplate = schedule.days[0] || defaultDayHoursTemplate();
@@ -810,7 +813,7 @@ export default function StagePreconventionForm({
           onClick={onSubmit}
           className="rounded-lg bg-[#2F6B4A] px-4 py-2 font-semibold text-white"
         >
-          Envoyer à l&apos;administratif
+          {submitLabel}
         </button>
       </div>
     </div>

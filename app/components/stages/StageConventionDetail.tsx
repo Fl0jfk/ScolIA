@@ -2,10 +2,14 @@
 
 import type { ReactNode } from "react";
 import type { StageConvention } from "@/app/lib/stage-types";
-import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
+import {
+  STAGE_CONVENTION_STATUS_LABELS,
+  STAGE_OFFER_KIND_LABELS,
+} from "@/app/lib/stage-types";
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 import { buildSignatureSummary } from "@/app/lib/stage-signature-summary";
+import { formatDaySlotLabel, formatPeriodRangeFr } from "@/app/lib/stage-schedule";
 import type { StagesHubPermissions } from "@/app/components/stages/stages-hub-types";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 
@@ -108,6 +112,8 @@ export default function StageConventionDetail({
       <div className="max-w-md">
         <StageSignatureProgress summary={buildSignatureSummary(c)} />
       </div>
+
+      {!adminEditing && <ConventionInfoSummary convention={c} />}
 
       {c.stageAbsenceIds && c.stageAbsenceIds.length > 0 && c.schedule.periodStart && c.schedule.periodEnd && (
         <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
@@ -368,6 +374,113 @@ export default function StageConventionDetail({
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+function ConventionInfoSummary({ convention }: { convention: StageConvention }) {
+  const company = convention.company;
+  const student = convention.student;
+  const schedule = convention.schedule;
+  const parent1 =
+    convention.parentSignerEmail || student.parent1Email || student.parentEmail || "";
+  const parent2 = convention.parent2SignerEmail || student.parent2Email || "";
+  const kindLabel = STAGE_OFFER_KIND_LABELS[convention.internshipKind] ?? convention.internshipKind;
+  const periodLabel = formatPeriodRangeFr(schedule.periodStart, schedule.periodEnd);
+  const hourLines = (schedule.days || []).map((d) => formatDaySlotLabel(d));
+
+  return (
+    <div className="rounded-xl border border-stone-200 bg-white p-4 space-y-3 text-sm text-stone-800">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-stone-600">
+        Informations de la préconvention
+      </h3>
+
+      <dl className="grid gap-2 sm:grid-cols-2">
+        <InfoRow label="Élève">
+          {student.lastName} {student.firstName}
+          {student.className ? ` · ${student.className}` : ""}
+        </InfoRow>
+        <InfoRow label="Type">{kindLabel}</InfoRow>
+        {convention.stageLabel ? <InfoRow label="Période / libellé">{convention.stageLabel}</InfoRow> : null}
+        <InfoRow label="Entreprise">{company.name || "—"}</InfoRow>
+        <InfoRow label="Adresse">{company.address || "—"}</InfoRow>
+        {company.siret ? <InfoRow label="SIRET">{company.siret}</InfoRow> : null}
+        {company.activity ? <InfoRow label="Activité">{company.activity}</InfoRow> : null}
+        <InfoRow label="Tuteur">
+          {company.tutorName || "—"}
+          {company.tutorEmail ? (
+            <>
+              <br />
+              <a className="text-[#2F6B4A] underline" href={`mailto:${company.tutorEmail}`}>
+                {company.tutorEmail}
+              </a>
+            </>
+          ) : null}
+          {company.tutorPhone ? (
+            <>
+              <br />
+              <span className="text-stone-600">{company.tutorPhone}</span>
+            </>
+          ) : null}
+        </InfoRow>
+        {company.rhEmail ? (
+          <InfoRow label="RH entreprise">
+            <a className="text-[#2F6B4A] underline" href={`mailto:${company.rhEmail}`}>
+              {company.rhEmail}
+            </a>
+          </InfoRow>
+        ) : null}
+        <InfoRow label="Responsable légal 1">
+          {parent1 ? (
+            <a className="text-[#2F6B4A] underline" href={`mailto:${parent1}`}>
+              {parent1}
+            </a>
+          ) : (
+            "—"
+          )}
+        </InfoRow>
+        {parent2 ? (
+          <InfoRow label="Responsable légal 2">
+            <a className="text-[#2F6B4A] underline" href={`mailto:${parent2}`}>
+              {parent2}
+            </a>
+          </InfoRow>
+        ) : null}
+        <InfoRow label="Référent">
+          {convention.teacherReferent.name || "—"}
+          {convention.teacherReferent.email ? (
+            <>
+              <br />
+              <span className="text-stone-600">{convention.teacherReferent.email}</span>
+            </>
+          ) : null}
+        </InfoRow>
+      </dl>
+
+      <div className="rounded-lg border border-stone-100 bg-stone-50 px-3 py-2">
+        <p className="text-xs font-bold uppercase tracking-wide text-stone-600">Horaires</p>
+        <p className="mt-1 text-sm font-semibold text-[#1F3D2B]">
+          {periodLabel || `${schedule.periodStart} → ${schedule.periodEnd}`}
+        </p>
+        {hourLines.length > 0 ? (
+          <ul className="mt-2 space-y-0.5 text-xs text-stone-700">
+            {hourLines.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1 text-xs text-stone-500">Aucun horaire renseigné.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InfoRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <dt className="text-[11px] font-semibold uppercase tracking-wide text-stone-500">{label}</dt>
+      <dd className="mt-0.5 text-sm text-stone-900">{children}</dd>
     </div>
   );
 }

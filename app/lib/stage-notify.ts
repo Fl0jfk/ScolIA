@@ -1,6 +1,5 @@
 import { resolveDepositFinalRecipients } from "@/app/lib/stage-contacts";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
-import { scheduleSummary } from "@/app/lib/stage-schedule";
 import { resolveStagesAdminEmails, resolveStagesDirectionEmail } from "@/app/lib/stage-config";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
@@ -53,7 +52,6 @@ export async function notifyStagePreconventionSubmitted(convention: StageConvent
     `Élève : ${studentLabel(convention)} (${convention.student.className})`,
     `Entreprise : ${convention.company.name}`,
     `Période : ${convention.schedule.periodStart} → ${convention.schedule.periodEnd}`,
-    `Horaires : ${scheduleSummary(convention.schedule)}`,
     "",
     `Connectez-vous à l'intranet → module Stages & conventions pour valider.`,
     "",

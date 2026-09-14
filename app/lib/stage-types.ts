@@ -339,7 +339,7 @@ export const STAGE_OFFER_KIND_LABELS: Record<StageOfferKind, string> = {
 export const STAGE_CONVENTION_STATUS_LABELS: Record<StageConventionStatus, string> = {
   draft: "Brouillon préconvention",
   preconvention_submitted: "Préconvention déposée",
-  admin_review: "En validation administratif",
+  admin_review: "En validation administrative",
   admin_rejected: "À corriger (administratif)",
   convention_deposited: "Convention déposée (PDF)",
   convention_ready: "Convention prête",

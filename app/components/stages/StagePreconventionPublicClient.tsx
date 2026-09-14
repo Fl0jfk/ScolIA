@@ -856,8 +856,8 @@ function StagePreconventionPublicContent() {
                     {convention.parentSignerEmail ||
                       convention.student.parent1Email ||
                       "—"}{" "}
-                    — vous confirmez cet e-mail avec un code avant l&apos;envoi à
-                    l&apos;administratif.
+                    — vous confirmez cet e-mail avec un code avant de valider
+                    votre préconvention.
                   </p>
                   {parentEmailVerified && (
                     <p className="mt-2 font-semibold text-emerald-800">✓ E-mail confirmé</p>
@@ -877,12 +877,22 @@ function StagePreconventionPublicContent() {
                   identityLocked={Boolean(convention.ocrMeta?.matchedEleveIne)}
                   reminders={reminders}
                   officialPeriods={officialPeriods}
+                  submitLabel="Valider ma préconvention"
                 />
 
                 {showParentCode && (
                   <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
                     <p className="text-sm font-bold text-blue-950">
                       Confirmez l&apos;e-mail du responsable
+                    </p>
+                    <p className="text-xs text-blue-900">
+                      Un e-mail de vérification a été envoyé à{" "}
+                      <span className="font-semibold">
+                        {convention.parentSignerEmail ||
+                          convention.student.parent1Email ||
+                          "—"}
+                      </span>
+                      .
                     </p>
                     <input
                       className="w-full rounded-lg border px-3 py-2 font-mono tracking-widest text-center text-lg"
@@ -920,7 +930,7 @@ function StagePreconventionPublicContent() {
                     onClick={() => void save("submit")}
                     className="w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white disabled:opacity-50"
                   >
-                    {busy ? "Envoi…" : "Envoyer à l'administratif"}
+                    {busy ? "Validation…" : "Valider ma préconvention"}
                   </button>
                 )}
               </div>
