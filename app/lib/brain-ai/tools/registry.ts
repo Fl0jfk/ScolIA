@@ -275,7 +275,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_photocopie_demand",
     description:
-      "Démarre / poursuit un wizard de photocopies couleur. Appeler immédiatement (même sans args) : établissement → motif → classes/matière → nombre → confirmation. Si PDF joint via trombone, passer documentKey/documentFileName/documentContentType.",
+      "Démarre / poursuit un wizard de photocopies couleur. Appeler immédiatement (même sans args) : établissement → motif → classes/matière → nombre → confirmation. Si PDF joints via trombone, passer documents[] (max 5) ou documentKey/documentFileName/documentContentType.",
     parameters: {
       type: "object",
       properties: {
@@ -283,7 +283,20 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
         motif: { type: "string" },
         classesOuMatiere: { type: "string" },
         nombrePhotocopies: { type: "number" },
-        documentKey: { type: "string", description: "Clé S3 du PDF joint dans le chat" },
+        documents: {
+          type: "array",
+          description: "PDF joints (max 5), chacun avec key / fileName / contentType",
+          items: {
+            type: "object",
+            properties: {
+              key: { type: "string" },
+              fileName: { type: "string" },
+              contentType: { type: "string" },
+            },
+            additionalProperties: false,
+          },
+        },
+        documentKey: { type: "string", description: "Clé S3 d'un PDF joint (legacy / mono)" },
         documentFileName: { type: "string" },
         documentContentType: { type: "string" },
       },

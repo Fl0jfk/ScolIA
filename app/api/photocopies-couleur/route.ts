@@ -25,8 +25,13 @@ import {
   resolvePhotocopiesOpsEmailsWithHandlers,
   resolvePhotocopiesOpsViewer,
 } from "@/app/lib/photocopies-couleur-ops-server";
-import type { PhotoCopieActor, PhotoCopieRecord } from "@/app/lib/photocopies-couleur-types";
-import { photocopiePersonLabel } from "@/app/lib/photocopies-couleur-types";
+import type { PhotoCopieActor, PhotoCopieDocument, PhotoCopieRecord } from "@/app/lib/photocopies-couleur-types";
+import {
+  PHOTOCOPIES_MAX_DOCUMENTS,
+  getPhotocopieDocuments,
+  photocopieDocumentFields,
+  photocopiePersonLabel,
+} from "@/app/lib/photocopies-couleur-types";
 
 const INDEX_KEY = "photocopies-couleur/index.json";
 
@@ -60,15 +65,88 @@ function isValidDocumentKey(key: string): boolean {
   return key.startsWith("photocopies-couleur/uploads/") && !key.includes("..");
 }
 
-async function loadDocumentAttachment(record: PhotoCopieRecord) {
-  if (!record.documentKey || !record.documentFileName) return null;
-  const bytes = await getObjectBytes(record.documentKey);
-  if (!bytes?.length) return null;
-  return {
-    filename: record.documentFileName,
-    content: bytes,
-    contentType: record.documentContentType || "application/pdf",
-  };
+async function loadDocumentAttachments(record: PhotoCopieRecord) {
+  const docs = getPhotocopieDocuments(record);
+  if (docs.length === 0) return [];
+  const usedNames = new Map<string, number>();
+  const out: Array<{ filename: string; content: Buffer; contentType: string }> = [];
+  for (const doc of docs) {
+    const bytes = await getObjectBytes(doc.key);
+    if (!bytes?.length) continue;
+    const base = doc.fileName || "document.pdf";
+    const count = (usedNames.get(base) ?? 0) + 1;
+    usedNames.set(base, count);
+    let filename = base;
+    if (count > 1) {
+      filename = /\.pdf$/i.test(base)
+        ? base.replace(/\.pdf$/i, `-${count}.pdf`)
+        : `${base}-${count}`;
+    }
+    out.push({
+      filename,
+      content: bytes,
+      contentType: doc.contentType || "application/pdf",
+    });
+  }
+  return out;
+}
+
+function parseDocumentsFromBody(body: Record<string, unknown>): {
+  ok: true;
+  docs: PhotoCopieDocument[];
+} | { ok: false; error: string } {
+  const rawList = Array.isArray(body.documents) ? body.documents : null;
+  const docs: PhotoCopieDocument[] = [];
+
+  if (rawList) {
+    if (rawList.length > PHOTOCOPIES_MAX_DOCUMENTS) {
+      return {
+        ok: false,
+        error: `Maximum ${PHOTOCOPIES_MAX_DOCUMENTS} PDF par demande.`,
+      };
+    }
+    for (const entry of rawList) {
+      if (!entry || typeof entry !== "object") continue;
+      const row = entry as Record<string, unknown>;
+      const key = String(row.key || row.documentKey || "").trim();
+      const fileName = String(row.fileName || row.documentFileName || "").trim();
+      const contentType = String(row.contentType || row.documentContentType || "application/pdf").trim();
+      if (!key && !fileName) continue;
+      if (!key || !isValidDocumentKey(key)) {
+        return { ok: false, error: "Document joint invalide." };
+      }
+      if (!fileName) {
+        return { ok: false, error: "Nom du fichier requis pour chaque PDF." };
+      }
+      docs.push({ key, fileName, contentType: contentType || "application/pdf" });
+    }
+  } else {
+    const documentKey = String(body.documentKey || "").trim();
+    const documentFileName = String(body.documentFileName || "").trim();
+    const documentContentType = String(body.documentContentType || "application/pdf").trim();
+    if (documentKey) {
+      if (!isValidDocumentKey(documentKey)) {
+        return { ok: false, error: "Document joint invalide." };
+      }
+      if (!documentFileName) {
+        return { ok: false, error: "Nom du fichier requis." };
+      }
+      docs.push({
+        key: documentKey,
+        fileName: documentFileName,
+        contentType: documentContentType || "application/pdf",
+      });
+    }
+  }
+
+  if (docs.length > PHOTOCOPIES_MAX_DOCUMENTS) {
+    return {
+      ok: false,
+      error: `Maximum ${PHOTOCOPIES_MAX_DOCUMENTS} PDF par demande.`,
+    };
+  }
+
+  return { ok: true, docs };
 }
 
 function isValidEtab(v: string, establishments: Establishment[]): boolean {
@@ -255,15 +333,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Le champ classes / matière est requis." }, { status: 400 });
   }
 
-  const documentKey = String(body.documentKey || "").trim();
-  const documentFileName = String(body.documentFileName || "").trim();
-  const documentContentType = String(body.documentContentType || "application/pdf").trim();
-  if (documentKey && !isValidDocumentKey(documentKey)) {
-    return NextResponse.json({ error: "Document joint invalide." }, { status: 400 });
+  const parsedDocs = parseDocumentsFromBody(body);
+  if (!parsedDocs.ok) {
+    return NextResponse.json({ error: parsedDocs.error }, { status: 400 });
   }
-  if (documentKey && !documentFileName) {
-    return NextResponse.json({ error: "Nom du fichier requis." }, { status: 400 });
-  }
+  const documentFields = photocopieDocumentFields(parsedDocs.docs);
 
   const record: PhotoCopieRecord = {
     id: crypto.randomUUID(),
@@ -280,13 +354,7 @@ export async function POST(req: Request) {
     motif,
     classesOuMatiere: classeField,
     nombrePhotocopies: nb,
-    ...(documentKey
-      ? {
-          documentKey,
-          documentFileName,
-          documentContentType: documentContentType || "application/pdf",
-        }
-      : {}),
+    ...documentFields,
   };
 
   try {
@@ -296,7 +364,7 @@ export async function POST(req: Request) {
 
     const dir = await resolveDirectorMail(etablissement);
     const mail = await getMailer();
-    const docAttachment = await loadDocumentAttachment(record);
+    const docAttachments = await loadDocumentAttachments(record);
     const photocopiesLink = await tenantAbsolutePath("/photocopies-couleur");
     if (mail) {
       const { smtp, transporter } = mail;
@@ -318,7 +386,11 @@ export async function POST(req: Request) {
             `Motif : ${motif}`,
             `Classes / matière : ${classeField}`,
             `Nombre de photocopies : ${nb}`,
-            docAttachment ? `Document à imprimer : joint à cet e-mail.` : "",
+            docAttachments.length === 1
+              ? `Document à imprimer : joint à cet e-mail.`
+              : docAttachments.length > 1
+                ? `${docAttachments.length} documents à imprimer : joints à cet e-mail.`
+                : "",
             ``,
             `Traiter la demande : ${photocopiesLink}`,
             ``,
@@ -327,7 +399,7 @@ export async function POST(req: Request) {
           ]
             .filter(Boolean)
             .join("\n"),
-          ...(docAttachment ? { attachments: [docAttachment] } : {}),
+          ...(docAttachments.length > 0 ? { attachments: docAttachments } : {}),
         });
       } catch (mailErr) {
         console.error("[photocopies-couleur] mail direction:", mailErr);
@@ -536,8 +608,17 @@ export async function PATCH(req: Request) {
       }
 
       if (updated.status === "ACCEPTEE" && opsEmails.length > 0) {
-        const opsAttachment = await loadDocumentAttachment(updated);
+        const opsAttachments = await loadDocumentAttachments(updated);
+        const opsDocs = getPhotocopieDocuments(updated);
         const opsLink = `${base}#file-impression`;
+        const attachmentLabel =
+          opsAttachments.length === 1
+            ? `Le document à imprimer est joint à cet e-mail (${opsDocs[0]?.fileName || "PDF"}).`
+            : opsAttachments.length > 1
+              ? `${opsAttachments.length} documents à imprimer sont joints à cet e-mail (${opsDocs
+                  .map((d) => d.fileName)
+                  .join(", ")}).`
+              : `Aucun PDF joint : voir l'intranet ou contacter le demandeur.`;
         try {
           await transporter.sendMail({
             from: `"Demandes photocopies" <${smtp.user}>`,
@@ -558,9 +639,7 @@ export async function PATCH(req: Request) {
               `Motif : ${updated.motif}`,
               `Classes / matière : ${updated.classesOuMatiere}`,
               directionNote ? `Note direction : ${directionNote}` : "",
-              opsAttachment
-                ? `Le document à imprimer est joint à cet e-mail (${updated.documentFileName}).`
-                : `Aucun PDF joint : voir l'intranet ou contacter le demandeur.`,
+              attachmentLabel,
               ``,
               `Ouvrir la file d'impression : ${opsLink}`,
               ``,
@@ -577,13 +656,14 @@ ${updated.submittedBy ? `<li>Déposée par : ${updated.submittedBy.name}</li>` :
 <li>Établissement : ${updated.etablissement}</li>
 <li>Nombre : ${updated.nombrePhotocopies}</li>
 <li>Classes / matière : ${updated.classesOuMatiere}</li>
+${opsDocs.length > 0 ? `<li>PDF : ${opsDocs.map((d) => d.fileName).join(", ")}</li>` : ""}
 </ul>
 <p style="margin:1.5rem 0;">
   <a href="${opsLink}" style="display:inline-block;padding:12px 24px;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">
     Ouvrir la file d'impression
   </a>
 </p>`,
-            ...(opsAttachment ? { attachments: [opsAttachment] } : {}),
+            ...(opsAttachments.length > 0 ? { attachments: opsAttachments } : {}),
           });
         } catch (e) {
           console.error("[photocopies-couleur] mail ops:", e);

@@ -18,31 +18,70 @@ import {
   isAnyDirectionRole,
   matchEstablishment,
 } from "@/app/lib/establishment-catalog";
+import {
+  PHOTOCOPIES_MAX_DOCUMENTS,
+  getPhotocopieDocuments,
+  hasPhotocopieDocuments,
+  photocopieDocumentFields,
+  type PhotoCopieDocument,
+  type PhotoCopieRecord,
+} from "@/app/lib/photocopies-couleur-types";
 
 const INDEX_KEY = "photocopies-couleur/index.json";
-
-type PhotoCopieEtablissement = string;
-
-type PhotoCopieRecord = {
-  id: string;
-  createdAt: string;
-  updatedAt: string;
-  status: "EN_ATTENTE" | "ACCEPTEE" | "REFUSEE";
-  createdBy: { userId: string; name: string; email: string };
-  etablissement: PhotoCopieEtablissement;
-  motif: string;
-  classesOuMatiere: string;
-  nombrePhotocopies: number;
-  documentKey?: string;
-  documentFileName?: string;
-  documentContentType?: string;
-};
 
 function isValidDocumentKey(key: string): boolean {
   return (
     (key.startsWith("photocopies-couleur/uploads/") || key.startsWith("brain-ai/uploads/")) &&
     !key.includes("..")
   );
+}
+
+function parseDocumentsFromArgs(args: Record<string, unknown>): {
+  ok: true;
+  docs: PhotoCopieDocument[];
+} | { ok: false; error: string } {
+  const rawList = Array.isArray(args.documents) ? args.documents : null;
+  const docs: PhotoCopieDocument[] = [];
+
+  if (rawList) {
+    if (rawList.length > PHOTOCOPIES_MAX_DOCUMENTS) {
+      return { ok: false, error: `Maximum ${PHOTOCOPIES_MAX_DOCUMENTS} PDF par demande.` };
+    }
+    for (const entry of rawList) {
+      if (!entry || typeof entry !== "object") continue;
+      const row = entry as Record<string, unknown>;
+      const key = String(row.key || row.documentKey || "").trim();
+      const fileName = String(row.fileName || row.documentFileName || "").trim();
+      const contentType = String(row.contentType || row.documentContentType || "application/pdf").trim();
+      if (!key && !fileName) continue;
+      if (!key || !isValidDocumentKey(key)) {
+        return { ok: false, error: "Document joint invalide." };
+      }
+      if (!fileName) {
+        return { ok: false, error: "Nom du fichier PDF requis avec la pièce jointe." };
+      }
+      docs.push({ key, fileName, contentType: contentType || "application/pdf" });
+    }
+  } else {
+    const documentKey = String(args.documentKey || "").trim();
+    const documentFileName = String(args.documentFileName || "").trim();
+    const documentContentType = String(args.documentContentType || "application/pdf").trim();
+    if (documentKey) {
+      if (!isValidDocumentKey(documentKey)) {
+        return { ok: false, error: "Document joint invalide." };
+      }
+      if (!documentFileName) {
+        return { ok: false, error: "Nom du fichier PDF requis avec la pièce jointe." };
+      }
+      docs.push({
+        key: documentKey,
+        fileName: documentFileName,
+        contentType: documentContentType || "application/pdf",
+      });
+    }
+  }
+
+  return { ok: true, docs: docs.slice(0, PHOTOCOPIES_MAX_DOCUMENTS) };
 }
 
 async function loadEtabOptions() {
@@ -80,17 +119,21 @@ export async function handleListPhotocopies(
   if (statusFilter) {
     items = items.filter((r) => r.status === statusFilter);
   }
-  const brief = items.slice(0, limit).map((r) => ({
-    id: r.id,
-    status: r.status,
-    etablissement: r.etablissement,
-    nombrePhotocopies: r.nombrePhotocopies,
-    motif: r.motif.slice(0, 120),
-    classesOuMatiere: r.classesOuMatiere,
-    hasDocument: Boolean(r.documentKey),
-    createdAt: r.createdAt.slice(0, 10),
-    mine: r.createdBy.userId === ctx.userId,
-  }));
+  const brief = items.slice(0, limit).map((r) => {
+    const docs = getPhotocopieDocuments(r);
+    return {
+      id: r.id,
+      status: r.status,
+      etablissement: r.etablissement,
+      nombrePhotocopies: r.nombrePhotocopies,
+      motif: r.motif.slice(0, 120),
+      classesOuMatiere: r.classesOuMatiere,
+      hasDocument: hasPhotocopieDocuments(r),
+      documentCount: docs.length,
+      createdAt: r.createdAt.slice(0, 10),
+      mine: r.createdBy.userId === ctx.userId,
+    };
+  });
 
   return {
     ok: true,
@@ -132,9 +175,12 @@ export async function handleCreatePhotocopie(
   let classesOuMatiere = String(args.classesOuMatiere || "").trim();
   const nbRaw = args.nombrePhotocopies;
   const nb = Number(nbRaw);
-  const documentKey = String(args.documentKey || "").trim();
-  const documentFileName = String(args.documentFileName || "").trim();
-  const documentContentType = String(args.documentContentType || "application/pdf").trim();
+  const parsedDocs = parseDocumentsFromArgs(args);
+  if (!parsedDocs.ok) {
+    return { ok: false, error: parsedDocs.error };
+  }
+  const docs = parsedDocs.docs;
+  const documentFields = photocopieDocumentFields(docs);
 
   const total = 4;
   let step = 1;
@@ -143,7 +189,7 @@ export async function handleCreatePhotocopie(
     motif,
     classesOuMatiere,
     ...(Number.isFinite(nb) && nb >= 1 ? { nombrePhotocopies: nb } : {}),
-    ...(documentKey ? { documentKey, documentFileName, documentContentType } : {}),
+    ...documentFields,
   });
 
   const { establishments, choices } = await loadEtabOptions();
@@ -195,14 +241,13 @@ export async function handleCreatePhotocopie(
     );
   }
 
-  if (documentKey && !isValidDocumentKey(documentKey)) {
-    return { ok: false, error: "Document joint invalide." };
-  }
-  if (documentKey && !documentFileName) {
-    return { ok: false, error: "Nom du fichier PDF requis avec la pièce jointe." };
-  }
-
   if (!ctx.confirmed) {
+    const pdfLine =
+      docs.length === 0
+        ? `• PDF : aucun (vous pouvez encore en joindre jusqu'à ${PHOTOCOPIES_MAX_DOCUMENTS} via le trombone avant de confirmer)`
+        : docs.length === 1
+          ? `• PDF joint : ${docs[0].fileName}`
+          : `• PDF joints (${docs.length}) : ${docs.map((d) => d.fileName).join(", ")}`;
     return {
       ok: false,
       needsConfirmation: true,
@@ -212,18 +257,14 @@ export async function handleCreatePhotocopie(
         motif,
         classesOuMatiere,
         nombrePhotocopies: nb,
-        ...(documentKey
-          ? { documentKey, documentFileName, documentContentType }
-          : {}),
+        ...documentFields,
       },
       summaryFr:
         `Récapitulatif — ${nb} photocopie(s) couleur\n` +
         `• Établissement : ${etablissement}\n` +
         `• Classes / matière : ${classesOuMatiere}\n` +
         `• Motif : ${motif.slice(0, 160)}${motif.length > 160 ? "…" : ""}\n` +
-        (documentFileName
-          ? `• PDF joint : ${documentFileName}`
-          : `• PDF : aucun (vous pouvez encore en joindre un via le trombone avant de confirmer)`),
+        pdfLine,
     };
   }
 
@@ -241,13 +282,7 @@ export async function handleCreatePhotocopie(
     motif,
     classesOuMatiere,
     nombrePhotocopies: nb,
-    ...(documentKey
-      ? {
-          documentKey,
-          documentFileName,
-          documentContentType: documentContentType || "application/pdf",
-        }
-      : {}),
+    ...documentFields,
   };
 
   const all = await getIndex();
@@ -263,18 +298,25 @@ export async function handleCreatePhotocopie(
     const transporter = smtp ? await createTenantTransporter() : null;
     if (transporter && smtp && dirEmail) {
       const link = await tenantAbsolutePath("/photocopies-couleur");
-      let attachments: Array<{ filename: string; content: Buffer; contentType: string }> | undefined;
-      if (record.documentKey && record.documentFileName) {
-        const bytes = await getObjectBytes(record.documentKey);
-        if (bytes?.length) {
-          attachments = [
-            {
-              filename: record.documentFileName,
-              content: bytes,
-              contentType: record.documentContentType || "application/pdf",
-            },
-          ];
-        }
+      const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [];
+      const usedNames = new Map<string, number>();
+      for (const doc of getPhotocopieDocuments(record)) {
+        const bytes = await getObjectBytes(doc.key);
+        if (!bytes?.length) continue;
+        const base = doc.fileName || "document.pdf";
+        const count = (usedNames.get(base) ?? 0) + 1;
+        usedNames.set(base, count);
+        const filename =
+          count === 1
+            ? base
+            : /\.pdf$/i.test(base)
+              ? base.replace(/\.pdf$/i, `-${count}.pdf`)
+              : `${base}-${count}`;
+        attachments.push({
+          filename,
+          content: bytes,
+          contentType: doc.contentType || "application/pdf",
+        });
       }
       await transporter.sendMail({
         from: `"Demandes photocopies" <${smtp.user}>`,
@@ -288,13 +330,17 @@ export async function handleCreatePhotocopie(
           `Motif : ${motif}`,
           `Classes / matière : ${classesOuMatiere}`,
           `Nombre : ${nb}`,
-          attachments?.length ? `Document à imprimer : joint à cet e-mail.` : "",
+          attachments.length === 1
+            ? `Document à imprimer : joint à cet e-mail.`
+            : attachments.length > 1
+              ? `${attachments.length} documents à imprimer : joints à cet e-mail.`
+              : "",
           ``,
           `Traiter : ${link}`,
         ]
           .filter(Boolean)
           .join("\n"),
-        ...(attachments ? { attachments } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
       });
     }
   } catch (err) {
@@ -310,6 +356,10 @@ export async function handleCreatePhotocopie(
     },
     summaryFr:
       `Demande photocopies créée (${record.id}) — ${nb} ex. pour ${classesOuMatiere}` +
-      (documentFileName ? ` avec PDF « ${documentFileName} ».` : "."),
+      (docs.length === 0
+        ? "."
+        : docs.length === 1
+          ? ` avec PDF « ${docs[0].fileName} ».`
+          : ` avec ${docs.length} PDF.`),
   };
 }

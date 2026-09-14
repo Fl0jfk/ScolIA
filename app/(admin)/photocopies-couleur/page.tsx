@@ -23,6 +23,9 @@ import DirectoryPersonSelect, {
 } from "@/app/components/settings/DirectoryPersonSelect";
 import type { DirectoryMemberOption } from "@/app/components/prof-room/ProfRoomAdminPicker";
 import {
+  PHOTOCOPIES_MAX_DOCUMENTS,
+  getPhotocopieDocuments,
+  hasPhotocopieDocuments,
   photoCopieStatusBadgeClass,
   photoCopieStatusLabel,
   type PhotoCopieRecord,
@@ -30,10 +33,11 @@ import {
 } from "@/app/lib/photocopies-couleur-types";
 import { clearDashboardSignalsCache } from "@/app/lib/dashboard-signals-cache";
 
-async function openPhotocopieDocument(id: string): Promise<void> {
-  const res = await fetch(`/api/photocopies-couleur/document?id=${encodeURIComponent(id)}`, {
-    cache: "no-store",
-  });
+async function openPhotocopieDocument(id: string, index = 0): Promise<void> {
+  const res = await fetch(
+    `/api/photocopies-couleur/document?id=${encodeURIComponent(id)}&index=${encodeURIComponent(String(index))}`,
+    { cache: "no-store" },
+  );
   const data = (await res.json().catch(() => ({}))) as { signedUrl?: string; error?: string };
   if (!res.ok || !data.signedUrl) {
     throw new Error(data.error || "Impossible d'ouvrir le PDF.");
@@ -49,9 +53,10 @@ function PhotocopieDocumentButton({
   /** Mise en avant pour la file d'impression (ouvrir pour imprimer). */
   emphasize?: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [busyIndex, setBusyIndex] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  if (!item.documentKey || !item.documentFileName) {
+  const docs = getPhotocopieDocuments(item);
+  if (docs.length === 0) {
     return (
       <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5 mb-3">
         Aucun PDF joint à cette demande.
@@ -59,30 +64,48 @@ function PhotocopieDocumentButton({
     );
   }
   return (
-    <div className="mb-3">
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => {
-          setErr(null);
-          setBusy(true);
-          void openPhotocopieDocument(item.id)
-            .catch((e: unknown) => {
-              setErr(e instanceof Error ? e.message : "Ouverture impossible.");
-            })
-            .finally(() => setBusy(false));
-        }}
-        className={
-          emphasize
-            ? "inline-flex items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-600 px-3 py-2 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-60"
-            : "inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60"
-        }
-      >
-        {busy ? "Ouverture…" : emphasize ? "Ouvrir le PDF pour imprimer" : "Voir / télécharger le PDF"}
-        <span className={emphasize ? "font-medium opacity-90" : "font-normal text-indigo-600"}>
-          {item.documentFileName}
-        </span>
-      </button>
+    <div className="mb-3 space-y-2">
+      {docs.length > 1 ? (
+        <p className={`text-xs font-semibold ${emphasize ? "text-indigo-900" : "text-slate-600"}`}>
+          {docs.length} PDF joints
+        </p>
+      ) : null}
+      <div className="flex flex-col gap-2">
+        {docs.map((doc, index) => (
+          <button
+            key={`${doc.key}-${index}`}
+            type="button"
+            disabled={busyIndex !== null}
+            onClick={() => {
+              setErr(null);
+              setBusyIndex(index);
+              void openPhotocopieDocument(item.id, index)
+                .catch((e: unknown) => {
+                  setErr(e instanceof Error ? e.message : "Ouverture impossible.");
+                })
+                .finally(() => setBusyIndex(null));
+            }}
+            className={
+              emphasize
+                ? "inline-flex items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-600 px-3 py-2 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-60 text-left"
+                : "inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100 disabled:opacity-60 text-left"
+            }
+          >
+            {busyIndex === index
+              ? "Ouverture…"
+              : emphasize
+                ? docs.length > 1
+                  ? `Ouvrir le PDF ${index + 1} pour imprimer`
+                  : "Ouvrir le PDF pour imprimer"
+                : docs.length > 1
+                  ? `Voir / télécharger le PDF ${index + 1}`
+                  : "Voir / télécharger le PDF"}
+            <span className={emphasize ? "font-medium opacity-90 truncate" : "font-normal text-indigo-600 truncate"}>
+              {doc.fileName}
+            </span>
+          </button>
+        ))}
+      </div>
       {err ? <p className="mt-1 text-xs text-rose-700">{err}</p> : null}
     </div>
   );
@@ -100,7 +123,7 @@ export default function PhotocopiesCouleurPage() {
   const [motif, setMotif] = useState("");
   const [classesOuMatiere, setClassesOuMatiere] = useState("");
   const [nombrePhotocopies, setNombrePhotocopies] = useState("");
-  const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [directionNotes, setDirectionNotes] = useState<Record<string, string>>({});
   const [patchingId, setPatchingId] = useState<string | null>(null);
   const [forOther, setForOther] = useState(false);
@@ -291,15 +314,17 @@ export default function PhotocopiesCouleurPage() {
       setError("Votre compte ne comporte pas d'adresse e-mail : impossible de recevoir la décision de la direction.");
       return;
     }
+    if (documentFiles.length > PHOTOCOPIES_MAX_DOCUMENTS) {
+      setError(`Maximum ${PHOTOCOPIES_MAX_DOCUMENTS} PDF par demande.`);
+      return;
+    }
     try {
       setSaving(true);
-      let documentKey: string | undefined;
-      let documentFileName: string | undefined;
-      let documentContentType: string | undefined;
+      const documents: Array<{ key: string; fileName: string; contentType: string }> = [];
 
-      if (documentFile) {
+      for (const documentFile of documentFiles) {
         if (documentFile.type !== "application/pdf") {
-          setError("Le document à imprimer doit être un PDF.");
+          setError(`« ${documentFile.name} » n'est pas un PDF.`);
           setSaving(false);
           return;
         }
@@ -315,10 +340,12 @@ export default function PhotocopiesCouleurPage() {
           headers: { "Content-Type": documentFile.type },
           body: documentFile,
         });
-        if (!put.ok) throw new Error("Envoi du PDF échoué.");
-        documentKey = prepJson.key;
-        documentFileName = documentFile.name;
-        documentContentType = documentFile.type;
+        if (!put.ok) throw new Error(`Envoi du PDF « ${documentFile.name} » échoué.`);
+        documents.push({
+          key: String(prepJson.key || ""),
+          fileName: documentFile.name,
+          contentType: documentFile.type || "application/pdf",
+        });
       }
 
       const res = await fetch("/api/photocopies-couleur", {
@@ -330,7 +357,7 @@ export default function PhotocopiesCouleurPage() {
           classesOuMatiere: classesOuMatiere.trim(),
           nombrePhotocopies: n,
           ...(forOther && colleague ? { onBehalfOf: { userId: colleague.externalUserId } } : {}),
-          ...(documentKey ? { documentKey, documentFileName, documentContentType } : {}),
+          ...(documents.length > 0 ? { documents } : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -340,7 +367,7 @@ export default function PhotocopiesCouleurPage() {
       setMotif("");
       setClassesOuMatiere("");
       setNombrePhotocopies("");
-      setDocumentFile(null);
+      setDocumentFiles([]);
       setForOther(false);
       setColleague(null);
       await fetchItems();
@@ -434,7 +461,7 @@ export default function PhotocopiesCouleurPage() {
           <dd className="inline">{item.classesOuMatiere}</dd>
         </div>
       </dl>
-      {item.documentFileName || item.documentKey ? <PhotocopieDocumentButton item={item} /> : null}
+      {hasPhotocopieDocuments(item) ? <PhotocopieDocumentButton item={item} /> : null}
       {item.directionNote ? (
         <p className="text-sm text-slate-700 mt-2 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2">
           <span className="font-semibold text-slate-800">Message direction · </span>
@@ -519,8 +546,8 @@ export default function PhotocopiesCouleurPage() {
               : `${opsPrintQueue.length} photocopies couleur à imprimer`}
           </span>
           <span className="block text-xs text-sky-800 mt-1">
-            Ouvrez le PDF ci-dessous, imprimez, puis marquez « imprimée / prête » — le demandeur reçoit un
-            e-mail.
+            Ouvrez le(s) PDF ci-dessous, imprimez, puis marquez « imprimée / prête » — le demandeur
+            reçoit un e-mail.
           </span>
         </div>
       ) : null}
@@ -620,15 +647,74 @@ export default function PhotocopiesCouleurPage() {
                 />
               </div>
               <div>
-                <label className={`mb-2 block ${dash.fieldLabel}`}>Document à imprimer (PDF)</label>
+                <label className={`mb-2 block ${dash.fieldLabel}`}>
+                  Documents à imprimer (PDF, max. {PHOTOCOPIES_MAX_DOCUMENTS})
+                </label>
                 <input
                   type="file"
                   accept="application/pdf"
-                  onChange={(e) => setDocumentFile(e.target.files?.[0] ?? null)}
+                  multiple
+                  onChange={(e) => {
+                    const picked = Array.from(e.target.files ?? []);
+                    e.target.value = "";
+                    if (picked.length === 0) return;
+                    let rejectedNonPdf = false;
+                    let truncated = false;
+                    const next: File[] = [...documentFiles];
+                    for (const file of picked) {
+                      if (file.type !== "application/pdf") {
+                        rejectedNonPdf = true;
+                        continue;
+                      }
+                      if (next.length >= PHOTOCOPIES_MAX_DOCUMENTS) {
+                        truncated = true;
+                        break;
+                      }
+                      const already = next.some(
+                        (f) =>
+                          f.name === file.name &&
+                          f.size === file.size &&
+                          f.lastModified === file.lastModified,
+                      );
+                      if (!already) next.push(file);
+                    }
+                    setDocumentFiles(next);
+                    if (rejectedNonPdf) {
+                      setError("Seuls les fichiers PDF sont acceptés.");
+                    } else if (truncated) {
+                      setError(`Maximum ${PHOTOCOPIES_MAX_DOCUMENTS} PDF par demande.`);
+                    } else {
+                      setError(null);
+                    }
+                  }}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-1 file:font-semibold file:text-indigo-700"
                 />
+                {documentFiles.length > 0 ? (
+                  <ul className="mt-2 space-y-1.5">
+                    {documentFiles.map((file, index) => (
+                      <li
+                        key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700"
+                      >
+                        <span className="min-w-0 truncate font-medium">
+                          {index + 1}. {file.name}
+                        </span>
+                        <button
+                          type="button"
+                          className="shrink-0 font-bold text-rose-700 hover:text-rose-900"
+                          onClick={() =>
+                            setDocumentFiles((prev) => prev.filter((_, i) => i !== index))
+                          }
+                        >
+                          Retirer
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 <p className="text-[11px] text-slate-500 mt-1">
-                  Recommandé : visible par la direction à la validation, puis par le service impressions.
+                  Jusqu&apos;à {PHOTOCOPIES_MAX_DOCUMENTS} PDF dans la même demande — visibles par la
+                  direction puis par l&apos;accueil pour impression.
                 </p>
               </div>
               {error && (
@@ -670,8 +756,8 @@ export default function PhotocopiesCouleurPage() {
                 ) : null}
               </div>
               <p className="text-xs text-slate-500 mb-4">
-                Demandes acceptées par la direction. Ouvrez le PDF, imprimez, puis marquez « imprimée /
-                prête » pour prévenir le demandeur par e-mail.
+                Demandes acceptées par la direction. Ouvrez chaque PDF, imprimez, puis marquez
+                « imprimée / prête » pour prévenir le demandeur par e-mail.
               </p>
 
               {loading ? (

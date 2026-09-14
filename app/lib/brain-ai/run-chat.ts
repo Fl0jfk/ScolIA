@@ -488,21 +488,34 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
       };
     }
     let confirmArgs = { ...(input.confirmAction.args || {}) };
-    if (toolName === "create_photocopie_demand" && !confirmArgs.documentKey) {
-      const atts = conversationState.slots.attachments;
-      if (Array.isArray(atts) && atts.length > 0) {
-        const last = atts[atts.length - 1] as {
-          key?: string;
-          fileName?: string;
-          contentType?: string;
-        };
-        if (last?.key) {
-          confirmArgs = {
-            ...confirmArgs,
-            documentKey: last.key,
-            documentFileName: last.fileName || "document.pdf",
-            documentContentType: last.contentType || "application/pdf",
-          };
+    if (toolName === "create_photocopie_demand") {
+      const hasDocs =
+        (Array.isArray(confirmArgs.documents) && confirmArgs.documents.length > 0) ||
+        Boolean(confirmArgs.documentKey);
+      if (!hasDocs) {
+        const atts = conversationState.slots.attachments;
+        if (Array.isArray(atts) && atts.length > 0) {
+          const docs = atts
+            .slice(-5)
+            .map((a) => {
+              const row = a as { key?: string; fileName?: string; contentType?: string };
+              if (!row?.key) return null;
+              return {
+                key: row.key,
+                fileName: row.fileName || "document.pdf",
+                contentType: row.contentType || "application/pdf",
+              };
+            })
+            .filter((d): d is { key: string; fileName: string; contentType: string } => Boolean(d));
+          if (docs.length > 0) {
+            confirmArgs = {
+              ...confirmArgs,
+              documents: docs,
+              documentKey: docs[0].key,
+              documentFileName: docs[0].fileName,
+              documentContentType: docs[0].contentType,
+            };
+          }
         }
       }
     }
@@ -586,7 +599,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- Dès que l'utilisateur veut réserver / créer / déclarer : appelle IMMÉDIATEMENT l'outil correspondant AVEC {} (sans args). L'UI affiche listes déroulantes, dates et boutons.\n` +
     `- create_reservation = réservation salle | create_trip = sortie/voyage | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
     `- Pas d'accès RH / dossiers personnels / salaires. create_absence = soi uniquement.\n` +
-    `- Si un PDF est joint, passe-le à create_photocopie_demand (documentKey / documentFileName).\n` +
+    `- Si des PDF sont joints (max 5), passe-les à create_photocopie_demand via documents[] (ou documentKey / documentFileName en mono).\n` +
     `- Si needsConfirmation : présente uniquement le récap (l'UI a Confirmer / Modifier / Annuler).\n` +
     `- N'invente pas : si l'info manque après les outils, dis-le clairement.\n` +
     `- Liens en URL complète https://…\n` +
@@ -699,21 +712,33 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     for (const call of toolCalls) {
       const name = call.function?.name || "";
       let args = parseToolArgs(call.function?.arguments || "{}");
-      if (name === "create_photocopie_demand" && !args.documentKey) {
-        const atts = conversationState.slots.attachments;
-        if (Array.isArray(atts) && atts.length > 0) {
-          const last = atts[atts.length - 1] as {
-            key?: string;
-            fileName?: string;
-            contentType?: string;
-          };
-          if (last?.key) {
-            args = {
-              ...args,
-              documentKey: last.key,
-              documentFileName: last.fileName || "document.pdf",
-              documentContentType: last.contentType || "application/pdf",
-            };
+      if (name === "create_photocopie_demand") {
+        const hasDocs =
+          (Array.isArray(args.documents) && args.documents.length > 0) || Boolean(args.documentKey);
+        if (!hasDocs) {
+          const atts = conversationState.slots.attachments;
+          if (Array.isArray(atts) && atts.length > 0) {
+            const docs = atts
+              .slice(-5)
+              .map((a) => {
+                const row = a as { key?: string; fileName?: string; contentType?: string };
+                if (!row?.key) return null;
+                return {
+                  key: row.key,
+                  fileName: row.fileName || "document.pdf",
+                  contentType: row.contentType || "application/pdf",
+                };
+              })
+              .filter((d): d is { key: string; fileName: string; contentType: string } => Boolean(d));
+            if (docs.length > 0) {
+              args = {
+                ...args,
+                documents: docs,
+                documentKey: docs[0].key,
+                documentFileName: docs[0].fileName,
+                documentContentType: docs[0].contentType,
+              };
+            }
           }
         }
       }
