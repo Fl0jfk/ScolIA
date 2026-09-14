@@ -357,7 +357,7 @@ export const STAGE_SIGNER_ROLE_LABELS: Record<StageSignerRole, string> = {
   rh_entreprise: "RH entreprise",
   professeur_referent: "Professeur référent",
   professeur_principal: "Professeur principal",
-  direction: "Direction",
+  direction: "Direction de l'établissement scolaire",
   administratif: "Administratif",
 };
 

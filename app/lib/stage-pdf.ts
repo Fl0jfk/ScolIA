@@ -749,6 +749,10 @@ export const STAGE_ESIGN_ANNEX_SUBJECT = "SCOLIA_SIGNATURES";
 export const STAGE_ESIGN_PAGE_TITLE = "Validation et signatures";
 
 function signatureBoxLabel(sig: StageSignature): string {
+  // Libellé PDF explicite : éviter la confusion avec une direction d'entreprise.
+  if (sig.role === "direction") {
+    return "Direction de l'établissement scolaire";
+  }
   return STAGE_SIGNER_ROLE_LABELS[sig.role] || sig.label || sig.role;
 }
 
@@ -777,7 +781,7 @@ export function electronicSignatureBoxLayout(params: {
 /** Lignes de statut d'une case signature (PDF + annotation dépôt). */
 export function stageSignatureStatusLines(sig: StageSignature): string[] {
   if (sig.status !== "signe") {
-    return ["En attente de signature"];
+    return [];
   }
   const date = sig.signedAt
     ? new Date(sig.signedAt).toLocaleDateString("fr-FR")
@@ -865,7 +869,7 @@ async function drawSignatureGrid(
         { id: "a", role: "tuteur_entreprise", label: "Organisme d'accueil", status: "en_attente" },
         { id: "b", role: "parent", label: "Representant legal", status: "en_attente" },
         { id: "c", role: "eleve", label: "Eleve", status: "en_attente" },
-        { id: "d", role: "direction", label: "Direction", status: "en_attente" },
+        { id: "d", role: "direction", label: "Direction de l'établissement scolaire", status: "en_attente" },
       ] as StageSignature[]);
 
   const { width: pageW, height: pageH } = ctx.page.getSize();
@@ -942,7 +946,7 @@ async function drawSignatureGrid(
     ctx.page.drawText(sanitizePdfText(signatureBoxLabel(sig)), {
       x: box.x + 18,
       y: box.y + box.height - 18,
-      size: 8,
+      size: sig.role === "direction" ? 7 : 8,
       font: ctx.bold,
       color: palette.accent,
     });
@@ -955,7 +959,7 @@ async function drawSignatureGrid(
         y: lineY,
         size: 6.5,
         font: ctx.font,
-        color: sig.status === "signe" ? palette.ink : palette.muted,
+        color: palette.ink,
       });
       lineY -= 10;
     }

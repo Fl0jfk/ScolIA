@@ -54,7 +54,6 @@ async function drawAnnexBoxes(
   const muted = rgb(0.42, 0.45, 0.48);
   const soft = rgb(0.62, 0.65, 0.68);
   const white = rgb(1, 1, 1);
-  const ink = rgb(0.12, 0.14, 0.16);
 
   page.drawRectangle({
     x: 0,
@@ -100,11 +99,15 @@ async function drawAnnexBoxes(
       borderColor: accent,
       borderWidth: 1,
     });
-    const label = (STAGE_SIGNER_ROLE_LABELS[role] || role).replace(/[^\x00-\xFF]/g, "?");
+    const label = (
+      role === "direction"
+        ? "Direction de l'etablissement scolaire"
+        : STAGE_SIGNER_ROLE_LABELS[role] || role
+    ).replace(/[^\x00-\xFF]/g, "?");
     page.drawText(label, {
       x: box.x + 14,
       y: box.y + box.height - 20,
-      size: 8,
+      size: role === "direction" ? 7 : 8,
       font: bold,
       color: accent,
     });
@@ -114,13 +117,6 @@ async function drawAnnexBoxes(
       size: 7,
       font,
       color: soft,
-    });
-    page.drawText("En attente de signature", {
-      x: box.x + 14,
-      y: box.y + box.height - 36,
-      size: 7,
-      font,
-      color: ink,
     });
   }
 }
