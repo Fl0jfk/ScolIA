@@ -141,6 +141,7 @@ export default function StagePublicSignerClient() {
   const [signerName, setSignerName] = useState("");
   const [signaturePng, setSignaturePng] = useState<string | null>(null);
   const [paperFile, setPaperFile] = useState<File | null>(null);
+  const [paperDragOver, setPaperDragOver] = useState(false);
   const [signMethod, setSignMethod] = useState<SignMethod>("code_confirm");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -470,14 +471,60 @@ export default function StagePublicSignerClient() {
                   signatures électroniques des autres parties seront apposées sur une page dédiée,
                   sans écraser votre paraphe manuscrit.
                 </p>
-                <label className="flex min-h-[120px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-center text-sm text-stone-600 hover:border-[#2F6B4A]">
+                <label
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPaperDragOver(true);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPaperDragOver(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPaperDragOver(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPaperDragOver(false);
+                    const file = e.dataTransfer.files?.[0] ?? null;
+                    if (!file) return;
+                    const ok =
+                      file.type === "application/pdf" ||
+                      file.type.startsWith("image/") ||
+                      /\.(pdf|png|jpe?g|webp|gif)$/i.test(file.name);
+                    if (!ok) {
+                      setError("Fichier non accepté : PDF ou image uniquement.");
+                      return;
+                    }
+                    setError(null);
+                    setPaperFile(file);
+                  }}
+                  className={[
+                    "flex min-h-[120px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-6 text-center text-sm transition-colors",
+                    paperDragOver
+                      ? "border-[#2F6B4A] bg-emerald-50 text-[#2F6B4A]"
+                      : "border-stone-300 bg-stone-50 text-stone-600 hover:border-[#2F6B4A]",
+                  ].join(" ")}
+                >
                   <input
                     type="file"
                     accept="application/pdf,image/*"
                     className="hidden"
-                    onChange={(e) => setPaperFile(e.target.files?.[0] ?? null)}
+                    onChange={(e) => {
+                      setPaperFile(e.target.files?.[0] ?? null);
+                      e.target.value = "";
+                    }}
                   />
-                  {paperFile ? paperFile.name : "Glisser-déposer ou cliquer pour choisir un fichier"}
+                  {paperFile
+                    ? paperFile.name
+                    : paperDragOver
+                      ? "Déposez le fichier ici"
+                      : "Glisser-déposer ou cliquer pour choisir un fichier"}
                 </label>
               </div>
             )}
