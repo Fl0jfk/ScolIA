@@ -260,11 +260,18 @@ export type StageConvention = {
   eleveDossierFilingError?: string;
   /** Absences créées automatiquement (vs_absence_eleve) pour la période de stage. */
   stageAbsenceIds?: string[];
-  /** PDF déposé par l'élève (convention papier / déjà signée). */
+  /** PDF déposé / généré pour la convention. */
   uploadedPdf?: {
     s3Key: string;
     fileName: string;
     uploadedAt: string;
+    /**
+     * Origine du fichier principal :
+     * - scolia_generated : PDF reconstruit depuis la préconvention
+     * - paper_signed : scan papier (signature manuscrite conservée) + annexe e-sign
+     * - external_upload : dépôt élève / OCR
+     */
+    source?: "scolia_generated" | "paper_signed" | "external_upload";
   };
   /** Métadonnées extraction OCR / IA. */
   ocrMeta?: {

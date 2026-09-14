@@ -5,6 +5,8 @@ import { generateAndStoreConventionPdf, isScoliaGeneratedConventionPdf } from "@
 import {
   stampSignatureOnConventionPdf,
   annotateSignatureStatusOnConventionPdf,
+  adoptPaperSignedPdfAsConventionBase,
+  syncElectronicSignaturesOntoConventionPdf,
   roleStampsPdf,
 } from "@/app/lib/stage-pdf-sign";
 import { generateStageSecureCode, normalizeSignEmail } from "@/app/lib/stage-secure-code";
@@ -13,6 +15,7 @@ import {
   savePaperSignedPdf,
   parseExternalSignaturePng,
   parsePaperUploadBase64,
+  normalizePaperUploadToPdf,
 } from "@/app/lib/stage-external-signature-store";
 import {
   STAGE_SIGNER_ROLE_LABELS,
@@ -679,6 +682,7 @@ export async function applyConventionSignature(params: {
   let signaturePngS3Key = sig.signaturePngS3Key;
   let paperUploadS3Key = sig.paperUploadS3Key;
   let paperUploadFileName = sig.paperUploadFileName;
+  let paperPdfNormalized: Uint8Array | null = null;
 
   if (signMethod === "touch" && params.signaturePngBase64) {
     const png = parseExternalSignaturePng(params.signaturePngBase64);
@@ -687,13 +691,20 @@ export async function applyConventionSignature(params: {
   }
 
   if (signMethod === "paper_upload" && params.paperPdfBase64) {
-    const pdf = parsePaperUploadBase64(params.paperPdfBase64);
-    if (!pdf) return { ok: false, error: "Fichier PDF invalide." };
+    const raw = parsePaperUploadBase64(params.paperPdfBase64);
+    if (!raw) return { ok: false, error: "Fichier PDF ou image invalide." };
+    paperPdfNormalized = await normalizePaperUploadToPdf(raw);
+    if (!paperPdfNormalized) {
+      return {
+        ok: false,
+        error: "Fichier non accepté : PDF, JPG ou PNG uniquement.",
+      };
+    }
     paperUploadS3Key = await savePaperSignedPdf(
       convention.id,
       sig.id,
       params.paperFileName?.trim() || "convention-signee.pdf",
-      pdf,
+      Buffer.from(paperPdfNormalized),
     );
     paperUploadFileName = params.paperFileName?.trim() || "convention-signee.pdf";
   }
@@ -729,7 +740,21 @@ export async function applyConventionSignature(params: {
   };
   next = pushHistory(next, params.signerName || sig.label, "SIGNATURE", `${sig.role}:${signMethod}`);
 
-  if (isScoliaGeneratedConventionPdf(next)) {
+  if (signMethod === "paper_upload" && paperPdfNormalized) {
+    const adopted = await adoptPaperSignedPdfAsConventionBase({
+      convention: next,
+      paperPdfBytes: paperPdfNormalized,
+      fileName: params.paperFileName?.trim() || "convention-signee.pdf",
+    });
+    if (!adopted.ok) return { ok: false, error: adopted.error };
+    next = pushHistory(
+      adopted.convention,
+      params.signerName || sig.label,
+      "PDF_PAPIER_ADOPTE",
+      "Document principal = scan papier + annexe signatures",
+    );
+    await syncElectronicSignaturesOntoConventionPdf(next);
+  } else if (isScoliaGeneratedConventionPdf(next)) {
     // Préconvention en ligne : régénère les cases (preuve code e-mail, plus d'« En attente » figé).
     next = await generateAndStoreConventionPdf(next);
   } else if (roleStampsPdf(sig.role) && signMethod === "touch") {
@@ -740,11 +765,26 @@ export async function applyConventionSignature(params: {
     });
     if (!stamp.ok) return { ok: false, error: stamp.error };
   } else if (roleStampsPdf(sig.role) && signMethod === "code_confirm") {
-    const ann = await annotateSignatureStatusOnConventionPdf({
-      convention: next,
-      signature: updatedSig,
-    });
-    if (!ann.ok) console.warn("[stages] annotate preuve signature:", ann.error);
+    // Direction / prof : paraphe image si disponible ; sinon preuve texte (code e-mail).
+    if (sig.role === "direction" || sig.role === "professeur_referent") {
+      const stamp = await stampSignatureOnConventionPdf({
+        convention: next,
+        role: sig.role,
+      });
+      if (!stamp.ok) {
+        const ann = await annotateSignatureStatusOnConventionPdf({
+          convention: next,
+          signature: updatedSig,
+        });
+        if (!ann.ok) console.warn("[stages] annotate preuve signature:", ann.error);
+      }
+    } else {
+      const ann = await annotateSignatureStatusOnConventionPdf({
+        convention: next,
+        signature: updatedSig,
+      });
+      if (!ann.ok) console.warn("[stages] annotate preuve signature:", ann.error);
+    }
   }
 
   await saveStageConvention(next);

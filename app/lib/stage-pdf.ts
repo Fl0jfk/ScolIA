@@ -794,9 +794,10 @@ export function stageSignatureStatusLines(sig: StageSignature): string[] {
   } else if (sig.signMethod === "touch") {
     lines.push("Signature manuscrite electronique");
   } else if (sig.signMethod === "paper_upload") {
-    lines.push("Document papier valide");
+    lines.push("Signature manuscrite sur le document");
+    lines.push("Scan papier archive");
   } else if (sig.signedBy === "Document papier") {
-    lines.push("Document papier");
+    lines.push("Signature manuscrite sur le document");
   }
   return lines;
 }

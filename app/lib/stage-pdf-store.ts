@@ -5,8 +5,18 @@ import { buildStageConventionPdf, conventionPdfFilename } from "@/app/lib/stage-
 import { saveStageConvention } from "@/app/lib/stage-storage";
 import { STAGE_S3, type StageConvention } from "@/app/lib/stage-types";
 
-/** PDF généré par ScolIA après validation admin (préconvention en ligne). */
+/** PDF papier adopté comme original (ne plus régénérer le PDF ScolIA). */
+export function isPaperBasedConventionPdf(convention: StageConvention): boolean {
+  return convention.uploadedPdf?.source === "paper_signed";
+}
+
+/**
+ * PDF généré par ScolIA après validation admin (préconvention en ligne).
+ * Faux dès qu'un scan papier a remplacé le document principal.
+ */
 export function isScoliaGeneratedConventionPdf(convention: StageConvention): boolean {
+  if (isPaperBasedConventionPdf(convention)) return false;
+  if (convention.uploadedPdf?.source === "external_upload") return false;
   return convention.history.some((h) => h.action === "ADMIN_VALIDE");
 }
 
@@ -37,6 +47,7 @@ async function buildAndPutConventionPdf(
         s3Key,
         fileName,
         uploadedAt: new Date().toISOString(),
+        source: "scolia_generated",
       },
     },
   };
@@ -51,8 +62,9 @@ export async function generateAndStoreConventionPdf(
 }
 
 /**
- * Téléchargement : régénère toujours le PDF depuis les données actuelles.
- * Pour une convention ScolIA (préconvention validée), met aussi à jour le fichier S3.
+ * Téléchargement :
+ * - PDF ScolIA (préconvention) : régénéré depuis les données + maj S3
+ * - PDF papier / dépôt externe : sert le fichier S3 (signatures apposées dessus)
  */
 export async function buildFreshConventionPdfDownload(
   convention: StageConvention,
@@ -61,6 +73,27 @@ export async function buildFreshConventionPdfDownload(
     const result = await buildAndPutConventionPdf(convention);
     await saveStageConvention(result.convention);
     return result;
+  }
+
+  if (convention.uploadedPdf?.s3Key) {
+    const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+    const { getTenantDataS3Client } = await import("@/app/lib/s3-clients");
+    const { getBucketName } = await import("@/app/lib/s3-storage");
+    const s3 = await getTenantDataS3Client();
+    const obj = await s3.send(
+      new GetObjectCommand({
+        Bucket: await getBucketName(),
+        Key: convention.uploadedPdf.s3Key,
+      }),
+    );
+    const bytes = await obj.Body?.transformToByteArray();
+    if (bytes?.length) {
+      return {
+        bytes,
+        fileName: convention.uploadedPdf.fileName || conventionPdfFilename(convention),
+        convention,
+      };
+    }
   }
 
   const bytes = await buildStageConventionPdf(convention);

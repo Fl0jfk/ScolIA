@@ -467,9 +467,9 @@ export default function StagePublicSignerClient() {
                   </a>
                 )}
                 <p className="text-xs text-stone-600">
-                  Imprimez, signez en papier, puis déposez le scan ou la photo PDF ci-dessous. Les
-                  signatures électroniques des autres parties seront apposées sur une page dédiée,
-                  sans écraser votre paraphe manuscrit.
+                  Imprimez, signez en papier, puis déposez le scan (PDF) ou une photo (JPG/PNG)
+                  ci-dessous. Votre signature manuscrite reste sur le document : les autres parties
+                  signeront électroniquement sur une page dédiée, sans l&apos;écraser.
                 </p>
                 <label
                   onDragEnter={(e) => {

@@ -10,7 +10,7 @@ import {
   stageSignatureStatusLines,
 } from "@/app/lib/stage-pdf";
 import type { StageConvention, StageSignature, StageSignerRole } from "@/app/lib/stage-types";
-import { STAGE_SIGNER_ROLE_LABELS } from "@/app/lib/stage-types";
+import { STAGE_S3, STAGE_SIGNER_ROLE_LABELS } from "@/app/lib/stage-types";
 
 const SIG_W = 140;
 const SIG_H = 55;
@@ -207,6 +207,104 @@ async function saveConventionPdfBytes(convention: StageConvention, pdfBytes: Uin
   );
 }
 
+/**
+ * Adopte le scan papier comme PDF principal de la convention :
+ * conserve les pages manuscrites, ajoute la page « Validation et signatures »
+ * pour les paraphes électroniques suivants (direction, prof, etc.).
+ */
+export async function adoptPaperSignedPdfAsConventionBase(params: {
+  convention: StageConvention;
+  paperPdfBytes: Uint8Array;
+  fileName: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  try {
+    const pdfDoc = await PDFDocument.load(params.paperPdfBytes);
+    const rolesOnDoc = params.convention.signatures.map((s) => s.role);
+    await ensureElectronicSignatureAnnex(pdfDoc, rolesOnDoc);
+    const outBytes = await pdfDoc.save();
+
+    const safeName =
+      (params.fileName.replace(/[^a-zA-Z0-9._-]/g, "_") || "convention-signee.pdf").replace(
+        /\.(png|jpe?g|webp|gif)$/i,
+        ".pdf",
+      );
+    const fileName = safeName.toLowerCase().endsWith(".pdf") ? safeName : `${safeName}.pdf`;
+    const s3Key =
+      params.convention.uploadedPdf?.s3Key ?? STAGE_S3.conventionUpload(params.convention.id, fileName);
+
+    const s3Client = await getTenantDataS3Client();
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: await getBucketName(),
+        Key: s3Key,
+        Body: outBytes,
+        ContentType: "application/pdf",
+      }),
+    );
+
+    return {
+      ok: true,
+      convention: {
+        ...params.convention,
+        uploadedPdf: {
+          s3Key,
+          fileName,
+          uploadedAt: new Date().toISOString(),
+          source: "paper_signed",
+        },
+      },
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Impossible d'adopter le PDF papier : ${msg}` };
+  }
+}
+
+/**
+ * Après adoption du papier : annote la case tuteur + re-applique les paraphes
+ * électroniques déjà validés (direction / touch / code) sur la nouvelle base.
+ */
+export async function syncElectronicSignaturesOntoConventionPdf(
+  convention: StageConvention,
+): Promise<void> {
+  for (const sig of convention.signatures) {
+    if (sig.status !== "signe" || !roleStampsPdf(sig.role)) continue;
+
+    if (sig.signMethod === "paper_upload" || sig.signedBy === "Document papier") {
+      const ann = await annotateSignatureStatusOnConventionPdf({ convention, signature: sig });
+      if (!ann.ok) console.warn("[stages] annotate papier:", ann.error);
+      continue;
+    }
+
+    if (sig.signMethod === "touch" || sig.signaturePngS3Key) {
+      const stamp = await stampSignatureOnConventionPdf({
+        convention,
+        role: sig.role,
+      });
+      if (!stamp.ok) {
+        const ann = await annotateSignatureStatusOnConventionPdf({ convention, signature: sig });
+        if (!ann.ok) console.warn("[stages] annotate apres stamp:", ann.error);
+      }
+      continue;
+    }
+
+    if (sig.role === "direction" || sig.role === "professeur_referent") {
+      const stamp = await stampSignatureOnConventionPdf({
+        convention,
+        role: sig.role,
+      });
+      if (!stamp.ok) {
+        const ann = await annotateSignatureStatusOnConventionPdf({ convention, signature: sig });
+        if (!ann.ok) console.warn("[stages] annotate direction/prof:", ann.error);
+      }
+      continue;
+    }
+
+    const ann = await annotateSignatureStatusOnConventionPdf({ convention, signature: sig });
+    if (!ann.ok) console.warn("[stages] annotate signature:", ann.error);
+  }
+}
+
 export function roleStampsPdf(role: StageSignerRole): boolean {
   return (
     role === "professeur_referent" ||
@@ -226,6 +324,23 @@ async function resolveSignaturePngForRole(
 ): Promise<Uint8Array | null> {
   const drawn = drawnPngBase64 ? parsePngBase64(drawnPngBase64) : null;
   if (drawn) return drawn;
+
+  const stored = convention.signatures.find((s) => s.role === role);
+  if (stored?.signaturePngS3Key) {
+    try {
+      const s3Client = await getTenantDataS3Client();
+      const obj = await s3Client.send(
+        new GetObjectCommand({
+          Bucket: await getBucketName(),
+          Key: stored.signaturePngS3Key,
+        }),
+      );
+      const bytes = await obj.Body?.transformToByteArray();
+      if (bytes?.length) return bytes;
+    } catch (err) {
+      console.error("[stage-pdf-sign] lecture signature PNG externe:", err);
+    }
+  }
 
   if (role === "direction") {
     const { stageCycleKindFromStudent } = await import("@/app/lib/stage-config");

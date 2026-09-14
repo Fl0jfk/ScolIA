@@ -477,7 +477,12 @@ export async function processConventionPdfDeposit(params: {
     updatedAt: now,
     createdBy: { role: "eleve", name: `${firstName} ${lastName}`.trim() || "Élève" },
     history: [{ at: now, by: "Élève", action: "CONVENTION_PDF_DEPOSEE" }],
-    uploadedPdf: { s3Key, fileName: file.name, uploadedAt: now },
+    uploadedPdf: {
+      s3Key,
+      fileName: file.name,
+      uploadedAt: now,
+      source: "external_upload",
+    },
     ocrMeta: {
       extractedAt: now,
       matchedEleveIne: eleve?.ine || extracted.studentIne || undefined,
