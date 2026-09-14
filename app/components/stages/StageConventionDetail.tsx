@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import type { StageConvention } from "@/app/lib/stage-types";
+import type { StageConvention, StageDaySlot } from "@/app/lib/stage-types";
 import {
   STAGE_CONVENTION_STATUS_LABELS,
   STAGE_OFFER_KIND_LABELS,
@@ -9,7 +9,7 @@ import {
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 import { buildSignatureSummary } from "@/app/lib/stage-signature-summary";
-import { formatDaySlotLabel, formatPeriodRangeFr } from "@/app/lib/stage-schedule";
+import { formatPeriodRangeFr, STAGE_WEEKDAY_LABELS } from "@/app/lib/stage-schedule";
 import type { StagesHubPermissions } from "@/app/components/stages/stages-hub-types";
 import type { OneDriveUserProfile } from "@/app/lib/onedrive-user-profiles";
 
@@ -387,7 +387,6 @@ function ConventionInfoSummary({ convention }: { convention: StageConvention }) 
   const parent2 = convention.parent2SignerEmail || student.parent2Email || "";
   const kindLabel = STAGE_OFFER_KIND_LABELS[convention.internshipKind] ?? convention.internshipKind;
   const periodLabel = formatPeriodRangeFr(schedule.periodStart, schedule.periodEnd);
-  const hourLines = (schedule.days || []).map((d) => formatDaySlotLabel(d));
 
   return (
     <div className="rounded-xl border border-stone-200 bg-white p-4 space-y-3 text-sm text-stone-800">
@@ -457,21 +456,138 @@ function ConventionInfoSummary({ convention }: { convention: StageConvention }) 
         </InfoRow>
       </dl>
 
-      <div className="rounded-lg border border-stone-100 bg-stone-50 px-3 py-2">
-        <p className="text-xs font-bold uppercase tracking-wide text-stone-600">Horaires</p>
-        <p className="mt-1 text-sm font-semibold text-[#1F3D2B]">
-          {periodLabel || `${schedule.periodStart} → ${schedule.periodEnd}`}
-        </p>
-        {hourLines.length > 0 ? (
-          <ul className="mt-2 space-y-0.5 text-xs text-stone-700">
-            {hourLines.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
+      <ScheduleHoursPanel
+        periodLabel={periodLabel || `${schedule.periodStart} → ${schedule.periodEnd}`}
+        days={schedule.days || []}
+        mode={schedule.mode}
+      />
+    </div>
+  );
+}
+
+function ScheduleHoursPanel({
+  periodLabel,
+  days,
+  mode,
+}: {
+  periodLabel: string;
+  days: StageDaySlot[];
+  mode: StageConvention["schedule"]["mode"];
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-[#2F6B4A]/20 bg-gradient-to-br from-[#f3f8f5] via-white to-[#eef5f1]">
+      <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[#2F6B4A]/15 px-4 py-3">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#2F6B4A]">
+            Horaires du stage
+          </p>
+          <p className="mt-0.5 text-sm font-semibold capitalize text-[#1F3D2B]">{periodLabel}</p>
+        </div>
+        <span className="rounded-full bg-white/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#2F6B4A] ring-1 ring-[#2F6B4A]/20">
+          {mode === "per_day" ? "Jour par jour" : "Semaine type"}
+        </span>
+      </div>
+
+      {days.length === 0 ? (
+        <p className="px-4 py-4 text-xs text-stone-500">Aucun horaire renseigné.</p>
+      ) : (
+        <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
+          {days.map((day, index) => (
+            <DayHoursCard key={dayCardKey(day, index)} day={day} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function dayCardKey(day: StageDaySlot, index: number) {
+  return day.date || (day.weekday != null ? `w-${day.weekday}` : `d-${index}`);
+}
+
+function dayCardTitle(day: StageDaySlot) {
+  if (day.date) {
+    return new Date(`${day.date}T12:00:00`).toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+    });
+  }
+  if (day.weekday != null && STAGE_WEEKDAY_LABELS[day.weekday]) {
+    return STAGE_WEEKDAY_LABELS[day.weekday];
+  }
+  return "Jour";
+}
+
+function DayHoursCard({ day }: { day: StageDaySlot }) {
+  const continuous =
+    !day.hasLunchBreak &&
+    Boolean((day.fullDayStart || day.morningStart) && (day.fullDayEnd || day.morningEnd));
+  const fullStart = day.fullDayStart || day.morningStart || "";
+  const fullEnd = day.fullDayEnd || day.morningEnd || "";
+
+  return (
+    <div className="rounded-lg border border-white/80 bg-white/90 p-3 shadow-sm shadow-[#1F3D2B]/5 ring-1 ring-stone-200/70">
+      <p className="text-xs font-bold capitalize text-[#1F3D2B]">{dayCardTitle(day)}</p>
+      <div className="mt-2 space-y-1.5">
+        {continuous ? (
+          <TimeChip label="Journée" start={fullStart} end={fullEnd} accent="full" />
         ) : (
-          <p className="mt-1 text-xs text-stone-500">Aucun horaire renseigné.</p>
+          <>
+            <TimeChip
+              label="Matin"
+              start={day.morningStart || ""}
+              end={day.morningEnd || ""}
+              accent="morning"
+            />
+            <TimeChip
+              label="Après-midi"
+              start={day.afternoonStart || ""}
+              end={day.afternoonEnd || ""}
+              accent="afternoon"
+            />
+          </>
         )}
       </div>
+    </div>
+  );
+}
+
+function TimeChip({
+  label,
+  start,
+  end,
+  accent,
+}: {
+  label: string;
+  start: string;
+  end: string;
+  accent: "morning" | "afternoon" | "full";
+}) {
+  if (!start && !end) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-md bg-stone-50 px-2 py-1.5 text-[11px] text-stone-400">
+        <span>{label}</span>
+        <span>—</span>
+      </div>
+    );
+  }
+
+  const tone =
+    accent === "morning"
+      ? "bg-amber-50 text-amber-950 ring-amber-200/80"
+      : accent === "afternoon"
+        ? "bg-sky-50 text-sky-950 ring-sky-200/80"
+        : "bg-emerald-50 text-emerald-950 ring-emerald-200/80";
+
+  return (
+    <div className={`flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-[11px] ring-1 ${tone}`}>
+      <span className="font-semibold opacity-80">{label}</span>
+      <span className="font-mono text-xs font-bold tracking-tight">
+        {start || "—"}
+        <span className="mx-1 opacity-40">→</span>
+        {end || "—"}
+      </span>
     </div>
   );
 }
