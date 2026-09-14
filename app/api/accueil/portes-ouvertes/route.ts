@@ -11,9 +11,11 @@ import {
 import {
   buildPortesOuvertesToolPayload,
   countRegistrationsBySlot,
+  countRegistrationsBySlotAndCycle,
   listPortesOuvertesRegistrations,
   listPortesOuvertesStaff,
   markPortesOuvertesVisited,
+  remainingPlacesForSlotCycle,
 } from "@/app/lib/portes-ouvertes-db";
 import {
   classesForPortesOuvertesCycle,
@@ -81,6 +83,7 @@ export async function GET() {
     loadAppConfig(),
   ]);
   const counts = countRegistrationsBySlot(registrations);
+  const countsBySlotCycle = countRegistrationsBySlotAndCycle(registrations);
   const now = Date.now();
   const availableCycles = cyclesFromActiveEstablishments(bundle.establishments);
 
@@ -97,21 +100,26 @@ export async function GET() {
     const registeredCount = counts[s.id] || 0;
     const remaining =
       typeof s.maxPlaces === "number" ? Math.max(0, s.maxPlaces - registeredCount) : null;
+    const byCycle = countsBySlotCycle[s.id] || {};
     return {
       ...s,
       registeredCount,
       remaining,
       remainingByCycle: Object.fromEntries(
-        PORTES_OUVERTES_CYCLES.map((c) => [
-          c,
-          !s.cycle || s.cycle === c ? remaining : null,
-        ]),
+        PORTES_OUVERTES_CYCLES.map((c) => {
+          if (s.cycle && s.cycle !== c) return [c, null];
+          // Créneau mono-cycle : capacité partagée = remaining global.
+          // Créneau multi-cycle (cycle null) : places restantes par établissement.
+          if (s.cycle) return [c, remaining];
+          return [c, remainingPlacesForSlotCycle(s.maxPlaces, countsBySlotCycle, s.id, c)];
+        }),
       ) as Record<PortesOuvertesCycle, number | null>,
       registeredByCycle: Object.fromEntries(
-        PORTES_OUVERTES_CYCLES.map((c) => [
-          c,
-          !s.cycle || s.cycle === c ? registeredCount : 0,
-        ]),
+        PORTES_OUVERTES_CYCLES.map((c) => {
+          if (s.cycle && s.cycle !== c) return [c, 0];
+          if (s.cycle) return [c, registeredCount];
+          return [c, byCycle[c] || 0];
+        }),
       ) as Record<PortesOuvertesCycle, number>,
       isPast: Date.parse(s.endAt) <= now,
     };

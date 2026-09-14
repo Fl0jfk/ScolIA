@@ -206,6 +206,17 @@ export default function AccueilPortesOuvertesClient({
     return slots;
   }, [board?.slots, dayKey, cycleFilter]);
 
+  const daySlotIds = useMemo(() => new Set(daySlots.map((s) => s.id)), [daySlots]);
+
+  const dayReservationsCount = useMemo(() => {
+    const regs = board?.registrations || [];
+    return regs.filter((r) => {
+      if (!daySlotIds.has(r.slotId)) return false;
+      if (cycleFilter === "all") return true;
+      return r.cycle === cycleFilter;
+    }).length;
+  }, [board?.registrations, daySlotIds, cycleFilter]);
+
   function remainingForSlot(s: SlotWithCount, forCycle: PortesOuvertesCycle): number | null {
     if (s.remainingByCycle && forCycle in s.remainingByCycle) {
       return s.remainingByCycle[forCycle];
@@ -213,9 +224,18 @@ export default function AccueilPortesOuvertesClient({
     return s.remaining;
   }
 
+  function registeredCountForSlot(s: SlotWithCount): number {
+    if (cycleFilter === "all") return s.registeredCount;
+    if (s.registeredByCycle && cycleFilter in s.registeredByCycle) {
+      return s.registeredByCycle[cycleFilter] || 0;
+    }
+    return s.registeredCount;
+  }
+
   function regsForSlot(slotId: string): RegistrationRow[] {
     return (board?.registrations || [])
       .filter((r) => r.slotId === slotId)
+      .filter((r) => (cycleFilter === "all" ? true : r.cycle === cycleFilter))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
@@ -554,6 +574,17 @@ export default function AccueilPortesOuvertesClient({
               {daySlots.length} créneau(x)
               {dayKey ? ` — ${formatSlotDayLabel(dayKey)}` : ""}
             </p>
+            <div className="ml-auto flex flex-col items-end pb-1">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                Réservations
+                {cycleFilter === "all"
+                  ? ""
+                  : ` · ${board.cycleLabels[cycleFilter] || PORTES_OUVERTES_CYCLE_LABELS[cycleFilter]}`}
+              </span>
+              <span className="text-2xl font-black tabular-nums text-violet-900">
+                {dayReservationsCount}
+              </span>
+            </div>
           </div>
 
           {daySlots.length === 0 ? (
@@ -596,6 +627,7 @@ export default function AccueilPortesOuvertesClient({
                       cycleFilter === "all"
                         ? slot.remaining
                         : remainingForSlot(slot, cycleFilter);
+                    const registeredShown = registeredCountForSlot(slot);
                     const full = rem === 0;
                     return (
                       <tr key={slot.id} className="align-top border-b border-slate-100">
@@ -623,8 +655,8 @@ export default function AccueilPortesOuvertesClient({
                             }`}
                           >
                             {slot.maxPlaces
-                              ? `${slot.registeredCount}/${slot.maxPlaces}`
-                              : `${slot.registeredCount}`}
+                              ? `${registeredShown}/${slot.maxPlaces}`
+                              : `${registeredShown}`}
                           </span>
                         </td>
                         <td className="px-3 py-3 text-xs text-slate-600">
