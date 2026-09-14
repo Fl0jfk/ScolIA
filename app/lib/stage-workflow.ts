@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import { normalizeStageSchedule, validateStageSchedule, defaultStageSchedule } from "@/app/lib/stage-schedule";
 import { resolveStagesDirectionEmail } from "@/app/lib/stage-config";
-import { generateAndStoreConventionPdf, isScoliaGeneratedConventionPdf } from "@/app/lib/stage-pdf-store";
+import { generateAndStoreConventionPdf, isPaperBasedConventionPdf, isScoliaGeneratedConventionPdf } from "@/app/lib/stage-pdf-store";
 import {
   stampSignatureOnConventionPdf,
   annotateSignatureStatusOnConventionPdf,
@@ -1251,6 +1251,127 @@ export async function reviewConventionSignature(params: {
     console.error("[stages] notify signature rejected:", e),
   );
   return { ok: true, convention: next };
+}
+
+/**
+ * Refuse une signature déjà déposée (papier tuteur inclus) et renvoie un nouveau lien
+ * pour re-signer. Met à jour le PDF (revient au PDF ScolIA si le scan papier est retiré).
+ */
+export async function revokeConventionSignature(params: {
+  conventionId: string;
+  signatureId: string;
+  byName: string;
+  note?: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const convention = await getStageConvention(params.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+
+  const sig = convention.signatures.find((s) => s.id === params.signatureId);
+  if (!sig) return { ok: false, error: "Signature introuvable." };
+  if (sig.status !== "signe") {
+    return { ok: false, error: "Cette signature n'est pas encore déposée." };
+  }
+
+  const now = new Date().toISOString();
+  let resetSig: StageSignature = {
+    ...sig,
+    status: "en_attente",
+    signedAt: undefined,
+    signedBy: undefined,
+    signMethod: undefined,
+    signaturePngS3Key: undefined,
+    paperUploadS3Key: undefined,
+    paperUploadFileName: undefined,
+    reviewStatus: undefined,
+    reviewNote: undefined,
+    reviewedAt: undefined,
+    reviewedBy: undefined,
+    signConfirmCode: undefined,
+    signConfirmCodeSentAt: undefined,
+  };
+  resetSig = await regenerateSignatureToken(convention.id, resetSig);
+
+  const signatures = convention.signatures.map((s) => (s.id === sig.id ? resetSig : s));
+  let next: StageConvention = {
+    ...convention,
+    signatures,
+    status: "signatures_pending",
+    updatedAt: now,
+  };
+  next = pushHistory(
+    next,
+    params.byName,
+    "SIGNATURE_REVOQUEE",
+    params.note?.trim() || `${sig.role} — nouvelle signature demandée`,
+  );
+
+  next = await rebuildConventionPdfAfterSignatureRevoke(next, sig);
+  await saveStageConvention(next);
+  void notifyStageSignatureRejected(next, resetSig, params.note).catch((e) =>
+    console.error("[stages] notify signature revoke:", e),
+  );
+  return { ok: true, convention: next };
+}
+
+/** Reconstruit le PDF après révocation d'une signature (papier ou électronique). */
+async function rebuildConventionPdfAfterSignatureRevoke(
+  convention: StageConvention,
+  revoked: StageSignature,
+): Promise<StageConvention> {
+  const remainingPaper = convention.signatures.find(
+    (s) =>
+      s.status === "signe" &&
+      s.signMethod === "paper_upload" &&
+      Boolean(s.paperUploadS3Key),
+  );
+
+  if (remainingPaper?.paperUploadS3Key) {
+    try {
+      const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+      const { getTenantDataS3Client } = await import("@/app/lib/s3-clients");
+      const { getBucketName } = await import("@/app/lib/s3-storage");
+      const s3 = await getTenantDataS3Client();
+      const obj = await s3.send(
+        new GetObjectCommand({
+          Bucket: await getBucketName(),
+          Key: remainingPaper.paperUploadS3Key,
+        }),
+      );
+      const raw = await obj.Body?.transformToByteArray();
+      if (raw?.length) {
+        const normalized = await normalizePaperUploadToPdf(Buffer.from(raw));
+        if (normalized) {
+          const adopted = await adoptPaperSignedPdfAsConventionBase({
+            convention,
+            paperPdfBytes: normalized,
+            fileName: remainingPaper.paperUploadFileName || "convention-signee.pdf",
+          });
+          if (adopted.ok) {
+            await syncElectronicSignaturesOntoConventionPdf(adopted.convention);
+            return adopted.convention;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[stages] rebuild papier apres revoke:", err);
+    }
+  }
+
+  const hadPaperBase =
+    isPaperBasedConventionPdf(convention) || revoked.signMethod === "paper_upload";
+  if (hadPaperBase || isScoliaGeneratedConventionPdf(convention)) {
+    const forRegen: StageConvention = {
+      ...convention,
+      uploadedPdf: convention.uploadedPdf
+        ? { ...convention.uploadedPdf, source: "scolia_generated" }
+        : undefined,
+    };
+    if (forRegen.history.some((h) => h.action === "ADMIN_VALIDE")) {
+      return generateAndStoreConventionPdf(forRegen);
+    }
+  }
+
+  return convention;
 }
 
 export async function createPublicPreconventionDraft(student: {

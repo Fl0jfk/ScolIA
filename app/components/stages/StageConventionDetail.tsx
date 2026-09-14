@@ -63,6 +63,7 @@ export default function StageConventionDetail({
   onResendSignature,
   onMarkSignatureManual,
   onRemoveSignatory,
+  onRevokeSignature,
   onAddSignatory,
   onFileToEleveDossier,
   onFileToOneDrive,
@@ -85,6 +86,7 @@ export default function StageConventionDetail({
   onResendSignature: (signatureId: string) => void;
   onMarkSignatureManual: (signatureId: string) => void;
   onRemoveSignatory: (signatureId: string) => void;
+  onRevokeSignature: (signatureId: string) => void;
   onAddSignatory: () => void;
   onFileToEleveDossier: () => void;
   onFileToOneDrive: () => void;
@@ -330,27 +332,37 @@ export default function StageConventionDetail({
         </div>
       )}
 
-      {detail.signLinks?.length > 0 && (
+      {(c.signatures.length > 0 || detail.signLinks?.length > 0) && (
         <div>
           <h3 className="text-xs font-bold uppercase tracking-wide text-stone-600">Signataires</h3>
           <ul className="mt-2 space-y-2">
-            {detail.signLinks.map((s) => {
-              const pending = c.signatures.find(
-                (sig) => sig.role === s.role && sig.status === "en_attente" && sig.signToken,
-              );
+            {c.signatures.map((sig) => {
+              const pending = sig.status === "en_attente" && Boolean(sig.signToken);
+              const signed = sig.status === "signe";
               return (
                 <li
-                  key={s.link}
+                  key={sig.id}
                   className="flex flex-wrap items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm"
                 >
-                  <span className="font-medium">{s.label}</span>
-                  {s.email ? <span className="text-xs text-stone-500">({s.email})</span> : null}
-                  {pending && permissions?.canReviewPreconvention && (
+                  <span className="font-medium">{sig.label}</span>
+                  {sig.signEmail ? (
+                    <span className="text-xs text-stone-500">({sig.signEmail})</span>
+                  ) : null}
+                  {signed ? (
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
+                      {sig.signMethod === "paper_upload" ? "Signé (papier)" : "Signé"}
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                      En attente
+                    </span>
+                  )}
+                  {permissions?.canReviewPreconvention && pending && (
                     <>
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => onResendSignature(pending.id)}
+                        onClick={() => onResendSignature(sig.id)}
                         className="rounded-lg border border-[#2F6B4A] px-2 py-1 text-xs font-semibold text-[#2F6B4A] disabled:opacity-50"
                       >
                         Relancer
@@ -358,7 +370,7 @@ export default function StageConventionDetail({
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => onMarkSignatureManual(pending.id)}
+                        onClick={() => onMarkSignatureManual(sig.id)}
                         className="rounded-lg border border-stone-400 px-2 py-1 text-xs font-semibold text-stone-700 disabled:opacity-50"
                       >
                         Valider manuellement
@@ -366,12 +378,22 @@ export default function StageConventionDetail({
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => onRemoveSignatory(pending.id)}
+                        onClick={() => onRemoveSignatory(sig.id)}
                         className="rounded-lg border border-rose-300 px-2 py-1 text-xs font-semibold text-rose-700 disabled:opacity-50"
                       >
                         Retirer
                       </button>
                     </>
+                  )}
+                  {permissions?.canReviewPreconvention && signed && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onRevokeSignature(sig.id)}
+                      className="rounded-lg border border-amber-500 px-2 py-1 text-xs font-semibold text-amber-800 disabled:opacity-50"
+                    >
+                      Demander une nouvelle signature
+                    </button>
                   )}
                 </li>
               );

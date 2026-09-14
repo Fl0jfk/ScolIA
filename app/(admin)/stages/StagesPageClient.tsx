@@ -335,6 +335,46 @@ function StagesContent() {
     }
   }
 
+  async function revokeSignature(signatureId: string) {
+    if (!detail) return;
+    const note =
+      window.prompt(
+        "Demander une nouvelle signature (ex. scan illisible, erreur). Motif optionnel :",
+        "Merci de signer à nouveau",
+      ) ?? undefined;
+    if (note === undefined) return;
+    if (
+      !window.confirm(
+        "Confirmer ? La signature actuelle sera annulée et un nouvel e-mail sera envoyé au signataire.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "revoke_signature",
+          signatureId,
+          note: note.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      setDetail({ ...detail, convention: data.convention });
+      setMsg("Signature annulée — nouvelle demande envoyée au signataire.");
+      await loadDetail(detail.convention.id);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function markSignatureManual(signatureId: string) {
     if (!detail) return;
     const note =
@@ -586,6 +626,7 @@ function StagesContent() {
                 onResendSignature={(id) => void resendSignature(id)}
                 onMarkSignatureManual={(id) => void markSignatureManual(id)}
                 onRemoveSignatory={(id) => void removeSignatory(id)}
+                onRevokeSignature={(id) => void revokeSignature(id)}
                 onAddSignatory={() => void addSignatory()}
                 onFileToEleveDossier={() => void fileToEleveDossier()}
                 onFileToOneDrive={() => void fileToOneDrive()}
