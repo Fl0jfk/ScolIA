@@ -4,6 +4,7 @@ import {
   formatDaySlotTimeParts,
   groupStageDaysByCalendarWeek,
 } from "@/app/lib/stage-schedule";
+import { resolveStageAdminReviewPdfName } from "@/app/lib/stage-actor-name";
 import { stageSignatureProofRef } from "@/app/lib/stage-signature-proof";
 import {
   STAGE_OFFER_KIND_LABELS,
@@ -886,7 +887,8 @@ async function drawSignatureGrid(
   headerY -= 14;
 
   if (convention.adminReview?.approved) {
-    const note = `Validee par ${convention.adminReview.byName} le ${new Date(convention.adminReview.at).toLocaleDateString("fr-FR")}${convention.adminReview.note ? ` — ${convention.adminReview.note}` : ""}.`;
+    const who = await resolveStageAdminReviewPdfName(convention.adminReview);
+    const note = `Validee par ${who} le ${new Date(convention.adminReview.at).toLocaleDateString("fr-FR")}${convention.adminReview.note ? ` — ${convention.adminReview.note}` : ""}.`;
     const bannerH = 28;
     const bannerBottom = headerY - bannerH;
     roundedRect(ctx.page, 36, bannerBottom, pageW - 72, bannerH, 8, {

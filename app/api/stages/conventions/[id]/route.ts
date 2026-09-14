@@ -33,10 +33,10 @@ import {
 } from "@/app/lib/stage-eleve-match";
 import { resolveOneDriveProfileForUserServer } from "@/app/lib/onedrive-user-profiles.server";
 
+import { stageActorFirstName } from "@/app/lib/stage-actor-name";
+
 function displayName(user: Awaited<ReturnType<typeof safeCurrentUser>>) {
-  const first = user?.firstName?.trim() || "";
-  const last = user?.lastName?.trim() || "";
-  return `${first} ${last}`.trim() || "Utilisateur";
+  return stageActorFirstName(user);
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
