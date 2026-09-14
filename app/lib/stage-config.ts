@@ -91,7 +91,7 @@ export async function resolveStagesDirectionEmail(
   if (byKind) return byKind;
 
   const est =
-    bundle.establishments.find((e) => establishmentMatchesCycle(e, kind) && e.directorEmail?.trim()) ||
+    resolveStagesEstablishmentForCycle(bundle.establishments, kind) ||
     bundle.establishments.find(
       (e) =>
         e.active !== false &&
@@ -103,6 +103,41 @@ export async function resolveStagesDirectionEmail(
 
   const legacyGlobal = bundle.notifications.stagesDirectionEmail?.trim();
   return legacyGlobal || undefined;
+}
+
+/** Établissement du cycle (collège / lycée / école) pour un élève. */
+export function resolveStagesEstablishmentForCycle(
+  establishments: Establishment[],
+  kind: StageCycleKind,
+): Establishment | undefined {
+  return (
+    establishments.find((e) => establishmentMatchesCycle(e, kind) && e.directorName?.trim()) ||
+    establishments.find((e) => establishmentMatchesCycle(e, kind) && e.active !== false) ||
+    establishments.find((e) => establishmentMatchesCycle(e, kind))
+  );
+}
+
+export function resolveStagesEstablishmentForStudent(
+  establishments: Establishment[],
+  studentLevel: string,
+  className?: string,
+): Establishment | undefined {
+  const kind = stageCycleKindFromStudent(studentLevel, className);
+  return resolveStagesEstablishmentForCycle(establishments, kind);
+}
+
+/** Nom du directeur / de la directrice du cycle de l’élève (PDF RGPD, etc.). */
+export async function resolveStagesDirectorName(
+  studentLevel: string,
+  className?: string,
+): Promise<string | undefined> {
+  const bundle = await loadAppConfig();
+  const est = resolveStagesEstablishmentForStudent(
+    bundle.establishments,
+    studentLevel,
+    className,
+  );
+  return est?.directorName?.trim() || undefined;
 }
 
 export async function resolveStagesConventionTemplateUrl(): Promise<string | undefined> {

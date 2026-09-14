@@ -823,10 +823,15 @@ async function resolveSignatureImageBytes(
 
   if (sig.role === "direction") {
     try {
-      const { resolveDirectionSignatureBytesForLevel } = await import(
+      const { stageCycleKindFromStudent } = await import("@/app/lib/stage-config");
+      const { resolveDirectionSignatureBytes } = await import(
         "@/app/lib/direction-signature"
       );
-      return resolveDirectionSignatureBytesForLevel(convention.student.level);
+      const cycle = stageCycleKindFromStudent(
+        convention.student.level,
+        convention.student.className,
+      );
+      return resolveDirectionSignatureBytes(cycle);
     } catch {
       return null;
     }
@@ -1188,11 +1193,22 @@ export async function buildStageConventionPdf(convention: StageConvention): Prom
     ]
       .filter(Boolean)
       .join(" - ");
-  const college = bundle.establishments.find((e) => e.kind === "college" && e.active !== false);
+  const { resolveStagesDirectorName, resolveStagesEstablishmentForStudent } = await import(
+    "@/app/lib/stage-config",
+  );
+  const cycleEst = resolveStagesEstablishmentForStudent(
+    bundle.establishments,
+    convention.student.level,
+    convention.student.className,
+  );
   const rgpdContact =
-    college?.directorName ||
-    bundle.establishments.find((e) => e.directorName)?.directorName ||
+    (await resolveStagesDirectorName(
+      convention.student.level,
+      convention.student.className,
+    )) ||
+    cycleEst?.directorName ||
     "la direction de l'établissement";
+  const establishmentDisplayName = cycleEst?.label?.trim() || schoolName;
 
   let logoPayload: StageConventionPdfLogo | null = null;
   if (logo?.dataUri) {
@@ -1213,7 +1229,7 @@ export async function buildStageConventionPdf(convention: StageConvention): Prom
   }
 
   return renderStageConventionPdf(convention, {
-    schoolName,
+    schoolName: establishmentDisplayName,
     schoolAddress,
     schoolPhone: bundle.identity.phone?.display || "",
     schoolMail: bundle.identity.assistanceEmail || "",

@@ -232,8 +232,13 @@ async function resolveSignaturePngForRole(
   if (drawn) return drawn;
 
   if (role === "direction") {
-    const { resolveDirectionSignatureBytesForLevel } = await import("@/app/lib/direction-signature");
-    return resolveDirectionSignatureBytesForLevel(convention.student.level);
+    const { stageCycleKindFromStudent } = await import("@/app/lib/stage-config");
+    const { resolveDirectionSignatureBytes } = await import("@/app/lib/direction-signature");
+    const cycle = stageCycleKindFromStudent(
+      convention.student.level,
+      convention.student.className,
+    );
+    return resolveDirectionSignatureBytes(cycle);
   }
 
   if (role === "professeur_referent") {
