@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
 
     // fileKey = référence stable en JSON (pas d’URL absolue liée à un bucket).
-    // previewUrl = URL signée temporaire pour l’aperçu UI.
+    // previewUrl = signée courte durée (fichier pas encore en config → proxy header-logo N/A).
     return NextResponse.json({
       uploadUrl,
       fileKey,

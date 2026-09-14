@@ -39,6 +39,7 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/api/supplies/pdf",
   "/api/chatbot",
   "/api/site/public",
+  "/api/site/header-logo",
   "/api/public/site/posts",
   "/api/tenant/public",
   "/api/tenants/public",

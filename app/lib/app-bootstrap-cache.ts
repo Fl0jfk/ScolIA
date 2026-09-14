@@ -1,6 +1,7 @@
 import type { AppContextPayload, SitePublicIdentity } from "@/app/contexts/admin-bootstrap";
 
-const STORAGE_KEY_PREFIX = "scola.bootstrap:v1:";
+/** v2 : logo via `/api/site/header-logo` (plus d’URL S3 présignée en cache). */
+const STORAGE_KEY_PREFIX = "scola.bootstrap:v2:";
 /** Données stables (logo, accent, modules) — revalidation en arrière-plan. */
 const MAX_AGE_MS = 30 * 60 * 1000;
 

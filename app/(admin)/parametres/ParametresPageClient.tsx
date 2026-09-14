@@ -129,7 +129,7 @@ export default function ParametresPage() {
   const [mefEcole, setMefEcole] = useState("");
   const [mefMessage, setMefMessage] = useState<string | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
-  /** URL signée pour l’aperçu (headerLogoUrl en config = clé S3, non affichable telle quelle). */
+  /** URL d’aperçu (proxy `/api/site/header-logo` ou URL signée juste après upload). */
   const [headerLogoPreviewUrl, setHeaderLogoPreviewUrl] = useState<string | null>(null);
   const [uploadingSignatureId, setUploadingSignatureId] = useState<string | null>(null);
   const [profRoomAdminIds, setProfRoomAdminIds] = useState<string[]>([]);

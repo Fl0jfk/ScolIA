@@ -135,7 +135,13 @@ export async function getSignedReadUrl(relativeOrFullKey: string, expiresIn = 36
     const client = await getS3Client();
     const bucket = await getBucketName();
     const key = s3Key(relativeOrFullKey);
-    await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    // Head optionnel : certaines politiques n’autorisent que GetObject ;
+    // un HEAD en échec ne doit pas empêcher la signature (sinon logo → null / 403).
+    try {
+      await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    } catch {
+      /* on tente quand même la signature */
+    }
     return await getSignedUrl(client, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn });
   } catch {
     return null;
