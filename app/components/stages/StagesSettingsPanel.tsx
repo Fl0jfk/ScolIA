@@ -4,6 +4,7 @@ import StageReferentsEditor from "@/app/components/stages/StageReferentsEditor";
 import StagePeriodsEditor from "@/app/components/stages/StagePeriodsEditor";
 import StageWatchersEditor from "@/app/components/stages/StageWatchersEditor";
 import StageConstraintsEditor from "@/app/components/stages/StageConstraintsEditor";
+import StageContactsImportPanel from "@/app/components/stages/StageContactsImportPanel";
 
 export default function StagesSettingsPanel({
   onSavedMsg,
@@ -26,6 +27,17 @@ export default function StagesSettingsPanel({
         >
           {typeof window !== "undefined" ? `${window.location.origin}/stages/preconvention` : "/stages/preconvention"}
         </a>
+      </section>
+
+      <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-[#1F3D2B]">E-mails responsables / élève</h2>
+        <p className="mt-2 text-sm text-stone-600 max-w-2xl">
+          Importez une liste pour précharger les e-mails utilisés à la préconvention (surtout le
+          2ᵉ responsable, souvent manquant dans SIECLE).
+        </p>
+        <div className="mt-4">
+          <StageContactsImportPanel onSaved={(m) => onSavedMsg(m)} />
+        </div>
       </section>
 
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
