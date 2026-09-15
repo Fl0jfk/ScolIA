@@ -31,20 +31,10 @@ async function getInternatMailer() {
   return { smtp, transporter };
 }
 
-function parseRollCallRecipients(raw: InternatRollCallRecipients | undefined) {
-  const emails = new Set<string>();
-  for (const v of [
-    raw?.appelContact,
-    raw?.directionCollege,
-    raw?.directionLycee,
-    raw?.cpeLycee,
-    raw?.cpeCollege,
-  ]) {
-    const e = String(v || "").trim();
-    if (e) emails.add(e);
-  }
-  return [...emails];
+function parseRollCallRecipients(_raw: InternatRollCallRecipients | undefined) {
+  return [] as string[];
 }
+void parseRollCallRecipients;
 
 function addEmail(set: Set<string>, raw: string | undefined | null) {
   const e = String(raw || "").trim();
@@ -434,6 +424,8 @@ export async function notifyInternatRollCallIncomplete(params: {
   students: InternatStudent[];
   markedCount: number;
   totalCount: number;
+  /** Si renseigné : rappel doux « en attente d’activité », sans alarmer. */
+  pendingActivityNames?: string[];
 }) {
   const mail = await getInternatMailer();
   if (!mail) {
@@ -446,12 +438,10 @@ export async function notifyInternatRollCallIncomplete(params: {
   const notif = bundle.notifications as typeof bundle.notifications & {
     internatRollCallRecipients?: InternatRollCallRecipients;
   };
-  const recipients = parseRollCallRecipients(notif.internatRollCallRecipients);
-  if (recipients.length === 0) {
-    const internatSites = internatEligibleEstablishments(bundle.establishments);
-    const fallback = internatSites[internatSites.length - 1]?.directorEmail;
-    if (fallback) recipients.push(fallback);
-  }
+
+  // Rappels opérationnels : uniquement l’équipe internat, pas direction/CPE.
+  const appel = String(notif.internatRollCallRecipients?.appelContact || "").trim();
+  const recipients = appel ? [appel] : [];
   if (recipients.length === 0) {
     return { sent: false, reason: "no_recipients" };
   }
@@ -465,32 +455,59 @@ export async function notifyInternatRollCallIncomplete(params: {
   });
   const boysDone = params.rollCall.boys.completed;
   const girlsDone = params.rollCall.girls.completed;
+  const pending = (params.pendingActivityNames || []).filter(Boolean);
+  const waitingActivity = pending.length > 0 && boysDone && girlsDone;
 
-  const text = [
-    "Bonjour,",
-    "",
-    `L'appel du soir de l'internat du ${dateLabel} n'a pas encore été finalisé.`,
-    "",
-    `Progression : ${params.markedCount}/${params.totalCount} interne(s) marqué(s).`,
-    `Section garçons : ${boysDone ? "terminée" : "en cours ou non démarrée"}.`,
-    `Section filles : ${girlsDone ? "terminée" : "en cours ou non démarrée"}.`,
-    "",
-    "Les marquages en cours sont déjà enregistrés — il reste à terminer les sections puis à valider l'appel.",
-    "",
-    `Reprendre l'appel : ${link}`,
-    "",
-    "Cordialement,",
-    bundle.identity.shortName || bundle.identity.name,
-  ].join("\n");
+  const text = waitingActivity
+    ? [
+        "Bonjour,",
+        "",
+        `Petit rappel tout à fait normal pour l'appel du soir du ${dateLabel}.`,
+        "",
+        "L'appel est quasi terminé : l'envoi à la direction est juste en pause tant qu'un ou plusieurs élèves sont encore marqués « Activité » (sport / sortie).",
+        "",
+        `En attente de retour : ${pending.join(", ")}.`,
+        "",
+        "Ce n'est pas bloquant pour la soirée — dès qu'ils reviennent, passez-les en Présent (ou Absent / Excusé), puis « Finaliser & envoyer ».",
+        "Un seul rappel est envoyé : pas de relance toutes les heures.",
+        "",
+        `Ouvrir l'appel : ${link}`,
+        "",
+        "Cordialement,",
+        bundle.identity.shortName || bundle.identity.name,
+      ].join("\n")
+    : [
+        "Bonjour,",
+        "",
+        `L'appel du soir de l'internat du ${dateLabel} n'a pas encore été finalisé.`,
+        "",
+        `Progression : ${params.markedCount}/${params.totalCount} interne(s) marqué(s).`,
+        `Section garçons : ${boysDone ? "terminée" : "en cours ou non démarrée"}.`,
+        `Section filles : ${girlsDone ? "terminée" : "en cours ou non démarrée"}.`,
+        pending.length
+          ? `Dont encore en activité : ${pending.join(", ")}.`
+          : null,
+        "",
+        "Les marquages en cours sont déjà enregistrés. Ce rappel part une seule fois dans la soirée.",
+        "",
+        `Reprendre l'appel : ${link}`,
+        "",
+        "Cordialement,",
+        bundle.identity.shortName || bundle.identity.name,
+      ]
+        .filter((line) => line != null)
+        .join("\n");
 
   await transporter.sendMail({
     from: `"Internat ${bundle.identity.shortName || "La Providence"}" <${smtp.user}>`,
     to: recipients.join(", "),
-    subject: `[Internat] Appel du soir non finalisé — ${params.rollCall.date}`,
+    subject: waitingActivity
+      ? `[Internat] Appel en pause activité — ${params.rollCall.date}`
+      : `[Internat] Appel du soir non finalisé — ${params.rollCall.date}`,
     text,
   });
 
-  return { sent: true, recipients };
+  return { sent: true, recipients, waitingActivity };
 }
 
 async function outingAuthUrl(token: string) {

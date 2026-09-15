@@ -200,7 +200,7 @@ type DashboardSignalsInput = {
   photocopiesOpsHandler?: boolean;
   hse?: Array<HseRecordLike & { id: string }>;
   stagesPendingSignatures?: number;
-  internatRollCallStatus?: "validee" | "en_cours" | "non_demarre" | null;
+  internatRollCallStatus?: "validee" | "en_cours" | "non_demarre" | "attente_activite" | null;
   weekSheet?: WeekSheetData | null;
   /** true si l’utilisateur a déjà soumis le pulse RH du jour. */
   moodPulseSubmittedToday?: boolean;
@@ -659,31 +659,40 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
 
     if (canSeeInternatRollCallSignal(roles)) {
       const showAppelSignal =
-        internatRollCallStatus === "non_demarre" || internatRollCallStatus === "en_cours";
+        internatRollCallStatus === "non_demarre" ||
+        internatRollCallStatus === "en_cours" ||
+        internatRollCallStatus === "attente_activite";
 
       if (showAppelSignal) {
+        const isWaitingActivity = internatRollCallStatus === "attente_activite";
         shortcuts.push({
           id: "internat-appel",
           pillarId: "vie_scolaire",
           moduleId: "internat",
-          href: internatHome,
+          href: `${internatHome}?tab=appel`,
           label: "Appel du soir",
           rich: true,
-          badge: internatRollCallStatus === "en_cours" ? "En cours" : "À faire",
-          detail:
-            internatRollCallStatus === "en_cours"
+          badge: isWaitingActivity
+            ? "Attente activité"
+            : internatRollCallStatus === "en_cours"
+              ? "En cours"
+              : "À faire",
+          detail: isWaitingActivity
+            ? "Appel prêt — envoi bloqué tant qu’un élève est en activité (normal, à mettre à jour à son retour)"
+            : internatRollCallStatus === "en_cours"
               ? "Appel du soir en cours"
               : "Appel du soir non démarré",
-          tone: "action",
+          tone: isWaitingActivity ? "neutral" : "action",
         });
         pushNotif({
           id: "internat-appel",
           moduleId: "internat",
-          label: "Appel du soir",
+          label: isWaitingActivity ? "Appel — attente activité" : "Appel du soir",
           count: 1,
-          href: internatHome,
-          detail:
-            internatRollCallStatus === "en_cours"
+          href: `${internatHome}?tab=appel`,
+          detail: isWaitingActivity
+            ? "Pas d’urgence : dès le retour, passez Présent puis Finaliser & envoyer"
+            : internatRollCallStatus === "en_cours"
               ? "Appel du soir en cours"
               : "Appel du soir non démarré",
         });

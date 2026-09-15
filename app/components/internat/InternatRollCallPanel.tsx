@@ -395,14 +395,15 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
         </p>
       </div>
       {pendingActivityCount > 0 && !validated && (
-        <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
           <p className="font-bold">
-            {pendingActivityCount} en activité — envoi direction en attente
+            {pendingActivityCount} en activité — envoi direction en pause (c’est normal)
           </p>
           <p className="mt-0.5 text-amber-900/90">
             {pendingActivityNames.slice(0, 6).join(", ")}
-            {pendingActivityNames.length > 6 ? "…" : ""}. Dès leur retour → Présent, puis
-            « Finaliser & envoyer ».
+            {pendingActivityNames.length > 6 ? "…" : ""}. Pas d’urgence : à leur retour → Présent,
+            puis « Finaliser & envoyer ». Un rappel doux part une seule fois dans la soirée à
+            l’équipe internat.
           </p>
         </div>
       )}

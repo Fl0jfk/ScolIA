@@ -25,13 +25,18 @@ import { canAccessRequestsStaffBoardForUser } from "@/app/lib/requests-staff-acc
 import { getRequestsIndex, isLeaderForRequestBranch } from "@/app/lib/requests";
 import { getAllBranchStaffEmailsFromRouting } from "@/app/lib/requests-routing-config";
 import { isVisibleOnStaffBoard } from "@/app/lib/requests-board";
-import { isInternatEveningRollCallDay, todayDateParis } from "@/app/lib/internat-stats";
+import {
+  isInternatEveningRollCallDay,
+  rollCallPendingActivityStudents,
+  sectionIsComplete,
+  todayDateParis,
+} from "@/app/lib/internat-stats";
 import {
   hasVotedMoodPulse,
   moodPulseTodayKey,
   readMoodPulseDay,
 } from "@/app/lib/rh/mood-pulse-storage";
-import { getInternatRollCall } from "@/app/lib/internat-storage";
+import { getInternatRollCall, getInternatStudents } from "@/app/lib/internat-storage";
 import { canAccessInternatModule, canSeeInternatRollCallSignal } from "@/app/lib/internat-rbac";
 import type { TripIndexRow } from "@/app/lib/dashboard-trips";
 import { defaultProfRoomModule } from "@/app/lib/app-config-defaults";
@@ -405,7 +410,12 @@ export async function GET() {
       }
     }
 
-    let internatRollCallStatus: "validee" | "en_cours" | "non_demarre" | null = null;
+    let internatRollCallStatus:
+      | "validee"
+      | "en_cours"
+      | "non_demarre"
+      | "attente_activite"
+      | null = null;
     if (
       accessibleModuleIds.has("internat") &&
       canAccessInternatModule(roles) &&
@@ -415,15 +425,26 @@ export async function GET() {
         const today = todayDateParis();
         // Appel du soir uniquement lun–jeu (pas vendredi / week-end).
         if (isInternatEveningRollCallDay(today)) {
-          const roll = await getInternatRollCall(today);
+          const [roll, internatStudents] = await Promise.all([
+            getInternatRollCall(today),
+            getInternatStudents(),
+          ]);
           if (roll.status === "validee") {
             internatRollCallStatus = "validee";
           } else {
-            const marks = { ...roll.boys.marks, ...roll.girls.marks };
-            internatRollCallStatus =
-              Object.keys(marks).length > 0 || roll.boys.completed || roll.girls.completed
-                ? "en_cours"
-                : "non_demarre";
+            const pendingActivity = rollCallPendingActivityStudents(roll, internatStudents);
+            const sectionsDone =
+              sectionIsComplete(roll.boys, internatStudents, "M") &&
+              sectionIsComplete(roll.girls, internatStudents, "F");
+            if (sectionsDone && pendingActivity.length > 0) {
+              internatRollCallStatus = "attente_activite";
+            } else {
+              const marks = { ...roll.boys.marks, ...roll.girls.marks };
+              internatRollCallStatus =
+                Object.keys(marks).length > 0 || roll.boys.completed || roll.girls.completed
+                  ? "en_cours"
+                  : "non_demarre";
+            }
           }
         }
       } catch {

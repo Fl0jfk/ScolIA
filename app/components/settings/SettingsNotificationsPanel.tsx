@@ -269,8 +269,20 @@ export default function SettingsNotificationsPanel({
         <SettingsSection
           icon="🌙"
           title="Internat"
-          description="Appels validés : PDF séparés collège / lycée (direction + CPE). Alertes urgence."
+          description="Appels validés : PDF séparés collège / lycée. Rappels équipe (1×/soir) si activité en attente."
         >
+          <SettingsField label="Équipe internat (rappels appel)" as="div">
+            <DirectoryPersonSelect
+              members={directoryMembers}
+              loading={membersLoading}
+              selectedEmail={internat.appelContact || ""}
+              onChange={(member) => patchInternat("appelContact", member)}
+            />
+          </SettingsField>
+          <p className="text-xs text-slate-500 col-span-full">
+            Reçoit un seul mail doux le soir si l’appel n’est pas finalisé (ex. élève encore en
+            activité). Pas de relance toutes les heures. Direction / CPE ne sont pas spammés.
+          </p>
           {activeEstablishmentKinds.has("college") ? (
             <>
               <SettingsField label="Direction collège" as="div">
