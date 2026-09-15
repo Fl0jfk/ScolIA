@@ -70,6 +70,7 @@ export async function POST(req: Request) {
       confirmed: confirm,
       firstName: user?.firstName || undefined,
       lastName: user?.lastName || undefined,
+      name: user?.fullName || undefined,
       email: user?.primaryEmailAddress?.emailAddress || undefined,
     };
 

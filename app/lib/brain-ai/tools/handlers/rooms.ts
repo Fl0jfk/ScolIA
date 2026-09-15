@@ -2,7 +2,7 @@ import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
 import { isListedProfRoomAdmin, isProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
-import { reservationWhoLabel } from "@/app/lib/prof-room-reservation-label";
+import { reservationWhoLabel, resolvePersonNameParts } from "@/app/lib/prof-room-reservation-label";
 import {
   listReservationBookings,
   listReservationRooms,
@@ -232,11 +232,20 @@ export async function handleCreateReservation(
   const recurrence =
     recurrenceRaw === "weekly" || recurrenceRaw === "biweekly" ? recurrenceRaw : "none";
   const untilDate = String(args.untilDate || "").trim() || undefined;
-  const bookedByFirstName = String(ctx.firstName || "").trim() || undefined;
-  const bookedByLastName = String(ctx.lastName || "").trim().toUpperCase() || undefined;
+  const bookedBy = resolvePersonNameParts({
+    firstName: ctx.firstName,
+    lastName: ctx.lastName,
+    name: ctx.name,
+  });
+  const bookedByFirstName = bookedBy.firstName || undefined;
+  const bookedByLastName = bookedBy.lastName || undefined;
   const canBookForOther = await isListedProfRoomAdmin();
-  const requestedFirst = String(args.firstName || "").trim() || undefined;
-  const requestedLast = String(args.lastName || "").trim().toUpperCase() || undefined;
+  const requested = resolvePersonNameParts({
+    firstName: args.firstName == null ? undefined : String(args.firstName),
+    lastName: args.lastName == null ? undefined : String(args.lastName),
+  });
+  const requestedFirst = requested.firstName || undefined;
+  const requestedLast = requested.lastName || undefined;
   const bookedForOther =
     canBookForOther &&
     Boolean(requestedFirst && requestedLast) &&

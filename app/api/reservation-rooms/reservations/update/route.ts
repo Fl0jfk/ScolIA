@@ -7,6 +7,7 @@ import {
   saveReservationBookings,
 } from "@/app/lib/reservation-rooms-storage";
 import type { RoomReservationRow } from "@/app/lib/prof-room-reservations-normalize";
+import { resolvePersonNameParts } from "@/app/lib/prof-room-reservation-label";
 
 type ReservationRow = RoomReservationRow;
 
@@ -57,11 +58,20 @@ export async function POST(req: NextRequest) {
 
     const canReassign = await isListedProfRoomAdmin();
     const sessionUser = await safeCurrentUser();
-    const bookedByFirstName = String(sessionUser?.firstName || "").trim();
-    const bookedByLastName = String(sessionUser?.lastName || "").trim().toUpperCase();
+    const bookedBy = resolvePersonNameParts({
+      firstName: sessionUser?.firstName,
+      lastName: sessionUser?.lastName,
+      fullName: sessionUser?.fullName,
+    });
+    const bookedByFirstName = bookedBy.firstName;
+    const bookedByLastName = bookedBy.lastName;
     const bookedByEmail = String(sessionUser?.primaryEmailAddress?.emailAddress || "").trim();
-    const requestedFirst = String(firstNameBody || "").trim();
-    const requestedLast = String(lastNameBody || "").trim().toUpperCase();
+    const requested = resolvePersonNameParts({
+      firstName: firstNameBody,
+      lastName: lastNameBody,
+    });
+    const requestedFirst = requested.firstName;
+    const requestedLast = requested.lastName;
     const beneficiaryUserId = String(beneficiaryUserIdBody || "").trim();
     const beneficiaryEmail = String(beneficiaryEmailBody || "").trim();
     const wantsBookForOther = bookForOtherBody === true;

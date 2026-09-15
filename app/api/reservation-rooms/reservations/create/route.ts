@@ -3,7 +3,10 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { isListedProfRoomAdmin, isProfRoomModuleAdmin } from "@/app/lib/prof-room-auth";
 import { loadAppConfig } from "@/app/lib/app-config";
-import { reservationWhoLabel } from "@/app/lib/prof-room-reservation-label";
+import {
+  reservationWhoLabel,
+  resolvePersonNameParts,
+} from "@/app/lib/prof-room-reservation-label";
 import {
   listReservationBookings,
   saveReservationBookings,
@@ -105,11 +108,20 @@ export async function POST(req: NextRequest) {
     let skippedBeyondHorizon = 0;
     const sessionUser = await safeCurrentUser();
     const canBookForOther = await isListedProfRoomAdmin();
-    const bookedByFirstName = String(sessionUser?.firstName || "").trim();
-    const bookedByLastName = String(sessionUser?.lastName || "").trim().toUpperCase();
+    const bookedBy = resolvePersonNameParts({
+      firstName: sessionUser?.firstName,
+      lastName: sessionUser?.lastName,
+      fullName: sessionUser?.fullName,
+    });
+    const bookedByFirstName = bookedBy.firstName;
+    const bookedByLastName = bookedBy.lastName;
     const bookedByEmail = String(sessionUser?.primaryEmailAddress?.emailAddress || email || "").trim();
-    const requestedFirst = String(firstNameBody || "").trim();
-    const requestedLast = String(lastNameBody || "").trim().toUpperCase();
+    const requested = resolvePersonNameParts({
+      firstName: firstNameBody,
+      lastName: lastNameBody,
+    });
+    const requestedFirst = requested.firstName;
+    const requestedLast = requested.lastName;
     const beneficiaryUserId = String(beneficiaryUserIdBody || "").trim();
     const beneficiaryEmail = String(beneficiaryEmailBody || "").trim();
     const bookedForOther =

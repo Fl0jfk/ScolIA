@@ -44,6 +44,8 @@ export type BrainToolCtx = {
   confirmed: boolean;
   firstName?: string;
   lastName?: string;
+  /** Libellé complet Better-Auth — repli si first/last absents. */
+  name?: string;
   email?: string;
   phone?: string;
 };
