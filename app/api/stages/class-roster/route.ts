@@ -100,19 +100,26 @@ export async function GET(req: Request) {
       const members = await listDirectoryMembers();
       teachers = members
         .filter((m) => m.externalUserId && !m.pending)
-        .filter(
-          (m) =>
-            m.roles.includes("professeur") ||
-            m.roles.includes("surveillant") ||
-            m.roles.includes("cpe"),
+        .filter((m) => m.roles.includes("professeur"))
+        .map((m) => {
+          const lastName = String(m.lastName ?? "").trim();
+          const firstName = String(m.firstName ?? "").trim();
+          const byLastName = [lastName, firstName].filter(Boolean).join(" ");
+          return {
+            externalUserId: m.externalUserId,
+            email: m.email,
+            displayName: byLastName || m.displayName || m.email,
+            sortKey: `${lastName} ${firstName} ${m.email}`.trim(),
+          };
+        })
+        .sort((a, b) =>
+          a.sortKey.localeCompare(b.sortKey, "fr", { sensitivity: "base" }),
         )
-        .map((m) => ({
-          externalUserId: m.externalUserId,
-          email: m.email,
-          displayName:
-            m.displayName || `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || m.email,
-        }))
-        .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr", { sensitivity: "base" }));
+        .map(({ externalUserId, email, displayName }) => ({
+          externalUserId,
+          email,
+          displayName,
+        }));
     }
 
     const roster = await buildStageClassRoster(className, schoolYear);

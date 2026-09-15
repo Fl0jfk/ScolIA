@@ -25,7 +25,10 @@ type ClassSlots = {
 };
 
 function userLabel(u: DirectoryUser): string {
-  return u.displayName || `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() || u.email;
+  const lastName = String(u.lastName ?? "").trim();
+  const firstName = String(u.firstName ?? "").trim();
+  const byLastName = [lastName, firstName].filter(Boolean).join(" ");
+  return byLastName || u.displayName || u.email;
 }
 
 function emptySlots(): ClassSlots {
