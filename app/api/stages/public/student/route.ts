@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  confirmParentEmailVerificationCode,
   normalizeConventionInput,
   resolveConventionByStudentToken,
-  sendParentEmailVerificationCode,
   submitPreconvention,
   requestTutorEmailChange,
   canRequestTutorEmailChange,
@@ -85,22 +83,11 @@ export async function GET(req: Request) {
       convention.student.level,
     );
 
-    const parentEmail =
-      convention.parentSignerEmail?.trim() ||
-      convention.student.parent1Email?.trim() ||
-      convention.student.parentEmail?.trim() ||
-      "";
-    const parentEmailVerified = Boolean(
-      convention.parentEmailVerification?.verifiedAt &&
-        convention.parentEmailVerification.email.toLowerCase() === parentEmail.toLowerCase(),
-    );
-
     return NextResponse.json({
       convention,
       readOnly: false,
       stageContext,
       signatureSummary: buildSignatureSummary(convention),
-      parentEmailVerified,
       studentPhotoUrl,
     });
   } catch (error) {
@@ -175,40 +162,6 @@ export async function PATCH(req: Request) {
       parentEmailVerification: existing.parentEmailVerification,
     };
     convention = await ensureConventionReferent(convention);
-
-    if (action === "send_parent_code") {
-      const result = await sendParentEmailVerificationCode(convention);
-      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-      if (!result.sent) {
-        return NextResponse.json(
-          {
-            error:
-              result.reason === "smtp"
-                ? "Envoi d'e-mail indisponible (SMTP non configuré)."
-                : "Impossible d'envoyer le code à cette adresse. Vérifiez l'e-mail du responsable.",
-          },
-          { status: 400 },
-        );
-      }
-      return NextResponse.json({
-        success: true,
-        convention: result.convention,
-        message: "Code envoyé. Vérifiez la boîte mail du responsable légal.",
-      });
-    }
-
-    if (action === "confirm_parent_code") {
-      const result = await confirmParentEmailVerificationCode(
-        convention,
-        String(body.code ?? ""),
-      );
-      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-      return NextResponse.json({
-        success: true,
-        convention: result.convention,
-        parentEmailVerified: true,
-      });
-    }
 
     if (action === "submit") {
       const result = await submitPreconvention(

@@ -353,22 +353,6 @@ export async function submitPreconvention(
   const err = await validateConventionForSubmit(prepared);
   if (err) return { ok: false, error: err };
 
-  const parentEmail =
-    prepared.parentSignerEmail?.trim() ||
-    prepared.student.parent1Email?.trim() ||
-    prepared.student.parentEmail?.trim() ||
-    "";
-  const verified =
-    prepared.parentEmailVerification?.verifiedAt &&
-    prepared.parentEmailVerification.email.trim().toLowerCase() === parentEmail.toLowerCase();
-  if (!verified) {
-    return {
-      ok: false,
-      error:
-        "Confirmez d'abord l'adresse e-mail du responsable légal avec le code reçu par e-mail.",
-    };
-  }
-
   let next = pushHistory(
     { ...prepared, status: "admin_review" },
     by,
@@ -423,8 +407,8 @@ export async function sendParentEmailVerificationCode(
   return {
     ok: true,
     convention: next,
-    sent: mail.sent,
-    reason: !mail.sent && "reason" in mail ? String(mail.reason) : undefined,
+    sent: mail.sentCount > 0,
+    reason: mail.sentCount === 0 ? mail.reason : undefined,
   };
 }
 

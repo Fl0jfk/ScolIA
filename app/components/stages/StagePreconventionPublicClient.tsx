@@ -76,7 +76,7 @@ function StagePreconventionPublicContent() {
   const contextIdentity = usePublicSiteIdentity();
   const [fetchedIdentity, setFetchedIdentity] = useState<PublicSiteIdentity | null>(null);
 
-  const [step, setStep] = useState<"identity" | "dashboard" | "form">(
+  const [step, setStep] = useState<"identity" | "otp" | "dashboard" | "form">(
     tokenFromUrl ? "form" : "identity",
   );
   const [nom, setNom] = useState("");
@@ -115,11 +115,12 @@ function StagePreconventionPublicContent() {
   const [parent1Email, setParent1Email] = useState("");
   const [parent2Email, setParent2Email] = useState("");
   const [editingParentEmail, setEditingParentEmail] = useState(false);
-  const [parentEmailVerified, setParentEmailVerified] = useState(false);
-  const [showParentCode, setShowParentCode] = useState(false);
-  const [parentCode, setParentCode] = useState("");
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
   const [tutorEmailEdit, setTutorEmailEdit] = useState("");
+  const [identityProof, setIdentityProof] = useState<string | null>(null);
+  const [otpChallengeId, setOtpChallengeId] = useState<string | null>(null);
+  const [otpMaskedRecipients, setOtpMaskedRecipients] = useState<string[]>([]);
+  const [identityOtpCode, setIdentityOtpCode] = useState("");
   const [restoringDevice, setRestoringDevice] = useState(() => {
     if (tokenFromUrl) return false;
     return Boolean(readPreconventionDeviceMemory());
@@ -152,12 +153,18 @@ function StagePreconventionPublicContent() {
     prenom?: string;
     dateNaissance?: string;
     classe?: string;
+    identityProof?: string | null;
   }) {
     writePreconventionDeviceMemory({
       nom: (fields?.nom ?? nom).trim(),
       prenom: (fields?.prenom ?? prenom).trim(),
       dateNaissance: (fields?.dateNaissance ?? dateNaissance).trim(),
       classe: (fields?.classe ?? classe).trim() || undefined,
+      identityProof:
+        (fields?.identityProof !== undefined
+          ? fields.identityProof
+          : identityProof
+        )?.trim() || undefined,
     });
   }
 
@@ -174,6 +181,10 @@ function StagePreconventionPublicContent() {
     setClassOptions([]);
     setParent1Email("");
     setParent2Email("");
+    setIdentityProof(null);
+    setOtpChallengeId(null);
+    setOtpMaskedRecipients([]);
+    setIdentityOtpCode("");
     setStep("identity");
     setError(null);
     setInfoMsg(null);
@@ -242,7 +253,6 @@ function StagePreconventionPublicContent() {
         : null,
     );
     setSignatureSummary(data.signatureSummary ?? null);
-    setParentEmailVerified(data.parentEmailVerified === true);
     setTutorEmailEdit(String(data.convention?.company?.tutorEmail ?? ""));
     applyStageContext(data.stageContext);
     const nextPhoto =
@@ -295,7 +305,10 @@ function StagePreconventionPublicContent() {
     setPrenom(memory.prenom);
     setDateNaissance(memory.dateNaissance);
     if (memory.classe) setClasse(memory.classe);
-    void identifyWithCredentials(memory)
+    void identifyWithCredentials({
+      ...memory,
+      identityProof: memory.identityProof,
+    })
       .catch((e: unknown) => {
         clearPreconventionDeviceMemory();
         setStep("identity");
@@ -316,6 +329,7 @@ function StagePreconventionPublicContent() {
       prenom: prenom.trim() || memory?.prenom || "",
       dateNaissance: dateNaissance || memory?.dateNaissance || "",
       classe: (classe.trim() || memory?.classe || undefined) as string | undefined,
+      identityProof: identityProof || memory?.identityProof || undefined,
       ...extra,
     };
   }
@@ -325,6 +339,7 @@ function StagePreconventionPublicContent() {
       studentPreview: StudentPreview;
       dossier: StudentDossier;
       stageContext?: unknown;
+      identityProof?: string;
     },
     identity?: {
       nom: string;
@@ -345,13 +360,38 @@ function StagePreconventionPublicContent() {
     setClassOptions([]);
     const nextClasse = (identity?.classe || preview.className || classe).trim();
     if (nextClasse) setClasse(nextClasse);
+    const proof = String(data.identityProof ?? identityProof ?? "").trim() || null;
+    if (proof) setIdentityProof(proof);
+    setOtpChallengeId(null);
+    setOtpMaskedRecipients([]);
+    setIdentityOtpCode("");
     rememberIdentity({
       nom: (identity?.nom || preview.lastName || nom).trim(),
       prenom: (identity?.prenom || preview.firstName || prenom).trim(),
       dateNaissance: (identity?.dateNaissance || dateNaissance).trim(),
       classe: nextClasse || undefined,
+      identityProof: proof,
     });
     setStep("dashboard");
+  }
+
+  function enterOtpStep(data: {
+    challengeId: string;
+    maskedRecipients?: string[];
+    message?: string;
+  }) {
+    setOtpChallengeId(String(data.challengeId ?? "").trim() || null);
+    setOtpMaskedRecipients(
+      Array.isArray(data.maskedRecipients)
+        ? data.maskedRecipients.map((r) => String(r)).filter(Boolean)
+        : [],
+    );
+    setIdentityOtpCode("");
+    setStep("otp");
+    setInfoMsg(
+      data.message ||
+        "Le code a été envoyé. Vérifiez aussi vos spams / courriers indésirables.",
+    );
   }
 
   async function identifyWithCredentials(creds: {
@@ -359,6 +399,7 @@ function StagePreconventionPublicContent() {
     prenom: string;
     dateNaissance: string;
     classe?: string;
+    identityProof?: string;
   }) {
     const res = await fetch("/api/stages/public/preconvention", {
       method: "POST",
@@ -368,6 +409,7 @@ function StagePreconventionPublicContent() {
         prenom: creds.prenom.trim(),
         dateNaissance: creds.dateNaissance,
         classe: creds.classe?.trim() || undefined,
+        identityProof: creds.identityProof?.trim() || undefined,
         action: "identify",
       }),
     });
@@ -394,8 +436,68 @@ function StagePreconventionPublicContent() {
     setPrenom(creds.prenom.trim());
     setDateNaissance(creds.dateNaissance);
     if (creds.classe) setClasse(creds.classe.trim());
+
+    if (data?.needsOtp === true && data.challengeId) {
+      enterOtpStep(data);
+      return { ok: true as const, needsOtp: true as const };
+    }
+
     applyIdentifySuccess(data, creds);
     return { ok: true as const };
+  }
+
+  async function confirmIdentityOtp(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!otpChallengeId || identityOtpCode.length !== 6) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stages/public/preconvention", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "confirm_identity_otp",
+          challengeId: otpChallengeId,
+          code: identityOtpCode,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Code invalide");
+      applyIdentifySuccess(data, {
+        nom: nom.trim(),
+        prenom: prenom.trim(),
+        dateNaissance,
+        classe: classe.trim() || undefined,
+      });
+      setInfoMsg(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resendIdentityOtp() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/stages/public/preconvention", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          identityPayload({
+            action: "resend_identity_otp",
+          }),
+        ),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Renvoi impossible");
+      enterOtpStep(data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function verifyIdentity(e: React.FormEvent) {
@@ -461,22 +563,6 @@ function StagePreconventionPublicContent() {
     setError(null);
     setInfoMsg(null);
     try {
-      if (action === "submit" && !parentEmailVerified) {
-        const sendRes = await fetch("/api/stages/public/student", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, action: "send_parent_code", convention }),
-        });
-        const sendData = await sendRes.json();
-        if (!sendRes.ok) throw new Error(sendData?.error || "Erreur envoi code");
-        setConvention(sendData.convention);
-        setShowParentCode(true);
-        setInfoMsg(
-          "Un code à 6 chiffres a été envoyé à l'adresse du responsable légal. Saisissez-le ci-dessous pour confirmer.",
-        );
-        return;
-      }
-
       const res = await fetch("/api/stages/public/student", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -486,50 +572,6 @@ function StagePreconventionPublicContent() {
       if (!res.ok) throw new Error(data?.error || "Erreur");
       setConvention(data.convention);
       if (action === "submit") setDone(true);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function confirmParentCode() {
-    if (!convention || !token) return;
-    setBusy(true);
-    setError(null);
-    setInfoMsg(null);
-    try {
-      const res = await fetch("/api/stages/public/student", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token,
-          action: "confirm_parent_code",
-          code: parentCode,
-          convention,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Code invalide");
-      const verifiedConvention = data.convention as StageConvention;
-      setConvention(verifiedConvention);
-      setParentEmailVerified(true);
-      setShowParentCode(false);
-
-      const submitRes = await fetch("/api/stages/public/student", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token,
-          action: "submit",
-          convention: verifiedConvention,
-        }),
-      });
-      const submitData = await submitRes.json();
-      if (!submitRes.ok) throw new Error(submitData?.error || "Erreur envoi administratif");
-      setConvention(submitData.convention);
-      setDone(true);
-      setInfoMsg(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -712,8 +754,70 @@ function StagePreconventionPublicContent() {
               disabled={busy || (classOptions.length > 0 && !classe.trim())}
               className="w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white disabled:opacity-50"
             >
-              {busy ? "Vérification…" : "Accéder à mes stages →"}
+              {busy ? "Vérification…" : "Recevoir le code d'accès →"}
             </button>
+          </form>
+        )}
+
+        {step === "otp" && !token && (
+          <form onSubmit={(e) => void confirmIdentityOtp(e)} className="mt-6 space-y-4 text-sm">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 space-y-2">
+              <p className="text-sm font-bold text-[#1F3D2B]">Le code a été envoyé</p>
+              <p className="text-xs text-stone-700 leading-relaxed">
+                Un même code à 6 chiffres a été envoyé à toutes les adresses connues (élève et
+                responsables). Saisissez-le ci-dessous pour accéder à vos stages.
+              </p>
+              {otpMaskedRecipients.length > 0 && (
+                <ul className="text-xs text-[#1F3D2B] space-y-1">
+                  {otpMaskedRecipients.map((addr) => (
+                    <li key={addr} className="font-mono font-semibold">
+                      → {addr}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                Pensez à vérifier vos spams / courriers indésirables — le message y arrive
+                souvent.
+              </p>
+            </div>
+            <StageOtpCodeInput
+              value={identityOtpCode}
+              onChange={setIdentityOtpCode}
+              disabled={busy}
+              autoFocus
+            />
+            <button
+              type="submit"
+              disabled={busy || identityOtpCode.length !== 6}
+              className="w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white disabled:opacity-50"
+            >
+              {busy ? "Validation…" : "Valider le code →"}
+            </button>
+            <div className="flex flex-wrap gap-3 justify-between">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void resendIdentityOtp()}
+                className="text-xs font-semibold text-[#2F6B4A] underline"
+              >
+                Renvoyer le code
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setOtpChallengeId(null);
+                  setOtpMaskedRecipients([]);
+                  setIdentityOtpCode("");
+                  setInfoMsg(null);
+                  setStep("identity");
+                }}
+                className="text-xs font-semibold text-stone-600 underline"
+              >
+                ← Modifier l&apos;identité
+              </button>
+            </div>
           </form>
         )}
 
@@ -1036,26 +1140,32 @@ function StagePreconventionPublicContent() {
 
             {!readOnly && !done && (
               <div className="mt-6 space-y-4" data-tour="stages-preconvention-form">
-                <div className="rounded-xl border-2 border-rose-300 bg-rose-50 px-4 py-3 text-xs text-rose-950">
-                  <p className="font-black">Convention envoyée à cette adresse</p>
+                <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-700">
+                  <p className="font-bold text-[#1F3D2B]">Responsable(s) qui signeront</p>
                   <p className="mt-1">
-                    {convention.parentSignerEmail ||
-                      convention.student.parent1Email ||
-                      "—"}{" "}
-                    — vous confirmez cet e-mail avec un code avant de valider
-                    votre préconvention.
+                    La convention sera proposée à{" "}
+                    <span className="font-semibold">
+                      {convention.parentSignerEmail ||
+                        convention.student.parent1Email ||
+                        "—"}
+                    </span>
+                    {(convention.parent2SignerEmail || convention.student.parent2Email) && (
+                      <>
+                        {" "}
+                        et{" "}
+                        <span className="font-semibold">
+                          {convention.parent2SignerEmail || convention.student.parent2Email}
+                        </span>
+                      </>
+                    )}
+                    . Vous pouvez corriger ces adresses dans le formulaire ci-dessous.
                   </p>
-                  {parentEmailVerified && (
-                    <p className="mt-2 font-semibold text-emerald-800">✓ E-mail confirmé</p>
-                  )}
                 </div>
 
                 <StagePreconventionForm
                   convention={convention}
                   onChange={(c) => {
                     setConvention(c);
-                    setParentEmailVerified(false);
-                    setShowParentCode(false);
                   }}
                   onSave={() => void save("save")}
                   onSubmit={() => void save("submit")}
@@ -1067,60 +1177,6 @@ function StagePreconventionPublicContent() {
                   cycleLabel={cycleLabel}
                   submitLabel="Valider ma préconvention"
                 />
-
-                {showParentCode && (
-                  <div className="rounded-xl border border-[#2F6B4A]/25 bg-[#f3faf6] p-4 space-y-3">
-                    <div>
-                      <p className="text-sm font-bold text-[#1F3D2B]">
-                        Confirmez l&apos;e-mail du responsable
-                      </p>
-                      <p className="mt-1 text-xs text-stone-600">
-                        Un e-mail de vérification a été envoyé à{" "}
-                        <span className="font-semibold text-[#1F3D2B]">
-                          {convention.parentSignerEmail ||
-                            convention.student.parent1Email ||
-                            "—"}
-                        </span>
-                        .
-                      </p>
-                    </div>
-                    <StageOtpCodeInput
-                      value={parentCode}
-                      onChange={setParentCode}
-                      disabled={busy}
-                      autoFocus
-                    />
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={busy || parentCode.length !== 6}
-                        onClick={() => void confirmParentCode()}
-                        className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-                      >
-                        {busy ? "Validation…" : "Valider le code et envoyer"}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void save("submit")}
-                        className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700"
-                      >
-                        Renvoyer le code
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {parentEmailVerified && !done && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void save("submit")}
-                    className="w-full rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white disabled:opacity-50"
-                  >
-                    {busy ? "Validation…" : "Valider ma préconvention"}
-                  </button>
-                )}
               </div>
             )}
 

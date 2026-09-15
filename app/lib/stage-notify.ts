@@ -402,22 +402,57 @@ export async function notifyParentEmailVerification(params: {
   studentName: string;
   code: string;
 }) {
+  return notifyIdentityAccessOtp({
+    recipients: [params.to],
+    studentName: params.studentName,
+    code: params.code,
+    purpose: "parent_verify",
+  });
+}
+
+/**
+ * Envoie le même code OTP à plusieurs destinataires (élève + responsables).
+ * Utilisé pour sécuriser l'accès à la préconvention.
+ */
+export async function notifyIdentityAccessOtp(params: {
+  recipients: string[];
+  studentName: string;
+  code: string;
+  purpose?: "identity_access" | "parent_verify";
+}) {
   const m = await mailer();
-  if (!m) return { sent: false, reason: "smtp" as const };
-  const to = params.to.trim();
-  if (!to) return { sent: false, reason: "no_email" as const };
+  if (!m) return { sentCount: 0, reason: "smtp" as const };
+
+  const recipients = [
+    ...new Set(
+      params.recipients
+        .map((r) => r.trim().toLowerCase())
+        .filter((r) => r.includes("@")),
+    ),
+  ];
+  if (recipients.length === 0) return { sentCount: 0, reason: "no_email" as const };
 
   const bundle = await loadAppConfig();
   const school = bundle.identity.shortName || bundle.identity.name;
+  const purpose = params.purpose ?? "identity_access";
+  const intro =
+    purpose === "parent_verify"
+      ? `Pour confirmer votre adresse e-mail et envoyer la préconvention de stage de ${params.studentName},`
+      : `Pour accéder à l'espace stages de ${params.studentName},`;
+  const subject =
+    purpose === "parent_verify"
+      ? `[Stages] Code de confirmation e-mail — ${params.studentName}`
+      : `[Stages] Code d'accès — ${params.studentName}`;
+
   const text = [
     "Bonjour,",
     "",
-    `Pour confirmer votre adresse e-mail et envoyer la préconvention de stage de ${params.studentName},`,
+    intro,
     `saisissez ce code à 6 chiffres sur la page du formulaire :`,
     "",
     `  ${params.code}`,
     "",
-    "Ce code est valable 30 minutes.",
+    "Ce code est valable 30 minutes. Le même code a pu être envoyé à plusieurs adresses de la famille.",
     "",
     "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.",
     "",
@@ -425,22 +460,31 @@ export async function notifyParentEmailVerification(params: {
     school,
   ].join("\n");
 
-  try {
-    await m.transporter.sendMail({
-      from: `"Stages ${school}" <${m.smtp.user}>`,
-      to,
-      subject: `[Stages] Code de confirmation e-mail — ${params.studentName}`,
-      text,
-    });
-    return { sent: true as const };
-  } catch (err) {
-    console.error("[stages] parent verify mail failed:", to, err);
+  let sentCount = 0;
+  let lastError: string | undefined;
+  for (const to of recipients) {
+    try {
+      await m.transporter.sendMail({
+        from: `"Stages ${school}" <${m.smtp.user}>`,
+        to,
+        subject,
+        text,
+      });
+      sentCount += 1;
+    } catch (err) {
+      console.error("[stages] identity otp mail failed:", to, err);
+      lastError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  if (sentCount === 0) {
     return {
-      sent: false as const,
+      sentCount: 0,
       reason: "smtp_error" as const,
-      error: err instanceof Error ? err.message : String(err),
+      error: lastError,
     };
   }
+  return { sentCount };
 }
 
 /** Signature refusée par l'administratif — nouvelle demande envoyée au signataire. */

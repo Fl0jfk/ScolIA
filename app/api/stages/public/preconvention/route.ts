@@ -10,6 +10,15 @@ import {
 import { getStageConstraintsPublicContext } from "@/app/lib/stage-constraints-config";
 import { getElevePhotoUrl } from "@/app/lib/eleve-photos";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
+import {
+  assertIdentityProof,
+  collectIdentityOtpRecipients,
+  confirmIdentityOtpCode,
+  createAndSendIdentityOtp,
+  loadIdentityProof,
+  subjectsMatch,
+  type StageIdentitySubject,
+} from "@/app/lib/stage-identity-otp";
 
 const preconventionLimiter = createMemoryRateLimiter({
   windowMs: 10 * 60 * 1000,
@@ -19,6 +28,11 @@ const preconventionLimiter = createMemoryRateLimiter({
 const identityLimiter = createMemoryRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 20,
+});
+
+const otpConfirmLimiter = createMemoryRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
 });
 
 const GENERIC_IDENTITY_ERROR =
@@ -70,7 +84,66 @@ async function verifyAndLoadStudent(params: {
   };
 }
 
-/** Identification élève → tableau de bord multi-stages (sans créer de brouillon). */
+function identitySubjectFromLoaded(
+  loaded: Extract<Awaited<ReturnType<typeof verifyAndLoadStudent>>, { ok: true }>,
+  dateNaissanceFallback: string,
+): StageIdentitySubject {
+  return {
+    nom: loaded.student.lastName,
+    prenom: loaded.student.firstName,
+    dateNaissance: loaded.student.dateNaissance || dateNaissanceFallback,
+    classe: loaded.student.className,
+    eleveKey: loaded.eleve.ine?.trim() || undefined,
+  };
+}
+
+function buildIdentifySuccessPayload(
+  loaded: Extract<Awaited<ReturnType<typeof verifyAndLoadStudent>>, { ok: true }>,
+  identityProof?: string,
+) {
+  return {
+    success: true as const,
+    mode: "dashboard" as const,
+    identityProof: identityProof || undefined,
+    studentPreview: {
+      firstName: loaded.student.firstName,
+      lastName: loaded.student.lastName,
+      className: loaded.student.className,
+      photoUrl: loaded.photoUrl || null,
+      parent1Email: loaded.parent1Email || null,
+      parent2Email: loaded.parent2Email || null,
+      parentPhone:
+        loaded.eleve.parent1Phone?.trim() ||
+        loaded.eleve.parentPhone?.trim() ||
+        null,
+      parent2Phone: loaded.eleve.parent2Phone?.trim() || null,
+      studentEmail: loaded.eleve.email?.trim() || null,
+    },
+    dossier: {
+      schoolYear: loaded.dossier.schoolYear,
+      conventions: loaded.dossier.conventions,
+      availablePeriods: loaded.dossier.availablePeriods,
+      canCreateNew: loaded.dossier.canCreateNew,
+    },
+    stageContext: loaded.stageContext,
+  };
+}
+
+async function startIdentityOtp(
+  loaded: Extract<Awaited<ReturnType<typeof verifyAndLoadStudent>>, { ok: true }>,
+  dateNaissance: string,
+) {
+  const recipients = collectIdentityOtpRecipients([
+    loaded.eleve.email,
+    loaded.parent1Email,
+    loaded.parent2Email,
+  ]);
+  const subject = identitySubjectFromLoaded(loaded, dateNaissance);
+  const studentName = `${loaded.student.firstName} ${loaded.student.lastName}`.trim();
+  return createAndSendIdentityOtp({ subject, recipients, studentName });
+}
+
+/** Identification élève → OTP multi-mails → tableau de bord multi-stages. */
 export async function POST(req: Request) {
   try {
     if (!(await preconventionLimiter.allow(clientIpFromRequest(req)))) {
@@ -81,11 +154,56 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
+    const action = String(body.action ?? "identify");
+
+    if (action === "confirm_identity_otp") {
+      if (!(await otpConfirmLimiter.allow(clientIpFromRequest(req)))) {
+        return NextResponse.json(
+          { error: "Trop de tentatives. Réessayez dans quelques minutes." },
+          { status: 429 },
+        );
+      }
+      const challengeId = String(body.challengeId ?? "").trim();
+      const code = String(body.code ?? "").trim();
+      if (!challengeId || !code) {
+        return NextResponse.json({ error: "Code manquant." }, { status: 400 });
+      }
+
+      const confirmed = await confirmIdentityOtpCode({ challengeId, code });
+      if (!confirmed.ok) {
+        return NextResponse.json({ error: confirmed.error }, { status: 403 });
+      }
+
+      let loaded: Awaited<ReturnType<typeof verifyAndLoadStudent>>;
+      try {
+        loaded = await verifyAndLoadStudent({
+          nom: confirmed.subject.nom,
+          prenom: confirmed.subject.prenom,
+          dateNaissance: confirmed.subject.dateNaissance,
+          classe: confirmed.subject.classe,
+        });
+      } catch (error) {
+        console.error("[stages/preconvention] identity reload after otp failed", error);
+        return NextResponse.json(
+          {
+            error:
+              "Le service d'identification est temporairement indisponible. Réessayez dans quelques minutes ou contactez le secrétariat.",
+          },
+          { status: 503 },
+        );
+      }
+      if (!loaded.ok) {
+        return NextResponse.json({ error: GENERIC_IDENTITY_ERROR }, { status: 403 });
+      }
+
+      return NextResponse.json(buildIdentifySuccessPayload(loaded, confirmed.proofToken));
+    }
+
     const nom = String(body.nom ?? "").trim();
     const prenom = String(body.prenom ?? "").trim();
     const dateNaissance = String(body.dateNaissance ?? "").trim();
     const classe = String(body.classe ?? "").trim() || undefined;
-    const action = String(body.action ?? "identify");
+    const identityProof = String(body.identityProof ?? "").trim() || undefined;
 
     if (!nom || !prenom || !dateNaissance) {
       return NextResponse.json(
@@ -127,35 +245,70 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: GENERIC_IDENTITY_ERROR }, { status: 403 });
     }
 
+    const subject = identitySubjectFromLoaded(loaded, dateNaissance);
+
     if (action === "identify") {
+      if (identityProof) {
+        const proof = await loadIdentityProof(identityProof);
+        if (proof && subjectsMatch(proof.subject, subject)) {
+          return NextResponse.json(buildIdentifySuccessPayload(loaded, identityProof));
+        }
+      }
+
+      const otp = await startIdentityOtp(loaded, dateNaissance);
+      if (!otp.ok) {
+        return NextResponse.json({ error: otp.error }, { status: 403 });
+      }
+      if (otp.sentCount === 0) {
+        return NextResponse.json(
+          {
+            error:
+              "Impossible d'envoyer le code par e-mail pour le moment. Réessayez plus tard ou contactez le secrétariat.",
+          },
+          { status: 503 },
+        );
+      }
+
       return NextResponse.json({
         success: true,
-        mode: "dashboard",
-        studentPreview: {
-          firstName: loaded.student.firstName,
-          lastName: loaded.student.lastName,
-          className: loaded.student.className,
-          photoUrl: loaded.photoUrl || null,
-          parent1Email: loaded.parent1Email || null,
-          parent2Email: loaded.parent2Email || null,
-          parentPhone:
-            loaded.eleve.parent1Phone?.trim() ||
-            loaded.eleve.parentPhone?.trim() ||
-            null,
-          parent2Phone: loaded.eleve.parent2Phone?.trim() || null,
-          studentEmail: loaded.eleve.email?.trim() || null,
-        },
-        dossier: {
-          schoolYear: loaded.dossier.schoolYear,
-          conventions: loaded.dossier.conventions,
-          availablePeriods: loaded.dossier.availablePeriods,
-          canCreateNew: loaded.dossier.canCreateNew,
-        },
-        stageContext: loaded.stageContext,
+        needsOtp: true,
+        challengeId: otp.challengeId,
+        maskedRecipients: otp.maskedRecipients,
+        message:
+          "Le code a été envoyé. Vérifiez aussi vos spams / courriers indésirables.",
+      });
+    }
+
+    if (action === "resend_identity_otp") {
+      const otp = await startIdentityOtp(loaded, dateNaissance);
+      if (!otp.ok) {
+        return NextResponse.json({ error: otp.error }, { status: 403 });
+      }
+      if (otp.sentCount === 0) {
+        return NextResponse.json(
+          {
+            error:
+              "Impossible d'envoyer le code par e-mail pour le moment. Réessayez plus tard ou contactez le secrétariat.",
+          },
+          { status: 503 },
+        );
+      }
+      return NextResponse.json({
+        success: true,
+        needsOtp: true,
+        challengeId: otp.challengeId,
+        maskedRecipients: otp.maskedRecipients,
+        message:
+          "Un nouveau code a été envoyé. Pensez à vérifier vos spams / courriers indésirables.",
       });
     }
 
     if (action === "create") {
+      const proofCheck = await assertIdentityProof(identityProof, subject);
+      if (!proofCheck.ok) {
+        return NextResponse.json({ error: proofCheck.error }, { status: 403 });
+      }
+
       if (!loaded.dossier.canCreateNew) {
         return NextResponse.json(
           {
@@ -200,6 +353,7 @@ export async function POST(req: Request) {
         mode: "created",
         conventionId: convention.id,
         studentLink,
+        identityProof,
       });
     }
 

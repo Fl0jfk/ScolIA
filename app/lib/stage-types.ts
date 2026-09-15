@@ -19,6 +19,10 @@ export const STAGE_S3 = {
   constraintsConfig: (schoolYear: string) => `stages/constraints/${schoolYear}.json`,
   /** CPE / restauration : visu stages par classe ou élève. */
   watchersConfig: (schoolYear: string) => `stages/watchers/${schoolYear}.json`,
+  /** Challenge OTP connexion préconvention (courte durée). */
+  identityOtpChallenge: (challengeId: string) => `stages/identity-otp/${challengeId}.json`,
+  /** Preuve d'identité post-OTP (session courte pour create / reprise appareil). */
+  identityProof: (proofToken: string) => `stages/identity-proof/${proofToken}.json`,
   referentSignature: (externalUserId: string) => `signatures/users/${externalUserId}.png`,
   externalSignature: (conventionId: string, signatureId: string) =>
     `stages/signatures/external/${conventionId}/${signatureId}.png`,
