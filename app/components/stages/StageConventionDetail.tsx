@@ -64,6 +64,7 @@ export default function StageConventionDetail({
   onAddSignatory,
   onFileToEleveDossier,
   onFileToOneDrive,
+  onReviewTutorEmailChange,
 }: {
   detail: StageConventionDetailData;
   permissions: StagesHubPermissions | undefined;
@@ -87,6 +88,7 @@ export default function StageConventionDetail({
   onAddSignatory: () => void;
   onFileToEleveDossier: () => void;
   onFileToOneDrive: () => void;
+  onReviewTutorEmailChange: (approved: boolean) => void;
 }) {
   const c = detail.convention;
   const canShowOneDriveFiling = permissions?.canFileToOneDrive && c.status === "signed";
@@ -118,6 +120,47 @@ export default function StageConventionDetail({
       </div>
 
       {!adminEditing && <ConventionInfoSummary convention={c} />}
+
+      {permissions?.canReviewPreconvention && c.tutorEmailChangeRequest && (
+        <div className="rounded-xl border-2 border-amber-400 bg-amber-50 px-4 py-3 space-y-3">
+          <p className="text-sm font-black text-amber-950">
+            Demande élève — changer l&apos;e-mail du tuteur
+          </p>
+          <p className="text-xs text-amber-900 leading-relaxed">
+            Actuel : <strong>{c.tutorEmailChangeRequest.previousEmail || "—"}</strong>
+            <br />
+            Demandé : <strong>{c.tutorEmailChangeRequest.requestedEmail}</strong>
+            {c.tutorEmailChangeRequest.note ? (
+              <>
+                <br />
+                Motif : {c.tutorEmailChangeRequest.note}
+              </>
+            ) : null}
+          </p>
+          <p className="text-[11px] text-amber-800">
+            Validez uniquement si l&apos;adresse est correcte. Ensuite le tuteur sera relancé sur la
+            nouvelle adresse (aucun changement tant que vous n&apos;avez pas validé).
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onReviewTutorEmailChange(true)}
+              className="rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+            >
+              Valider et relancer le tuteur
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onReviewTutorEmailChange(false)}
+              className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 disabled:opacity-50"
+            >
+              Refuser
+            </button>
+          </div>
+        </div>
+      )}
 
       {c.stageAbsenceIds && c.stageAbsenceIds.length > 0 && c.schedule.periodStart && c.schedule.periodEnd && (
         <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">

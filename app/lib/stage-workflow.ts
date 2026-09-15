@@ -23,6 +23,7 @@ import {
   conventionAllSignaturesValidated,
   currentStageSchoolYear,
   isExternalStageSignerRole,
+  isStageSignatureFullyValidated,
   stageUid,
   type StageConvention,
   type StageSignMethod,
@@ -428,6 +429,8 @@ export async function updateTutorEmailAndResend(params: {
   convention: StageConvention;
   tutorEmail: string;
   tutorName?: string;
+  historyBy?: string;
+  historyAction?: string;
 }): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
   const email = params.tutorEmail.trim().toLowerCase();
   if (!isValidEmail(email)) {
@@ -442,9 +445,15 @@ export async function updateTutorEmailAndResend(params: {
       tutorEmail: email,
       tutorName: params.tutorName?.trim() || params.convention.company.tutorName,
     },
+    tutorEmailChangeRequest: undefined,
     updatedAt: now,
   };
-  next = pushHistory(next, "Famille", "TUTEUR_EMAIL_MODIFIE", email);
+  next = pushHistory(
+    next,
+    params.historyBy || "Administratif",
+    params.historyAction || "TUTEUR_EMAIL_MODIFIE",
+    email,
+  );
 
   if (next.status === "signatures_pending") {
     const tutorSig = next.signatures.find(
@@ -492,6 +501,95 @@ export async function updateTutorEmailAndResend(params: {
 
   await saveStageConvention(next);
   return { ok: true, convention: next };
+}
+
+/** Le tuteur entreprise n'a pas encore signé → l'élève peut demander un changement d'e-mail. */
+export function canRequestTutorEmailChange(convention: StageConvention): boolean {
+  if (convention.status !== "signatures_pending") return false;
+  const tutorSig = convention.signatures.find((s) => s.role === "tuteur_entreprise");
+  if (!tutorSig) return false;
+  return !isStageSignatureFullyValidated(tutorSig) && tutorSig.status !== "refuse";
+}
+
+/** Demande élève : nouvel e-mail tuteur (sans application immédiate). */
+export async function requestTutorEmailChange(params: {
+  convention: StageConvention;
+  tutorEmail: string;
+  note?: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  if (!canRequestTutorEmailChange(params.convention)) {
+    return {
+      ok: false,
+      error:
+        "Impossible de demander un changement : le tuteur a déjà signé, ou les signatures ne sont pas en cours.",
+    };
+  }
+  const email = params.tutorEmail.trim().toLowerCase();
+  if (!isValidEmail(email)) {
+    return { ok: false, error: "Adresse e-mail du tuteur invalide." };
+  }
+  const current = params.convention.company.tutorEmail.trim().toLowerCase();
+  if (email === current) {
+    return { ok: false, error: "Cette adresse est déjà celle du tuteur." };
+  }
+
+  const now = new Date().toISOString();
+  let next: StageConvention = {
+    ...params.convention,
+    tutorEmailChangeRequest: {
+      requestedEmail: email,
+      previousEmail: params.convention.company.tutorEmail.trim(),
+      requestedAt: now,
+      note: params.note?.trim() || undefined,
+    },
+    updatedAt: now,
+  };
+  next = pushHistory(next, "Élève", "TUTEUR_EMAIL_DEMANDE", `${current} → ${email}`);
+  await saveStageConvention(next);
+  return { ok: true, convention: next };
+}
+
+/** Validation / refus administratif d'une demande de changement d'e-mail tuteur. */
+export async function reviewTutorEmailChangeRequest(params: {
+  convention: StageConvention;
+  approved: boolean;
+  byName: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const req = params.convention.tutorEmailChangeRequest;
+  if (!req?.requestedEmail) {
+    return { ok: false, error: "Aucune demande de changement d'e-mail tuteur en attente." };
+  }
+
+  if (!params.approved) {
+    const now = new Date().toISOString();
+    let next: StageConvention = {
+      ...params.convention,
+      tutorEmailChangeRequest: undefined,
+      updatedAt: now,
+    };
+    next = pushHistory(
+      next,
+      params.byName,
+      "TUTEUR_EMAIL_DEMANDE_REFUSEE",
+      req.requestedEmail,
+    );
+    await saveStageConvention(next);
+    return { ok: true, convention: next };
+  }
+
+  if (!canRequestTutorEmailChange(params.convention)) {
+    return {
+      ok: false,
+      error: "Le tuteur a déjà signé : la demande ne peut plus être appliquée.",
+    };
+  }
+
+  return updateTutorEmailAndResend({
+    convention: params.convention,
+    tutorEmail: req.requestedEmail,
+    historyBy: params.byName,
+    historyAction: "TUTEUR_EMAIL_DEMANDE_VALIDEE",
+  });
 }
 
 export async function reviewPreconvention(
@@ -1557,6 +1655,7 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
       }
       return prev;
     })(),
+    tutorEmailChangeRequest: base?.tutorEmailChangeRequest,
     adminReview: base?.adminReview,
     signatures: base?.signatures ?? [],
     createdAt: base?.createdAt ?? new Date().toISOString(),

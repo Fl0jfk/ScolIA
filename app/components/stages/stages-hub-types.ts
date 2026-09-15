@@ -31,6 +31,7 @@ export type StagesHubBoard = {
     studentName?: string;
     companyName?: string;
     status: string;
+    tutorEmailChangePending?: boolean;
   }>;
   conventions: Array<{
     id: string;

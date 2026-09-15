@@ -13,6 +13,7 @@ import {
   reviewConventionSignature,
   revokeConventionSignature,
   reviewPreconvention,
+  reviewTutorEmailChangeRequest,
   submitPreconvention,
   syncProfReferentSignatory,
 } from "@/app/lib/stage-workflow";
@@ -350,6 +351,26 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       });
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
       return NextResponse.json({ success: true, convention: result.convention });
+    }
+
+    if (action === "review_tutor_email_change") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const approved = body.approved === true;
+      const result = await reviewTutorEmailChangeRequest({
+        convention,
+        approved,
+        byName: displayName(user),
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({
+        success: true,
+        convention: result.convention,
+        message: approved
+          ? "E-mail tuteur mis à jour — demande de signature renvoyée."
+          : "Demande de changement d'e-mail tuteur refusée.",
+      });
     }
 
     if (action === "resend_signature") {

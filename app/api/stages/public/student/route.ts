@@ -5,7 +5,8 @@ import {
   resolveConventionByStudentToken,
   sendParentEmailVerificationCode,
   submitPreconvention,
-  updateTutorEmailAndResend,
+  requestTutorEmailChange,
+  canRequestTutorEmailChange,
 } from "@/app/lib/stage-workflow";
 import { saveStageConvention } from "@/app/lib/stage-storage";
 import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
@@ -65,7 +66,9 @@ export async function GET(req: Request) {
       return NextResponse.json({
         convention,
         readOnly: true,
-        canEditTutorEmail: convention.status === "signatures_pending",
+        canRequestTutorEmailChange:
+          canRequestTutorEmailChange(convention) && !convention.tutorEmailChangeRequest,
+        tutorEmailChangeRequest: convention.tutorEmailChangeRequest ?? null,
         stageContext,
         signatureSummary: buildSignatureSummary(convention),
         statusLabel: STAGE_CONVENTION_STATUS_LABELS[convention.status],
@@ -128,17 +131,29 @@ export async function PATCH(req: Request) {
 
     const action = String(body.action ?? "save");
 
-    if (action === "update_tutor_email") {
-      if (!["draft", "admin_rejected", "signatures_pending"].includes(existing.status)) {
-        return NextResponse.json({ error: "Modification impossible pour ce dossier." }, { status: 400 });
-      }
-      const result = await updateTutorEmailAndResend({
+    if (action === "request_tutor_email_change") {
+      const result = await requestTutorEmailChange({
         convention: existing,
         tutorEmail: String(body.tutorEmail ?? ""),
-        tutorName: String(body.tutorName ?? "").trim() || undefined,
+        note: String(body.note ?? "").trim() || undefined,
       });
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
-      return NextResponse.json({ success: true, convention: result.convention });
+      return NextResponse.json({
+        success: true,
+        convention: result.convention,
+        message:
+          "Demande enregistrée. L'établissement doit la valider avant de relancer le tuteur.",
+      });
+    }
+
+    if (action === "update_tutor_email") {
+      return NextResponse.json(
+        {
+          error:
+            "La modification directe de l'e-mail tuteur n'est plus possible. Déposez une demande pour validation par l'établissement.",
+        },
+        { status: 400 },
+      );
     }
 
     if (!["draft", "admin_rejected"].includes(existing.status)) {

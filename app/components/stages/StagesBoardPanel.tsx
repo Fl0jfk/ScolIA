@@ -63,8 +63,11 @@ export default function StagesBoardPanel({
                     onClick={() => onLoadDetail(c.id)}
                   >
                     {studentName} → {companyName} ·{" "}
-                    {STAGE_CONVENTION_STATUS_LABELS[c.status as keyof typeof STAGE_CONVENTION_STATUS_LABELS] ||
-                      c.status}
+                    {c.tutorEmailChangePending
+                      ? "E-mail tuteur à valider"
+                      : STAGE_CONVENTION_STATUS_LABELS[
+                          c.status as keyof typeof STAGE_CONVENTION_STATUS_LABELS
+                        ] || c.status}
                   </button>
                 </li>
               );

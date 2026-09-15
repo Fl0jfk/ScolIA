@@ -81,7 +81,8 @@ export async function GET() {
       (c) =>
         c.status === "admin_review" ||
         c.status === "preconvention_submitted" ||
-        c.status === "convention_deposited",
+        c.status === "convention_deposited" ||
+        Boolean(c.tutorEmailChangeRequest),
     );
     const signaturesPending = activeConventions.filter((c) => c.status === "signatures_pending");
     const referentOnly = canViewReferentConventions(roles) && !canViewAllConventions(roles);
@@ -127,7 +128,13 @@ export async function GET() {
       },
       myPendingSignatures,
       pendingOffers: [],
-      adminQueue: adminQueue.slice(0, 20),
+      adminQueue: adminQueue.slice(0, 20).map((c) => ({
+        id: c.id,
+        studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),
+        companyName: c.company.name,
+        status: c.status,
+        tutorEmailChangePending: Boolean(c.tutorEmailChangeRequest),
+      })),
       signaturesPending: signaturesPending.slice(0, 20),
       conventions: activeConventions.slice(0, 100).map((c) => ({
         id: c.id,

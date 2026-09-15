@@ -91,7 +91,11 @@ function StagePreconventionPublicContent() {
   const [token, setToken] = useState(tokenFromUrl);
   const [convention, setConvention] = useState<StageConvention | null>(null);
   const [readOnly, setReadOnly] = useState(false);
-  const [canEditTutorEmail, setCanEditTutorEmail] = useState(false);
+  const [canRequestTutorEmailChange, setCanRequestTutorEmailChange] = useState(false);
+  const [tutorEmailChangePending, setTutorEmailChangePending] = useState<{
+    requestedEmail: string;
+    previousEmail: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -191,7 +195,16 @@ function StagePreconventionPublicContent() {
     if (!res.ok) throw new Error(data?.error || "Lien invalide");
     setConvention(data.convention);
     setReadOnly(data.readOnly === true);
-    setCanEditTutorEmail(data.canEditTutorEmail === true);
+    setCanRequestTutorEmailChange(data.canRequestTutorEmailChange === true);
+    const pendingReq = data.tutorEmailChangeRequest ?? data.convention?.tutorEmailChangeRequest;
+    setTutorEmailChangePending(
+      pendingReq && typeof pendingReq === "object" && typeof pendingReq.requestedEmail === "string"
+        ? {
+            requestedEmail: String(pendingReq.requestedEmail),
+            previousEmail: String(pendingReq.previousEmail ?? ""),
+          }
+        : null,
+    );
     setSignatureSummary(data.signatureSummary ?? null);
     setParentEmailVerified(data.parentEmailVerified === true);
     setTutorEmailEdit(String(data.convention?.company?.tutorEmail ?? ""));
@@ -488,7 +501,7 @@ function StagePreconventionPublicContent() {
     }
   }
 
-  async function saveTutorEmail() {
+  async function requestTutorEmailChange() {
     if (!token) return;
     setBusy(true);
     setError(null);
@@ -499,14 +512,26 @@ function StagePreconventionPublicContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           token,
-          action: "update_tutor_email",
+          action: "request_tutor_email_change",
           tutorEmail: tutorEmailEdit,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Erreur");
       setConvention(data.convention);
-      setInfoMsg("E-mail du tuteur mis à jour — demande de signature renvoyée.");
+      setCanRequestTutorEmailChange(false);
+      setTutorEmailChangePending({
+        requestedEmail: String(data.convention?.tutorEmailChangeRequest?.requestedEmail ?? tutorEmailEdit),
+        previousEmail: String(
+          data.convention?.tutorEmailChangeRequest?.previousEmail ??
+            convention?.company.tutorEmail ??
+            "",
+        ),
+      });
+      setInfoMsg(
+        data.message ||
+          "Demande enregistrée. L'établissement doit la valider avant de relancer le tuteur.",
+      );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -1111,29 +1136,44 @@ function StagePreconventionPublicContent() {
                   </a>
                 ) : null}
 
-                {canEditTutorEmail && (
+                {tutorEmailChangePending && (
+                  <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-2">
+                    <p className="text-sm font-bold text-amber-950">
+                      Demande de changement d&apos;e-mail tuteur en cours
+                    </p>
+                    <p className="text-xs text-amber-900 leading-relaxed">
+                      Vous avez demandé de remplacer{" "}
+                      <strong>{tutorEmailChangePending.previousEmail || "—"}</strong> par{" "}
+                      <strong>{tutorEmailChangePending.requestedEmail}</strong>. L&apos;établissement
+                      doit valider cette demande avant toute relance.
+                    </p>
+                  </div>
+                )}
+
+                {canRequestTutorEmailChange && !tutorEmailChangePending && (
                   <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-3">
                     <p className="text-sm font-bold text-amber-950">
-                      Corriger l&apos;e-mail du tuteur
+                      Demander un changement d&apos;e-mail du tuteur
                     </p>
-                    <p className="text-xs text-amber-900">
-                      Si l&apos;adresse du tuteur a renvoyé une erreur, corrigez-la ici. Une nouvelle
-                      demande de signature sera envoyée automatiquement.
+                    <p className="text-xs text-amber-900 leading-relaxed">
+                      Si l&apos;adresse est erronée, proposez-en une autre. L&apos;établissement
+                      validera avant d&apos;envoyer une nouvelle demande de signature — le
+                      changement n&apos;est pas immédiat.
                     </p>
                     <input
                       type="email"
                       className="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm"
                       value={tutorEmailEdit}
                       onChange={(e) => setTutorEmailEdit(e.target.value)}
-                      placeholder="tuteur@entreprise.fr"
+                      placeholder="nouveau.tuteur@entreprise.fr"
                     />
                     <button
                       type="button"
                       disabled={busy || !tutorEmailEdit.trim()}
-                      onClick={() => void saveTutorEmail()}
+                      onClick={() => void requestTutorEmailChange()}
                       className="rounded-lg bg-amber-800 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
                     >
-                      Enregistrer et relancer le tuteur
+                      Envoyer la demande à l&apos;établissement
                     </button>
                   </div>
                 )}

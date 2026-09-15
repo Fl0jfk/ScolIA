@@ -239,6 +239,16 @@ export type StageConvention = {
     sentAt: string;
     verifiedAt?: string;
   };
+  /**
+   * Demande élève de changement d'e-mail tuteur (signatures en cours).
+   * Appliquée seulement après validation administrative.
+   */
+  tutorEmailChangeRequest?: {
+    requestedEmail: string;
+    previousEmail: string;
+    requestedAt: string;
+    note?: string;
+  };
   adminReview?: {
     at: string;
     by: string;

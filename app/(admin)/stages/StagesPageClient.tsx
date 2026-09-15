@@ -280,6 +280,35 @@ function StagesContent() {
     }
   }
 
+  async function reviewTutorEmailChange(approved: boolean) {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "review_tutor_email_change", approved }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      if (data.convention) {
+        setDetail({ ...detail, convention: data.convention });
+      }
+      setMsg(
+        data.message ||
+          (approved
+            ? "E-mail tuteur mis à jour — demande de signature renvoyée."
+            : "Demande refusée."),
+      );
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function addSignatory() {
     if (!detail) return;
     const role = window.prompt(
@@ -630,6 +659,7 @@ function StagesContent() {
                 onAddSignatory={() => void addSignatory()}
                 onFileToEleveDossier={() => void fileToEleveDossier()}
                 onFileToOneDrive={() => void fileToOneDrive()}
+                onReviewTutorEmailChange={(approved) => void reviewTutorEmailChange(approved)}
               />
             ) : null
           }
