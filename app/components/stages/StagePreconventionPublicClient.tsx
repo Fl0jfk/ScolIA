@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { StageConvention } from "@/app/lib/stage-types";
 import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-config";
 import type { StageConventionCard } from "@/app/lib/stage-signature-summary";
-import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
-import { scheduleSummary } from "@/app/lib/stage-schedule";
+import { STAGE_CONVENTION_STATUS_LABELS, formatCompanyAddress } from "@/app/lib/stage-types";
+import { formatPeriodRangeFr } from "@/app/lib/stage-schedule";
 import {
   clearPreconventionDeviceMemory,
   readPreconventionDeviceMemory,
@@ -14,6 +14,12 @@ import {
 } from "@/app/lib/stage-preconvention-device-memory";
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
+import StageOtpCodeInput from "@/app/components/stages/StageOtpCodeInput";
+import StageSchedulePanel from "@/app/components/stages/StageSchedulePanel";
+import {
+  usePublicSiteIdentity,
+  type PublicSiteIdentity,
+} from "@/app/contexts/public-site-identity";
 
 type PeriodAvailability = StageClassPeriod & {
   used: boolean;
@@ -31,12 +37,26 @@ type StudentPreview = {
   firstName: string;
   lastName: string;
   className: string;
+  photoUrl?: string | null;
   parent1Email?: string | null;
   parent2Email?: string | null;
   parentPhone?: string | null;
   parent2Phone?: string | null;
   studentEmail?: string | null;
 };
+
+function formatIsoDateFr(iso: string): string {
+  const raw = iso.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return iso;
+  return new Date(`${raw}T12:00:00`).toLocaleDateString("fr-FR");
+}
+
+function studentInitials(firstName: string, lastName: string): string {
+  const a = firstName.trim().charAt(0);
+  const b = lastName.trim().charAt(0);
+  return `${a}${b}`.toUpperCase() || "?";
+}
+
 
 function extractTokenFromStudentLink(studentLink: string): string | null {
   try {
@@ -53,6 +73,8 @@ function StagePreconventionPublicContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tokenFromUrl = searchParams.get("token") || "";
+  const contextIdentity = usePublicSiteIdentity();
+  const [fetchedIdentity, setFetchedIdentity] = useState<PublicSiteIdentity | null>(null);
 
   const [step, setStep] = useState<"identity" | "dashboard" | "form">(
     tokenFromUrl ? "form" : "identity",
@@ -63,6 +85,8 @@ function StagePreconventionPublicContent() {
   const [classe, setClasse] = useState("");
   const [classOptions, setClassOptions] = useState<string[]>([]);
   const [studentPreview, setStudentPreview] = useState<StudentPreview | null>(null);
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const [studentPhotoUrl, setStudentPhotoUrl] = useState<string | null>(null);
   const [dossier, setDossier] = useState<StudentDossier | null>(null);
   const [token, setToken] = useState(tokenFromUrl);
   const [convention, setConvention] = useState<StageConvention | null>(null);
@@ -93,6 +117,27 @@ function StagePreconventionPublicContent() {
   });
   const deviceRestoreStarted = useRef(false);
 
+  useEffect(() => {
+    if (contextIdentity) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/site/public", { cache: "no-store" });
+        const data = (await res.json()) as PublicSiteIdentity;
+        if (!cancelled && res.ok) setFetchedIdentity(data);
+      } catch {
+        /* logo / nom établissement optionnels */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [contextIdentity]);
+
+  const siteIdentity = contextIdentity ?? fetchedIdentity;
+  const schoolName = siteIdentity?.name?.trim() || siteIdentity?.shortName?.trim() || "";
+  const logoUrl = siteIdentity?.headerLogoUrl?.trim() || "";
+
   function rememberIdentity(fields?: {
     nom?: string;
     prenom?: string;
@@ -110,6 +155,8 @@ function StagePreconventionPublicContent() {
   function forgetIdentity() {
     clearPreconventionDeviceMemory();
     setStudentPreview(null);
+    setPhotoFailed(false);
+    setStudentPhotoUrl(null);
     setDossier(null);
     setNom("");
     setPrenom("");
@@ -149,6 +196,12 @@ function StagePreconventionPublicContent() {
     setParentEmailVerified(data.parentEmailVerified === true);
     setTutorEmailEdit(String(data.convention?.company?.tutorEmail ?? ""));
     applyStageContext(data.stageContext);
+    const nextPhoto =
+      typeof data.studentPhotoUrl === "string" && data.studentPhotoUrl.trim()
+        ? data.studentPhotoUrl.trim()
+        : null;
+    setStudentPhotoUrl(nextPhoto);
+    setPhotoFailed(false);
     if (data.convention?.status === "admin_rejected" && data.convention.adminReview?.note) {
       setRejectNote(data.convention.adminReview.note);
     } else {
@@ -233,6 +286,8 @@ function StagePreconventionPublicContent() {
   ) {
     const preview = data.studentPreview;
     setStudentPreview(preview);
+    setPhotoFailed(false);
+    setStudentPhotoUrl(preview.photoUrl?.trim() || null);
     setParent1Email(String(preview.parent1Email ?? ""));
     setParent2Email(String(preview.parent2Email ?? ""));
     setEditingParentEmail(false);
@@ -501,11 +556,24 @@ function StagePreconventionPublicContent() {
   return (
     <main className="min-h-screen bg-[#f6f8f5] px-4 py-10">
       <div className="mx-auto max-w-2xl rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
-        <h1 className="text-2xl font-black text-[#1F3D2B]">Préconvention de stage</h1>
-        <p className="mt-2 text-sm text-stone-600">
-          Vous pouvez déposer plusieurs stages dans l&apos;année (ex. deux semaines en deux
-          entreprises différentes). Chaque stage a son propre suivi de signatures.
-        </p>
+        <header className="flex flex-col items-center text-center sm:flex-row sm:items-center sm:text-left gap-4">
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={logoUrl}
+              alt={schoolName || "Logo de l'établissement"}
+              className="h-16 w-auto max-w-[140px] object-contain shrink-0"
+            />
+          ) : null}
+          <div className="min-w-0">
+            {schoolName ? (
+              <p className="text-xs font-bold uppercase tracking-wider text-[#2F6B4A]">
+                {schoolName}
+              </p>
+            ) : null}
+            <h1 className="text-2xl font-black text-[#1F3D2B]">Préconvention de stage</h1>
+          </div>
+        </header>
 
         {error && <p className="mt-4 text-sm text-rose-700">{error}</p>}
         {infoMsg && (
@@ -516,9 +584,8 @@ function StagePreconventionPublicContent() {
 
         {step === "identity" && !token && (
           <form onSubmit={(e) => void verifyIdentity(e)} className="mt-6 space-y-4 text-sm">
-            <p className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-700">
-              <strong>Étape 1 — Identification</strong> : nom, prénom et date de naissance (comme
-              sur le bulletin ou dans Pronote). Vous accéderez ensuite à vos dossiers de stage.
+            <p className="text-xs text-stone-600">
+              Nom, prénom et date de naissance comme sur le bulletin.
             </p>
             <label className="block">
               <span className="text-xs font-semibold text-stone-600">Nom *</span>
@@ -592,25 +659,45 @@ function StagePreconventionPublicContent() {
         {step === "dashboard" && studentPreview && dossier && (
           <div className="mt-6 space-y-6 text-sm">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">
-                    Élève reconnu
-                  </p>
-                  <p className="mt-1 text-base font-black text-[#1F3D2B]">
-                    {studentPreview.firstName} {studentPreview.lastName}
-                  </p>
-                  <p className="text-stone-600">
-                    {studentPreview.className} · Année {dossier.schoolYear}
-                  </p>
-                  {(studentPreview.parentPhone || studentPreview.parent2Phone) && (
-                    <p className="mt-1 text-xs text-stone-600">
-                      Tél. responsable :{" "}
-                      {[studentPreview.parentPhone, studentPreview.parent2Phone]
-                        .filter(Boolean)
-                        .join(" · ")}
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border-2 border-white bg-[#2F6B4A]/15 shadow-sm">
+                    {(studentPhotoUrl || studentPreview.photoUrl) && !photoFailed ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={studentPhotoUrl || studentPreview.photoUrl || ""}
+                        alt={`${studentPreview.firstName} ${studentPreview.lastName}`}
+                        className="h-full w-full object-cover"
+                        onError={() => setPhotoFailed(true)}
+                      />
+                    ) : (
+                      <div
+                        className="flex h-full w-full items-center justify-center text-sm font-black text-[#1F3D2B]"
+                        aria-hidden
+                      >
+                        {studentInitials(studentPreview.firstName, studentPreview.lastName)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-800">
+                      Élève reconnu
                     </p>
-                  )}
+                    <p className="mt-1 text-base font-black text-[#1F3D2B]">
+                      {studentPreview.firstName} {studentPreview.lastName}
+                    </p>
+                    <p className="text-stone-600">
+                      {studentPreview.className} · Année {dossier.schoolYear}
+                    </p>
+                    {(studentPreview.parentPhone || studentPreview.parent2Phone) && (
+                      <p className="mt-1 text-xs text-stone-600">
+                        Tél. responsable :{" "}
+                        {[studentPreview.parentPhone, studentPreview.parent2Phone]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -630,9 +717,9 @@ function StagePreconventionPublicContent() {
                 Important — convention à signer
               </p>
               <p className="text-xs text-rose-900 leading-relaxed">
-                La convention de stage à signer sera envoyée à l&apos;adresse e-mail du responsable
-                légal ci-dessous. Vérifiez qu&apos;elle est correcte (par exemple celle du parent qui
-                pourra signer).
+                La convention de stage sera envoyée à l&apos;adresse e-mail du responsable légal
+                ci-dessous. Vérifiez qu&apos;elle est correcte, par exemple celle du parent qui
+                pourra signer.
               </p>
               {!editingParentEmail ? (
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -749,16 +836,30 @@ function StagePreconventionPublicContent() {
                               {c.companyName !== "—" ? ` — ${c.companyName}` : ""}
                             </p>
                             <p className="text-xs text-stone-500 mt-0.5">
-                              {c.periodStart} → {c.periodEnd} · {c.statusLabel}
+                              {formatPeriodRangeFr(c.periodStart, c.periodEnd) ||
+                                `${formatIsoDateFr(c.periodStart)} → ${formatIsoDateFr(c.periodEnd)}`}{" "}
+                              · {c.statusLabel}
                             </p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => openExistingStage(c)}
-                            className="shrink-0 rounded-lg border border-[#2F6B4A] px-3 py-1.5 text-xs font-semibold text-[#2F6B4A]"
-                          >
-                            Ouvrir
-                          </button>
+                          <div className="flex shrink-0 flex-wrap gap-2">
+                            {(c.status === "signed" || c.signatureSummary.complete) &&
+                            c.studentAccessToken ? (
+                              <a
+                                href={`/api/stages/public/student/pdf?token=${encodeURIComponent(c.studentAccessToken)}&download=1`}
+                                className="rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-semibold text-white"
+                                download
+                              >
+                                PDF
+                              </a>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => openExistingStage(c)}
+                              className="rounded-lg border border-[#2F6B4A] px-3 py-1.5 text-xs font-semibold text-[#2F6B4A]"
+                            >
+                              Ouvrir
+                            </button>
+                          </div>
                         </div>
                         <StageSignatureProgress summary={c.signatureSummary} compact />
                       </li>
@@ -785,7 +886,7 @@ function StagePreconventionPublicContent() {
                     <option value="">— Hors période / autre date —</option>
                     {dossier.availablePeriods.map((p) => (
                       <option key={p.id} value={p.id} disabled={p.used}>
-                        {p.label} ({p.periodStart} → {p.periodEnd})
+                        {p.label} ({formatIsoDateFr(p.periodStart)} → {formatIsoDateFr(p.periodEnd)})
                         {p.used ? " — déjà utilisée" : ""}
                       </option>
                     ))}
@@ -811,12 +912,36 @@ function StagePreconventionPublicContent() {
 
         {step === "form" && convention && (
           <>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-stone-600">
-                <strong>{convention.stageLabel || "Stage"}</strong> · {convention.student.firstName}{" "}
-                {convention.student.lastName} ({convention.student.className}) ·{" "}
-                {STAGE_CONVENTION_STATUS_LABELS[convention.status]}
-              </p>
+            <div className="mt-4 flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-white bg-[#2F6B4A]/15 shadow-sm">
+                  {studentPhotoUrl && !photoFailed ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={studentPhotoUrl}
+                      alt={`${convention.student.firstName} ${convention.student.lastName}`}
+                      className="h-full w-full object-cover"
+                      onError={() => setPhotoFailed(true)}
+                    />
+                  ) : (
+                    <div
+                      className="flex h-full w-full items-center justify-center text-xs font-black text-[#1F3D2B]"
+                      aria-hidden
+                    >
+                      {studentInitials(convention.student.firstName, convention.student.lastName)}
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-[#1F3D2B]">
+                    {convention.student.firstName} {convention.student.lastName}
+                  </p>
+                  <p className="text-xs text-stone-600">
+                    <strong>{convention.stageLabel || "Stage"}</strong> · {convention.student.className}{" "}
+                    · {STAGE_CONVENTION_STATUS_LABELS[convention.status]}
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={backToDashboard}
@@ -881,26 +1006,26 @@ function StagePreconventionPublicContent() {
                 />
 
                 {showParentCode && (
-                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-3">
-                    <p className="text-sm font-bold text-blue-950">
-                      Confirmez l&apos;e-mail du responsable
-                    </p>
-                    <p className="text-xs text-blue-900">
-                      Un e-mail de vérification a été envoyé à{" "}
-                      <span className="font-semibold">
-                        {convention.parentSignerEmail ||
-                          convention.student.parent1Email ||
-                          "—"}
-                      </span>
-                      .
-                    </p>
-                    <input
-                      className="w-full rounded-lg border px-3 py-2 font-mono tracking-widest text-center text-lg"
-                      inputMode="numeric"
-                      maxLength={6}
-                      placeholder="Code 6 chiffres"
+                  <div className="rounded-xl border border-[#2F6B4A]/25 bg-[#f3faf6] p-4 space-y-3">
+                    <div>
+                      <p className="text-sm font-bold text-[#1F3D2B]">
+                        Confirmez l&apos;e-mail du responsable
+                      </p>
+                      <p className="mt-1 text-xs text-stone-600">
+                        Un e-mail de vérification a été envoyé à{" "}
+                        <span className="font-semibold text-[#1F3D2B]">
+                          {convention.parentSignerEmail ||
+                            convention.student.parent1Email ||
+                            "—"}
+                        </span>
+                        .
+                      </p>
+                    </div>
+                    <StageOtpCodeInput
                       value={parentCode}
-                      onChange={(e) => setParentCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      onChange={setParentCode}
+                      disabled={busy}
+                      autoFocus
                     />
                     <div className="flex flex-wrap gap-2">
                       <button
@@ -909,13 +1034,13 @@ function StagePreconventionPublicContent() {
                         onClick={() => void confirmParentCode()}
                         className="rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
                       >
-                        {busy ? "Envoi…" : "Valider le code et envoyer"}
+                        {busy ? "Validation…" : "Valider le code et envoyer"}
                       </button>
                       <button
                         type="button"
                         disabled={busy}
                         onClick={() => void save("submit")}
-                        className="rounded-lg border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-900"
+                        className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700"
                       >
                         Renvoyer le code
                       </button>
@@ -938,23 +1063,53 @@ function StagePreconventionPublicContent() {
 
             {readOnly && (
               <div className="mt-6 text-sm text-stone-600 space-y-4">
-                <div className="space-y-2">
+                <div className="rounded-xl border border-stone-200 bg-stone-50/80 px-4 py-3 space-y-2">
                   <p>
-                    <strong>Entreprise :</strong> {convention.company.name}
+                    <strong className="text-[#1F3D2B]">Entreprise :</strong>{" "}
+                    {convention.company.name}
                   </p>
                   <p>
-                    <strong>Période :</strong> {convention.schedule.periodStart} →{" "}
-                    {convention.schedule.periodEnd}
+                    <strong className="text-[#1F3D2B]">Adresse :</strong>{" "}
+                    {formatCompanyAddress(convention.company) || "—"}
                   </p>
                   <p>
-                    <strong>Horaires :</strong> {scheduleSummary(convention.schedule)}
+                    <strong className="text-[#1F3D2B]">Période :</strong>{" "}
+                    {formatPeriodRangeFr(
+                      convention.schedule.periodStart,
+                      convention.schedule.periodEnd,
+                    ) ||
+                      `${formatIsoDateFr(convention.schedule.periodStart)} → ${formatIsoDateFr(convention.schedule.periodEnd)}`}
                   </p>
                   <p>
-                    <strong>Tuteur :</strong> {convention.company.tutorName} —{" "}
-                    {convention.company.tutorEmail}
+                    <strong className="text-[#1F3D2B]">Tuteur :</strong>{" "}
+                    {convention.company.tutorName}
+                    {convention.company.tutorEmail ? ` — ${convention.company.tutorEmail}` : ""}
                   </p>
                 </div>
+
+                <StageSchedulePanel
+                  periodLabel={
+                    formatPeriodRangeFr(
+                      convention.schedule.periodStart,
+                      convention.schedule.periodEnd,
+                    ) ||
+                    `${formatIsoDateFr(convention.schedule.periodStart)} → ${formatIsoDateFr(convention.schedule.periodEnd)}`
+                  }
+                  days={convention.schedule.days || []}
+                  mode={convention.schedule.mode}
+                />
+
                 {signatureSummary && <StageSignatureProgress summary={signatureSummary} />}
+
+                {(convention.status === "signed" || signatureSummary?.complete) && token ? (
+                  <a
+                    href={`/api/stages/public/student/pdf?token=${encodeURIComponent(token)}&download=1`}
+                    className="flex w-full items-center justify-center rounded-lg bg-[#2F6B4A] py-3 text-sm font-bold text-white hover:bg-[#275c3f]"
+                    download
+                  >
+                    Télécharger ma convention PDF
+                  </a>
+                ) : null}
 
                 {canEditTutorEmail && (
                   <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-3">

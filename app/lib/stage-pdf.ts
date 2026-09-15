@@ -9,6 +9,7 @@ import { stageSignatureProofRef } from "@/app/lib/stage-signature-proof";
 import {
   STAGE_OFFER_KIND_LABELS,
   STAGE_SIGNER_ROLE_LABELS,
+  formatCompanyAddress,
   type StageConvention,
   type StageSignature,
 } from "@/app/lib/stage-types";
@@ -1058,7 +1059,7 @@ export async function renderStageConventionPdf(
   const yCards = ctx.y;
   drawPartyCard(ctx, ctx.margin, yCards, cardW, cardH, "Organisme d'accueil", [
     { label: "Nom", value: convention.company.name },
-    { label: "Adresse", value: convention.company.address },
+    { label: "Adresse", value: formatCompanyAddress(convention.company) },
     { label: "SIRET", value: convention.company.siret || "" },
     { label: "Activité", value: convention.company.activity },
   ]);

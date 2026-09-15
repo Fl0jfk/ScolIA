@@ -7,6 +7,7 @@ import {
   getStageRemindersForClass,
   isClassEligibleForStage,
 } from "@/app/lib/stage-periods-config";
+import { getElevePhotoUrl } from "@/app/lib/eleve-photos";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 
 const preconventionLimiter = createMemoryRateLimiter({
@@ -20,7 +21,7 @@ const identityLimiter = createMemoryRateLimiter({
 });
 
 const GENERIC_IDENTITY_ERROR =
-  "Nom, prénom ou date de naissance incorrects. Vérifiez l'orthographe (comme sur le bulletin ou dans Pronote), ou contactez le secrétariat.";
+  "Nom, prénom ou date de naissance incorrects. Vérifiez l'orthographe (comme sur le bulletin), ou contactez le secrétariat.";
 
 async function verifyAndLoadStudent(params: {
   nom: string;
@@ -42,10 +43,11 @@ async function verifyAndLoadStudent(params: {
     return { ok: false as const, error: eligibility.reason, status: 403 as const };
   }
 
-  const [dossier, reminders, periods] = await Promise.all([
+  const [dossier, reminders, periods, photoUrl] = await Promise.all([
     buildStudentStageDossier(student),
     getStageRemindersForClass(student.className),
     getStagePeriodsForClass(student.className),
+    getElevePhotoUrl(eleve).catch(() => null),
   ]);
 
   return {
@@ -53,6 +55,7 @@ async function verifyAndLoadStudent(params: {
     eleve,
     student,
     dossier,
+    photoUrl,
     stageContext: { reminders, periods },
     parent1Email:
       eleve.parent1Email?.trim() ||
@@ -127,6 +130,7 @@ export async function POST(req: Request) {
           firstName: loaded.student.firstName,
           lastName: loaded.student.lastName,
           className: loaded.student.className,
+          photoUrl: loaded.photoUrl || null,
           parent1Email: loaded.parent1Email || null,
           parent2Email: loaded.parent2Email || null,
           parentPhone:

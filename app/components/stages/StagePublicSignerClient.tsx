@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import StageConventionPdfPreview from "@/app/components/stages/StageConventionPdfPreview";
+import StageOtpCodeInput from "@/app/components/stages/StageOtpCodeInput";
 
 type SignMethod = "code_confirm" | "touch" | "paper_upload";
 
@@ -430,16 +431,12 @@ export default function StagePublicSignerClient() {
                         {codeHint}
                       </p>
                     )}
-                    <input
-                      className="w-full rounded-lg border border-stone-300 px-3 py-2 text-center font-mono text-lg tracking-widest"
-                      inputMode="numeric"
-                      pattern="[0-9]{6}"
-                      maxLength={6}
-                      placeholder="Code 6 chiffres"
+                    <StageOtpCodeInput
                       value={confirmCode}
-                      onChange={(e) =>
-                        setConfirmCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-                      }
+                      onChange={setConfirmCode}
+                      id="stage-sign-otp"
+                      disabled={busy}
+                      autoFocus
                     />
                     <button
                       type="button"

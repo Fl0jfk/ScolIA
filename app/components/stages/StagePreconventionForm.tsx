@@ -478,7 +478,10 @@ export default function StagePreconventionForm({
             </select>
           </Field>
         </div>
-        <Field label="E-mail élève" hint="Optionnel">
+        <Field
+          label="E-mail élève"
+          hint="Optionnel — recommandé pour le suivi"
+        >
           <input
             className={fieldInputClass}
             type="email"
@@ -491,6 +494,10 @@ export default function StagePreconventionForm({
             }
           />
         </Field>
+        <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] leading-relaxed text-sky-950">
+          Pourquoi votre e-mail ? Pour le suivi du stage : si l&apos;établissement demande des
+          modifications ou refuse la préconvention, vous recevrez la notification directement.
+        </p>
 
         <div className="rounded-xl border border-stone-200 bg-stone-50/80 p-3 space-y-3">
           <p className="text-xs font-bold text-[#1F3D2B]">Responsable(s) légal/aux</p>
@@ -545,7 +552,7 @@ export default function StagePreconventionForm({
             }
           />
         </Field>
-        <Field label="Adresse" required>
+        <Field label="Adresse (rue et numéro)" required>
           <input
             className={fieldInputClass}
             value={convention.company.address}
@@ -555,8 +562,45 @@ export default function StagePreconventionForm({
                 company: { ...convention.company, address: e.target.value },
               })
             }
+            autoComplete="street-address"
+            placeholder="ex. 12 rue de la République"
           />
         </Field>
+        <div className="grid gap-3 sm:grid-cols-[8rem_1fr]">
+          <Field label="Code postal" required>
+            <input
+              className={fieldInputClass}
+              value={convention.company.postalCode || ""}
+              onChange={(e) =>
+                onChange({
+                  ...convention,
+                  company: {
+                    ...convention.company,
+                    postalCode: e.target.value.replace(/\D/g, "").slice(0, 5),
+                  },
+                })
+              }
+              inputMode="numeric"
+              autoComplete="postal-code"
+              placeholder="76000"
+              maxLength={5}
+            />
+          </Field>
+          <Field label="Ville" required>
+            <input
+              className={fieldInputClass}
+              value={convention.company.city || ""}
+              onChange={(e) =>
+                onChange({
+                  ...convention,
+                  company: { ...convention.company, city: e.target.value },
+                })
+              }
+              autoComplete="address-level2"
+              placeholder="ex. Rouen"
+            />
+          </Field>
+        </div>
         <Field label="SIRET" hint="14 chiffres — optionnel">
           <input
             className={fieldInputClass}
@@ -625,7 +669,10 @@ export default function StagePreconventionForm({
             }
           />
         </Field>
-        <Field label="RH / signataire entreprise — e-mail" hint="Optionnel si signataire">
+        <Field
+          label="RH / signataire entreprise — e-mail"
+          hint="Optionnel — si renseigné, cette personne reçoit aussi un lien pour signer (en plus du tuteur)."
+        >
           <input
             className={fieldInputClass}
             type="email"

@@ -267,6 +267,13 @@ function validateConventionForSubmit(convention: StageConvention): string | null
   if (!convention.company.name.trim() || !convention.company.address.trim()) {
     return "Entreprise d'accueil incomplète (nom et adresse obligatoires).";
   }
+  if (!convention.company.postalCode?.trim() || !convention.company.city?.trim()) {
+    return "Indiquez le code postal et la ville de l'entreprise d'accueil.";
+  }
+  const postal = convention.company.postalCode.replace(/\s/g, "");
+  if (!/^\d{5}$/.test(postal)) {
+    return "Code postal invalide : 5 chiffres attendus.";
+  }
   const siret = normalizeSiret(convention.company.siret);
   if (siret && siret.length !== 14) {
     return "SIRET invalide : 14 chiffres attendus (ou laissez le champ vide).";
@@ -1425,6 +1432,8 @@ export async function createPublicPreconventionDraft(student: {
     company: {
       name: "",
       address: "",
+      postalCode: "",
+      city: "",
       activity: "",
       tutorName: "",
       tutorEmail: "",
@@ -1505,6 +1514,8 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
     company: {
       name: str(companyRaw.name, base?.company.name),
       address: str(companyRaw.address, base?.company.address),
+      postalCode: str(companyRaw.postalCode, base?.company.postalCode) || undefined,
+      city: str(companyRaw.city, base?.company.city) || undefined,
       siret: str(companyRaw.siret, base?.company.siret) || undefined,
       activity: str(companyRaw.activity, base?.company.activity),
       tutorName: str(companyRaw.tutorName, base?.company.tutorName),

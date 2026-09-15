@@ -189,7 +189,12 @@ export type StageStudentInfo = {
 
 export type StageCompanyInfo = {
   name: string;
+  /** Rue / numéro (ligne d'adresse). */
   address: string;
+  /** Code postal (ex. 76000). */
+  postalCode?: string;
+  /** Ville. */
+  city?: string;
   siret?: string;
   activity: string;
   tutorName: string;
@@ -197,6 +202,15 @@ export type StageCompanyInfo = {
   tutorPhone?: string;
   rhEmail?: string;
 };
+
+/** Adresse entreprise complète pour affichage / PDF. */
+export function formatCompanyAddress(company: Pick<StageCompanyInfo, "address" | "postalCode" | "city">): string {
+  const street = company.address?.trim() || "";
+  const zip = company.postalCode?.trim() || "";
+  const city = company.city?.trim() || "";
+  const locality = [zip, city].filter(Boolean).join(" ");
+  return [street, locality].filter(Boolean).join(", ");
+}
 
 export type StageConvention = {
   id: string;

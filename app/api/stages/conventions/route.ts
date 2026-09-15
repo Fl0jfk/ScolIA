@@ -139,6 +139,8 @@ export async function POST(req: Request) {
       company: {
         name: "",
         address: "",
+        postalCode: "",
+        city: "",
         activity: "",
         tutorName: "",
         tutorEmail: "",

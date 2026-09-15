@@ -16,12 +16,36 @@ import {
 import { scheduleSummary } from "@/app/lib/stage-schedule";
 import { buildSignatureSummary } from "@/app/lib/stage-signature-summary";
 import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
+import type { StageConvention } from "@/app/lib/stage-types";
+import { findEleveByIne } from "@/app/lib/eleves-registry";
+import { getElevePhotoUrl } from "@/app/lib/eleve-photos";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 
 const studentLimiter = createMemoryRateLimiter({
   windowMs: 10 * 60 * 1000,
   max: 60,
 });
+
+async function resolveStudentPhotoUrl(convention: StageConvention): Promise<string | null> {
+  try {
+    const ine = convention.ocrMeta?.matchedEleveIne?.trim();
+    if (ine) {
+      const byIne = await findEleveByIne(ine);
+      if (byIne) {
+        const url = await getElevePhotoUrl(byIne);
+        if (url) return url;
+      }
+    }
+    return await getElevePhotoUrl({
+      nom: convention.student.lastName,
+      prenom: convention.student.firstName,
+      ine: ine || "",
+      folderName: "",
+    });
+  } catch {
+    return null;
+  }
+}
 
 export async function GET(req: Request) {
   try {
@@ -30,6 +54,8 @@ export async function GET(req: Request) {
 
     const convention = await resolveConventionByStudentToken(token);
     if (!convention) return NextResponse.json({ error: "Lien invalide." }, { status: 404 });
+
+    const studentPhotoUrl = await resolveStudentPhotoUrl(convention);
 
     if (!["draft", "admin_rejected"].includes(convention.status)) {
       const stageContext = await stageContextForClass(
@@ -44,6 +70,7 @@ export async function GET(req: Request) {
         signatureSummary: buildSignatureSummary(convention),
         statusLabel: STAGE_CONVENTION_STATUS_LABELS[convention.status],
         scheduleSummary: scheduleSummary(convention.schedule),
+        studentPhotoUrl,
       });
     }
 
@@ -68,6 +95,7 @@ export async function GET(req: Request) {
       stageContext,
       signatureSummary: buildSignatureSummary(convention),
       parentEmailVerified,
+      studentPhotoUrl,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
