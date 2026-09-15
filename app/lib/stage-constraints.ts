@@ -466,11 +466,11 @@ export function validateStageScheduleConstraints(
         (d) => d >= blocked.periodStart && d <= blocked.periodEnd,
       );
       if (hitDates.length > 0) {
-        const first = hitDates[0]!;
+        const from = new Date(`${blocked.periodStart}T12:00:00`).toLocaleDateString("fr-FR");
+        const to = new Date(`${blocked.periodEnd}T12:00:00`).toLocaleDateString("fr-FR");
         return (
-          `La période « ${blocked.label} » (${new Date(`${blocked.periodStart}T12:00:00`).toLocaleDateString("fr-FR")}` +
-          ` → ${new Date(`${blocked.periodEnd}T12:00:00`).toLocaleDateString("fr-FR")})` +
-          ` est fermée aux stages — présence prévue le ${new Date(`${first}T12:00:00`).toLocaleDateString("fr-FR")}.`
+          `La période du ${from} au ${to} est fermée aux stages ` +
+          `(établissement fermé). Choisissez d'autres dates.`
         );
       }
       if (

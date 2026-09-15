@@ -365,9 +365,10 @@ export default function StageScheduleEditor({
             <ul className="mt-2 list-disc space-y-1 pl-4">
               {constraints.blockedPeriods.map((b) => (
                 <li key={b.id}>
-                  Bloqué : {b.label} (
-                  {new Date(`${b.periodStart}T12:00:00`).toLocaleDateString("fr-FR")} →{" "}
-                  {new Date(`${b.periodEnd}T12:00:00`).toLocaleDateString("fr-FR")})
+                  Fermé aux stages du{" "}
+                  {new Date(`${b.periodStart}T12:00:00`).toLocaleDateString("fr-FR")} au{" "}
+                  {new Date(`${b.periodEnd}T12:00:00`).toLocaleDateString("fr-FR")}{" "}
+                  (établissement fermé)
                 </li>
               ))}
             </ul>
