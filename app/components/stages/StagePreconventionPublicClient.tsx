@@ -622,7 +622,6 @@ function StagePreconventionPublicContent() {
     setConvention(null);
     setDone(false);
     setRejectNote(null);
-    setShowParentCode(false);
     router.replace("/stages/preconvention");
     const memory = readPreconventionDeviceMemory();
     const creds = {
@@ -630,6 +629,7 @@ function StagePreconventionPublicContent() {
       prenom: prenom.trim() || memory?.prenom || "",
       dateNaissance: dateNaissance || memory?.dateNaissance || "",
       classe: classe.trim() || memory?.classe || undefined,
+      identityProof: identityProof || memory?.identityProof || undefined,
     };
     if (!creds.nom || !creds.prenom || !creds.dateNaissance) {
       setStep("identity");
