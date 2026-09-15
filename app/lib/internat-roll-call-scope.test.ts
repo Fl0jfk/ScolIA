@@ -8,7 +8,7 @@ import type { InternatStudent } from "@/app/lib/internat-types";
 
 function student(partial: Partial<InternatStudent> & { id: string; etablissement: string }): InternatStudent {
   return {
-    eleveRef: { nom: "Test", prenom: "A" },
+    eleveRef: { nom: "Test", prenom: "A", folderName: "Test_A" },
     sexe: "M",
     classe: "3A",
     actif: true,
