@@ -87,7 +87,7 @@ export default function StageWatchersEditor({
     try {
       const [wRes, usersRes] = await Promise.all([
         fetch("/api/stages/watchers", { cache: "no-store" }),
-        fetch("/api/stages/directory-users", { cache: "no-store" }),
+        fetch("/api/stages/directory-users?scope=watchers", { cache: "no-store" }),
       ]);
       const wData = await wRes.json();
       const usersData = await usersRes.json();

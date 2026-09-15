@@ -10,8 +10,31 @@ function sortKeyLastName(lastName?: string, firstName?: string, email?: string):
   return `${String(lastName || "").trim()} ${String(firstName || "").trim()} ${String(email || "").trim()}`.trim();
 }
 
-/** Utilisateurs éligibles comme professeur principal / référent stage (rôle professeur uniquement). */
-export async function GET() {
+type DirectoryScope = "referents" | "watchers";
+
+function parseScope(raw: string | null): DirectoryScope {
+  return raw === "watchers" ? "watchers" : "referents";
+}
+
+function memberMatchesScope(roles: string[], scope: DirectoryScope): boolean {
+  if (scope === "referents") {
+    return roles.includes("professeur");
+  }
+  // CPE / restauration (visibilité stages)
+  return (
+    roles.includes("cpe") ||
+    roles.includes("surveillant") ||
+    roles.includes("accueil") ||
+    roles.includes("administratif")
+  );
+}
+
+/**
+ * Annuaire stages :
+ * - `?scope=referents` (défaut) → professeurs (PP / référents)
+ * - `?scope=watchers` → CPE, surveillants, accueil, administratif
+ */
+export async function GET(req: Request) {
   try {
     const gate = await requireAuth();
     if (!gate.ok) return gate.response;
@@ -22,10 +45,12 @@ export async function GET() {
       return NextResponse.json({ error: "Accès réservé." }, { status: 403 });
     }
 
+    const scope = parseScope(new URL(req.url).searchParams.get("scope"));
+
     const members = await listDirectoryMembers();
     const users = members
       .filter((m) => m.externalUserId && !m.pending)
-      .filter((m) => m.roles.includes("professeur"))
+      .filter((m) => memberMatchesScope(m.roles, scope))
       .map((m) => ({
         externalUserId: m.externalUserId,
         email: m.email,
@@ -42,7 +67,7 @@ export async function GET() {
         ),
       );
 
-    return NextResponse.json({ users });
+    return NextResponse.json({ users, scope });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

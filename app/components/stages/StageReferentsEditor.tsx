@@ -68,7 +68,7 @@ export default function StageReferentsEditor({
     try {
       const [refRes, usersRes] = await Promise.all([
         fetch("/api/stages/referents", { cache: "no-store" }),
-        fetch("/api/stages/directory-users", { cache: "no-store" }),
+        fetch("/api/stages/directory-users?scope=referents", { cache: "no-store" }),
       ]);
       const refData = await refRes.json();
       const usersData = await usersRes.json();
