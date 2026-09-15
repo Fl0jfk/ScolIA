@@ -445,9 +445,7 @@ export default function StagePreconventionForm({
       {convention.teacherReferent.name && (
         <section className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-xs text-blue-900">
           <p className="font-bold">Professeur principal / référent</p>
-          <p className="mt-1">
-            {convention.teacherReferent.name} — {convention.teacherReferent.email}
-          </p>
+          <p className="mt-1">{convention.teacherReferent.name}</p>
         </section>
       )}
 
