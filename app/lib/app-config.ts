@@ -466,9 +466,19 @@ export async function saveIntegrations(data: IntegrationsConfig) {
 }
 
 export async function saveExternalLinks(links: ExternalQuickLinkConfig[]) {
-  const parsed = parseExternalLinksFile({ links });
+  const { normalizePublicImageUrl } = await import("@/app/lib/scola-image");
+  const parsed = parseExternalLinksFile({ links }).map((link) => ({
+    ...link,
+    img: normalizePublicImageUrl(link.img || "") || undefined,
+  }));
   await putJson("settings/external-links.json", { links: parsed });
   invalidateAppConfigCache();
+  void import("@/app/lib/valkey")
+    .then(async ({ valkeyDeleteByPrefix }) => {
+      const { valkeyKeyDashboardLinks } = await import("@/app/lib/valkey-keys");
+      await valkeyDeleteByPrefix(valkeyKeyDashboardLinks(""));
+    })
+    .catch(() => undefined);
 }
 
 export async function markOnboardingComplete(step = 5) {

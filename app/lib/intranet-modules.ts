@@ -11,6 +11,7 @@
 import { hasGlobalAdminRole, hasMasterRole, hasRole, isEleveOnlyRoleSet, normRole } from "./intranet-role-utils";
 import { INTRANET_DIRECTION_SLUGS, intranetRolesExceptParent, rolesFromUserLike } from "./intranet-roles";
 import { RGPD_MODULE_ROLES } from "./rgpd-access";
+import { scolaImageUrl } from "./scola-image";
 import {
   customDefaultModulesForRole,
   hasCustomRoleDefaults,
@@ -846,7 +847,7 @@ const INTRANET_EXTERNAL_QUICK_LINKS: ExternalQuickLink[] = [
   {
     id: "ecole-directe",
     name: "École Directe",
-    img: "",
+    img: scolaImageUrl("categories/Ecole direct.png"),
     link: "https://www.ecoledirecte.com/login?cameFrom=%2FAccueil",
     allowedRoles: [
       "direction_college",
@@ -864,7 +865,7 @@ const INTRANET_EXTERNAL_QUICK_LINKS: ExternalQuickLink[] = [
   {
     id: "zeendoc",
     name: "ZeenDoc",
-    img: "",
+    img: scolaImageUrl("categories/zeendoc.png"),
     link: "https://armoires.zeendoc.com/_Login/Login.php",
     allowedRoles: [
       "administratif",
@@ -877,7 +878,7 @@ const INTRANET_EXTERNAL_QUICK_LINKS: ExternalQuickLink[] = [
   {
     id: "arena",
     name: "Arena Ac-Normandie",
-    img: "",
+    img: scolaImageUrl("categories/MIN_Education_Nationale_et_Jeunesse_RVB.jpg"),
     link: "https://arena.ac-normandie.fr/arena/",
     allowedRoles: ["administratif", "direction_college", "direction_ecole", "direction_lycee"],
   },

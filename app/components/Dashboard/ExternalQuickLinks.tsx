@@ -1,23 +1,43 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { DashboardQuickLink } from "@/app/lib/dashboard-quick-links";
 import { dash } from "@/app/lib/dashboard-brand";
+import { normalizePublicImageUrl } from "@/app/lib/scola-image";
+
+function QuickLinkLetterFallback({ name }: { name: string }) {
+  return (
+    <div
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-[10px] font-bold text-stone-600"
+      aria-hidden
+    >
+      {name.slice(0, 1).toUpperCase() || "?"}
+    </div>
+  );
+}
 
 export function QuickLinkIcon({ src, name }: { src: string; name: string }) {
-  if (!src) {
-    return (
-      <div
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-bold ${dash.bgSoftMuted} ${dash.textMid}`}
-      >
-        {name.slice(0, 1).toUpperCase() || "?"}
-      </div>
-    );
+  const resolved = normalizePublicImageUrl(src);
+  const [broken, setBroken] = useState(false);
+
+  useEffect(() => {
+    setBroken(false);
+  }, [resolved]);
+
+  if (!resolved || broken) {
+    return <QuickLinkLetterFallback name={name} />;
   }
+
   return (
-    <div className={`relative h-7 w-7 shrink-0 overflow-hidden rounded-lg ${dash.bgSoftMuted}`}>
+    <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-lg bg-stone-100">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt="" className="h-full w-full object-contain p-0.5" />
+      <img
+        src={resolved}
+        alt=""
+        className="h-full w-full object-contain p-0.5"
+        onError={() => setBroken(true)}
+      />
     </div>
   );
 }

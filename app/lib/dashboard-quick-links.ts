@@ -1,5 +1,6 @@
 import type { ExternalQuickLinkConfig } from "@/app/lib/app-config-schemas";
 import type { ExternalQuickLink } from "@/app/lib/intranet-modules";
+import { normalizePublicImageUrl } from "@/app/lib/scola-image";
 
 export const DEFAULT_QUICK_LINK_ROLES = [
   "admin",
@@ -27,7 +28,7 @@ export function toDashboardQuickLinks(links: ExternalQuickLink[]): DashboardQuic
     id: l.id,
     name: l.name,
     link: l.link,
-    img: l.img || "",
+    img: normalizePublicImageUrl(l.img || ""),
   }));
 }
 

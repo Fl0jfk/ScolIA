@@ -13,6 +13,7 @@ import type {
   TravelsModuleConfig,
 } from "@/app/lib/app-config-schemas";
 import { PLATFORM_ASSISTANCE_EMAIL } from "@/app/lib/platform-assistance-email";
+import { scolaImageUrl } from "@/app/lib/scola-image";
 
 export const LAPROVIDENCE_STAFF_DIRECTORY: StaffDirectoryRow[] = [
   { email: "florian@h-me.fr", branchId: "corbeille", role: "leader" },
@@ -166,7 +167,7 @@ export function laprovidenceExternalLinks(): ExternalQuickLinkConfig[] {
     {
       id: "ecole-directe",
       name: "École Directe",
-      img: "",
+      img: scolaImageUrl("categories/Ecole direct.png"),
       link: "https://www.ecoledirecte.com/login?cameFrom=%2FAccueil",
       allowedRoles: [
         "direction_college",
@@ -183,14 +184,14 @@ export function laprovidenceExternalLinks(): ExternalQuickLinkConfig[] {
     {
       id: "zeendoc",
       name: "ZeenDoc",
-      img: "",
+      img: scolaImageUrl("categories/zeendoc.png"),
       link: "https://armoires.zeendoc.com/_Login/Login.php",
       allowedRoles: ["administratif", "comptabilite", "direction_college", "direction_ecole", "direction_lycee"],
     },
     {
       id: "arena",
       name: "Arena Ac-Normandie",
-      img: "",
+      img: scolaImageUrl("categories/MIN_Education_Nationale_et_Jeunesse_RVB.jpg"),
       link: "https://arena.ac-normandie.fr/arena/",
       allowedRoles: ["administratif", "direction_college", "direction_ecole", "direction_lycee"],
     },
