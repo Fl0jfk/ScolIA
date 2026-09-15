@@ -246,7 +246,7 @@ export async function buildStageClassRoster(
     studentMap.set(key, row);
   }
 
-  const students = [...studentMap.values()]
+  const studentsRaw = [...studentMap.values()]
     .map((s) => {
       s.conventions.sort((a, b) => b.periodStart.localeCompare(a.periodStart));
       return { ...s, rosterStatus: rosterStatusFromConventions(s.conventions) };
@@ -256,6 +256,14 @@ export async function buildStageClassRoster(
       if (ln !== 0) return ln;
       return a.prenom.localeCompare(b.prenom, "fr", { sensitivity: "base" });
     });
+
+  /**
+   * Classe sans période officielle (ex. 5e volontaire) : ne lister que les élèves
+   * ayant déjà un dossier — pas toute la classe SIECLE.
+   */
+  const students = expectsMandatoryStage
+    ? studentsRaw
+    : studentsRaw.filter((s) => s.conventions.length > 0);
 
   const summary = {
     total: students.length,
@@ -274,7 +282,7 @@ export async function buildStageClassRoster(
   }
   if (!expectsMandatoryStage) {
     notes.push(
-      "Aucune période officielle pour cette classe : le stage n'est pas obligatoire. Les demandes volontaires apparaissent ici ; un élève sans dossier n'est pas une alerte.",
+      "Aucune période officielle pour cette classe : seuls les élèves ayant déposé un stage volontaire apparaissent ici. La classe a été ajoutée aux stages concernés pour le suivi.",
     );
   }
 

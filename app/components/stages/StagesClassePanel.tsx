@@ -6,19 +6,21 @@ import StageClassRosterPanel from "@/app/components/stages/StageClassRosterPanel
 export default function StagesClassePanel({
   onOpenConvention,
   selectedConventionId,
+  focusClassName,
+  detailSlot,
   canFileOneDrive,
   oneDriveConnected,
   onFileOneDrive,
   filingConventionId,
-  detailPanel,
 }: {
   onOpenConvention: (id: string) => void;
   selectedConventionId?: string | null;
+  focusClassName?: string | null;
+  detailSlot?: ReactNode;
   canFileOneDrive: boolean;
   oneDriveConnected: boolean;
   onFileOneDrive: (id: string) => void;
   filingConventionId: string | null;
-  detailPanel?: ReactNode;
 }) {
   return (
     <section data-tour="stages-classe" className="space-y-6">
@@ -26,12 +28,15 @@ export default function StagesClassePanel({
         <h2 className="text-lg font-bold text-[#1F3D2B]">Suivi des stages par classe</h2>
         <p className="mt-2 text-sm text-stone-600 max-w-3xl">
           Cliquez sur un élève pour voir toutes ses conventions (statuts, signatures, référent).
-          Ouvrez un dossier pour valider, relancer ou suivre les signatures — tout est ici.
+          Ouvrez un dossier pour valider, relancer ou suivre les signatures — le dossier s&apos;affiche
+          directement sous l&apos;élève.
         </p>
         <div className="mt-6">
           <StageClassRosterPanel
             onOpenConvention={onOpenConvention}
             selectedConventionId={selectedConventionId}
+            focusClassName={focusClassName}
+            detailSlot={detailSlot}
             canFileOneDrive={canFileOneDrive}
             oneDriveConnected={oneDriveConnected}
             onFileOneDrive={onFileOneDrive}
@@ -39,7 +44,6 @@ export default function StagesClassePanel({
           />
         </div>
       </div>
-      {detailPanel}
     </section>
   );
 }

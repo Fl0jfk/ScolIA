@@ -87,6 +87,7 @@ function StagesContent() {
     }
     return "board";
   });
+  const [focusClassName, setFocusClassName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -120,6 +121,26 @@ function StagesContent() {
     const res = await fetch(`/api/stages/conventions/${id}`, { cache: "no-store" });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.error || "Erreur");
+
+    const className = String(data?.convention?.student?.className ?? "").trim();
+    if (className) {
+      try {
+        await fetch("/api/stages/ensure-class", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            className,
+            schoolYear: data.convention.schoolYear,
+          }),
+        });
+      } catch {
+        /* non bloquant — le roster tente quand même la classe */
+      }
+      setFocusClassName(className);
+    } else {
+      setFocusClassName(null);
+    }
+
     setDetail(data);
     setSelectedId(id);
     setTab("classe");
@@ -594,11 +615,12 @@ function StagesContent() {
             void loadDetail(id);
           }}
           selectedConventionId={selectedId}
+          focusClassName={focusClassName}
           canFileOneDrive={Boolean(permissions?.canFileToOneDrive && od.oneDriveEnabled)}
           oneDriveConnected={od.connected}
           onFileOneDrive={(id) => void fileConventionToOneDrive(id)}
           filingConventionId={filingConventionId}
-          detailPanel={
+          detailSlot={
             detail && detail.convention.id === selectedId ? (
               <StageConventionDetail
                 detail={detail}

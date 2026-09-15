@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { StageClassRoster, StageRosterStudentStatus } from "@/app/lib/stage-class-roster";
 import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 
@@ -65,6 +65,8 @@ type RosterResponse = {
 export default function StageClassRosterPanel({
   onOpenConvention,
   selectedConventionId,
+  focusClassName,
+  detailSlot,
   canFileOneDrive,
   oneDriveConnected,
   onFileOneDrive,
@@ -72,6 +74,10 @@ export default function StageClassRosterPanel({
 }: {
   onOpenConvention: (conventionId: string) => void;
   selectedConventionId?: string | null;
+  /** Classe à sélectionner (ex. depuis le board « signature en cours »). */
+  focusClassName?: string | null;
+  /** Dossier convention rendu inline sous la carte élève sélectionnée. */
+  detailSlot?: ReactNode;
   canFileOneDrive?: boolean;
   oneDriveConnected?: boolean;
   onFileOneDrive?: (conventionId: string) => void;
@@ -86,6 +92,7 @@ export default function StageClassRosterPanel({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<RosterStatusFilter>("all");
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const detailAnchorRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async (className?: string) => {
     setLoading(true);
@@ -98,6 +105,7 @@ export default function StageClassRosterPanel({
       if (!res.ok) throw new Error(json.error || "Erreur chargement");
       setData(json);
       if (json.roster?.className) setSelectedClass(json.roster.className);
+      else if (className) setSelectedClass(className);
       else if (json.availableClasses[0]) setSelectedClass(json.availableClasses[0]);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -107,8 +115,13 @@ export default function StageClassRosterPanel({
   }, []);
 
   useEffect(() => {
+    const wanted = focusClassName?.trim() || "";
+    if (wanted) {
+      void load(wanted);
+      return;
+    }
     void load();
-  }, [load]);
+  }, [load, focusClassName]);
 
   useEffect(() => {
     if (!selectedConventionId || !data?.roster) return;
@@ -117,6 +130,14 @@ export default function StageClassRosterPanel({
     );
     if (match) setExpandedKey(match.key);
   }, [selectedConventionId, data]);
+
+  useEffect(() => {
+    if (!selectedConventionId || !detailSlot) return;
+    const t = window.setTimeout(() => {
+      detailAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [selectedConventionId, detailSlot, expandedKey]);
 
   const onClassChange = (className: string) => {
     setSelectedClass(className);
@@ -156,6 +177,16 @@ export default function StageClassRosterPanel({
   }
 
   const roster = data?.roster ?? null;
+
+  const classOptions = useMemo(() => {
+    const list = [...(data?.availableClasses ?? [])];
+    const focus = focusClassName?.trim();
+    if (focus && !list.some((c) => c.localeCompare(focus, "fr", { sensitivity: "base" }) === 0)) {
+      list.push(focus);
+      list.sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+    }
+    return list;
+  }, [data?.availableClasses, focusClassName]);
 
   const filteredStudents = useMemo(() => {
     if (!roster) return [];
@@ -216,7 +247,7 @@ export default function StageClassRosterPanel({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-4">
-        {data.availableClasses.length > 1 && (
+        {classOptions.length >= 1 && (
           <label className="text-sm font-semibold text-stone-700">
             Classe
             <select
@@ -224,7 +255,7 @@ export default function StageClassRosterPanel({
               value={selectedClass}
               onChange={(e) => onClassChange(e.target.value)}
             >
-              {data.availableClasses.map((c) => (
+              {classOptions.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -232,7 +263,7 @@ export default function StageClassRosterPanel({
             </select>
           </label>
         )}
-        {data.availableClasses.length === 1 && (
+        {classOptions.length === 0 && (
           <p className="text-lg font-bold text-[#1F3D2B]">Classe {roster.className}</p>
         )}
         {data.referents.length > 0 && (
@@ -431,7 +462,7 @@ export default function StageClassRosterPanel({
                               onClick={() => onOpenConvention(c.id)}
                               className="shrink-0 rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-bold text-white"
                             >
-                              {selected ? "Dossier ouvert ↓" : "Ouvrir le dossier"}
+                              {selected && detailSlot ? "Dossier ouvert" : "Ouvrir le dossier"}
                             </button>
                           </div>
 
@@ -479,6 +510,15 @@ export default function StageClassRosterPanel({
                               ) : null
                             ) : null}
                           </div>
+
+                          {selected && detailSlot ? (
+                            <div
+                              ref={detailAnchorRef}
+                              className="border-t border-stone-100 pt-3"
+                            >
+                              {detailSlot}
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })
