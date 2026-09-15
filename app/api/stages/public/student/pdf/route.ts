@@ -37,7 +37,8 @@ export async function GET(req: Request) {
 
     const fullySigned =
       convention.status === "signed" ||
-      conventionAllSignaturesValidated(convention.signatures);    if (!fullySigned) {
+      conventionAllSignaturesValidated(convention.signatures);
+    if (!fullySigned) {
       return NextResponse.json(
         { error: "La convention n'est pas encore entièrement signée." },
         { status: 403 },

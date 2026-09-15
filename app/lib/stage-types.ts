@@ -188,7 +188,10 @@ export type StageStudentInfo = {
   email?: string;
   /** Responsable légal 1 (obligatoire à la soumission). */
   parent1Email?: string;
-  /** Responsable légal 2 (obligatoire à la soumission). */
+  /**
+   * Responsable légal 2 (optionnel). S'il est renseigné, il reçoit aussi l'invitation ;
+   * une seule signature parent (1 ou 2) suffit pour clôturer.
+   */
   parent2Email?: string;
   /** @deprecated Préférer parent1Email — conservé pour compatibilité. */
   parentEmail?: string;
@@ -434,6 +437,23 @@ export function canStageSignerUsePaperUpload(role: StageSignerRole): boolean {
   return role === "tuteur_entreprise" || role === "rh_entreprise";
 }
 
+export function isParentStageSignerRole(role: StageSignerRole): boolean {
+  return role === "parent" || role === "parent_2";
+}
+
+/**
+ * Convention complète quand tous les signataires requis ont validé.
+ * Parents : les deux peuvent être invités et signer ; dès qu'un des deux a signé,
+ * l'exigence « responsable légal » est satisfaite (l'autre n'est pas bloquant).
+ */
 export function conventionAllSignaturesValidated(signatures: StageSignature[]): boolean {
-  return signatures.length > 0 && signatures.every(isStageSignatureFullyValidated);
+  if (signatures.length === 0) return false;
+
+  const parentSigs = signatures.filter((s) => isParentStageSignerRole(s.role));
+  const otherSigs = signatures.filter((s) => !isParentStageSignerRole(s.role));
+
+  const parentsOk =
+    parentSigs.length === 0 || parentSigs.some(isStageSignatureFullyValidated);
+
+  return parentsOk && otherSigs.every(isStageSignatureFullyValidated);
 }

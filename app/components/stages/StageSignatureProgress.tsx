@@ -69,7 +69,9 @@ export default function StageSignatureProgress({
                   ? signedLabel(item)
                   : item.status === "refuse"
                     ? "Refusé"
-                    : "En attente"}
+                    : item.nonBlocking
+                      ? "Autre parent déjà signé"
+                      : "En attente"}
               </span>
             </li>
           ))}
