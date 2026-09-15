@@ -25,10 +25,6 @@ const StagesClassePanel = dynamic(() => import("@/app/components/stages/StagesCl
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
-const StagesConventionsPanel = dynamic(
-  () => import("@/app/components/stages/StagesConventionsPanel"),
-  { ssr: false, loading: () => <ModuleTabFallback /> },
-);
 const StagesSettingsPanel = dynamic(() => import("@/app/components/stages/StagesSettingsPanel"), {
   ssr: false,
   loading: () => <ModuleTabFallback />,
@@ -66,7 +62,6 @@ function StagesContent() {
     };
   }, [sessionUser, odEnabled]);
   const od = useOneDriveConnection({ enabled: odEnabled, restoreOnMount: false });
-  const [conventions, setConventions] = useState<StageConvention[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get("convention"));
   const [detail, setDetail] = useState<{
     convention: StageConvention;
@@ -84,9 +79,14 @@ function StagesContent() {
       targetOneDriveLabel: string | null;
     };
   } | null>(null);
-  const [tab, setTab] = useState<StageTab>(
-    (searchParams.get("tab") as StageTab) || "board",
-  );
+  const [tab, setTab] = useState<StageTab>(() => {
+    const raw = searchParams.get("tab");
+    if (raw === "conventions") return "classe";
+    if (raw === "board" || raw === "classe" || raw === "settings" || raw === "repas") {
+      return raw;
+    }
+    return "board";
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -98,15 +98,10 @@ function StagesContent() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [bRes, cRes] = await Promise.all([
-        fetch("/api/stages", { cache: "no-store" }),
-        fetch("/api/stages/conventions", { cache: "no-store" }),
-      ]);
+      const bRes = await fetch("/api/stages", { cache: "no-store" });
       const b = await bRes.json();
-      const c = await cRes.json();
       if (!bRes.ok) throw new Error(b?.error || "Erreur");
       setBoard(b);
-      setConventions(c.conventions || []);
       if ((b.myPendingSignatures?.length ?? 0) > 0) {
         try {
           const sigRes = await fetch("/api/stages/my-signature", { cache: "no-store" });
@@ -127,17 +122,7 @@ function StagesContent() {
     if (!res.ok) throw new Error(data?.error || "Erreur");
     setDetail(data);
     setSelectedId(id);
-    setConventions((prev) => {
-      const next = data.convention as StageConvention;
-      const idx = prev.findIndex((c) => c.id === next.id);
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = next;
-        return copy;
-      }
-      return [next, ...prev];
-    });
-    setTab("conventions");
+    setTab("classe");
   }, []);
 
   const closeDetail = useCallback(() => {
@@ -150,16 +135,10 @@ function StagesContent() {
   }, [load]);
 
   useEffect(() => {
-    if (searchParams.get("tab") === "offers") {
-      setTab("board");
-    }
+    const raw = searchParams.get("tab");
+    if (raw === "offers") setTab("board");
+    if (raw === "conventions") setTab("classe");
   }, [searchParams]);
-
-  useEffect(() => {
-    if (board?.permissions.referentOnly && tab === "board") {
-      setTab("classe");
-    }
-  }, [board, tab]);
 
   useEffect(() => {
     const onStep = (e: Event) => {
@@ -301,6 +280,48 @@ function StagesContent() {
             ? "E-mail tuteur mis à jour — demande de signature renvoyée."
             : "Demande refusée."),
       );
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reviewScheduleChange(approved: boolean) {
+    if (!detail) return;
+    if (
+      approved &&
+      !window.confirm(
+        "Valider cette modification ? Toutes les signatures (déjà déposées ou en attente) seront annulées et chaque signataire devra re-signer.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "review_schedule_change", approved }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      if (data.convention) {
+        setDetail({
+          ...detail,
+          convention: data.convention,
+          signLinks: data.signLinks ?? detail.signLinks,
+        });
+      }
+      setMsg(
+        data.message ||
+          (approved
+            ? "Horaires mis à jour — signatures réinitialisées."
+            : "Demande de modification refusée."),
+      );
+      await loadDetail(detail.convention.id);
       await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -527,8 +548,9 @@ function StagesContent() {
         <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <p className="font-semibold">Vue professeur principal / référent</p>
           <p className="mt-1 text-blue-800">
-            Consultez l&apos;onglet <strong>Suivi classe</strong>, enregistrez votre signature ci-dessous, puis
-            signez les conventions reçues par e-mail — votre paraphe sera ajouté directement sur le PDF.
+            Consultez l&apos;onglet <strong>Suivi classe</strong> : ouvrez un élève pour voir ses
+            conventions, validez et suivez les signatures. Votre paraphe sera ajouté directement sur
+            le PDF.
           </p>
         </div>
       )}
@@ -540,7 +562,6 @@ function StagesContent() {
           {
             id: "board",
             label: "Tableau de bord",
-            hidden: Boolean(permissions?.referentOnly),
             dataAttrs: { "data-stages-tab": "board" },
           },
           {
@@ -548,11 +569,6 @@ function StagesContent() {
             label: "Suivi classe",
             hidden: !permissions?.canViewClassRoster,
             dataAttrs: { "data-stages-tab": "classe" },
-          },
-          {
-            id: "conventions",
-            label: "Conventions",
-            dataAttrs: { "data-stages-tab": "conventions" },
           },
           {
             id: "repas",
@@ -569,63 +585,19 @@ function StagesContent() {
         ]}
         active={tab}
         onChange={setTab}
-        badges={{ conventions: board?.counts?.myPendingSignatures }}
+        badges={{ classe: board?.counts?.myPendingSignatures }}
       />
 
       {tab === "classe" && permissions?.canViewClassRoster && (
         <StagesClassePanel
           onOpenConvention={(id) => {
             void loadDetail(id);
-            setTab("conventions");
           }}
+          selectedConventionId={selectedId}
           canFileOneDrive={Boolean(permissions?.canFileToOneDrive && od.oneDriveEnabled)}
           oneDriveConnected={od.connected}
           onFileOneDrive={(id) => void fileConventionToOneDrive(id)}
           filingConventionId={filingConventionId}
-        />
-      )}
-
-      {tab === "board" && board && (
-        <StagesBoardPanel
-          board={board}
-          permissions={permissions}
-          onLoadDetail={(id) => void loadDetail(id)}
-        />
-      )}
-
-      {tab === "repas" && permissions?.canViewRepasAbsences && (
-        <section className="mb-8 rounded-2xl border border-amber-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-bold text-[#1F3D2B]">Absences repas (stages)</h2>
-          <p className="mt-1 text-sm text-stone-600">
-            Élèves en stage sur la période — utiles pour la restauration et le suivi CPE.
-          </p>
-          <div className="mt-4">
-            <StageRepasAbsencesPanel
-              onOpenConvention={(id) => {
-                void loadDetail(id);
-              }}
-            />
-          </div>
-        </section>
-      )}
-
-      {tab === "settings" && permissions?.canManageStageSettings && (
-        <StagesSettingsPanel onSavedMsg={setMsg} />
-      )}
-
-
-      {tab === "conventions" && (
-        <StagesConventionsPanel
-          conventions={conventions}
-          permissions={permissions}
-          oneDriveEnabled={Boolean(od.oneDriveEnabled)}
-          oneDriveConnected={od.connected}
-          filingConventionId={filingConventionId}
-          busy={busy}
-          selectedId={selectedId}
-          onLoadDetail={(id) => void loadDetail(id)}
-          onCloseDetail={closeDetail}
-          onFileOneDrive={(id) => void fileConventionToOneDrive(id)}
           detailPanel={
             detail && detail.convention.id === selectedId ? (
               <StageConventionDetail
@@ -660,10 +632,40 @@ function StagesContent() {
                 onFileToEleveDossier={() => void fileToEleveDossier()}
                 onFileToOneDrive={() => void fileToOneDrive()}
                 onReviewTutorEmailChange={(approved) => void reviewTutorEmailChange(approved)}
+                onReviewScheduleChange={(approved) => void reviewScheduleChange(approved)}
               />
             ) : null
           }
         />
+      )}
+
+      {tab === "board" && board && (
+        <StagesBoardPanel
+          board={board}
+          permissions={permissions}
+          onLoadDetail={(id) => void loadDetail(id)}
+        />
+      )}
+
+      {tab === "repas" && permissions?.canViewRepasAbsences && (
+        <section className="mb-8 rounded-2xl border border-amber-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-bold text-[#1F3D2B]">Absences repas (stages)</h2>
+          <p className="mt-1 text-sm text-stone-600">
+            Suivi journalier ou par période — filtre collège / lycée et export PDF pour la
+            restauration.
+          </p>
+          <div className="mt-4">
+            <StageRepasAbsencesPanel
+              onOpenConvention={(id) => {
+                void loadDetail(id);
+              }}
+            />
+          </div>
+        </section>
+      )}
+
+      {tab === "settings" && permissions?.canManageStageSettings && (
+        <StagesSettingsPanel onSavedMsg={setMsg} />
       )}
     </ModulePageShell>
   );

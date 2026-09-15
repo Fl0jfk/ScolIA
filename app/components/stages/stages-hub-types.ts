@@ -1,10 +1,12 @@
 import type { PendingStageSignature } from "@/app/lib/stage-pending-signatures";
 
-export type StageTab = "board" | "classe" | "conventions" | "repas" | "settings";
+export type StageTab = "board" | "classe" | "repas" | "settings";
 
 export type StagesHubPermissions = {
   canModerateOffers: boolean;
   canReviewPreconvention: boolean;
+  /** File « dépôts à valider » — secrétariat (pas direction seule). */
+  canSeeAdminDepositQueue: boolean;
   canViewAllConventions: boolean;
   canViewReferentConventions: boolean;
   canDepositOffer: boolean;
@@ -17,6 +19,18 @@ export type StagesHubPermissions = {
   canViewClassRoster: boolean;
 };
 
+export type StagesHubBoardCard = {
+  id: string;
+  student?: { firstName: string; lastName: string };
+  company?: { name: string };
+  studentName?: string;
+  companyName?: string;
+  className?: string;
+  status: string;
+  tutorEmailChangePending?: boolean;
+  scheduleChangePending?: boolean;
+};
+
 export type StagesHubBoard = {
   viewer: string;
   viewerSecteurLabel?: string | null;
@@ -24,15 +38,8 @@ export type StagesHubBoard = {
   counts: Record<string, number>;
   myPendingSignatures?: PendingStageSignature[];
   pendingOffers: Array<{ id: string; companyName: string; kind: string; targetLevels: string[] }>;
-  adminQueue: Array<{
-    id: string;
-    student?: { firstName: string; lastName: string };
-    company?: { name: string };
-    studentName?: string;
-    companyName?: string;
-    status: string;
-    tutorEmailChangePending?: boolean;
-  }>;
+  adminQueue: StagesHubBoardCard[];
+  signaturesPending: StagesHubBoardCard[];
   conventions: Array<{
     id: string;
     studentName: string;

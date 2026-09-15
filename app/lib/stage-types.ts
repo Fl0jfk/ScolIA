@@ -15,6 +15,8 @@ export const STAGE_S3 = {
   offerApplications: (offerId: string) => `stages/offer-applications/${offerId}.json`,
   referentsConfig: (schoolYear: string) => `stages/referents/${schoolYear}.json`,
   periodsConfig: (schoolYear: string) => `stages/periods/${schoolYear}.json`,
+  /** Contraintes horaires / jours / plafonds / périodes bloquées. */
+  constraintsConfig: (schoolYear: string) => `stages/constraints/${schoolYear}.json`,
   /** CPE / restauration : visu stages par classe ou élève. */
   watchersConfig: (schoolYear: string) => `stages/watchers/${schoolYear}.json`,
   referentSignature: (externalUserId: string) => `signatures/users/${externalUserId}.png`,
@@ -178,6 +180,11 @@ export type StageStudentInfo = {
   lastName: string;
   className: string;
   level: string;
+  /**
+   * Date de naissance ISO (YYYY-MM-DD) — utilisée pour plafonds hebdo (&lt;15 ans / ≥15 ans)
+   * et bornes horaires selon l'âge.
+   */
+  dateNaissance?: string;
   email?: string;
   /** Responsable légal 1 (obligatoire à la soumission). */
   parent1Email?: string;
@@ -247,6 +254,18 @@ export type StageConvention = {
     requestedEmail: string;
     previousEmail: string;
     requestedAt: string;
+    note?: string;
+  };
+  /**
+   * Demande tuteur (lien signature) de modification période / jours / horaires.
+   * Appliquée seulement après validation administrative — invalide alors toutes les signatures.
+   */
+  scheduleChangeRequest?: {
+    requestedSchedule: StageSchedule;
+    previousSchedule: StageSchedule;
+    requestedAt: string;
+    requestedByRole: StageSignerRole;
+    requestedByLabel: string;
     note?: string;
   };
   adminReview?: {

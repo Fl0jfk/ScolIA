@@ -70,6 +70,58 @@ export async function notifyStagePreconventionSubmitted(convention: StageConvent
   return { sent: true, recipients };
 }
 
+/** Demande tuteur : modification période / jours / horaires à valider par l'administratif. */
+export async function notifyStageScheduleChangeRequested(convention: StageConvention) {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" as const };
+
+  const recipients = await resolveStagesAdminEmails(
+    convention.student.level,
+    convention.student.className,
+  );
+  if (!recipients.length) return { sent: false, reason: "no_recipients" as const };
+
+  const req = convention.scheduleChangeRequest;
+  const bundle = await loadAppConfig();
+  const school = bundle.identity.shortName || bundle.identity.name;
+  const prev = req?.previousSchedule;
+  const next = req?.requestedSchedule;
+  const text = [
+    "Bonjour,",
+    "",
+    `Le tuteur en entreprise demande une modification des dates / horaires de stage.`,
+    "",
+    `Élève : ${studentLabel(convention)} (${convention.student.className})`,
+    `Entreprise : ${convention.company.name}`,
+    `Demandé par : ${req?.requestedByLabel || "Tuteur"}`,
+    prev
+      ? `Période actuelle : ${prev.periodStart} → ${prev.periodEnd}`
+      : null,
+    next
+      ? `Période demandée : ${next.periodStart} → ${next.periodEnd}`
+      : null,
+    req?.note ? `Motif : ${req.note}` : null,
+    "",
+    `Si vous validez, toutes les signatures en cours seront annulées et chaque signataire devra re-signer.`,
+    `Connectez-vous à l'intranet → module Stages & conventions pour traiter la demande.`,
+    "",
+    "Cordialement,",
+    school,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  for (const to of recipients) {
+    await m.transporter.sendMail({
+      from: `"Stages ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `[Stages] Modification horaires demandée — ${studentLabel(convention)}`,
+      text,
+    });
+  }
+  return { sent: true, recipients };
+}
+
 export async function notifyStageConventionDeposited(convention: StageConvention) {
   const m = await mailer();
   if (!m) return { sent: false, reason: "smtp" as const };

@@ -3,6 +3,7 @@
 import StageReferentsEditor from "@/app/components/stages/StageReferentsEditor";
 import StagePeriodsEditor from "@/app/components/stages/StagePeriodsEditor";
 import StageWatchersEditor from "@/app/components/stages/StageWatchersEditor";
+import StageConstraintsEditor from "@/app/components/stages/StageConstraintsEditor";
 
 export default function StagesSettingsPanel({
   onSavedMsg,
@@ -17,9 +18,26 @@ export default function StagesSettingsPanel({
           Les élèves s&apos;identifient (nom, prénom et date de naissance), puis remplissent le formulaire
           en ligne : entreprise, horaires, dates, contacts — sans dépôt de PDF.
         </p>
-        <p className="mt-2 rounded-lg bg-white border border-emerald-100 px-3 py-2 text-sm font-mono break-all text-[#1F3D2B]">
-          {typeof window !== "undefined" ? window.location.origin : ""}/stages/preconvention
+        <a
+          href="/stages/preconvention"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 block rounded-lg border border-emerald-100 bg-white px-3 py-2 text-sm font-mono break-all text-[#2F6B4A] underline hover:bg-emerald-50"
+        >
+          {typeof window !== "undefined" ? `${window.location.origin}/stages/preconvention` : "/stages/preconvention"}
+        </a>
+      </section>
+
+      <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-[#1F3D2B]">Horaires, jours et périodes bloquées</h2>
+        <p className="mt-2 text-sm text-stone-600 max-w-2xl">
+          Limitez les plages horaires (ex. 6h–20h au collège), les jours (pas de week-end au
+          collège, samedi possible au lycée), les plafonds d&apos;heures selon l&apos;âge, et
+          interdisez certaines dates (établissement fermé).
         </p>
+        <div className="mt-4">
+          <StageConstraintsEditor onSaved={(m) => onSavedMsg(m)} />
+        </div>
       </section>
 
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">

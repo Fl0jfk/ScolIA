@@ -1,6 +1,13 @@
 import { randomBytes } from "crypto";
 import { normalizeStageSchedule, validateStageSchedule, defaultStageSchedule } from "@/app/lib/stage-schedule";
-import { resolveStagesDirectionEmail } from "@/app/lib/stage-config";
+import { resolveStagesDirectionEmail, stageCycleKindFromStudent, stageCycleLabel } from "@/app/lib/stage-config";
+import {
+  getStageConstraintsConfig,
+  resolveCycleConstraints,
+  validateStageScheduleConstraints,
+} from "@/app/lib/stage-constraints-config";
+import { normalizeEleveDateNaissance } from "@/app/lib/eleves-config";
+import { findEleveByIne } from "@/app/lib/eleves-registry";
 import { generateAndStoreConventionPdf, isPaperBasedConventionPdf, isScoliaGeneratedConventionPdf } from "@/app/lib/stage-pdf-store";
 import {
   stampSignatureOnConventionPdf,
@@ -26,6 +33,7 @@ import {
   isStageSignatureFullyValidated,
   stageUid,
   type StageConvention,
+  type StageSchedule,
   type StageSignMethod,
   type StageSignature,
   type StageSignerRole,
@@ -38,6 +46,7 @@ import {
   notifyStageAdminRejected,
   notifyStageFullySigned,
   notifyStagePreconventionSubmitted,
+  notifyStageScheduleChangeRequested,
   notifyStageSignatureRejected,
   notifyStageSignatureRequest,
   notifyStageSignConfirmCode,
@@ -260,7 +269,44 @@ export async function resolveSignTokenBySecureCode(
   return lookup?.token ?? null;
 }
 
-function validateConventionForSubmit(convention: StageConvention): string | null {
+async function resolveConventionDateNaissance(
+  convention: StageConvention,
+): Promise<string | undefined> {
+  const fromStudent = normalizeEleveDateNaissance(convention.student.dateNaissance ?? "");
+  if (fromStudent) return fromStudent;
+  const ine = convention.ocrMeta?.matchedEleveIne?.trim();
+  if (!ine) return undefined;
+  try {
+    const eleve = await findEleveByIne(ine);
+    return normalizeEleveDateNaissance(eleve?.dateNaissance ?? "") || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function validateConventionScheduleRules(
+  convention: StageConvention,
+  schedule: StageSchedule = convention.schedule,
+): Promise<string | null> {
+  const basic = validateStageSchedule(schedule);
+  if (basic) return basic;
+
+  const cycle = stageCycleKindFromStudent(
+    convention.student.level,
+    convention.student.className,
+  );
+  const config = await getStageConstraintsConfig(convention.schoolYear);
+  const rules = resolveCycleConstraints(config, cycle);
+  const dateNaissance = await resolveConventionDateNaissance(convention);
+  return validateStageScheduleConstraints(schedule, {
+    rules,
+    blockedPeriods: config.blockedPeriods,
+    dateNaissance,
+    cycleLabel: stageCycleLabel(cycle),
+  });
+}
+
+async function validateConventionForSubmit(convention: StageConvention): Promise<string | null> {
   const s = convention.student;
   if (!s.firstName.trim() || !s.lastName.trim() || !s.className.trim() || !s.level.trim()) {
     return "Identité élève incomplète.";
@@ -294,7 +340,7 @@ function validateConventionForSubmit(convention: StageConvention): string | null
     return "E-mail du responsable légal 2 invalide.";
   }
   // Professeur référent : optionnel à la soumission (rattachement possible ensuite par l'établissement).
-  return validateStageSchedule(convention.schedule);
+  return validateConventionScheduleRules(convention);
 }
 
 export async function submitPreconvention(
@@ -303,7 +349,7 @@ export async function submitPreconvention(
 ): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
   await ensureClassRegisteredForStages(convention.student.className, convention.schoolYear);
   let prepared = sanitizeConventionParents(await ensureConventionReferent(convention));
-  const err = validateConventionForSubmit(prepared);
+  const err = await validateConventionForSubmit(prepared);
   if (err) return { ok: false, error: err };
 
   const parentEmail =
@@ -592,6 +638,208 @@ export async function reviewTutorEmailChangeRequest(params: {
   });
 }
 
+function scheduleFingerprint(schedule: StageSchedule): string {
+  return JSON.stringify(normalizeStageSchedule(schedule));
+}
+
+/** Le tuteur peut demander une correction de période / jours / horaires pendant les signatures. */
+export function canRequestScheduleChange(convention: StageConvention, role: StageSignerRole): boolean {
+  if (convention.status !== "signatures_pending") return false;
+  if (role !== "tuteur_entreprise") return false;
+  const tutorSig = convention.signatures.find((s) => s.role === "tuteur_entreprise");
+  if (!tutorSig || tutorSig.status === "refuse") return false;
+  return true;
+}
+
+/** Demande tuteur : nouvelle période / horaires (sans application immédiate). */
+export async function requestScheduleChange(params: {
+  token: string;
+  schedule: unknown;
+  note?: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const ref = await getSignTokenRef(params.token);
+  if (!ref) return { ok: false, error: "Lien invalide." };
+
+  const convention = await getStageConvention(ref.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+
+  const signature = convention.signatures.find((s) => s.id === ref.signatureId);
+  if (!signature || signature.signToken !== params.token) {
+    return { ok: false, error: "Signature introuvable." };
+  }
+  if (!canRequestScheduleChange(convention, signature.role)) {
+    return {
+      ok: false,
+      error:
+        "Seul le tuteur en entreprise peut demander une modification pendant les signatures en cours.",
+    };
+  }
+  if (convention.scheduleChangeRequest) {
+    return {
+      ok: false,
+      error: "Une demande de modification est déjà en attente de validation administrative.",
+    };
+  }
+
+  const requestedSchedule = normalizeStageSchedule(params.schedule);
+  const scheduleError = await validateConventionScheduleRules(convention, requestedSchedule);
+  if (scheduleError) return { ok: false, error: scheduleError };
+
+  if (scheduleFingerprint(requestedSchedule) === scheduleFingerprint(convention.schedule)) {
+    return {
+      ok: false,
+      error: "Aucune modification détectée par rapport à la période et aux horaires actuels.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  let next: StageConvention = {
+    ...convention,
+    scheduleChangeRequest: {
+      requestedSchedule,
+      previousSchedule: normalizeStageSchedule(convention.schedule),
+      requestedAt: now,
+      requestedByRole: signature.role,
+      requestedByLabel: signature.label || STAGE_SIGNER_ROLE_LABELS[signature.role],
+      note: params.note?.trim() || undefined,
+    },
+    updatedAt: now,
+  };
+  next = pushHistory(
+    next,
+    signature.label || "Tuteur entreprise",
+    "HORAIRES_MODIF_DEMANDE",
+    `${convention.schedule.periodStart}→${convention.schedule.periodEnd} → ${requestedSchedule.periodStart}→${requestedSchedule.periodEnd}`,
+  );
+  await saveStageConvention(next);
+  void notifyStageScheduleChangeRequested(next).catch((e) =>
+    console.error("[stages] notify schedule change request:", e),
+  );
+  return { ok: true, convention: next };
+}
+
+/** Réinitialise toutes les signatures (y compris déjà déposées) et régénère les jetons. */
+async function resetAllSignaturesForResign(
+  convention: StageConvention,
+): Promise<StageConvention> {
+  const resetSignatures: StageSignature[] = [];
+  for (const sig of convention.signatures) {
+    if (sig.signToken) {
+      try {
+        await deleteSignTokenRef(sig.signToken);
+      } catch {
+        /* ignore */
+      }
+    }
+    let resetSig: StageSignature = {
+      ...sig,
+      status: "en_attente",
+      signedAt: undefined,
+      signedBy: undefined,
+      signMethod: undefined,
+      signaturePngS3Key: undefined,
+      paperUploadS3Key: undefined,
+      paperUploadFileName: undefined,
+      reviewStatus: undefined,
+      reviewNote: undefined,
+      reviewedAt: undefined,
+      reviewedBy: undefined,
+      signConfirmCode: undefined,
+      signConfirmCodeSentAt: undefined,
+      signToken: undefined,
+      signSecureCode: undefined,
+      signSentAt: undefined,
+    };
+    resetSig = await regenerateSignatureToken(convention.id, resetSig);
+    resetSignatures.push(resetSig);
+  }
+  return {
+    ...convention,
+    signatures: resetSignatures,
+    status: "signatures_pending",
+  };
+}
+
+/** Validation / refus administratif d'une demande de modification d'horaires. */
+export async function reviewScheduleChangeRequest(params: {
+  convention: StageConvention;
+  approved: boolean;
+  byName: string;
+  note?: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const req = params.convention.scheduleChangeRequest;
+  if (!req?.requestedSchedule) {
+    return { ok: false, error: "Aucune demande de modification d'horaires en attente." };
+  }
+
+  if (!params.approved) {
+    const now = new Date().toISOString();
+    let next: StageConvention = {
+      ...params.convention,
+      scheduleChangeRequest: undefined,
+      updatedAt: now,
+    };
+    next = pushHistory(
+      next,
+      params.byName,
+      "HORAIRES_MODIF_REFUSEE",
+      params.note?.trim() ||
+        `${req.previousSchedule.periodStart}→${req.previousSchedule.periodEnd} conservée`,
+    );
+    await saveStageConvention(next);
+    return { ok: true, convention: next };
+  }
+
+  if (
+    params.convention.status !== "signatures_pending" &&
+    params.convention.status !== "signed"
+  ) {
+    return {
+      ok: false,
+      error: "La demande ne peut être appliquée que si des signatures sont en cours ou complètes.",
+    };
+  }
+
+  const requestedSchedule = normalizeStageSchedule(req.requestedSchedule);
+  const scheduleError = validateStageSchedule(requestedSchedule);
+  if (scheduleError) return { ok: false, error: scheduleError };
+
+  const now = new Date().toISOString();
+  let next: StageConvention = {
+    ...params.convention,
+    schedule: requestedSchedule,
+    scheduleChangeRequest: undefined,
+    updatedAt: now,
+  };
+  next = pushHistory(
+    next,
+    params.byName,
+    "HORAIRES_MODIF_VALIDEE",
+    params.note?.trim() ||
+      `${req.previousSchedule.periodStart}→${req.previousSchedule.periodEnd} → ${requestedSchedule.periodStart}→${requestedSchedule.periodEnd}`,
+  );
+  next = await resetAllSignaturesForResign(next);
+  next = pushHistory(
+    next,
+    "Système",
+    "SIGNATURES_REINITIALISEES",
+    "Suite à la modification des horaires — tous les signataires doivent re-signer.",
+  );
+  next = await generateAndStoreConventionPdf(next);
+  await saveStageConvention(next);
+
+  void notifyAllStageSignatureRequests(next).catch((e) =>
+    console.error("[stages] notify resign after schedule change:", e),
+  );
+  void import("@/app/lib/stage-absences-sync").then((m) =>
+    m.resyncStageAbsencesForConvention(next).then((r) => {
+      if (!r.ok) console.warn("[stages] absence stage resync:", r.error);
+    }),
+  );
+
+  return { ok: true, convention: next };
+}
+
 export async function reviewPreconvention(
   convention: StageConvention,
   params: { by: string; byName: string; approved: boolean; note?: string },
@@ -741,6 +989,13 @@ export async function applyConventionSignature(params: {
 
   const sig = convention.signatures.find((s) => s.id === ref.signatureId);
   if (!sig) return { ok: false, error: "Signature introuvable." };
+  if (convention.scheduleChangeRequest) {
+    return {
+      ok: false,
+      error:
+        "Une demande de modification des horaires est en attente de validation administrative. La signature est suspendue jusqu'à décision.",
+    };
+  }
   if (sig.status === "signe" && sig.reviewStatus !== "rejected") {
     return { ok: false, error: "Déjà signé." };
   }
@@ -941,6 +1196,13 @@ export async function requestSignConfirmCode(
 
   const sig = convention.signatures.find((s) => s.id === ref.signatureId);
   if (!sig) return { ok: false, error: "Signature introuvable." };
+  if (convention.scheduleChangeRequest) {
+    return {
+      ok: false,
+      error:
+        "Une demande de modification des horaires est en attente. Impossible d'envoyer un code pour le moment.",
+    };
+  }
   if (sig.status === "signe" && sig.reviewStatus !== "rejected") {
     return { ok: false, error: "Déjà signé." };
   }
@@ -1656,6 +1918,7 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
       return prev;
     })(),
     tutorEmailChangeRequest: base?.tutorEmailChangeRequest,
+    scheduleChangeRequest: base?.scheduleChangeRequest,
     adminReview: base?.adminReview,
     signatures: base?.signatures ?? [],
     createdAt: base?.createdAt ?? new Date().toISOString(),

@@ -186,12 +186,7 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
       {
         target: "stages-classe",
         title: "Suivi classe",
-        body: "Le professeur principal voit tous les élèves de sa classe et l'état de leur stage (sans stage, en cours, validé). Les stages terminés restent dans « Validés ».",
-      },
-      {
-        target: "stages-conventions",
-        title: "Conventions",
-        body: "Liste des dossiers par élève, y compris les conventions déjà signées (filtre « Signées »). Seules les archives de fin d’année quittent cette liste. Ouvrez une ligne pour valider une préconvention ou lancer les signatures.",
+        body: "Tous les élèves de la classe avec l’état de leur stage. Cliquez un élève pour voir ses conventions (en cours ou signées), puis ouvrez un dossier pour valider ou relancer les signatures.",
       },
       {
         target: "stages-settings",
@@ -701,18 +696,20 @@ export function getModuleTour(moduleId: string): ModuleTourDefinition | undefine
 /** Onglet stages à activer pour une cible data-tour du tutoriel. */
 export function resolveStagesTourTab(
   target?: string,
-): "board" | "classe" | "conventions" | "settings" | null {
+): "board" | "classe" | "repas" | "settings" | null {
   switch (target) {
     case "stages-board":
       return "board";
     case "stages-classe":
+    case "stages-conventions":
       return "classe";
     case "stages-settings":
     case "stages-preconvention-link":
       return "settings";
-    case "stages-conventions":
     case "stages-deposer-link":
-      return "conventions";
+      return "board";
+    case "stages-repas":
+      return "repas";
     default:
       return null;
   }

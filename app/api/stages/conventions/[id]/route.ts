@@ -13,6 +13,7 @@ import {
   reviewConventionSignature,
   revokeConventionSignature,
   reviewPreconvention,
+  reviewScheduleChangeRequest,
   reviewTutorEmailChangeRequest,
   submitPreconvention,
   syncProfReferentSignatory,
@@ -370,6 +371,36 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         message: approved
           ? "E-mail tuteur mis à jour — demande de signature renvoyée."
           : "Demande de changement d'e-mail tuteur refusée.",
+      });
+    }
+
+    if (action === "review_schedule_change") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const approved = body.approved === true;
+      const result = await reviewScheduleChangeRequest({
+        convention,
+        approved,
+        byName: displayName(user),
+        note: String(body.note ?? "").trim() || undefined,
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      const signLinks = result.convention.signatures
+        .filter((s) => s.signToken && s.status === "en_attente")
+        .map((s) => ({
+          role: s.role,
+          label: s.label,
+          email: s.signEmail,
+          link: `/stages/signer?token=${encodeURIComponent(s.signToken!)}`,
+        }));
+      return NextResponse.json({
+        success: true,
+        convention: result.convention,
+        signLinks,
+        message: approved
+          ? "Horaires mis à jour — toutes les signatures ont été réinitialisées et les e-mails renvoyés."
+          : "Demande de modification d'horaires refusée.",
       });
     }
 

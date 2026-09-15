@@ -11,14 +11,25 @@ import {
 } from "@/app/lib/stage-watchers-config";
 import {
   conventionMatchesStageSecteurs,
+  inferStageSecteurFromClass,
   resolveStageViewerSecteurs,
+  stageSecteurLabel,
 } from "@/app/lib/stage-sector-scope";
+import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 import { getConventionsIndex, getStageConvention } from "@/app/lib/stage-storage";
 import { currentStageSchoolYear } from "@/app/lib/stage-types";
 
+function todayIsoLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 /**
  * Jours d'absence stage (repas) — pour CPE / restauration / administratif.
- * Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD (défaut: 14 jours à venir)
+ * Query: ?from=YYYY-MM-DD&to=YYYY-MM-DD&secteur=college|lycee (défaut: 14 jours à venir)
  */
 export async function GET(req: Request) {
   try {
@@ -44,12 +55,17 @@ export async function GET(req: Request) {
     }
 
     const { searchParams } = new URL(req.url);
-    const today = new Date();
-    const defaultFrom = today.toISOString().slice(0, 10);
-    const end = new Date(today);
+    const today = todayIsoLocal();
+    const end = new Date(`${today}T12:00:00`);
     end.setDate(end.getDate() + 14);
-    const from = searchParams.get("from")?.trim() || defaultFrom;
-    const to = searchParams.get("to")?.trim() || end.toISOString().slice(0, 10);
+    const defaultTo = end.toISOString().slice(0, 10);
+    const from = searchParams.get("from")?.trim() || today;
+    const to = searchParams.get("to")?.trim() || defaultTo;
+    const secteurParam = searchParams.get("secteur")?.trim().toLowerCase();
+    const secteurFilter: Secteur | null =
+      secteurParam === "college" || secteurParam === "lycee" || secteurParam === "ecole"
+        ? secteurParam
+        : null;
 
     const index = await getConventionsIndex();
     const all = await Promise.all(index.map((e) => getStageConvention(e.id)));
@@ -66,6 +82,8 @@ export async function GET(req: Request) {
       companyName: string;
       date: string;
       status: string;
+      secteur: Secteur | null;
+      secteurLabel: string | null;
     };
     const rows: Row[] = [];
 
@@ -80,6 +98,10 @@ export async function GET(req: Request) {
       if (!conventionMatchesStageSecteurs(c, viewerSecteurs)) {
         continue;
       }
+      const secteur = inferStageSecteurFromClass(c.student.className, c.student.level);
+      if (secteurFilter && secteur !== secteurFilter) {
+        continue;
+      }
       const dates = expandStagePresenceDates(c.schedule).filter((d) => d >= from && d <= to);
       for (const date of dates) {
         rows.push({
@@ -89,6 +111,8 @@ export async function GET(req: Request) {
           companyName: c.company.name,
           date,
           status: c.status,
+          secteur,
+          secteurLabel: secteur ? stageSecteurLabel(secteur) : null,
         });
       }
     }
@@ -105,6 +129,8 @@ export async function GET(req: Request) {
     return NextResponse.json({
       from,
       to,
+      today,
+      secteur: secteurFilter,
       totalAbsences: rows.length,
       days: [...byDate.entries()].map(([date, absences]) => ({ date, absences })),
     });

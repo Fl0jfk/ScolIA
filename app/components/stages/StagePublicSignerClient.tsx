@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import StageConventionPdfPreview from "@/app/components/stages/StageConventionPdfPreview";
 import StageOtpCodeInput from "@/app/components/stages/StageOtpCodeInput";
+import StageScheduleEditor from "@/app/components/stages/StageScheduleEditor";
+import type { StageSchedule } from "@/app/lib/stage-types";
 
 type SignMethod = "code_confirm" | "touch" | "paper_upload";
 
@@ -22,6 +24,7 @@ type SignView = {
     periodLabel?: string;
     scheduleSummary: string;
     scheduleDays?: ScheduleDay[];
+    schedule?: StageSchedule;
     hasPdf: boolean;
   };
   signature: {
@@ -38,6 +41,15 @@ type SignView = {
   stampsPdf: boolean;
   needsDrawnSignature: boolean;
   hasStoredReferentSignature: boolean;
+  canRequestScheduleChange?: boolean;
+  scheduleChangeRequest?: {
+    requestedAt: string;
+    note?: string;
+    previousPeriodLabel?: string;
+    requestedPeriodLabel?: string;
+    requestedScheduleSummary?: string;
+  } | null;
+  signingSuspended?: boolean;
   pdfUrl: string | null;
   pdfDownloadUrl: string | null;
 };
@@ -149,6 +161,10 @@ export default function StagePublicSignerClient() {
   const [confirmCode, setConfirmCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [codeHint, setCodeHint] = useState<string | null>(null);
+  const [editSchedule, setEditSchedule] = useState(false);
+  const [draftSchedule, setDraftSchedule] = useState<StageSchedule | null>(null);
+  const [scheduleNote, setScheduleNote] = useState("");
+  const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
 
   const load = useCallback(async (activeToken: string) => {
     if (!activeToken) {
@@ -167,6 +183,9 @@ export default function StagePublicSignerClient() {
     if (data.isExternalSigner) {
       setSignMethod("touch");
     }
+    if (data.convention?.schedule) {
+      setDraftSchedule(data.convention.schedule);
+    }
   }, []);
 
   useEffect(() => {
@@ -176,6 +195,37 @@ export default function StagePublicSignerClient() {
       );
     }
   }, [initialToken, load]);
+
+  async function submitScheduleChange() {
+    if (!token || !draftSchedule) return;
+    setBusy(true);
+    setError(null);
+    setScheduleMsg(null);
+    try {
+      const res = await fetch("/api/stages/public/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "request_schedule_change",
+          token,
+          schedule: draftSchedule,
+          note: scheduleNote.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Envoi impossible");
+      setScheduleMsg(
+        data.message ||
+          "Demande envoyée à l'établissement. Les signatures sont suspendues jusqu'à validation.",
+      );
+      setEditSchedule(false);
+      await load(token);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function requestEmailCode() {
     if (!token) return;
@@ -296,6 +346,8 @@ export default function StagePublicSignerClient() {
   const isDirection = view.signature.role === "direction";
   const isProf = view.signature.role === "professeur_referent";
   const scheduleDays = view.convention.scheduleDays ?? [];
+  const signingSuspended = Boolean(view.signingSuspended);
+  const canEditSchedule = Boolean(view.canRequestScheduleChange) && !done;
 
   return (
     <main className="min-h-screen bg-[#f6f8f5] px-4 py-10">
@@ -363,6 +415,94 @@ export default function StagePublicSignerClient() {
           </div>
         )}
 
+        {scheduleMsg && (
+          <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            {scheduleMsg}
+          </p>
+        )}
+
+        {view.scheduleChangeRequest && (
+          <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-2">
+            <p className="text-sm font-bold text-amber-950">
+              Demande de modification en attente
+            </p>
+            <p className="text-xs text-amber-900 leading-relaxed">
+              Vous avez demandé de passer de{" "}
+              <strong>{view.scheduleChangeRequest.previousPeriodLabel || "—"}</strong> à{" "}
+              <strong>{view.scheduleChangeRequest.requestedPeriodLabel || "—"}</strong>.
+              L&apos;établissement doit valider avant que la signature puisse reprendre. Si la
+              demande est acceptée, tous les signataires devront re-signer.
+            </p>
+            {view.scheduleChangeRequest.note ? (
+              <p className="text-xs text-amber-800">Motif : {view.scheduleChangeRequest.note}</p>
+            ) : null}
+          </div>
+        )}
+
+        {canEditSchedule && !editSchedule && (
+          <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50 p-4 space-y-2">
+            <p className="text-sm font-bold text-[#1F3D2B]">Dates ou horaires incorrects ?</p>
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Si l&apos;élève s&apos;était trompé sur la période, les jours ou les horaires,
+              demandez une correction. L&apos;établissement validera : toutes les signatures en
+              cours seront alors annulées et chacun devra re-signer.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setEditSchedule(true);
+                setDraftSchedule(view.convention.schedule ?? draftSchedule);
+                setError(null);
+                setScheduleMsg(null);
+              }}
+              className="rounded-lg border border-amber-500 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900"
+            >
+              Demander une modification des horaires
+            </button>
+          </div>
+        )}
+
+        {canEditSchedule && editSchedule && draftSchedule && (
+          <div className="mt-4 space-y-3">
+            <StageScheduleEditor
+              value={draftSchedule}
+              onChange={setDraftSchedule}
+              title="Proposez vos dates et horaires corrigés"
+            />
+            <label className="block text-xs font-semibold text-stone-600">
+              Motif (optionnel)
+              <textarea
+                className="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm min-h-[64px]"
+                value={scheduleNote}
+                onChange={(e) => setScheduleNote(e.target.value)}
+                placeholder="Ex. horaires réels 9h–17h, période décalée d'une semaine…"
+              />
+            </label>
+            {error && <p className="text-sm text-rose-700">{error}</p>}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void submitScheduleChange()}
+                className="rounded-lg bg-amber-800 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {busy ? "Envoi…" : "Envoyer la demande à l'établissement"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setEditSchedule(false);
+                  setError(null);
+                }}
+                className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
+
         {view.pdfUrl && (
           <div className="mt-6">
             <p className="mb-2 text-xs font-bold text-stone-600">Aperçu du document</p>
@@ -370,7 +510,12 @@ export default function StagePublicSignerClient() {
           </div>
         )}
 
-        {done ? (
+        {signingSuspended ? (
+          <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            Signature temporairement suspendue : une demande de modification des horaires attend
+            la validation de l&apos;établissement.
+          </p>
+        ) : done ? (
           <p className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             {`Signature enregistrée${view.signature.signedBy ? ` par ${view.signature.signedBy}` : ""}${view.stampsPdf ? " — paraphe ajouté sur le PDF." : "."}`}
           </p>

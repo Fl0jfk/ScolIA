@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import {
   applyConventionSignature,
+  canRequestScheduleChange,
+  requestScheduleChange,
   requestSignConfirmCode,
   resolveSignTokenBySecureCode,
 } from "@/app/lib/stage-workflow";
@@ -24,6 +26,38 @@ const signPublicLimiter = createMemoryRateLimiter({
   windowMs: 10 * 60 * 1000,
   max: 20,
 });
+
+function mapScheduleDays(convention: NonNullable<Awaited<ReturnType<typeof getStageConvention>>>) {
+  return convention.schedule.days.map((day) => {
+    const title = day.date
+      ? new Date(`${day.date}T12:00:00`).toLocaleDateString("fr-FR", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        })
+      : day.weekday
+        ? STAGE_WEEKDAY_LABELS[day.weekday]
+        : "Jour";
+    let hours = "—";
+    if (!day.hasLunchBreak && day.fullDayStart && day.fullDayEnd) {
+      hours = `${day.fullDayStart} – ${day.fullDayEnd}`;
+    } else {
+      const parts: string[] = [];
+      if (day.morningStart && day.morningEnd) {
+        parts.push(`${day.morningStart} – ${day.morningEnd}`);
+      }
+      if (day.afternoonStart && day.afternoonEnd) {
+        parts.push(`${day.afternoonStart} – ${day.afternoonEnd}`);
+      }
+      if (parts.length) hours = parts.join("  ·  ");
+    }
+    return {
+      title,
+      hours,
+      label: formatDaySlotLabel(day),
+    };
+  });
+}
 
 export async function GET(req: Request) {
   try {
@@ -50,35 +84,10 @@ export async function GET(req: Request) {
     const needsDrawnSignature =
       !isExternal && signature.role === "professeur_referent" && stampsPdf && !hasStoredReferentSignature;
 
-    const scheduleDays = convention.schedule.days.map((day) => {
-      const title = day.date
-        ? new Date(`${day.date}T12:00:00`).toLocaleDateString("fr-FR", {
-            weekday: "long",
-            day: "numeric",
-            month: "long",
-          })
-        : day.weekday
-          ? STAGE_WEEKDAY_LABELS[day.weekday]
-          : "Jour";
-      let hours = "—";
-      if (!day.hasLunchBreak && day.fullDayStart && day.fullDayEnd) {
-        hours = `${day.fullDayStart} – ${day.fullDayEnd}`;
-      } else {
-        const parts: string[] = [];
-        if (day.morningStart && day.morningEnd) {
-          parts.push(`${day.morningStart} – ${day.morningEnd}`);
-        }
-        if (day.afternoonStart && day.afternoonEnd) {
-          parts.push(`${day.afternoonStart} – ${day.afternoonEnd}`);
-        }
-        if (parts.length) hours = parts.join("  ·  ");
-      }
-      return {
-        title,
-        hours,
-        label: formatDaySlotLabel(day),
-      };
-    });
+    const scheduleDays = mapScheduleDays(convention);
+    const scheduleChangePending = Boolean(convention.scheduleChangeRequest);
+    const canRequestSchedule =
+      canRequestScheduleChange(convention, signature.role) && !scheduleChangePending;
 
     return NextResponse.json({
       convention: {
@@ -93,6 +102,7 @@ export async function GET(req: Request) {
         ),
         scheduleSummary: scheduleSummary(convention.schedule),
         scheduleDays,
+        schedule: convention.schedule,
         hasPdf: Boolean(convention.uploadedPdf?.s3Key),
       },
       signature: {
@@ -109,6 +119,25 @@ export async function GET(req: Request) {
       stampsPdf,
       needsDrawnSignature,
       hasStoredReferentSignature,
+      canRequestScheduleChange: canRequestSchedule,
+      scheduleChangeRequest: convention.scheduleChangeRequest
+        ? {
+            requestedAt: convention.scheduleChangeRequest.requestedAt,
+            note: convention.scheduleChangeRequest.note,
+            previousPeriodLabel: formatPeriodRangeFr(
+              convention.scheduleChangeRequest.previousSchedule.periodStart,
+              convention.scheduleChangeRequest.previousSchedule.periodEnd,
+            ),
+            requestedPeriodLabel: formatPeriodRangeFr(
+              convention.scheduleChangeRequest.requestedSchedule.periodStart,
+              convention.scheduleChangeRequest.requestedSchedule.periodEnd,
+            ),
+            requestedScheduleSummary: scheduleSummary(
+              convention.scheduleChangeRequest.requestedSchedule,
+            ),
+          }
+        : null,
+      signingSuspended: scheduleChangePending,
       pdfUrl: convention.uploadedPdf?.s3Key
         ? `/api/stages/public/sign/pdf?token=${encodeURIComponent(token)}`
         : null,
@@ -160,6 +189,23 @@ export async function POST(req: Request) {
         );
       }
       return NextResponse.json({ success: true, sent: true });
+    }
+
+    if (action === "request_schedule_change") {
+      const token = String(body.token ?? "").trim();
+      if (!token) return NextResponse.json({ error: "Jeton manquant." }, { status: 400 });
+      const result = await requestScheduleChange({
+        token,
+        schedule: body.schedule,
+        note: String(body.note ?? "").trim() || undefined,
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({
+        success: true,
+        message:
+          "Demande envoyée à l'établissement. Les signatures sont suspendues jusqu'à validation.",
+        scheduleChangeRequest: result.convention.scheduleChangeRequest ?? null,
+      });
     }
 
     const token = String(body.token ?? "").trim();

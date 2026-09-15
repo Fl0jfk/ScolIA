@@ -151,3 +151,82 @@ export async function ensureStageAbsencesForConvention(
     return { ok: false, error: msg };
   }
 }
+
+/**
+ * Met à jour les dates des absences stage déjà liées (upsert ciblé par id).
+ * Si aucune absence liée : crée via ensureStageAbsencesForConvention.
+ */
+export async function resyncStageAbsencesForConvention(
+  convention: StageConvention,
+): Promise<{ ok: true; absenceIds: string[] } | { ok: false; error: string }> {
+  const start = convention.schedule.periodStart?.slice(0, 10);
+  const end = convention.schedule.periodEnd?.slice(0, 10);
+  if (!start || !end) {
+    return { ok: false, error: "Période de stage manquante." };
+  }
+
+  if (!convention.stageAbsenceIds?.length) {
+    return ensureStageAbsencesForConvention(convention);
+  }
+
+  if (!(await isEntCoreDbEnabled())) {
+    return { ok: false, error: "Base ENT indisponible." };
+  }
+
+  const etablissementId = await resolveCurrentEtablissementId();
+  if (!etablissementId) {
+    return { ok: false, error: "Établissement introuvable." };
+  }
+
+  const db = getDb();
+  const updatedIds: string[] = [];
+  for (const absenceId of convention.stageAbsenceIds) {
+    const [row] = await db
+      .select({ id: vsAbsenceEleve.id })
+      .from(vsAbsenceEleve)
+      .where(
+        and(
+          eq(vsAbsenceEleve.etablissementId, etablissementId),
+          eq(vsAbsenceEleve.id, absenceId),
+          eq(vsAbsenceEleve.source, "accueil"),
+        ),
+      )
+      .limit(1);
+    if (!row) continue;
+    await db
+      .update(vsAbsenceEleve)
+      .set({ dateDebut: start, dateFin: end })
+      .where(
+        and(
+          eq(vsAbsenceEleve.etablissementId, etablissementId),
+          eq(vsAbsenceEleve.id, absenceId),
+        ),
+      );
+    updatedIds.push(absenceId);
+  }
+
+  if (updatedIds.length === 0) {
+    const cleared: StageConvention = {
+      ...convention,
+      stageAbsenceIds: undefined,
+    };
+    return ensureStageAbsencesForConvention(cleared);
+  }
+
+  const fresh = (await getStageConvention(convention.id)) ?? convention;
+  await saveStageConvention({
+    ...fresh,
+    stageAbsenceIds: updatedIds,
+    updatedAt: new Date().toISOString(),
+    history: [
+      ...fresh.history,
+      {
+        at: new Date().toISOString(),
+        by: "Système",
+        action: "ABSENCE_STAGE_MAJ_DATES",
+        note: `${start} → ${end}`,
+      },
+    ],
+  });
+  return { ok: true, absenceIds: updatedIds };
+}

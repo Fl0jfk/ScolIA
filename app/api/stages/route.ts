@@ -82,15 +82,18 @@ export async function GET() {
         c.status === "admin_review" ||
         c.status === "preconvention_submitted" ||
         c.status === "convention_deposited" ||
-        Boolean(c.tutorEmailChangeRequest),
+        Boolean(c.tutorEmailChangeRequest) ||
+        Boolean(c.scheduleChangeRequest),
     );
     const signaturesPending = activeConventions.filter((c) => c.status === "signatures_pending");
+    const signedConventions = activeConventions.filter((c) => c.status === "signed");
     const referentOnly = canViewReferentConventions(roles) && !canViewAllConventions(roles);
     const watcherOnly =
       !canViewAllConventions(roles) &&
       !canViewReferentConventions(roles) &&
       !canReviewPreconvention(roles) &&
       watcherAssignments.length > 0;
+    const canSeeAdminDepositQueue = roles.includes("administratif");
     const myPendingSignatures = await listPendingSignaturesForUser(
       conventions,
       userEmail,
@@ -98,12 +101,23 @@ export async function GET() {
       roles,
     );
 
+    const mapBoardCard = (c: (typeof activeConventions)[number]) => ({
+      id: c.id,
+      studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),
+      companyName: c.company.name,
+      className: c.student.className,
+      status: c.status,
+      tutorEmailChangePending: Boolean(c.tutorEmailChangeRequest),
+      scheduleChangePending: Boolean(c.scheduleChangeRequest),
+    });
+
     return NextResponse.json({
       viewer: viewer || "staff",
       viewerSecteurLabel: stageViewerSecteurSummary(viewerSecteurs),
       permissions: {
         canModerateOffers: canModerateOffers(roles),
         canReviewPreconvention: canReviewPreconvention(roles),
+        canSeeAdminDepositQueue,
         canViewAllConventions: canViewAllConventions(roles),
         canViewReferentConventions: canViewReferentConventions(roles),
         canDepositOffer: roles.includes("parent"),
@@ -122,20 +136,15 @@ export async function GET() {
       counts: {
         pendingOffers,
         conventions: activeConventions.length,
+        signed: signedConventions.length,
         adminQueue: adminQueue.length,
         signaturesPending: signaturesPending.length,
         myPendingSignatures: myPendingSignatures.length,
       },
       myPendingSignatures,
       pendingOffers: [],
-      adminQueue: adminQueue.slice(0, 20).map((c) => ({
-        id: c.id,
-        studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),
-        companyName: c.company.name,
-        status: c.status,
-        tutorEmailChangePending: Boolean(c.tutorEmailChangeRequest),
-      })),
-      signaturesPending: signaturesPending.slice(0, 20),
+      adminQueue: adminQueue.slice(0, 30).map(mapBoardCard),
+      signaturesPending: signaturesPending.slice(0, 30).map(mapBoardCard),
       conventions: activeConventions.slice(0, 100).map((c) => ({
         id: c.id,
         studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),

@@ -65,6 +65,7 @@ export default function StageConventionDetail({
   onFileToEleveDossier,
   onFileToOneDrive,
   onReviewTutorEmailChange,
+  onReviewScheduleChange,
 }: {
   detail: StageConventionDetailData;
   permissions: StagesHubPermissions | undefined;
@@ -89,6 +90,7 @@ export default function StageConventionDetail({
   onFileToEleveDossier: () => void;
   onFileToOneDrive: () => void;
   onReviewTutorEmailChange: (approved: boolean) => void;
+  onReviewScheduleChange: (approved: boolean) => void;
 }) {
   const c = detail.convention;
   const canShowOneDriveFiling = permissions?.canFileToOneDrive && c.status === "signed";
@@ -154,6 +156,80 @@ export default function StageConventionDetail({
               type="button"
               disabled={busy}
               onClick={() => onReviewTutorEmailChange(false)}
+              className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 disabled:opacity-50"
+            >
+              Refuser
+            </button>
+          </div>
+        </div>
+      )}
+
+      {permissions?.canReviewPreconvention && c.scheduleChangeRequest && (
+        <div className="rounded-xl border-2 border-orange-400 bg-orange-50 px-4 py-3 space-y-3">
+          <p className="text-sm font-black text-orange-950">
+            Demande tuteur — modifier période / jours / horaires
+          </p>
+          <p className="text-xs text-orange-900 leading-relaxed">
+            Demandé par :{" "}
+            <strong>{c.scheduleChangeRequest.requestedByLabel || "Tuteur entreprise"}</strong>
+            {c.scheduleChangeRequest.note ? (
+              <>
+                <br />
+                Motif : {c.scheduleChangeRequest.note}
+              </>
+            ) : null}
+          </p>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div>
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-orange-800">
+                Actuel
+              </p>
+              <StageSchedulePanel
+                periodLabel={
+                  formatPeriodRangeFr(
+                    c.scheduleChangeRequest.previousSchedule.periodStart,
+                    c.scheduleChangeRequest.previousSchedule.periodEnd,
+                  ) ||
+                  `${c.scheduleChangeRequest.previousSchedule.periodStart} → ${c.scheduleChangeRequest.previousSchedule.periodEnd}`
+                }
+                days={c.scheduleChangeRequest.previousSchedule.days || []}
+                mode={c.scheduleChangeRequest.previousSchedule.mode}
+              />
+            </div>
+            <div>
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-orange-800">
+                Demandé
+              </p>
+              <StageSchedulePanel
+                periodLabel={
+                  formatPeriodRangeFr(
+                    c.scheduleChangeRequest.requestedSchedule.periodStart,
+                    c.scheduleChangeRequest.requestedSchedule.periodEnd,
+                  ) ||
+                  `${c.scheduleChangeRequest.requestedSchedule.periodStart} → ${c.scheduleChangeRequest.requestedSchedule.periodEnd}`
+                }
+                days={c.scheduleChangeRequest.requestedSchedule.days || []}
+                mode={c.scheduleChangeRequest.requestedSchedule.mode}
+              />
+            </div>
+          </div>
+          <p className="text-[11px] text-orange-900 leading-relaxed">
+            Si vous validez : le PDF est régénéré, <strong>toutes les signatures</strong> (déjà
+            déposées ou en attente) sont annulées, et chaque signataire reçoit un nouveau lien.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onReviewScheduleChange(true)}
+              className="rounded-lg bg-[#2F6B4A] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+            >
+              Valider et relancer toutes les signatures
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onReviewScheduleChange(false)}
               className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-800 disabled:opacity-50"
             >
               Refuser
