@@ -106,6 +106,7 @@ export default function RhPlanningPanel() {
   const [previewMode, setPreviewMode] = useState(false);
   const [mergeStrategy, setMergeStrategy] = useState<"replace" | "append_rotation">("replace");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const planningReqSeq = useRef(0);
   const [focusDate, setFocusDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [catalog, setCatalog] = useState<TeacherPlanningCatalog | null>(null);
   const [quickSlot, setQuickSlot] = useState<TeacherPlanningSlot | null>(null);
@@ -134,16 +135,23 @@ export default function RhPlanningPanel() {
   }, []);
 
   const loadPlanning = useCallback(async (id?: string, forcedKind?: RhPlanningKind) => {
+    const reqId = ++planningReqSeq.current;
     setLoading(true);
     setError(null);
     setMsg(null);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 25000);
     try {
       const params = new URLSearchParams();
       if (id) params.set("personnelId", id);
       if (forcedKind) params.set("kind", forcedKind);
       const q = params.toString() ? `?${params}` : "";
-      const res = await fetch(`/api/rh/planning${q}`, { cache: "no-store" });
+      const res = await fetch(`/api/rh/planning${q}`, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       const j = await res.json();
+      if (reqId !== planningReqSeq.current) return;
       if (!res.ok) throw new Error(j.error || "Chargement impossible");
       setPersonnelId(j.personnelId);
       setDisplayName(j.displayName || "");
@@ -162,9 +170,15 @@ export default function RhPlanningPanel() {
         setRotationId(firstRot || "");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
+      if (reqId !== planningReqSeq.current) return;
+      if (e instanceof DOMException && e.name === "AbortError") {
+        setError("Chargement trop long — réessayez.");
+      } else {
+        setError(e instanceof Error ? e.message : "Erreur");
+      }
     } finally {
-      setLoading(false);
+      window.clearTimeout(timeout);
+      if (reqId === planningReqSeq.current) setLoading(false);
     }
   }, []);
 

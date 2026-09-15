@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { user } from "@/db/schema";
 import type { DirectoryMemberRow } from "@/app/lib/directory-members";
@@ -146,9 +146,20 @@ export async function findDbUserByExternalId(
   externalUserId: string,
 ): Promise<(typeof user.$inferSelect) | null> {
   if (!isDatabaseConfigured()) return null;
+  const id = externalUserId.trim();
+  if (!id) return null;
   const db = getDb();
-  const rows = await db.select().from(user).where(eq(user.etablissementId, etablissementId));
-  return rows.find((u) => u.externalUserId === externalUserId || u.id === externalUserId) ?? null;
+  const [row] = await db
+    .select()
+    .from(user)
+    .where(
+      and(
+        eq(user.etablissementId, etablissementId),
+        or(eq(user.externalUserId, id), eq(user.id, id)),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
 }
 
 /** Profil membre par id métier (externalUserId ou id Better-Auth). */
@@ -161,9 +172,13 @@ export async function resolveMemberProfileById(userId: string): Promise<{
   name: string;
 } | null> {
   if (!isDatabaseConfigured() || !userId.trim()) return null;
+  const id = userId.trim();
   const db = getDb();
-  const rows = await db.select().from(user);
-  const hit = rows.find((u) => u.externalUserId === userId || u.id === userId);
+  const [hit] = await db
+    .select()
+    .from(user)
+    .where(or(eq(user.externalUserId, id), eq(user.id, id)))
+    .limit(1);
   if (!hit) return null;
   return {
     id: hit.externalUserId ?? hit.id,

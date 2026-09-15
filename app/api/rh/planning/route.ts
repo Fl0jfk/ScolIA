@@ -38,7 +38,11 @@ import {
   type StaffPlanningDoc,
   type TeacherPlanningDoc,
 } from "@/app/lib/rh/planning-types";
-import { loadTeacherPlanningCatalog } from "@/app/lib/rh/planning-catalog";
+import {
+  loadTeacherPlanningCatalogWithTimeout,
+} from "@/app/lib/rh/planning-catalog";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { findDbUserByExternalId, getDbUserRoles } from "@/app/lib/members-db";
 
 
 function isTeacherRole(roles: string[]) {
@@ -145,20 +149,25 @@ export async function GET(req: Request) {
     if (!isSelf && !canManage && !canViewAll) {
       return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
     }
-    const members = await listDirectoryMembers();
-    const m = members.find((x) => x.externalUserId === subjectId);
-    displayName = m?.displayName || m?.email || subjectId;
+    // Lookup ciblé — ne pas recharger tout l’annuaire à chaque clic collab.
+    const etabId = await resolveCurrentEtablissementId();
+    const m = etabId ? await findDbUserByExternalId(etabId, subjectId) : null;
+    displayName =
+      (m?.name || `${m?.firstName ?? ""} ${m?.lastName ?? ""}`.trim() || m?.email || subjectId) ??
+      subjectId;
     category = "professeur";
   } else {
-    const members = await listDirectoryMembers();
-    const m = members.find((x) => x.externalUserId === subjectId);
-    if (m) {
-      const isSelf = subjectId === gate.ctx.userId;
-      if (!isSelf && !canManage && !canViewAll) {
-        return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
-      }
-      displayName = m.displayName || m.email;
-      category = staffCategoryFromRoles(normalizeIntranetRoles(m.roles));
+    const isSelf = subjectId === gate.ctx.userId;
+    if (!isSelf && !canManage && !canViewAll) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+    }
+    const etabId = await resolveCurrentEtablissementId();
+    const m = etabId ? await findDbUserByExternalId(etabId, subjectId) : null;
+    if (m && etabId) {
+      const rolesForSubject = await getDbUserRoles(m.id, etabId);
+      displayName =
+        m.name || `${m.firstName ?? ""} ${m.lastName ?? ""}`.trim() || m.email || subjectId;
+      category = staffCategoryFromRoles(normalizeIntranetRoles(rolesForSubject));
       kind = "staff";
     } else {
       const index = await getPersonnelIndex();
@@ -166,8 +175,8 @@ export async function GET(req: Request) {
       if (!entry) {
         return NextResponse.json({ error: "Collaborateur introuvable." }, { status: 404 });
       }
-      const isSelf = entry.externalUserId === gate.ctx.userId;
-      if (!isSelf && !canManage && !canViewAll) {
+      const entrySelf = entry.externalUserId === gate.ctx.userId;
+      if (!entrySelf && !canManage && !canViewAll) {
         return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
       }
       displayName = entry.displayName || entry.email;
@@ -177,7 +186,13 @@ export async function GET(req: Request) {
     }
   }
 
-  let planning = await readRhPlanning(kind, subjectId);
+  const planningPromise = readRhPlanning(kind, subjectId);
+  const catalogPromise =
+    kind === "teacher"
+      ? loadTeacherPlanningCatalogWithTimeout(subjectId, 8000)
+      : Promise.resolve(null);
+
+  let planning = await planningPromise;
 
   if (kind === "staff" && planning.kind === "staff") {
     const preferred = defaultStaffModeForCategory(category);
@@ -190,7 +205,6 @@ export async function GET(req: Request) {
     }
   }
 
-  const isSelf = subjectId === gate.ctx.userId;
   const canEdit = canEditRhPlanning(roles);
 
   const balance =
@@ -201,8 +215,7 @@ export async function GET(req: Request) {
   const teacherWeeklyHours =
     planning.kind === "teacher" ? estimateTeacherWeeklyHours(planning) : null;
 
-  const catalog =
-    kind === "teacher" ? await loadTeacherPlanningCatalog(subjectId) : null;
+  const catalog = await catalogPromise;
 
   let schoolHolidayZone: "A" | "B" | "C" | null = null;
   try {
