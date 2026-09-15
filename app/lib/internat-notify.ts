@@ -31,11 +31,6 @@ async function getInternatMailer() {
   return { smtp, transporter };
 }
 
-function parseRollCallRecipients(_raw: InternatRollCallRecipients | undefined) {
-  return [] as string[];
-}
-void parseRollCallRecipients;
-
 function addEmail(set: Set<string>, raw: string | undefined | null) {
   const e = String(raw || "").trim();
   if (e) set.add(e);
