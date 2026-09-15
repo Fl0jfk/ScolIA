@@ -1,10 +1,11 @@
 import { randomBytes } from "crypto";
-import { normalizeStageSchedule, validateStageSchedule, defaultStageSchedule } from "@/app/lib/stage-schedule";
+import { normalizeStageSchedule, validateStageSchedule, defaultStageSchedule, buildUniformWeekDays, STAGE_DEFAULT_WEEKDAYS } from "@/app/lib/stage-schedule";
 import { resolveStagesDirectionEmail, stageCycleKindFromStudent, stageCycleLabel } from "@/app/lib/stage-config";
 import {
   getStageConstraintsConfig,
   resolveCycleConstraints,
   validateStageScheduleConstraints,
+  ageInYearsAt,
 } from "@/app/lib/stage-constraints-config";
 import { normalizeEleveDateNaissance } from "@/app/lib/eleves-config";
 import { findEleveByIne } from "@/app/lib/eleves-registry";
@@ -1775,6 +1776,24 @@ export async function createPublicPreconventionDraft(student: {
     };
   }
   const dateNaissance = normalizeEleveDateNaissance(student.dateNaissance ?? "") || undefined;
+  // Moins de 15 ans : plafond 30 h/sem → 08–12 / 13–15 (6 h × 5 = 30 h).
+  if (dateNaissance) {
+    const age = ageInYearsAt(dateNaissance, schedule.periodStart);
+    if (age != null && age < 15) {
+      const under15Template = {
+        hasLunchBreak: true as const,
+        morningStart: "08:00",
+        morningEnd: "12:00",
+        afternoonStart: "13:00",
+        afternoonEnd: "15:00",
+      };
+      schedule = {
+        ...schedule,
+        presenceWeekdays: [...STAGE_DEFAULT_WEEKDAYS],
+        days: buildUniformWeekDays(under15Template, STAGE_DEFAULT_WEEKDAYS),
+      };
+    }
+  }
   let convention: StageConvention = {
     id: stageUid("conv"),
     schoolYear: currentStageSchoolYear(),
