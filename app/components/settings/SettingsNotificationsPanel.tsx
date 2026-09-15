@@ -269,36 +269,53 @@ export default function SettingsNotificationsPanel({
         <SettingsSection
           icon="🌙"
           title="Internat"
-          description="Appel du soir (lun–jeu) et alertes urgence."
+          description="Appels validés : PDF séparés collège / lycée (direction + CPE). Alertes urgence."
         >
-          <SettingsField label="Qui reçoit l’appel ?" as="div">
-            <DirectoryPersonSelect
-              members={directoryMembers}
-              loading={membersLoading}
-              selectedEmail={internat.appelContact || internat.directionLycee || ""}
-              onChange={(member) => patchInternat("appelContact", member)}
-            />
-          </SettingsField>
-          {activeEstablishmentKinds.has("lycee") ? (
-            <SettingsField label="CPE lycée (optionnel)" as="div">
-              <DirectoryPersonSelect
-                members={directoryMembers}
-                loading={membersLoading}
-                selectedEmail={internat.cpeLycee || ""}
-                onChange={(member) => patchInternat("cpeLycee", member)}
-              />
-            </SettingsField>
-          ) : null}
           {activeEstablishmentKinds.has("college") ? (
-            <SettingsField label="CPE collège (optionnel)" as="div">
-              <DirectoryPersonSelect
-                members={directoryMembers}
-                loading={membersLoading}
-                selectedEmail={internat.cpeCollege || ""}
-                onChange={(member) => patchInternat("cpeCollege", member)}
-              />
-            </SettingsField>
+            <>
+              <SettingsField label="Direction collège" as="div">
+                <DirectoryPersonSelect
+                  members={directoryMembers}
+                  loading={membersLoading}
+                  selectedEmail={internat.directionCollege || ""}
+                  onChange={(member) => patchInternat("directionCollege", member)}
+                />
+              </SettingsField>
+              <SettingsField label="CPE collège" as="div">
+                <DirectoryPersonSelect
+                  members={directoryMembers}
+                  loading={membersLoading}
+                  selectedEmail={internat.cpeCollege || ""}
+                  onChange={(member) => patchInternat("cpeCollege", member)}
+                />
+              </SettingsField>
+            </>
           ) : null}
+          {activeEstablishmentKinds.has("lycee") ? (
+            <>
+              <SettingsField label="Direction lycée" as="div">
+                <DirectoryPersonSelect
+                  members={directoryMembers}
+                  loading={membersLoading}
+                  selectedEmail={internat.directionLycee || internat.appelContact || ""}
+                  onChange={(member) => patchInternat("directionLycee", member)}
+                />
+              </SettingsField>
+              <SettingsField label="CPE lycée" as="div">
+                <DirectoryPersonSelect
+                  members={directoryMembers}
+                  loading={membersLoading}
+                  selectedEmail={internat.cpeLycee || ""}
+                  onChange={(member) => patchInternat("cpeLycee", member)}
+                />
+              </SettingsField>
+            </>
+          ) : null}
+          <p className="text-xs text-slate-500 col-span-full">
+            À la validation, un PDF séparé part à chaque pôle (collège ou lycée) — uniquement avec
+            les internes de cet établissement. Les e-mails direction configurés sur les fiches
+            établissements sont aussi inclus.
+          </p>
           <SettingsField label="Alertes urgence" as="div">
             <DirectoryPeopleSelect
               members={directoryMembers}

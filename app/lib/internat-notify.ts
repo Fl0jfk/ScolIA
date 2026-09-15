@@ -31,7 +31,13 @@ async function getInternatMailer() {
 
 function parseRollCallRecipients(raw: InternatRollCallRecipients | undefined) {
   const emails = new Set<string>();
-  for (const v of [raw?.appelContact, raw?.directionLycee, raw?.cpeLycee, raw?.cpeCollege]) {
+  for (const v of [
+    raw?.appelContact,
+    raw?.directionCollege,
+    raw?.directionLycee,
+    raw?.cpeLycee,
+    raw?.cpeCollege,
+  ]) {
     const e = String(v || "").trim();
     if (e) emails.add(e);
   }
@@ -63,6 +69,11 @@ function rollCallMarkForStudent(
   return student.sexe === "F" ? rollCall.girls.marks[student.id] : rollCall.boys.marks[student.id];
 }
 
+/**
+ * Destinataires du PDF validé : strictement séparés collège / lycée.
+ * `appelContact` n’est volontairement PAS inclus (évite que la direction lycée
+ * reçoive aussi le récap collège via l’ancien champ unique « Qui reçoit l’appel »).
+ */
 function recipientsForRollCallKind(params: {
   kind: "college" | "lycee";
   establishments: Establishment[];
@@ -72,11 +83,12 @@ function recipientsForRollCallKind(params: {
   for (const email of directorEmailsForKind(params.establishments, params.kind)) {
     addEmail(set, email);
   }
-  addEmail(set, params.notif?.appelContact);
   if (params.kind === "college") {
+    addEmail(set, params.notif?.directionCollege);
     addEmail(set, params.notif?.cpeCollege);
   } else {
-    addEmail(set, params.notif?.directionLycee);
+    // Legacy : appelContact servait souvent de contact lycée unique.
+    addEmail(set, params.notif?.directionLycee || params.notif?.appelContact);
     addEmail(set, params.notif?.cpeLycee);
   }
   return [...set];

@@ -74,6 +74,7 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
   const [filterSexe, setFilterSexe] = useState<"all" | "M" | "F">("all");
   const [filterEtab, setFilterEtab] = useState<string>("all");
   const [filterNiveau, setFilterNiveau] = useState<string>("all");
+  const [viewerScope, setViewerScope] = useState<"all" | "college" | "lycee">("all");
   const [moreOpenId, setMoreOpenId] = useState<string | null>(null);
   const saveSeq = useRef(0);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -93,6 +94,7 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
       canValidate?: boolean;
       boysComplete?: boolean;
       girlsComplete?: boolean;
+      viewerScope?: "all" | "college" | "lycee";
     } = {};
     try {
       data = raw ? (JSON.parse(raw) as typeof data) : {};
@@ -102,6 +104,7 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
     if (!res.ok) throw new Error(data?.error || `Chargement impossible (${res.status})`);
     setRollCall(data.rollCall ?? null);
     setStudents(data.students || []);
+    setViewerScope(data.viewerScope === "college" || data.viewerScope === "lycee" ? data.viewerScope : "all");
     setPhotoUrls(
       data.photoUrls && typeof data.photoUrls === "object" ? data.photoUrls : {},
     );
@@ -226,8 +229,8 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
       await onRefresh();
       alert(
         data.mail?.sent
-          ? "Appel validé. Un mail avec PDF récapitulatif a été envoyé aux directions collège / lycée."
-          : "Appel validé (mail non envoyé — vérifiez SMTP et les e-mails des directrices dans Paramètres).",
+          ? "Appel validé. Un PDF distinct a été envoyé à la direction et au CPE de chaque établissement (collège / lycée)."
+          : "Appel validé (mail non envoyé — vérifiez SMTP et les destinataires direction/CPE dans Paramètres).",
       );
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Erreur");
@@ -295,6 +298,17 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
 
   return (
     <div className="space-y-4 max-w-3xl mx-auto pb-24 sm:pb-8">
+      {viewerScope !== "all" && (
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-950">
+          <p className="font-bold">
+            Consultation {viewerScope === "college" ? "collège" : "lycée"} uniquement
+          </p>
+          <p className="mt-0.5 text-indigo-800/90">
+            Vous voyez uniquement les internes de votre établissement. L’équipe internat
+            continue de faire l’appel complet au même endroit.
+          </p>
+        </div>
+      )}
       {eveningNotApplicable && (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
           <p className="font-bold text-slate-900">Pas d’appel du soir ce jour</p>

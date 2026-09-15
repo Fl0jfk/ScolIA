@@ -313,7 +313,12 @@ export type InternatModuleConfig = {
 };
 
 export type InternatRollCallRecipients = {
+  /**
+   * Copie opérationnelle (équipe internat) — rappels d’appel incomplet uniquement.
+   * Ne doit pas recevoir les PDF direction collège/lycée croisés.
+   */
   appelContact?: string;
+  directionCollege?: string;
   directionLycee?: string;
   cpeLycee?: string;
   cpeCollege?: string;

@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireInternatAccess } from "@/app/api/internat/_auth";
+import { loadAppConfig } from "@/app/lib/app-config";
+import type { InternatRollCallRecipients } from "@/app/lib/internat-types";
 import { resolvePhotoUrlsForInternatStudents } from "@/app/lib/eleve-photos";
 import { buildInternatCourseAbsenceHints } from "@/app/lib/internat-course-absences";
+import {
+  filterInternatStudentsByViewerScope,
+  isOrgAdminMetadata,
+  resolveInternatRollCallViewerScope,
+} from "@/app/lib/internat-rbac";
 import {
   getInternatRollCall,
   getInternatStudents,
@@ -54,6 +61,23 @@ function mergeSection(
   };
 }
 
+async function resolveViewerScope(access: {
+  roles: string[];
+  user: { primaryEmailAddress?: { emailAddress?: string } | null; publicMetadata?: unknown } | null;
+}) {
+  const bundle = await loadAppConfig();
+  const notif = bundle.notifications as typeof bundle.notifications & {
+    internatRollCallRecipients?: InternatRollCallRecipients;
+  };
+  return resolveInternatRollCallViewerScope({
+    roles: access.roles,
+    email: access.user?.primaryEmailAddress?.emailAddress,
+    isOrgAdmin: isOrgAdminMetadata(access.user?.publicMetadata),
+    recipients: notif.internatRollCallRecipients,
+    establishments: bundle.establishments,
+  });
+}
+
 export async function GET(req: Request) {
   const access = await requireInternatAccess();
   if (!access.ok) return access.response;
@@ -62,10 +86,12 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const date = String(searchParams.get("date") || todayDateParis());
     const period = parsePeriod(searchParams.get("period"));
-    const [rollCall, students] = await Promise.all([
+    const [rollCall, allStudents, viewerScope] = await Promise.all([
       getInternatRollCall(date, period),
       getInternatStudents(),
+      resolveViewerScope(access),
     ]);
+    const students = filterInternatStudentsByViewerScope(allStudents, viewerScope);
 
     const [photoUrls, courseAbsenceHints] = await Promise.all([
       resolvePhotoUrlsForInternatStudents(students).catch((e) => {
@@ -78,11 +104,12 @@ export async function GET(req: Request) {
     return NextResponse.json({
       rollCall,
       students,
+      viewerScope,
       photoUrls,
       courseAbsenceHints,
-      canValidate: rollCallCanValidate(rollCall, students),
-      boysComplete: sectionIsComplete(rollCall.boys, students, "M"),
-      girlsComplete: sectionIsComplete(rollCall.girls, students, "F"),
+      canValidate: viewerScope === "all" && rollCallCanValidate(rollCall, allStudents),
+      boysComplete: sectionIsComplete(rollCall.boys, allStudents, "M"),
+      girlsComplete: sectionIsComplete(rollCall.girls, allStudents, "F"),
     });
   } catch (e) {
     console.error("[internat/roll-call] GET", e);

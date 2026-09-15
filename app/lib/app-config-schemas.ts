@@ -149,8 +149,12 @@ export type ExternalQuickLinkConfig = {
 };
 
 export type InternatRollCallRecipients = {
-  /** Destinataire principal des appels internat (onboarding / config générique). */
+  /**
+   * Copie opérationnelle (équipe internat) — rappels d’appel incomplet.
+   * Les PDF validés partent séparément collège / lycée (direction + CPE).
+   */
   appelContact?: string;
+  directionCollege?: string;
   directionLycee?: string;
   cpeLycee?: string;
   cpeCollege?: string;
@@ -544,11 +548,13 @@ export function parseNotifications(raw: unknown): NotificationsConfig {
     const b = block as Record<string, unknown>;
     const out: InternatRollCallRecipients = {};
     const appel = str(b.appelContact).trim();
-    const d = str(b.directionLycee).trim();
+    const dC = str(b.directionCollege).trim();
+    const dL = str(b.directionLycee).trim();
     const cL = str(b.cpeLycee).trim();
     const cC = str(b.cpeCollege).trim();
     if (appel && isEmail(appel)) out.appelContact = appel;
-    if (d && isEmail(d)) out.directionLycee = d;
+    if (dC && isEmail(dC)) out.directionCollege = dC;
+    if (dL && isEmail(dL)) out.directionLycee = dL;
     if (cL && isEmail(cL)) out.cpeLycee = cL;
     if (cC && isEmail(cC)) out.cpeCollege = cC;
     return Object.keys(out).length ? out : undefined;

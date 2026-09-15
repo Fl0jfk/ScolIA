@@ -133,7 +133,7 @@ export function laprovidenceNotifications(): NotificationsConfig {
     },
     absencesNotifyOgecCompta: [...SCHOOL.absences.notifyOgecCompta],
     internatRollCallRecipients: {
-      appelContact: SCHOOL.lycee.email,
+      directionCollege: SCHOOL.college.email,
       directionLycee: SCHOOL.lycee.email,
       cpeLycee: "florian@h-me.fr",
       cpeCollege: SCHOOL.requestsRouting.cpeCollege,

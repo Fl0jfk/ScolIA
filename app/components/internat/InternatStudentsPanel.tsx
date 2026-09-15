@@ -443,52 +443,6 @@ export default function InternatStudentsPanel({
         </div>
       )}
 
-      {students.some((s) => !s.actif) && (
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden opacity-90">
-          <div className="px-4 py-3 border-b border-slate-200">
-            <h3 className="font-bold text-slate-700 text-sm">
-              Sorties en cours d&apos;année ({students.filter((s) => !s.actif).length})
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Fiches conservées — exclus de l&apos;appel. Réactivables en un clic.
-            </p>
-          </div>
-          <ul className="divide-y divide-slate-200/80">
-            {students
-              .filter((s) => !s.actif)
-              .sort((a, b) =>
-                String(b.sortieAt || b.updatedAt).localeCompare(String(a.sortieAt || a.updatedAt)),
-              )
-              .map((s) => (
-                <li
-                  key={s.id}
-                  className="px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500"
-                >
-                  <button
-                    type="button"
-                    className="font-semibold line-through decoration-slate-300 text-left hover:text-slate-700"
-                    onClick={() => setDetailId(s.id)}
-                  >
-                    {studentDisplayName(s)}
-                  </button>
-                  <span className="text-xs">{s.sortieMotif || "Sortie"}</span>
-                  {canManage && (
-                    <button
-                      type="button"
-                      className="text-xs text-emerald-700 font-bold"
-                      onClick={() =>
-                        void updateStudent(s.id, { actif: true, note: "Réactivation manuelle" })
-                      }
-                    >
-                      Réactiver
-                    </button>
-                  )}
-                </li>
-              ))}
-          </ul>
-        </div>
-      )}
-
       {canManage && (
         <div className="border-t border-slate-200 pt-6">
           <button

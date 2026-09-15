@@ -498,13 +498,45 @@ export default function ChapterContacts(props: Props) {
         </label>
         {hasInternat ? (
           <>
-            <OnboardingField label="Qui reçoit l'appel ?">
+            <OnboardingField label="Direction collège (appel internat)">
+              <input
+                className={onboardingInputClass}
+                type="email"
+                value={notifications.internatRollCallRecipients?.directionCollege || ""}
+                onChange={(e) =>
+                  setNotifications({
+                    ...notifications,
+                    internatRollCallRecipients: {
+                      ...notifications.internatRollCallRecipients,
+                      directionCollege: e.target.value,
+                    },
+                  })
+                }
+              />
+            </OnboardingField>
+            <OnboardingField label="CPE collège">
+              <input
+                className={onboardingInputClass}
+                type="email"
+                value={notifications.internatRollCallRecipients?.cpeCollege || ""}
+                onChange={(e) =>
+                  setNotifications({
+                    ...notifications,
+                    internatRollCallRecipients: {
+                      ...notifications.internatRollCallRecipients,
+                      cpeCollege: e.target.value,
+                    },
+                  })
+                }
+              />
+            </OnboardingField>
+            <OnboardingField label="Direction lycée (appel internat)">
               <input
                 className={onboardingInputClass}
                 type="email"
                 value={
-                  notifications.internatRollCallRecipients?.appelContact ||
                   notifications.internatRollCallRecipients?.directionLycee ||
+                  notifications.internatRollCallRecipients?.appelContact ||
                   ""
                 }
                 onChange={(e) =>
@@ -512,7 +544,23 @@ export default function ChapterContacts(props: Props) {
                     ...notifications,
                     internatRollCallRecipients: {
                       ...notifications.internatRollCallRecipients,
-                      appelContact: e.target.value,
+                      directionLycee: e.target.value,
+                    },
+                  })
+                }
+              />
+            </OnboardingField>
+            <OnboardingField label="CPE lycée">
+              <input
+                className={onboardingInputClass}
+                type="email"
+                value={notifications.internatRollCallRecipients?.cpeLycee || ""}
+                onChange={(e) =>
+                  setNotifications({
+                    ...notifications,
+                    internatRollCallRecipients: {
+                      ...notifications.internatRollCallRecipients,
+                      cpeLycee: e.target.value,
                     },
                   })
                 }
