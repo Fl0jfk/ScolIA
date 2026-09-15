@@ -3,6 +3,7 @@ import { isAnyDirectionRole, internatEligibleEstablishments } from "@/app/lib/es
 import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 import { hasRole } from "@/app/lib/absences-types";
 import { hasGlobalAdminRole, intranetRolesFromMetadata } from "@/app/lib/intranet-roles";
+import { resolveInternatStudentKind } from "@/app/lib/internat-etablissement-kind";
 import type { InternatRollCallRecipients, InternatStudent } from "@/app/lib/internat-types";
 
 export type InternatRollCallViewerScope = "all" | "college" | "lycee";
@@ -117,9 +118,10 @@ export function resolveInternatRollCallViewerScope(params: {
 export function filterInternatStudentsByViewerScope(
   students: InternatStudent[],
   scope: InternatRollCallViewerScope,
+  establishments: Establishment[] = [],
 ): InternatStudent[] {
   if (scope === "all") return students;
-  return students.filter((s) => inferEstablishmentKind({ label: s.etablissement }) === scope);
+  return students.filter((s) => resolveInternatStudentKind(s, establishments) === scope);
 }
 
 export function internatRollCallScopeLabel(scope: InternatRollCallViewerScope): string {

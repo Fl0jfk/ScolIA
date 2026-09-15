@@ -12,6 +12,7 @@ export type InternatTab =
   | "etudes"
   | "surveillants"
   | "suivi"
+  | "incidents"
   | "communication"
   | "activites"
   | "alertes"
@@ -22,6 +23,7 @@ const VISIBLE_TABS: { id: InternatTab; label: string }[] = [
   { id: "dashboard", label: "Tableau de bord" },
   { id: "internes", label: "Internes" },
   { id: "appel", label: "Appel" },
+  { id: "incidents", label: "Incidents" },
   { id: "chambres", label: "Chambres" },
   { id: "sorties", label: "Sorties" },
 ];

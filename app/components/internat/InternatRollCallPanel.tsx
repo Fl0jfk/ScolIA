@@ -58,6 +58,46 @@ function getMark(rollCall: InternatRollCall | null, student: InternatStudent): I
   return rollCall[sectionKey(student.sexe)].marks[student.id];
 }
 
+function getMarkMeta(rollCall: InternatRollCall | null, student: InternatStudent) {
+  if (!rollCall) return undefined;
+  return rollCall[sectionKey(student.sexe)].markMeta?.[student.id];
+}
+
+function formatMarkTime(iso: string | undefined): string | null {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return null;
+  }
+}
+
+function askMarkNote(params: {
+  mark: InternatRollMark;
+  afterValidation: boolean;
+  previous?: InternatRollMark;
+}): string | null | undefined {
+  const needsNote =
+    params.afterValidation ||
+    params.mark === "activite" ||
+    (params.previous === "absent" && (params.mark === "present" || params.mark === "excuse"));
+  if (!needsNote) return undefined;
+  const hint =
+    params.mark === "activite"
+      ? "Préciser l'activité (ex. sport — retour prévu 21h15). Laisser vide si inutile."
+      : params.afterValidation
+        ? "Motif obligatoire (ex. activité sportive — arrivé à 21h10)."
+        : "Motif (ex. activité sportive — revenu à 21h10). Laisser vide si inutile.";
+  const raw = window.prompt(hint, params.mark === "activite" ? "Activité sportive" : "");
+  if (raw === null) return null;
+  const note = raw.trim();
+  if (params.afterValidation && !note) {
+    alert("Un motif est requis pour corriger un appel déjà validé.");
+    return null;
+  }
+  return note || undefined;
+}
+
 export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
   const [date, setDate] = useState(todayDateParis());
   const [period, setPeriod] = useState<"matin" | "soir">("soir");
@@ -169,41 +209,76 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
   };
 
   const setMark = (student: InternatStudent, mark: InternatRollMark) => {
-    if (!rollCall || rollCall.status === "validee") return;
+    if (!rollCall) return;
 
     const key = sectionKey(student.sexe);
     const currentMark = rollCall[key].marks[student.id];
-    const nextValue: InternatRollMark | null = currentMark === mark ? null : mark;
+    const afterValidation = rollCall.status === "validee";
+    const nextValue: InternatRollMark | null = !afterValidation && currentMark === mark ? null : mark;
 
-    const optimistic: InternatRollCall = {
-      ...rollCall,
-      [key]: {
-        ...rollCall[key],
-        completed: false,
-        completedBy: undefined,
-        completedAt: undefined,
-        marks: { ...rollCall[key].marks },
-      },
-      updatedAt: new Date().toISOString(),
-    };
-    if (nextValue === null) delete optimistic[key].marks[student.id];
-    else optimistic[key].marks[student.id] = nextValue;
-
-    setRollCall(optimistic);
-    setMoreOpenId(null);
     if (nextValue === null) {
+      const optimistic: InternatRollCall = {
+        ...rollCall,
+        [key]: {
+          ...rollCall[key],
+          completed: false,
+          completedBy: undefined,
+          completedAt: undefined,
+          marks: { ...rollCall[key].marks },
+          markMeta: { ...(rollCall[key].markMeta || {}) },
+        },
+        updatedAt: new Date().toISOString(),
+      };
+      delete optimistic[key].marks[student.id];
+      if (optimistic[key].markMeta) {
+        delete optimistic[key].markMeta[student.id];
+      }
+      setRollCall(optimistic);
+      setMoreOpenId(null);
       void patchSection(
         key,
         { marks: { [student.id]: null } },
         { optimisticRollCall: rollCall, studentId: student.id },
       );
-    } else {
-      void patchSection(
-        key,
-        { marks: { [student.id]: nextValue } },
-        { optimisticRollCall: rollCall, studentId: student.id },
-      );
+      return;
     }
+
+    const noteResult = askMarkNote({
+      mark: nextValue,
+      afterValidation,
+      previous: currentMark,
+    });
+    if (noteResult === null) return;
+
+    const now = new Date().toISOString();
+    const optimistic: InternatRollCall = {
+      ...rollCall,
+      [key]: {
+        ...rollCall[key],
+        completed: afterValidation ? rollCall[key].completed : false,
+        completedBy: afterValidation ? rollCall[key].completedBy : undefined,
+        completedAt: afterValidation ? rollCall[key].completedAt : undefined,
+        marks: { ...rollCall[key].marks, [student.id]: nextValue },
+        markMeta: {
+          ...(rollCall[key].markMeta || {}),
+          [student.id]: {
+            at: now,
+            by: "vous",
+            note: noteResult,
+            previous: currentMark,
+          },
+        },
+      },
+      updatedAt: now,
+    };
+
+    setRollCall(optimistic);
+    setMoreOpenId(null);
+    void patchSection(
+      key,
+      { marks: { [student.id]: nextValue }, note: noteResult },
+      { optimisticRollCall: rollCall, studentId: student.id },
+    );
   };
 
   const completeSection = (section: "boys" | "girls") => {
@@ -278,7 +353,7 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
     );
   }, [filtered]);
 
-  const locked = rollCall?.status === "validee";
+  const validated = rollCall?.status === "validee";
   const markedCount = filtered.filter((s) => getMark(rollCall, s)).length;
   const eveningNotApplicable = period === "soir" && !isInternatEveningRollCallDay(date);
 
@@ -306,6 +381,23 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
           <p className="mt-0.5 text-indigo-800/90">
             Vous voyez uniquement les internes de votre établissement. L’équipe internat
             continue de faire l’appel complet au même endroit.
+          </p>
+        </div>
+      )}
+      <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+        <p className="font-bold">Élève en sport / activité ?</p>
+        <p className="mt-0.5 text-sky-900/90">
+          Marquez <span className="font-semibold">Activité</span> (menu Autre…) pour ne pas bloquer
+          l’appel. S’il revient plus tard, corrigez en Présent avec le motif — l’heure est
+          enregistrée{validated ? " et la direction / CPE est informée" : ""}.
+        </p>
+      </div>
+      {validated && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+          <p className="font-bold">Appel validé — corrections possibles</p>
+          <p className="mt-0.5 text-emerald-900/90">
+            Vous pouvez encore changer un statut (arrivée tardive). Un motif sera demandé et
+            l’heure de correction notée.
           </p>
         </div>
       )}
@@ -337,10 +429,10 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
             />
             <span
               className={`text-xs font-bold px-2.5 py-1 rounded-lg ${
-                locked ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
+                validated ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
               }`}
             >
-              {locked ? "Validé" : `${markedCount}/${filtered.length}`}
+              {validated ? "Validé" : `${markedCount}/${filtered.length}`}
             </span>
           </div>
           {saveLabel && (
@@ -407,6 +499,8 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
               <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {list.map((s) => {
                   const mark = getMark(rollCall, s);
+                  const meta = getMarkMeta(rollCall, s);
+                  const metaTime = formatMarkTime(meta?.at);
                   const isSaving = savingStudentId === s.id;
                   const photo = photoUrls[s.id];
                   const courseHint = courseAbsenceHints[s.id];
@@ -426,7 +520,9 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                               ? "border-emerald-200"
                               : mark === "absent"
                                 ? "border-red-200"
-                                : "border-slate-200"
+                                : mark === "activite"
+                                  ? "border-sky-200"
+                                  : "border-slate-200"
                       }`}
                     >
                       <div className="flex gap-3">
@@ -447,6 +543,13 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                           <p className="text-xs text-slate-500 mt-0.5">
                             {s.classe} · {s.etablissement}
                           </p>
+                          {(meta?.note || metaTime) && (
+                            <p className="mt-1 text-[11px] text-slate-600">
+                              {metaTime ? `${metaTime}` : null}
+                              {metaTime && meta?.note ? " · " : null}
+                              {meta?.note || null}
+                            </p>
+                          )}
                           {courseHint ? (
                             <p
                               className={`mt-1 text-[11px] font-semibold ${
@@ -462,7 +565,6 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                               <button
                                 key={m.id}
                                 type="button"
-                                disabled={locked}
                                 onClick={() => setMark(s, m.id)}
                                 className={`min-h-[44px] rounded-xl text-sm font-bold border transition-colors ${
                                   mark === m.id
@@ -478,7 +580,6 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                           <div className="mt-1.5 flex items-center gap-1.5">
                             <button
                               type="button"
-                              disabled={locked}
                               onClick={() => setMoreOpenId(moreOpen ? null : s.id)}
                               className="text-[11px] font-semibold text-slate-400 px-1 py-1"
                             >
@@ -489,7 +590,6 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                                 <button
                                   key={m.id}
                                   type="button"
-                                  disabled={locked}
                                   onClick={() => setMark(s, m.id)}
                                   className={`flex-1 min-h-[36px] rounded-lg text-xs font-bold border ${
                                     mark === m.id
@@ -512,7 +612,7 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
         </div>
       )}
 
-      {!locked && (
+      {!validated && (
         <div className="fixed bottom-0 inset-x-0 sm:static sm:inset-auto z-30 bg-white/95 backdrop-blur border-t border-slate-200 sm:border-0 p-3 sm:p-0 sm:pt-4 space-y-2">
           <div className="max-w-3xl mx-auto flex flex-col sm:flex-row gap-2">
             {!boysComplete && (

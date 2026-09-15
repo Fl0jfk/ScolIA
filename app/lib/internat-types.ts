@@ -16,6 +16,26 @@ export const INTERNAT_ROLL_MARK_LABELS: Record<InternatRollMark, string> = {
   excuse: "Excusé",
   activite: "Activité ext.",
 };
+
+/** Dernière modification d’un marquage (arrivée tardive, correction, etc.). */
+export type InternatRollMarkMeta = {
+  at: string;
+  by: string;
+  note?: string;
+  previous?: InternatRollMark;
+};
+
+export type InternatRollMarkHistoryEntry = {
+  studentId: string;
+  at: string;
+  by: string;
+  mark: InternatRollMark | null;
+  previous?: InternatRollMark;
+  note?: string;
+  /** Correction après validation de l’appel. */
+  afterValidation?: boolean;
+};
+
 export type InternatRollCallStatus = "ouverte" | "validee";
 export type InternatAlertSeverity = "info" | "urgent" | "critique";
 
@@ -201,6 +221,8 @@ export type InternatRollSection = {
   completedBy?: string;
   completedAt?: string;
   marks: Record<string, InternatRollMark>;
+  /** Métadonnées par élève (heure / motif de la dernière modification). */
+  markMeta?: Record<string, InternatRollMarkMeta>;
 };
 
 export type InternatRollCallPeriod = "soir" | "matin";
@@ -217,6 +239,8 @@ export type InternatRollCall = {
   /** Rappel mail si l'appel n'est pas finalisé à l'heure configurée. */
   reminderSentAt?: string;
   updatedAt: string;
+  /** Journal des corrections (arrivée tardive après activité, etc.). */
+  markHistory?: InternatRollMarkHistoryEntry[];
 };
 
 export type InternatActivity = {
@@ -267,6 +291,8 @@ export type InternatSupervisorShift = {
 
 export type InternatIncidentKind = "incident" | "remarque" | "sanction" | "valorisation";
 
+export type InternatIncidentSeverity = "faible" | "moyenne" | "grave";
+
 export type InternatIncident = {
   id: string;
   studentId: string;
@@ -274,9 +300,19 @@ export type InternatIncident = {
   kind: InternatIncidentKind;
   title: string;
   description?: string;
+  /** Qui / quoi / quand / où — aide au rapport terrain. */
+  location?: string;
+  occurredTime?: string;
+  witnesses?: string;
+  otherPeople?: string;
+  actionsTaken?: string;
+  severity?: InternatIncidentSeverity;
+  etablissement?: string;
+  classe?: string;
   occurredAt: string;
   createdAt: string;
   createdBy: { userId: string; name: string };
+  notifySentAt?: string;
 };
 
 export type InternatMessage = {
@@ -342,18 +378,39 @@ export function etablissementFromSecteur(secteur?: string): InternatEtablissemen
 export function internatEtablissementFromRaw(
   raw: unknown,
   establishments: Establishment[],
+  classe?: string | null,
 ): InternatEtablissement | null {
   const eligible = internatEligibleEstablishments(establishments);
   const s = String(raw || "").trim();
   if (s) {
     const hit = matchEstablishment(eligible, s);
     if (hit) return hit.label;
-    if (inferEstablishmentKind({ label: s }) === "ecole") {
-      return eligible[0]?.label ?? null;
+    const inferred = inferEstablishmentKind({ label: s });
+    if (inferred === "college" || inferred === "lycee") {
+      const byKind = eligible.find((e) => inferEstablishmentKind(e) === inferred);
+      if (byKind) return byKind.label;
+      return inferred === "college" ? "Collège" : "Lycée";
     }
-    if (eligible.length === 0) return s;
+    if (inferred === "ecole") {
+      return null;
+    }
   }
-  return eligible[0]?.label ?? (s || null);
+
+  const niveau = String(classe || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const collegeHit = eligible.find((e) => inferEstablishmentKind(e) === "college");
+  const lyceeHit = eligible.find((e) => inferEstablishmentKind(e) === "lycee");
+  if (/[6543]e|sixieme|cinquieme|quatrieme|troisieme/.test(niveau) && collegeHit) {
+    return collegeHit.label;
+  }
+  if (/(2nde|1re|tle|terminale|seconde|premiere)/.test(niveau) && lyceeHit) {
+    return lyceeHit.label;
+  }
+
+  // Ne plus tomber sur eligible[0] (souvent le collège) — conserve le libellé brut.
+  return s || null;
 }
 
 function emptyRollSection(): InternatRollSection {

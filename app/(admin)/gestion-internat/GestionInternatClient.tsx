@@ -77,6 +77,7 @@ const TAB_IDS: InternatTab[] = [
   "etudes",
   "surveillants",
   "suivi",
+  "incidents",
   "communication",
   "activites",
   "alertes",
@@ -205,7 +206,7 @@ export default function GestionInternatClient() {
             <InternatStudyPanel students={students} canManage={canManage} />
           )}
           {activeTab === "surveillants" && <InternatSupervisorsPanel canManage={canManage} />}
-          {activeTab === "suivi" && (
+          {(activeTab === "suivi" || activeTab === "incidents") && (
             <InternatEducationalPanel students={students} canManage={canManage} />
           )}
           {activeTab === "communication" && <InternatCommunicationPanel canManage={canManage} />}

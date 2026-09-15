@@ -120,7 +120,7 @@ async function resolveInternatEtablissement(
   if (preset) {
     try {
       const bundle = await loadAppConfig();
-      return internatEtablissementFromRaw(preset, bundle.establishments) || preset;
+      return internatEtablissementFromRaw(preset, bundle.establishments, entry.classe) || preset;
     } catch {
       return preset;
     }
@@ -133,10 +133,11 @@ async function resolveInternatEtablissement(
     const fromSecteur = internatEtablissementFromRaw(
       secteur || entry.mef || entry.formation || entry.folderName,
       bundle.establishments,
+      entry.classe,
     );
     return (
       fromSecteur ||
-      internatEtablissementFromRaw(entry.folderName, bundle.establishments) ||
+      internatEtablissementFromRaw(entry.folderName, bundle.establishments, entry.classe) ||
       "Lycée"
     );
   } catch {

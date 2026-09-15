@@ -45,7 +45,7 @@ export async function GET(req: Request) {
     getInternatStudents(),
   ]);
 
-  const students = filterInternatStudentsByViewerScope(allStudents, viewerScope);
+  const students = filterInternatStudentsByViewerScope(allStudents, viewerScope, bundle.establishments);
   const allowedIds = new Set(students.map((s) => s.id));
   const studentMap = new Map(students.map((s) => [s.id, s]));
 

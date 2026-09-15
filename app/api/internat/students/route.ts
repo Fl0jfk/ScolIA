@@ -72,7 +72,11 @@ export async function POST(req: Request) {
         },
         sexe: body.defaultSexe === "F" ? "F" : "M",
         etablissement:
-          internatEtablissementFromRaw(e.secteur || e.mef, bundle.establishments) || "Lycée",
+          internatEtablissementFromRaw(
+            e.secteur || e.mef,
+            bundle.establishments,
+            String(body.defaultClasse || e.folderName.split("—").pop() || "").trim(),
+          ) || "Lycée",
         classe: String(body.defaultClasse || e.folderName.split("—").pop() || "").trim() || "—",
         actif: true,
         createdAt: now,
@@ -98,8 +102,11 @@ export async function POST(req: Request) {
 
   const bundle = await loadAppConfig();
   const etablissement =
-    internatEtablissementFromRaw(body.etablissement, bundle.establishments) ||
-    String(body.etablissement || "").trim();
+    internatEtablissementFromRaw(
+      body.etablissement,
+      bundle.establishments,
+      String(body.classe || "").trim(),
+    ) || String(body.etablissement || "").trim();
   if (!etablissement) {
     return NextResponse.json({ error: "Établissement internat requis (configurez un collège, lycée ou site personnalisé)." }, { status: 400 });
   }
@@ -154,8 +161,11 @@ export async function PATCH(req: Request) {
     sexe: body.sexe === "F" || body.sexe === "M" ? body.sexe : prev.sexe,
     etablissement:
       body.etablissement !== undefined
-        ? internatEtablissementFromRaw(body.etablissement, (await loadAppConfig()).establishments) ||
-          prev.etablissement
+        ? internatEtablissementFromRaw(
+            body.etablissement,
+            (await loadAppConfig()).establishments,
+            body.classe !== undefined ? String(body.classe || "").trim() : prev.classe,
+          ) || prev.etablissement
         : prev.etablissement,
     classe: body.classe !== undefined ? String(body.classe || "").trim() || prev.classe : prev.classe,
     roomId,

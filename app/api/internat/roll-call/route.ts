@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
 import { requireInternatAccess } from "@/app/api/internat/_auth";
 import { loadAppConfig } from "@/app/lib/app-config";
-import type { InternatRollCallRecipients } from "@/app/lib/internat-types";
+import type {
+  InternatRollCall,
+  InternatRollCallPeriod,
+  InternatRollCallRecipients,
+  InternatRollMark,
+  InternatRollMarkHistoryEntry,
+  InternatRollMarkMeta,
+  InternatRollSection,
+} from "@/app/lib/internat-types";
 import { resolvePhotoUrlsForInternatStudents } from "@/app/lib/eleve-photos";
 import { buildInternatCourseAbsenceHints } from "@/app/lib/internat-course-absences";
 import {
@@ -14,50 +22,69 @@ import {
   getInternatStudents,
   saveInternatRollCall,
 } from "@/app/lib/internat-storage";
-import { notifyInternatRollCallValidated } from "@/app/lib/internat-notify";
+import {
+  notifyInternatRollCallCorrection,
+  notifyInternatRollCallValidated,
+} from "@/app/lib/internat-notify";
 import { rollCallCanValidate, sectionIsComplete, todayDateParis } from "@/app/lib/internat-stats";
-import type { InternatRollCall, InternatRollCallPeriod, InternatRollMark, InternatRollSection } from "@/app/lib/internat-types";
 
 function parsePeriod(raw: string | null): InternatRollCallPeriod {
   return raw === "matin" ? "matin" : "soir";
 }
 
-function mergeMarks(
-  current: Record<string, InternatRollMark>,
-  patch: Record<string, string | null | undefined>,
-): Record<string, InternatRollMark> {
-  const next = { ...current };
-  for (const [studentId, mark] of Object.entries(patch)) {
-    if (mark === null || mark === undefined || mark === "" || mark === "clear") {
-      delete next[studentId];
-      continue;
-    }
-    if (mark === "present" || mark === "absent" || mark === "excuse" || mark === "activite") {
-      next[studentId] = mark;
-    }
+function parseMark(raw: unknown): InternatRollMark | null | undefined {
+  if (raw === null || raw === "" || raw === "clear") return null;
+  if (raw === "present" || raw === "absent" || raw === "excuse" || raw === "activite") {
+    return raw;
   }
-  return next;
+  return undefined;
 }
 
-function mergeSection(
-  current: InternatRollSection,
-  patch:
-    | {
-        marks?: Record<string, string | null>;
-        completed?: boolean;
-        completedBy?: string;
-        completedAt?: string;
-      }
-    | undefined,
-): InternatRollSection {
-  if (!patch) return current;
-  const marks = patch.marks ? mergeMarks(current.marks, patch.marks) : current.marks;
-  const completed = patch.completed !== undefined ? patch.completed : current.completed;
+function applyMarkPatch(
+  section: InternatRollSection,
+  patch: Record<string, string | null | undefined>,
+  meta: { at: string; by: string; note?: string },
+): {
+  section: InternatRollSection;
+  history: InternatRollMarkHistoryEntry[];
+} {
+  const marks = { ...section.marks };
+  const markMeta: Record<string, InternatRollMarkMeta> = { ...(section.markMeta || {}) };
+  const history: InternatRollMarkHistoryEntry[] = [];
+
+  for (const [studentId, raw] of Object.entries(patch)) {
+    const parsed = parseMark(raw);
+    if (parsed === undefined) continue;
+    const previous = marks[studentId];
+    if (parsed === null) {
+      delete marks[studentId];
+      delete markMeta[studentId];
+    } else {
+      marks[studentId] = parsed;
+      markMeta[studentId] = {
+        at: meta.at,
+        by: meta.by,
+        note: meta.note,
+        previous,
+      };
+    }
+    history.push({
+      studentId,
+      at: meta.at,
+      by: meta.by,
+      mark: parsed,
+      previous,
+      note: meta.note,
+    });
+  }
+
   return {
-    completed,
-    completedBy: completed ? (patch.completedBy ?? current.completedBy) : patch.completedBy,
-    completedAt: completed ? (patch.completedAt ?? current.completedAt) : patch.completedAt,
-    marks,
+    section: {
+      ...section,
+      marks,
+      markMeta,
+    },
+    history,
   };
 }
 
@@ -69,13 +96,16 @@ async function resolveViewerScope(access: {
   const notif = bundle.notifications as typeof bundle.notifications & {
     internatRollCallRecipients?: InternatRollCallRecipients;
   };
-  return resolveInternatRollCallViewerScope({
-    roles: access.roles,
-    email: access.user?.primaryEmailAddress?.emailAddress,
-    isOrgAdmin: isOrgAdminMetadata(access.user?.publicMetadata),
-    recipients: notif.internatRollCallRecipients,
+  return {
+    viewerScope: resolveInternatRollCallViewerScope({
+      roles: access.roles,
+      email: access.user?.primaryEmailAddress?.emailAddress,
+      isOrgAdmin: isOrgAdminMetadata(access.user?.publicMetadata),
+      recipients: notif.internatRollCallRecipients,
+      establishments: bundle.establishments,
+    }),
     establishments: bundle.establishments,
-  });
+  };
 }
 
 export async function GET(req: Request) {
@@ -86,12 +116,12 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const date = String(searchParams.get("date") || todayDateParis());
     const period = parsePeriod(searchParams.get("period"));
-    const [rollCall, allStudents, viewerScope] = await Promise.all([
+    const [{ viewerScope, establishments }, rollCall, allStudents] = await Promise.all([
+      resolveViewerScope(access),
       getInternatRollCall(date, period),
       getInternatStudents(),
-      resolveViewerScope(access),
     ]);
-    const students = filterInternatStudentsByViewerScope(allStudents, viewerScope);
+    const students = filterInternatStudentsByViewerScope(allStudents, viewerScope, establishments);
 
     const [photoUrls, courseAbsenceHints] = await Promise.all([
       resolvePhotoUrlsForInternatStudents(students).catch((e) => {
@@ -129,57 +159,114 @@ export async function PATCH(req: Request) {
   const period = parsePeriod(body.period ? String(body.period) : null);
   const students = await getInternatStudents();
   let rollCall = await getInternatRollCall(date, period);
+  const now = new Date().toISOString();
+  const note = String(body.note || "").trim() || undefined;
+  const afterValidation = rollCall.status === "validee";
 
-  if (rollCall.status === "validee") {
-    return NextResponse.json({ error: "Cet appel est déjà validé." }, { status: 400 });
+  if (afterValidation && body.complete === true) {
+    return NextResponse.json(
+      { error: "Impossible de terminer une section sur un appel déjà validé." },
+      { status: 400 },
+    );
   }
 
-  const now = new Date().toISOString();
+  if (afterValidation) {
+    if (!body.marks || typeof body.marks !== "object") {
+      return NextResponse.json(
+        { error: "Sur un appel validé, seules des corrections de statut sont possibles." },
+        { status: 400 },
+      );
+    }
+    if (!note) {
+      return NextResponse.json(
+        {
+          error:
+            "Précisez le motif (ex. activité sportive — arrivé à 21h10) pour corriger un appel déjà validé.",
+        },
+        { status: 400 },
+      );
+    }
+  }
+
+  const correctionMails: Array<{ studentId: string; sent: boolean }> = [];
 
   if (body.section === "boys" || body.section === "girls") {
     const key: "boys" | "girls" = body.section;
-    const sectionPatch: {
-      marks?: Record<string, string | null>;
-      completed?: boolean;
-      completedBy?: string;
-      completedAt?: string;
-    } = {};
+    let nextSection = rollCall[key];
+    const historyAdds: InternatRollMarkHistoryEntry[] = [];
+
     if (body.marks && typeof body.marks === "object") {
-      sectionPatch.marks = body.marks as Record<string, string | null>;
-      if (rollCall[key].completed) {
-        sectionPatch.completed = false;
-        sectionPatch.completedBy = undefined;
-        sectionPatch.completedAt = undefined;
+      const applied = applyMarkPatch(nextSection, body.marks as Record<string, string | null>, {
+        at: now,
+        by: access.userName,
+        note,
+      });
+      nextSection = applied.section;
+      for (const h of applied.history) {
+        historyAdds.push({ ...h, afterValidation: afterValidation || undefined });
+      }
+
+      if (!afterValidation && nextSection.completed) {
+        nextSection = {
+          ...nextSection,
+          completed: false,
+          completedBy: undefined,
+          completedAt: undefined,
+        };
       }
     }
-    if (body.complete === true) {
+
+    if (!afterValidation && body.complete === true) {
       const sexe = key === "girls" ? "F" : "M";
       const active = students.filter((s) => s.actif && s.sexe === sexe);
-      const merged = mergeSection(rollCall[key], sectionPatch);
-      const missing = active.filter((s) => !merged.marks[s.id]);
+      const missing = active.filter((s) => !nextSection.marks[s.id]);
       if (missing.length > 0) {
         return NextResponse.json(
           { error: "Marquez tous les internes de cette section avant de la terminer." },
           { status: 400 },
         );
       }
-      sectionPatch.completed = true;
-      sectionPatch.completedBy = access.userName;
-      sectionPatch.completedAt = now;
+      nextSection = {
+        ...nextSection,
+        completed: true,
+        completedBy: access.userName,
+        completedAt: now,
+      };
     }
+
     rollCall = {
       ...rollCall,
-      [key]: mergeSection(rollCall[key], sectionPatch),
+      [key]: nextSection,
+      markHistory: [...(rollCall.markHistory || []), ...historyAdds],
       updatedAt: now,
     };
+
+    if (afterValidation && historyAdds.length > 0) {
+      for (const entry of historyAdds) {
+        if (!entry.mark) continue;
+        const student = students.find((s) => s.id === entry.studentId);
+        if (!student) continue;
+        const mail = await notifyInternatRollCallCorrection({
+          rollCall,
+          student,
+          mark: entry.mark,
+          previous: entry.previous,
+          note: entry.note,
+          correctedBy: access.userName,
+          correctedAt: now,
+        });
+        correctionMails.push({ studentId: student.id, sent: mail.sent });
+      }
+    }
   }
 
   await saveInternatRollCall(rollCall);
   return NextResponse.json({
     rollCall,
-    canValidate: rollCallCanValidate(rollCall, students),
+    canValidate: !afterValidation && rollCallCanValidate(rollCall, students),
     boysComplete: sectionIsComplete(rollCall.boys, students, "M"),
     girlsComplete: sectionIsComplete(rollCall.girls, students, "F"),
+    correctionMails,
   });
 }
 
