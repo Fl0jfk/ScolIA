@@ -19,6 +19,7 @@ type SignView = {
   convention: {
     studentName: string;
     className: string;
+    dateNaissance?: string | null;
     companyName: string;
     period: string;
     periodLabel?: string;
@@ -26,6 +27,12 @@ type SignView = {
     scheduleDays?: ScheduleDay[];
     schedule?: StageSchedule;
     hasPdf: boolean;
+  };
+  scheduleConstraints?: {
+    cycle: string;
+    cycleLabel: string;
+    rules: import("@/app/lib/stage-constraints").StageCycleConstraints;
+    blockedPeriods: import("@/app/lib/stage-constraints").StageBlockedPeriod[];
   };
   signature: {
     role: string;
@@ -468,6 +475,16 @@ export default function StagePublicSignerClient() {
               value={draftSchedule}
               onChange={setDraftSchedule}
               title="Proposez vos dates et horaires corrigés"
+              constraints={
+                view.scheduleConstraints
+                  ? {
+                      rules: view.scheduleConstraints.rules,
+                      blockedPeriods: view.scheduleConstraints.blockedPeriods,
+                    }
+                  : null
+              }
+              dateNaissance={view.convention.dateNaissance}
+              cycleLabel={view.scheduleConstraints?.cycleLabel}
             />
             <label className="block text-xs font-semibold text-stone-600">
               Motif (optionnel)

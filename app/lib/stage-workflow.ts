@@ -801,7 +801,10 @@ export async function reviewScheduleChangeRequest(params: {
   }
 
   const requestedSchedule = normalizeStageSchedule(req.requestedSchedule);
-  const scheduleError = validateStageSchedule(requestedSchedule);
+  const scheduleError = await validateConventionScheduleRules(
+    params.convention,
+    requestedSchedule,
+  );
   if (scheduleError) return { ok: false, error: scheduleError };
 
   const now = new Date().toISOString();
@@ -1746,6 +1749,7 @@ export async function createPublicPreconventionDraft(student: {
   lastName: string;
   className: string;
   level: string;
+  dateNaissance?: string;
   email?: string;
   parent1Email?: string;
   parent2Email?: string;
@@ -1770,6 +1774,7 @@ export async function createPublicPreconventionDraft(student: {
       periodEnd: student.periodEnd,
     };
   }
+  const dateNaissance = normalizeEleveDateNaissance(student.dateNaissance ?? "") || undefined;
   let convention: StageConvention = {
     id: stageUid("conv"),
     schoolYear: currentStageSchoolYear(),
@@ -1782,6 +1787,7 @@ export async function createPublicPreconventionDraft(student: {
       lastName: student.lastName.trim(),
       className: student.className.trim(),
       level: inferStudentLevelFromClass(student.className),
+      dateNaissance,
       email: student.email?.trim() || undefined,
       parent1Email: parent1,
       parent2Email: parent2,
@@ -1853,6 +1859,10 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
       lastName: str(studentRaw.lastName, base?.student.lastName),
       className: str(studentRaw.className, base?.student.className),
       level: str(studentRaw.level, base?.student.level),
+      dateNaissance:
+        normalizeEleveDateNaissance(
+          str(studentRaw.dateNaissance, base?.student.dateNaissance ?? ""),
+        ) || undefined,
       email: str(studentRaw.email, base?.student.email) || undefined,
       parent1Email:
         str(studentRaw.parent1Email, base?.student.parent1Email) ||

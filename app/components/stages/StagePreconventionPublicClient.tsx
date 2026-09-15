@@ -101,6 +101,11 @@ function StagePreconventionPublicContent() {
   const [done, setDone] = useState(false);
   const [reminders, setReminders] = useState<StagePeriodReminder[]>([]);
   const [officialPeriods, setOfficialPeriods] = useState<StageClassPeriod[]>([]);
+  const [scheduleConstraints, setScheduleConstraints] = useState<{
+    rules: import("@/app/lib/stage-constraints").StageCycleConstraints;
+    blockedPeriods: import("@/app/lib/stage-constraints").StageBlockedPeriod[];
+  } | null>(null);
+  const [cycleLabel, setCycleLabel] = useState<string | undefined>(undefined);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
   const [selectedPeriodId, setSelectedPeriodId] = useState("");
   const [signatureSummary, setSignatureSummary] = useState<
@@ -178,11 +183,42 @@ function StagePreconventionPublicContent() {
     if (!ctx || typeof ctx !== "object") {
       setReminders([]);
       setOfficialPeriods([]);
+      setScheduleConstraints(null);
+      setCycleLabel(undefined);
       return;
     }
-    const o = ctx as { reminders?: StagePeriodReminder[]; periods?: StageClassPeriod[] };
+    const o = ctx as {
+      reminders?: StagePeriodReminder[];
+      periods?: StageClassPeriod[];
+      constraints?: {
+        cycle?: string;
+        rules?: import("@/app/lib/stage-constraints").StageCycleConstraints;
+        blockedPeriods?: import("@/app/lib/stage-constraints").StageBlockedPeriod[];
+      };
+    };
     setReminders(Array.isArray(o.reminders) ? o.reminders : []);
     setOfficialPeriods(Array.isArray(o.periods) ? o.periods : []);
+    if (o.constraints?.rules) {
+      setScheduleConstraints({
+        rules: o.constraints.rules,
+        blockedPeriods: Array.isArray(o.constraints.blockedPeriods)
+          ? o.constraints.blockedPeriods
+          : [],
+      });
+      const cycle = o.constraints.cycle;
+      setCycleLabel(
+        cycle === "college"
+          ? "Collège"
+          : cycle === "lycee"
+            ? "Lycée"
+            : cycle === "ecole"
+              ? "École"
+              : undefined,
+      );
+    } else {
+      setScheduleConstraints(null);
+      setCycleLabel(undefined);
+    }
   }
 
   const loadConvention = useCallback(async (activeToken: string) => {
@@ -1027,6 +1063,8 @@ function StagePreconventionPublicContent() {
                   identityLocked={Boolean(convention.ocrMeta?.matchedEleveIne)}
                   reminders={reminders}
                   officialPeriods={officialPeriods}
+                  scheduleConstraints={scheduleConstraints}
+                  cycleLabel={cycleLabel}
                   submitLabel="Valider ma préconvention"
                 />
 

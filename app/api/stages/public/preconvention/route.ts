@@ -7,6 +7,7 @@ import {
   getStageRemindersForClass,
   isClassEligibleForStage,
 } from "@/app/lib/stage-periods-config";
+import { getStageConstraintsPublicContext } from "@/app/lib/stage-constraints-config";
 import { getElevePhotoUrl } from "@/app/lib/eleve-photos";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 
@@ -43,11 +44,15 @@ async function verifyAndLoadStudent(params: {
     return { ok: false as const, error: eligibility.reason, status: 403 as const };
   }
 
-  const [dossier, reminders, periods, photoUrl] = await Promise.all([
+  const [dossier, reminders, periods, photoUrl, constraints] = await Promise.all([
     buildStudentStageDossier(student),
     getStageRemindersForClass(student.className),
     getStagePeriodsForClass(student.className),
     getElevePhotoUrl(eleve).catch(() => null),
+    getStageConstraintsPublicContext({
+      level: student.level,
+      className: student.className,
+    }),
   ]);
 
   return {
@@ -56,7 +61,7 @@ async function verifyAndLoadStudent(params: {
     student,
     dossier,
     photoUrl,
-    stageContext: { reminders, periods },
+    stageContext: { reminders, periods, constraints },
     parent1Email:
       eleve.parent1Email?.trim() ||
       eleve.parentEmail?.trim() ||
@@ -178,6 +183,7 @@ export async function POST(req: Request) {
 
       const { convention, studentLink } = await createPublicPreconventionDraft({
         ...loaded.student,
+        dateNaissance: loaded.student.dateNaissance || dateNaissance,
         email: loaded.eleve.email?.trim() || undefined,
         parent1Email: parent1Override || loaded.parent1Email,
         parent2Email: parent2Override || loaded.parent2Email,

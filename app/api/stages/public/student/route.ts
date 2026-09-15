@@ -14,6 +14,7 @@ import {
   getStagePeriodsForClass,
   getStageRemindersForClass,
 } from "@/app/lib/stage-periods-config";
+import { getStageConstraintsPublicContext } from "@/app/lib/stage-constraints-config";
 import { scheduleSummary } from "@/app/lib/stage-schedule";
 import { buildSignatureSummary } from "@/app/lib/stage-signature-summary";
 import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
@@ -62,6 +63,7 @@ export async function GET(req: Request) {
       const stageContext = await stageContextForClass(
         convention.student.className,
         convention.schoolYear,
+        convention.student.level,
       );
       return NextResponse.json({
         convention,
@@ -80,6 +82,7 @@ export async function GET(req: Request) {
     const stageContext = await stageContextForClass(
       convention.student.className,
       convention.schoolYear,
+      convention.student.level,
     );
 
     const parentEmail =
@@ -105,12 +108,17 @@ export async function GET(req: Request) {
   }
 }
 
-async function stageContextForClass(className: string, schoolYear: string) {
-  const [reminders, periods] = await Promise.all([
+async function stageContextForClass(
+  className: string,
+  schoolYear: string,
+  level: string,
+) {
+  const [reminders, periods, constraints] = await Promise.all([
     getStageRemindersForClass(className, schoolYear),
     getStagePeriodsForClass(className, schoolYear),
+    getStageConstraintsPublicContext({ level, className, schoolYear }),
   ]);
-  return { reminders, periods };
+  return { reminders, periods, constraints };
 }
 
 export async function PATCH(req: Request) {

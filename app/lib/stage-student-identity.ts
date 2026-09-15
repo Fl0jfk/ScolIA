@@ -68,6 +68,7 @@ export type VerifiedStageStudent = {
   lastName: string;
   className: string;
   level: string;
+  dateNaissance?: string;
 };
 
 export type StageIdentityCandidateClass = {
@@ -76,12 +77,14 @@ export type StageIdentityCandidateClass = {
 
 function toVerifiedStudent(eleve: EleveConfig): VerifiedStageStudent {
   const className = String(eleve.classe ?? "").trim();
+  const dateNaissance = normalizeEleveDateNaissance(eleve.dateNaissance ?? "") || undefined;
   return {
     eleve,
     firstName: eleve.prenom.trim(),
     lastName: eleve.nom.trim(),
     className,
     level: inferStudentLevelFromClass(className),
+    dateNaissance,
   };
 }
 

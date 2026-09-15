@@ -2,6 +2,15 @@
 
 import { useRef, useState } from "react";
 import type { StageDaySlot, StageSchedule, StageScheduleMode, StageWeekday } from "@/app/lib/stage-types";
+import type {
+  StageBlockedPeriod,
+  StageCycleConstraints,
+} from "@/app/lib/stage-constraints";
+import {
+  describeStageConstraintsRules,
+  stageScheduleHoursSummary,
+  validateStageScheduleConstraints,
+} from "@/app/lib/stage-constraints";
 import {
   STAGE_DEFAULT_WEEKDAYS,
   STAGE_WEEKDAY_LABELS,
@@ -21,16 +30,22 @@ function TimeField({
   label,
   value,
   onChange,
+  min,
+  max,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  min?: string;
+  max?: string;
 }) {
   return (
     <label className="block text-xs font-semibold text-[#1F3D2B]">
       {label}
       <input
         type="time"
+        min={min}
+        max={max}
         className="mt-1 w-full rounded-lg border-2 border-[#2F6B4A]/40 bg-white px-3 py-2.5 text-sm font-semibold text-[#1F3D2B] shadow-sm focus:border-[#2F6B4A] focus:outline-none focus:ring-2 focus:ring-[#2F6B4A]/30"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -42,9 +57,13 @@ function TimeField({
 function DayHoursEditor({
   day,
   onPatch,
+  earliestStart,
+  latestEnd,
 }: {
   day: StageDaySlot;
   onPatch: (patch: Partial<StageDaySlot>) => void;
+  earliestStart?: string;
+  latestEnd?: string;
 }) {
   return (
     <div className="space-y-3 rounded-xl border border-[#2F6B4A]/25 bg-[#f3faf6] p-3">
@@ -61,21 +80,29 @@ function DayHoursEditor({
           <TimeField
             label="Matin — début"
             value={day.morningStart || ""}
+            min={earliestStart}
+            max={latestEnd}
             onChange={(v) => onPatch({ morningStart: v })}
           />
           <TimeField
             label="Matin — fin"
             value={day.morningEnd || ""}
+            min={earliestStart}
+            max={latestEnd}
             onChange={(v) => onPatch({ morningEnd: v })}
           />
           <TimeField
             label="Après-midi — début"
             value={day.afternoonStart || ""}
+            min={earliestStart}
+            max={latestEnd}
             onChange={(v) => onPatch({ afternoonStart: v })}
           />
           <TimeField
             label="Après-midi — fin"
             value={day.afternoonEnd || ""}
+            min={earliestStart}
+            max={latestEnd}
             onChange={(v) => onPatch({ afternoonEnd: v })}
           />
         </div>
@@ -84,11 +111,15 @@ function DayHoursEditor({
           <TimeField
             label="Journée — début"
             value={day.fullDayStart || day.morningStart || ""}
+            min={earliestStart}
+            max={latestEnd}
             onChange={(v) => onPatch({ fullDayStart: v, morningStart: v })}
           />
           <TimeField
             label="Journée — fin"
             value={day.fullDayEnd || day.morningEnd || ""}
+            min={earliestStart}
+            max={latestEnd}
             onChange={(v) => onPatch({ fullDayEnd: v, morningEnd: v })}
           />
         </div>
@@ -104,15 +135,28 @@ export default function StageScheduleEditor({
   value,
   onChange,
   title = "Période et horaires",
+  constraints,
+  dateNaissance,
+  cycleLabel,
 }: {
   value: StageSchedule;
   onChange: (next: StageSchedule) => void;
   title?: string;
+  constraints?: {
+    rules: StageCycleConstraints;
+    blockedPeriods: StageBlockedPeriod[];
+  } | null;
+  dateNaissance?: string | null;
+  cycleLabel?: string;
 }) {
   const schedule = value;
   const hoursTemplate = schedule.days[0] || defaultDayHoursTemplate();
   const periodStartRef = useRef<HTMLInputElement>(null);
   const [periodHint, setPeriodHint] = useState<string | null>(null);
+
+  const selectableWeekdays: StageWeekday[] = constraints?.rules.allowedWeekdays?.length
+    ? constraints.rules.allowedWeekdays
+    : STAGE_WEEKDAYS;
 
   const selectedWeekdaysList: StageWeekday[] = Array.isArray(schedule.presenceWeekdays)
     ? [...schedule.presenceWeekdays].filter((w) => w >= 1 && w <= 6).sort((a, b) => a - b)
@@ -135,6 +179,22 @@ export default function StageScheduleEditor({
       periodStart: schedule.periodStart,
       periodEnd: schedule.periodEnd,
     });
+
+  const constraintError = constraints
+    ? validateStageScheduleConstraints(schedule, {
+        rules: constraints.rules,
+        blockedPeriods: constraints.blockedPeriods,
+        dateNaissance,
+        cycleLabel,
+      })
+    : null;
+
+  const hoursSummary = constraints
+    ? stageScheduleHoursSummary(schedule, {
+        rules: constraints.rules,
+        dateNaissance,
+      })
+    : null;
 
   function focusPeriodStart(message: string) {
     setPeriodHint(message);
@@ -180,7 +240,10 @@ export default function StageScheduleEditor({
   ) {
     const periodStart = bounds?.periodStart ?? schedule.periodStart;
     const periodEnd = bounds?.periodEnd ?? schedule.periodEnd;
-    const sorted = [...new Set(weekdays)].filter((w) => w >= 1 && w <= 6).sort((a, b) => a - b);
+    const allowedSet = new Set(selectableWeekdays);
+    const sorted = [...new Set(weekdays)]
+      .filter((w) => w >= 1 && w <= 6 && allowedSet.has(w))
+      .sort((a, b) => a - b);
     const template = { ...hoursTemplate };
     delete template.date;
     delete template.weekday;
@@ -216,6 +279,14 @@ export default function StageScheduleEditor({
   }
 
   function toggleWeekday(weekday: StageWeekday, enabled: boolean) {
+    if (!selectableWeekdays.includes(weekday)) {
+      focusPeriodStart(
+        `Le ${STAGE_WEEKDAY_LABELS[weekday].toLowerCase()} n'est pas autorisé` +
+          (cycleLabel ? ` (${cycleLabel})` : "") +
+          ".",
+      );
+      return;
+    }
     if (enabled) {
       const present = weekdaysPresentInPeriod(schedule.periodStart, schedule.periodEnd);
       if (!present.includes(weekday)) {
@@ -284,6 +355,36 @@ export default function StageScheduleEditor({
     <section className="space-y-4 rounded-xl border border-stone-200 bg-stone-50/80 p-4">
       <h3 className="text-sm font-bold text-[#1F3D2B]">{title}</h3>
 
+      {constraints ? (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950 leading-relaxed">
+          <p className="font-semibold">
+            Règles{cycleLabel ? ` — ${cycleLabel}` : ""}
+          </p>
+          <p className="mt-1">{describeStageConstraintsRules(constraints.rules)}</p>
+          {constraints.blockedPeriods.length > 0 ? (
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              {constraints.blockedPeriods.map((b) => (
+                <li key={b.id}>
+                  Bloqué : {b.label} (
+                  {new Date(`${b.periodStart}T12:00:00`).toLocaleDateString("fr-FR")} →{" "}
+                  {new Date(`${b.periodEnd}T12:00:00`).toLocaleDateString("fr-FR")})
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {hoursSummary ? (
+            <p
+              className={`mt-2 font-semibold ${
+                hoursSummary.overCap ? "text-rose-800" : "text-sky-950"
+              }`}
+            >
+              Volume saisi : {hoursSummary.weeklyHoursLabel} / max {hoursSummary.capHours} h
+              {hoursSummary.age != null ? ` (âge à la date de début : ${hoursSummary.age} ans)` : ""}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block text-xs font-semibold text-stone-600">
           Date de début *
@@ -309,6 +410,12 @@ export default function StageScheduleEditor({
       {periodMismatch ? (
         <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 leading-relaxed">
           {periodMismatch}
+        </p>
+      ) : null}
+
+      {constraintError ? (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 leading-relaxed">
+          {constraintError}
         </p>
       ) : null}
 
@@ -355,10 +462,13 @@ export default function StageScheduleEditor({
           <p className="text-xs font-bold text-[#1F3D2B]">Jours de présence dans la semaine</p>
           <p className="mt-1 text-xs text-stone-500">
             Cochez les jours où l&apos;élève est présent en entreprise.
+            {constraints
+              ? " Seuls les jours autorisés par l'établissement sont proposés."
+              : null}
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {STAGE_WEEKDAYS.map((weekday) => {
+          {selectableWeekdays.map((weekday) => {
             const checked = selectedWeekdays.has(weekday);
             return (
               <label
@@ -388,7 +498,12 @@ export default function StageScheduleEditor({
       {schedule.mode === "uniform_week" ? (
         <div className="space-y-2">
           <p className="text-xs font-bold text-[#1F3D2B]">Horaires (une seule configuration)</p>
-          <DayHoursEditor day={hoursTemplate} onPatch={(patch) => applyUniformHours(patch)} />
+          <DayHoursEditor
+            day={hoursTemplate}
+            earliestStart={constraints?.rules.earliestStart}
+            latestEnd={constraints?.rules.latestEndUnder16 || constraints?.rules.latestEnd}
+            onPatch={(patch) => applyUniformHours(patch)}
+          />
         </div>
       ) : (
         <div className="space-y-3">
@@ -411,7 +526,12 @@ export default function StageScheduleEditor({
                         })
                       : formatDaySlotLabel(day)}
                   </p>
-                  <DayHoursEditor day={day} onPatch={(patch) => updateDay(i, patch)} />
+                  <DayHoursEditor
+                    day={day}
+                    earliestStart={constraints?.rules.earliestStart}
+                    latestEnd={constraints?.rules.latestEndUnder16 || constraints?.rules.latestEnd}
+                    onPatch={(patch) => updateDay(i, patch)}
+                  />
                 </li>
               ))}
             </ul>

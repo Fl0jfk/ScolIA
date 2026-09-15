@@ -20,6 +20,8 @@ import {
   STAGE_SIGNER_ROLE_LABELS,
   type StageSignMethod,
 } from "@/app/lib/stage-types";
+import { getStageConstraintsPublicContext } from "@/app/lib/stage-constraints-config";
+import { stageCycleLabel } from "@/app/lib/stage-config";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 
 const signPublicLimiter = createMemoryRateLimiter({
@@ -88,12 +90,18 @@ export async function GET(req: Request) {
     const scheduleChangePending = Boolean(convention.scheduleChangeRequest);
     const canRequestSchedule =
       canRequestScheduleChange(convention, signature.role) && !scheduleChangePending;
+    const constraints = await getStageConstraintsPublicContext({
+      level: convention.student.level,
+      className: convention.student.className,
+      schoolYear: convention.schoolYear,
+    });
 
     return NextResponse.json({
       convention: {
         id: convention.id,
         studentName: `${convention.student.firstName} ${convention.student.lastName}`.trim(),
         className: convention.student.className,
+        dateNaissance: convention.student.dateNaissance || null,
         companyName: convention.company.name,
         period: `${convention.schedule.periodStart} → ${convention.schedule.periodEnd}`,
         periodLabel: formatPeriodRangeFr(
@@ -104,6 +112,12 @@ export async function GET(req: Request) {
         scheduleDays,
         schedule: convention.schedule,
         hasPdf: Boolean(convention.uploadedPdf?.s3Key),
+      },
+      scheduleConstraints: {
+        cycle: constraints.cycle,
+        cycleLabel: stageCycleLabel(constraints.cycle),
+        rules: constraints.rules,
+        blockedPeriods: constraints.blockedPeriods,
       },
       signature: {
         role: signature.role,
