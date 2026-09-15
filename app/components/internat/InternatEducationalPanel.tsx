@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { InternatIncident, InternatStudent } from "@/app/lib/internat-types";
-import { studentDisplayName } from "@/app/lib/internat-types";
+import { compareInternatStudentsByLastName, studentDisplayName } from "@/app/lib/internat-types";
 
 type StaffWitness = { userId: string; name: string; email?: string };
 
@@ -131,9 +131,7 @@ export default function InternatEducationalPanel({
           (s.classe || "").toLowerCase().includes(q)
         );
       })
-      .sort((a, b) =>
-        studentDisplayName(a).localeCompare(studentDisplayName(b), "fr"),
-      );
+      .sort(compareInternatStudentsByLastName);
   }, [students, search]);
 
   const create = async () => {

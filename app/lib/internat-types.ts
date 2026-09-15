@@ -448,6 +448,13 @@ export function studentDisplayName(s: InternatStudent) {
   return `${s.eleveRef.prenom} ${s.eleveRef.nom}`.trim();
 }
 
+/** Tri alphabétique nom puis prénom (fr), pour trombis / appel. */
+export function compareInternatStudentsByLastName(a: InternatStudent, b: InternatStudent): number {
+  const nom = (a.eleveRef.nom || "").localeCompare(b.eleveRef.nom || "", "fr", { sensitivity: "base" });
+  if (nom !== 0) return nom;
+  return (a.eleveRef.prenom || "").localeCompare(b.eleveRef.prenom || "", "fr", { sensitivity: "base" });
+}
+
 export function sortInternatFloors(floors: InternatFloor[]): InternatFloor[] {
   return [...floors].sort(
     (a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, "fr"),

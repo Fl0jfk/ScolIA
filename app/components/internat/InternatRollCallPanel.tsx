@@ -2,14 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { InternatRollCall, InternatRollMark, InternatStudent } from "@/app/lib/internat-types";
-import { studentDisplayName } from "@/app/lib/internat-types";
+import { compareInternatStudentsByLastName, studentDisplayName } from "@/app/lib/internat-types";
 import { isInternatEveningRollCallDay, todayDateParis } from "@/app/lib/internat-stats";
-import {
-  INTERNAT_NIVEAUX,
-  niveauDisplayLabel,
-  niveauFromClasse,
-  niveauSortKey,
-} from "@/app/lib/internat-level";
+import { INTERNAT_NIVEAUX, niveauFromClasse } from "@/app/lib/internat-level";
 
 const PRIMARY_MARKS: { id: InternatRollMark; label: string; activeCls: string }[] = [
   {
@@ -333,27 +328,8 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
         if (filterNiveau === "all") return true;
         return niveauFromClasse(s.classe) === filterNiveau;
       })
-      .sort((a, b) => {
-        const na = niveauSortKey(niveauFromClasse(a.classe));
-        const nb = niveauSortKey(niveauFromClasse(b.classe));
-        if (na !== nb) return na - nb;
-        if (a.sexe !== b.sexe) return a.sexe === "F" ? -1 : 1;
-        return studentDisplayName(a).localeCompare(studentDisplayName(b), "fr");
-      });
+      .sort(compareInternatStudentsByLastName);
   }, [students, filterSexe, filterEtab, filterNiveau]);
-
-  const grouped = useMemo(() => {
-    const map = new Map<string, InternatStudent[]>();
-    for (const s of filtered) {
-      const niv = niveauFromClasse(s.classe) || "Autres";
-      const list = map.get(niv) || [];
-      list.push(s);
-      map.set(niv, list);
-    }
-    return [...map.entries()].sort(
-      (a, b) => niveauSortKey(a[0] === "Autres" ? null : a[0]) - niveauSortKey(b[0] === "Autres" ? null : b[0]),
-    );
-  }, [filtered]);
 
   const validated = rollCall?.status === "validee";
   const markedCount = filtered.filter((s) => getMark(rollCall, s)).length;
@@ -505,118 +481,108 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
       {filtered.length === 0 ? (
         <p className="text-slate-500 text-sm text-center py-10">Aucun interne pour ces filtres.</p>
       ) : (
-        <div className="space-y-6">
-          {grouped.map(([niveau, list]) => (
-            <section key={niveau}>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 px-0.5">
-                {niveauDisplayLabel(niveau === "Autres" ? null : niveau)} · {list.length}
-              </h3>
-              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {list.map((s) => {
-                  const mark = getMark(rollCall, s);
-                  const meta = getMarkMeta(rollCall, s);
-                  const metaTime = formatMarkTime(meta?.at);
-                  const isSaving = savingStudentId === s.id;
-                  const photo = photoUrls[s.id];
-                  const courseHint = courseAbsenceHints[s.id];
-                  const initials =
-                    `${s.eleveRef.prenom?.[0] ?? ""}${s.eleveRef.nom?.[0] ?? ""}`.toUpperCase() ||
-                    "?";
-                  return (
-                    <li
-                      key={s.id}
-                      className={`bg-white border rounded-2xl p-3 transition-opacity ${
-                        isSaving
-                          ? "border-slate-300 opacity-80"
-                          : courseHint && !courseHint.justifie
-                            ? "border-amber-300 bg-amber-50/30"
-                            : mark === "present"
-                              ? "border-emerald-200"
-                              : mark === "absent"
-                                ? "border-red-200"
-                                : mark === "activite"
-                                  ? "border-sky-300 bg-sky-50/40"
-                                  : "border-slate-200"
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {filtered.map((s) => {
+            const mark = getMark(rollCall, s);
+            const meta = getMarkMeta(rollCall, s);
+            const metaTime = formatMarkTime(meta?.at);
+            const isSaving = savingStudentId === s.id;
+            const photo = photoUrls[s.id];
+            const courseHint = courseAbsenceHints[s.id];
+            const initials =
+              `${s.eleveRef.prenom?.[0] ?? ""}${s.eleveRef.nom?.[0] ?? ""}`.toUpperCase() || "?";
+            return (
+              <li
+                key={s.id}
+                className={`bg-white border rounded-2xl p-3 transition-opacity ${
+                  isSaving
+                    ? "border-slate-300 opacity-80"
+                    : courseHint && !courseHint.justifie
+                      ? "border-amber-300 bg-amber-50/30"
+                      : mark === "present"
+                        ? "border-emerald-200"
+                        : mark === "absent"
+                          ? "border-red-200"
+                          : mark === "activite"
+                            ? "border-sky-300 bg-sky-50/40"
+                            : "border-slate-200"
+                }`}
+              >
+                <div className="flex gap-3">
+                  <div className="h-16 w-16 sm:h-20 sm:w-20 shrink-0 overflow-hidden rounded-xl bg-slate-100 border border-slate-200">
+                    {photo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={photo} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center text-sm font-bold text-slate-500">
+                        {initials}
+                      </span>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-slate-900 truncate leading-tight">
+                      {studentDisplayName(s)}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {s.classe} · {s.etablissement}
+                    </p>
+                    {mark === "activite" && (
+                      <p className="mt-1 text-[11px] font-bold text-sky-800">
+                        En activité — en attente de retour
+                        {metaTime ? ` · depuis ${metaTime}` : ""}
+                      </p>
+                    )}
+                    {mark !== "activite" && (meta?.note || metaTime) && (
+                      <p className="mt-1 text-[11px] text-slate-600">
+                        {metaTime ? `${metaTime}` : null}
+                        {metaTime && meta?.note ? " · " : null}
+                        {meta?.note || null}
+                      </p>
+                    )}
+                    {courseHint ? (
+                      <p
+                        className={`mt-1 text-[11px] font-semibold ${
+                          courseHint.justifie ? "text-slate-600" : "text-amber-800"
+                        }`}
+                      >
+                        {courseHint.label}
+                      </p>
+                    ) : null}
+
+                    <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+                      {PRIMARY_MARKS.map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => setMark(s, m.id)}
+                          className={`min-h-[44px] rounded-xl text-sm font-bold border transition-colors ${
+                            mark === m.id
+                              ? m.activeCls
+                              : "bg-white text-slate-600 border-slate-200 active:bg-slate-50"
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setMark(s, "activite")}
+                      className={`mt-1.5 w-full min-h-[36px] rounded-lg text-xs font-bold border ${
+                        mark === "activite"
+                          ? "bg-sky-600 text-white border-sky-600"
+                          : "bg-white text-sky-800 border-sky-200"
                       }`}
                     >
-                      <div className="flex gap-3">
-                        <div className="h-16 w-16 sm:h-20 sm:w-20 shrink-0 overflow-hidden rounded-xl bg-slate-100 border border-slate-200">
-                          {photo ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={photo} alt="" className="h-full w-full object-cover" />
-                          ) : (
-                            <span className="flex h-full w-full items-center justify-center text-sm font-bold text-slate-500">
-                              {initials}
-                            </span>
-                          )}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-slate-900 truncate leading-tight">
-                            {studentDisplayName(s)}
-                          </p>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            {s.classe} · {s.etablissement}
-                          </p>
-                          {mark === "activite" && (
-                            <p className="mt-1 text-[11px] font-bold text-sky-800">
-                              En activité — en attente de retour
-                              {metaTime ? ` · depuis ${metaTime}` : ""}
-                            </p>
-                          )}
-                          {mark !== "activite" && (meta?.note || metaTime) && (
-                            <p className="mt-1 text-[11px] text-slate-600">
-                              {metaTime ? `${metaTime}` : null}
-                              {metaTime && meta?.note ? " · " : null}
-                              {meta?.note || null}
-                            </p>
-                          )}
-                          {courseHint ? (
-                            <p
-                              className={`mt-1 text-[11px] font-semibold ${
-                                courseHint.justifie ? "text-slate-600" : "text-amber-800"
-                              }`}
-                            >
-                              {courseHint.label}
-                            </p>
-                          ) : null}
-
-                          <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-                            {PRIMARY_MARKS.map((m) => (
-                              <button
-                                key={m.id}
-                                type="button"
-                                onClick={() => setMark(s, m.id)}
-                                className={`min-h-[44px] rounded-xl text-sm font-bold border transition-colors ${
-                                  mark === m.id
-                                    ? m.activeCls
-                                    : "bg-white text-slate-600 border-slate-200 active:bg-slate-50"
-                                }`}
-                              >
-                                {m.label}
-                              </button>
-                            ))}
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => setMark(s, "activite")}
-                            className={`mt-1.5 w-full min-h-[36px] rounded-lg text-xs font-bold border ${
-                              mark === "activite"
-                                ? "bg-sky-600 text-white border-sky-600"
-                                : "bg-white text-sky-800 border-sky-200"
-                            }`}
-                          >
-                            Activité
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ))}
-        </div>
+                      Activité
+                    </button>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
 
       {!validated && (
