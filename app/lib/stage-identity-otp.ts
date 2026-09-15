@@ -5,8 +5,8 @@ import { STAGE_S3 } from "@/app/lib/stage-types";
 import { notifyIdentityAccessOtp } from "@/app/lib/stage-notify";
 
 export const IDENTITY_OTP_TTL_MS = 30 * 60 * 1000;
-/** Preuve post-OTP : 12 h (reprise appareil / création de dossier). */
-export const IDENTITY_PROOF_TTL_MS = 12 * 60 * 60 * 1000;
+/** Preuve post-OTP : 7 jours (reprise appareil / création de dossier sans renvoyer de mail). */
+export const IDENTITY_PROOF_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type StageIdentitySubject = {
   nom: string;
