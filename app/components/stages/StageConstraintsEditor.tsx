@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { StageCycleKind } from "@/app/lib/stage-config";
 import {
   defaultCollegeConstraints,
   defaultLyceeConstraints,
   type StageBlockedPeriod,
   type StageConstraintsConfig,
   type StageCycleConstraints,
-} from "@/app/lib/stage-constraints-config";
+  type StageCycleKind,
+} from "@/app/lib/stage-constraints";
 import { STAGE_WEEKDAY_LABELS, STAGE_WEEKDAYS } from "@/app/lib/stage-schedule";
 import type { StageWeekday } from "@/app/lib/stage-types";
 

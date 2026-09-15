@@ -34,6 +34,15 @@ function parseBlocked(raw: unknown): StageBlockedPeriod | null {
 
 export async function GET(req: Request) {
   try {
+    const gate = await requireAuth();
+    if (!gate.ok) return gate.response;
+
+    const user = await safeCurrentUser();
+    const roles = intranetRolesFromMetadata(user?.publicMetadata);
+    if (!canReviewPreconvention(roles)) {
+      return NextResponse.json({ error: "Réservé à l'administratif." }, { status: 403 });
+    }
+
     const { searchParams } = new URL(req.url);
     const schoolYear = searchParams.get("schoolYear")?.trim() || currentStageSchoolYear();
     const config = await getStageConstraintsConfig(schoolYear);

@@ -21,7 +21,7 @@ export function defaultDayHoursTemplate(): StageDaySlot {
     morningStart: "08:00",
     morningEnd: "12:00",
     afternoonStart: "13:00",
-    afternoonEnd: "17:00",
+    afternoonEnd: "16:00",
   };
 }
 

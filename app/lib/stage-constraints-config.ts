@@ -1,3 +1,5 @@
+import "server-only";
+
 import { getJson, putJson } from "@/app/lib/s3-storage";
 import { stageCycleKindFromStudent } from "@/app/lib/stage-config";
 import {
@@ -9,6 +11,7 @@ import {
 } from "@/app/lib/stage-constraints";
 import { STAGE_S3, currentStageSchoolYear } from "@/app/lib/stage-types";
 
+/** Réexport serveur pour les routes API — les composants client doivent importer `@/app/lib/stage-constraints`. */
 export * from "@/app/lib/stage-constraints";
 
 export async function getStageConstraintsConfig(
