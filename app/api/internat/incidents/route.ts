@@ -69,16 +69,26 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const access = await requireInternatManage();
   if (!access.ok) return access.response;
-  const body = await req.json().catch(() => ({}));
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const title = String(body.title || "").trim();
   const occurredAt = String(body.occurredAt || "").trim() || new Date().toISOString().slice(0, 10);
 
-  const rawIds = Array.isArray(body.studentIds)
-    ? body.studentIds.map((id: unknown) => String(id || "").trim()).filter(Boolean)
-    : body.studentId
-      ? [String(body.studentId).trim()]
-      : [];
-  const studentIds = [...new Set(rawIds)];
+  const asIdList = (raw: unknown): string[] => {
+    if (!Array.isArray(raw)) return [];
+    return [
+      ...new Set(
+        raw
+          .map((id) => String(id ?? "").trim())
+          .filter((id): id is string => id.length > 0),
+      ),
+    ];
+  };
+
+  const studentIds = asIdList(body.studentIds);
+  if (studentIds.length === 0 && body.studentId) {
+    const one = String(body.studentId || "").trim();
+    if (one) studentIds.push(one);
+  }
   if (studentIds.length === 0 || !title) {
     return NextResponse.json({ error: "Au moins un interne et un titre (quoi) sont requis." }, { status: 400 });
   }
@@ -91,19 +101,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Interne(s) introuvable(s)." }, { status: 404 });
   }
 
-  const witnessStudentIds = Array.isArray(body.witnessStudentIds)
-    ? [...new Set(body.witnessStudentIds.map((id: unknown) => String(id || "").trim()).filter(Boolean))]
-    : [];
+  const witnessStudentIds = asIdList(body.witnessStudentIds);
   const witnessStudents = witnessStudentIds
     .map((id) => students.find((s) => s.id === id))
     .filter((s): s is NonNullable<typeof s> => !!s);
 
   const staffDirectory = await listInternatWitnessStaff();
   const staffById = new Map(staffDirectory.map((s) => [s.userId, s]));
-  const rawStaffIds = Array.isArray(body.witnessStaffIds)
-    ? body.witnessStaffIds.map((id: unknown) => String(id || "").trim()).filter(Boolean)
-    : [];
-  const witnessStaff = rawStaffIds
+  const witnessStaff = asIdList(body.witnessStaffIds)
     .map((id) => staffById.get(id))
     .filter((s): s is InternatIncidentWitnessStaff => !!s);
 
