@@ -10,7 +10,7 @@ import type { Establishment } from "@/app/lib/app-config-schemas";
 
 function student(partial: Partial<InternatStudent> & { id: string; etablissement: string }): InternatStudent {
   return {
-    eleveRef: { nom: "Test", prenom: "A" },
+    eleveRef: { nom: "Test", prenom: "A", folderName: "TEST—A" },
     sexe: "M",
     classe: "3A",
     actif: true,

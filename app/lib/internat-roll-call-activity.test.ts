@@ -8,7 +8,7 @@ import { emptyRollCall, type InternatStudent } from "@/app/lib/internat-types";
 
 function student(partial: Partial<InternatStudent> & { id: string; sexe: "M" | "F" }): InternatStudent {
   return {
-    eleveRef: { nom: "Test", prenom: "A" },
+    eleveRef: { nom: "Test", prenom: "A", folderName: "TEST—A" },
     etablissement: "Lycée",
     classe: "1re A",
     actif: true,
