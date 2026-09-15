@@ -10,6 +10,7 @@ import type {
   InternatRollMarkMeta,
   InternatRollSection,
 } from "@/app/lib/internat-types";
+import { studentDisplayName } from "@/app/lib/internat-types";
 import { resolvePhotoUrlsForInternatStudents } from "@/app/lib/eleve-photos";
 import { buildInternatCourseAbsenceHints } from "@/app/lib/internat-course-absences";
 import {
@@ -26,7 +27,7 @@ import {
   notifyInternatRollCallCorrection,
   notifyInternatRollCallValidated,
 } from "@/app/lib/internat-notify";
-import { rollCallCanValidate, sectionIsComplete, todayDateParis } from "@/app/lib/internat-stats";
+import { rollCallCanValidate, rollCallPendingActivityStudents, sectionIsComplete, todayDateParis } from "@/app/lib/internat-stats";
 
 function parsePeriod(raw: string | null): InternatRollCallPeriod {
   return raw === "matin" ? "matin" : "soir";
@@ -131,6 +132,8 @@ export async function GET(req: Request) {
       buildInternatCourseAbsenceHints(date, students),
     ]);
 
+    const pendingActivity = rollCallPendingActivityStudents(rollCall, allStudents);
+
     return NextResponse.json({
       rollCall,
       students,
@@ -138,6 +141,8 @@ export async function GET(req: Request) {
       photoUrls,
       courseAbsenceHints,
       canValidate: viewerScope === "all" && rollCallCanValidate(rollCall, allStudents),
+      pendingActivityCount: pendingActivity.length,
+      pendingActivityNames: pendingActivity.map((s) => studentDisplayName(s)),
       boysComplete: sectionIsComplete(rollCall.boys, allStudents, "M"),
       girlsComplete: sectionIsComplete(rollCall.girls, allStudents, "F"),
     });
@@ -261,9 +266,12 @@ export async function PATCH(req: Request) {
   }
 
   await saveInternatRollCall(rollCall);
+  const pendingActivity = rollCallPendingActivityStudents(rollCall, students);
   return NextResponse.json({
     rollCall,
     canValidate: !afterValidation && rollCallCanValidate(rollCall, students),
+    pendingActivityCount: pendingActivity.length,
+    pendingActivityNames: pendingActivity.map((s) => studentDisplayName(s)),
     boysComplete: sectionIsComplete(rollCall.boys, students, "M"),
     girlsComplete: sectionIsComplete(rollCall.girls, students, "F"),
     correctionMails,
@@ -285,6 +293,16 @@ export async function POST(req: Request) {
   const rollCall = await getInternatRollCall(date, period);
 
   if (!rollCallCanValidate(rollCall, students)) {
+    const pending = rollCallPendingActivityStudents(rollCall, students);
+    if (pending.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Encore ${pending.length} interne(s) en activité (attente de retour). Passez-les Présent / Absent / Excusé avant d'envoyer à la direction.`,
+          pendingActivityNames: pending.map((s) => studentDisplayName(s)),
+        },
+        { status: 400 },
+      );
+    }
     return NextResponse.json(
       { error: "Les sections garçons et filles doivent être complètes avant validation." },
       { status: 400 },

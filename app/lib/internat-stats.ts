@@ -122,12 +122,30 @@ export function sectionIsComplete(
   return active.every((s) => marks[s.id]);
 }
 
+/** Élèves encore en « activité » : l’appel du reste peut avancer, mais pas l’envoi direction. */
+export function rollCallPendingActivityStudents(
+  rollCall: InternatRollCall,
+  students: InternatStudent[],
+): InternatStudent[] {
+  const active = students.filter((s) => s.actif);
+  return active.filter((s) => {
+    const section = s.sexe === "F" ? rollCall.girls : rollCall.boys;
+    return section.marks[s.id] === "activite";
+  });
+}
+
 export function rollCallCanValidate(rollCall: InternatRollCall, students: InternatStudent[]) {
   if (rollCall.status === "validee") return false;
-  return (
-    sectionIsComplete(rollCall.boys, students, "M") &&
-    sectionIsComplete(rollCall.girls, students, "F")
-  );
+  if (
+    !(
+      sectionIsComplete(rollCall.boys, students, "M") &&
+      sectionIsComplete(rollCall.girls, students, "F")
+    )
+  ) {
+    return false;
+  }
+  // « Activité » = en attente de retour : on peut terminer les sections, pas envoyer à la direction.
+  return rollCallPendingActivityStudents(rollCall, students).length === 0;
 }
 
 function computePresenceRate7d(

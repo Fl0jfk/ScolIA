@@ -14,7 +14,8 @@ export const INTERNAT_ROLL_MARK_LABELS: Record<InternatRollMark, string> = {
   present: "Présent",
   absent: "Absent",
   excuse: "Excusé",
-  activite: "Activité ext.",
+  /** Statut temporaire : n’empêche pas de finir l’appel, bloque l’envoi direction. */
+  activite: "Activité (attente)",
 };
 
 /** Dernière modification d’un marquage (arrivée tardive, correction, etc.). */

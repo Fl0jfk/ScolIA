@@ -24,18 +24,35 @@ const PRIMARY_MARKS: { id: InternatRollMark; label: string; activeCls: string }[
   },
 ];
 
-const SECONDARY_MARKS: { id: InternatRollMark; label: string; activeCls: string }[] = [
-  {
-    id: "activite",
-    label: "Activité",
-    activeCls: "bg-sky-600 text-white border-sky-600",
-  },
-  {
-    id: "excuse",
-    label: "Excusé",
-    activeCls: "bg-amber-500 text-white border-amber-500",
-  },
-];
+function askMarkNote(params: {
+  mark: InternatRollMark;
+  afterValidation: boolean;
+  previous?: InternatRollMark;
+}): string | null | undefined {
+  // Activité = en attente, motif par défaut sans bloquer le geste.
+  if (params.mark === "activite" && !params.afterValidation) {
+    return "Activité sportive / extérieure";
+  }
+  const needsNote =
+    params.afterValidation ||
+    (params.previous === "activite" && (params.mark === "present" || params.mark === "excuse")) ||
+    (params.previous === "absent" && (params.mark === "present" || params.mark === "excuse"));
+  if (!needsNote) return undefined;
+  const hint =
+    params.previous === "activite" && params.mark === "present"
+      ? "Retour d’activité — préciser si besoin (ex. arrivé 21h10). Laisser vide OK."
+      : params.afterValidation
+        ? "Motif obligatoire (ex. activité sportive — arrivé à 21h10)."
+        : "Motif (optionnel).";
+  const raw = window.prompt(hint, params.previous === "activite" ? "Retour d’activité" : "");
+  if (raw === null) return null;
+  const note = raw.trim();
+  if (params.afterValidation && !note) {
+    alert("Un motif est requis pour corriger un appel déjà validé.");
+    return null;
+  }
+  return note || undefined;
+}
 
 type CourseAbsenceHint = {
   absenceId: string;
@@ -72,32 +89,6 @@ function formatMarkTime(iso: string | undefined): string | null {
   }
 }
 
-function askMarkNote(params: {
-  mark: InternatRollMark;
-  afterValidation: boolean;
-  previous?: InternatRollMark;
-}): string | null | undefined {
-  const needsNote =
-    params.afterValidation ||
-    params.mark === "activite" ||
-    (params.previous === "absent" && (params.mark === "present" || params.mark === "excuse"));
-  if (!needsNote) return undefined;
-  const hint =
-    params.mark === "activite"
-      ? "Préciser l'activité (ex. sport — retour prévu 21h15). Laisser vide si inutile."
-      : params.afterValidation
-        ? "Motif obligatoire (ex. activité sportive — arrivé à 21h10)."
-        : "Motif (ex. activité sportive — revenu à 21h10). Laisser vide si inutile.";
-  const raw = window.prompt(hint, params.mark === "activite" ? "Activité sportive" : "");
-  if (raw === null) return null;
-  const note = raw.trim();
-  if (params.afterValidation && !note) {
-    alert("Un motif est requis pour corriger un appel déjà validé.");
-    return null;
-  }
-  return note || undefined;
-}
-
 export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => Promise<void> }) {
   const [date, setDate] = useState(todayDateParis());
   const [period, setPeriod] = useState<"matin" | "soir">("soir");
@@ -115,7 +106,8 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
   const [filterEtab, setFilterEtab] = useState<string>("all");
   const [filterNiveau, setFilterNiveau] = useState<string>("all");
   const [viewerScope, setViewerScope] = useState<"all" | "college" | "lycee">("all");
-  const [moreOpenId, setMoreOpenId] = useState<string | null>(null);
+  const [pendingActivityCount, setPendingActivityCount] = useState(0);
+  const [pendingActivityNames, setPendingActivityNames] = useState<string[]>([]);
   const saveSeq = useRef(0);
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -135,6 +127,8 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
       boysComplete?: boolean;
       girlsComplete?: boolean;
       viewerScope?: "all" | "college" | "lycee";
+      pendingActivityCount?: number;
+      pendingActivityNames?: string[];
     } = {};
     try {
       data = raw ? (JSON.parse(raw) as typeof data) : {};
@@ -145,6 +139,8 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
     setRollCall(data.rollCall ?? null);
     setStudents(data.students || []);
     setViewerScope(data.viewerScope === "college" || data.viewerScope === "lycee" ? data.viewerScope : "all");
+    setPendingActivityCount(Number(data.pendingActivityCount) || 0);
+    setPendingActivityNames(Array.isArray(data.pendingActivityNames) ? data.pendingActivityNames : []);
     setPhotoUrls(
       data.photoUrls && typeof data.photoUrls === "object" ? data.photoUrls : {},
     );
@@ -167,11 +163,19 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
     canValidate?: boolean;
     boysComplete?: boolean;
     girlsComplete?: boolean;
+    pendingActivityCount?: number;
+    pendingActivityNames?: string[];
   }) => {
     setRollCall(data.rollCall);
     if (data.canValidate !== undefined) setCanValidate(!!data.canValidate);
     if (data.boysComplete !== undefined) setBoysComplete(!!data.boysComplete);
     if (data.girlsComplete !== undefined) setGirlsComplete(!!data.girlsComplete);
+    if (data.pendingActivityCount !== undefined) {
+      setPendingActivityCount(Number(data.pendingActivityCount) || 0);
+    }
+    if (data.pendingActivityNames !== undefined) {
+      setPendingActivityNames(Array.isArray(data.pendingActivityNames) ? data.pendingActivityNames : []);
+    }
   };
 
   const patchSection = async (
@@ -234,7 +238,6 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
         delete optimistic[key].markMeta[student.id];
       }
       setRollCall(optimistic);
-      setMoreOpenId(null);
       void patchSection(
         key,
         { marks: { [student.id]: null } },
@@ -273,7 +276,6 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
     };
 
     setRollCall(optimistic);
-    setMoreOpenId(null);
     void patchSection(
       key,
       { marks: { [student.id]: nextValue }, note: noteResult },
@@ -385,13 +387,25 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
         </div>
       )}
       <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
-        <p className="font-bold">Élève en sport / activité ?</p>
+        <p className="font-bold">Présent / Absent d’abord — activité sans bloquer l’appel</p>
         <p className="mt-0.5 text-sky-900/90">
-          Marquez <span className="font-semibold">Activité</span> (menu Autre…) pour ne pas bloquer
-          l’appel. S’il revient plus tard, corrigez en Présent avec le motif — l’heure est
-          enregistrée{validated ? " et la direction / CPE est informée" : ""}.
+          Bouton <span className="font-semibold">Activité</span> sous chaque élève : sport / sortie
+          extérieure. Vous continuez l’appel pour les autres. L’envoi à la direction reste bloqué
+          tant que ces élèves ne sont pas repassés en Présent (ou Absent / Excusé) à leur retour.
         </p>
       </div>
+      {pendingActivityCount > 0 && !validated && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <p className="font-bold">
+            {pendingActivityCount} en activité — envoi direction en attente
+          </p>
+          <p className="mt-0.5 text-amber-900/90">
+            {pendingActivityNames.slice(0, 6).join(", ")}
+            {pendingActivityNames.length > 6 ? "…" : ""}. Dès leur retour → Présent, puis
+            « Finaliser & envoyer ».
+          </p>
+        </div>
+      )}
       {validated && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
           <p className="font-bold">Appel validé — corrections possibles</p>
@@ -507,7 +521,6 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                   const initials =
                     `${s.eleveRef.prenom?.[0] ?? ""}${s.eleveRef.nom?.[0] ?? ""}`.toUpperCase() ||
                     "?";
-                  const moreOpen = moreOpenId === s.id;
                   return (
                     <li
                       key={s.id}
@@ -521,7 +534,7 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                               : mark === "absent"
                                 ? "border-red-200"
                                 : mark === "activite"
-                                  ? "border-sky-200"
+                                  ? "border-sky-300 bg-sky-50/40"
                                   : "border-slate-200"
                       }`}
                     >
@@ -543,7 +556,13 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                           <p className="text-xs text-slate-500 mt-0.5">
                             {s.classe} · {s.etablissement}
                           </p>
-                          {(meta?.note || metaTime) && (
+                          {mark === "activite" && (
+                            <p className="mt-1 text-[11px] font-bold text-sky-800">
+                              En activité — en attente de retour
+                              {metaTime ? ` · depuis ${metaTime}` : ""}
+                            </p>
+                          )}
+                          {mark !== "activite" && (meta?.note || metaTime) && (
                             <p className="mt-1 text-[11px] text-slate-600">
                               {metaTime ? `${metaTime}` : null}
                               {metaTime && meta?.note ? " · " : null}
@@ -577,29 +596,29 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                             ))}
                           </div>
 
-                          <div className="mt-1.5 flex items-center gap-1.5">
+                          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
                             <button
                               type="button"
-                              onClick={() => setMoreOpenId(moreOpen ? null : s.id)}
-                              className="text-[11px] font-semibold text-slate-400 px-1 py-1"
+                              onClick={() => setMark(s, "activite")}
+                              className={`min-h-[36px] rounded-lg text-xs font-bold border ${
+                                mark === "activite"
+                                  ? "bg-sky-600 text-white border-sky-600"
+                                  : "bg-white text-sky-800 border-sky-200"
+                              }`}
                             >
-                              {moreOpen ? "Moins" : "Autre…"}
+                              Activité
                             </button>
-                            {moreOpen &&
-                              SECONDARY_MARKS.map((m) => (
-                                <button
-                                  key={m.id}
-                                  type="button"
-                                  onClick={() => setMark(s, m.id)}
-                                  className={`flex-1 min-h-[36px] rounded-lg text-xs font-bold border ${
-                                    mark === m.id
-                                      ? m.activeCls
-                                      : "bg-white text-slate-500 border-slate-200"
-                                  }`}
-                                >
-                                  {m.label}
-                                </button>
-                              ))}
+                            <button
+                              type="button"
+                              onClick={() => setMark(s, "excuse")}
+                              className={`min-h-[36px] rounded-lg text-xs font-bold border ${
+                                mark === "excuse"
+                                  ? "bg-amber-500 text-white border-amber-500"
+                                  : "bg-white text-slate-500 border-slate-200"
+                              }`}
+                            >
+                              Excusé
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -641,10 +660,19 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
               onClick={() => void validate()}
               className="flex-1 min-h-[48px] bg-indigo-600 text-white px-4 rounded-xl font-bold text-sm disabled:opacity-40"
             >
-              Finaliser & envoyer
+              {pendingActivityCount > 0
+                ? `Envoi bloqué (${pendingActivityCount} en activité)`
+                : "Finaliser & envoyer"}
             </button>
           </div>
-          {(boysComplete || girlsComplete) && (
+          {pendingActivityCount > 0 && boysComplete && girlsComplete && (
+            <p className="max-w-3xl mx-auto text-xs text-amber-800 font-semibold text-center sm:text-left">
+              Appel terminé pour les autres — attente retour :{" "}
+              {pendingActivityNames.slice(0, 4).join(", ")}
+              {pendingActivityNames.length > 4 ? "…" : ""}. Puis Présent → envoyer.
+            </p>
+          )}
+          {(boysComplete || girlsComplete) && pendingActivityCount === 0 && (
             <p className="max-w-3xl mx-auto text-xs text-emerald-700 font-semibold text-center sm:text-left">
               {boysComplete && "Garçons OK. "}
               {girlsComplete && "Filles OK."}
