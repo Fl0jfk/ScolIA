@@ -55,9 +55,10 @@ export default function StagesSettingsPanel({
       <section className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-[#1F3D2B]">Classes concernées par les stages</h2>
         <p className="mt-2 text-sm text-stone-600 max-w-2xl">
-          Sélectionnez les classes collège et lycée importées depuis SIECLE, puis configurez leurs
-          périodes officielles (rappel informatif). Une classe sans période reste éligible au dépôt
-          volontaire. L&apos;école primaire n&apos;est pas incluse.
+          Définissez les classes ouvertes aux stages et leurs périodes officielles (rappel
+          informatif). Vous pouvez appliquer une période à tout un niveau (ex. toutes les
+          4<sup>e</sup>) ou à plusieurs classes d&apos;un coup. Une classe sans période reste
+          éligible au dépôt volontaire. L&apos;école primaire n&apos;est pas incluse.
         </p>
         <div className="mt-4">
           <StagePeriodsEditor onSaved={(m) => onSavedMsg(m)} />
