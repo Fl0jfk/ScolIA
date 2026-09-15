@@ -35,8 +35,8 @@ function askMarkNote(params: {
   }
   const needsNote =
     params.afterValidation ||
-    (params.previous === "activite" && (params.mark === "present" || params.mark === "excuse")) ||
-    (params.previous === "absent" && (params.mark === "present" || params.mark === "excuse"));
+    (params.previous === "activite" && params.mark === "present") ||
+    (params.previous === "absent" && params.mark === "present");
   if (!needsNote) return undefined;
   const hint =
     params.previous === "activite" && params.mark === "present"
@@ -391,7 +391,7 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
         <p className="mt-0.5 text-sky-900/90">
           Bouton <span className="font-semibold">Activité</span> sous chaque élève : sport / sortie
           extérieure. Vous continuez l’appel pour les autres. L’envoi à la direction reste bloqué
-          tant que ces élèves ne sont pas repassés en Présent (ou Absent / Excusé) à leur retour.
+          tant que ces élèves ne sont pas repassés en Présent (ou Absent) à leur retour.
         </p>
       </div>
       {pendingActivityCount > 0 && !validated && (
@@ -597,30 +597,17 @@ export default function InternatRollCallPanel({ onRefresh }: { onRefresh: () => 
                             ))}
                           </div>
 
-                          <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => setMark(s, "activite")}
-                              className={`min-h-[36px] rounded-lg text-xs font-bold border ${
-                                mark === "activite"
-                                  ? "bg-sky-600 text-white border-sky-600"
-                                  : "bg-white text-sky-800 border-sky-200"
-                              }`}
-                            >
-                              Activité
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setMark(s, "excuse")}
-                              className={`min-h-[36px] rounded-lg text-xs font-bold border ${
-                                mark === "excuse"
-                                  ? "bg-amber-500 text-white border-amber-500"
-                                  : "bg-white text-slate-500 border-slate-200"
-                              }`}
-                            >
-                              Excusé
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setMark(s, "activite")}
+                            className={`mt-1.5 w-full min-h-[36px] rounded-lg text-xs font-bold border ${
+                              mark === "activite"
+                                ? "bg-sky-600 text-white border-sky-600"
+                                : "bg-white text-sky-800 border-sky-200"
+                            }`}
+                          >
+                            Activité
+                          </button>
                         </div>
                       </div>
                     </li>

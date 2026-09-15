@@ -297,7 +297,7 @@ export async function POST(req: Request) {
     if (pending.length > 0) {
       return NextResponse.json(
         {
-          error: `Encore ${pending.length} interne(s) en activité (attente de retour). Passez-les Présent / Absent / Excusé avant d'envoyer à la direction.`,
+          error: `Encore ${pending.length} interne(s) en activité (attente de retour). Passez-les Présent ou Absent avant d'envoyer à la direction.`,
           pendingActivityNames: pending.map((s) => studentDisplayName(s)),
         },
         { status: 400 },

@@ -303,7 +303,7 @@ export async function notifyInternatRollCallCorrection(params: {
 
 export async function notifyInternatIncident(params: {
   incident: InternatIncident;
-  student: InternatStudent;
+  students: InternatStudent[];
 }) {
   const mail = await getInternatMailer();
   if (!mail) return { sent: false, reason: "smtp" as const };
@@ -314,32 +314,48 @@ export async function notifyInternatIncident(params: {
     internatRollCallRecipients?: InternatRollCallRecipients;
   };
   const establishments = internatEligibleEstablishments(bundle.establishments);
-  const kind = resolveInternatStudentKind(params.student, establishments);
-  if (!kind) return { sent: false, reason: "unknown_kind" as const };
+  const kinds = new Set<"college" | "lycee">();
+  for (const s of params.students) {
+    const k = resolveInternatStudentKind(s, establishments);
+    if (k === "college" || k === "lycee") kinds.add(k);
+  }
+  if (kinds.size === 0) return { sent: false, reason: "unknown_kind" as const };
 
-  const recipients = recipientsForRollCallKind({
-    kind,
-    establishments,
-    notif: notif.internatRollCallRecipients,
-  });
-  if (recipients.length === 0) return { sent: false, reason: "no_recipients" as const };
+  const recipients = new Set<string>();
+  const kindTitles: string[] = [];
+  for (const kind of kinds) {
+    kindTitles.push(kind === "college" ? "Collège" : "Lycée");
+    for (const email of recipientsForRollCallKind({
+      kind,
+      establishments,
+      notif: notif.internatRollCallRecipients,
+    })) {
+      recipients.add(email);
+    }
+  }
+  if (recipients.size === 0) return { sent: false, reason: "no_recipients" as const };
 
   const schoolName = bundle.identity.shortName || bundle.identity.name || "Établissement";
-  const kindTitle = kind === "college" ? "Collège" : "Lycée";
-  const severity = params.incident.severity || "moyenne";
+  const scopeLabel = kindTitles.join(" + ");
+  const studentLines = params.students.map(
+    (s) =>
+      `• ${studentDisplayName(s)}${s.classe ? ` (${s.classe})` : ""}${
+        s.etablissement ? ` — ${s.etablissement}` : ""
+      }`,
+  );
   const link = await tenantAbsolutePath("/gestion-internat?tab=incidents");
 
   const text = [
     "Bonjour,",
     "",
-    `Un incident internat a été déclaré (${kindTitle}).`,
+    `Un incident internat a été déclaré (${scopeLabel}).`,
     "",
-    `Gravité : ${severity}`,
-    `Élève : ${params.incident.studentName}${params.incident.classe ? ` (${params.incident.classe})` : ""}`,
+    "Internes concernés :",
+    ...studentLines,
+    "",
     `Titre : ${params.incident.title}`,
     `Date : ${params.incident.occurredAt}${params.incident.occurredTime ? ` à ${params.incident.occurredTime}` : ""}`,
     params.incident.location ? `Lieu : ${params.incident.location}` : null,
-    params.incident.otherPeople ? `Autres personnes : ${params.incident.otherPeople}` : null,
     params.incident.witnesses ? `Témoins : ${params.incident.witnesses}` : null,
     "",
     params.incident.description ? `Faits :\n${params.incident.description}` : null,
@@ -356,12 +372,12 @@ export async function notifyInternatIncident(params: {
 
   await transporter.sendMail({
     from: `"Internat ${schoolName}" <${smtp.user}>`,
-    to: recipients.join(", "),
-    subject: `[Internat] Incident ${kindTitle} — ${params.incident.title}`,
+    to: [...recipients].join(", "),
+    subject: `[Internat] Incident ${scopeLabel} — ${params.incident.title}`,
     text,
   });
 
-  return { sent: true, recipients, kind };
+  return { sent: true, recipients: [...recipients], kinds: [...kinds] };
 }
 
 export async function notifyInternatEmergency(params: {

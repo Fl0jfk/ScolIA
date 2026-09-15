@@ -294,19 +294,33 @@ export type InternatIncidentKind = "incident" | "remarque" | "sanction" | "valor
 
 export type InternatIncidentSeverity = "faible" | "moyenne" | "grave";
 
+export type InternatIncidentWitnessStaff = {
+  userId: string;
+  name: string;
+  email?: string;
+};
+
 export type InternatIncident = {
   id: string;
+  /** Premier interne (compat historique). */
   studentId: string;
   studentName: string;
+  /** Tous les internes concernés (déclarations récentes). */
+  studentIds?: string[];
+  studentNames?: string[];
   kind: InternatIncidentKind;
   title: string;
   description?: string;
-  /** Qui / quoi / quand / où — aide au rapport terrain. */
   location?: string;
   occurredTime?: string;
+  /** Libellé agrégé des témoins (affichage / mail). */
   witnesses?: string;
+  witnessStudentIds?: string[];
+  witnessStaff?: InternatIncidentWitnessStaff[];
+  /** @deprecated remplacé par la multi-sélection d’internes. */
   otherPeople?: string;
   actionsTaken?: string;
+  /** @deprecated plus saisi dans le formulaire terrain. */
   severity?: InternatIncidentSeverity;
   etablissement?: string;
   classe?: string;

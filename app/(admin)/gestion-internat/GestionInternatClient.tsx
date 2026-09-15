@@ -207,7 +207,11 @@ export default function GestionInternatClient() {
           )}
           {activeTab === "surveillants" && <InternatSupervisorsPanel canManage={canManage} />}
           {(activeTab === "suivi" || activeTab === "incidents") && (
-            <InternatEducationalPanel students={students} canManage={canManage} />
+            <InternatEducationalPanel
+              students={students}
+              photoUrls={photoUrls}
+              canManage={canManage}
+            />
           )}
           {activeTab === "communication" && <InternatCommunicationPanel canManage={canManage} />}
           {activeTab === "activites" && <InternatActivitiesPanel />}
