@@ -59,7 +59,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@napi-rs ./node_modu
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/pdfjs-dist ./node_modules/pdfjs-dist
 COPY --chown=nextjs:nodejs docker/office-gateway.sh docker/nginx-office.conf.template docker/nginx-office-collabora.conf.template ./docker/
 RUN chmod +x /app/docker/office-gateway.sh \
-  && mkdir -p /var/lib/nginx /var/log/nginx \
+  && mkdir -p /var/lib/nginx /var/log/nginx /var/cache/nginx \
   && chown -R nextjs:nodejs /var/lib/nginx /var/log/nginx /var/cache/nginx
 
 ENV OFFICE_SAME_ORIGIN=1
