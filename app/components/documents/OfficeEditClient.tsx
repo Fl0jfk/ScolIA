@@ -68,7 +68,10 @@ export default function OfficeEditClient(props: Props) {
 
   const returnHref = "/documents/office";
   const bootstrapping = useRef(false);
+  const bootGen = useRef(0);
   const tokenRef = useRef<TokenPayload | null>(null);
+  /** URL iframe figée — évite remount Collabora (coupure WS) si le token JWT est renouvelé. */
+  const stableEditorUrl = useRef<string | null>(null);
   tokenRef.current = token;
 
   const releaseSession = useCallback(
@@ -108,12 +111,16 @@ export default function OfficeEditClient(props: Props) {
   );
 
   const bootstrap = useCallback(
-    async (takeover: boolean) => {
+    async (takeover: boolean, opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true && Boolean(tokenRef.current);
       if (bootstrapping.current && !takeover) return;
       bootstrapping.current = true;
-      setLoading(true);
-      setError(null);
-      setAlreadyOpen(false);
+      const gen = ++bootGen.current;
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+        setAlreadyOpen(false);
+      }
       try {
         const res = await fetch("/api/documents/office/token", {
           method: "POST",
@@ -129,16 +136,31 @@ export default function OfficeEditClient(props: Props) {
           }),
         });
         const data = await res.json();
+        if (gen !== bootGen.current) return;
         if (res.status === 409 && data.error === "already_open") {
-          setAlreadyOpen(true);
-          setToken(null);
+          if (!silent) {
+            setAlreadyOpen(true);
+            setToken(null);
+            stableEditorUrl.current = null;
+          }
           return;
         }
         if (!res.ok) {
-          setError(data.error || data.message || "Ouverture impossible.");
+          if (!silent) setError(data.error || data.message || "Ouverture impossible.");
           return;
         }
-        setToken(data as TokenPayload);
+        const next = data as TokenPayload;
+        // Conserve la même URL iframe tant que fileId inchangé (évite close WS anticipé).
+        if (
+          silent &&
+          tokenRef.current?.fileId === next.fileId &&
+          stableEditorUrl.current
+        ) {
+          setToken({ ...next, editorUrl: stableEditorUrl.current });
+        } else {
+          if (next.editorUrl) stableEditorUrl.current = next.editorUrl;
+          setToken(next);
+        }
 
         const sess = await fetch(
           `/api/documents/office/session?${new URLSearchParams({
@@ -148,15 +170,18 @@ export default function OfficeEditClient(props: Props) {
             ...(props.fileShareId ? { fileShareId: props.fileShareId } : {}),
           })}`,
         );
+        if (gen !== bootGen.current) return;
         const sessData = await sess.json();
         if (sess.ok && Array.isArray(sessData.versions)) {
           setVersions(sessData.versions);
         }
       } catch {
-        setError("Erreur réseau.");
+        if (!silent && gen === bootGen.current) setError("Erreur réseau.");
       } finally {
-        bootstrapping.current = false;
-        setLoading(false);
+        if (gen === bootGen.current) {
+          bootstrapping.current = false;
+          if (!silent) setLoading(false);
+        }
       }
     },
     [props.scope, props.path, props.shareId, props.fileShareId, props.draft, sessionId],
@@ -168,6 +193,7 @@ export default function OfficeEditClient(props: Props) {
 
   useEffect(() => {
     if (!token?.fileId) return;
+    let cancelled = false;
     const beat = () => {
       void fetch("/api/documents/office/session", {
         method: "POST",
@@ -180,11 +206,20 @@ export default function OfficeEditClient(props: Props) {
           shareId: props.shareId,
           fileShareId: props.fileShareId,
         }),
-      }).catch(() => undefined);
+      })
+        .then(async (res) => {
+          if (cancelled) return;
+          if (res.status === 409) {
+            // Reclaim silencieux sans remount iframe.
+            await bootstrap(true, { silent: true });
+          }
+        })
+        .catch(() => undefined);
     };
     beat();
     const timer = window.setInterval(beat, 45_000);
     return () => {
+      cancelled = true;
       window.clearInterval(timer);
     };
   }, [
@@ -194,6 +229,7 @@ export default function OfficeEditClient(props: Props) {
     props.path,
     props.shareId,
     props.fileShareId,
+    bootstrap,
   ]);
 
   // Libération uniquement à la fermeture réelle de l’onglet (pas au remount React).
@@ -210,6 +246,7 @@ export default function OfficeEditClient(props: Props) {
 
   const leave = () => {
     if (token?.fileId) releaseSession(token.fileId, sessionId, true);
+    stableEditorUrl.current = null;
     if (token?.needsPlaceOnClose) {
       setShowPlace(true);
       return;
@@ -274,12 +311,18 @@ export default function OfficeEditClient(props: Props) {
       return;
     }
     setShowVersions(false);
+    stableEditorUrl.current = null;
     void bootstrap(true);
   };
 
   const title = token?.fileName || props.path.split("/").pop() || "Document";
 
-  const iframeSrc = useMemo(() => token?.editorUrl || null, [token?.editorUrl]);
+  const iframeSrc = useMemo(() => {
+    if (stableEditorUrl.current) return stableEditorUrl.current;
+    return token?.editorUrl || null;
+  }, [token?.editorUrl]);
+
+  const showEditor = Boolean(iframeSrc && token?.collaboraConfigured);
 
   return (
     <div className="flex h-[100dvh] flex-col bg-slate-100">
@@ -311,7 +354,14 @@ export default function OfficeEditClient(props: Props) {
       </header>
 
       <div className="relative min-h-0 flex-1">
-        {loading ? (
+        {showEditor ? (
+          <iframe
+            title={title}
+            src={iframeSrc!}
+            className="h-full w-full border-0"
+            allow="clipboard-read; clipboard-write; fullscreen"
+          />
+        ) : loading ? (
           <p className="p-6 text-sm text-slate-600">Ouverture de l’éditeur…</p>
         ) : alreadyOpen ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
@@ -344,7 +394,7 @@ export default function OfficeEditClient(props: Props) {
               Réessayer
             </button>
           </div>
-        ) : !token?.collaboraConfigured || !iframeSrc ? (
+        ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
             <p className="max-w-md text-sm text-slate-700">
               L’éditeur Collabora CODE n’est pas joignable. Démarrez-le en local (
@@ -362,13 +412,6 @@ export default function OfficeEditClient(props: Props) {
               Réessayer
             </button>
           </div>
-        ) : (
-          <iframe
-            title={title}
-            src={iframeSrc}
-            className="h-full w-full border-0"
-            allow="clipboard-read; clipboard-write; fullscreen"
-          />
         )}
       </div>
 

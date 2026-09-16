@@ -157,7 +157,10 @@ export async function POST(req: NextRequest) {
   if (action === "heartbeat") {
     const sessionId = String(body.sessionId || "");
     if (!sessionId) return NextResponse.json({ error: "sessionId manquant." }, { status: 400 });
-    const ok = await touchEditorSession(fileId, sessionId);
+    const ok = await touchEditorSession(fileId, sessionId, {
+      userId: gate.ctx.userId,
+      userDisplayName: gate.ctx.userId,
+    });
     if (!ok) {
       const holder = await getEditorSession(fileId);
       return NextResponse.json(

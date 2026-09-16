@@ -135,10 +135,12 @@ export function buildCollaboraEditorUrl(opts: {
 }): string | null {
   const base = getCollaboraPublicUrl();
   if (!base) return null;
+  // lang=fr provoque un LanguageStatus "{fr}" mal parsé par CODE (bruit console).
+  // fr-FR est un tag BCP-47 valide pour LOKit.
   const qs = new URLSearchParams({
     WOPISrc: opts.wopiSrc,
     access_token: opts.accessToken,
-    lang: "fr",
+    lang: "fr-FR",
   });
   return `${base}/browser/dist/cool.html?${qs.toString()}`;
 }
@@ -363,12 +365,62 @@ export async function claimEditorSession(opts: {
   return { ok: true };
 }
 
-export async function touchEditorSession(fileId: string, sessionId: string): Promise<boolean> {
+/**
+ * Heartbeat du verrou éditeur.
+ * Si Valkey a raté / TTL expiré / autre instance a perdu le cache local :
+ * on ré-établit le verrou pour la même session (ou même user si stale).
+ * Échec uniquement si un autre onglet du même user détient encore un verrou frais.
+ */
+export async function touchEditorSession(
+  fileId: string,
+  sessionId: string,
+  opts?: { userId?: string; userDisplayName?: string },
+): Promise<boolean> {
   const existing = await getEditorSession(fileId);
-  if (!existing || existing.sessionId !== sessionId) return false;
+  const nowIso = new Date().toISOString();
+
+  if (existing && existing.sessionId === sessionId) {
+    await cacheSet(
+      editorKey(fileId),
+      JSON.stringify({ ...existing, updatedAt: nowIso }),
+      LOCK_TTL_SEC,
+    );
+    return true;
+  }
+
+  if (existing && existing.sessionId !== sessionId) {
+    const sameUser = Boolean(opts?.userId) && existing.userId === opts?.userId;
+    const ageMs = Date.now() - Date.parse(existing.updatedAt || "");
+    const stale = !Number.isFinite(ageMs) || ageMs >= EDITOR_STALE_MS;
+    if (!sameUser || !stale) {
+      // Autre utilisateur → Collabora collab OK, on ne bloque pas le heartbeat.
+      if (!sameUser) {
+        await cacheSet(
+          editorKey(fileId),
+          JSON.stringify({
+            sessionId,
+            userId: opts?.userId || existing.userId,
+            userDisplayName: opts?.userDisplayName || existing.userDisplayName,
+            lockId: existing.lockId || crypto.randomUUID(),
+            updatedAt: nowIso,
+          }),
+          LOCK_TTL_SEC,
+        );
+        return true;
+      }
+      return false;
+    }
+  }
+
   await cacheSet(
     editorKey(fileId),
-    JSON.stringify({ ...existing, updatedAt: new Date().toISOString() }),
+    JSON.stringify({
+      sessionId,
+      userId: opts?.userId || existing?.userId || "",
+      userDisplayName: opts?.userDisplayName || existing?.userDisplayName || "",
+      lockId: existing?.lockId || crypto.randomUUID(),
+      updatedAt: nowIso,
+    }),
     LOCK_TTL_SEC,
   );
   return true;
