@@ -14,6 +14,11 @@
         return 200 '[]';
       }
 
+      # CODE n’embarque pas lc_spellonline.svg — on sert l’icône spelling existante.
+      location ~* /images/lc_spellonline\.svg$ {
+        rewrite ^(/browser/[^/]+/images/)lc_spellonline\.svg$ $1lc_spelling.svg last;
+      }
+
       proxy_pass $office_upstream;
       proxy_http_version 1.1;
       proxy_ssl_server_name on;
