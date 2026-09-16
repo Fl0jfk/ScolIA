@@ -142,6 +142,11 @@ export function buildCollaboraEditorUrl(opts: {
     access_token: opts.accessToken,
     lang: "fr-FR",
   });
+  // Prod Docker : nginx reverse-proxye /browser et /cool sur l’hôte tenant
+  // (iframe same-origin → plus d’autofocus bloqué ni d’assets 404 CODE).
+  if (process.env.OFFICE_SAME_ORIGIN === "1") {
+    return `/browser/dist/cool.html?${qs.toString()}`;
+  }
   return `${base}/browser/dist/cool.html?${qs.toString()}`;
 }
 

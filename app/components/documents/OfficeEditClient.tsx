@@ -360,6 +360,7 @@ export default function OfficeEditClient(props: Props) {
             src={iframeSrc!}
             className="h-full w-full border-0"
             allow="clipboard-read; clipboard-write; fullscreen"
+            referrerPolicy="no-referrer-when-downgrade"
           />
         ) : loading ? (
           <p className="p-6 text-sm text-slate-600">Ouverture de l’éditeur…</p>

@@ -1,0 +1,68 @@
+    resolver 1.1.1.1 8.8.8.8 valid=30s ipv6=off;
+
+    location ^~ /cool/admin {
+      return 404;
+    }
+
+    location ^~ /browser/ {
+      set $office_upstream "__COLLABORA_SCHEME__://__COLLABORA_HOST__";
+
+      location ~* /extensions/index\.json$ {
+        default_type application/json;
+        add_header Cache-Control "public, max-age=300";
+        add_header X-Content-Type-Options nosniff;
+        return 200 '[]';
+      }
+
+      location ~* /images/.+\.svg$ {
+        proxy_pass $office_upstream;
+        proxy_http_version 1.1;
+        proxy_ssl_server_name on;
+        proxy_ssl_name __COLLABORA_HOST__;
+        proxy_set_header Host __COLLABORA_HOST__;
+        proxy_intercept_errors on;
+        error_page 404 = @office_svg_fallback;
+      }
+
+      proxy_pass $office_upstream;
+      proxy_http_version 1.1;
+      proxy_ssl_server_name on;
+      proxy_ssl_name __COLLABORA_HOST__;
+      proxy_set_header Host __COLLABORA_HOST__;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;
+      proxy_read_timeout 86400s;
+      proxy_buffering off;
+    }
+
+    location ^~ /cool/ {
+      set $office_upstream "__COLLABORA_SCHEME__://__COLLABORA_HOST__";
+      proxy_pass $office_upstream;
+      proxy_http_version 1.1;
+      proxy_ssl_server_name on;
+      proxy_ssl_name __COLLABORA_HOST__;
+      proxy_set_header Host __COLLABORA_HOST__;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;
+      proxy_read_timeout 86400s;
+      proxy_send_timeout 86400s;
+      proxy_buffering off;
+    }
+
+    location ^~ /hosting/ {
+      set $office_upstream "__COLLABORA_SCHEME__://__COLLABORA_HOST__";
+      proxy_pass $office_upstream;
+      proxy_ssl_server_name on;
+      proxy_ssl_name __COLLABORA_HOST__;
+      proxy_set_header Host __COLLABORA_HOST__;
+    }
+
+    location @office_svg_fallback {
+      default_type image/svg+xml;
+      add_header Cache-Control "public, max-age=3600";
+      return 200 '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"/>';
+    }
