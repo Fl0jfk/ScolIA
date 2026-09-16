@@ -1,4 +1,5 @@
 import { normalizeAbsencePeriodInput } from "@/app/lib/absence-period";
+import { nonDiscretionaryTreatmentFromReason } from "@/app/lib/absence-hours-treatment";
 import {
   computeStartEndAt,
   resolveSelfDeclarationScope,
@@ -25,6 +26,7 @@ import { establishmentChoiceOptions, matchEstablishment } from "@/app/lib/establ
 
 const COMMON_REASONS = [
   "Maladie",
+  "Enfant malade",
   "Rendez-vous médical",
   "Formation",
   "Congé",
@@ -273,6 +275,7 @@ export async function handleCreateAbsence(
     endTime: period.endTime,
   });
 
+  const medicalTreatment = nonDiscretionaryTreatmentFromReason(reason);
   const record: AbsenceRecord = {
     id,
     createdAt: now,
@@ -299,6 +302,8 @@ export async function handleCreateAbsence(
       reason,
       details: finalDetails,
     },
+    staffPreferredTreatment: medicalTreatment,
+    staffPreferredMakeupSlots: null,
     workflowStatus: "OUVERTE",
     managerDecision: "EN_ATTENTE",
     closedAt: null,

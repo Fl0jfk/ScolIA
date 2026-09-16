@@ -10,8 +10,13 @@ import { getBucketName } from "@/app/lib/s3-storage";
 import { s3Key } from "@/app/lib/s3-path";
 import { normalizeAbsencePeriodInput } from "@/app/lib/absence-period";
 import {
+  forcedHoursTreatmentForNonDiscretionaryAbsence,
   hasMakeupSlotsInfo,
+  isNonDiscretionaryAbsence,
+  isNonDiscretionaryTreatment,
   isRattrapageTreatment,
+  nonDiscretionaryTreatmentFromReason,
+  reasonLabelForNonDiscretionaryTreatment,
   validateHoursTreatmentForAbsence,
 } from "@/app/lib/absence-hours-treatment";
 import {
@@ -244,12 +249,28 @@ export async function POST(req: Request) {
     const reason = String(payload.reason || "").trim();
     const details = String(payload.details || "").trim();
     const justificationPayload = payload?.justification || null;
-    const staffPreferredTreatment = payload.staffPreferredTreatment
+    const nonDiscretionaryFromReason = nonDiscretionaryTreatmentFromReason(reason);
+    let staffPreferredTreatment = payload.staffPreferredTreatment
       ? String(payload.staffPreferredTreatment).trim() || null
       : null;
-    const staffPreferredMakeupSlots = payload.staffPreferredMakeupSlots
-      ? String(payload.staffPreferredMakeupSlots).trim() || null
-      : null;
+    // Maladie / enfant malade : forcé en déclaration sans rattrapage (pas de préférence libre).
+    if (nonDiscretionaryFromReason) {
+      staffPreferredTreatment = nonDiscretionaryFromReason;
+    } else if (isNonDiscretionaryTreatment(staffPreferredTreatment)) {
+      return NextResponse.json(
+        {
+          error:
+            "Pour une absence maladie ou enfant malade, choisissez le motif correspondant dans la liste.",
+        },
+        { status: 400 },
+      );
+    }
+    const staffPreferredMakeupSlots =
+      nonDiscretionaryFromReason || isNonDiscretionaryTreatment(staffPreferredTreatment)
+        ? null
+        : payload.staffPreferredMakeupSlots
+          ? String(payload.staffPreferredMakeupSlots).trim() || null
+          : null;
 
     if (!reason) {
       return NextResponse.json({ error: "Champs obligatoires manquants." }, { status: 400 });
@@ -493,17 +514,24 @@ export async function PATCH(req: Request) {
         }
       }
     } else if (action === "VALIDER") {
-      const treatmentResult = validateHoursTreatmentForAbsence(
-        current.data.scope,
-        current.data.etablissement,
-        body?.hoursTreatment,
-      );
-      if (!treatmentResult.ok) {
-        return NextResponse.json({ error: treatmentResult.error }, { status: 400 });
+      const forcedMedical = forcedHoursTreatmentForNonDiscretionaryAbsence(current);
+      let hoursTreatment;
+      if (forcedMedical) {
+        hoursTreatment = forcedMedical;
+      } else {
+        const treatmentResult = validateHoursTreatmentForAbsence(
+          current.data.scope,
+          current.data.etablissement,
+          body?.hoursTreatment,
+        );
+        if (!treatmentResult.ok) {
+          return NextResponse.json({ error: treatmentResult.error }, { status: 400 });
+        }
+        hoursTreatment = treatmentResult.treatment;
       }
-      const hoursTreatment = treatmentResult.treatment;
-      const directionConfirmedMakeupSlots =
-        body?.directionConfirmedMakeupSlots
+      const directionConfirmedMakeupSlots = isNonDiscretionaryTreatment(hoursTreatment)
+        ? null
+        : body?.directionConfirmedMakeupSlots
           ? String(body.directionConfirmedMakeupSlots).trim() || null
           : null;
       const decidedAt = new Date().toISOString();
@@ -528,6 +556,19 @@ export async function PATCH(req: Request) {
         calendarVisible: true,
         closedAt: autoCloseProfRattrapage ? decidedAt : null,
         hoursTreatment,
+        // Aligne motif / préférence si prise d'acte maladie.
+        ...(forcedMedical
+          ? {
+              staffPreferredTreatment: forcedMedical,
+              data: {
+                ...updated.data,
+                reason:
+                  updated.data.reason?.trim() ||
+                  reasonLabelForNonDiscretionaryTreatment(forcedMedical),
+              },
+              staffPreferredMakeupSlots: null,
+            }
+          : {}),
         directionConfirmedMakeupSlots,
         makeupSlotsRelanceAt: isMakeup ? decidedAt : null,
         adminTreatedAt: autoCloseProfRattrapage ? decidedAt : null,
@@ -541,7 +582,11 @@ export async function PATCH(req: Request) {
             at: decidedAt,
             by: actor,
             action: "DECISION_VALIDEE",
-            note: managerNote || undefined,
+            note:
+              managerNote ||
+              (forcedMedical
+                ? `Prise d'acte direction — ${reasonLabelForNonDiscretionaryTreatment(forcedMedical).toLowerCase()}.`
+                : undefined),
           },
           ...(autoCloseProfRattrapage
             ? [
@@ -567,6 +612,15 @@ export async function PATCH(req: Request) {
       };
       // Mails après persistance — un échec SMTP / config ne doit pas bloquer la validation.
     } else if (action === "REFUSER") {
+      if (isNonDiscretionaryAbsence(current)) {
+        return NextResponse.json(
+          {
+            error:
+              "Les absences maladie ou enfant malade ne peuvent pas être refusées. La direction prend acte (valider), puis le dossier part en traitement.",
+          },
+          { status: 400 },
+        );
+      }
       const closedAt = new Date().toISOString();
       updated = {
         ...updated,

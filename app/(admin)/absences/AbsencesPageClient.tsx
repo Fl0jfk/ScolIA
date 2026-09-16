@@ -29,14 +29,19 @@ import { viewerCanConfigureAbsenceProcessors, viewerCanSeeAbsenceDirectionQueue,
 import type { NotificationsConfig } from "@/app/lib/app-config-schemas";
 import { formatAbsencePeriod, type AbsencePeriodType } from "@/app/lib/absence-period";
 import {
+  forcedHoursTreatmentForNonDiscretionaryAbsence,
   formatAbsenceHoursTreatment,
   formatMakeupSlotsText,
   formatStaffPreferredTreatment,
   getHoursTreatmentOptions,
   hoursTreatmentFieldLabel,
   emptyMakeupSlotDraft,
+  isNonDiscretionaryAbsence,
+  isNonDiscretionaryTreatment,
   isRattrapageTreatment,
   needsMakeupSlotsFromStaff,
+  NON_DISCRETIONARY_ABSENCE_REASONS,
+  nonDiscretionaryTreatmentFromReason,
   requiresProcessorAfterValidation,
   validateHoursTreatmentForAbsence,
   type MakeupSlotDraft,
@@ -94,13 +99,18 @@ export default function AbsencesPageClient({
   const [endTime, setEndTime] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [reason, setReason] = useState("");
+  const [reasonSelect, setReasonSelect] = useState("");
+  const [reasonOther, setReasonOther] = useState("");
   const [details, setDetails] = useState("");
   const [justificationFile, setJustificationFile] = useState<File | null>(null);
   const [staffPreferredTreatment, setStaffPreferredTreatment] = useState<string>("");
   const [staffPreferredMakeupSlots, setStaffPreferredMakeupSlots] = useState<MakeupSlotDraft[]>([
     emptyMakeupSlotDraft(),
   ]);
+  const resolvedReason =
+    reasonSelect === "__other__" ? reasonOther.trim() : reasonSelect.trim();
+  const medicalTreatmentFromReason = nonDiscretionaryTreatmentFromReason(resolvedReason);
+  const isMedicalDeclaration = Boolean(medicalTreatmentFromReason);
   const [replyMakeupSlots, setReplyMakeupSlots] = useState<Record<string, MakeupSlotDraft[]>>({});
   const [savingMakeupSlotsId, setSavingMakeupSlotsId] = useState<string | null>(null);
   const [managerNotes, setManagerNotes] = useState<Record<string, string>>({});
@@ -297,7 +307,15 @@ export default function AbsencesPageClient({
       setError("Choisissez la personne concernée.");
       return;
     }
-    if (!reason.trim()) {
+    if (!reasonSelect) {
+      setError("Merci de choisir un motif.");
+      return;
+    }
+    if (reasonSelect === "__other__" && !reasonOther.trim()) {
+      setError("Merci d'indiquer le motif.");
+      return;
+    }
+    if (!resolvedReason) {
       setError("Merci de remplir le motif.");
       return;
     }
@@ -366,14 +384,18 @@ export default function AbsencesPageClient({
             endDate: periodType === "single_day" ? singleDayDate : endDate,
             startTime: periodType === "single_day" ? startTime : null,
             endTime: periodType === "single_day" ? endTime : null,
-            reason: reason.trim(),
+            reason: resolvedReason,
             details: details.trim(),
             justification,
-            staffPreferredTreatment: staffPreferredTreatment || null,
+            staffPreferredTreatment: medicalTreatmentFromReason
+              ? medicalTreatmentFromReason
+              : staffPreferredTreatment || null,
             staffPreferredMakeupSlots:
-              isRattrapageTreatment(staffPreferredTreatment)
-                ? formatMakeupSlotsText(staffPreferredMakeupSlots) || null
-                : null,
+              medicalTreatmentFromReason
+                ? null
+                : isRattrapageTreatment(staffPreferredTreatment)
+                  ? formatMakeupSlotsText(staffPreferredMakeupSlots) || null
+                  : null,
           },
         }),
       });
@@ -385,7 +407,8 @@ export default function AbsencesPageClient({
       setEndTime("");
       setStartDate("");
       setEndDate("");
-      setReason("");
+      setReasonSelect("");
+      setReasonOther("");
       setDetails("");
       setStaffPreferredTreatment("");
       setStaffPreferredMakeupSlots([emptyMakeupSlotDraft()]);
@@ -415,16 +438,31 @@ export default function AbsencesPageClient({
     item?: AbsenceItem,
   ) => {
     if (action === "VALIDER" && item) {
-      const treatmentCheck = validateHoursTreatmentForAbsence(
-        item.data.scope,
-        item.data.etablissement,
-        resolvedHoursTreatment(item, managerHoursTreatment),
-      );
+      const forcedMedical = forcedHoursTreatmentForNonDiscretionaryAbsence(asRecord(item));
+      const treatmentValue =
+        forcedMedical || resolvedHoursTreatment(item, managerHoursTreatment);
+      const treatmentCheck = forcedMedical
+        ? ({ ok: true as const, treatment: forcedMedical })
+        : validateHoursTreatmentForAbsence(
+            item.data.scope,
+            item.data.etablissement,
+            treatmentValue,
+          );
       if (!treatmentCheck.ok) {
         alert(treatmentCheck.error);
         return;
       }
       if (!confirm(validationConfirmMessage(item, treatmentCheck.treatment))) return;
+    }
+    if (
+      action === "REFUSER" &&
+      item &&
+      isNonDiscretionaryAbsence(asRecord(item))
+    ) {
+      alert(
+        "Les absences maladie ou enfant malade ne peuvent pas être refusées. Vous pouvez uniquement valider (prise d'acte).",
+      );
+      return;
     }
     if (action === "REFUSER" && !confirm("Êtes-vous sûr de refuser cette absence ? Cette action est définitive.")) return;
     if (
@@ -462,8 +500,12 @@ export default function AbsencesPageClient({
           managerNote: managerNotes[id] || "",
           ...(action === "VALIDER"
             ? {
-                hoursTreatment: resolvedHoursTreatment(item!, managerHoursTreatment),
-                directionConfirmedMakeupSlots: directionConfirmedSlots[id]?.trim() || null,
+                hoursTreatment:
+                  forcedHoursTreatmentForNonDiscretionaryAbsence(asRecord(item!)) ||
+                  resolvedHoursTreatment(item!, managerHoursTreatment),
+                directionConfirmedMakeupSlots: isNonDiscretionaryAbsence(asRecord(item!))
+                  ? null
+                  : directionConfirmedSlots[id]?.trim() || null,
               }
             : {}),
         }),
@@ -923,14 +965,48 @@ export default function AbsencesPageClient({
               </>
             )}
             <div>
-              <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">Motif</label>
-              <input
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                type="text"
-                placeholder="Ex: Rendez-vous médical"
-                className="w-full rounded-xl border border-slate-200 px-3 py-2"
-              />
+              <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">
+                Motif <span className="text-rose-600">*</span>
+              </label>
+              <select
+                value={reasonSelect}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setReasonSelect(next);
+                  if (nonDiscretionaryTreatmentFromReason(next)) {
+                    setStaffPreferredTreatment("");
+                    setStaffPreferredMakeupSlots([emptyMakeupSlotDraft()]);
+                  }
+                  if (next !== "__other__") setReasonOther("");
+                }}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"
+              >
+                <option value="">— Choisir un motif —</option>
+                {NON_DISCRETIONARY_ABSENCE_REASONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+                <option value="__other__">Autre motif (autorisation d&apos;absence)…</option>
+              </select>
+              {reasonSelect === "__other__" ? (
+                <input
+                  value={reasonOther}
+                  onChange={(e) => setReasonOther(e.target.value)}
+                  type="text"
+                  placeholder="Ex: Rendez-vous médical, formation…"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 mt-2"
+                />
+              ) : null}
+              {isMedicalDeclaration ? (
+                <p className="text-xs text-slate-500 mt-2">
+                  Maladie ou enfant malade : les heures seront traitées administrativement
+                  (déclaration
+                  {effectiveScope === "ogec" ? " / comptabilité" : " secrétariat"}
+                  ), sans possibilité de rattrapage. La direction valide uniquement (pas de
+                  refus).
+                </p>
+              ) : null}
             </div>
             <div>
               <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-2">Détails (optionnel)</label>
@@ -941,7 +1017,7 @@ export default function AbsencesPageClient({
                 className="w-full rounded-xl border border-slate-200 px-3 py-2"
               />
             </div>
-            {!(forOther && !colleague) && (
+            {!(forOther && !colleague) && !isMedicalDeclaration && (
               <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 space-y-3">
                 <p className="text-xs font-black uppercase tracking-wider text-indigo-700">Votre préférence (optionnel)</p>
                 <p className="text-xs text-slate-600">
@@ -1301,10 +1377,28 @@ export default function AbsencesPageClient({
                         Reclasser en {resolveAbsenceScope(asRecord(item)) === "ogec" ? "Professeur" : "Personnel OGEC"}
                       </button>
                     </p>
-                    <p className="text-xs text-slate-500 mb-2">
-                      Valider ou refuser même sans pièce jointe. « Relancer » invite le demandeur à déposer un justificatif — ou un complément si le premier ne suffit pas.
-                    </p>
-                    {(item.staffPreferredTreatment || item.staffPreferredMakeupSlots) && (
+                    {isNonDiscretionaryAbsence(asRecord(item)) ? (
+                      <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                        <p className="font-bold">
+                          {forcedHoursTreatmentForNonDiscretionaryAbsence(asRecord(item)) === "ENFANT_MALADE"
+                            ? "Enfant malade"
+                            : "Maladie"}{" "}
+                          — validation obligatoire
+                        </p>
+                        <p className="text-xs mt-1 text-amber-900/80">
+                          Pas de refus possible. Les heures sont obligatoirement traitées (déclarées
+                          / transmises
+                          {item.data.scope === "ogec" ? " à la comptabilité" : " au secrétariat"}
+                          ) — aucun rattrapage.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500 mb-2">
+                        Valider ou refuser même sans pièce jointe. « Relancer » invite le demandeur à déposer un justificatif — ou un complément si le premier ne suffit pas.
+                      </p>
+                    )}
+                    {!isNonDiscretionaryAbsence(asRecord(item)) &&
+                      (item.staffPreferredTreatment || item.staffPreferredMakeupSlots) && (
                       <div className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-sm">
                         <p className="text-[11px] font-black uppercase tracking-wider text-indigo-600 mb-1">
                           Préférence du déclarant (indication, pas une décision)
@@ -1326,48 +1420,67 @@ export default function AbsencesPageClient({
                         ) : null}
                       </div>
                     )}
-                    <div className="mb-2">
-                      <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1">
-                        {hoursTreatmentFieldLabel(item.data.scope)} <span className="text-rose-600">*</span>
-                      </label>
-                      <select
-                        required
-                        value={resolvedHoursTreatment(item, managerHoursTreatment)}
-                        onChange={(e) =>
-                          setManagerHoursTreatment((p) => ({ ...p, [item.id]: e.target.value }))
-                        }
-                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white"
-                      >
-                        <option value="">— Choisir —</option>
-                        {getHoursTreatmentOptions(item.data.scope, item.data.etablissement).map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="text-xs text-slate-400 mt-1">
-                        {item.data.scope === "ogec"
-                          ? "Décision direction — heures rattrapées ou déduites du salaire."
-                          : "Décision direction — rattrapage en interne ou déclaration ONISE / rectorat."}
-                      </p>
-                    </div>
-                    {(resolvedHoursTreatment(item, managerHoursTreatment) === "RATTRAPAGE_INTERNE" ||
-                      resolvedHoursTreatment(item, managerHoursTreatment) === "RATTRAPAGE") && (
+                    {isNonDiscretionaryAbsence(asRecord(item)) ? (
                       <div className="mb-2">
                         <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1">
-                          À quel moment souhaitez-vous qu&apos;ils rattrapent leurs heures ?
+                          {hoursTreatmentFieldLabel(item.data.scope)} <span className="text-rose-600">*</span>
                         </label>
-                        <textarea
-                          rows={2}
-                          placeholder="Ex : Jeudi 19 mars de 10h à 12h — à communiquer au professeur"
-                          value={directionConfirmedSlots[item.id] ?? item.directionConfirmedMakeupSlots ?? ""}
-                          onChange={(e) => setDirectionConfirmedSlots((p) => ({ ...p, [item.id]: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                        />
+                        <div className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 font-semibold">
+                          {formatAbsenceHoursTreatment(
+                            forcedHoursTreatmentForNonDiscretionaryAbsence(asRecord(item)),
+                          )}
+                        </div>
                         <p className="text-xs text-slate-400 mt-1">
-                          Ces créneaux seront transmis au demandeur dans l&apos;e-mail de confirmation.
+                          Traitement des heures imposé par le motif : déclaration administrative,
+                          sans rattrapage. La direction confirme uniquement.
                         </p>
                       </div>
+                    ) : (
+                      <>
+                        <div className="mb-2">
+                          <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1">
+                            {hoursTreatmentFieldLabel(item.data.scope)} <span className="text-rose-600">*</span>
+                          </label>
+                          <select
+                            required
+                            value={resolvedHoursTreatment(item, managerHoursTreatment)}
+                            onChange={(e) =>
+                              setManagerHoursTreatment((p) => ({ ...p, [item.id]: e.target.value }))
+                            }
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white"
+                          >
+                            <option value="">— Choisir —</option>
+                            {getHoursTreatmentOptions(item.data.scope, item.data.etablissement).map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-slate-400 mt-1">
+                            {item.data.scope === "ogec"
+                              ? "Décision direction — heures rattrapées ou déduites du salaire."
+                              : "Décision direction — rattrapage en interne ou déclaration ONISE / rectorat."}
+                          </p>
+                        </div>
+                        {(resolvedHoursTreatment(item, managerHoursTreatment) === "RATTRAPAGE_INTERNE" ||
+                          resolvedHoursTreatment(item, managerHoursTreatment) === "RATTRAPAGE") && (
+                          <div className="mb-2">
+                            <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block mb-1">
+                              À quel moment souhaitez-vous qu&apos;ils rattrapent leurs heures ?
+                            </label>
+                            <textarea
+                              rows={2}
+                              placeholder="Ex : Jeudi 19 mars de 10h à 12h — à communiquer au professeur"
+                              value={directionConfirmedSlots[item.id] ?? item.directionConfirmedMakeupSlots ?? ""}
+                              onChange={(e) => setDirectionConfirmedSlots((p) => ({ ...p, [item.id]: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                            />
+                            <p className="text-xs text-slate-400 mt-1">
+                              Ces créneaux seront transmis au demandeur dans l&apos;e-mail de confirmation.
+                            </p>
+                          </div>
+                        )}
+                      </>
                     )}
                     <textarea
                       rows={2}
@@ -1384,13 +1497,15 @@ export default function AbsencesPageClient({
                       >
                         Valider
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => updateWorkflow(item.id, "REFUSER")}
-                        className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm"
-                      >
-                        Refuser
-                      </button>
+                      {!isNonDiscretionaryAbsence(asRecord(item)) ? (
+                        <button
+                          type="button"
+                          onClick={() => updateWorkflow(item.id, "REFUSER", item)}
+                          className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm"
+                        >
+                          Refuser
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => updateWorkflow(item.id, "RELANCER_JUSTIFICATIF", item)}
@@ -1398,7 +1513,8 @@ export default function AbsencesPageClient({
                       >
                         {item.justification?.fileUrl ? "Demander un complément" : "Relancer pour justificatif"}
                       </button>
-                      {!item.staffPreferredMakeupSlots &&
+                      {!isNonDiscretionaryAbsence(asRecord(item)) &&
+                      !item.staffPreferredMakeupSlots &&
                       !item.directionConfirmedMakeupSlots &&
                       isRattrapageTreatment(
                         resolvedHoursTreatment(item, managerHoursTreatment) ||
@@ -1426,9 +1542,10 @@ export default function AbsencesPageClient({
           <div className="bg-white border border-slate-200 rounded-3xl p-4">
             <h3 className="font-black text-slate-900">Dossiers à traiter</h3>
             <p className="text-xs text-slate-500">
-              Professeurs : uniquement les absences à déclarer au rectorat / instance (pas le
-              rattrapage interne). OGEC : dossiers RH validés. Demandez une pièce si besoin, puis
-              marquez traité une fois la déclaration faite.
+              Professeurs : déclarations rectorat / instance et absences maladie / enfant malade
+              (pas le rattrapage interne). OGEC : dossiers RH validés, y compris maladie / enfant
+              malade. Demandez une pièce si besoin, puis marquez traité une fois la déclaration
+              faite.
             </p>
           </div>
           {loading ? (

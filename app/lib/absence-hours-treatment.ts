@@ -1,8 +1,14 @@
 import { inferEstablishmentKind } from "@/app/lib/establishment-visual";
 
-export type OgecHoursTreatment = "RATTRAPAGE" | "DEDUCTION_SALAIRE";
-export type ProfHoursTreatment = "RATTRAPAGE_INTERNE" | "DECLARATION_ONISE" | "DECLARATION_RECTORAT";
+export type OgecHoursTreatment = "RATTRAPAGE" | "DEDUCTION_SALAIRE" | "MALADIE" | "ENFANT_MALADE";
+export type ProfHoursTreatment =
+  | "RATTRAPAGE_INTERNE"
+  | "DECLARATION_ONISE"
+  | "DECLARATION_RECTORAT"
+  | "MALADIE"
+  | "ENFANT_MALADE";
 export type AbsenceHoursTreatment = OgecHoursTreatment | ProfHoursTreatment;
+export type NonDiscretionaryAbsenceTreatment = "MALADIE" | "ENFANT_MALADE";
 
 type AbsenceScope = "professeur" | "ogec";
 type Etablissement = string | null;
@@ -11,6 +17,63 @@ const RATTRAPAGE_INTERNE_OPTION = {
   value: "RATTRAPAGE_INTERNE" as const,
   label: "Heures rattrapées en interne (sans déclaration instance)",
 };
+
+/** Motifs structurés : traitement des heures forcé (déclaré), sans rattrapage ; direction = validation seule (pas de refus). */
+export const NON_DISCRETIONARY_ABSENCE_REASONS = [
+  { value: "Maladie", treatment: "MALADIE" as const, label: "Maladie" },
+  { value: "Enfant malade", treatment: "ENFANT_MALADE" as const, label: "Enfant malade" },
+] as const;
+
+export function isNonDiscretionaryTreatment(value?: string | null): boolean {
+  return value === "MALADIE" || value === "ENFANT_MALADE";
+}
+
+export function nonDiscretionaryTreatmentFromReason(
+  reason?: string | null,
+): NonDiscretionaryAbsenceTreatment | null {
+  const normalized = String(reason || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+  if (normalized === "maladie") return "MALADIE";
+  if (normalized === "enfant malade" || normalized === "enfants malades") return "ENFANT_MALADE";
+  return null;
+}
+
+export function reasonLabelForNonDiscretionaryTreatment(
+  treatment: NonDiscretionaryAbsenceTreatment,
+): string {
+  return treatment === "MALADIE" ? "Maladie" : "Enfant malade";
+}
+
+/** Absence maladie / enfant malade : validation direction obligatoire, refus interdit. */
+export function isNonDiscretionaryAbsence(record: {
+  staffPreferredTreatment?: string | null;
+  hoursTreatment?: string | null;
+  data?: { reason?: string | null } | null;
+}): boolean {
+  if (isNonDiscretionaryTreatment(record.hoursTreatment)) return true;
+  if (isNonDiscretionaryTreatment(record.staffPreferredTreatment)) return true;
+  return Boolean(nonDiscretionaryTreatmentFromReason(record.data?.reason));
+}
+
+export function forcedHoursTreatmentForNonDiscretionaryAbsence(record: {
+  staffPreferredTreatment?: string | null;
+  hoursTreatment?: string | null;
+  data?: { reason?: string | null } | null;
+}): NonDiscretionaryAbsenceTreatment | null {
+  if (record.hoursTreatment === "MALADIE" || record.hoursTreatment === "ENFANT_MALADE") {
+    return record.hoursTreatment;
+  }
+  if (
+    record.staffPreferredTreatment === "MALADIE" ||
+    record.staffPreferredTreatment === "ENFANT_MALADE"
+  ) {
+    return record.staffPreferredTreatment;
+  }
+  return nonDiscretionaryTreatmentFromReason(record.data?.reason);
+}
 
 export function getHoursTreatmentOptions(scope: AbsenceScope, etablissement: Etablissement | null) {
   if (scope === "ogec") {
@@ -37,7 +100,9 @@ function parseAbsenceHoursTreatment(value: unknown): AbsenceHoursTreatment | nul
     value === "DEDUCTION_SALAIRE" ||
     value === "RATTRAPAGE_INTERNE" ||
     value === "DECLARATION_ONISE" ||
-    value === "DECLARATION_RECTORAT"
+    value === "DECLARATION_RECTORAT" ||
+    value === "MALADIE" ||
+    value === "ENFANT_MALADE"
   ) {
     return value;
   }
@@ -48,12 +113,20 @@ export function validateHoursTreatmentForAbsence(
   scope: AbsenceScope,
   etablissement: Etablissement | null,
   value: unknown,
+  options?: { allowNonDiscretionary?: boolean },
 ): { ok: true; treatment: AbsenceHoursTreatment } | { ok: false; error: string } {
   const treatment = parseAbsenceHoursTreatment(value);
   if (!treatment) {
     return { ok: false, error: "Merci de choisir le traitement de l'absence avant de valider." };
   }
-  const allowed = getHoursTreatmentOptions(scope, etablissement).map((o) => o.value);
+  if (isNonDiscretionaryTreatment(treatment)) {
+    if (options?.allowNonDiscretionary) return { ok: true, treatment };
+    return {
+      ok: false,
+      error: "Traitement maladie / enfant malade réservé aux absences de ce type.",
+    };
+  }
+  const allowed = getHoursTreatmentOptions(scope, etablissement).map((o) => o.value as string);
   if (!allowed.includes(treatment)) {
     return { ok: false, error: "Traitement de l'absence invalide pour ce type de déclaration." };
   }
@@ -66,6 +139,8 @@ export function formatAbsenceHoursTreatment(value?: AbsenceHoursTreatment | null
   if (value === "RATTRAPAGE_INTERNE") return "Heures rattrapées en interne (sans déclaration instance)";
   if (value === "DECLARATION_ONISE") return "À déclarer auprès de l'ONISE (instance)";
   if (value === "DECLARATION_RECTORAT") return "À déclarer auprès du rectorat (instance)";
+  if (value === "MALADIE") return "Maladie — heures à déclarer (sans rattrapage)";
+  if (value === "ENFANT_MALADE") return "Enfant malade — heures à déclarer (sans rattrapage)";
   return null;
 }
 
@@ -74,6 +149,16 @@ export function formatHoursTreatmentMailLine(
   treatment: AbsenceHoursTreatment,
   scope: AbsenceScope,
 ): string {
+  if (treatment === "MALADIE") {
+    return scope === "ogec"
+      ? "Traitement des heures : arrêt maladie — à traiter en comptabilité (sans rattrapage)."
+      : "Traitement des heures : arrêt maladie — à traiter au secrétariat (sans rattrapage).";
+  }
+  if (treatment === "ENFANT_MALADE") {
+    return scope === "ogec"
+      ? "Traitement des heures : enfant malade — à traiter en comptabilité (sans rattrapage)."
+      : "Traitement des heures : enfant malade — à traiter au secrétariat (sans rattrapage).";
+  }
   if (scope === "ogec") {
     if (treatment === "RATTRAPAGE") return "Décision de la direction : les heures seront rattrapées.";
     if (treatment === "DEDUCTION_SALAIRE") return "Décision de la direction : les heures seront déduites du salaire.";
@@ -92,6 +177,12 @@ export function formatHoursTreatmentCreatorMailLine(
   treatment: AbsenceHoursTreatment,
   scope: AbsenceScope,
 ): string {
+  if (treatment === "MALADIE") {
+    return "Votre arrêt maladie a été pris en compte par la direction. Le dossier est transmis pour traitement administratif.";
+  }
+  if (treatment === "ENFANT_MALADE") {
+    return "Votre absence pour enfant malade a été prise en compte par la direction. Le dossier est transmis pour traitement administratif.";
+  }
   if (scope === "ogec") {
     if (treatment === "RATTRAPAGE") return "Les heures d'absence seront rattrapées.";
     if (treatment === "DEDUCTION_SALAIRE") return "Les heures d'absence seront déduites du salaire.";
@@ -139,6 +230,7 @@ export function suggestHoursTreatmentFromPreference(
 ): AbsenceHoursTreatment | null {
   const pref = String(staffPreferredTreatment || "").trim();
   if (!pref) return null;
+  if (pref === "MALADIE" || pref === "ENFANT_MALADE") return pref;
   if (scope === "ogec") {
     if (pref === "RATTRAPAGE" || pref === "DEDUCTION_SALAIRE") return pref;
     return null;
@@ -160,6 +252,8 @@ export function formatStaffPreferredTreatment(value?: string | null): string | n
   if (value === "DECLARATION_INSTANCE" || value === "DECLARATION_ONISE" || value === "DECLARATION_RECTORAT") {
     return "Sans rattrapage (déclaration au rectorat / instance)";
   }
+  if (value === "MALADIE") return "Maladie — heures à déclarer (sans rattrapage)";
+  if (value === "ENFANT_MALADE") return "Enfant malade — heures à déclarer (sans rattrapage)";
   return value;
 }
 
@@ -276,7 +370,8 @@ export function needsMakeupSlotsFromStaff(record: {
   if (
     record.managerDecision === "EN_ATTENTE" &&
     (isDeclarationPreference(record.staffPreferredTreatment) ||
-      record.staffPreferredTreatment === "DEDUCTION_SALAIRE")
+      record.staffPreferredTreatment === "DEDUCTION_SALAIRE" ||
+      isNonDiscretionaryTreatment(record.staffPreferredTreatment))
   ) {
     return false;
   }
@@ -304,7 +399,7 @@ export function needsMakeupSlotsFromStaff(record: {
 }
 
 /**
- * Professeurs : la collègue rectorat ne traite que les déclarations instance.
+ * Professeurs : secrétariat pour déclarations instance + maladie / enfant malade.
  * OGEC : tout dossier validé reste chez la RH / compta (flux distinct).
  */
 export function requiresProcessorAfterValidation(record: {
@@ -313,7 +408,12 @@ export function requiresProcessorAfterValidation(record: {
 }): boolean {
   const scope = record.data?.scope;
   if (scope === "ogec") return true;
-  if (scope === "professeur") return isRectoratDeclarationTreatment(record.hoursTreatment);
+  if (scope === "professeur") {
+    return (
+      isRectoratDeclarationTreatment(record.hoursTreatment) ||
+      isNonDiscretionaryTreatment(record.hoursTreatment)
+    );
+  }
   return Boolean(record.hoursTreatment);
 }
 
@@ -322,6 +422,16 @@ export function formatTransmissionSummary(
   etablissement: Etablissement | null,
   treatment?: AbsenceHoursTreatment | null,
 ): string | null {
+  if (treatment === "MALADIE") {
+    return scope === "ogec"
+      ? "Transmise à la comptabilité — arrêt maladie."
+      : "Transmise au secrétariat — arrêt maladie.";
+  }
+  if (treatment === "ENFANT_MALADE") {
+    return scope === "ogec"
+      ? "Transmise à la comptabilité — enfant malade."
+      : "Transmise au secrétariat — enfant malade.";
+  }
   if (scope === "ogec") return "Transmise à la comptabilité.";
   if (treatment === "RATTRAPAGE_INTERNE") {
     return "Transmise au secrétariat — heures rattrapées en interne, sans déclaration instance.";

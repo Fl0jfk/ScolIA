@@ -1,6 +1,8 @@
 import type { AbsencePeriodType } from "@/app/lib/absence-period";
 import {
   formatTransmissionSummary,
+  isNonDiscretionaryAbsence,
+  isNonDiscretionaryTreatment,
   isRattrapageTreatment,
   isRectoratDeclarationTreatment,
   needsMakeupSlotsFromStaff,
@@ -81,6 +83,17 @@ export function validationConfirmMessage(
   item: AbsenceItem,
   hoursTreatment?: AbsenceHoursTreatment | string | null,
 ) {
+  if (isNonDiscretionaryAbsence(item) || isNonDiscretionaryTreatment(hoursTreatment)) {
+    const kind =
+      hoursTreatment === "ENFANT_MALADE" || item.data.reason.toLowerCase().includes("enfant")
+        ? "enfant malade"
+        : "maladie";
+    const dest =
+      item.data.scope === "ogec"
+        ? "La comptabilité / RH traite ensuite le dossier."
+        : "Le secrétariat traite ensuite le dossier.";
+    return `Valider cette absence (${kind}) ?\n\nTraitement des heures : déclaration administrative obligatoire (sans rattrapage). Pas de refus possible. Le calendrier est mis à jour. ${dest}`;
+  }
   const base = "Valider cette absence ? La décision direction est définitive.";
   if (item.data.scope === "ogec") {
     return `${base}\n\nLe calendrier est mis à jour. La RH traite ensuite le dossier dans l’application (pièces, clôture).`;
@@ -97,6 +110,11 @@ export function validationConfirmMessage(
 export function transmissionLabel(item: AbsenceItem) {
   if (itemDecision(item) !== "VALIDEE") return null;
   if (item.workflowStatus !== "CLOTUREE") {
+    if (isNonDiscretionaryTreatment(item.hoursTreatment)) {
+      return item.data.scope === "ogec"
+        ? "Validée — traitement des heures (maladie / enfant malade) en cours à la comptabilité / RH."
+        : "Validée — traitement des heures (maladie / enfant malade) en cours au secrétariat.";
+    }
     if (item.data.scope === "ogec") {
       return "Validée par la direction — en traitement RH.";
     }
@@ -106,6 +124,11 @@ export function transmissionLabel(item: AbsenceItem) {
     return "Validée par la direction — en traitement rectorat / instance.";
   }
   if (item.adminTreatedAt) {
+    if (isNonDiscretionaryTreatment(item.hoursTreatment)) {
+      return item.data.scope === "ogec"
+        ? "Traitée par la RH (maladie / enfant malade)."
+        : "Traitée administrativement (maladie / enfant malade).";
+    }
     return item.data.scope === "ogec"
       ? "Traitée par la RH."
       : isRattrapageTreatment(item.hoursTreatment)

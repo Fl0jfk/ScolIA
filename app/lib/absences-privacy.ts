@@ -1,6 +1,7 @@
 import { resolveAbsenceScope, type AbsenceRecord } from "@/app/lib/absences-types";
 
 const SENSITIVE_PATTERNS = [
+  /enfant\s*malade/i,
   /arret\s*maladie/i,
   /arrêt\s*maladie/i,
   /\bmaladie\b/i,

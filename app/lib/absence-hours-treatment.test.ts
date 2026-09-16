@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  forcedHoursTreatmentForNonDiscretionaryAbsence,
+  isNonDiscretionaryAbsence,
   needsMakeupSlotsFromStaff,
   requiresProcessorAfterValidation,
   suggestHoursTreatmentFromPreference,
@@ -63,7 +65,72 @@ test("créneaux demandés si rattrapage validé sans plage", () => {
   );
 });
 
-test("processeur : uniquement déclaration rectorat pour les profs", () => {
+test("processeur : maladie / enfant malade aussi pour les profs", () => {
+  assert.equal(
+    requiresProcessorAfterValidation({
+      data: { scope: "professeur" },
+      hoursTreatment: "MALADIE",
+    }),
+    true,
+  );
+  assert.equal(
+    requiresProcessorAfterValidation({
+      data: { scope: "professeur" },
+      hoursTreatment: "ENFANT_MALADE",
+    }),
+    true,
+  );
+  assert.equal(
+    requiresProcessorAfterValidation({
+      data: { scope: "ogec" },
+      hoursTreatment: "MALADIE",
+    }),
+    true,
+  );
+});
+
+test("préférence maladie → traitement forcé MALADIE", () => {
+  assert.equal(
+    suggestHoursTreatmentFromPreference("ogec", null, "MALADIE"),
+    "MALADIE",
+  );
+  assert.equal(
+    suggestHoursTreatmentFromPreference("professeur", "Lycée", "ENFANT_MALADE"),
+    "ENFANT_MALADE",
+  );
+});
+
+test("pas de créneaux si préférence maladie en attente", () => {
+  assert.equal(
+    needsMakeupSlotsFromStaff({
+      managerDecision: "EN_ATTENTE",
+      workflowStatus: "OUVERTE",
+      staffPreferredTreatment: "MALADIE",
+    }),
+    false,
+  );
+});
+
+test("motif Maladie / Enfant malade détectés comme non discrétionnaires", () => {
+  assert.equal(
+    isNonDiscretionaryAbsence({ data: { reason: "Maladie" } }),
+    true,
+  );
+  assert.equal(
+    isNonDiscretionaryAbsence({ data: { reason: "Enfant malade" } }),
+    true,
+  );
+  assert.equal(
+    isNonDiscretionaryAbsence({ data: { reason: "Rendez-vous médical" } }),
+    false,
+  );
+  assert.equal(
+    forcedHoursTreatmentForNonDiscretionaryAbsence({ data: { reason: "Enfant malade" } }),
+    "ENFANT_MALADE",
+  );
+});
+
+test("processeur : uniquement déclaration rectorat pour les profs (hors maladie)", () => {
   assert.equal(
     requiresProcessorAfterValidation({
       data: { scope: "professeur" },
