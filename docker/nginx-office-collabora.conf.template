@@ -14,16 +14,6 @@
         return 200 '[]';
       }
 
-      location ~* /images/.+\.svg$ {
-        proxy_pass $office_upstream;
-        proxy_http_version 1.1;
-        proxy_ssl_server_name on;
-        proxy_ssl_name __COLLABORA_HOST__;
-        proxy_set_header Host __COLLABORA_HOST__;
-        proxy_intercept_errors on;
-        error_page 404 500 = @office_svg_fallback;
-      }
-
       proxy_pass $office_upstream;
       proxy_http_version 1.1;
       proxy_ssl_server_name on;
@@ -59,10 +49,4 @@
       proxy_ssl_server_name on;
       proxy_ssl_name __COLLABORA_HOST__;
       proxy_set_header Host __COLLABORA_HOST__;
-    }
-
-    location @office_svg_fallback {
-      default_type image/svg+xml;
-      add_header Cache-Control "public, max-age=3600";
-      return 200 '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"/>';
     }
