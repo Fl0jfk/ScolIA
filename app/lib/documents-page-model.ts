@@ -59,8 +59,8 @@ export type QuotaInfo = {
 export type DropFile = { file: File; relPath: string };
 
 /** Taille max d’un fichier cloud (explicite côté UI + API). */
-export const DOCUMENTS_MAX_FILE_BYTES = 20 * 1024 * 1024;
-export const DOCUMENTS_MAX_FILE_LABEL = "20 Mo";
+export const DOCUMENTS_MAX_FILE_BYTES = 50 * 1024 * 1024;
+export const DOCUMENTS_MAX_FILE_LABEL = "50 Mo";
 
 export function documentsMaxFileError(fileName?: string): string {
   const base = `Fichier trop volumineux (max. ${DOCUMENTS_MAX_FILE_LABEL}).`;

@@ -14,6 +14,9 @@ export default function DocumentsToolbar({
   shareId,
   canLeaveShare,
   onNewFolder,
+  onNewDocument,
+  onNewSpreadsheet,
+  onNewPresentation,
   onPickFiles,
   onNewShare,
   onShowAccess,
@@ -31,6 +34,9 @@ export default function DocumentsToolbar({
   shareId: string | null;
   canLeaveShare: boolean;
   onNewFolder: () => void;
+  onNewDocument?: () => void;
+  onNewSpreadsheet?: () => void;
+  onNewPresentation?: () => void;
   onPickFiles: () => void;
   onNewShare: () => void;
   onShowAccess: () => void;
@@ -60,6 +66,36 @@ export default function DocumentsToolbar({
       >
         + Dossier
       </ModuleButton>
+      {onNewDocument ? (
+        <ModuleButton
+          variant="secondary"
+          onClick={onNewDocument}
+          disabled={uploadDisabled || uploading}
+          className="disabled:cursor-not-allowed"
+        >
+          + Document
+        </ModuleButton>
+      ) : null}
+      {onNewSpreadsheet ? (
+        <ModuleButton
+          variant="secondary"
+          onClick={onNewSpreadsheet}
+          disabled={uploadDisabled || uploading}
+          className="disabled:cursor-not-allowed"
+        >
+          + Tableur
+        </ModuleButton>
+      ) : null}
+      {onNewPresentation ? (
+        <ModuleButton
+          variant="secondary"
+          onClick={onNewPresentation}
+          disabled={uploadDisabled || uploading}
+          className="disabled:cursor-not-allowed"
+        >
+          + Présentation
+        </ModuleButton>
+      ) : null}
       <ModuleButton
         variant="secondary"
         onClick={onPickFiles}

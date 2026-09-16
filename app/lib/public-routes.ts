@@ -81,6 +81,7 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/api/billing/easytransac/webhook",
   "/api/nomenclature/omogen-sync/cron",
   "/api/photocopies-couleur/mark-ready",
+  "/api/wopi(.*)",
 ] as const;
 
 const VISITOR_EXACT = new Set([

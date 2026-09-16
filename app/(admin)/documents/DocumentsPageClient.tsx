@@ -250,6 +250,35 @@ export default function DocumentsPage() {
   const handleOpenFile = async (relPath: string) => {
     setOpeningFile(relPath);
     try {
+      const ext = relPath.includes(".")
+        ? relPath.split(".").pop()?.toLowerCase() || ""
+        : "";
+      const officeExts = new Set([
+        "odt",
+        "ods",
+        "odp",
+        "doc",
+        "docx",
+        "xls",
+        "xlsx",
+        "csv",
+        "ppt",
+        "pptx",
+        "rtf",
+      ]);
+      if (officeExts.has(ext)) {
+        const params = new URLSearchParams({
+          scope,
+          path: relPath,
+        });
+        if (shareId) params.set("shareId", shareId);
+        if (isVirtualFileSharePath(relPath)) {
+          params.set("scope", "fileshare");
+          params.set("fileShareId", fileShareIdFromPath(relPath));
+        }
+        window.location.href = `/documents/edit?${params.toString()}`;
+        return;
+      }
       const params = new URLSearchParams({ scope, path: relPath });
       if (shareId) params.set("shareId", shareId);
       const res = await fetch(`/api/documents/get-url?${params}`);
@@ -260,6 +289,34 @@ export default function DocumentsPage() {
       setError("Erreur lors de l'ouverture du fichier.");
     } finally {
       setOpeningFile(null);
+    }
+  };
+
+  const createOfficeInFolder = async (kind: "writer" | "calc" | "impress") => {
+    if (isSharePicker || isInIncomingSharedFolder) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/documents/office/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind,
+          scope,
+          shareId,
+          parentRelPath: currentPath,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Création impossible.");
+        return;
+      }
+      window.location.href = data.editUrl as string;
+    } catch {
+      setError("Erreur lors de la création.");
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -676,6 +733,9 @@ export default function DocumentsPage() {
           shareId={shareId}
           canLeaveShare={scope === "shared" && Boolean(shareId) && !isShareOwner}
           onNewFolder={() => setShowNewFolder(true)}
+          onNewDocument={() => void createOfficeInFolder("writer")}
+          onNewSpreadsheet={() => void createOfficeInFolder("calc")}
+          onNewPresentation={() => void createOfficeInFolder("impress")}
           onPickFiles={() => fileInputRef.current?.click()}
           onNewShare={() => setShowNewShare(true)}
           onShowAccess={() => {

@@ -133,7 +133,7 @@ const INTRANET_PLATFORM_MASTER_PREFIXES = [
 export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "documents",
-    pathPrefixes: ["/documents", "/api/documents"],
+    pathPrefixes: ["/documents", "/api/documents", "/api/wopi"],
     allowedRoles: [
       ...DIRECTIONS,
       "administratif",
@@ -151,6 +151,75 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/documents",
       external: false,
+    },
+  },
+  {
+    id: "office-writer",
+    pathPrefixes: ["/documents/writer"],
+    allowedRoles: [
+      ...DIRECTIONS,
+      "administratif",
+      "comptabilite",
+      "surveillant",
+      "cpe",
+      "professeur",
+      "maintenance",
+      "infirmerie",
+      "psychologue",
+    ],
+    dashboard: {
+      id: 11,
+      name: "Traitement de texte",
+      img: "",
+      link: "/documents/writer",
+      external: false,
+      description: "Rédiger et collaborer sur des documents (.odt) dans le navigateur.",
+    },
+  },
+  {
+    id: "office-calc",
+    pathPrefixes: ["/documents/calc"],
+    allowedRoles: [
+      ...DIRECTIONS,
+      "administratif",
+      "comptabilite",
+      "surveillant",
+      "cpe",
+      "professeur",
+      "maintenance",
+      "infirmerie",
+      "psychologue",
+    ],
+    dashboard: {
+      id: 12,
+      name: "Tableur",
+      img: "",
+      link: "/documents/calc",
+      external: false,
+      description: "Tableurs (.ods) éditables dans le navigateur, liés au cloud.",
+    },
+  },
+  {
+    id: "office-impress",
+    pathPrefixes: ["/documents/impress"],
+    allowedRoles: [
+      ...DIRECTIONS,
+      "administratif",
+      "comptabilite",
+      "surveillant",
+      "cpe",
+      "professeur",
+      "maintenance",
+      "infirmerie",
+      "psychologue",
+    ],
+    dashboard: {
+      id: 13,
+      name: "Présentation",
+      img: "",
+      link: "/documents/impress",
+      external: false,
+      description: "Diaporamas (.odp) dans le navigateur, liés au cloud.",
     },
   },
   {
@@ -974,6 +1043,18 @@ export function rolesAllowModule(
       }
     }
 
+    // Bureautique : mêmes droits que le Cloud personnel.
+    if (
+      module.id === "office-writer" ||
+      module.id === "office-calc" ||
+      module.id === "office-impress"
+    ) {
+      const docs = getIntranetModuleById("documents");
+      return docs
+        ? rolesAllowModule(roles, docs, isOrgAdmin, access, userRef, stack)
+        : false;
+    }
+
     // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
     if (module.id === "pilotage-eleves") return false;
     // Vie scolaire (appels, absences, sanctions, carnet) : masqués en UI — modules en dev.
@@ -1097,6 +1178,9 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "requests-staff",
     "domain-planning",
     "documents",
+    "office-writer",
+    "office-calc",
+    "office-impress",
     "qrcreator",
     "channels",
     "assistance",

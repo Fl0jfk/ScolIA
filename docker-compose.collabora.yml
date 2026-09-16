@@ -1,0 +1,29 @@
+# Collabora Online Development Edition (CODE) — 100 % open source, 0 € licence.
+# Usage local :
+#   docker compose -f docker-compose.collabora.yml up -d
+# Puis dans .env.local :
+#   COLLABORA_URL=http://127.0.0.1:9980
+#   WOPI_HOST=http://host.docker.internal:3000
+#   WOPI_SIGNING_SECRET=<même secret que Better Auth ou une clé dédiée>
+#
+# Sur Linux sans host.docker.internal, ajoutez :
+#   extra_hosts: ["host.docker.internal:host-gateway"]
+
+services:
+  collabora:
+    image: collabora/code:latest
+    container_name: scolia-collabora
+    ports:
+      - "9980:9980"
+    environment:
+      - domain=.*
+      - extra_params=--o:ssl.enable=false --o:ssl.termination=false --o:net.frame_ancestors=.*
+      - username=admin
+      - password=admin
+      # Autorise les callbacks WOPI vers le Next.js local
+      - aliasgroup1=http://host.docker.internal:3000:443
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    cap_add:
+      - MKNOD
