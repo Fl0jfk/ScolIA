@@ -39,7 +39,16 @@ export function applyCorsHeaders(request: Request, response: NextResponse): Next
   response.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   response.headers.set(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Requested-With",
+    [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "RSC",
+      "Next-Router-State-Tree",
+      "Next-Router-Prefetch",
+      "Next-Router-Segment-Prefetch",
+      "Next-Url",
+    ].join(", "),
   );
   response.headers.append("Vary", "Origin");
   return response;

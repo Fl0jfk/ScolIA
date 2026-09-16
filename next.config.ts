@@ -1,5 +1,4 @@
 import type { NextConfig } from "next";
-import { crossOriginOpenerPolicyHeaderValue } from "./app/lib/content-security-policy";
 
 const nextConfig: NextConfig = {
   output: "standalone",
@@ -47,20 +46,11 @@ const nextConfig: NextConfig = {
   async headers() {
     const securityHeaders = [
       {
-        key: "Cross-Origin-Opener-Policy",
-        value: crossOriginOpenerPolicyHeaderValue(),
-      },
-      {
-        key: "X-Frame-Options",
-        value: "DENY",
-      },
-      {
         key: "Referrer-Policy",
         value: "strict-origin-when-cross-origin",
       },
       {
         key: "Permissions-Policy",
-        // Messagerie : vocal / vidéo courte (getUserMedia) — self uniquement.
         value: "camera=(self), microphone=(self), geolocation=()",
       },
       ...(process.env.NODE_ENV === "production"
@@ -74,10 +64,8 @@ const nextConfig: NextConfig = {
     ];
     return [
       {
-        // CSP (nonce) posée dans proxy.ts — pas ici, sinon AND sans nonce casse strict-dynamic.
-        // Pas de COOP non plus sur les flux PDF binaires (lecteur Chrome).
-        // Pas de COOP / X-Frame-Options sur /api : Safari traite ça comme un échec CORS
-        // (« Fetch API cannot load … due to access control checks »).
+        // CSP + COOP + X-Frame-Options : uniquement pages HTML via proxy.ts.
+        // Sur les fetch RSC (?_rsc=) Safari bloque sinon (« access control checks »).
         source: "/((?!api/)(?!documents/rentree/).*)",
         headers: securityHeaders,
       },

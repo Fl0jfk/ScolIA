@@ -138,21 +138,38 @@ function createCspNonce(): string {
   return Buffer.from(crypto.randomUUID()).toString("base64");
 }
 
+function isNextFlightRequest(request: NextRequest): boolean {
+  const h = request.headers;
+  if (h.get("rsc") === "1") return true;
+  if (h.has("next-router-prefetch")) return true;
+  if (h.has("next-router-state-tree")) return true;
+  if (h.has("next-url")) return true;
+  if (request.nextUrl.searchParams.has("_rsc")) return true;
+  return false;
+}
+
 function withTenantHeaders(
   response: NextResponse,
   tenant: TenantConfig,
   pathname?: string,
   nonce?: string,
+  request?: NextRequest,
 ): NextResponse {
   response.headers.set(TENANT_SLUG_HEADER, tenant.slug);
   response.headers.set("x-tenant-bucket", tenant.dataBucket);
-  const omitCsp =
+  const flight = request ? isNextFlightRequest(request) : false;
+  const omitDocumentSecurity =
+    flight ||
     pathname?.startsWith("/api/") ||
     pathname?.startsWith("/documents/rentree/");
-  if (!omitCsp) {
+  if (!omitDocumentSecurity) {
     const n = nonce ?? createCspNonce();
     response.headers.set("Content-Security-Policy", contentSecurityPolicyHeaderValue(n));
     response.headers.set("Cross-Origin-Opener-Policy", crossOriginOpenerPolicyHeaderValue());
+    response.headers.set("X-Frame-Options", "DENY");
+  }
+  if (request && (flight || pathname?.startsWith("/api/"))) {
+    applyCorsHeaders(request, response);
   }
   return response;
 }
@@ -177,6 +194,7 @@ function nextWithTenant(
     tenant,
     request.nextUrl.pathname,
     nonce,
+    request,
   );
 }
 
@@ -240,13 +258,15 @@ function unauthorizedResponse(
         NextResponse.json({ error: "Non autorisé.", code: "AUTH_REQUIRED" }, { status: 401 }),
         tenant,
         pathname,
+        undefined,
+        request,
       ),
     );
   }
   const signInUrl = new URL("/auth/sign-in", request.url);
   signInUrl.searchParams.set("redirect_url", `${pathname}${request.nextUrl.search}`);
   return withOptionalDevTenantCookie(
-    withTenantHeaders(NextResponse.redirect(signInUrl), tenant),
+    withTenantHeaders(NextResponse.redirect(signInUrl), tenant, pathname, undefined, request),
     request,
     host,
   );
@@ -289,7 +309,7 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
       request.nextUrl.hostname,
   );
 
-  if (request.method === "OPTIONS" && pathname.startsWith("/api/")) {
+  if (request.method === "OPTIONS") {
     const preflight = new NextResponse(null, { status: 204 });
     return applyCorsHeaders(request, preflight);
   }
@@ -516,7 +536,7 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  if (!pathname.startsWith("/api/")) {
+  if (!pathname.startsWith("/api/") && !isNextFlightRequest(request)) {
     const canonicalRedirect = redirectToTenantCanonicalHost(request, tenant, host);
     if (canonicalRedirect) return withTenantHeaders(canonicalRedirect, tenant);
   }
