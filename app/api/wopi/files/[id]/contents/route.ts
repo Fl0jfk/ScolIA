@@ -10,6 +10,8 @@ import {
   getWopiLock,
   wopiMime,
   headOfficeObjectSize,
+  headOfficeObjectMeta,
+  wopiTimestamp,
   type WopiAccessClaims,
 } from "@/app/lib/office-wopi";
 import { snapshotOfficeVersion } from "@/app/lib/office-versions";
@@ -121,9 +123,10 @@ export async function POST(req: NextRequest, ctx: Ctx) {
 
   await writeBytes(claims, buffer);
 
+  const meta = await headOfficeObjectMeta(claims.storageKey, claims.dataBucket);
   return NextResponse.json({
     Name: claims.fileName,
     Size: buffer.length,
-    LastModifiedTime: new Date().toISOString(),
+    LastModifiedTime: wopiTimestamp(meta.lastModified),
   });
 }

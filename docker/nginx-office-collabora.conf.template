@@ -21,7 +21,7 @@
         proxy_ssl_name __COLLABORA_HOST__;
         proxy_set_header Host __COLLABORA_HOST__;
         proxy_intercept_errors on;
-        error_page 404 = @office_svg_fallback;
+        error_page 404 500 = @office_svg_fallback;
       }
 
       proxy_pass $office_upstream;

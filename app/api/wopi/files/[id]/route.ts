@@ -4,7 +4,8 @@ import {
   getWopiLock,
   setWopiLock,
   clearWopiLock,
-  headOfficeObjectSize,
+  headOfficeObjectMeta,
+  wopiTimestamp,
 } from "@/app/lib/office-wopi";
 
 function extractToken(req: NextRequest): string | null {
@@ -37,21 +38,22 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   const claims = parseClaims(req, fileId);
   if (claims instanceof NextResponse) return claims;
 
-  const size = await headOfficeObjectSize(claims.storageKey, claims.dataBucket);
+  const meta = await headOfficeObjectMeta(claims.storageKey, claims.dataBucket);
+  const lastModified = wopiTimestamp(meta.lastModified);
   return NextResponse.json({
     BaseFileName: claims.fileName,
-    Size: size,
+    Size: meta.size,
     OwnerId: claims.ownerUserId,
     UserId: claims.userId,
     UserFriendlyName: claims.userDisplayName,
-    Version: String(size),
+    Version: `${meta.size}-${lastModified}`,
     UserCanWrite: claims.canWrite,
     UserCanNotWriteRelative: true,
     SupportsLocks: true,
     SupportsUpdate: true,
     SupportsGetLock: true,
     SupportsExtendedLockLength: true,
-    LastModifiedTime: new Date().toISOString(),
+    LastModifiedTime: lastModified,
   });
 }
 

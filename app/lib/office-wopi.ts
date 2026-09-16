@@ -258,6 +258,14 @@ export async function headOfficeObjectSize(
   storageKey: string,
   dataBucket?: string | null,
 ): Promise<number> {
+  const meta = await headOfficeObjectMeta(storageKey, dataBucket);
+  return meta.size;
+}
+
+export async function headOfficeObjectMeta(
+  storageKey: string,
+  dataBucket?: string | null,
+): Promise<{ size: number; lastModified: Date | null }> {
   const { HeadObjectCommand } = await import("@aws-sdk/client-s3");
   const { s3Key } = await import("@/app/lib/s3-path");
   const { getPlatformS3Client } = await import("@/app/lib/s3-clients");
@@ -268,10 +276,17 @@ export async function headOfficeObjectSize(
     const res = await client.send(
       new HeadObjectCommand({ Bucket: bucket, Key: s3Key(storageKey) }),
     );
-    return Number(res.ContentLength ?? 0);
+    return {
+      size: Number(res.ContentLength ?? 0),
+      lastModified: res.LastModified instanceof Date ? res.LastModified : null,
+    };
   } catch {
-    return 0;
+    return { size: 0, lastModified: null };
   }
+}
+
+export function wopiTimestamp(date: Date | null | undefined): string {
+  return (date ?? new Date(0)).toISOString();
 }
 
 export function wopiMime(fileName: string): string {
