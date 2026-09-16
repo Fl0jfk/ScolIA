@@ -240,6 +240,77 @@ export const travelMessage = pgTable(
   (t) => [index("travel_message_travel_idx").on(t.etablissementId, t.travelId)],
 );
 
+/** Blog public parents (suivi de sortie) — métadonnées d’activation. */
+export const travelParentBlog = pgTable(
+  "travel_parent_blog",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    travelId: text("travel_id")
+      .notNull()
+      .references(() => travel.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    activatedAt: timestamp("activated_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    activatedByUserId: text("activated_by_user_id"),
+    parentsNotifiedAt: timestamp("parents_notified_at", { withTimezone: true }),
+    purgedAt: timestamp("purged_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("travel_parent_blog_token_uidx").on(t.token),
+    uniqueIndex("travel_parent_blog_travel_uidx").on(t.etablissementId, t.travelId),
+    index("travel_parent_blog_expires_idx").on(t.expiresAt),
+  ],
+);
+
+/** Publications du blog parents (texte). */
+export const travelParentBlogPost = pgTable(
+  "travel_parent_blog_post",
+  {
+    id: text("id").primaryKey(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    travelId: text("travel_id")
+      .notNull()
+      .references(() => travel.id, { onDelete: "cascade" }),
+    authorUserId: text("author_user_id").notNull().default(""),
+    authorName: text("author_name").notNull().default(""),
+    body: text("body").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("travel_parent_blog_post_travel_idx").on(t.etablissementId, t.travelId),
+  ],
+);
+
+/** Photos jointes aux publications du blog parents. */
+export const travelParentBlogPhoto = pgTable(
+  "travel_parent_blog_photo",
+  {
+    id: text("id").primaryKey(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    postId: text("post_id")
+      .notNull()
+      .references(() => travelParentBlogPost.id, { onDelete: "cascade" }),
+    travelId: text("travel_id")
+      .notNull()
+      .references(() => travel.id, { onDelete: "cascade" }),
+    s3Key: text("s3_key").notNull(),
+    contentType: text("content_type").notNull().default("image/jpeg"),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [
+    index("travel_parent_blog_photo_post_idx").on(t.etablissementId, t.postId),
+    index("travel_parent_blog_photo_travel_idx").on(t.etablissementId, t.travelId),
+  ],
+);
+
 /** Demande interne. */
 export const request = pgTable(
   "request",

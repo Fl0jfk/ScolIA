@@ -60,6 +60,8 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   const [calendar, setCalendar] = useState<TravelsParentCalendar>(() =>
     defaultParentCalendarFromTrip(trip.data),
   );
+  /** Activer la page de suivi parents (blog) à la confirmation. */
+  const [activateParentBlog, setActivateParentBlog] = useState(false);
 
   const needsBus = complexNeedsBus(trip);
   const horairesRequired = parentHorairesRequiredForTrip(trip);
@@ -442,16 +444,21 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
       : horairesRequired
         ? ""
         : "\n• Horaires parents non renseignés (facultatifs) — pas d’envoi calendrier";
+    const blogBits = activateParentBlog
+      ? "\n• Activation de la page de suivi parents (lien dans le mail)"
+      : "";
     const msg =
       trip.status === "FINALISE_DIR_ATTENTE_ELEVES"
         ? `Confirmer la liste de ${participants.length} élève(s) ?\n\n` +
           (needsBus ? "• Envoi CSV au transporteur\n" : "") +
           (calendarReady ? "• Envoi du calendrier (.ics) aux parents\n" : "") +
+          (activateParentBlog ? "• Page de suivi parents activée\n" : "") +
           "• Passage en Finalisé" +
           cuisineBits
         : `Confirmer la liste de ${participants.length} élève(s) ?\n\n` +
           (needsBus ? "• Envoi CSV au transporteur" : "• Confirmation de la liste") +
           horairesBits +
+          blogBits +
           cuisineBits;
     if (!confirm(msg)) return;
     setBusy("confirm");
@@ -463,6 +470,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
           tripId: trip.id,
           participantEleves: participants,
           parentCalendar: calendar,
+          activateParentBlog,
         }),
       });
       const j = await res.json();
@@ -470,7 +478,12 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
       if (j.trip) onTripUpdated(j.trip as TravelsTrip);
       const bits = [
         j.sentTo?.length ? `Transporteur : ${j.sentTo.length} envoi(s)` : null,
-        j.parentsNotified ? `Parents : ${j.parentsNotified} (calendrier .ics)` : null,
+        j.parentsNotified
+          ? j.parentBlogActivated
+            ? `Parents : ${j.parentsNotified} (calendrier + page de suivi)`
+            : `Parents : ${j.parentsNotified} (calendrier .ics)`
+          : null,
+        j.parentBlogActivated && !j.parentsNotified ? "Page de suivi parents activée" : null,
         j.parentsSkippedReason || null,
         j.transportSkippedReason || null,
         j.finalizedAfterListe ? "Dossier passé en Finalisé (validation direction + liste OK)." : null,
@@ -932,6 +945,36 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
                   (« qui mange ») — actuellement {panierAssigned}/{mealsOrdered}.
                 </p>
               )}
+            </div>
+
+            <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4 space-y-2">
+              <h3 className="text-sm font-black text-violet-950">
+                {cuisineActive ? "5" : "4"} — Page de suivi pour les parents (optionnel)
+              </h3>
+              <p className="text-xs text-violet-900/85 leading-relaxed">
+                Si vous activez cette option, les parents recevront dans le mail calendrier un lien
+                vers une page publique en <strong>lecture seule</strong> : vous pourrez y publier des
+                messages et des photos pendant le séjour (onglet Communication). La page se ferme
+                automatiquement <strong>15 jours après le retour</strong>. Vous pourrez aussi
+                l’activer plus tard.
+              </p>
+              {canEdit && !confirmed ? (
+                <label className="flex items-start gap-2 text-sm text-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4"
+                    checked={activateParentBlog}
+                    disabled={!!busy}
+                    onChange={(e) => setActivateParentBlog(e.target.checked)}
+                  />
+                  <span>
+                    Oui, activer la page de suivi parents maintenant
+                    {activateParentBlog ? " (lien inclus dans le mail)" : ""}
+                  </span>
+                </label>
+              ) : trip.data.parentBlog?.enabled ? (
+                <p className="text-xs font-semibold text-violet-800">Page de suivi déjà activée.</p>
+              ) : null}
             </div>
 
             <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600">

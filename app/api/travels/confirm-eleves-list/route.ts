@@ -36,6 +36,7 @@ import {
   sendMailWithTimeout,
 } from "@/app/lib/tenant-mail";
 import { buildTransportReplyTo } from "@/app/lib/travel-email-routing";
+import { travelsDbReady } from "@/app/lib/travel-db";
 
 const PARENT_BATCH = 40;
 
@@ -46,6 +47,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const tripId = String(body.tripId || "");
+    const wantParentBlog = body.activateParentBlog === true;
     if (!tripId) return NextResponse.json({ error: "tripId requis" }, { status: 400 });
 
     const hit = await getJson<TravelsTrip>(`travels/${tripId}.json`);
@@ -223,60 +225,110 @@ export async function POST(req: Request) {
       }
     }
 
-    // —— Parents : calendrier .ics (si horaires dépôt/reprise renseignés) ——
-    if (!horairesReady) {
-      parentsSkippedReason = horairesRequired
-        ? "Horaires dépôt / reprise manquants."
-        : "Horaires parents non renseignés (facultatifs pour une sortie de proximité) — calendrier non envoyé.";
-    } else if (!smtp || !transporter) {
-      parentsSkippedReason = "SMTP non configuré — calendrier parents non envoyé.";
-    } else {
-      const eleves = await loadElevesRegistry().catch(() => [] as EleveConfig[]);
-      const byIne = new Map(eleves.map((e) => [e.ine, e]));
-      const emailSet = new Set<string>();
-      for (const p of participants) {
-        const full = byIne.get(p.ine);
-        if (!full) continue;
-        for (const mail of collectEleveParentEmails(full)) emailSet.add(mail);
-      }
-      const parentEmails = [...emailSet];
-      if (parentEmails.length === 0) {
-        parentsSkippedReason = "Aucun e-mail parent trouvé pour les élèves de la liste.";
+    // —— Blog parents (optionnel) + calendrier .ics ——
+    let parentBlogActivated = false;
+    let tripAfterBlog: TravelsTrip | null = null;
+    if (wantParentBlog) {
+      const etabId = await travelsDbReady();
+      if (!etabId) {
+        parentsSkippedReason =
+          (parentsSkippedReason ? `${parentsSkippedReason} ` : "") +
+          "Base voyages indisponible — blog parents non activé.";
       } else {
-        const tripTitle = String(data.title || data.destination || "Sortie scolaire");
-        const ics = buildTravelsParentsTripIcs({
-          tripId,
-          tripTitle,
-          destination: data.destination ? String(data.destination) : undefined,
-          data,
-          calendar: parentCalendar,
-        });
-        icsAttached = true;
-        const mailCopy = buildParentsCalendarMailCopy({
-          tripTitle,
-          data,
-          calendar: parentCalendar,
-        });
+        const { activateParentBlog } = await import("@/app/lib/travels-parent-blog");
+        const interimTrip: TravelsTrip = {
+          ...trip,
+          data: { ...data, parentCalendar, participantEleves: participants },
+        };
+        try {
+          const blogResult = await activateParentBlog({
+            etablissementId: etabId,
+            trip: interimTrip,
+            activatedByUserId: access.user.id,
+            activatedByName: userName,
+            // Un seul mail : ICS (si horaires OK) + lien blog.
+            notifyParents: true,
+            attachIcs: horairesReady,
+            parentCalendar,
+          });
+          parentBlogActivated = true;
+          tripAfterBlog = blogResult.trip;
+          data = blogResult.trip.data;
+          if (blogResult.parentsNotified > 0) {
+            parentsNotified = blogResult.parentsNotified;
+            icsAttached = horairesReady;
+          } else if (blogResult.parentsSkippedReason) {
+            parentsSkippedReason = blogResult.parentsSkippedReason;
+          }
+        } catch (blogErr) {
+          console.error("[confirm-eleves-list] parent blog", blogErr);
+          parentsSkippedReason =
+            blogErr instanceof Error
+              ? `Blog parents : ${blogErr.message}`
+              : "Blog parents non activé.";
+        }
+      }
+    }
 
-        const subject = `Calendrier — ${tripTitle}`;
-        const text = [
-          "Bonjour,",
-          "",
-          mailCopy.intro,
-          "",
-          "Voici l’heure de départ et l’heure de reprise de votre enfant.",
-          "Un fichier calendrier (.ics) est joint : ouvrez-le pour ajouter ces créneaux à votre agenda",
-          "(séjour ou journée + dépôt + récupération).",
-          "",
-          mailCopy.pointsBlock,
-          "",
-          "Cordialement,",
-          "L'établissement",
-        ]
-          .filter(Boolean)
-          .join("\n");
+    // Mail ICS seul (sans blog) si horaires prêts et blog non activé / pas déjà notifié via blog.
+    if (!wantParentBlog || (!parentBlogActivated && parentsNotified === 0)) {
+      if (!horairesReady) {
+        if (!parentsSkippedReason) {
+          parentsSkippedReason = horairesRequired
+            ? "Horaires dépôt / reprise manquants."
+            : "Horaires parents non renseignés (facultatifs pour une sortie de proximité) — calendrier non envoyé.";
+        }
+      } else if (!smtp || !transporter) {
+        if (!parentsSkippedReason) {
+          parentsSkippedReason = "SMTP non configuré — calendrier parents non envoyé.";
+        }
+      } else if (parentsNotified === 0) {
+        const eleves = await loadElevesRegistry().catch(() => [] as EleveConfig[]);
+        const byIne = new Map(eleves.map((e) => [e.ine, e]));
+        const emailSet = new Set<string>();
+        for (const p of participants) {
+          const full = byIne.get(p.ine);
+          if (!full) continue;
+          for (const mail of collectEleveParentEmails(full)) emailSet.add(mail);
+        }
+        const parentEmails = [...emailSet];
+        if (parentEmails.length === 0) {
+          parentsSkippedReason = "Aucun e-mail parent trouvé pour les élèves de la liste.";
+        } else {
+          const tripTitle = String(data.title || data.destination || "Sortie scolaire");
+          const ics = buildTravelsParentsTripIcs({
+            tripId,
+            tripTitle,
+            destination: data.destination ? String(data.destination) : undefined,
+            data,
+            calendar: parentCalendar,
+          });
+          icsAttached = true;
+          const mailCopy = buildParentsCalendarMailCopy({
+            tripTitle,
+            data,
+            calendar: parentCalendar,
+          });
 
-        const html = `
+          const subject = `Calendrier — ${tripTitle}`;
+          const text = [
+            "Bonjour,",
+            "",
+            mailCopy.intro,
+            "",
+            "Voici l’heure de départ et l’heure de reprise de votre enfant.",
+            "Un fichier calendrier (.ics) est joint : ouvrez-le pour ajouter ces créneaux à votre agenda",
+            "(séjour ou journée + dépôt + récupération).",
+            "",
+            mailCopy.pointsBlock,
+            "",
+            "Cordialement,",
+            "L'établissement",
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          const html = `
             <div style="font-family: sans-serif; line-height: 1.55; color: #334155; max-width: 560px;">
               <p>Bonjour,</p>
               <p>${escapeHtml(mailCopy.intro)}</p>
@@ -292,40 +344,41 @@ export async function POST(req: Request) {
             </div>
           `;
 
-        for (let i = 0; i < parentEmails.length; i += PARENT_BATCH) {
-          const batch = parentEmails.slice(i, i + PARENT_BATCH);
-          await sendMailWithTimeout(
-            transporter,
-            {
-              from: `"Sorties scolaires" <${smtp.user}>`,
-              bcc: batch,
-              subject,
-              text,
-              html,
-              attachments: [
-                {
-                  filename: "calendrier-sortie.ics",
-                  content: Buffer.from(ics, "utf8"),
-                  contentType: "text/calendar; charset=utf-8",
-                },
-              ],
-            },
-            120_000,
-          );
-        }
-        parentsNotified = parentEmails.length;
+          for (let i = 0; i < parentEmails.length; i += PARENT_BATCH) {
+            const batch = parentEmails.slice(i, i + PARENT_BATCH);
+            await sendMailWithTimeout(
+              transporter,
+              {
+                from: `"Sorties scolaires" <${smtp.user}>`,
+                bcc: batch,
+                subject,
+                text,
+                html,
+                attachments: [
+                  {
+                    filename: "calendrier-sortie.ics",
+                    content: Buffer.from(ics, "utf8"),
+                    contentType: "text/calendar; charset=utf-8",
+                  },
+                ],
+              },
+              120_000,
+            );
+          }
+          parentsNotified = parentEmails.length;
 
-        const log: TravelsParentComLog = {
-          id: `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
-          sentAt: now,
-          sentBy: { userId: access.user.id, name: userName },
-          subject,
-          body: text,
-          photoCount: 0,
-          recipientCount: parentsNotified,
-          icsAttached: true,
-        };
-        data.parentComLogs = [...(data.parentComLogs || []), log];
+          const log: TravelsParentComLog = {
+            id: `pc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+            sentAt: now,
+            sentBy: { userId: access.user.id, name: userName },
+            subject,
+            body: text,
+            photoCount: 0,
+            recipientCount: parentsNotified,
+            icsAttached: true,
+          };
+          data.parentComLogs = [...(data.parentComLogs || []), log];
+        }
       }
     }
 
@@ -336,14 +389,20 @@ export async function POST(req: Request) {
       : `Liste + horaires parents confirmés (${participants.length})`;
 
     const parentNote = parentsNotified
-      ? `Calendrier .ics envoyé à ${parentsNotified} parent(s)`
+      ? parentBlogActivated
+        ? `Calendrier / page suivi envoyés à ${parentsNotified} parent(s)`
+        : `Calendrier .ics envoyé à ${parentsNotified} parent(s)`
       : parentsSkippedReason || undefined;
 
     const wasAwaitingListe = trip.status === "FINALISE_DIR_ATTENTE_ELEVES";
     let cuisineSent = false;
     let cuisineError: string | null = null;
     let history = [
-      ...(Array.isArray(trip.history) ? trip.history : []),
+      ...(Array.isArray(tripAfterBlog?.history)
+        ? tripAfterBlog.history
+        : Array.isArray(trip.history)
+          ? trip.history
+          : []),
       {
         date: now,
         user: userName,
@@ -430,6 +489,7 @@ export async function POST(req: Request) {
       parentsNotified,
       parentsSkippedReason,
       icsAttached,
+      parentBlogActivated,
       finalizedAfterListe: wasAwaitingListe,
       cuisineSent,
       cuisineError,

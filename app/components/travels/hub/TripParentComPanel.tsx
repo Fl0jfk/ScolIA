@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { parentEmailCoverage } from "@/app/lib/travels-eleves-list";
 import {
@@ -9,6 +9,8 @@ import {
 } from "@/app/lib/travels-parent-calendar";
 import type {
   TravelsCalendarPoint,
+  TravelsParentBlogDelegate,
+  TravelsParentBlogMeta,
   TravelsParentCalendar,
   TravelsTrip,
 } from "@/app/lib/travels-types";
@@ -20,6 +22,20 @@ type PhotoDraft = {
   contentType: string;
   contentBase64: string;
   previewUrl: string;
+};
+
+type BlogPostView = {
+  id: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+  photos: Array<{ id: string; url: string; contentType?: string }>;
+};
+
+type DirectoryUser = {
+  externalUserId: string;
+  email: string;
+  displayName: string;
 };
 
 type Props = {
@@ -97,18 +113,30 @@ function bufferToBase64(buf: ArrayBuffer) {
 
 export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
   const [eleves, setEleves] = useState<EleveConfig[]>([]);
-  const [subject, setSubject] = useState(`Sortie — ${trip.data.title || trip.data.destination || ""}`);
   const [message, setMessage] = useState("");
   const [photos, setPhotos] = useState<PhotoDraft[]>([]);
   const [busy, setBusy] = useState(false);
   const [calendar, setCalendar] = useState<TravelsParentCalendar>(() =>
     defaultParentCalendarFromTrip(trip.data),
   );
-  const [attachIcs, setAttachIcs] = useState(true);
+  const [blog, setBlog] = useState<TravelsParentBlogMeta | null>(trip.data.parentBlog || null);
+  const [expired, setExpired] = useState(false);
+  const [canPublish, setCanPublish] = useState(false);
+  const [posts, setPosts] = useState<BlogPostView[]>([]);
+  const [delegates, setDelegates] = useState<TravelsParentBlogDelegate[]>(
+    trip.data.parentBlogDelegates || [],
+  );
+  const [directory, setDirectory] = useState<DirectoryUser[]>([]);
+  const [delegatePick, setDelegatePick] = useState("");
 
   useEffect(() => {
     setCalendar(defaultParentCalendarFromTrip(trip.data));
   }, [trip.id, trip.data.parentCalendar, trip.data.parentMeeting, trip.data.startDate, trip.data.endDate]);
+
+  useEffect(() => {
+    setBlog(trip.data.parentBlog || null);
+    setDelegates(trip.data.parentBlogDelegates || []);
+  }, [trip.id, trip.data.parentBlog, trip.data.parentBlogDelegates]);
 
   useEffect(() => {
     fetch("/api/eleves")
@@ -116,6 +144,34 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
       .then((j) => setEleves(Array.isArray(j.eleves) ? j.eleves : []))
       .catch(() => setEleves([]));
   }, []);
+
+  useEffect(() => {
+    fetch("/api/travels/directory-escorts", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => setDirectory(Array.isArray(j.users) ? j.users : []))
+      .catch(() => setDirectory([]));
+  }, []);
+
+  const reloadBlog = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/travels/parent-blog?tripId=${encodeURIComponent(trip.id)}`, {
+        cache: "no-store",
+      });
+      const j = await res.json();
+      if (!res.ok) return;
+      setBlog(j.blog || null);
+      setExpired(Boolean(j.expired));
+      setCanPublish(Boolean(j.canEdit));
+      setPosts(Array.isArray(j.posts) ? j.posts : []);
+      if (Array.isArray(j.delegates)) setDelegates(j.delegates);
+    } catch {
+      /* ignore */
+    }
+  }, [trip.id]);
+
+  useEffect(() => {
+    void reloadBlog();
+  }, [reloadBlog]);
 
   useEffect(() => {
     return () => {
@@ -130,7 +186,12 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
     () => parentEmailCoverage(participants, elevesByIne),
     [participants, elevesByIne],
   );
-  const logs = trip.data.parentComLogs || [];
+
+  const publicUrl = useMemo(() => {
+    if (!blog?.publicPath) return "";
+    if (typeof window === "undefined") return blog.publicPath;
+    return `${window.location.origin}${blog.publicPath}`;
+  }, [blog?.publicPath]);
 
   const updatePoint = (id: string, patch: Partial<TravelsCalendarPoint>) => {
     setCalendar((c) => ({
@@ -195,6 +256,93 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
     }
   };
 
+  const activateBlog = async () => {
+    if (!canEdit) return;
+    if (
+      !confirm(
+        "Activer la page de suivi parents ? Un e-mail unique partira aux familles (calendrier .ics + lien). Aucun mail ne sera envoyé à chaque publication.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/travels/parent-blog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tripId: trip.id,
+          notifyParents: true,
+          attachIcs: true,
+          parentCalendar: calendar,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Activation impossible");
+      if (j.trip) onTripUpdated(j.trip as TravelsTrip);
+      setBlog(j.blog || null);
+      await reloadBlog();
+      const bits = [
+        j.parentsNotified ? `Mail envoyé à ${j.parentsNotified} destinataire(s)` : null,
+        j.parentsSkippedReason || null,
+      ].filter(Boolean);
+      alert(bits.length ? `Page activée.\n${bits.join("\n")}` : "Page activée.");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyLink = async () => {
+    if (!publicUrl) return;
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      alert("Lien copié.");
+    } catch {
+      prompt("Copiez le lien :", publicUrl);
+    }
+  };
+
+  const saveDelegates = async (next: TravelsParentBlogDelegate[]) => {
+    if (!canEdit) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/travels/parent-blog/delegates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tripId: trip.id, delegates: next }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Enregistrement impossible");
+      if (j.trip) onTripUpdated(j.trip as TravelsTrip);
+      setDelegates(j.delegates || next);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addDelegate = () => {
+    if (!delegatePick) return;
+    const u = directory.find((d) => d.externalUserId === delegatePick);
+    if (!u) return;
+    if (delegates.some((d) => d.userId === u.externalUserId)) {
+      return alert("Cette personne est déjà déléguée.");
+    }
+    const next = [
+      ...delegates,
+      { userId: u.externalUserId, name: u.displayName, email: u.email },
+    ];
+    setDelegatePick("");
+    void saveDelegates(next);
+  };
+
+  const removeDelegate = (userId: string) => {
+    void saveDelegates(delegates.filter((d) => d.userId !== userId));
+  };
+
   const onPickFiles = async (files: FileList | null) => {
     if (!files?.length) return;
     const remaining = MAX_PHOTOS - photos.length;
@@ -220,30 +368,17 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
     });
   };
 
-  const send = async () => {
-    if (!canEdit) return;
-    if (!subject.trim() || !message.trim()) return alert("Sujet et message requis.");
-    if (coverage.emails.length === 0) {
-      return alert("Aucun e-mail parent pour les élèves de la liste.");
-    }
-    if (
-      !confirm(
-        `Envoyer à ${coverage.emails.length} destinataire(s) parent${coverage.emails.length > 1 ? "s" : ""}${attachIcs ? " avec calendrier (.ics)" : ""} ?`,
-      )
-    ) {
-      return;
-    }
+  const publish = async () => {
+    if (!canEdit || !canPublish) return;
+    if (!message.trim()) return alert("Message requis.");
     setBusy(true);
     try {
-      const res = await fetch("/api/travels/send-parents", {
+      const res = await fetch("/api/travels/parent-blog/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tripId: trip.id,
-          subject: subject.trim(),
           body: message.trim(),
-          attachIcs,
-          parentCalendar: calendar,
           photos: photos.map((p) => ({
             filename: p.filename,
             contentType: p.contentType,
@@ -252,14 +387,34 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
         }),
       });
       const j = await res.json();
-      if (!res.ok) throw new Error(j.error || "Envoi impossible");
-      onTripUpdated(j.trip as TravelsTrip);
+      if (!res.ok) throw new Error(j.error || "Publication impossible");
+      if (j.trip) onTripUpdated(j.trip as TravelsTrip);
       for (const p of photos) URL.revokeObjectURL(p.previewUrl);
       setPhotos([]);
       setMessage("");
-      alert(
-        `Message envoyé à ${j.recipientCount} destinataire(s)${j.icsAttached ? " (avec .ics)" : ""}.`,
-      );
+      await reloadBlog();
+      alert("Publication visible sur la page parents (pas de nouveau mail).");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deletePost = async (postId: string) => {
+    if (!canEdit) return;
+    if (!confirm("Supprimer cette publication ?")) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/travels/parent-blog/posts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tripId: trip.id, postId }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Suppression impossible");
+      if (j.trip) onTripUpdated(j.trip as TravelsTrip);
+      await reloadBlog();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -272,7 +427,8 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
       <TripSection title="Communication parents" icon="📸" accent="amber">
         <div className="px-6 py-5">
           <TripAlert tone="info" title="Liste requise">
-            Composez d’abord la liste des élèves (onglet Élèves) pour communiquer aux familles.
+            Composez d’abord la liste des élèves (onglet Élèves) pour activer la page de suivi ou
+            gérer le calendrier parents.
           </TripAlert>
         </div>
       </TripSection>
@@ -282,23 +438,23 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
   return (
     <TripSection
       title="Communication parents"
-      subtitle="Sens unique établissement → familles · plusieurs envois possibles"
+      subtitle="Calendrier .ics · page de suivi publique (lecture seule) · publications équipe"
       icon="📸"
       accent="amber"
     >
       <div className="px-6 py-5 space-y-5">
-        <TripAlert tone="info" icon="✉️" title="Canal mail">
-          À la confirmation de la liste élèves (avec horaires dépôt / reprise), un calendrier
-          (.ics) part automatiquement aux parents. Vous pouvez aussi renvoyer un message ici
-          (photos, rappels…).
+        <TripAlert tone="info" icon="✉️" title="Comment ça marche">
+          À la confirmation de liste (ou ici), vous pouvez activer une page publique pour les
+          familles. Un seul mail part au départ (horaires + .ics + lien). Ensuite, les parents
+          consultent librement — aucun mail à chaque publication. La page se ferme 15 jours après
+          le retour.
         </TripAlert>
 
         <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-4 space-y-3">
           <div>
             <h3 className="text-sm font-black text-sky-950">Calendrier parents (.ics)</h3>
             <p className="text-xs text-sky-900/80 mt-1">
-              Un seul fichier contient le séjour entier + les points de dépôt / récupération (ex.
-              lundi 10h dépôt, mercredi 20h récupération). Pas besoin de 3 fichiers.
+              Points de dépôt / récupération joints au mail d’activation ou de confirmation.
             </p>
           </div>
 
@@ -420,49 +576,130 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
           ) : null}
         </div>
 
-        <p className="text-sm text-slate-600">
-          Destinataires : <strong>{coverage.emails.length}</strong> e-mail
-          {coverage.emails.length > 1 ? "s" : ""} parent
-          {coverage.withoutMail > 0
-            ? ` · ${coverage.withoutMail} élève(s) sans mail (non couverts)`
-            : ""}
-          .
-        </p>
-
-        <div className="space-y-3">
+        <div className="rounded-xl border border-violet-200 bg-violet-50/60 p-4 space-y-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Sujet</label>
-            <TripInput
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              disabled={!canEdit || busy}
-            />
+            <h3 className="text-sm font-black text-violet-950">Page de suivi parents</h3>
+            <p className="text-xs text-violet-900/80 mt-1">
+              Destinataires potentiels : <strong>{coverage.emails.length}</strong> e-mail
+              {coverage.emails.length > 1 ? "s" : ""} parent
+              {coverage.withoutMail > 0
+                ? ` · ${coverage.withoutMail} élève(s) sans mail`
+                : ""}
+              .
+            </p>
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Message</label>
+
+          {expired ? (
+            <TripAlert tone="warning" title="Page publique fermée">
+              Le délai de 15 jours après le retour est écoulé. Les familles n’y ont plus accès ;
+              le contenu a été (ou va être) purgé.
+            </TripAlert>
+          ) : blog?.enabled ? (
+            <div className="space-y-2">
+              <p className="text-sm text-slate-700">
+                Active depuis le{" "}
+                {new Date(blog.activatedAt).toLocaleDateString("fr-FR")} · fermeture le{" "}
+                {new Date(blog.expiresAt).toLocaleDateString("fr-FR")}
+              </p>
+              <div className="flex flex-wrap gap-2 items-center">
+                <code className="text-xs bg-white/80 border border-violet-100 rounded px-2 py-1 break-all">
+                  {publicUrl}
+                </code>
+                <TripButton variant="secondary" disabled={busy} onClick={() => void copyLink()}>
+                  Copier le lien
+                </TripButton>
+                <a
+                  href={blog.publicPath}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm font-semibold text-violet-800 underline"
+                >
+                  Ouvrir
+                </a>
+              </div>
+            </div>
+          ) : canEdit ? (
+            <TripButton variant="primary" disabled={busy} onClick={() => void activateBlog()}>
+              {busy ? "…" : "Activer la page de suivi + envoyer le mail"}
+            </TripButton>
+          ) : (
+            <p className="text-sm text-slate-600">Page non activée.</p>
+          )}
+        </div>
+
+        {blog?.enabled && !expired && canEdit ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+            <h3 className="text-sm font-black text-slate-900">Délégation</h3>
+            <p className="text-xs text-slate-600">
+              Autorisez un autre professeur ou un personnel OGEC à publier sur cette page.
+            </p>
+            {delegates.length > 0 ? (
+              <ul className="space-y-1">
+                {delegates.map((d) => (
+                  <li
+                    key={d.userId}
+                    className="flex items-center justify-between gap-2 text-sm rounded-lg bg-slate-50 px-3 py-2"
+                  >
+                    <span>
+                      {d.name}
+                      {d.email ? (
+                        <span className="text-xs text-slate-500"> · {d.email}</span>
+                      ) : null}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs font-bold text-rose-600"
+                      disabled={busy}
+                      onClick={() => removeDelegate(d.userId)}
+                    >
+                      Retirer
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-slate-500">Aucun délégué pour l’instant.</p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <select
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm min-w-[220px]"
+                value={delegatePick}
+                disabled={busy}
+                onChange={(e) => setDelegatePick(e.target.value)}
+              >
+                <option value="">Choisir une personne…</option>
+                {directory.map((u) => (
+                  <option key={u.externalUserId} value={u.externalUserId}>
+                    {u.displayName}
+                    {u.email ? ` (${u.email})` : ""}
+                  </option>
+                ))}
+              </select>
+              <TripButton
+                variant="secondary"
+                disabled={busy || !delegatePick}
+                onClick={() => addDelegate()}
+              >
+                Ajouter
+              </TripButton>
+            </div>
+          </div>
+        ) : null}
+
+        {blog?.enabled && !expired && canPublish ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 space-y-3">
+            <h3 className="text-sm font-black text-amber-950">Nouvelle publication</h3>
             <TripTextarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              rows={5}
-              disabled={!canEdit || busy}
-              placeholder="Ex. Bonjour, voici quelques infos pratiques…"
+              rows={4}
+              disabled={busy}
+              placeholder="Ex. Nous sommes bien arrivés, la journée se passe bien…"
             />
-          </div>
-          <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={attachIcs}
-              onChange={(e) => setAttachIcs(e.target.checked)}
-              disabled={!canEdit || busy}
-              className="h-4 w-4"
-            />
-            Joindre le calendrier (.ics) — séjour + points
-          </label>
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase mb-2">
-              Photos ({photos.length}/{MAX_PHOTOS})
-            </label>
-            {canEdit && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 uppercase mb-2">
+                Photos ({photos.length}/{MAX_PHOTOS})
+              </label>
               <input
                 type="file"
                 accept="image/*"
@@ -474,14 +711,15 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
                 }}
                 className="text-sm"
               />
-            )}
-            {photos.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {photos.map((p) => (
-                  <div key={p.id} className="relative w-20 h-20 rounded-lg overflow-hidden ring-1 ring-slate-200">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={p.previewUrl} alt="" className="w-full h-full object-cover" />
-                    {canEdit && (
+              {photos.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {photos.map((p) => (
+                    <div
+                      key={p.id}
+                      className="relative w-20 h-20 rounded-lg overflow-hidden ring-1 ring-slate-200"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.previewUrl} alt="" className="w-full h-full object-cover" />
                       <button
                         type="button"
                         onClick={() => removePhoto(p.id)}
@@ -489,39 +727,62 @@ export function TripParentComPanel({ trip, canEdit, onTripUpdated }: Props) {
                       >
                         ×
                       </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <TripButton variant="primary" disabled={busy} onClick={() => void publish()}>
+              {busy ? "Publication…" : "Publier sur la page parents"}
+            </TripButton>
           </div>
-        </div>
+        ) : null}
 
-        {canEdit && (
-          <TripButton variant="primary" disabled={busy} onClick={() => void send()}>
-            {busy ? "Envoi…" : "Envoyer aux parents"}
-          </TripButton>
-        )}
-
-        {logs.length > 0 && (
-          <div className="pt-4 border-t border-slate-100">
-            <h3 className="text-sm font-semibold text-slate-700 mb-2">Historique des envois</h3>
-            <ul className="space-y-2 text-sm text-slate-600">
-              {[...logs].reverse().map((l) => (
-                <li key={l.id} className="rounded-lg bg-slate-50 px-3 py-2">
-                  <div className="font-medium text-slate-800">{l.subject}</div>
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    {new Date(l.sentAt).toLocaleString("fr-FR")} · {l.recipientCount} destinataire
-                    {l.recipientCount > 1 ? "s" : ""} · {l.photoCount} photo
-                    {l.photoCount > 1 ? "s" : ""}
-                    {l.icsAttached ? " · .ics" : ""}
-                    {l.sentBy.name ? ` · ${l.sentBy.name}` : ""}
+        {posts.length > 0 ? (
+          <div className="pt-2 border-t border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-700 mb-2">Publications</h3>
+            <ul className="space-y-3">
+              {posts.map((p) => (
+                <li key={p.id} className="rounded-lg bg-slate-50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-medium text-slate-800">{p.authorName}</div>
+                      <div className="text-xs text-slate-500">
+                        {new Date(p.createdAt).toLocaleString("fr-FR")}
+                      </div>
+                    </div>
+                    {canEdit && canPublish ? (
+                      <button
+                        type="button"
+                        className="text-xs font-bold text-rose-600"
+                        disabled={busy}
+                        onClick={() => void deletePost(p.id)}
+                      >
+                        Supprimer
+                      </button>
+                    ) : null}
                   </div>
+                  <p className="mt-2 text-sm whitespace-pre-wrap text-slate-700">{p.body}</p>
+                  {p.photos.length > 0 ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {p.photos.map((ph) =>
+                        ph.url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            key={ph.id}
+                            src={ph.url}
+                            alt=""
+                            className="h-16 w-16 rounded object-cover ring-1 ring-slate-200"
+                          />
+                        ) : null,
+                      )}
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>
           </div>
-        )}
+        ) : null}
       </div>
     </TripSection>
   );

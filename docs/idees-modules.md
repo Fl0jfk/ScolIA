@@ -133,29 +133,31 @@ Socle livré : sélection nominative, flux bus, com’ parents optionnelle.
 | **Rappel J−3 / J−4** | `produit` | Type `bus_liste_j3` + `remindersSent` : mail au créateur « Confirmez la liste » → `/travels/{id}?tab=eleves`. |
 | **Confirmation → envoi auto au transporteur** | `produit` | Liste confirmée → CSV (nom, prénom, classe) au transporteur retenu (`selectedBusQuote`). |
 
-### 3. Communication parents — **option**, pas obligation
+### 3. Communication parents — page de suivi (blog)
 
 | Idée | Statut | Notes |
 |------|--------|-------|
-| **Onglet / flux Communication** | `produit` | Message + photos compressées → mails parents (BCC). Multi-envois ; journal `parentComLogs` (métadonnées). Sens unique. |
-| **Mail du jour J (proposition)** | `produit` | Rappel `com_parents_j0` au créateur le jour du départ → `?tab=communication`. Jamais bloquant. |
+| **Activation optionnelle** | `produit` | Case Oui/Non à la confirmation de liste ; réactivable depuis l’onglet Communication jusqu’à fin séjour + 15 j. |
+| **Mail unique au départ** | `produit` | Horaires + `.ics` + lien public `/voyages/suivi/{token}`. Pas de mail à chaque publication. |
+| **Page publique lecture seule** | `produit` | Parents consultent librement. Prof / direction / délégués publient texte + photos. |
+| **Expiration J+15** | `produit` | Coupure publique + purge posts/photos S3 (lazy + cron rappels). |
 
 ### Parcours cible (résumé)
 
-1. Sélection classes → élèves (`eleves.json`) + rappel droit à l’image (défaut OK).  
+1. Sélection classes → élèves + rappel droit à l’image (défaut OK).  
 2. J−3/4 (bus) → rappel « confirmez la liste ».  
-3. Liste confirmée → **part auto au transporteur**.  
-4. Jour J → proposition « communiquer aux parents » (optionnel, multi-envois).
+3. Liste confirmée → **part auto au transporteur** + option **page de suivi parents**.  
+4. Mail unique parents (`.ics` + lien blog si activé) → publications pendant le séjour → fermeture J+15.
 
 ### Pourquoi c’est intéressant
 - Liste élèves = besoin métier réel (bus) + base pour la com’.
-- WhatsApp / réseaux : numéros exposés, pas universel ; le mail reste le canal le plus égalitaire.
+- WhatsApp / réseaux : numéros exposés, pas universel ; le mail + page publique restent plus égalitaires.
 - Séparation claire : **transporteur = obligatoire** · **com’ parents = possibilité**.
 
 ### Points d’attention
-- RGPD photos + mails : rétention courte, pas d’album long terme dans ScolIA ; compression / PJ plutôt que stockage.
+- RGPD photos : rétention courte (purge à J+15), pas d’album long terme ; compression avant upload S3.
 - Droit à l’image : rappel + responsabilité établissement.
-- Qui confirme / envoie : owner + direction (mêmes droits d’édition effectif).
+- Qui publie : owner + direction + délégués choisis.
 - Ne pas confondre avec une messagerie parents ↔ profs (hors charte).
 
 ---

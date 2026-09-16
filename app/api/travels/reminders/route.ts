@@ -25,6 +25,17 @@ export async function GET(req: Request) {
   const indexHit = await getJson<TravelsTrip[]>("travels/index.json");
   const index = Array.isArray(indexHit?.data) ? indexHit.data : [];
 
+  try {
+    const { travelsDbReady } = await import("@/app/lib/travel-db");
+    const { purgeExpiredParentBlogsForEtablissement } = await import(
+      "@/app/lib/travels-parent-blog"
+    );
+    const etabId = await travelsDbReady();
+    if (etabId) await purgeExpiredParentBlogsForEtablissement(etabId);
+  } catch (purgeErr) {
+    console.error("[reminders] parent-blog purge", purgeErr);
+  }
+
   if (tripId) {
     const hit = await getJson<TravelsTrip>(`travels/${tripId}.json`);
     const trip = hit?.data;
@@ -151,7 +162,7 @@ export async function POST(req: Request) {
       bodyLines = [
         `Bonjour ${trip.ownerName || ""},`,
         "",
-        "C'est le jour du départ : vous pouvez communiquer aux parents (messages et photos) depuis l'onglet Communication.",
+        "C'est le jour du départ : vous pouvez publier des messages et photos sur la page de suivi parents (onglet Communication), si elle est activée.",
         "Cette proposition est optionnelle et non bloquante.",
         "",
         `Lien : ${link}`,

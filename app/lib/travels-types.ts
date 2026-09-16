@@ -239,9 +239,31 @@ export type TravelsTripData = {
   parentMeeting?: TravelsParentMeeting;
   /** Calendrier parents multi-points (séjour + dépôt + récupération…). */
   parentCalendar?: TravelsParentCalendar;
+  /**
+   * Miroir UI du blog parents (source de vérité = tables travel_parent_blog*).
+   * Les posts/photos ne sont pas stockés ici.
+   */
+  parentBlog?: TravelsParentBlogMeta;
+  /** Personnes autorisées à publier sur le blog (en plus du owner / direction). */
+  parentBlogDelegates?: TravelsParentBlogDelegate[];
   /** Fiche budget compta (OCR devis + saisie manuelle). */
   comptaSheet?: import("@/app/lib/travels-compta-sheet").TravelsComptaSheet;
   [key: string]: unknown;
+};
+
+export type TravelsParentBlogDelegate = {
+  userId: string;
+  name: string;
+  email?: string;
+};
+
+export type TravelsParentBlogMeta = {
+  enabled: boolean;
+  token: string;
+  activatedAt: string;
+  expiresAt: string;
+  publicPath: string;
+  parentsNotifiedAt?: string | null;
 };
 
 export type TravelsTrip = {
