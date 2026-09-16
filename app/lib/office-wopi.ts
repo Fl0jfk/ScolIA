@@ -114,7 +114,16 @@ export function getWopiHostUrl(): string {
   const explicit = process.env.WOPI_HOST?.trim();
   if (explicit) return explicit.replace(/\/+$/, "");
   const app = process.env.NEXT_PUBLIC_APP_URL?.trim() || process.env.BETTER_AUTH_URL?.trim();
-  if (app) return app.replace(/\/+$/, "");
+  if (app) {
+    try {
+      const u = new URL(app);
+      // L’apex scolia.fr n’a pas toujours un cert TLS valide : préférer www.
+      if (u.hostname === "scolia.fr") return "https://www.scolia.fr";
+    } catch {
+      /* ignore */
+    }
+    return app.replace(/\/+$/, "");
+  }
   return "http://host.docker.internal:3000";
 }
 

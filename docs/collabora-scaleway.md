@@ -14,7 +14,7 @@ Stack **100 % open source** (MPL), **0 € de licence**. Coût = uniquement le c
 | Variable | Valeur |
 |----------|--------|
 | `COLLABORA_URL` | URL HTTPS du conteneur Collabora |
-| `WOPI_HOST` | `https://scolia.fr` (URL publique de Scola, joignable depuis Collabora) |
+| `WOPI_HOST` | `https://www.scolia.fr` (hôte TLS valide joignable depuis Collabora — **pas** l’apex `scolia.fr` si le cert ne couvre pas) |
 | `WOPI_SIGNING_SECRET` | Secret HMAC (souvent = `BETTER_AUTH_SECRET`) |
 
 ## Santé
@@ -28,6 +28,8 @@ curl -sS -o /dev/null -w "%{http_code}\n" \
 ## Notes ops
 
 - Image : `docker.io/collabora/code:latest` (CODE gratuit).
-- Mémoire : 4 Go, `min_scale=1` (évite un cold start trop long).
+- Mémoire : 6 Go, `min_scale=1` (évite un cold start trop long ; exit 137 = OOM → remonter la RAM).
 - SSL terminé par Scaleway ; Collabora en HTTP interne (`ssl.enable=false`, `ssl.termination=true`).
-- Optionnel plus tard : CNAME `office.scolia.fr` → domaine functions, puis mettre à jour `COLLABORA_URL`.
+- `domain` / `aliasgroup1` / `frame_ancestors` doivent inclure tous les hôtes tenant (`lpnb.scolia.fr`, `www.scolia.fr`, …).
+- CSP app : `frame-src` autorise `https://*.functions.fnc.fr-par.scw.cloud` + `COLLABORA_URL`.
+- CNAME `office.scolia.fr` : uniquement si DNS Domains & DNS est accessible (sinon rester sur l’URL functions).
