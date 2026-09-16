@@ -23,6 +23,8 @@ export type WopiAccessClaims = {
   userId: string;
   userDisplayName: string;
   etablissementId: string;
+  /** Bucket S3 du tenant au moment de l’émission (WOPI ne dépend pas du Host). */
+  dataBucket?: string;
   storageKey: string;
   fileName: string;
   canWrite: boolean;
@@ -245,13 +247,19 @@ export function documentScopeFromOffice(scope: OfficeScope): DocumentScope {
   return scope === "shared" ? "shared" : "personal";
 }
 
-export async function headOfficeObjectSize(storageKey: string): Promise<number> {
-  const { getS3Client, getBucketName } = await import("@/app/lib/s3-storage");
+export async function headOfficeObjectSize(
+  storageKey: string,
+  dataBucket?: string | null,
+): Promise<number> {
   const { HeadObjectCommand } = await import("@aws-sdk/client-s3");
   const { s3Key } = await import("@/app/lib/s3-path");
+  const { getPlatformS3Client } = await import("@/app/lib/s3-clients");
+  const { getS3Client, getBucketName } = await import("@/app/lib/s3-storage");
   try {
-    const res = await (await getS3Client()).send(
-      new HeadObjectCommand({ Bucket: await getBucketName(), Key: s3Key(storageKey) }),
+    const bucket = (dataBucket || "").trim() || (await getBucketName());
+    const client = dataBucket?.trim() ? getPlatformS3Client() : await getS3Client();
+    const res = await client.send(
+      new HeadObjectCommand({ Bucket: bucket, Key: s3Key(storageKey) }),
     );
     return Number(res.ContentLength ?? 0);
   } catch {

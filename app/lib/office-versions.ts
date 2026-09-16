@@ -28,8 +28,14 @@ export async function snapshotOfficeVersion(opts: {
   ownerUserId: string;
   fileId: string;
   currentStorageKey: string;
+  dataBucket?: string | null;
 }): Promise<void> {
-  const bytes = await getObjectBytes(opts.currentStorageKey);
+  const bytes = opts.dataBucket?.trim()
+    ? await (await import("@/app/lib/s3-storage")).getObjectBytesInBucket(
+        opts.dataBucket.trim(),
+        opts.currentStorageKey,
+      )
+    : await getObjectBytes(opts.currentStorageKey);
   if (!bytes || bytes.length === 0) return;
 
   const used = await getUserStorageBytes(opts.ownerUserId);

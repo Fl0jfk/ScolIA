@@ -66,12 +66,52 @@ export async function putObject(
   return key;
 }
 
+/** Lecture/écriture S3 avec bucket explicite (WOPI multi-tenant hors Host). */
+export async function getObjectBytesInBucket(
+  bucket: string,
+  relativePath: string,
+): Promise<Buffer | null> {
+  const key = s3Key(relativePath);
+  try {
+    const { getPlatformS3Client } = await import("@/app/lib/s3-clients");
+    const res = await getPlatformS3Client().send(
+      new GetObjectCommand({ Bucket: bucket, Key: key }),
+    );
+    const bytes = await res.Body?.transformToByteArray();
+    if (bytes) return Buffer.from(bytes);
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export async function putObjectInBucket(
+  bucket: string,
+  relativePath: string,
+  body: Buffer | Uint8Array | string,
+  contentType: string,
+): Promise<string> {
+  const key = s3Key(relativePath);
+  const { getPlatformS3Client } = await import("@/app/lib/s3-clients");
+  await getPlatformS3Client().send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+    }),
+  );
+  return key;
+}
+
 export async function getObjectBytes(relativePath: string): Promise<Buffer | null> {
   const key = s3Key(relativePath);
   try {
-    const res = await (await getS3Client()).send(new GetObjectCommand({ Bucket: await getBucketName(), Key: key }));
+    const res = await (await getS3Client()).send(
+      new GetObjectCommand({ Bucket: await getBucketName(), Key: key }),
+    );
     const bytes = await res.Body?.transformToByteArray();
-    if (bytes?.length) return Buffer.from(bytes);
+    if (bytes) return Buffer.from(bytes);
   } catch {
     /* ignore */
   }

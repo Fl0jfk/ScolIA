@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { requireTenantId } from "@/app/lib/tenant-scope";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { getBucketName } from "@/app/lib/s3-storage";
 import {
   buildCollaboraEditorUrl,
   getCollaboraPublicUrl,
@@ -88,11 +89,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const dataBucket = await getBucketName();
   const token = signWopiToken({
     fileId,
     userId: gate.ctx.userId,
     userDisplayName: displayName,
     etablissementId: tenant.ctx.etablissementId,
+    dataBucket,
     storageKey: resolved.storageKey,
     fileName: resolved.fileName,
     canWrite: resolved.canWrite,

@@ -37,7 +37,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   const claims = parseClaims(req, fileId);
   if (claims instanceof NextResponse) return claims;
 
-  const size = await headOfficeObjectSize(claims.storageKey);
+  const size = await headOfficeObjectSize(claims.storageKey, claims.dataBucket);
   return NextResponse.json({
     BaseFileName: claims.fileName,
     Size: size,
