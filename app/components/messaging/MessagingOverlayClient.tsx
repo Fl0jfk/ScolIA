@@ -20,6 +20,7 @@ export default function MessagingOverlayClient() {
     const path = (pathname ?? "").toLowerCase();
     if (path === "/scolia-ai" || path.startsWith("/scolia-ai/")) return true;
     if (path === "/messagerie" || path.startsWith("/messagerie/")) return true;
+    if (path === "/documents/edit" || path.startsWith("/documents/edit/")) return true;
     if (isEleveBienEtreProfile(rolesFromUserLike(user))) return true;
     const roles = rolesFromUserLike(user);
     if (roles.includes("parent") && roles.length === 1) return true;

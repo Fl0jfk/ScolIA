@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireMessagingContext } from "@/app/lib/messaging/access";
+import { applyCorsHeaders } from "@/app/lib/http-cors";
 import {
   getMyPresence,
   getPresenceMap,
@@ -13,36 +14,8 @@ export const dynamic = "force-dynamic";
 
 const DURATION_HOURS = new Set([0, 1, 4, 24]);
 
-/** Autorise les appels cross-subdomain (ex. www ↔ lpnb) sous *.scolia.fr. */
-function corsHeaders(request: Request): HeadersInit {
-  const origin = request.headers.get("origin") || "";
-  let allowOrigin = "";
-  try {
-    if (origin) {
-      const host = new URL(origin).hostname.toLowerCase();
-      if (host === "scolia.fr" || host.endsWith(".scolia.fr") || host === "localhost") {
-        allowOrigin = origin;
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  if (!allowOrigin) return {};
-  return {
-    "Access-Control-Allow-Origin": allowOrigin,
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    Vary: "Origin",
-  };
-}
-
 function withCors(request: Request, response: NextResponse): NextResponse {
-  const headers = corsHeaders(request);
-  for (const [k, v] of Object.entries(headers)) {
-    response.headers.set(k, v);
-  }
-  return response;
+  return applyCorsHeaders(request, response);
 }
 
 export async function OPTIONS(request: Request) {

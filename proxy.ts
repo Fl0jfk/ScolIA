@@ -51,6 +51,7 @@ import {
   SCOLA_AUTH_SNAPSHOT_HEADER,
   type ScolaAuthSnapshot,
 } from "@/app/lib/auth-snapshot";
+import { applyCorsHeaders } from "@/app/lib/http-cors";
 
 async function loadModuleAccessForProxy() {
   try {
@@ -146,8 +147,7 @@ function withTenantHeaders(
   response.headers.set(TENANT_SLUG_HEADER, tenant.slug);
   response.headers.set("x-tenant-bucket", tenant.dataBucket);
   const omitCsp =
-    pathname?.startsWith("/api/rentree/file") ||
-    pathname?.startsWith("/api/fournitures/file") ||
+    pathname?.startsWith("/api/") ||
     pathname?.startsWith("/documents/rentree/");
   if (!omitCsp) {
     const n = nonce ?? createCspNonce();
@@ -234,9 +234,13 @@ function unauthorizedResponse(
 ): NextResponse {
   const pathname = request.nextUrl.pathname;
   if (pathname.startsWith("/api/")) {
-    return withTenantHeaders(
-      NextResponse.json({ error: "Non autorisé.", code: "AUTH_REQUIRED" }, { status: 401 }),
-      tenant,
+    return applyCorsHeaders(
+      request,
+      withTenantHeaders(
+        NextResponse.json({ error: "Non autorisé.", code: "AUTH_REQUIRED" }, { status: 401 }),
+        tenant,
+        pathname,
+      ),
     );
   }
   const signInUrl = new URL("/auth/sign-in", request.url);
@@ -284,6 +288,11 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
       request.headers.get("host") ||
       request.nextUrl.hostname,
   );
+
+  if (request.method === "OPTIONS" && pathname.startsWith("/api/")) {
+    const preflight = new NextResponse(null, { status: 204 });
+    return applyCorsHeaders(request, preflight);
+  }
 
   if (pathname === "/connexion" && !isPlatformHostname(host) && !isLocalDevHostname(host)) {
     return NextResponse.redirect(new URL("/connexion", platformAppOriginFromEnv()));
@@ -507,8 +516,10 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  const canonicalRedirect = redirectToTenantCanonicalHost(request, tenant, host);
-  if (canonicalRedirect) return withTenantHeaders(canonicalRedirect, tenant);
+  if (!pathname.startsWith("/api/")) {
+    const canonicalRedirect = redirectToTenantCanonicalHost(request, tenant, host);
+    if (canonicalRedirect) return withTenantHeaders(canonicalRedirect, tenant);
+  }
 
   if (isPlatformHostname(host) && pathname === "/dashboard") {
     const dest = hasMasterRole(roles) ? "/plateforme" : "/";
