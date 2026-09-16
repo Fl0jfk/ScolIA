@@ -14,7 +14,7 @@ Repo **docslapro / ScolIA** : ENT / intranet scolaire (Next.js App Router, Drizz
 | Tests OCR match | `npm run test:ocr-match` |
 | Lint | `npm run lint` |
 | Valkey local (optionnel) | `docker run -d --name scolia-valkey -p 6379:6379 valkey/valkey:8` puis `VALKEY_URL=redis://127.0.0.1:6379` |
-| Collabora CODE (bureautique) | Local : `docker compose -f docker-compose.collabora.yml up -d` + `COLLABORA_URL` / `WOPI_HOST`. Prod Scaleway : container `collabora-code` (`COLLABORA_URL=https://containerscolia1c9956df-collabora-code.functions.fnc.fr-par.scw.cloud`, `WOPI_HOST=https://www.scolia.fr`) |
+| Collabora CODE (bureautique) | Local : `docker compose -f docker-compose.collabora.yml up -d` + `COLLABORA_URL` / `WOPI_HOST`. Prod Scaleway : container `collabora-code` (`COLLABORA_URL=https://containerscolia1c9956df-collabora-code.functions.fnc.fr-par.scw.cloud`, `WOPI_HOST=https://lpnb.scolia.fr` — hôte tenant TLS valide, pas l’apex) |
 
 ## Compte de test local (après `seed:dev`)
 
