@@ -76,7 +76,9 @@ const nextConfig: NextConfig = {
       {
         // CSP (nonce) posée dans proxy.ts — pas ici, sinon AND sans nonce casse strict-dynamic.
         // Pas de COOP non plus sur les flux PDF binaires (lecteur Chrome).
-        source: "/((?!api/rentree/file)(?!api/fournitures/file)(?!documents/rentree/).*)",
+        // Pas de COOP / X-Frame-Options sur /api : Safari traite ça comme un échec CORS
+        // (« Fetch API cannot load … due to access control checks »).
+        source: "/((?!api/)(?!documents/rentree/).*)",
         headers: securityHeaders,
       },
     ];
