@@ -935,8 +935,14 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
   };
 
-  const tripAllowsCuisineSend = (t: TravelsTrip) =>
-    !["BROUILLON", "EN_ATTENTE_VALIDATION", "REJETE", "ANNULE", "SEANCE_ANNULEE"].includes(t.status);
+  /** Premier envoi chef : après validation direction. Avenant : dès qu’un envoi réel existe. */
+  const tripAllowsCuisineSend = (t: TravelsTrip) => {
+    if (["BROUILLON", "EN_ATTENTE_VALIDATION", "REJETE", "ANNULE", "SEANCE_ANNULEE"].includes(t.status)) {
+      return false;
+    }
+    if (t.data?.cuisineOrderSentAt) return true;
+    return t.status === "FINALISE_DIR_ATTENTE_ELEVES" || t.status === "VALIDE";
+  };
 
   const saveCuisineFromOwnerModal = async () => {
     const details = draftCuisineDetails;

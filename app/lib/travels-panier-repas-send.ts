@@ -224,7 +224,7 @@ export async function sendPanierRepasListForTrip(
       {
         date: now,
         user: userName,
-        action: `Liste « qui mange » + commande cuisine envoyée (${withPanier.length}/${mealsOrdered})`,
+        action: `Liste « qui mange » envoyée à la collègue décompte (${withPanier.length}/${mealsOrdered})`,
       },
     ],
   };

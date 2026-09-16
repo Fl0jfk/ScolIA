@@ -81,7 +81,12 @@ export function cuisineEffectifChanged(data: TravelsTripData): boolean {
   });
 }
 
-/** Date d'envoi cuisine — champ S3 ou repli journal (dossiers validés avant correctif). */
+/**
+ * Date d'envoi réel au chef (PDF cuisine).
+ * Source de vérité : `cuisineOrderSentAt`.
+ * Repli journal : uniquement les actions d’envoi chef — pas la liste « qui mange »
+ * (ex. historique « Liste qui mange + commande cuisine envoyée » qui faussait l’UI).
+ */
 export function resolveCuisineOrderSentAt(trip: {
   data?: TravelsTripData;
   history?: TravelsHistoryEntry[];
@@ -91,9 +96,17 @@ export function resolveCuisineOrderSentAt(trip: {
   const history = Array.isArray(trip.history) ? trip.history : [];
   for (let i = history.length - 1; i >= 0; i--) {
     const h = history[i];
-    const action = String(h?.action || "").toLowerCase();
-    const note = String(h?.note || "").toLowerCase();
-    if (action.includes("cuisine envoyée") || note.includes("commande cuisine envoyée")) {
+    const action = String(h?.action || "").trim();
+    const actionLower = action.toLowerCase();
+    const noteLower = String(h?.note || "").toLowerCase();
+    // Exclure explicitement le mail « qui mange » (collègue décompte), pas le chef.
+    if (actionLower.includes("qui mange") || noteLower.includes("qui mange")) continue;
+    if (
+      action === "Commande cuisine envoyée au chef" ||
+      action.startsWith("Commande cuisine renvoyée") ||
+      actionLower === "commande cuisine envoyée." ||
+      noteLower === "commande cuisine envoyée."
+    ) {
       return h?.date;
     }
   }
