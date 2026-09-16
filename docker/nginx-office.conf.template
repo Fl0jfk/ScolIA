@@ -28,6 +28,8 @@ http {
   server {
     listen __LISTEN_PORT__;
     server_name _;
+    underscores_in_headers on;
+    ignore_invalid_headers off;
 
 __OFFICE_LOCATIONS__
 

@@ -140,11 +140,26 @@ function createCspNonce(): string {
 
 function isNextFlightRequest(request: NextRequest): boolean {
   const h = request.headers;
-  if (h.get("rsc") === "1") return true;
-  if (h.has("next-router-prefetch")) return true;
-  if (h.has("next-router-state-tree")) return true;
-  if (h.has("next-url")) return true;
+  if (h.get("rsc")) return true;
+  if (h.get("next-router-prefetch")) return true;
+  if (h.get("next-router-state-tree")) return true;
+  if (h.get("next-url")) return true;
   if (request.nextUrl.searchParams.has("_rsc")) return true;
+  const accept = h.get("accept") || "";
+  if (accept.includes("text/x-component")) return true;
+  return false;
+}
+
+function omitDocumentIsolation(request: NextRequest | undefined, pathname?: string): boolean {
+  if (pathname?.startsWith("/api/") || pathname?.startsWith("/documents/rentree/")) {
+    return true;
+  }
+  if (!request) return false;
+  if (isNextFlightRequest(request)) return true;
+  const dest = (request.headers.get("sec-fetch-dest") || "").toLowerCase();
+  if (dest === "empty") return true;
+  const mode = (request.headers.get("sec-fetch-mode") || "").toLowerCase();
+  if (mode === "cors") return true;
   return false;
 }
 
@@ -157,18 +172,13 @@ function withTenantHeaders(
 ): NextResponse {
   response.headers.set(TENANT_SLUG_HEADER, tenant.slug);
   response.headers.set("x-tenant-bucket", tenant.dataBucket);
-  const flight = request ? isNextFlightRequest(request) : false;
-  const omitDocumentSecurity =
-    flight ||
-    pathname?.startsWith("/api/") ||
-    pathname?.startsWith("/documents/rentree/");
-  if (!omitDocumentSecurity) {
+  if (!omitDocumentIsolation(request, pathname)) {
     const n = nonce ?? createCspNonce();
     response.headers.set("Content-Security-Policy", contentSecurityPolicyHeaderValue(n));
     response.headers.set("Cross-Origin-Opener-Policy", crossOriginOpenerPolicyHeaderValue());
     response.headers.set("X-Frame-Options", "DENY");
   }
-  if (request && (flight || pathname?.startsWith("/api/"))) {
+  if (request?.headers.get("origin")) {
     applyCorsHeaders(request, response);
   }
   return response;
@@ -282,9 +292,18 @@ function authUnavailableResponse(
     return withTenantHeaders(
       NextResponse.json({ error: message, code: "AUTH_UNAVAILABLE" }, { status: 503 }),
       tenant,
+      request.nextUrl.pathname,
+      undefined,
+      request,
     );
   }
-  return withTenantHeaders(new NextResponse(message, { status: 503 }), tenant);
+  return withTenantHeaders(
+    new NextResponse(message, { status: 503 }),
+    tenant,
+    request.nextUrl.pathname,
+    undefined,
+    request,
+  );
 }
 
 async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
