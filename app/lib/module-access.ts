@@ -38,9 +38,7 @@ const SKIP_MODULE_IDS = new Set([
   "vs-sanctions",
   "pilotage-eleves",
   "facturation-familles",
-  "office-writer",
-  "office-calc",
-  "office-impress",
+  "office",
 ]);
 
 export type ModuleAccessOverride = {
@@ -353,9 +351,7 @@ export function accessibleModuleIdsForRoles(
   if (hasMasterRole(roles) || hasGlobalAdminRole(roles) || isOrgAdmin || roles.includes("admin")) {
     const ids = new Set(listConfigurableModules().map((m) => m.id));
     if (ids.has("documents") || listConfigurableModules().some((m) => m.id === "documents")) {
-      ids.add("office-writer");
-      ids.add("office-calc");
-      ids.add("office-impress");
+      ids.add("office");
     }
     return ids;
   }
@@ -366,9 +362,7 @@ export function accessibleModuleIdsForRoles(
     }
   }
   if (ids.has("documents")) {
-    ids.add("office-writer");
-    ids.add("office-calc");
-    ids.add("office-impress");
+    ids.add("office");
   }
   return ids;
 }

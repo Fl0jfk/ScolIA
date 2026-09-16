@@ -9,6 +9,7 @@ import { OFFICE_KIND_META, type OfficeKind } from "@/app/lib/office-types";
 import { dash } from "@/app/lib/dashboard-brand";
 
 type RecentRow = {
+  kind?: OfficeKind;
   fileName: string;
   relPath: string;
   scope: string;
@@ -19,23 +20,36 @@ type RecentRow = {
   editUrl: string;
 };
 
-export default function OfficeHubClient({ kind }: { kind: OfficeKind }) {
-  const meta = OFFICE_KIND_META[kind];
+const ALL_KINDS: OfficeKind[] = ["writer", "calc", "impress"];
+
+type Props = {
+  /** Filtre optionnel (pages dédiées). Sans filtre = hub Bureautique. */
+  kind?: OfficeKind;
+};
+
+export default function OfficeHubClient({ kind }: Props) {
+  const suite = !kind;
   const router = useRouter();
   const [personal, setPersonal] = useState<RecentRow[]>([]);
   const [shared, setShared] = useState<RecentRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<OfficeKind | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<RecentRow[] | null>(null);
   const [searching, setSearching] = useState(false);
 
+  const kindParam = kind || "all";
+  const title = suite ? "Bureautique" : OFFICE_KIND_META[kind].label;
+  const description = suite
+    ? "Créez et ouvrez vos documents, tableurs et présentations — enregistrés dans votre cloud."
+    : "Fichiers ouverts dans le navigateur, enregistrés dans votre cloud personnel.";
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/documents/office/recents?kind=${kind}`);
+      const res = await fetch(`/api/documents/office/recents?kind=${kindParam}`);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Chargement impossible.");
@@ -48,7 +62,7 @@ export default function OfficeHubClient({ kind }: { kind: OfficeKind }) {
     } finally {
       setLoading(false);
     }
-  }, [kind]);
+  }, [kindParam]);
 
   useEffect(() => {
     void load();
@@ -64,7 +78,7 @@ export default function OfficeHubClient({ kind }: { kind: OfficeKind }) {
       setSearching(true);
       try {
         const res = await fetch(
-          `/api/documents/office/recents?kind=${kind}&q=${encodeURIComponent(q)}`,
+          `/api/documents/office/recents?kind=${kindParam}&q=${encodeURIComponent(q)}`,
         );
         const data = await res.json();
         if (res.ok) setSearchResults(data.results || []);
@@ -75,16 +89,16 @@ export default function OfficeHubClient({ kind }: { kind: OfficeKind }) {
       }
     }, 280);
     return () => clearTimeout(t);
-  }, [query, kind]);
+  }, [query, kindParam]);
 
-  const onCreate = async () => {
-    setCreating(true);
+  const onCreate = async (createKind: OfficeKind) => {
+    setCreating(createKind);
     setError(null);
     try {
       const res = await fetch("/api/documents/office/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind }),
+        body: JSON.stringify({ kind: createKind }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -95,7 +109,7 @@ export default function OfficeHubClient({ kind }: { kind: OfficeKind }) {
     } catch {
       setError("Erreur réseau.");
     } finally {
-      setCreating(false);
+      setCreating(null);
     }
   };
 
@@ -104,19 +118,33 @@ export default function OfficeHubClient({ kind }: { kind: OfficeKind }) {
     [],
   );
 
+  const searchLabel = suite
+    ? "Rechercher dans le cloud (texte, tableur, présentation)"
+    : `Rechercher dans le cloud (${OFFICE_KIND_META[kind].label.toLowerCase()})`;
+
   return (
     <ModulePageShell tourModuleId="documents">
       <ModulePageHeader
         eyebrow="Services"
-        title={meta.label}
-        description="Fichiers ouverts dans le navigateur, enregistrés dans votre cloud personnel."
+        title={title}
+        description={description}
         actions={
-          <Link
-            href="/documents"
-            className={`text-sm font-semibold underline-offset-2 hover:underline ${dash.textMid}`}
-          >
-            Cloud personnel
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            {!suite ? (
+              <Link
+                href="/documents/office"
+                className={`text-sm font-semibold underline-offset-2 hover:underline ${dash.textMid}`}
+              >
+                Toute la bureautique
+              </Link>
+            ) : null}
+            <Link
+              href="/documents"
+              className={`text-sm font-semibold underline-offset-2 hover:underline ${dash.textMid}`}
+            >
+              Cloud personnel
+            </Link>
+          </div>
         }
       />
 
@@ -126,18 +154,43 @@ export default function OfficeHubClient({ kind }: { kind: OfficeKind }) {
         </p>
       ) : null}
 
-      <button
-        type="button"
-        onClick={() => void onCreate()}
-        disabled={creating}
-        className="w-full sm:w-auto rounded-xl bg-[var(--dash-primary)] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
-      >
-        {creating ? "Création…" : meta.newLabel}
-      </button>
+      {suite ? (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {ALL_KINDS.map((k) => {
+            const meta = OFFICE_KIND_META[k];
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => void onCreate(k)}
+                disabled={creating !== null}
+                className="flex flex-col items-start gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-left shadow-sm transition hover:border-[var(--dash-primary)]/40 hover:shadow-md disabled:opacity-60"
+              >
+                <span className="text-2xl" aria-hidden>
+                  {meta.emoji}
+                </span>
+                <span className={`text-sm font-semibold ${dash.ink}`}>{meta.label}</span>
+                <span className="text-xs font-semibold text-[var(--dash-primary)]">
+                  {creating === k ? "Création…" : meta.newLabel}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void onCreate(kind)}
+          disabled={creating !== null}
+          className="w-full sm:w-auto rounded-xl bg-[var(--dash-primary)] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
+        >
+          {creating === kind ? "Création…" : OFFICE_KIND_META[kind].newLabel}
+        </button>
+      )}
 
       <div className="mt-6">
         <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Rechercher dans le cloud ({meta.label.toLowerCase()})
+          {searchLabel}
         </label>
         <input
           type="search"
@@ -152,6 +205,7 @@ export default function OfficeHubClient({ kind }: { kind: OfficeKind }) {
             title="Résultats"
             rows={searchResults}
             empty="Aucun fichier trouvé."
+            showKind={suite}
           />
         ) : null}
       </div>
@@ -162,11 +216,13 @@ export default function OfficeHubClient({ kind }: { kind: OfficeKind }) {
             title="Mes derniers documents"
             rows={personal}
             empty={loading ? "Chargement…" : emptyHint}
+            showKind={suite}
           />
           <FileList
             title="Mes documents partagés"
             rows={shared}
             empty={loading ? "Chargement…" : "Aucun document partagé pour l’instant."}
+            showKind={suite}
           />
         </>
       ) : null}
@@ -178,10 +234,12 @@ function FileList({
   title,
   rows,
   empty,
+  showKind,
 }: {
   title: string;
   rows: RecentRow[];
   empty: string;
+  showKind?: boolean;
 }) {
   return (
     <section className="mt-8">
@@ -190,19 +248,34 @@ function FileList({
         <p className={`mt-2 text-sm ${dash.textMid}`}>{empty}</p>
       ) : (
         <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
-          {rows.map((row) => (
-            <li key={`${row.scope}-${row.shareId || ""}-${row.fileShareId || ""}-${row.relPath}`}>
-              <Link
-                href={row.editUrl}
-                className="flex flex-col gap-0.5 px-4 py-3 hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
+          {rows.map((row) => {
+            const kindMeta = row.kind ? OFFICE_KIND_META[row.kind] : null;
+            return (
+              <li
+                key={`${row.scope}-${row.shareId || ""}-${row.fileShareId || ""}-${row.relPath}`}
               >
-                <span className={`text-sm font-medium ${dash.ink}`}>{row.fileName}</span>
-                <span className={`text-xs ${dash.textMid}`}>
-                  {row.sharedLabel || (row.scope === "personal" ? "Cloud perso" : "Partagé")}
-                </span>
-              </Link>
-            </li>
-          ))}
+                <Link
+                  href={row.editUrl}
+                  className="flex flex-col gap-0.5 px-4 py-3 hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    {showKind && kindMeta ? (
+                      <span className="shrink-0 text-base" aria-hidden>
+                        {kindMeta.emoji}
+                      </span>
+                    ) : null}
+                    <span className={`truncate text-sm font-medium ${dash.ink}`}>
+                      {row.fileName}
+                    </span>
+                  </span>
+                  <span className={`text-xs ${dash.textMid}`}>
+                    {showKind && kindMeta ? `${kindMeta.shortLabel} · ` : ""}
+                    {row.sharedLabel || (row.scope === "personal" ? "Cloud perso" : "Partagé")}
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

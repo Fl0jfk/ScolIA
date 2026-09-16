@@ -9,9 +9,16 @@ import type { OfficeKind } from "@/app/lib/office-types";
 import { OFFICE_KIND_META, officeKindFromExt } from "@/app/lib/office-types";
 import { browseDocuments, listAccessibleShares, listIncomingFileShares } from "@/app/lib/documents-cloud";
 
-function parseKind(raw: string | null): OfficeKind | null {
-  const k = String(raw || "");
+type KindFilter = OfficeKind | "all";
+
+function parseKindFilter(raw: string | null): KindFilter | null {
+  const k = String(raw || "all");
+  if (k === "all" || k === "") return "all";
   return k === "writer" || k === "calc" || k === "impress" ? k : null;
+}
+
+function officeKinds(filter: KindFilter): OfficeKind[] {
+  return filter === "all" ? (["writer", "calc", "impress"] as OfficeKind[]) : [filter];
 }
 
 function editUrl(entry: {
@@ -34,7 +41,7 @@ function editUrl(entry: {
 /** Scan léger du cloud perso (1 niveau + sous-dossiers limités) pour enrichir la recherche. */
 async function scanPersonalOfficeFiles(
   userId: string,
-  kind: OfficeKind,
+  filter: KindFilter,
   query: string,
   limit: number,
 ): Promise<
@@ -47,7 +54,9 @@ async function scanPersonalOfficeFiles(
   }[]
 > {
   const q = query.trim().toLowerCase();
-  const exts = new Set(OFFICE_KIND_META[kind].extensions);
+  const allowed = new Set(
+    officeKinds(filter).flatMap((k) => [...OFFICE_KIND_META[k].extensions]),
+  );
   const out: {
     kind: OfficeKind;
     scope: "personal";
@@ -68,7 +77,10 @@ async function scanPersonalOfficeFiles(
         continue;
       }
       const ext = (item.ext || item.name.split(".").pop() || "").toLowerCase();
-      if (!exts.has(ext)) continue;
+      if (!allowed.has(ext)) continue;
+      const kind = officeKindFromExt(ext);
+      if (!kind) continue;
+      if (filter !== "all" && kind !== filter) continue;
       if (q && !item.name.toLowerCase().includes(q)) continue;
       out.push({
         kind,
@@ -89,7 +101,7 @@ export async function GET(req: NextRequest) {
   if (!gate.ok) return gate.response;
 
   const { searchParams } = new URL(req.url);
-  const kind = parseKind(searchParams.get("kind"));
+  const kind = parseKindFilter(searchParams.get("kind"));
   if (!kind) return NextResponse.json({ error: "Type invalide." }, { status: 400 });
 
   const q = (searchParams.get("q") || "").trim();
@@ -130,7 +142,9 @@ export async function GET(req: NextRequest) {
   // Si peu de partagés dans les récents, proposer les fichiers office des dossiers partagés (racine).
   if (shared.length < 10) {
     const shares = await listAccessibleShares(gate.ctx.userId);
-    const exts = new Set(OFFICE_KIND_META[kind].extensions);
+    const allowed = new Set(
+      officeKinds(kind).flatMap((k) => [...OFFICE_KIND_META[k].extensions]),
+    );
     for (const share of shares) {
       if (shared.length >= 10) break;
       const browse = await browseDocuments(gate.ctx.userId, "shared", share.id, "");
@@ -139,10 +153,13 @@ export async function GET(req: NextRequest) {
         if (shared.length >= 10) break;
         if (item.type !== "file") continue;
         const ext = (item.ext || item.name.split(".").pop() || "").toLowerCase();
-        if (!exts.has(ext)) continue;
+        if (!allowed.has(ext)) continue;
+        const itemKind = officeKindFromExt(ext);
+        if (!itemKind) continue;
+        if (kind !== "all" && itemKind !== kind) continue;
         if (shared.some((s) => s.shareId === share.id && s.relPath === item.relPath)) continue;
         shared.push({
-          kind,
+          kind: itemKind,
           scope: "shared",
           shareId: share.id,
           relPath: item.relPath,
@@ -157,11 +174,12 @@ export async function GET(req: NextRequest) {
     for (const fs of incoming) {
       if (shared.length >= 10) break;
       const k = officeKindFromExt(fs.ext || fs.fileName.split(".").pop());
-      if (k !== kind) continue;
+      if (!k) continue;
+      if (kind !== "all" && k !== kind) continue;
       const relPath = `__fileshare__/${fs.id}`;
       if (shared.some((s) => s.fileShareId === fs.id)) continue;
       shared.push({
-        kind,
+        kind: k,
         scope: "fileshare",
         fileShareId: fs.id,
         relPath,
@@ -176,7 +194,11 @@ export async function GET(req: NextRequest) {
   let personalOut = personal;
   if (personalOut.length === 0) {
     const all = await loadOfficeRecents(gate.ctx.userId);
-    if (all.filter((e) => e.kind === kind && e.scope === "personal").length === 0) {
+    const hasPersonal =
+      kind === "all"
+        ? all.some((e) => e.scope === "personal")
+        : all.some((e) => e.kind === kind && e.scope === "personal");
+    if (!hasPersonal) {
       const scanned = await scanPersonalOfficeFiles(gate.ctx.userId, kind, "", 10);
       personalOut = scanned.map((s) => ({
         kind: s.kind,

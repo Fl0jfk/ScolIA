@@ -7,7 +7,6 @@ import PeerPicker from "@/app/components/documents/PeerPicker";
 import DocumentModal from "@/app/components/documents/DocumentModal";
 import type { Peer } from "@/app/lib/documents-page-model";
 import type { OfficeKind } from "@/app/lib/office-types";
-import { OFFICE_KIND_META } from "@/app/lib/office-types";
 
 type Props = {
   kind: OfficeKind;
@@ -48,7 +47,7 @@ export default function OfficeEditClient(props: Props) {
   const [shareMembers, setShareMembers] = useState<string[]>([]);
   const [shareBusy, setShareBusy] = useState(false);
 
-  const returnHref = OFFICE_KIND_META[props.kind].href;
+  const returnHref = "/documents/office";
 
   const bootstrap = useCallback(
     async (takeover: boolean) => {

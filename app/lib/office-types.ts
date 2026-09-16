@@ -18,39 +18,47 @@ export const OFFICE_KIND_META: Record<
   OfficeKind,
   {
     label: string;
+    shortLabel: string;
     newLabel: string;
     ext: "odt" | "ods" | "odp";
     mime: string;
     moduleId: string;
     href: string;
+    emoji: string;
     extensions: readonly string[];
   }
 > = {
   writer: {
     label: "Traitement de texte",
-    newLabel: "Créer un nouveau document",
+    shortLabel: "Texte",
+    newLabel: "Nouveau document",
     ext: "odt",
     mime: "application/vnd.oasis.opendocument.text",
-    moduleId: "office-writer",
+    moduleId: "office",
     href: "/documents/writer",
+    emoji: "📝",
     extensions: ["odt", "doc", "docx", "rtf"],
   },
   calc: {
     label: "Tableur",
-    newLabel: "Créer un nouveau tableur",
+    shortLabel: "Tableur",
+    newLabel: "Nouveau tableur",
     ext: "ods",
     mime: "application/vnd.oasis.opendocument.spreadsheet",
-    moduleId: "office-calc",
+    moduleId: "office",
     href: "/documents/calc",
+    emoji: "📊",
     extensions: ["ods", "xls", "xlsx", "csv"],
   },
   impress: {
     label: "Présentation",
-    newLabel: "Créer un nouveau diaporama",
+    shortLabel: "Diaporama",
+    newLabel: "Nouveau diaporama",
     ext: "odp",
     mime: "application/vnd.oasis.opendocument.presentation",
-    moduleId: "office-impress",
+    moduleId: "office",
     href: "/documents/impress",
+    emoji: "📽️",
     extensions: ["odp", "ppt", "pptx"],
   },
 };

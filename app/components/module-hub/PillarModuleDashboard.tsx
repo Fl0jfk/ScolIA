@@ -257,6 +257,36 @@ function ModuleQuickActions({
       </div>
     );
   }
+  if (moduleId === "office") {
+    return (
+      <div className="mt-auto flex flex-wrap gap-2 pt-3">
+        <Link
+          href="/documents/office"
+          className="rounded-full bg-[var(--dash-primary)] px-3 py-1.5 text-[11px] font-bold text-white shadow-sm hover:brightness-110"
+        >
+          Ouvrir
+        </Link>
+        <Link
+          href="/documents/writer"
+          className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
+        >
+          Texte
+        </Link>
+        <Link
+          href="/documents/calc"
+          className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
+        >
+          Tableur
+        </Link>
+        <Link
+          href="/documents/impress"
+          className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
+        >
+          Diapo
+        </Link>
+      </div>
+    );
+  }
   if (moduleId === "photocopies-couleur") {
     return (
       <div className="mt-auto flex flex-wrap gap-2 pt-3">

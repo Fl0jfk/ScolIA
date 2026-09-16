@@ -55,11 +55,11 @@ export async function touchOfficeRecent(
 
 export async function listOfficeRecentsForKind(
   userId: string,
-  kind: OfficeKind,
+  kind: OfficeKind | "all",
   opts: { personalLimit?: number; sharedLimit?: number },
 ): Promise<{ personal: OfficeRecentEntry[]; shared: OfficeRecentEntry[] }> {
   const all = await loadOfficeRecents(userId);
-  const ofKind = all.filter((e) => e.kind === kind);
+  const ofKind = kind === "all" ? all : all.filter((e) => e.kind === kind);
   const personal = ofKind
     .filter((e) => e.scope === "personal")
     .slice(0, opts.personalLimit ?? 10);
@@ -71,7 +71,7 @@ export async function listOfficeRecentsForKind(
 
 export async function searchOfficeRecents(
   userId: string,
-  kind: OfficeKind,
+  kind: OfficeKind | "all",
   query: string,
   limit = 30,
 ): Promise<OfficeRecentEntry[]> {
@@ -79,7 +79,7 @@ export async function searchOfficeRecents(
   if (!q) return [];
   const all = await loadOfficeRecents(userId);
   return all
-    .filter((e) => e.kind === kind && e.fileName.toLowerCase().includes(q))
+    .filter((e) => (kind === "all" || e.kind === kind) && e.fileName.toLowerCase().includes(q))
     .slice(0, limit);
 }
 

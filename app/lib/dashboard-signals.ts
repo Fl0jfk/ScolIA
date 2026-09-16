@@ -1439,6 +1439,11 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     { moduleId: "domain-planning", label: "Enseignements transversaux" },
     { moduleId: "documents", label: "Cloud personnel" },
     {
+      moduleId: "office",
+      label: "Bureautique",
+      detail: "Texte, tableur et présentation dans le navigateur",
+    },
+    {
       moduleId: "qrcreator",
       label: "QR Code",
       detail: "Créer un QR code avec le logo de l'établissement",
