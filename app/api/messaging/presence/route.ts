@@ -13,16 +13,52 @@ export const dynamic = "force-dynamic";
 
 const DURATION_HOURS = new Set([0, 1, 4, 24]);
 
+/** Autorise les appels cross-subdomain (ex. www ↔ lpnb) sous *.scolia.fr. */
+function corsHeaders(request: Request): HeadersInit {
+  const origin = request.headers.get("origin") || "";
+  let allowOrigin = "";
+  try {
+    if (origin) {
+      const host = new URL(origin).hostname.toLowerCase();
+      if (host === "scolia.fr" || host.endsWith(".scolia.fr") || host === "localhost") {
+        allowOrigin = origin;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  if (!allowOrigin) return {};
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    Vary: "Origin",
+  };
+}
+
+function withCors(request: Request, response: NextResponse): NextResponse {
+  const headers = corsHeaders(request);
+  for (const [k, v] of Object.entries(headers)) {
+    response.headers.set(k, v);
+  }
+  return response;
+}
+
+export async function OPTIONS(request: Request) {
+  return withCors(request, new NextResponse(null, { status: 204 }));
+}
+
 /** GET ?userIds=a,b,c — statuts. GET ?me=1 — mon statut + manuel. */
 export async function GET(request: Request) {
   const gate = await requireMessagingContext();
-  if (!gate.ok) return gate.response;
+  if (!gate.ok) return withCors(request, gate.response);
 
   try {
     const url = new URL(request.url);
     if (url.searchParams.get("me") === "1") {
       const me = await getMyPresence(gate.ctx.etablissementId, gate.ctx.userId);
-      return NextResponse.json({ me });
+      return withCors(request, NextResponse.json({ me }));
     }
 
     const raw = url.searchParams.get("userIds") ?? "";
@@ -33,15 +69,18 @@ export async function GET(request: Request) {
       .slice(0, 200);
 
     const presence = await getPresenceMap(gate.ctx.etablissementId, userIds);
-    return NextResponse.json({ presence });
+    return withCors(request, NextResponse.json({ presence }));
   } catch (error) {
     console.error("[messaging/presence] GET failed", error);
-    return NextResponse.json(
-      {
-        error: "Erreur présence.",
-        detail: error instanceof Error ? error.message : String(error),
-      },
-      { status: 500 },
+    return withCors(
+      request,
+      NextResponse.json(
+        {
+          error: "Erreur présence.",
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        { status: 500 },
+      ),
     );
   }
 }
@@ -53,13 +92,13 @@ export async function GET(request: Request) {
  */
 export async function POST(request: Request) {
   const gate = await requireMessagingContext();
-  if (!gate.ok) return gate.response;
+  if (!gate.ok) return withCors(request, gate.response);
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "JSON invalide." }, { status: 400 });
+    return withCors(request, NextResponse.json({ error: "JSON invalide." }, { status: 400 }));
   }
 
   try {
@@ -68,15 +107,21 @@ export async function POST(request: Request) {
     const mode = record.mode === "manual" ? "manual" : "auto";
 
     if (!isPresenceStatus(status) || status === "offline") {
-      return NextResponse.json(
-        { error: "Statut invalide (online | away | busy | dnd)." },
-        { status: 400 },
+      return withCors(
+        request,
+        NextResponse.json(
+          { error: "Statut invalide (online | away | busy | dnd)." },
+          { status: 400 },
+        ),
       );
     }
 
     if (mode === "manual") {
       if (!isManualPresenceStatus(status)) {
-        return NextResponse.json({ error: "Statut manuel invalide." }, { status: 400 });
+        return withCors(
+          request,
+          NextResponse.json({ error: "Statut manuel invalide." }, { status: 400 }),
+        );
       }
       const durationRaw = record.durationHours;
       const durationHours =
@@ -87,7 +132,7 @@ export async function POST(request: Request) {
         status,
         durationHours,
       );
-      return NextResponse.json({ me, status: me.status });
+      return withCors(request, NextResponse.json({ me, status: me.status }));
     }
 
     const next = await setPresenceStatus(
@@ -95,15 +140,18 @@ export async function POST(request: Request) {
       gate.ctx.userId,
       status,
     );
-    return NextResponse.json({ status: next });
+    return withCors(request, NextResponse.json({ status: next }));
   } catch (error) {
     console.error("[messaging/presence] POST failed", error);
-    return NextResponse.json(
-      {
-        error: "Erreur présence.",
-        detail: error instanceof Error ? error.message : String(error),
-      },
-      { status: 500 },
+    return withCors(
+      request,
+      NextResponse.json(
+        {
+          error: "Erreur présence.",
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        { status: 500 },
+      ),
     );
   }
 }

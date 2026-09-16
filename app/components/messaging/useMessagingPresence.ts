@@ -86,6 +86,7 @@ export function useMessagingPresence({
       await fetch("/api/messaging/presence", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ status, mode: "auto" }),
       });
     } catch {
@@ -101,6 +102,7 @@ export function useMessagingPresence({
       const res = await fetch("/api/messaging/presence", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ status, mode: "manual", durationHours }),
       });
       if (!res.ok) throw new Error("Impossible de changer le statut");
@@ -117,7 +119,10 @@ export function useMessagingPresence({
   const refreshMe = useCallback(async () => {
     if (!enabled) return;
     try {
-      const res = await fetch("/api/messaging/presence?me=1", { cache: "no-store" });
+      const res = await fetch("/api/messaging/presence?me=1", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
       if (!res.ok) return;
       const data = (await res.json()) as { me?: MessagingMyPresenceDto };
       if (data.me) setMyPresence(data.me);
@@ -132,7 +137,7 @@ export function useMessagingPresence({
     try {
       const res = await fetch(
         `/api/messaging/presence?userIds=${encodeURIComponent(ids.join(","))}`,
-        { cache: "no-store" },
+        { cache: "no-store", credentials: "same-origin" },
       );
       if (!res.ok) return;
       const data = (await res.json()) as {

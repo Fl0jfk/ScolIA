@@ -5,6 +5,8 @@ import {
   resolveOfficeStorage,
   claimEditorSession,
   getEditorSession,
+  releaseEditorSession,
+  touchEditorSession,
 } from "@/app/lib/office-wopi";
 import { listOfficeVersions, restoreOfficeVersion } from "@/app/lib/office-versions";
 import { requireTenantId } from "@/app/lib/tenant-scope";
@@ -142,6 +144,27 @@ export async function POST(req: NextRequest) {
       contentType: OFFICE_KIND_META[resolved.kind].mime,
     });
     if (!restored.ok) return NextResponse.json({ error: restored.error }, { status: 400 });
+    return NextResponse.json({ success: true });
+  }
+
+  if (action === "release") {
+    const sessionId = String(body.sessionId || "");
+    if (!sessionId) return NextResponse.json({ error: "sessionId manquant." }, { status: 400 });
+    await releaseEditorSession(fileId, sessionId);
+    return NextResponse.json({ success: true });
+  }
+
+  if (action === "heartbeat") {
+    const sessionId = String(body.sessionId || "");
+    if (!sessionId) return NextResponse.json({ error: "sessionId manquant." }, { status: 400 });
+    const ok = await touchEditorSession(fileId, sessionId);
+    if (!ok) {
+      const holder = await getEditorSession(fileId);
+      return NextResponse.json(
+        { error: "already_open", holder },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ success: true });
   }
 

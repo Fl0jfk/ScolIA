@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import OfficeFirstPlaceModal from "@/app/components/documents/OfficeFirstPlaceModal";
 import PeerPicker from "@/app/components/documents/PeerPicker";
@@ -34,7 +34,26 @@ type TokenPayload = {
 
 export default function OfficeEditClient(props: Props) {
   const router = useRouter();
-  const [sessionId] = useState(() => crypto.randomUUID());
+  const sessionStorageKey = useMemo(
+    () =>
+      `office-edit-session:${props.scope}:${props.shareId || ""}:${props.fileShareId || ""}:${props.path}`,
+    [props.scope, props.shareId, props.fileShareId, props.path],
+  );
+  const [sessionId] = useState(() => {
+    try {
+      const existing = sessionStorage.getItem(sessionStorageKey);
+      if (existing) return existing;
+    } catch {
+      /* private mode */
+    }
+    const id = crypto.randomUUID();
+    try {
+      sessionStorage.setItem(sessionStorageKey, id);
+    } catch {
+      /* ignore */
+    }
+    return id;
+  });
   const [token, setToken] = useState<TokenPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [alreadyOpen, setAlreadyOpen] = useState(false);
@@ -48,9 +67,50 @@ export default function OfficeEditClient(props: Props) {
   const [shareBusy, setShareBusy] = useState(false);
 
   const returnHref = "/documents/office";
+  const bootstrapping = useRef(false);
+  const tokenRef = useRef<TokenPayload | null>(null);
+  tokenRef.current = token;
+
+  const releaseSession = useCallback(
+    (fileId: string | undefined, sid: string, clearStorage = false) => {
+      if (!fileId) return;
+      const body = JSON.stringify({
+        action: "release",
+        sessionId: sid,
+        scope: props.scope,
+        path: props.path,
+        shareId: props.shareId,
+        fileShareId: props.fileShareId,
+      });
+      if (clearStorage) {
+        try {
+          sessionStorage.removeItem(sessionStorageKey);
+        } catch {
+          /* ignore */
+        }
+      }
+      try {
+        if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+          const blob = new Blob([body], { type: "application/json" });
+          if (navigator.sendBeacon("/api/documents/office/session", blob)) return;
+        }
+      } catch {
+        /* fallback fetch */
+      }
+      void fetch("/api/documents/office/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      }).catch(() => undefined);
+    },
+    [props.scope, props.path, props.shareId, props.fileShareId, sessionStorageKey],
+  );
 
   const bootstrap = useCallback(
     async (takeover: boolean) => {
+      if (bootstrapping.current && !takeover) return;
+      bootstrapping.current = true;
       setLoading(true);
       setError(null);
       setAlreadyOpen(false);
@@ -95,6 +155,7 @@ export default function OfficeEditClient(props: Props) {
       } catch {
         setError("Erreur réseau.");
       } finally {
+        bootstrapping.current = false;
         setLoading(false);
       }
     },
@@ -105,7 +166,50 @@ export default function OfficeEditClient(props: Props) {
     void bootstrap(false);
   }, [bootstrap]);
 
+  useEffect(() => {
+    if (!token?.fileId) return;
+    const beat = () => {
+      void fetch("/api/documents/office/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "heartbeat",
+          sessionId,
+          scope: props.scope,
+          path: props.path,
+          shareId: props.shareId,
+          fileShareId: props.fileShareId,
+        }),
+      }).catch(() => undefined);
+    };
+    beat();
+    const timer = window.setInterval(beat, 45_000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [
+    token?.fileId,
+    sessionId,
+    props.scope,
+    props.path,
+    props.shareId,
+    props.fileShareId,
+  ]);
+
+  // Libération uniquement à la fermeture réelle de l’onglet (pas au remount React).
+  useEffect(() => {
+    const onHide = () => {
+      const t = tokenRef.current;
+      if (t?.fileId) releaseSession(t.fileId, sessionId, true);
+    };
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      window.removeEventListener("pagehide", onHide);
+    };
+  }, [releaseSession, sessionId]);
+
   const leave = () => {
+    if (token?.fileId) releaseSession(token.fileId, sessionId, true);
     if (token?.needsPlaceOnClose) {
       setShowPlace(true);
       return;

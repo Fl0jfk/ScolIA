@@ -13,7 +13,10 @@ import type { OfficeKind, OfficeScope } from "@/app/lib/office-types";
 import { OFFICE_KIND_META, officeKindFromExt } from "@/app/lib/office-types";
 
 const TOKEN_TTL_SEC = 60 * 60 * 4;
-const LOCK_TTL_SEC = 60 * 30;
+/** TTL du verrou éditeur — rafraîchi par heartbeat client. */
+const LOCK_TTL_SEC = 60 * 3;
+/** Même utilisateur : reclaim auto si le verrou n’a plus battu depuis STALE_MS. */
+const EDITOR_STALE_MS = 90_000;
 
 export type WopiAccessClaims = {
   fileId: string;
@@ -311,18 +314,27 @@ export async function claimEditorSession(opts: {
   takeover: boolean;
 }): Promise<{ ok: true } | { ok: false; error: string; holder?: EditorLock }> {
   const existing = await getEditorSession(opts.fileId);
-  if (existing && existing.sessionId !== opts.sessionId && existing.userId === opts.userId) {
-    if (!opts.takeover) {
+
+  if (existing && existing.sessionId === opts.sessionId) {
+    // Même onglet / même session : renouvellement.
+    const lock: EditorLock = {
+      ...existing,
+      userDisplayName: opts.userDisplayName,
+      updatedAt: new Date().toISOString(),
+    };
+    await cacheSet(editorKey(opts.fileId), JSON.stringify(lock), LOCK_TTL_SEC);
+    return { ok: true };
+  }
+
+  if (existing && existing.userId === opts.userId && existing.sessionId !== opts.sessionId) {
+    const ageMs = Date.now() - Date.parse(existing.updatedAt || "");
+    const stale = !Number.isFinite(ageMs) || ageMs >= EDITOR_STALE_MS;
+    if (!opts.takeover && !stale) {
       return { ok: false, error: "already_open", holder: existing };
     }
   }
-  if (existing && existing.userId !== opts.userId && !opts.takeover) {
-    // Autre utilisateur : Collabora gère la collab — on n’empêche pas.
-  }
-  // Même utilisateur, autre onglet
-  if (existing && existing.userId === opts.userId && existing.sessionId !== opts.sessionId && !opts.takeover) {
-    return { ok: false, error: "already_open", holder: existing };
-  }
+
+  // Autre utilisateur : Collabora gère la collab — on n’empêche pas.
   const lock: EditorLock = {
     sessionId: opts.sessionId,
     userId: opts.userId,
@@ -332,6 +344,17 @@ export async function claimEditorSession(opts: {
   };
   await cacheSet(editorKey(opts.fileId), JSON.stringify(lock), LOCK_TTL_SEC);
   return { ok: true };
+}
+
+export async function touchEditorSession(fileId: string, sessionId: string): Promise<boolean> {
+  const existing = await getEditorSession(fileId);
+  if (!existing || existing.sessionId !== sessionId) return false;
+  await cacheSet(
+    editorKey(fileId),
+    JSON.stringify({ ...existing, updatedAt: new Date().toISOString() }),
+    LOCK_TTL_SEC,
+  );
+  return true;
 }
 
 export async function releaseEditorSession(fileId: string, sessionId: string): Promise<void> {
