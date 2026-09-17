@@ -637,11 +637,11 @@ export const INTRANET_MODULES: IntranetModule[] = [
     allowedRoles: [...DIRECTIONS, "administratif", "accueil", "admin"],
     dashboard: {
       id: 245,
-      name: "RDV inscriptions",
+      name: "RDV inscription direction",
       img: "",
       link: "/etablissement/rdv-inscription",
       external: false,
-      description: "Créneaux Google Agenda pour les rencontres direction",
+      description: "Prise de rendez-vous automatique direction via Google Agenda",
     },
   },
   {

@@ -74,7 +74,9 @@ export async function getRdvInscriptionGoogleLinkStatus(): Promise<{
   clientConfigured: boolean;
 }> {
   const tenant = await getTenant();
-  const secrets = await getTenantSecrets(tenant.slug);
+  // Lecture directe S3 (pas le cache registry 5 min) — sinon l’UI garde « non lié » après OAuth.
+  const secrets =
+    (await loadTenantSecretsFile(tenant.slug)) ?? (await getTenantSecrets(tenant.slug));
   const cal = secrets?.google?.calendar;
   const clientId =
     secrets?.google?.clientId?.trim() ||
@@ -86,11 +88,32 @@ export async function getRdvInscriptionGoogleLinkStatus(): Promise<{
     process.env.GOOGLE_CLIENT_SECRET?.trim() ||
     process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim() ||
     "";
+
+  let linked = Boolean(cal?.refreshToken?.trim());
+  let linkedEmail = cal?.linkedEmail?.trim() || null;
+  let linkedDisplayName = cal?.linkedDisplayName?.trim() || null;
+  let linkedAt = cal?.linkedAt?.trim() || null;
+
+  // Repli BDD si le refresh token est en S3 mais le cache a flanché (ou l’inverse).
+  if (!linked) {
+    try {
+      const { getRdvInscriptionConfig } = await import("@/app/lib/rdv-inscription-db");
+      const config = await getRdvInscriptionConfig();
+      if (config.googleLinked) {
+        linked = true;
+        linkedEmail = linkedEmail || config.googleLinkedEmail;
+        linkedAt = linkedAt || config.googleLinkedAt;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   return {
-    linked: Boolean(cal?.refreshToken?.trim()),
-    linkedEmail: cal?.linkedEmail?.trim() || null,
-    linkedDisplayName: cal?.linkedDisplayName?.trim() || null,
-    linkedAt: cal?.linkedAt?.trim() || null,
+    linked,
+    linkedEmail,
+    linkedDisplayName,
+    linkedAt,
     clientConfigured: Boolean(clientId && clientSecret),
   };
 }

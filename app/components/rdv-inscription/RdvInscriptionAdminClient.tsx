@@ -68,12 +68,19 @@ export default function RdvInscriptionAdminClient() {
   }, []);
 
   useEffect(() => {
-    void load();
-    const sp = new URLSearchParams(window.location.search);
-    const g = sp.get("google");
-    if (g === "linked") setMessage("Compte Google connecté.");
-    if (g === "forbidden") setError("Droit insuffisant pour lier Google.");
-    if (g === "error") setError(sp.get("detail") || "Erreur OAuth Google.");
+    void load().then(() => {
+      const sp = new URLSearchParams(window.location.search);
+      const g = sp.get("google");
+      if (g === "linked") {
+        setMessage("Compte Google connecté.");
+        const url = new URL(window.location.href);
+        url.searchParams.delete("google");
+        url.searchParams.delete("detail");
+        window.history.replaceState({}, "", url.pathname + url.search);
+      }
+      if (g === "forbidden") setError("Droit insuffisant pour lier Google.");
+      if (g === "error") setError(sp.get("detail") || "Erreur OAuth Google.");
+    });
   }, [load]);
 
   async function put(body: Record<string, unknown>) {
@@ -128,9 +135,9 @@ export default function RdvInscriptionAdminClient() {
   return (
     <div className="mx-auto max-w-4xl space-y-8 p-4 sm:p-6">
       <header>
-        <h1 className="text-2xl font-bold text-slate-900">RDV inscriptions</h1>
+        <h1 className="text-2xl font-bold text-slate-900">RDV inscription direction</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Pages publiques branchées sur les agendas Google des directrices (créneaux «{" "}
+          Prise de rendez-vous automatique avec les agendas Google des directrices (créneaux «{" "}
           {config.eventTitlePattern} »).
         </p>
       </header>
@@ -164,10 +171,13 @@ export default function RdvInscriptionAdminClient() {
           </p>
         ) : null}
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          {google.linked ? (
+          {google.linked || config.googleLinked ? (
             <>
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-sm font-semibold text-emerald-900">
-                Lié{google.linkedEmail ? ` — ${google.linkedEmail}` : ""}
+                Lié
+                {google.linkedEmail || config.googleLinkedEmail
+                  ? ` — ${google.linkedEmail || config.googleLinkedEmail}`
+                  : ""}
               </span>
               <button
                 type="button"
@@ -177,6 +187,12 @@ export default function RdvInscriptionAdminClient() {
               >
                 Déconnecter
               </button>
+              <a
+                href={oauthStartPath}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Reconnecter
+              </a>
             </>
           ) : (
             <a

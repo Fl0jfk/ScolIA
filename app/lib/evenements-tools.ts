@@ -9,6 +9,16 @@ function isEvenementToolId(id: ToolboxToolId | string): id is EvenementToolId {
   return (EVENEMENTS_TOOL_IDS as readonly string[]).includes(id);
 }
 
+/** Carte fixe (hors toolbox) — RDV inscription direction (Google Agenda). */
+export const EVENEMENTS_RDV_INSCRIPTION_CARD = {
+  title: "RDV inscription direction",
+  description:
+    "Prise de rendez-vous automatique avec la direction (école, collège, lycée) via Google Agenda — lien public pour les familles.",
+  season: "Toute l’année",
+  adminHref: "/etablissement/rdv-inscription",
+  accent: "border-sky-200 bg-sky-50/80 text-sky-900",
+} as const;
+
 export const EVENEMENTS_TOOLS_META: {
   id: EvenementToolId;
   title: string;
