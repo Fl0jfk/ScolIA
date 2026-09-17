@@ -310,7 +310,7 @@ export async function releaseInscriptionCalendarHold(opts: {
   });
   if (!current?.id) return;
   if (isScolaBookedEvent(current)) return;
-  const priv = { ...(current.extendedProperties?.private || {}) };
+  const priv: Record<string, string> = { ...(current.extendedProperties?.private || {}) };
   if (priv[SCOLA_BOOKING_ID_PROP] && priv[SCOLA_BOOKING_ID_PROP] !== opts.bookingId) return;
   delete priv[SCOLA_PENDING_PROP];
   if (priv[SCOLA_BOOKING_ID_PROP] === opts.bookingId) delete priv[SCOLA_BOOKING_ID_PROP];
