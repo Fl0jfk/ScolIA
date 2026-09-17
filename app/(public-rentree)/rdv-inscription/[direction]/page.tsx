@@ -6,6 +6,22 @@ import RdvInscriptionPublicClient from "./RdvInscriptionPublicClient";
 
 type PageProps = { params: Promise<{ direction: string }> };
 
+function unavailablePage(slug: string) {
+  return (
+    <RdvInscriptionPublicClient
+      directionSlug={slug}
+      title="Rendez-vous d’inscription"
+      intro=""
+      consentLabel=""
+      location=""
+      directionLabel={slug}
+      directriceDisplayName={null}
+      initialSlots={[]}
+      initialError="Service temporairement indisponible. Réessayez dans quelques minutes."
+    />
+  );
+}
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { direction } = await params;
   const slug = decodeURIComponent(direction || "").trim().toLowerCase();
@@ -34,30 +50,22 @@ export default async function RdvInscriptionPublicPage({ params }: PageProps) {
   if (!slug) notFound();
 
   let config;
-  let dir;
   try {
     config = await getRdvInscriptionConfig();
-    if (!config.enabled) notFound();
-    dir = await getRdvInscriptionDirectionBySlug(slug, { activeOnly: true });
-    if (!dir) notFound();
   } catch {
-    return (
-      <RdvInscriptionPublicClient
-        directionSlug={slug}
-        title="Rendez-vous d’inscription"
-        intro=""
-        consentLabel=""
-        location=""
-        directionLabel={slug}
-        directriceDisplayName={null}
-        initialSlots={[]}
-        initialError="Service temporairement indisponible. Réessayez dans quelques minutes."
-      />
-    );
+    return unavailablePage(slug);
   }
+  if (!config.enabled) notFound();
+
+  let dir;
+  try {
+    dir = await getRdvInscriptionDirectionBySlug(slug, { activeOnly: true });
+  } catch {
+    return unavailablePage(slug);
+  }
+  if (!dir) notFound();
 
   const listed = await listPublicSlotsForDirection(slug);
-
   if (!listed.ok && listed.status === 404) notFound();
 
   return (
