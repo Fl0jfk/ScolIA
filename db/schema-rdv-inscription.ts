@@ -83,7 +83,7 @@ export const rdvInscriptionDirection = pgTable(
   ],
 );
 
-/** Miroir d’une réservation parent (source de vérité agenda = Google). */
+/** Miroir d’une réservation parent (source de vérité agenda = Google après confirmation). */
 export const rdvInscriptionBooking = pgTable(
   "rdv_inscription_booking",
   {
@@ -104,17 +104,17 @@ export const rdvInscriptionBooking = pgTable(
     studentLastName: text("student_last_name").notNull(),
     parentEmail: text("parent_email").notNull(),
     parentPhone: text("parent_phone").notNull(),
-    /** confirmed | cancelled */
-    status: text("status").notNull().default("confirmed"),
+    /** pending | confirmed | cancelled | expired */
+    status: text("status").notNull().default("pending"),
+    /** Token one-shot pour valider le créneau par e-mail (anti-spam). */
+    confirmToken: text("confirm_token"),
+    confirmExpiresAt: timestamp("confirm_expires_at", { withTimezone: true }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("rdv_inscription_booking_etab_event_uidx").on(
-      t.etablissementId,
-      t.googleCalendarId,
-      t.googleEventId,
-    ),
+    uniqueIndex("rdv_inscription_booking_confirm_token_uidx").on(t.confirmToken),
     index("rdv_inscription_booking_etab_idx").on(t.etablissementId),
     index("rdv_inscription_booking_dir_idx").on(t.etablissementId, t.directionId),
     index("rdv_inscription_booking_status_idx").on(t.etablissementId, t.status),

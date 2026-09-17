@@ -53,10 +53,13 @@ export async function POST(req: Request, ctx: Ctx) {
 
     return NextResponse.json({
       success: true,
+      pending: true,
       bookingId: result.booking.id,
       startAt: result.booking.startAt,
       endAt: result.booking.endAt,
       mailWarning: result.mailWarning || undefined,
+      message:
+        "Un e-mail vient de vous être envoyé : cliquez sur le lien pour valider votre créneau.",
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

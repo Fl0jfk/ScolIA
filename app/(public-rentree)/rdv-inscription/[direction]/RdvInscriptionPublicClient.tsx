@@ -88,9 +88,12 @@ export default function RdvInscriptionPublicClient({
   const [consent, setConsent] = useState(false);
   const [honeypot, setHoneypot] = useState("");
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ startAt: string; endAt: string; mailWarning?: string } | null>(
-    null,
-  );
+  const [done, setDone] = useState<{
+    pending?: boolean;
+    startAt: string;
+    endAt: string;
+    mailWarning?: string;
+  } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   const byDay = useMemo(() => {
@@ -186,10 +189,12 @@ export default function RdvInscriptionPublicClient({
       });
       const data = (await res.json()) as {
         success?: boolean;
+        pending?: boolean;
         error?: string;
         startAt?: string;
         endAt?: string;
         mailWarning?: string;
+        message?: string;
       };
       if (!res.ok || !data.success) {
         setFormError(data.error || "Réservation impossible.");
@@ -199,6 +204,7 @@ export default function RdvInscriptionPublicClient({
         return;
       }
       setDone({
+        pending: data.pending === true,
         startAt: data.startAt || "",
         endAt: data.endAt || "",
         mailWarning: data.mailWarning,
@@ -211,15 +217,20 @@ export default function RdvInscriptionPublicClient({
   }
 
   if (done) {
+    const isPending = done.pending === true;
     return (
       <div className="min-h-screen bg-[#f7f8fa]">
         <RentreePublicHeader />
         <main className="mx-auto max-w-lg px-4 py-14 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-2xl text-emerald-700">
-            ✓
+          <div
+            className={`mx-auto flex h-14 w-14 items-center justify-center rounded-full text-2xl ${
+              isPending ? "bg-sky-100 text-sky-700" : "bg-emerald-100 text-emerald-700"
+            }`}
+          >
+            {isPending ? "✉" : "✓"}
           </div>
           <h1 className="mt-5 text-2xl font-bold tracking-tight text-slate-900">
-            Rendez-vous confirmé
+            {isPending ? "Vérifiez votre e-mail" : "Rendez-vous confirmé"}
           </h1>
           <p className="mt-2 text-slate-600">
             {directionLabel}
@@ -231,9 +242,15 @@ export default function RdvInscriptionPublicClient({
             </p>
           ) : null}
           <p className="mt-5 text-sm leading-relaxed text-slate-500">
-            Un e-mail de confirmation avec fichier calendrier (.ics) vous a été envoyé
-            {done.mailWarning ? " (si la messagerie de l’établissement est opérationnelle)" : ""}.
+            {isPending
+              ? "Un e-mail vient de vous être envoyé. Cliquez sur le lien pour valider votre créneau (valable 2 heures). Sans validation, le créneau sera libéré."
+              : `Un e-mail de confirmation avec fichier calendrier (.ics) vous a été envoyé${
+                  done.mailWarning ? " (si la messagerie de l’établissement est opérationnelle)" : ""
+                }.`}
           </p>
+          {done.mailWarning ? (
+            <p className="mt-3 text-sm text-amber-800">{done.mailWarning}</p>
+          ) : null}
         </main>
       </div>
     );

@@ -27,6 +27,70 @@ function formatSlotFr(startAt: string, endAt: string): string {
   return `${day} · ${hm(start)} – ${hm(end)}`;
 }
 
+/** Mail « cliquez pour valider » (double opt-in anti-spam). */
+export async function sendRdvInscriptionValidationMail(opts: {
+  page: RdvInscriptionDirectionPageSettings;
+  booking: RdvInscriptionBookingRow;
+  directionLabel: string;
+  directriceName?: string | null;
+  confirmUrl: string;
+  expiresAt: Date;
+}): Promise<{ sent: boolean; error?: string }> {
+  const smtp = await getTenantSmtpConfig();
+  const transporter = await createTenantTransporter();
+  if (!smtp || !transporter) {
+    return {
+      sent: false,
+      error: "SMTP non configuré — impossible d’envoyer le lien de validation.",
+    };
+  }
+
+  const slotLabel = formatSlotFr(opts.booking.startAt, opts.booking.endAt);
+  const student = `${opts.booking.studentFirstName} ${opts.booking.studentLastName}`;
+  const title = `${opts.page.title} — ${opts.directionLabel}`;
+  const expiresLabel = opts.expiresAt.toLocaleString("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  try {
+    await transporter.sendMail({
+      from: smtp.user,
+      to: opts.booking.parentEmail,
+      subject: `Validez votre créneau — ${title}`,
+      html: `
+        <p>Bonjour,</p>
+        <p>Vous avez demandé un rendez-vous d’inscription. Pour confirmer le créneau
+        (et éviter les réservations abusives), cliquez sur le bouton ci-dessous :</p>
+        <p style="margin:24px 0;">
+          <a href="${escapeHtml(opts.confirmUrl)}"
+             style="display:inline-block;background:#0369a1;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;">
+            Valider mon créneau
+          </a>
+        </p>
+        <p><strong>Élève :</strong> ${escapeHtml(student)}<br/>
+        <strong>Direction :</strong> ${escapeHtml(opts.directionLabel)}<br/>
+        <strong>Créneau :</strong> ${escapeHtml(slotLabel)}
+        ${opts.directriceName ? `<br/><strong>Avec :</strong> ${escapeHtml(opts.directriceName)}` : ""}
+        </p>
+        <p style="color:#64748b;font-size:13px;">Ce lien expire le ${escapeHtml(expiresLabel)}.
+        Si vous n’êtes pas à l’origine de cette demande, ignorez cet e-mail.</p>
+        <p style="color:#94a3b8;font-size:12px;">Lien : ${escapeHtml(opts.confirmUrl)}</p>
+      `,
+    });
+    return { sent: true };
+  } catch (e) {
+    return {
+      sent: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
+/** Mail de confirmation finale (+ ICS) après clic sur le lien. */
 export async function sendRdvInscriptionConfirmationMails(opts: {
   page: RdvInscriptionDirectionPageSettings;
   booking: RdvInscriptionBookingRow;
@@ -39,7 +103,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
     return {
       parentSent: false,
       notifySent: false,
-      error: "SMTP non configuré — réservation enregistrée sans e-mail.",
+      error: "SMTP non configuré — réservation confirmée sans e-mail.",
     };
   }
 
@@ -73,10 +137,10 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
     await transporter.sendMail({
       from: smtp.user,
       to: opts.booking.parentEmail,
-      subject: `Confirmation — ${title}`,
+      subject: `Réservation validée — ${title}`,
       html: `
         <p>Bonjour,</p>
-        <p>Votre rendez-vous d’inscription est confirmé.</p>
+        <p>Votre rendez-vous d’inscription est <strong>validé</strong>.</p>
         <p><strong>Élève :</strong> ${escapeHtml(student)}<br/>
         <strong>Direction :</strong> ${escapeHtml(opts.directionLabel)}<br/>
         <strong>Créneau :</strong> ${escapeHtml(slotLabel)}
@@ -111,7 +175,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
         to: notify,
         subject: `[RDV inscription] ${student} — ${opts.directionLabel}`,
         html: `
-          <p>Nouvelle prise de rendez-vous d’inscription.</p>
+          <p>Nouvelle prise de rendez-vous d’inscription (validée par le parent).</p>
           <ul>
             <li><strong>Élève :</strong> ${escapeHtml(student)}</li>
             <li><strong>Direction :</strong> ${escapeHtml(opts.directionLabel)}</li>

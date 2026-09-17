@@ -16,6 +16,7 @@ import {
   DEFAULT_RDV_INSCRIPTION_TITLE,
   isValidDirectionSlug,
   type RdvInscriptionBookingRow,
+  type RdvInscriptionBookingStatus,
   type RdvInscriptionConfigPublic,
   type RdvInscriptionDirectionRow,
 } from "@/app/lib/rdv-inscription-types";
@@ -69,6 +70,13 @@ function mapDirection(row: typeof rdvInscriptionDirection.$inferSelect): RdvInsc
   };
 }
 
+function mapBookingStatus(raw: string): RdvInscriptionBookingStatus {
+  if (raw === "pending") return "pending";
+  if (raw === "cancelled") return "cancelled";
+  if (raw === "expired") return "expired";
+  return "confirmed";
+}
+
 function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscriptionBookingRow {
   return {
     id: row.id,
@@ -83,7 +91,9 @@ function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscript
     studentLastName: row.studentLastName,
     parentEmail: row.parentEmail,
     parentPhone: row.parentPhone,
-    status: row.status === "cancelled" ? "cancelled" : "confirmed",
+    status: mapBookingStatus(row.status),
+    confirmExpiresAt: toIso(row.confirmExpiresAt),
+    confirmedAt: toIso(row.confirmedAt),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -469,12 +479,16 @@ export async function insertRdvInscriptionBooking(input: {
   studentLastName: string;
   parentEmail: string;
   parentPhone: string;
+  status?: RdvInscriptionBookingStatus;
+  confirmToken?: string | null;
+  confirmExpiresAt?: Date | null;
   bookingId?: string;
   etablissementId?: string;
 }): Promise<RdvInscriptionBookingRow> {
   const etabId = await requireEtabId(input.etablissementId);
   const db = requireDb();
   const id = input.bookingId || randomUUID();
+  const status = input.status || "pending";
 
   await db.insert(rdvInscriptionBooking).values({
     id,
@@ -490,7 +504,10 @@ export async function insertRdvInscriptionBooking(input: {
     studentLastName: input.studentLastName.trim(),
     parentEmail: input.parentEmail.trim().toLowerCase(),
     parentPhone: input.parentPhone.trim(),
-    status: "confirmed",
+    status,
+    confirmToken: input.confirmToken || null,
+    confirmExpiresAt: input.confirmExpiresAt || null,
+    confirmedAt: status === "confirmed" ? new Date() : null,
   });
 
   const rows = await db
@@ -502,13 +519,15 @@ export async function insertRdvInscriptionBooking(input: {
   return mapBooking(rows[0]);
 }
 
-export async function findBookingByGoogleEvent(opts: {
+/** Réservation active (confirmée ou pending non expirée) pour un événement Google. */
+export async function findActiveBookingByGoogleEvent(opts: {
   calendarId: string;
   eventId: string;
   etablissementId?: string;
 }): Promise<RdvInscriptionBookingRow | null> {
   const etabId = await requireEtabId(opts.etablissementId);
   const db = requireDb();
+  const now = new Date();
   const rows = await db
     .select()
     .from(rdvInscriptionBooking)
@@ -517,11 +536,126 @@ export async function findBookingByGoogleEvent(opts: {
         eq(rdvInscriptionBooking.etablissementId, etabId),
         eq(rdvInscriptionBooking.googleCalendarId, opts.calendarId),
         eq(rdvInscriptionBooking.googleEventId, opts.eventId),
-        eq(rdvInscriptionBooking.status, "confirmed"),
+      ),
+    )
+    .orderBy(desc(rdvInscriptionBooking.createdAt))
+    .limit(5);
+
+  for (const row of rows) {
+    if (row.status === "confirmed") return mapBooking(row);
+    if (row.status === "pending") {
+      if (!row.confirmExpiresAt || row.confirmExpiresAt.getTime() > now.getTime()) {
+        return mapBooking(row);
+      }
+    }
+  }
+  return null;
+}
+
+export async function findBookingByConfirmToken(
+  token: string,
+): Promise<(RdvInscriptionBookingRow & { etablissementId: string }) | null> {
+  const trimmed = token.trim();
+  if (!trimmed) return null;
+  if (!isDatabaseConfigured()) return null;
+  const db = requireDb();
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(eq(rdvInscriptionBooking.confirmToken, trimmed))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  return { ...mapBooking(row), etablissementId: row.etablissementId };
+}
+
+export async function markRdvInscriptionBookingConfirmed(opts: {
+  bookingId: string;
+  etablissementId: string;
+  googleHtmlLink?: string | null;
+}): Promise<RdvInscriptionBookingRow | null> {
+  const db = requireDb();
+  await db
+    .update(rdvInscriptionBooking)
+    .set({
+      status: "confirmed",
+      confirmedAt: new Date(),
+      confirmToken: null,
+      confirmExpiresAt: null,
+      googleHtmlLink: opts.googleHtmlLink ?? undefined,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    );
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
       ),
     )
     .limit(1);
   return rows[0] ? mapBooking(rows[0]) : null;
+}
+
+export async function markRdvInscriptionBookingExpired(opts: {
+  bookingId: string;
+  etablissementId: string;
+}): Promise<void> {
+  const db = requireDb();
+  await db
+    .update(rdvInscriptionBooking)
+    .set({
+      status: "expired",
+      confirmToken: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+        eq(rdvInscriptionBooking.status, "pending"),
+      ),
+    );
+}
+
+export async function listExpiredPendingBookings(opts?: {
+  etablissementId?: string;
+  limit?: number;
+}): Promise<Array<RdvInscriptionBookingRow & { etablissementId: string }>> {
+  const db = requireDb();
+  const now = new Date();
+  const limit = Math.min(100, Math.max(1, opts?.limit ?? 50));
+  const conditions = [
+    eq(rdvInscriptionBooking.status, "pending"),
+  ];
+  if (opts?.etablissementId) {
+    conditions.push(eq(rdvInscriptionBooking.etablissementId, opts.etablissementId));
+  }
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(and(...conditions))
+    .orderBy(asc(rdvInscriptionBooking.confirmExpiresAt))
+    .limit(limit);
+
+  return rows
+    .filter((r) => r.confirmExpiresAt && r.confirmExpiresAt.getTime() <= now.getTime())
+    .map((r) => ({ ...mapBooking(r), etablissementId: r.etablissementId }));
+}
+
+export async function findBookingByGoogleEvent(opts: {
+  calendarId: string;
+  eventId: string;
+  etablissementId?: string;
+}): Promise<RdvInscriptionBookingRow | null> {
+  return findActiveBookingByGoogleEvent(opts);
 }
 
 export async function listRdvInscriptionBookings(opts?: {

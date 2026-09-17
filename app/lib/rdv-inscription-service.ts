@@ -1,19 +1,54 @@
 import "server-only";
 
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import {
-  findBookingByGoogleEvent,
+  findActiveBookingByGoogleEvent,
   getRdvInscriptionConfig,
   getRdvInscriptionDirectionBySlug,
   insertRdvInscriptionBooking,
+  listExpiredPendingBookings,
+  markRdvInscriptionBookingConfirmed,
+  markRdvInscriptionBookingExpired,
+  findBookingByConfirmToken,
 } from "@/app/lib/rdv-inscription-db";
-import { bookInscriptionCalendarEvent, listAvailableInscriptionSlots } from "@/app/lib/rdv-inscription-gcal";
-import { sendRdvInscriptionConfirmationMails } from "@/app/lib/rdv-inscription-mail";
+import {
+  confirmInscriptionCalendarEvent,
+  holdInscriptionCalendarEvent,
+  listAvailableInscriptionSlots,
+  releaseInscriptionCalendarHold,
+} from "@/app/lib/rdv-inscription-gcal";
+import {
+  sendRdvInscriptionConfirmationMails,
+  sendRdvInscriptionValidationMail,
+} from "@/app/lib/rdv-inscription-mail";
+import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import type {
   RdvInscriptionBookInput,
   RdvInscriptionBookingRow,
   RdvInscriptionSlot,
 } from "@/app/lib/rdv-inscription-types";
+
+/** Délai pour cliquer le lien de validation (anti-spam). */
+export const RDV_CONFIRM_TTL_MS = 2 * 60 * 60 * 1000;
+
+async function releaseExpiredPendings(etablissementId?: string): Promise<void> {
+  const expired = await listExpiredPendingBookings({ etablissementId, limit: 40 });
+  for (const b of expired) {
+    try {
+      await releaseInscriptionCalendarHold({
+        calendarId: b.googleCalendarId,
+        eventId: b.googleEventId,
+        bookingId: b.id,
+      });
+    } catch (e) {
+      console.error("[rdv-inscription] release hold expiré:", e);
+    }
+    await markRdvInscriptionBookingExpired({
+      bookingId: b.id,
+      etablissementId: b.etablissementId,
+    });
+  }
+}
 
 export async function listPublicSlotsForDirection(slug: string): Promise<{
   ok: true;
@@ -46,6 +81,7 @@ export async function listPublicSlotsForDirection(slug: string): Promise<{
   }
 
   try {
+    await releaseExpiredPendings();
     const slots = await listAvailableInscriptionSlots({
       calendarId: direction.googleCalendarId,
       titlePattern: direction.eventTitlePattern,
@@ -74,7 +110,7 @@ export async function bookPublicRdvInscription(
   slug: string,
   input: RdvInscriptionBookInput,
 ): Promise<
-  | { ok: true; booking: RdvInscriptionBookingRow; mailWarning?: string }
+  | { ok: true; pending: true; booking: RdvInscriptionBookingRow; mailWarning?: string }
   | { ok: false; status: number; error: string }
 > {
   const config = await getRdvInscriptionConfig();
@@ -109,7 +145,9 @@ export async function bookPublicRdvInscription(
     return { ok: false, status: 400, error: "Téléphone trop long." };
   }
 
-  const existing = await findBookingByGoogleEvent({
+  await releaseExpiredPendings();
+
+  const existing = await findActiveBookingByGoogleEvent({
     calendarId: direction.googleCalendarId,
     eventId,
   });
@@ -118,25 +156,24 @@ export async function bookPublicRdvInscription(
   }
 
   const bookingId = randomUUID();
-  const gcal = await bookInscriptionCalendarEvent({
+  const confirmToken = randomBytes(32).toString("hex");
+  const confirmExpiresAt = new Date(Date.now() + RDV_CONFIRM_TTL_MS);
+
+  const hold = await holdInscriptionCalendarEvent({
     calendarId: direction.googleCalendarId,
     eventId,
     titlePattern: direction.eventTitlePattern,
     bookingId,
-    studentFirstName,
-    studentLastName,
-    parentEmail,
-    parentPhone,
   });
 
-  if (!gcal.ok) {
+  if (!hold.ok) {
     const status =
-      gcal.reason === "already_booked"
+      hold.reason === "already_booked"
         ? 409
-        : gcal.reason === "not_found" || gcal.reason === "past" || gcal.reason === "title_mismatch"
+        : hold.reason === "not_found" || hold.reason === "past" || hold.reason === "title_mismatch"
           ? 410
           : 502;
-    return { ok: false, status, error: gcal.message };
+    return { ok: false, status, error: hold.message };
   }
 
   let booking: RdvInscriptionBookingRow;
@@ -147,20 +184,132 @@ export async function bookPublicRdvInscription(
       directionSlug: direction.slug,
       googleEventId: eventId,
       googleCalendarId: direction.googleCalendarId,
-      googleHtmlLink: gcal.htmlLink,
-      startAt: new Date(gcal.startAt),
-      endAt: new Date(gcal.endAt),
+      googleHtmlLink: hold.htmlLink,
+      startAt: new Date(hold.startAt),
+      endAt: new Date(hold.endAt),
       studentFirstName,
       studentLastName,
       parentEmail,
       parentPhone,
+      status: "pending",
+      confirmToken,
+      confirmExpiresAt,
     });
   } catch (e) {
+    try {
+      await releaseInscriptionCalendarHold({
+        calendarId: direction.googleCalendarId,
+        eventId,
+        bookingId,
+      });
+    } catch {
+      /* ignore */
+    }
     const msg = e instanceof Error ? e.message : String(e);
     if (/unique|duplicate/i.test(msg)) {
       return { ok: false, status: 409, error: "Ce créneau vient d’être pris." };
     }
     throw e;
+  }
+
+  const confirmUrl = await tenantAbsolutePath(
+    `/api/rdv-inscription/confirm?token=${encodeURIComponent(confirmToken)}`,
+  );
+
+  const mail = await sendRdvInscriptionValidationMail({
+    page: {
+      title: direction.title,
+      intro: direction.intro,
+      eventTitlePattern: direction.eventTitlePattern,
+      notifyEmail: direction.notifyEmail,
+      location: direction.location,
+      consentLabel: direction.consentLabel,
+      horizonDays: direction.horizonDays,
+    },
+    booking,
+    directionLabel: direction.label,
+    directriceName: direction.directriceDisplayName,
+    confirmUrl,
+    expiresAt: confirmExpiresAt,
+  });
+
+  return {
+    ok: true,
+    pending: true,
+    booking,
+    mailWarning: mail.error,
+  };
+}
+
+export async function confirmPublicRdvInscription(token: string): Promise<
+  | { ok: true; booking: RdvInscriptionBookingRow; already?: boolean; mailWarning?: string }
+  | { ok: false; error: "invalid" | "expired" | "taken" | "error"; message: string }
+> {
+  const found = await findBookingByConfirmToken(token);
+  if (!found) {
+    return { ok: false, error: "invalid", message: "Lien de validation invalide ou déjà utilisé." };
+  }
+
+  if (found.status === "confirmed") {
+    return { ok: true, booking: found, already: true };
+  }
+
+  if (found.status !== "pending") {
+    return { ok: false, error: "invalid", message: "Cette demande n’est plus valide." };
+  }
+
+  if (found.confirmExpiresAt && new Date(found.confirmExpiresAt).getTime() <= Date.now()) {
+    try {
+      await releaseInscriptionCalendarHold({
+        calendarId: found.googleCalendarId,
+        eventId: found.googleEventId,
+        bookingId: found.id,
+      });
+    } catch {
+      /* ignore */
+    }
+    await markRdvInscriptionBookingExpired({
+      bookingId: found.id,
+      etablissementId: found.etablissementId,
+    });
+    return {
+      ok: false,
+      error: "expired",
+      message: "Le lien a expiré. Merci de reprendre un créneau.",
+    };
+  }
+
+  const direction = await getRdvInscriptionDirectionBySlug(found.directionSlug, {
+    etablissementId: found.etablissementId,
+  });
+  if (!direction) {
+    return { ok: false, error: "error", message: "Direction introuvable." };
+  }
+
+  const gcal = await confirmInscriptionCalendarEvent({
+    calendarId: found.googleCalendarId,
+    eventId: found.googleEventId,
+    bookingId: found.id,
+    studentFirstName: found.studentFirstName,
+    studentLastName: found.studentLastName,
+    parentEmail: found.parentEmail,
+    parentPhone: found.parentPhone,
+  });
+
+  if (!gcal.ok) {
+    if (gcal.reason === "already_booked") {
+      return { ok: false, error: "taken", message: gcal.message };
+    }
+    return { ok: false, error: "error", message: gcal.message };
+  }
+
+  const booking = await markRdvInscriptionBookingConfirmed({
+    bookingId: found.id,
+    etablissementId: found.etablissementId,
+    googleHtmlLink: gcal.htmlLink,
+  });
+  if (!booking) {
+    return { ok: false, error: "error", message: "Confirmation impossible." };
   }
 
   const mail = await sendRdvInscriptionConfirmationMails({

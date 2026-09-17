@@ -514,6 +514,7 @@ export default function RdvInscriptionAdminClient() {
                   <th className="py-2 pr-3 font-semibold">Créneau</th>
                   <th className="py-2 pr-3 font-semibold">Élève</th>
                   <th className="py-2 pr-3 font-semibold">Contact</th>
+                  <th className="py-2 pr-3 font-semibold">Statut</th>
                   <th className="py-2 font-semibold">Agenda</th>
                 </tr>
               </thead>
@@ -536,6 +537,25 @@ export default function RdvInscriptionAdminClient() {
                       </a>
                       <br />
                       <span className="text-slate-600">{b.parentPhone}</span>
+                    </td>
+                    <td className="py-2 pr-3">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          b.status === "confirmed"
+                            ? "bg-emerald-100 text-emerald-800"
+                            : b.status === "pending"
+                              ? "bg-amber-100 text-amber-900"
+                              : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {b.status === "confirmed"
+                          ? "Confirmé"
+                          : b.status === "pending"
+                            ? "En attente mail"
+                            : b.status === "expired"
+                              ? "Expiré"
+                              : "Annulé"}
+                      </span>
                     </td>
                     <td className="py-2">
                       {b.googleHtmlLink ? (

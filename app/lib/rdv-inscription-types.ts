@@ -45,6 +45,12 @@ export type RdvInscriptionSlot = {
   htmlLink: string | null;
 };
 
+export type RdvInscriptionBookingStatus =
+  | "pending"
+  | "confirmed"
+  | "cancelled"
+  | "expired";
+
 export type RdvInscriptionBookingRow = {
   id: string;
   directionId: string;
@@ -58,7 +64,9 @@ export type RdvInscriptionBookingRow = {
   studentLastName: string;
   parentEmail: string;
   parentPhone: string;
-  status: "confirmed" | "cancelled";
+  status: RdvInscriptionBookingStatus;
+  confirmExpiresAt: string | null;
+  confirmedAt: string | null;
   createdAt: string;
 };
 
