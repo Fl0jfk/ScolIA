@@ -83,6 +83,10 @@ Si un MCP n’est pas disponible : le signaler, ne pas inventer l’état.
 
 La page **Absence accueil** (`/accueil/absences`, module `accueil-absences`) enregistre le signal jour J (élèves → `vs_absence_eleve`, profs / OGEC → table `absence` RH). Charlemagne reste l’outil officiel de vie scolaire tant que le pont n’est pas branché. Point d’accroche : `app/lib/absences-sync/port.ts` (`noop` aujourd’hui). Les absences profs saisies à l’accueil passent par la validation direction, puis calendrier + mail secrétariat (déclaration rectorat), comme le circuit RH classique.
 
+## RDV inscriptions (Google Agenda)
+
+Module `rdv-inscription` : pages publiques `/rdv-inscription/[direction]` (une par direction) listant les créneaux Google dont le titre contient le motif configuré (défaut « rendez-vous inscription »). Paramétrage : `/etablissement/rdv-inscription`. OAuth compte technique (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`) ; chaque directrice partage son agenda avec ce compte. Migration : `drizzle/0042_rdv_inscription.sql`.
+
 ## Hors scope sans confirmation explicite
 
 - Mutations prod Scaleway (RDB, buckets, containers)

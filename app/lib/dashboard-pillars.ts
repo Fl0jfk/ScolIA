@@ -83,6 +83,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "organigramme",
       "evenements",
       "accueil-portes-ouvertes",
+      "rdv-inscription",
       "communication",
       "conformite-rgpd",
       "chatbot-knowledge",

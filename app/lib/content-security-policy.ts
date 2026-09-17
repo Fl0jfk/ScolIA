@@ -37,7 +37,7 @@ function contentSecurityPolicyDirectives(nonce?: string): string {
     : `'self'${isDev ? " 'unsafe-eval'" : ""}`;
   const collaboraFrames = collaboraFrameSrcOrigins().join("\n    ");
   return `
-  default-src 'self' https://login.microsoftonline.com/;
+  default-src 'self' https://login.microsoftonline.com/ https://accounts.google.com/;
   base-uri 'self';
   frame-ancestors 'self';
   frame-src 'self' blob:
@@ -47,6 +47,7 @@ function contentSecurityPolicyDirectives(nonce?: string): string {
     https://*.microsoftonline.com
     https://login.live.com
     https://login.microsoft.com
+    https://accounts.google.com
     ${collaboraFrames};
   object-src 'self' blob: data:;
   connect-src 'self'
@@ -56,6 +57,8 @@ function contentSecurityPolicyDirectives(nonce?: string): string {
     https://api.stripe.com
     https://maps.googleapis.com
     https://www.googleapis.com
+    https://oauth2.googleapis.com
+    https://accounts.google.com
     https://login.microsoftonline.com
     https://graph.microsoft.com
     ${collaboraFrames};

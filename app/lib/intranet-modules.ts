@@ -629,6 +629,22 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "rdv-inscription",
+    pathPrefixes: [
+      "/etablissement/rdv-inscription",
+      "/api/rdv-inscription",
+    ],
+    allowedRoles: [...DIRECTIONS, "administratif", "accueil", "admin"],
+    dashboard: {
+      id: 245,
+      name: "RDV inscriptions",
+      img: "",
+      link: "/etablissement/rdv-inscription",
+      external: false,
+      description: "Créneaux Google Agenda pour les rencontres direction",
+    },
+  },
+  {
     id: "absences-accueil-consultation",
     pathPrefixes: [
       "/vie-scolaire/absences-accueil",
@@ -1125,6 +1141,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "organigramme",
     "evenements",
     "accueil-portes-ouvertes",
+    "rdv-inscription",
     "communication",
     "conformite-rgpd",
     "chatbot-knowledge",

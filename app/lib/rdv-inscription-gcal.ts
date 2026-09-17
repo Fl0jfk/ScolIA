@@ -1,0 +1,281 @@
+import "server-only";
+
+import {
+  eventTitleMatchesPattern,
+  type RdvInscriptionSlot,
+} from "@/app/lib/rdv-inscription-types";
+import { getRdvInscriptionGoogleAccessToken } from "@/app/lib/rdv-inscription-oauth";
+
+const GCAL_BASE = "https://www.googleapis.com/calendar/v3";
+
+/** Propriété privée pour marquer un créneau déjà réservé via ScolIA. */
+export const SCOLA_BOOKED_PROP = "scolaBooked";
+export const SCOLA_BOOKING_ID_PROP = "scolaBookingId";
+
+type GCalEventDate = {
+  dateTime?: string;
+  date?: string;
+  timeZone?: string;
+};
+
+type GCalEvent = {
+  id?: string;
+  status?: string;
+  summary?: string;
+  description?: string;
+  htmlLink?: string;
+  start?: GCalEventDate;
+  end?: GCalEventDate;
+  extendedProperties?: {
+    private?: Record<string, string>;
+    shared?: Record<string, string>;
+  };
+  attendees?: Array<{ email?: string; displayName?: string }>;
+  transparency?: string;
+  etag?: string;
+};
+
+function encodeCalendarId(calendarId: string): string {
+  return encodeURIComponent(calendarId);
+}
+
+async function gcalFetch(
+  accessToken: string,
+  path: string,
+  init?: RequestInit,
+): Promise<Response> {
+  return fetch(`${GCAL_BASE}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
+    },
+  });
+}
+
+function eventStartEnd(ev: GCalEvent): { startAt: string; endAt: string } | null {
+  const startRaw = ev.start?.dateTime || ev.start?.date;
+  const endRaw = ev.end?.dateTime || ev.end?.date;
+  if (!startRaw || !endRaw) return null;
+  const start = new Date(startRaw);
+  const end = new Date(endRaw);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  return { startAt: start.toISOString(), endAt: end.toISOString() };
+}
+
+export function isScolaBookedEvent(ev: GCalEvent): boolean {
+  const priv = ev.extendedProperties?.private || {};
+  if (priv[SCOLA_BOOKED_PROP] === "true") return true;
+  return false;
+}
+
+export async function listAvailableInscriptionSlots(opts: {
+  calendarId: string;
+  titlePattern: string;
+  horizonDays: number;
+  accessToken?: string;
+}): Promise<RdvInscriptionSlot[]> {
+  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+  const calendarId = opts.calendarId.trim();
+  if (!calendarId) return [];
+
+  const now = new Date();
+  const horizon = new Date(now.getTime() + Math.max(1, opts.horizonDays) * 24 * 60 * 60 * 1000);
+  const params = new URLSearchParams({
+    timeMin: now.toISOString(),
+    timeMax: horizon.toISOString(),
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "250",
+  });
+
+  const res = await gcalFetch(
+    accessToken,
+    `/calendars/${encodeCalendarId(calendarId)}/events?${params.toString()}`,
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Google Calendar list events (${res.status}) : ${body.slice(0, 400)}`);
+  }
+
+  const data = (await res.json()) as { items?: GCalEvent[] };
+  const slots: RdvInscriptionSlot[] = [];
+  for (const ev of data.items || []) {
+    if (!ev.id || ev.status === "cancelled") continue;
+    if (isScolaBookedEvent(ev)) continue;
+    const summary = (ev.summary || "").trim();
+    if (!eventTitleMatchesPattern(summary, opts.titlePattern)) continue;
+    const bounds = eventStartEnd(ev);
+    if (!bounds) continue;
+    if (new Date(bounds.startAt).getTime() < now.getTime() - 60_000) continue;
+    slots.push({
+      eventId: ev.id,
+      calendarId,
+      title: summary,
+      startAt: bounds.startAt,
+      endAt: bounds.endAt,
+      htmlLink: ev.htmlLink?.trim() || null,
+    });
+  }
+  return slots;
+}
+
+export async function getCalendarEvent(opts: {
+  calendarId: string;
+  eventId: string;
+  accessToken?: string;
+}): Promise<GCalEvent | null> {
+  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+  const res = await gcalFetch(
+    accessToken,
+    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}`,
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Google Calendar get event (${res.status}) : ${body.slice(0, 400)}`);
+  }
+  return (await res.json()) as GCalEvent;
+}
+
+export type BookCalendarEventResult =
+  | {
+      ok: true;
+      event: GCalEvent;
+      startAt: string;
+      endAt: string;
+      htmlLink: string | null;
+    }
+  | { ok: false; reason: "not_found" | "already_booked" | "title_mismatch" | "past" | "error"; message: string };
+
+export async function bookInscriptionCalendarEvent(opts: {
+  calendarId: string;
+  eventId: string;
+  titlePattern: string;
+  bookingId: string;
+  studentFirstName: string;
+  studentLastName: string;
+  parentEmail: string;
+  parentPhone: string;
+  accessToken?: string;
+}): Promise<BookCalendarEventResult> {
+  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+
+  const current = await getCalendarEvent({
+    calendarId: opts.calendarId,
+    eventId: opts.eventId,
+    accessToken,
+  });
+  if (!current?.id) {
+    return { ok: false, reason: "not_found", message: "Créneau introuvable." };
+  }
+  if (current.status === "cancelled") {
+    return { ok: false, reason: "not_found", message: "Créneau annulé." };
+  }
+  if (isScolaBookedEvent(current)) {
+    return { ok: false, reason: "already_booked", message: "Ce créneau vient d’être pris." };
+  }
+  const summary = (current.summary || "").trim();
+  if (!eventTitleMatchesPattern(summary, opts.titlePattern)) {
+    return {
+      ok: false,
+      reason: "title_mismatch",
+      message: "Ce créneau n’est plus proposé pour les inscriptions.",
+    };
+  }
+  const bounds = eventStartEnd(current);
+  if (!bounds) {
+    return { ok: false, reason: "error", message: "Horaires d’événement invalides." };
+  }
+  if (new Date(bounds.startAt).getTime() < Date.now() - 60_000) {
+    return { ok: false, reason: "past", message: "Ce créneau est déjà passé." };
+  }
+
+  const studentLabel = `${opts.studentLastName.trim().toUpperCase()} ${opts.studentFirstName.trim()}`;
+  const newTitle = `RDV inscription — ${studentLabel}`;
+  const descriptionLines = [
+    (current.description || "").trim(),
+    "",
+    "— Réservé via ScolIA —",
+    `Élève : ${opts.studentFirstName.trim()} ${opts.studentLastName.trim()}`,
+    `E-mail parent : ${opts.parentEmail.trim()}`,
+    `Téléphone : ${opts.parentPhone.trim()}`,
+    `Réf. : ${opts.bookingId}`,
+  ].filter((l, i, arr) => !(l === "" && arr[i - 1] === ""));
+
+  const priv = {
+    ...(current.extendedProperties?.private || {}),
+    [SCOLA_BOOKED_PROP]: "true",
+    [SCOLA_BOOKING_ID_PROP]: opts.bookingId,
+  };
+
+  const patchBody: Record<string, unknown> = {
+    summary: newTitle,
+    description: descriptionLines.join("\n").trim(),
+    transparency: "opaque",
+    extendedProperties: {
+      private: priv,
+      shared: current.extendedProperties?.shared || undefined,
+    },
+    attendees: [
+      ...(current.attendees || []).filter(
+        (a) => a.email && a.email.toLowerCase() !== opts.parentEmail.trim().toLowerCase(),
+      ),
+      {
+        email: opts.parentEmail.trim().toLowerCase(),
+        displayName: `Parent — ${studentLabel}`,
+      },
+    ],
+  };
+
+  const ifMatch = current.etag?.trim();
+  const res = await gcalFetch(
+    accessToken,
+    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}?sendUpdates=all`,
+    {
+      method: "PATCH",
+      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
+      body: JSON.stringify(patchBody),
+    },
+  );
+
+  if (res.status === 412) {
+    return {
+      ok: false,
+      reason: "already_booked",
+      message: "Ce créneau vient d’être pris par quelqu’un d’autre.",
+    };
+  }
+  if (!res.ok) {
+    const body = await res.text();
+    // Relecture : peut-être réservé entre temps
+    const again = await getCalendarEvent({
+      calendarId: opts.calendarId,
+      eventId: opts.eventId,
+      accessToken,
+    });
+    if (again && isScolaBookedEvent(again)) {
+      return {
+        ok: false,
+        reason: "already_booked",
+        message: "Ce créneau vient d’être pris.",
+      };
+    }
+    return {
+      ok: false,
+      reason: "error",
+      message: `Impossible de réserver sur Google Agenda (${res.status}) : ${body.slice(0, 300)}`,
+    };
+  }
+
+  const updated = (await res.json()) as GCalEvent;
+  const updatedBounds = eventStartEnd(updated) || bounds;
+  return {
+    ok: true,
+    event: updated,
+    startAt: updatedBounds.startAt,
+    endAt: updatedBounds.endAt,
+    htmlLink: updated.htmlLink?.trim() || current.htmlLink?.trim() || null,
+  };
+}

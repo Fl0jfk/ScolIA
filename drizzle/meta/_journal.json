@@ -288,6 +288,20 @@
       "when": 1787635000000,
       "tag": "0040_fiches_dialogue_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1787640000000,
+      "tag": "0041_travel_parent_blog",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1787645000000,
+      "tag": "0042_rdv_inscription",
+      "breakpoints": true
     }
   ]
 }

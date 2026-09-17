@@ -57,6 +57,20 @@ export type TenantSecrets = {
       linkedAt?: string;
     };
   };
+  /**
+   * Google Calendar (RDV inscriptions) — compte technique.
+   * Les directrices partagent leur agenda avec ce compte.
+   */
+  google?: {
+    clientId?: string;
+    clientSecret?: string;
+    calendar?: {
+      refreshToken: string;
+      linkedEmail?: string;
+      linkedDisplayName?: string;
+      linkedAt?: string;
+    };
+  };
   /** Données S3 : roleArn (recommandé) ou clés dédiées ; sinon repli IAM plateforme. */
   aws?: {
     roleArn?: string;

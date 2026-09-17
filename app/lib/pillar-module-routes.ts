@@ -26,6 +26,7 @@ const PILLAR_MODULE_HREF: Record<string, string> = {
   "vs-calendrier": "/vie-scolaire/calendrier",
   "accueil-absences": "/vie-scolaire/absences",
   "accueil-portes-ouvertes": "/accueil/portes-ouvertes",
+  "rdv-inscription": "/etablissement/rdv-inscription",
   "absences-accueil-consultation": "/vie-scolaire/absences?tab=consulter",
   "vs-appels": "/vie-scolaire/absences?tab=appels",
   "vs-absences": "/vie-scolaire/presence?tab=absences",
