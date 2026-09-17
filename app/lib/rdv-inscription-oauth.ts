@@ -114,11 +114,14 @@ export async function fetchGoogleUserEmail(accessToken: string): Promise<{
 
 /** Access token prêt à l’emploi + rotation éventuelle du refresh token. */
 export async function getRdvInscriptionGoogleAccessToken(): Promise<string> {
-  const tenant = await getTenant();
-  const secrets = await getTenantSecrets(tenant.slug);
-  const refreshToken = secrets?.google?.calendar?.refreshToken?.trim();
+  const { resolveRdvInscriptionGoogleRefreshToken } = await import(
+    "@/app/lib/rdv-inscription-google"
+  );
+  const refreshToken = await resolveRdvInscriptionGoogleRefreshToken();
   if (!refreshToken) {
-    throw new Error("Compte Google Calendar non lié — connectez-le dans le paramétrage RDV.");
+    throw new Error(
+      "Compte Google Calendar non lié — cliquez sur « Connecter Google Agenda » (ou Reconnecter) dans le paramétrage RDV.",
+    );
   }
   const { clientId, clientSecret } = await resolveGoogleOAuthClient();
   const tokens = await getGoogleAccessTokenFromRefresh({

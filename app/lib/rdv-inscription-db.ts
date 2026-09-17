@@ -207,16 +207,58 @@ export async function markRdvInscriptionGoogleLinked(input: {
   linked: boolean;
   email?: string | null;
   linkedAt?: Date | null;
+  refreshToken?: string | null;
 }): Promise<void> {
   await ensureRdvInscriptionDefaults();
   const etabId = await requireEtabId();
   const db = requireDb();
+  const patch: Partial<typeof rdvInscriptionConfig.$inferInsert> = {
+    googleLinked: input.linked ? 1 : 0,
+    googleLinkedEmail: input.linked ? input.email?.trim() || null : null,
+    googleLinkedAt: input.linked ? input.linkedAt || new Date() : null,
+    updatedAt: new Date(),
+  };
+  if (input.linked) {
+    if (typeof input.refreshToken === "string" && input.refreshToken.trim()) {
+      patch.googleRefreshToken = input.refreshToken.trim();
+    }
+  } else {
+    patch.googleRefreshToken = null;
+  }
+  await db
+    .update(rdvInscriptionConfig)
+    .set(patch)
+    .where(eq(rdvInscriptionConfig.etablissementId, etabId));
+}
+
+/** Refresh token Google stocké en BDD (prioritaire pour les appels Agenda). */
+export async function getRdvInscriptionGoogleRefreshToken(
+  etablissementId?: string,
+): Promise<string | null> {
+  await ensureRdvInscriptionDefaults(etablissementId);
+  const etabId = await requireEtabId(etablissementId);
+  const db = requireDb();
+  const rows = await db
+    .select({ token: rdvInscriptionConfig.googleRefreshToken })
+    .from(rdvInscriptionConfig)
+    .where(eq(rdvInscriptionConfig.etablissementId, etabId))
+    .limit(1);
+  const token = rows[0]?.token?.trim();
+  return token || null;
+}
+
+export async function persistRdvInscriptionGoogleRefreshToken(
+  refreshToken: string,
+  etablissementId?: string,
+): Promise<void> {
+  await ensureRdvInscriptionDefaults(etablissementId);
+  const etabId = await requireEtabId(etablissementId);
+  const db = requireDb();
   await db
     .update(rdvInscriptionConfig)
     .set({
-      googleLinked: input.linked ? 1 : 0,
-      googleLinkedEmail: input.linked ? input.email?.trim() || null : null,
-      googleLinkedAt: input.linked ? input.linkedAt || new Date() : null,
+      googleRefreshToken: refreshToken.trim(),
+      googleLinked: 1,
       updatedAt: new Date(),
     })
     .where(eq(rdvInscriptionConfig.etablissementId, etabId));

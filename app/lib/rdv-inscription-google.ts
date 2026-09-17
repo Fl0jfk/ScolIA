@@ -7,7 +7,11 @@ import {
   saveTenantSecretsFile,
 } from "@/app/lib/tenant-registry";
 import type { TenantSecrets } from "@/app/lib/tenant-types";
-import { markRdvInscriptionGoogleLinked } from "@/app/lib/rdv-inscription-db";
+import {
+  getRdvInscriptionGoogleRefreshToken,
+  markRdvInscriptionGoogleLinked,
+  persistRdvInscriptionGoogleRefreshToken,
+} from "@/app/lib/rdv-inscription-db";
 
 export async function saveRdvInscriptionGoogleLinkSecret(input: {
   refreshToken: string;
@@ -20,50 +24,86 @@ export async function saveRdvInscriptionGoogleLinkSecret(input: {
   if (!existing) throw new Error("Secrets tenant introuvables.");
 
   const linkedAt = new Date().toISOString();
+  const refreshToken = input.refreshToken.trim();
   const prevGoogle = existing.google ?? {};
   const google: NonNullable<TenantSecrets["google"]> = {
     ...prevGoogle,
     calendar: {
-      refreshToken: input.refreshToken.trim(),
+      refreshToken,
       linkedEmail: input.linkedEmail?.trim() || undefined,
       linkedDisplayName: input.linkedDisplayName?.trim() || undefined,
       linkedAt,
     },
   };
 
-  await saveTenantSecretsFile(tenant.slug, { ...existing, google });
+  // BDD d’abord (fiable multi-instances) puis miroir S3.
   await markRdvInscriptionGoogleLinked({
     linked: true,
     email: input.linkedEmail,
     linkedAt: new Date(linkedAt),
+    refreshToken,
   });
+
+  try {
+    await saveTenantSecretsFile(tenant.slug, { ...existing, google });
+  } catch (e) {
+    console.error("[rdv-inscription] miroir S3 refresh token échoué (BDD OK):", e);
+  }
 }
 
 export async function persistRotatedGoogleRefreshToken(refreshToken: string): Promise<void> {
+  const trimmed = refreshToken.trim();
+  await persistRdvInscriptionGoogleRefreshToken(trimmed);
+
   const tenant = await getTenant();
-  const existing =
-    (await loadTenantSecretsFile(tenant.slug)) ?? (await getTenantSecrets(tenant.slug));
-  if (!existing?.google?.calendar?.refreshToken) return;
-  const google: NonNullable<TenantSecrets["google"]> = {
-    ...existing.google,
-    calendar: {
-      ...existing.google.calendar,
-      refreshToken: refreshToken.trim(),
-    },
-  };
-  await saveTenantSecretsFile(tenant.slug, { ...existing, google });
+  try {
+    const existing =
+      (await loadTenantSecretsFile(tenant.slug)) ?? (await getTenantSecrets(tenant.slug));
+    if (!existing?.google?.calendar?.refreshToken) return;
+    const google: NonNullable<TenantSecrets["google"]> = {
+      ...existing.google,
+      calendar: {
+        ...existing.google.calendar,
+        refreshToken: trimmed,
+      },
+    };
+    await saveTenantSecretsFile(tenant.slug, { ...existing, google });
+  } catch (e) {
+    console.error("[rdv-inscription] rotation S3 refresh token échouée (BDD OK):", e);
+  }
 }
 
 export async function clearRdvInscriptionGoogleLinkSecret(): Promise<void> {
   const tenant = await getTenant();
-  const existing =
+  await markRdvInscriptionGoogleLinked({
+    linked: false,
+    email: null,
+    linkedAt: null,
+    refreshToken: null,
+  });
+
+  try {
+    const existing =
+      (await loadTenantSecretsFile(tenant.slug)) ?? (await getTenantSecrets(tenant.slug));
+    if (!existing) return;
+    const google = existing.google
+      ? { ...existing.google, calendar: undefined }
+      : undefined;
+    await saveTenantSecretsFile(tenant.slug, { ...existing, google });
+  } catch (e) {
+    console.error("[rdv-inscription] clear S3 refresh token échoué (BDD OK):", e);
+  }
+}
+
+/** Jeton utilisable pour Google Calendar (BDD prioritaire, puis S3). */
+export async function resolveRdvInscriptionGoogleRefreshToken(): Promise<string | null> {
+  const fromDb = await getRdvInscriptionGoogleRefreshToken();
+  if (fromDb) return fromDb;
+
+  const tenant = await getTenant();
+  const secrets =
     (await loadTenantSecretsFile(tenant.slug)) ?? (await getTenantSecrets(tenant.slug));
-  if (!existing) throw new Error("Secrets tenant introuvables.");
-  const google = existing.google
-    ? { ...existing.google, calendar: undefined }
-    : undefined;
-  await saveTenantSecretsFile(tenant.slug, { ...existing, google });
-  await markRdvInscriptionGoogleLinked({ linked: false, email: null, linkedAt: null });
+  return secrets?.google?.calendar?.refreshToken?.trim() || null;
 }
 
 export async function getRdvInscriptionGoogleLinkStatus(): Promise<{
@@ -72,9 +112,10 @@ export async function getRdvInscriptionGoogleLinkStatus(): Promise<{
   linkedDisplayName: string | null;
   linkedAt: string | null;
   clientConfigured: boolean;
+  /** true seulement s’il existe un refresh token utilisable. */
+  tokenReady: boolean;
 }> {
   const tenant = await getTenant();
-  // Lecture directe S3 (pas le cache registry 5 min) — sinon l’UI garde « non lié » après OAuth.
   const secrets =
     (await loadTenantSecretsFile(tenant.slug)) ?? (await getTenantSecrets(tenant.slug));
   const cal = secrets?.google?.calendar;
@@ -89,31 +130,28 @@ export async function getRdvInscriptionGoogleLinkStatus(): Promise<{
     process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim() ||
     "";
 
-  let linked = Boolean(cal?.refreshToken?.trim());
+  const token = await resolveRdvInscriptionGoogleRefreshToken();
+  const tokenReady = Boolean(token);
+
   let linkedEmail = cal?.linkedEmail?.trim() || null;
   let linkedDisplayName = cal?.linkedDisplayName?.trim() || null;
   let linkedAt = cal?.linkedAt?.trim() || null;
 
-  // Repli BDD si le refresh token est en S3 mais le cache a flanché (ou l’inverse).
-  if (!linked) {
-    try {
-      const { getRdvInscriptionConfig } = await import("@/app/lib/rdv-inscription-db");
-      const config = await getRdvInscriptionConfig();
-      if (config.googleLinked) {
-        linked = true;
-        linkedEmail = linkedEmail || config.googleLinkedEmail;
-        linkedAt = linkedAt || config.googleLinkedAt;
-      }
-    } catch {
-      /* ignore */
-    }
+  try {
+    const { getRdvInscriptionConfig } = await import("@/app/lib/rdv-inscription-db");
+    const config = await getRdvInscriptionConfig();
+    linkedEmail = linkedEmail || config.googleLinkedEmail;
+    linkedAt = linkedAt || config.googleLinkedAt;
+  } catch {
+    /* ignore */
   }
 
   return {
-    linked,
-    linkedEmail,
-    linkedDisplayName,
-    linkedAt,
+    linked: tokenReady,
+    linkedEmail: tokenReady ? linkedEmail : null,
+    linkedDisplayName: tokenReady ? linkedDisplayName : null,
+    linkedAt: tokenReady ? linkedAt : null,
     clientConfigured: Boolean(clientId && clientSecret),
+    tokenReady,
   };
 }

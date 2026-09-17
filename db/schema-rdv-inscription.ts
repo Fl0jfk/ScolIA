@@ -36,6 +36,8 @@ export const rdvInscriptionConfig = pgTable(
     googleLinked: integer("google_linked").notNull().default(0),
     googleLinkedEmail: text("google_linked_email"),
     googleLinkedAt: timestamp("google_linked_at", { withTimezone: true }),
+    /** Refresh token OAuth Google (compte technique) — source de vérité pour l’API Agenda. */
+    googleRefreshToken: text("google_refresh_token"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

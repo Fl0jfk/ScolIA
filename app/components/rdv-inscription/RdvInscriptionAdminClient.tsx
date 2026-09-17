@@ -171,13 +171,11 @@ export default function RdvInscriptionAdminClient() {
           </p>
         ) : null}
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          {google.linked || config.googleLinked ? (
+          {google.linked ? (
             <>
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-sm font-semibold text-emerald-900">
                 Lié
-                {google.linkedEmail || config.googleLinkedEmail
-                  ? ` — ${google.linkedEmail || config.googleLinkedEmail}`
-                  : ""}
+                {google.linkedEmail ? ` — ${google.linkedEmail}` : ""}
               </span>
               <button
                 type="button"
@@ -195,12 +193,21 @@ export default function RdvInscriptionAdminClient() {
               </a>
             </>
           ) : (
-            <a
-              href={oauthStartPath}
-              className="inline-flex items-center gap-1 rounded-md bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800"
-            >
-              Connecter Google Agenda
-            </a>
+            <>
+              <a
+                href={oauthStartPath}
+                className="inline-flex items-center gap-1 rounded-md bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800"
+              >
+                Connecter Google Agenda
+              </a>
+              {config.googleLinked ? (
+                <p className="w-full text-sm text-amber-800">
+                  Une ancienne connexion a été détectée mais le jeton Google n’est plus
+                  utilisable. Cliquez sur <strong>Connecter Google Agenda</strong> pour
+                  renouveler l’accès, puis retestez les créneaux.
+                </p>
+              ) : null}
+            </>
           )}
         </div>
       </section>
