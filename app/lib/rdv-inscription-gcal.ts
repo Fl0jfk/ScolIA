@@ -399,7 +399,7 @@ export async function confirmInscriptionCalendarEvent(opts: {
     `Réf. : ${opts.bookingId}`,
   ];
 
-  const priv = {
+  const priv: Record<string, string> = {
     ...(current.extendedProperties?.private || {}),
     [SCOLA_BOOKED_PROP]: "true",
     [SCOLA_BOOKING_ID_PROP]: opts.bookingId,
