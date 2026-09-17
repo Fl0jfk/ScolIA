@@ -14,7 +14,6 @@ import {
   clearRdvInscriptionGoogleLinkSecret,
   getRdvInscriptionGoogleLinkStatus,
 } from "@/app/lib/rdv-inscription-google";
-import { listAvailableInscriptionSlots } from "@/app/lib/rdv-inscription-gcal";
 import { getRdvInscriptionOAuthRedirectUri } from "@/app/lib/rdv-inscription-oauth";
 import { getTenantAppUrl } from "@/app/lib/tenant-context";
 
@@ -97,15 +96,21 @@ export async function PUT(req: Request) {
         return NextResponse.json({ error: "Direction ou calendarId manquant." }, { status: 400 });
       }
       const config = await getRdvInscriptionConfig();
-      const slots = await listAvailableInscriptionSlots({
+      const { listAvailableInscriptionSlotsDetailed } = await import(
+        "@/app/lib/rdv-inscription-gcal"
+      );
+      const result = await listAvailableInscriptionSlotsDetailed({
         calendarId: dir.googleCalendarId,
         titlePattern: config.eventTitlePattern,
         horizonDays: config.horizonDays,
       });
       return NextResponse.json({
         success: true,
-        count: slots.length,
-        slots: slots.slice(0, 20),
+        count: result.slots.length,
+        slots: result.slots.slice(0, 20),
+        titlePattern: config.eventTitlePattern,
+        upcomingEventCount: result.upcomingEventCount,
+        sampleTitles: result.sampleTitles,
       });
     }
 

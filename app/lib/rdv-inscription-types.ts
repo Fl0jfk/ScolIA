@@ -85,11 +85,29 @@ export function normalizeRdvEventTitle(s: string): string {
     .trim();
 }
 
+/**
+ * Découpe le champ paramétrage en plusieurs motifs exacts.
+ * Séparateurs acceptés : `|`, `;`, retours ligne.
+ */
+export function splitRdvTitlePatterns(patternField: string): string[] {
+  return patternField
+    .split(/[|;\n\r]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Le titre Google doit contenir le motif (ou l’un des motifs) tel que saisi
+ * dans le paramétrage. Aucune synonymie : casse et accents seulement ignorés.
+ */
 export function eventTitleMatchesPattern(eventTitle: string, pattern: string): boolean {
   const t = normalizeRdvEventTitle(eventTitle);
-  const p = normalizeRdvEventTitle(pattern);
-  if (!p) return false;
-  return t.includes(p);
+  if (!t) return false;
+  for (const raw of splitRdvTitlePatterns(pattern)) {
+    const p = normalizeRdvEventTitle(raw);
+    if (p && t.includes(p)) return true;
+  }
+  return false;
 }
 
 export function isValidDirectionSlug(slug: string): boolean {

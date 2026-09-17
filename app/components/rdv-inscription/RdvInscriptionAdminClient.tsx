@@ -45,6 +45,7 @@ export default function RdvInscriptionAdminClient() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [testSlots, setTestSlots] = useState<RdvInscriptionSlot[] | null>(null);
+  const [sampleTitles, setSampleTitles] = useState<string[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -137,7 +138,8 @@ export default function RdvInscriptionAdminClient() {
       <header>
         <h1 className="text-2xl font-bold text-slate-900">RDV inscription direction</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Prise de rendez-vous automatique avec les agendas Google des directrices (créneaux «{" "}
+          Prise de rendez-vous automatique avec les agendas Google des directrices. Les créneaux
+          dont le titre contient le motif ci-dessous sont proposés aux parents (aujourd’hui : «{" "}
           {config.eventTitlePattern} »).
         </p>
       </header>
@@ -255,13 +257,21 @@ export default function RdvInscriptionAdminClient() {
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
             />
           </label>
-          <label className="block text-sm">
-            <span className="font-semibold">Motif titre Google</span>
+          <label className="block text-sm sm:col-span-2">
+            <span className="font-semibold">Texte recherché dans le titre Google</span>
             <input
               name="eventTitlePattern"
               defaultValue={config.eventTitlePattern}
+              placeholder="rdv inscription"
               className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
             />
+            <span className="mt-1 block text-xs text-slate-500">
+              Saisissez le texte exact que les directrices mettent dans le titre de l’événement
+              Google (ex. <code className="font-mono">RDV inscription</code>). On cherche cette
+              chaîne telle quelle (casse et accents ignorés). Plusieurs formulations possibles,
+              séparées par <code className="font-mono">|</code> :{" "}
+              <code className="font-mono">RDV inscription | rendez-vous inscription</code>.
+            </span>
           </label>
           <label className="block text-sm">
             <span className="font-semibold">Horizon (jours)</span>
@@ -399,12 +409,34 @@ export default function RdvInscriptionAdminClient() {
                   className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
                   onClick={async () => {
                     setTestSlots(null);
+                    setSampleTitles([]);
                     const json = await put({ action: "test-slots", directionId: d.id });
                     if (json && "slots" in json) {
-                      setTestSlots((json as { slots: RdvInscriptionSlot[] }).slots);
-                      setMessage(
-                        `${(json as { count?: number }).count ?? 0} créneau(x) libre(s) sur « ${d.label} ».`,
-                      );
+                      const payload = json as {
+                        slots: RdvInscriptionSlot[];
+                        count?: number;
+                        titlePattern?: string;
+                        upcomingEventCount?: number;
+                        sampleTitles?: string[];
+                      };
+                      setTestSlots(payload.slots);
+                      setSampleTitles(payload.sampleTitles || []);
+                      const count = payload.count ?? 0;
+                      const upcoming = payload.upcomingEventCount ?? 0;
+                      const motif = payload.titlePattern || config.eventTitlePattern;
+                      if (count > 0) {
+                        setMessage(
+                          `${count} créneau(x) libre(s) sur « ${d.label} » (motif « ${motif} »).`,
+                        );
+                      } else if (upcoming === 0) {
+                        setMessage(
+                          `0 créneau sur « ${d.label} » : aucun événement à venir sur cet agenda dans l’horizon. Vérifiez le Calendar ID et le partage avec le compte Google lié.`,
+                        );
+                      } else {
+                        setMessage(
+                          `0 créneau libre sur « ${d.label} » pour le motif « ${motif} », alors que ${upcoming} événement(s) à venir ont été lus. Adaptez le texte recherché ci-dessus pour qu’il figure dans le titre Google.`,
+                        );
+                      }
                     }
                   }}
                 >
@@ -422,6 +454,22 @@ export default function RdvInscriptionAdminClient() {
               </li>
             ))}
           </ul>
+        ) : null}
+        {sampleTitles.length > 0 && (!testSlots || testSlots.length === 0) ? (
+          <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            <p className="font-semibold">Titres d’événements vus sur l’agenda (aperçu) :</p>
+            <ul className="mt-1 list-disc pl-5">
+              {sampleTitles.map((t) => (
+                <li key={t}>
+                  <code className="font-mono text-xs">{t}</code>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs">
+              Copiez un fragment de ces titres dans « Texte recherché dans le titre Google »,
+              enregistrez, puis retestez.
+            </p>
+          </div>
         ) : null}
       </section>
 

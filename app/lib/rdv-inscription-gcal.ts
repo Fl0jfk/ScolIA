@@ -70,17 +70,23 @@ export function isScolaBookedEvent(ev: GCalEvent): boolean {
   return false;
 }
 
-export async function listAvailableInscriptionSlots(opts: {
-  calendarId: string;
-  titlePattern: string;
-  horizonDays: number;
-  accessToken?: string;
-}): Promise<RdvInscriptionSlot[]> {
-  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
-  const calendarId = opts.calendarId.trim();
-  if (!calendarId) return [];
+export type ListInscriptionSlotsResult = {
+  slots: RdvInscriptionSlot[];
+  /** Titres d’événements à venir (hors annulés), pour diagnostiquer un motif incorrect. */
+  sampleTitles: string[];
+  /** Nombre d’événements à venir lus sur l’agenda (avant filtre motif). */
+  upcomingEventCount: number;
+};
 
+async function listCalendarEventsInHorizon(opts: {
+  calendarId: string;
+  horizonDays: number;
+  accessToken: string;
+}): Promise<{ now: Date; items: GCalEvent[] }> {
+  const calendarId = opts.calendarId.trim();
   const now = new Date();
+  if (!calendarId) return { now, items: [] };
+
   const horizon = new Date(now.getTime() + Math.max(1, opts.horizonDays) * 24 * 60 * 60 * 1000);
   const params = new URLSearchParams({
     timeMin: now.toISOString(),
@@ -91,7 +97,7 @@ export async function listAvailableInscriptionSlots(opts: {
   });
 
   const res = await gcalFetch(
-    accessToken,
+    opts.accessToken,
     `/calendars/${encodeCalendarId(calendarId)}/events?${params.toString()}`,
   );
   if (!res.ok) {
@@ -100,15 +106,56 @@ export async function listAvailableInscriptionSlots(opts: {
   }
 
   const data = (await res.json()) as { items?: GCalEvent[] };
+  return { now, items: data.items || [] };
+}
+
+export async function listAvailableInscriptionSlots(opts: {
+  calendarId: string;
+  titlePattern: string;
+  horizonDays: number;
+  accessToken?: string;
+}): Promise<RdvInscriptionSlot[]> {
+  const detailed = await listAvailableInscriptionSlotsDetailed(opts);
+  return detailed.slots;
+}
+
+export async function listAvailableInscriptionSlotsDetailed(opts: {
+  calendarId: string;
+  titlePattern: string;
+  horizonDays: number;
+  accessToken?: string;
+}): Promise<ListInscriptionSlotsResult> {
+  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+  const calendarId = opts.calendarId.trim();
+  if (!calendarId) {
+    return { slots: [], sampleTitles: [], upcomingEventCount: 0 };
+  }
+
+  const { now, items } = await listCalendarEventsInHorizon({
+    calendarId,
+    horizonDays: opts.horizonDays,
+    accessToken,
+  });
+
   const slots: RdvInscriptionSlot[] = [];
-  for (const ev of data.items || []) {
+  const sampleTitles: string[] = [];
+  let upcomingEventCount = 0;
+
+  for (const ev of items) {
     if (!ev.id || ev.status === "cancelled") continue;
-    if (isScolaBookedEvent(ev)) continue;
-    const summary = (ev.summary || "").trim();
-    if (!eventTitleMatchesPattern(summary, opts.titlePattern)) continue;
+    const summary = (ev.summary || "").trim() || "(sans titre)";
     const bounds = eventStartEnd(ev);
     if (!bounds) continue;
     if (new Date(bounds.startAt).getTime() < now.getTime() - 60_000) continue;
+
+    upcomingEventCount += 1;
+    if (sampleTitles.length < 12 && !sampleTitles.includes(summary)) {
+      sampleTitles.push(summary);
+    }
+
+    if (isScolaBookedEvent(ev)) continue;
+    if (!eventTitleMatchesPattern(summary, opts.titlePattern)) continue;
+
     slots.push({
       eventId: ev.id,
       calendarId,
@@ -118,7 +165,8 @@ export async function listAvailableInscriptionSlots(opts: {
       htmlLink: ev.htmlLink?.trim() || null,
     });
   }
-  return slots;
+
+  return { slots, sampleTitles, upcomingEventCount };
 }
 
 export async function getCalendarEvent(opts: {
