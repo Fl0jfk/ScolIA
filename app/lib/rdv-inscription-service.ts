@@ -10,23 +10,44 @@ import {
   markRdvInscriptionBookingConfirmed,
   markRdvInscriptionBookingExpired,
   findBookingByConfirmToken,
+  findBookingByReconfirmToken,
+  markRdvInscriptionReconfirm,
+  listBookingsDueForReconfirmMail,
+  markRdvInscriptionReconfirmMailSent,
 } from "@/app/lib/rdv-inscription-db";
 import {
   confirmInscriptionCalendarEvent,
   holdInscriptionCalendarEvent,
   listAvailableInscriptionSlots,
   releaseInscriptionCalendarHold,
+  markParentReconfirmedOnCalendar,
+  cancelConfirmedInscriptionEvent,
 } from "@/app/lib/rdv-inscription-gcal";
 import {
   sendRdvInscriptionConfirmationMails,
   sendRdvInscriptionValidationMail,
+  sendRdvInscriptionReconfirmMail,
+  sendRdvInscriptionCreatedPreinscritNotify,
 } from "@/app/lib/rdv-inscription-mail";
+import {
+  assertEleveBelongsToParentContact,
+  createPreinscritFromRdvBooking,
+  searchRdvInscriptionMatchCandidates,
+} from "@/app/lib/rdv-inscription-eleve";
+import {
+  getInscriptionLevelMeta,
+  isInscriptionLevelId,
+  inscriptionLevelsForDirectionSlug,
+} from "@/app/lib/document-templates/inscription-levels";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import type {
   RdvInscriptionBookInput,
   RdvInscriptionBookingRow,
   RdvInscriptionSlot,
 } from "@/app/lib/rdv-inscription-types";
+import type { RdvMatchCandidate } from "@/app/lib/rdv-inscription-match";
+import { isValidParentEmail } from "@/app/lib/eleves-parent-emails";
 
 /** Délai pour cliquer le lien de validation (anti-spam). */
 export const RDV_CONFIRM_TTL_MS = 2 * 60 * 60 * 1000;
@@ -50,6 +71,26 @@ async function releaseExpiredPendings(etablissementId?: string): Promise<void> {
   }
 }
 
+function directionPageSettings(direction: {
+  title: string;
+  intro: string;
+  eventTitlePattern: string;
+  notifyEmail: string | null;
+  location: string;
+  consentLabel: string;
+  horizonDays: number;
+}) {
+  return {
+    title: direction.title,
+    intro: direction.intro,
+    eventTitlePattern: direction.eventTitlePattern,
+    notifyEmail: direction.notifyEmail,
+    location: direction.location,
+    consentLabel: direction.consentLabel,
+    horizonDays: direction.horizonDays,
+  };
+}
+
 export async function listPublicSlotsForDirection(slug: string): Promise<{
   ok: true;
   configTitle: string;
@@ -58,6 +99,7 @@ export async function listPublicSlotsForDirection(slug: string): Promise<{
   location: string;
   directionLabel: string;
   directriceDisplayName: string | null;
+  levels: Array<{ id: string; label: string }>;
   slots: RdvInscriptionSlot[];
 } | { ok: false; status: number; error: string }> {
   const config = await getRdvInscriptionConfig();
@@ -80,6 +122,11 @@ export async function listPublicSlotsForDirection(slug: string): Promise<{
     };
   }
 
+  const levels = inscriptionLevelsForDirectionSlug(slug).map((l) => ({
+    id: l.id,
+    label: l.label,
+  }));
+
   try {
     await releaseExpiredPendings();
     const slots = await listAvailableInscriptionSlots({
@@ -95,6 +142,7 @@ export async function listPublicSlotsForDirection(slug: string): Promise<{
       location: direction.location,
       directionLabel: direction.label,
       directriceDisplayName: direction.directriceDisplayName,
+      levels,
       slots,
     };
   } catch (e) {
@@ -104,6 +152,45 @@ export async function listPublicSlotsForDirection(slug: string): Promise<{
       error: e instanceof Error ? e.message : "Impossible de lire Google Agenda.",
     };
   }
+}
+
+export async function matchPublicRdvInscription(opts: {
+  slug: string;
+  parentEmail: string;
+  parentPhone?: string;
+  studentFirstName: string;
+  studentLastName: string;
+}): Promise<
+  | { ok: true; candidates: RdvMatchCandidate[] }
+  | { ok: false; status: number; error: string }
+> {
+  const direction = await getRdvInscriptionDirectionBySlug(opts.slug, { activeOnly: true });
+  if (!direction) {
+    return { ok: false, status: 404, error: "Direction introuvable." };
+  }
+  const parentEmail = opts.parentEmail.trim().toLowerCase();
+  if (!isValidParentEmail(parentEmail)) {
+    return { ok: false, status: 400, error: "E-mail parent requis et valide." };
+  }
+  const studentFirstName = opts.studentFirstName.trim();
+  const studentLastName = opts.studentLastName.trim();
+  if (!studentFirstName || !studentLastName) {
+    return { ok: false, status: 400, error: "Nom et prénom de l’élève requis." };
+  }
+
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) {
+    return { ok: false, status: 503, error: "Établissement introuvable." };
+  }
+
+  const candidates = await searchRdvInscriptionMatchCandidates({
+    etablissementId: etabId,
+    parentEmail,
+    parentPhone: opts.parentPhone,
+    studentFirstName,
+    studentLastName,
+  });
+  return { ok: true, candidates };
 }
 
 export async function bookPublicRdvInscription(
@@ -127,6 +214,9 @@ export async function bookPublicRdvInscription(
   const parentEmail = input.parentEmail.trim().toLowerCase();
   const parentPhone = input.parentPhone.trim();
   const eventId = input.eventId.trim();
+  const niveauId = input.niveauId.trim();
+  const createNew = Boolean(input.createNew);
+  const eleveId = input.eleveId?.trim() || null;
 
   if (!eventId || !studentFirstName || !studentLastName || !parentEmail || !parentPhone) {
     return {
@@ -135,14 +225,56 @@ export async function bookPublicRdvInscription(
       error: "Créneau, élève, e-mail et téléphone sont requis.",
     };
   }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(parentEmail)) {
+  if (!isValidParentEmail(parentEmail)) {
     return { ok: false, status: 400, error: "E-mail invalide." };
+  }
+  if (!isInscriptionLevelId(niveauId)) {
+    return { ok: false, status: 400, error: "Niveau demandé invalide." };
+  }
+  const allowedLevels = inscriptionLevelsForDirectionSlug(slug);
+  if (!allowedLevels.some((l) => l.id === niveauId)) {
+    return { ok: false, status: 400, error: "Niveau non proposé pour cette direction." };
+  }
+  const niveauMeta = getInscriptionLevelMeta(niveauId);
+  if (!niveauMeta) {
+    return { ok: false, status: 400, error: "Niveau inconnu." };
+  }
+  if (!createNew && !eleveId) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Confirmez l’élève trouvé ou créez un nouveau dossier.",
+    };
+  }
+  if (createNew && eleveId) {
+    return { ok: false, status: 400, error: "Choix élève incohérent." };
   }
   if (studentFirstName.length > 80 || studentLastName.length > 80) {
     return { ok: false, status: 400, error: "Nom / prénom trop longs." };
   }
   if (parentPhone.length > 40) {
     return { ok: false, status: 400, error: "Téléphone trop long." };
+  }
+
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) {
+    return { ok: false, status: 503, error: "Établissement introuvable." };
+  }
+
+  if (eleveId) {
+    const ok = await assertEleveBelongsToParentContact({
+      etablissementId: etabId,
+      eleveId,
+      parentEmail,
+      parentPhone,
+    });
+    if (!ok) {
+      return {
+        ok: false,
+        status: 403,
+        error: "Élève non rattaché à ces coordonnées parent.",
+      };
+    }
   }
 
   await releaseExpiredPendings();
@@ -191,6 +323,10 @@ export async function bookPublicRdvInscription(
       studentLastName,
       parentEmail,
       parentPhone,
+      niveauId: niveauMeta.id,
+      niveauLabel: niveauMeta.label,
+      eleveId,
+      createNew,
       status: "pending",
       confirmToken,
       confirmExpiresAt,
@@ -217,15 +353,7 @@ export async function bookPublicRdvInscription(
   );
 
   const mail = await sendRdvInscriptionValidationMail({
-    page: {
-      title: direction.title,
-      intro: direction.intro,
-      eventTitlePattern: direction.eventTitlePattern,
-      notifyEmail: direction.notifyEmail,
-      location: direction.location,
-      consentLabel: direction.consentLabel,
-      horizonDays: direction.horizonDays,
-    },
+    page: directionPageSettings(direction),
     booking,
     directionLabel: direction.label,
     directriceName: direction.directriceDisplayName,
@@ -286,6 +414,51 @@ export async function confirmPublicRdvInscription(token: string): Promise<
     return { ok: false, error: "error", message: "Direction introuvable." };
   }
 
+  let eleveId = found.eleveId;
+  let matchStatus: "confirmed" | "created" = found.eleveId ? "confirmed" : "created";
+
+  if (found.createNew || !eleveId) {
+    try {
+      eleveId = await createPreinscritFromRdvBooking({
+        etablissementId: found.etablissementId,
+        nom: found.studentLastName,
+        prenom: found.studentFirstName,
+        parentEmail: found.parentEmail,
+        parentPhone: found.parentPhone,
+        niveauLabel: found.niveauLabel,
+        directionSlug: found.directionSlug,
+      });
+      matchStatus = "created";
+    } catch (e) {
+      console.error("[rdv-inscription] création préinscrit:", e);
+      return {
+        ok: false,
+        error: "error",
+        message: "Impossible de créer le dossier élève.",
+      };
+    }
+  } else {
+    const ok = await assertEleveBelongsToParentContact({
+      etablissementId: found.etablissementId,
+      eleveId,
+      parentEmail: found.parentEmail,
+      parentPhone: found.parentPhone,
+    });
+    if (!ok) {
+      return {
+        ok: false,
+        error: "error",
+        message: "Élève non rattaché à ces coordonnées.",
+      };
+    }
+    matchStatus = "confirmed";
+  }
+
+  const dossierInscriptionUrl = await tenantAbsolutePath(
+    `/eleves/dossier/${encodeURIComponent(eleveId)}/inscription`,
+  );
+  const reconfirmToken = randomBytes(32).toString("hex");
+
   const gcal = await confirmInscriptionCalendarEvent({
     calendarId: found.googleCalendarId,
     eventId: found.googleEventId,
@@ -294,6 +467,8 @@ export async function confirmPublicRdvInscription(token: string): Promise<
     studentLastName: found.studentLastName,
     parentEmail: found.parentEmail,
     parentPhone: found.parentPhone,
+    niveauLabel: found.niveauLabel,
+    dossierInscriptionUrl,
   });
 
   if (!gcal.ok) {
@@ -307,21 +482,25 @@ export async function confirmPublicRdvInscription(token: string): Promise<
     bookingId: found.id,
     etablissementId: found.etablissementId,
     googleHtmlLink: gcal.htmlLink,
+    eleveId,
+    matchStatus,
+    reconfirmToken,
   });
   if (!booking) {
     return { ok: false, error: "error", message: "Confirmation impossible." };
   }
 
+  if (matchStatus === "created" && direction.notifyEmail) {
+    await sendRdvInscriptionCreatedPreinscritNotify({
+      page: directionPageSettings(direction),
+      booking,
+      directionLabel: direction.label,
+      dossierUrl: dossierInscriptionUrl,
+    });
+  }
+
   const mail = await sendRdvInscriptionConfirmationMails({
-    page: {
-      title: direction.title,
-      intro: direction.intro,
-      eventTitlePattern: direction.eventTitlePattern,
-      notifyEmail: direction.notifyEmail,
-      location: direction.location,
-      consentLabel: direction.consentLabel,
-      horizonDays: direction.horizonDays,
-    },
+    page: directionPageSettings(direction),
     booking,
     directionLabel: direction.label,
     directriceName: direction.directriceDisplayName,
@@ -332,4 +511,129 @@ export async function confirmPublicRdvInscription(token: string): Promise<
     booking,
     mailWarning: mail.error,
   };
+}
+
+export async function reconfirmPublicRdvInscription(opts: {
+  token: string;
+  action: "ok" | "cancel";
+}): Promise<
+  | { ok: true; booking: RdvInscriptionBookingRow; action: "ok" | "cancel" }
+  | { ok: false; error: string; message: string }
+> {
+  const found = await findBookingByReconfirmToken(opts.token);
+  if (!found || found.status !== "confirmed") {
+    return {
+      ok: false,
+      error: "invalid",
+      message: "Lien de reconfirmation invalide.",
+    };
+  }
+  if (found.reconfirmStatus === "ok" || found.reconfirmStatus === "cancelled") {
+    return { ok: true, booking: found, action: found.reconfirmStatus === "ok" ? "ok" : "cancel" };
+  }
+
+  const now = new Date();
+  if (opts.action === "ok") {
+    const booking = await markRdvInscriptionReconfirm({
+      bookingId: found.id,
+      etablissementId: found.etablissementId,
+      status: "ok",
+    });
+    if (!booking) {
+      return { ok: false, error: "error", message: "Mise à jour impossible." };
+    }
+    try {
+      await markParentReconfirmedOnCalendar({
+        calendarId: found.googleCalendarId,
+        eventId: found.googleEventId,
+        bookingId: found.id,
+        reconfirmedAt: now,
+      });
+    } catch (e) {
+      console.error("[rdv-inscription] reconfirm GCal:", e);
+    }
+    return { ok: true, booking, action: "ok" };
+  }
+
+  try {
+    await cancelConfirmedInscriptionEvent({
+      calendarId: found.googleCalendarId,
+      eventId: found.googleEventId,
+      bookingId: found.id,
+    });
+  } catch (e) {
+    console.error("[rdv-inscription] cancel GCal:", e);
+  }
+
+  const booking = await markRdvInscriptionReconfirm({
+    bookingId: found.id,
+    etablissementId: found.etablissementId,
+    status: "cancelled",
+  });
+  if (!booking) {
+    return { ok: false, error: "error", message: "Annulation impossible." };
+  }
+
+  const direction = await getRdvInscriptionDirectionBySlug(found.directionSlug, {
+    etablissementId: found.etablissementId,
+  });
+  if (direction?.notifyEmail) {
+    const { sendRdvInscriptionCancelledByParentNotify } = await import(
+      "@/app/lib/rdv-inscription-mail"
+    );
+    await sendRdvInscriptionCancelledByParentNotify({
+      page: directionPageSettings(direction),
+      booking,
+      directionLabel: direction.label,
+    });
+  }
+
+  return { ok: true, booking, action: "cancel" };
+}
+
+/** Cron : envoie les mails J-7 « toujours OK ? ». Silence parent = RDV conservé. */
+export async function processRdvInscriptionReconfirmMails(opts?: {
+  etablissementId?: string;
+}): Promise<{ sent: number; errors: string[] }> {
+  const due = await listBookingsDueForReconfirmMail({
+    etablissementId: opts?.etablissementId,
+    limit: 40,
+  });
+  let sent = 0;
+  const errors: string[] = [];
+
+  for (const b of due) {
+    const direction = await getRdvInscriptionDirectionBySlug(b.directionSlug, {
+      etablissementId: b.etablissementId,
+    });
+    if (!direction) {
+      errors.push(`${b.id}: direction introuvable`);
+      continue;
+    }
+    const okUrl = await tenantAbsolutePath(
+      `/rdv-inscription/reconfirm?token=${encodeURIComponent(b.reconfirmToken)}&action=ok`,
+    );
+    const cancelUrl = await tenantAbsolutePath(
+      `/rdv-inscription/reconfirm?token=${encodeURIComponent(b.reconfirmToken)}&action=cancel`,
+    );
+    const mail = await sendRdvInscriptionReconfirmMail({
+      page: directionPageSettings(direction),
+      booking: b,
+      directionLabel: direction.label,
+      directriceName: direction.directriceDisplayName,
+      okUrl,
+      cancelUrl,
+    });
+    if (!mail.sent) {
+      errors.push(`${b.id}: ${mail.error || "envoi échoué"}`);
+      continue;
+    }
+    await markRdvInscriptionReconfirmMailSent({
+      bookingId: b.id,
+      etablissementId: b.etablissementId,
+    });
+    sent += 1;
+  }
+
+  return { sent, errors };
 }

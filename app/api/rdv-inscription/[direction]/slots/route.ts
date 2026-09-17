@@ -37,6 +37,7 @@ export async function GET(req: Request, ctx: Ctx) {
       location: result.location,
       directionLabel: result.directionLabel,
       directriceDisplayName: result.directriceDisplayName,
+      levels: result.levels,
       slots: result.slots.map((s) => ({
         eventId: s.eventId,
         startAt: s.startAt,

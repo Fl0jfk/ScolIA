@@ -2021,9 +2021,17 @@ export default function EleveDossierClient() {
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <h2 className="text-sm font-bold text-slate-800">Documents du dossier</h2>
-              <p className="text-xs text-slate-500">
-                Classés automatiquement : administratif, financier / comptable, santé.
-              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <Link
+                  href={`/eleves/dossier/${encodeURIComponent(id)}/inscription`}
+                  className="text-xs font-semibold text-sky-700 hover:underline"
+                >
+                  Documents d’inscription
+                </Link>
+                <p className="text-xs text-slate-500">
+                  Classés automatiquement : administratif, financier / comptable, santé.
+                </p>
+              </div>
             </div>
 
             {allowedDocCategories.length > 0 ? (

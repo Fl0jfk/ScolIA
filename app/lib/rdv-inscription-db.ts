@@ -78,6 +78,14 @@ function mapBookingStatus(raw: string): RdvInscriptionBookingStatus {
 }
 
 function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscriptionBookingRow {
+  const matchRaw = row.matchStatus?.trim() || null;
+  const matchStatus =
+    matchRaw === "confirmed" || matchRaw === "created" ? matchRaw : null;
+  const reconfirmRaw = row.reconfirmStatus?.trim() || null;
+  const reconfirmStatus =
+    reconfirmRaw === "pending" || reconfirmRaw === "ok" || reconfirmRaw === "cancelled"
+      ? reconfirmRaw
+      : null;
   return {
     id: row.id,
     directionId: row.directionId,
@@ -91,9 +99,17 @@ function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscript
     studentLastName: row.studentLastName,
     parentEmail: row.parentEmail,
     parentPhone: row.parentPhone,
+    niveauId: row.niveauId,
+    niveauLabel: row.niveauLabel,
+    eleveId: row.eleveId,
+    matchStatus,
+    createNew: row.createNew === 1,
     status: mapBookingStatus(row.status),
     confirmExpiresAt: toIso(row.confirmExpiresAt),
     confirmedAt: toIso(row.confirmedAt),
+    reconfirmStatus,
+    reconfirmMailSentAt: toIso(row.reconfirmMailSentAt),
+    reconfirmedAt: toIso(row.reconfirmedAt),
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -479,6 +495,10 @@ export async function insertRdvInscriptionBooking(input: {
   studentLastName: string;
   parentEmail: string;
   parentPhone: string;
+  niveauId?: string | null;
+  niveauLabel?: string | null;
+  eleveId?: string | null;
+  createNew?: boolean;
   status?: RdvInscriptionBookingStatus;
   confirmToken?: string | null;
   confirmExpiresAt?: Date | null;
@@ -504,6 +524,10 @@ export async function insertRdvInscriptionBooking(input: {
     studentLastName: input.studentLastName.trim(),
     parentEmail: input.parentEmail.trim().toLowerCase(),
     parentPhone: input.parentPhone.trim(),
+    niveauId: input.niveauId?.trim() || null,
+    niveauLabel: input.niveauLabel?.trim() || null,
+    eleveId: input.eleveId?.trim() || null,
+    createNew: input.createNew ? 1 : 0,
     status,
     confirmToken: input.confirmToken || null,
     confirmExpiresAt: input.confirmExpiresAt || null,
@@ -573,6 +597,9 @@ export async function markRdvInscriptionBookingConfirmed(opts: {
   bookingId: string;
   etablissementId: string;
   googleHtmlLink?: string | null;
+  eleveId?: string | null;
+  matchStatus?: "confirmed" | "created" | null;
+  reconfirmToken?: string | null;
 }): Promise<RdvInscriptionBookingRow | null> {
   const db = requireDb();
   await db
@@ -583,6 +610,10 @@ export async function markRdvInscriptionBookingConfirmed(opts: {
       confirmToken: null,
       confirmExpiresAt: null,
       googleHtmlLink: opts.googleHtmlLink ?? undefined,
+      eleveId: opts.eleveId !== undefined ? opts.eleveId : undefined,
+      matchStatus: opts.matchStatus !== undefined ? opts.matchStatus : undefined,
+      reconfirmToken: opts.reconfirmToken ?? undefined,
+      reconfirmStatus: opts.reconfirmToken ? "pending" : undefined,
       updatedAt: new Date(),
     })
     .where(
@@ -602,6 +633,128 @@ export async function markRdvInscriptionBookingConfirmed(opts: {
     )
     .limit(1);
   return rows[0] ? mapBooking(rows[0]) : null;
+}
+
+export async function findBookingByReconfirmToken(
+  token: string,
+): Promise<(RdvInscriptionBookingRow & { etablissementId: string; reconfirmToken: string | null }) | null> {
+  const trimmed = token.trim();
+  if (!trimmed) return null;
+  if (!isDatabaseConfigured()) return null;
+  const db = requireDb();
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(eq(rdvInscriptionBooking.reconfirmToken, trimmed))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    ...mapBooking(row),
+    etablissementId: row.etablissementId,
+    reconfirmToken: row.reconfirmToken,
+  };
+}
+
+export async function markRdvInscriptionReconfirm(opts: {
+  bookingId: string;
+  etablissementId: string;
+  status: "ok" | "cancelled";
+}): Promise<RdvInscriptionBookingRow | null> {
+  const db = requireDb();
+  const now = new Date();
+  const patch: {
+    reconfirmStatus: string;
+    reconfirmedAt: Date;
+    updatedAt: Date;
+    status?: string;
+  } = {
+    reconfirmStatus: opts.status,
+    reconfirmedAt: now,
+    updatedAt: now,
+  };
+  if (opts.status === "cancelled") {
+    patch.status = "cancelled";
+  }
+  await db
+    .update(rdvInscriptionBooking)
+    .set(patch)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    );
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ? mapBooking(rows[0]) : null;
+}
+
+export async function markRdvInscriptionReconfirmMailSent(opts: {
+  bookingId: string;
+  etablissementId: string;
+}): Promise<void> {
+  const db = requireDb();
+  await db
+    .update(rdvInscriptionBooking)
+    .set({
+      reconfirmMailSentAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    );
+}
+
+/** Bookings confirmés à J-7 (fenêtre 6–8 jours) sans mail de reconfirm encore envoyé. */
+export async function listBookingsDueForReconfirmMail(opts?: {
+  etablissementId?: string;
+  limit?: number;
+  now?: Date;
+}): Promise<Array<RdvInscriptionBookingRow & { etablissementId: string; reconfirmToken: string }>> {
+  const db = requireDb();
+  const now = opts?.now ?? new Date();
+  const minStart = new Date(now.getTime() + 6 * 24 * 60 * 60 * 1000);
+  const maxStart = new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000);
+  const limit = Math.min(100, Math.max(1, opts?.limit ?? 50));
+  const conditions = [
+    eq(rdvInscriptionBooking.status, "confirmed"),
+    eq(rdvInscriptionBooking.reconfirmStatus, "pending"),
+  ];
+  if (opts?.etablissementId) {
+    conditions.push(eq(rdvInscriptionBooking.etablissementId, opts.etablissementId));
+  }
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(and(...conditions))
+    .orderBy(asc(rdvInscriptionBooking.startAt))
+    .limit(limit * 3);
+
+  return rows
+    .filter((r) => {
+      if (r.reconfirmMailSentAt) return false;
+      if (!r.reconfirmToken) return false;
+      const t = r.startAt.getTime();
+      return t >= minStart.getTime() && t <= maxStart.getTime();
+    })
+    .slice(0, limit)
+    .map((r) => ({
+      ...mapBooking(r),
+      etablissementId: r.etablissementId,
+      reconfirmToken: r.reconfirmToken!,
+    }));
 }
 
 export async function markRdvInscriptionBookingExpired(opts: {

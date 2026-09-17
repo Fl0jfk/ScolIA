@@ -16,6 +16,7 @@ function unavailablePage(slug: string, title = "Rendez-vous d’inscription") {
       location=""
       directionLabel={slug}
       directriceDisplayName={null}
+      levels={[]}
       initialSlots={[]}
       initialError="Service temporairement indisponible. Réessayez dans quelques minutes."
     />
@@ -69,6 +70,13 @@ export default async function RdvInscriptionPublicPage({ params }: PageProps) {
   }
 
   const listed = await listPublicSlotsForDirection(slug);
+  const { inscriptionLevelsForDirectionSlug } = await import(
+    "@/app/lib/document-templates/inscription-levels"
+  );
+  const levels = (listed.ok ? listed.levels : inscriptionLevelsForDirectionSlug(slug).map((l) => ({
+    id: l.id,
+    label: l.label,
+  })));
 
   return (
     <RdvInscriptionPublicClient
@@ -81,6 +89,7 @@ export default async function RdvInscriptionPublicPage({ params }: PageProps) {
       directriceDisplayName={
         listed.ok ? listed.directriceDisplayName : dir.directriceDisplayName
       }
+      levels={levels}
       initialSlots={
         listed.ok
           ? listed.slots.map((s) => ({

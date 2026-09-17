@@ -104,21 +104,38 @@ export const rdvInscriptionBooking = pgTable(
     studentLastName: text("student_last_name").notNull(),
     parentEmail: text("parent_email").notNull(),
     parentPhone: text("parent_phone").notNull(),
+    /** Niveau demandé (InscriptionLevelId). */
+    niveauId: text("niveau_id"),
+    niveauLabel: text("niveau_label"),
+    /** Élève rattaché (confirmé ou créé à la validation e-mail). */
+    eleveId: uuid("eleve_id"),
+    /** confirmed = élève existant choisi | created = préinscrit créé */
+    matchStatus: text("match_status"),
+    /** 1 = le parent a demandé la création d’un nouveau dossier. */
+    createNew: integer("create_new").notNull().default(0),
     /** pending | confirmed | cancelled | expired */
     status: text("status").notNull().default("pending"),
     /** Token one-shot pour valider le créneau par e-mail (anti-spam). */
     confirmToken: text("confirm_token"),
     confirmExpiresAt: timestamp("confirm_expires_at", { withTimezone: true }),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    /** Token reconfirmation J-7 (persiste après confirm). */
+    reconfirmToken: text("reconfirm_token"),
+    /** pending | ok | cancelled — null tant que le RDV n’est pas confirmé. */
+    reconfirmStatus: text("reconfirm_status"),
+    reconfirmMailSentAt: timestamp("reconfirm_mail_sent_at", { withTimezone: true }),
+    reconfirmedAt: timestamp("reconfirmed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("rdv_inscription_booking_confirm_token_uidx").on(t.confirmToken),
+    uniqueIndex("rdv_inscription_booking_reconfirm_token_uidx").on(t.reconfirmToken),
     index("rdv_inscription_booking_etab_idx").on(t.etablissementId),
     index("rdv_inscription_booking_dir_idx").on(t.etablissementId, t.directionId),
     index("rdv_inscription_booking_status_idx").on(t.etablissementId, t.status),
     index("rdv_inscription_booking_start_idx").on(t.etablissementId, t.startAt),
+    index("rdv_inscription_booking_eleve_idx").on(t.etablissementId, t.eleveId),
   ],
 );
 

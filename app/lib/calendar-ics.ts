@@ -34,6 +34,8 @@ export type CalendarIcsEvent = {
   status?: CalendarIcsStatus;
   /** SEQUENCE pour mises à jour / annulations (défaut 0). */
   sequence?: number;
+  /** Rappels VALARM (ex. `{ trigger: "-P7D", description: "…" }`). */
+  alarms?: Array<{ trigger: string; description?: string }>;
 };
 
 /** Alias historique portes ouvertes. */
@@ -109,6 +111,17 @@ export function buildCalendarEventsIcs(params: {
       // Outlook / certains clients : vrai lien nommé (HTML), sans URL brute dans le libellé.
       blocks.push(
         `X-ALT-DESC;FMTTYPE=text/html:${escapeIcs(buildIcsAltHtml(desc, url, label))}`,
+      );
+    }
+    for (const alarm of ev.alarms || []) {
+      const trigger = alarm.trigger.trim();
+      if (!trigger) continue;
+      blocks.push(
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        `TRIGGER:${trigger}`,
+        `DESCRIPTION:${escapeIcs(alarm.description?.trim() || ev.title)}`,
+        "END:VALARM",
       );
     }
     blocks.push("END:VEVENT");

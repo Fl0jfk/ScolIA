@@ -118,6 +118,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
       `Rendez-vous d’inscription (${opts.directionLabel}).`,
       opts.directriceName ? `Avec : ${opts.directriceName}` : "",
       `Élève : ${student}`,
+      opts.booking.niveauLabel ? `Niveau : ${opts.booking.niveauLabel}` : "",
       `Téléphone : ${opts.booking.parentPhone}`,
       location ? `Lieu : ${location}` : "",
     ]
@@ -128,6 +129,12 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
     endAt: opts.booking.endAt,
     uid: `rdv-inscription-${opts.booking.id}@scola`,
     prodId: "-//Scola//RDV inscription//FR",
+    alarms: [
+      {
+        trigger: "-P7D",
+        description: `Rappel RDV inscription — ${student}`,
+      },
+    ],
   });
 
   let parentSent = false;
@@ -182,6 +189,16 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
             <li><strong>Créneau :</strong> ${escapeHtml(slotLabel)}</li>
             <li><strong>E-mail :</strong> ${escapeHtml(opts.booking.parentEmail)}</li>
             <li><strong>Tél. :</strong> ${escapeHtml(opts.booking.parentPhone)}</li>
+            ${
+              opts.booking.niveauLabel
+                ? `<li><strong>Niveau :</strong> ${escapeHtml(opts.booking.niveauLabel)}</li>`
+                : ""
+            }
+            ${
+              opts.booking.eleveId
+                ? `<li><strong>Dossier :</strong> /eleves/dossier/${escapeHtml(opts.booking.eleveId)}/inscription</li>`
+                : ""
+            }
           </ul>
           ${
             opts.booking.googleHtmlLink
@@ -197,4 +214,123 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
   }
 
   return { parentSent, notifySent };
+}
+
+/** Relance J-7 — le silence ne supprime pas le RDV. */
+export async function sendRdvInscriptionReconfirmMail(opts: {
+  page: RdvInscriptionDirectionPageSettings;
+  booking: RdvInscriptionBookingRow;
+  directionLabel: string;
+  directriceName?: string | null;
+  okUrl: string;
+  cancelUrl: string;
+}): Promise<{ sent: boolean; error?: string }> {
+  const smtp = await getTenantSmtpConfig();
+  const transporter = await createTenantTransporter();
+  if (!smtp || !transporter) {
+    return { sent: false, error: "SMTP non configuré." };
+  }
+
+  const slotLabel = formatSlotFr(opts.booking.startAt, opts.booking.endAt);
+  const student = `${opts.booking.studentFirstName} ${opts.booking.studentLastName}`;
+  const title = `${opts.page.title} — ${opts.directionLabel}`;
+
+  try {
+    await transporter.sendMail({
+      from: smtp.user,
+      to: opts.booking.parentEmail,
+      subject: `Toujours disponible ? — ${title}`,
+      html: `
+        <p>Bonjour,</p>
+        <p>Votre rendez-vous d’inscription approche :</p>
+        <p><strong>Élève :</strong> ${escapeHtml(student)}<br/>
+        <strong>Créneau :</strong> ${escapeHtml(slotLabel)}
+        ${opts.directriceName ? `<br/><strong>Avec :</strong> ${escapeHtml(opts.directriceName)}` : ""}
+        </p>
+        <p>Êtes-vous toujours disponible ?</p>
+        <p style="margin:24px 0;">
+          <a href="${escapeHtml(opts.okUrl)}"
+             style="display:inline-block;background:#0369a1;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;margin-right:12px;">
+            Oui, je confirme
+          </a>
+          <a href="${escapeHtml(opts.cancelUrl)}"
+             style="display:inline-block;background:#fff;color:#b91c1c;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700;border:1px solid #fecaca;">
+            Annuler le rendez-vous
+          </a>
+        </p>
+        <p style="color:#64748b;font-size:13px;">Si vous ne répondez pas, le rendez-vous reste maintenu.</p>
+      `,
+    });
+    return { sent: true };
+  } catch (e) {
+    return { sent: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function sendRdvInscriptionCreatedPreinscritNotify(opts: {
+  page: RdvInscriptionDirectionPageSettings;
+  booking: RdvInscriptionBookingRow;
+  directionLabel: string;
+  dossierUrl: string;
+}): Promise<{ sent: boolean }> {
+  const smtp = await getTenantSmtpConfig();
+  const transporter = await createTenantTransporter();
+  const to = opts.page.notifyEmail?.trim();
+  if (!smtp || !transporter || !to) return { sent: false };
+
+  const student = `${opts.booking.studentFirstName} ${opts.booking.studentLastName}`;
+  try {
+    await transporter.sendMail({
+      from: smtp.user,
+      to,
+      subject: `[RDV] Nouveau préinscrit créé — ${student}`,
+      html: `
+        <p>Un dossier <strong>préinscrit</strong> a été créé automatiquement depuis un RDV d’inscription
+        (aucune fiche élève trouvée pour ces coordonnées parent).</p>
+        <ul>
+          <li><strong>Élève :</strong> ${escapeHtml(student)}</li>
+          <li><strong>Niveau :</strong> ${escapeHtml(opts.booking.niveauLabel || "—")}</li>
+          <li><strong>E-mail :</strong> ${escapeHtml(opts.booking.parentEmail)}</li>
+          <li><strong>Tél. :</strong> ${escapeHtml(opts.booking.parentPhone)}</li>
+        </ul>
+        <p><a href="${escapeHtml(opts.dossierUrl)}">Ouvrir les documents d’inscription</a></p>
+      `,
+    });
+    return { sent: true };
+  } catch {
+    return { sent: false };
+  }
+}
+
+export async function sendRdvInscriptionCancelledByParentNotify(opts: {
+  page: RdvInscriptionDirectionPageSettings;
+  booking: RdvInscriptionBookingRow;
+  directionLabel: string;
+}): Promise<{ sent: boolean }> {
+  const smtp = await getTenantSmtpConfig();
+  const transporter = await createTenantTransporter();
+  const to = opts.page.notifyEmail?.trim();
+  if (!smtp || !transporter || !to) return { sent: false };
+
+  const student = `${opts.booking.studentFirstName} ${opts.booking.studentLastName}`;
+  const slotLabel = formatSlotFr(opts.booking.startAt, opts.booking.endAt);
+  try {
+    await transporter.sendMail({
+      from: smtp.user,
+      to,
+      subject: `[RDV] Annulation parent — ${student}`,
+      html: `
+        <p>Le parent a annulé le rendez-vous d’inscription (reconfirmation J-7).</p>
+        <ul>
+          <li><strong>Élève :</strong> ${escapeHtml(student)}</li>
+          <li><strong>Direction :</strong> ${escapeHtml(opts.directionLabel)}</li>
+          <li><strong>Créneau :</strong> ${escapeHtml(slotLabel)}</li>
+          <li><strong>E-mail :</strong> ${escapeHtml(opts.booking.parentEmail)}</li>
+        </ul>
+      `,
+    });
+    return { sent: true };
+  } catch {
+    return { sent: false };
+  }
 }

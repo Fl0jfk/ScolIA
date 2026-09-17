@@ -45,6 +45,9 @@ export async function POST(req: Request, ctx: Ctx) {
       studentLastName: String(body.studentLastName || "").trim(),
       parentEmail: String(body.parentEmail || "").trim(),
       parentPhone: String(body.parentPhone || "").trim(),
+      niveauId: String(body.niveauId || "").trim(),
+      eleveId: body.eleveId ? String(body.eleveId).trim() : null,
+      createNew: body.createNew === true || body.createNew === "true" || body.createNew === 1,
     });
 
     if (!result.ok) {

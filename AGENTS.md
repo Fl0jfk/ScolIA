@@ -85,7 +85,9 @@ La page **Absence accueil** (`/accueil/absences`, module `accueil-absences`) enr
 
 ## RDV inscriptions (Google Agenda)
 
-Module `rdv-inscription` : pages publiques `/rdv-inscription/[direction]` (une par direction) listant les créneaux Google dont le titre contient le motif configuré (défaut « rendez-vous inscription »). Paramétrage : `/etablissement/rdv-inscription`. OAuth compte technique (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`) ; chaque directrice partage son agenda avec ce compte. Migration : `drizzle/0042_rdv_inscription.sql`.
+Module `rdv-inscription` : pages publiques `/rdv-inscription/[direction]` (une par direction) listant les créneaux Google dont le titre contient le motif configuré (défaut « rendez-vous inscription »). Paramétrage : `/etablissement/rdv-inscription`. OAuth compte technique (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`) ; chaque directrice partage son agenda avec ce compte. Migrations : `drizzle/0042_rdv_inscription.sql` … `0046_rdv_inscription_eleve_reconfirm.sql`.
+
+Flux parent : e-mail d’abord → matching protégé (pool = enfants liés au contact) → confirmation interactive → niveau → créneau → double opt-in mail → lien dossier `/eleves/dossier/[id]/inscription` dans Google Agenda. Relance J-7 « toujours OK ? » via `POST /api/rdv-inscription/reconfirm-cron` (`RDV_INSCRIPTION_CRON_SECRET` ou `TRAVELS_CRON_SECRET`) — le silence ne supprime pas le RDV.
 
 ## Hors scope sans confirmation explicite
 

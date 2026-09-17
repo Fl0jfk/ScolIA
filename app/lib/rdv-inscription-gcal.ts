@@ -349,6 +349,8 @@ export async function confirmInscriptionCalendarEvent(opts: {
   studentLastName: string;
   parentEmail: string;
   parentPhone: string;
+  niveauLabel?: string | null;
+  dossierInscriptionUrl?: string | null;
   accessToken?: string;
 }): Promise<BookCalendarEventResult> {
   const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
@@ -394,10 +396,14 @@ export async function confirmInscriptionCalendarEvent(opts: {
   const newTitle = `Rendez-vous — ${studentLabel}`;
   const descriptionLines = [
     `Élève : ${opts.studentFirstName.trim()} ${opts.studentLastName.trim()}`,
+    opts.niveauLabel?.trim() ? `Niveau : ${opts.niveauLabel.trim()}` : "",
     `E-mail parent : ${opts.parentEmail.trim()}`,
     `Téléphone parent : ${opts.parentPhone.trim()}`,
+    opts.dossierInscriptionUrl?.trim()
+      ? `Dossier inscription : ${opts.dossierInscriptionUrl.trim()}`
+      : "",
     `Réf. : ${opts.bookingId}`,
-  ];
+  ].filter(Boolean);
 
   const priv: Record<string, string> = {
     ...(current.extendedProperties?.private || {}),
@@ -462,4 +468,118 @@ export async function confirmInscriptionCalendarEvent(opts: {
     endAt: updatedBounds.endAt,
     htmlLink: updated.htmlLink?.trim() || current.htmlLink?.trim() || null,
   };
+}
+
+/** Ajoute le ✓ de reconfirmation parent sur l’événement direction. */
+export async function markParentReconfirmedOnCalendar(opts: {
+  calendarId: string;
+  eventId: string;
+  bookingId: string;
+  reconfirmedAt: Date;
+  accessToken?: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+  const current = await getCalendarEvent({
+    calendarId: opts.calendarId,
+    eventId: opts.eventId,
+    accessToken,
+  });
+  if (!current?.id) {
+    return { ok: false, message: "Événement Google introuvable." };
+  }
+
+  const summary = (current.summary || "").trim();
+  const newSummary = summary.startsWith("✓") ? summary : `✓ ${summary || "Rendez-vous"}`;
+  const stamp = opts.reconfirmedAt.toLocaleString("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const desc = (current.description || "").trim();
+  const line = `Reconfirmation parent : OK le ${stamp}`;
+  const newDesc = desc.includes("Reconfirmation parent :")
+    ? desc.replace(/Reconfirmation parent :[^\n]*/i, line)
+    : [desc, line].filter(Boolean).join("\n");
+
+  const res = await gcalFetch(
+    accessToken,
+    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}?sendUpdates=none`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        summary: newSummary,
+        description: newDesc,
+      }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    return { ok: false, message: `Patch Google échoué (${res.status}): ${body.slice(0, 200)}` };
+  }
+  return { ok: true };
+}
+
+/** Annule un RDV confirmé (parent a cliqué Annuler à J-7). */
+export async function cancelConfirmedInscriptionEvent(opts: {
+  calendarId: string;
+  eventId: string;
+  bookingId: string;
+  accessToken?: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+  const current = await getCalendarEvent({
+    calendarId: opts.calendarId,
+    eventId: opts.eventId,
+    accessToken,
+  });
+  if (!current?.id) {
+    return { ok: true };
+  }
+
+  const summary = (current.summary || "").trim();
+  const newSummary = summary.startsWith("ANNULÉ")
+    ? summary
+    : `ANNULÉ — ${summary || "Rendez-vous"}`;
+  const desc = [
+    (current.description || "").trim(),
+    "Annulé par le parent (reconfirmation J-7).",
+    `Réf. : ${opts.bookingId}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const priv: Record<string, string> = {
+    ...(current.extendedProperties?.private || {}),
+  };
+  delete priv[SCOLA_BOOKED_PROP];
+  delete priv[SCOLA_PENDING_PROP];
+
+  const res = await gcalFetch(
+    accessToken,
+    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}?sendUpdates=all`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        summary: newSummary,
+        description: desc,
+        transparency: "transparent",
+        attendees: [],
+        extendedProperties: {
+          private: priv,
+          shared: current.extendedProperties?.shared || undefined,
+        },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    return {
+      ok: false,
+      message: `Annulation Google échouée (${res.status}): ${body.slice(0, 200)}`,
+    };
+  }
+  return { ok: true };
 }

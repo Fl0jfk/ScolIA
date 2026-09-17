@@ -51,6 +51,10 @@ export type RdvInscriptionBookingStatus =
   | "cancelled"
   | "expired";
 
+export type RdvInscriptionMatchStatus = "confirmed" | "created";
+
+export type RdvInscriptionReconfirmStatus = "pending" | "ok" | "cancelled";
+
 export type RdvInscriptionBookingRow = {
   id: string;
   directionId: string;
@@ -64,9 +68,17 @@ export type RdvInscriptionBookingRow = {
   studentLastName: string;
   parentEmail: string;
   parentPhone: string;
+  niveauId: string | null;
+  niveauLabel: string | null;
+  eleveId: string | null;
+  matchStatus: RdvInscriptionMatchStatus | null;
+  createNew: boolean;
   status: RdvInscriptionBookingStatus;
   confirmExpiresAt: string | null;
   confirmedAt: string | null;
+  reconfirmStatus: RdvInscriptionReconfirmStatus | null;
+  reconfirmMailSentAt: string | null;
+  reconfirmedAt: string | null;
   createdAt: string;
 };
 
@@ -76,6 +88,11 @@ export type RdvInscriptionBookInput = {
   studentLastName: string;
   parentEmail: string;
   parentPhone: string;
+  niveauId: string;
+  /** Élève confirmé par le parent (matching interactif). */
+  eleveId?: string | null;
+  /** Création d’un nouveau préinscrit à la validation e-mail. */
+  createNew?: boolean;
 };
 
 export const DEFAULT_RDV_INSCRIPTION_TITLE = "Rendez-vous d’inscription";

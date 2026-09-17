@@ -4,8 +4,16 @@ export type DocumentTemplateId =
   | "autorisation-sortie"
   | "courrier-families";
 
-/** Niveaux de fiche d’inscription (sources AcroForm). */
+/** Niveaux de fiche d’inscription (sources AcroForm + RDV). */
 export type InscriptionLevelId =
+  | "ps"
+  | "ms"
+  | "gs"
+  | "cp"
+  | "ce1"
+  | "ce2"
+  | "cm1"
+  | "cm2"
   | "sixieme"
   | "cinquieme"
   | "quatrieme"
