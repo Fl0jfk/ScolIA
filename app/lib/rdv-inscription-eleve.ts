@@ -1,11 +1,10 @@
 import "server-only";
 
 import { and, eq } from "drizzle-orm";
-import { randomUUID } from "crypto";
 import { getDb } from "@/db/index";
-import { eleve, eleveScolarite } from "@/db/schema";
-import { buildEleveFolderName } from "@/app/lib/eleves-config";
+import { eleve } from "@/db/schema";
 import { listElevesFromDb } from "@/app/lib/ent-core-db";
+import { createElevePreinscrit } from "@/app/lib/eleve-create-preinscrit";
 import {
   elevesMatchingParentContact,
   matchRdvInscriptionCandidates,
@@ -58,12 +57,6 @@ export async function createPreinscritFromRdvBooking(opts: {
   niveauLabel?: string | null;
   directionSlug?: string | null;
 }): Promise<string> {
-  const db = getDb();
-  const nom = opts.nom.trim();
-  const prenom = opts.prenom.trim();
-  const folderName = buildEleveFolderName(nom, prenom);
-  const id = randomUUID();
-  const sourceKey = `rdv-inscription:${id}`;
   const secteur =
     opts.directionSlug === "ecole" ||
     opts.directionSlug === "college" ||
@@ -71,29 +64,17 @@ export async function createPreinscritFromRdvBooking(opts: {
       ? opts.directionSlug
       : null;
 
-  await db.insert(eleve).values({
-    id,
+  const created = await createElevePreinscrit({
     etablissementId: opts.etablissementId,
-    sourceKey,
-    nom,
-    prenom,
-    folderName,
-    classe: opts.niveauLabel?.trim() || null,
-    parentEmail: opts.parentEmail.trim().toLowerCase(),
-    parentPhone: opts.parentPhone.trim(),
-    status: "preinscrit",
-    secteur,
-  });
-
-  await db.insert(eleveScolarite).values({
-    etablissementId: opts.etablissementId,
-    eleveId: id,
+    nom: opts.nom,
+    prenom: opts.prenom,
+    parentEmail: opts.parentEmail,
+    parentPhone: opts.parentPhone,
+    classe: opts.niveauLabel,
     siteId: secteur,
-    classe: opts.niveauLabel?.trim() || null,
-    statut: "prevue",
+    sourcePrefix: "rdv-inscription",
   });
-
-  return id;
+  return created.id;
 }
 
 export async function getEleveIdentityForRdv(opts: {

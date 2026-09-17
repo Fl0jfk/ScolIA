@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
@@ -96,6 +96,16 @@ export default function ElevesDossiersListClient() {
   });
   const [error, setError] = useState<string | null>(null);
   const [listLoading, setListLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    prenom: "",
+    nom: "",
+    parentEmail: "",
+    parentPhone: "",
+    classe: "",
+    siteId: "",
+  });
 
   useEffect(() => {
     const nextClasse = searchParams.get("classe")?.trim() || "";
@@ -306,6 +316,51 @@ export default function ElevesDossiersListClient() {
     }
   }
 
+  async function createDossier(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setCreateBusy(true);
+    try {
+      const res = await fetch("/api/eleves/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prenom: createForm.prenom,
+          nom: createForm.nom,
+          parentEmail: createForm.parentEmail,
+          parentPhone: createForm.parentPhone,
+          classe: createForm.classe || null,
+          siteId: createForm.siteId || null,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        eleve?: { id: string };
+        inscriptionDocsUrl?: string;
+      };
+      if (!res.ok || !j.eleve?.id) {
+        setError(j.error || "Création impossible.");
+        return;
+      }
+      setShowCreate(false);
+      setCreateForm({
+        prenom: "",
+        nom: "",
+        parentEmail: "",
+        parentPhone: "",
+        classe: "",
+        siteId: "",
+      });
+      setStatusFilter("preinscrit");
+      await loadDossiers();
+      router.push(j.inscriptionDocsUrl || dossierHref(j.eleve.id));
+    } catch {
+      setError("Erreur réseau — réessayez.");
+    } finally {
+      setCreateBusy(false);
+    }
+  }
+
   return (
     <ModulePageShell maxWidthClass="max-w-5xl">
       <ModulePageHeader
@@ -319,9 +374,18 @@ export default function ElevesDossiersListClient() {
         }
         actions={
           canManagePreinscriptions ? (
-            <Link href="/preinscription" className="text-sm font-bold text-indigo-600 hover:underline">
-              Formulaire public
-            </Link>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCreate((v) => !v)}
+                className="rounded-xl bg-sky-700 px-3 py-2 text-sm font-bold text-white hover:bg-sky-800"
+              >
+                {showCreate ? "Fermer" : "Créer un dossier"}
+              </button>
+              <Link href="/preinscription" className="text-sm font-bold text-indigo-600 hover:underline">
+                Formulaire public
+              </Link>
+            </div>
           ) : null
         }
       />
@@ -351,6 +415,93 @@ export default function ElevesDossiersListClient() {
 
       {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
       {listMessage ? <p className="mb-3 text-sm text-amber-700">{listMessage}</p> : null}
+
+      {showCreate && canManagePreinscriptions ? (
+        <form
+          onSubmit={(e) => void createDossier(e)}
+          className="mb-6 rounded-3xl border border-sky-200 bg-sky-50/60 p-5 shadow-sm sm:p-6"
+        >
+          <h2 className="text-sm font-bold uppercase tracking-wide text-sky-800">
+            Nouveau dossier préinscrit
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            L’e-mail parent sert au matching des RDV d’inscription. Déposez ensuite les pièces sur
+            la page documents d’inscription.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm">
+              <span className="font-semibold text-slate-800">Prénom</span>
+              <input
+                required
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                value={createForm.prenom}
+                onChange={(e) => setCreateForm((f) => ({ ...f, prenom: e.target.value }))}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-semibold text-slate-800">Nom</span>
+              <input
+                required
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                value={createForm.nom}
+                onChange={(e) => setCreateForm((f) => ({ ...f, nom: e.target.value }))}
+              />
+            </label>
+            <label className="block text-sm sm:col-span-2">
+              <span className="font-semibold text-slate-800">E-mail parent</span>
+              <input
+                required
+                type="email"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                value={createForm.parentEmail}
+                onChange={(e) => setCreateForm((f) => ({ ...f, parentEmail: e.target.value }))}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-semibold text-slate-800">Téléphone parent</span>
+              <input
+                type="tel"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                value={createForm.parentPhone}
+                onChange={(e) => setCreateForm((f) => ({ ...f, parentPhone: e.target.value }))}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-semibold text-slate-800">Niveau / classe visé</span>
+              <input
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                placeholder="Ex. Seconde, 6e…"
+                value={createForm.classe}
+                onChange={(e) => setCreateForm((f) => ({ ...f, classe: e.target.value }))}
+              />
+            </label>
+            {sites.length > 0 ? (
+              <label className="block text-sm sm:col-span-2">
+                <span className="font-semibold text-slate-800">Site</span>
+                <select
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                  value={createForm.siteId}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, siteId: e.target.value }))}
+                >
+                  <option value="">—</option>
+                  {sites.map((s) => (
+                    <option key={s.siteId} value={s.siteId}>
+                      {s.label || s.siteId}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+          <button
+            type="submit"
+            disabled={createBusy}
+            className="mt-4 rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-sky-800 disabled:opacity-50"
+          >
+            {createBusy ? "Création…" : "Créer le dossier"}
+          </button>
+        </form>
+      ) : null}
 
       {tab === "dossiers" ? (
         <div className="space-y-4">
