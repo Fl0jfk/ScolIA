@@ -73,6 +73,14 @@ export type RdvInscriptionBookingRow = {
   eleveId: string | null;
   matchStatus: RdvInscriptionMatchStatus | null;
   createNew: boolean;
+  hasPap: "yes" | "no" | null;
+  papS3Key: string | null;
+  papFileName: string | null;
+  papMimeType: string | null;
+  papBringToRdv: boolean;
+  etablissementOrigineRne: string | null;
+  etablissementOrigineLabel: string | null;
+  etablissementOrigineAdresse: string | null;
   status: RdvInscriptionBookingStatus;
   confirmExpiresAt: string | null;
   confirmedAt: string | null;
@@ -93,6 +101,14 @@ export type RdvInscriptionBookInput = {
   eleveId?: string | null;
   /** Création d’un nouveau préinscrit à la validation e-mail. */
   createNew?: boolean;
+  hasPap?: "yes" | "no";
+  papS3Key?: string | null;
+  papFileName?: string | null;
+  papMimeType?: string | null;
+  papBringToRdv?: boolean;
+  etablissementOrigineRne?: string | null;
+  etablissementOrigineLabel?: string | null;
+  etablissementOrigineAdresse?: string | null;
 };
 
 export const DEFAULT_RDV_INSCRIPTION_TITLE = "Rendez-vous d’inscription";

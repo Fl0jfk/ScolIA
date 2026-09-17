@@ -104,6 +104,14 @@ function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscript
     eleveId: row.eleveId,
     matchStatus,
     createNew: row.createNew === 1,
+    hasPap: row.hasPap === "yes" || row.hasPap === "no" ? row.hasPap : null,
+    papS3Key: row.papS3Key,
+    papFileName: row.papFileName,
+    papMimeType: row.papMimeType,
+    papBringToRdv: row.papBringToRdv === 1,
+    etablissementOrigineRne: row.etablissementOrigineRne,
+    etablissementOrigineLabel: row.etablissementOrigineLabel,
+    etablissementOrigineAdresse: row.etablissementOrigineAdresse,
     status: mapBookingStatus(row.status),
     confirmExpiresAt: toIso(row.confirmExpiresAt),
     confirmedAt: toIso(row.confirmedAt),
@@ -499,6 +507,14 @@ export async function insertRdvInscriptionBooking(input: {
   niveauLabel?: string | null;
   eleveId?: string | null;
   createNew?: boolean;
+  hasPap?: "yes" | "no" | null;
+  papS3Key?: string | null;
+  papFileName?: string | null;
+  papMimeType?: string | null;
+  papBringToRdv?: boolean;
+  etablissementOrigineRne?: string | null;
+  etablissementOrigineLabel?: string | null;
+  etablissementOrigineAdresse?: string | null;
   status?: RdvInscriptionBookingStatus;
   confirmToken?: string | null;
   confirmExpiresAt?: Date | null;
@@ -528,6 +544,14 @@ export async function insertRdvInscriptionBooking(input: {
     niveauLabel: input.niveauLabel?.trim() || null,
     eleveId: input.eleveId?.trim() || null,
     createNew: input.createNew ? 1 : 0,
+    hasPap: input.hasPap === "yes" || input.hasPap === "no" ? input.hasPap : null,
+    papS3Key: input.papS3Key?.trim() || null,
+    papFileName: input.papFileName?.trim() || null,
+    papMimeType: input.papMimeType?.trim() || null,
+    papBringToRdv: input.papBringToRdv ? 1 : 0,
+    etablissementOrigineRne: input.etablissementOrigineRne?.trim() || null,
+    etablissementOrigineLabel: input.etablissementOrigineLabel?.trim() || null,
+    etablissementOrigineAdresse: input.etablissementOrigineAdresse?.trim() || null,
     status,
     confirmToken: input.confirmToken || null,
     confirmExpiresAt: input.confirmExpiresAt || null,

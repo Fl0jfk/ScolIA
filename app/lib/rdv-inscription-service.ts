@@ -256,6 +256,30 @@ export async function bookPublicRdvInscription(
     return { ok: false, status: 400, error: "Téléphone trop long." };
   }
 
+  const hasPap = input.hasPap === "yes" || input.hasPap === "no" ? input.hasPap : null;
+  if (!hasPap) {
+    return { ok: false, status: 400, error: "Indiquez si l’élève a un PAP." };
+  }
+  const papS3Key = input.papS3Key?.trim() || null;
+  const papFileName = input.papFileName?.trim() || null;
+  const papMimeType = input.papMimeType?.trim() || null;
+  const papBringToRdv = Boolean(input.papBringToRdv);
+  if (hasPap === "yes" && !papS3Key && !papBringToRdv) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        "Déposez le PAP ou confirmez que vous l’apporterez au rendez-vous (obligatoire le jour J).",
+    };
+  }
+
+  const etablissementOrigineRne = input.etablissementOrigineRne?.trim() || null;
+  const etablissementOrigineLabel = input.etablissementOrigineLabel?.trim() || null;
+  const etablissementOrigineAdresse = input.etablissementOrigineAdresse?.trim() || null;
+  if (!etablissementOrigineLabel) {
+    return { ok: false, status: 400, error: "Sélectionnez l’établissement d’origine." };
+  }
+
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) {
     return { ok: false, status: 503, error: "Établissement introuvable." };
@@ -327,6 +351,14 @@ export async function bookPublicRdvInscription(
       niveauLabel: niveauMeta.label,
       eleveId,
       createNew,
+      hasPap,
+      papS3Key,
+      papFileName,
+      papMimeType,
+      papBringToRdv: hasPap === "yes" && !papS3Key ? true : papBringToRdv,
+      etablissementOrigineRne,
+      etablissementOrigineLabel,
+      etablissementOrigineAdresse,
       status: "pending",
       confirmToken,
       confirmExpiresAt,
@@ -469,6 +501,10 @@ export async function confirmPublicRdvInscription(token: string): Promise<
     parentPhone: found.parentPhone,
     niveauLabel: found.niveauLabel,
     dossierInscriptionUrl,
+    hasPap: found.hasPap,
+    papBringToRdv: found.papBringToRdv,
+    papUploaded: Boolean(found.papS3Key),
+    etablissementOrigineLabel: found.etablissementOrigineLabel,
   });
 
   if (!gcal.ok) {
@@ -488,6 +524,19 @@ export async function confirmPublicRdvInscription(token: string): Promise<
   });
   if (!booking) {
     return { ok: false, error: "error", message: "Confirmation impossible." };
+  }
+
+  try {
+    const { attachRdvBookingExtrasToEleve } = await import(
+      "@/app/lib/rdv-inscription-eleve-extras"
+    );
+    await attachRdvBookingExtrasToEleve({
+      etablissementId: found.etablissementId,
+      eleveId,
+      booking: found,
+    });
+  } catch (e) {
+    console.error("[rdv-inscription] attach extras:", e);
   }
 
   if (matchStatus === "created" && direction.notifyEmail) {

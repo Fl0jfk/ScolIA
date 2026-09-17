@@ -113,6 +113,16 @@ export const rdvInscriptionBooking = pgTable(
     matchStatus: text("match_status"),
     /** 1 = le parent a demandé la création d’un nouveau dossier. */
     createNew: integer("create_new").notNull().default(0),
+    /** yes | no — null = non renseigné (anciens bookings). */
+    hasPap: text("has_pap"),
+    papS3Key: text("pap_s3_key"),
+    papFileName: text("pap_file_name"),
+    papMimeType: text("pap_mime_type"),
+    /** 1 = parent s’engage à apporter le PAP au RDV (sans dépôt fichier). */
+    papBringToRdv: integer("pap_bring_to_rdv").notNull().default(0),
+    etablissementOrigineRne: text("etablissement_origine_rne"),
+    etablissementOrigineLabel: text("etablissement_origine_label"),
+    etablissementOrigineAdresse: text("etablissement_origine_adresse"),
     /** pending | confirmed | cancelled | expired */
     status: text("status").notNull().default("pending"),
     /** Token one-shot pour valider le créneau par e-mail (anti-spam). */

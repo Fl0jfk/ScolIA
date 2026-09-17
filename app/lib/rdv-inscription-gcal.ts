@@ -351,6 +351,10 @@ export async function confirmInscriptionCalendarEvent(opts: {
   parentPhone: string;
   niveauLabel?: string | null;
   dossierInscriptionUrl?: string | null;
+  hasPap?: "yes" | "no" | null;
+  papBringToRdv?: boolean;
+  papUploaded?: boolean;
+  etablissementOrigineLabel?: string | null;
   accessToken?: string;
 }): Promise<BookCalendarEventResult> {
   const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
@@ -397,6 +401,18 @@ export async function confirmInscriptionCalendarEvent(opts: {
   const descriptionLines = [
     `Élève : ${opts.studentFirstName.trim()} ${opts.studentLastName.trim()}`,
     opts.niveauLabel?.trim() ? `Niveau : ${opts.niveauLabel.trim()}` : "",
+    opts.etablissementOrigineLabel?.trim()
+      ? `Établissement d’origine : ${opts.etablissementOrigineLabel.trim()}`
+      : "",
+    opts.hasPap === "yes"
+      ? opts.papUploaded
+        ? "PAP : oui (déposé en ligne)"
+        : opts.papBringToRdv
+          ? "PAP : oui — à apporter au rendez-vous"
+          : "PAP : oui"
+      : opts.hasPap === "no"
+        ? "PAP : non"
+        : "",
     `E-mail parent : ${opts.parentEmail.trim()}`,
     `Téléphone parent : ${opts.parentPhone.trim()}`,
     opts.dossierInscriptionUrl?.trim()

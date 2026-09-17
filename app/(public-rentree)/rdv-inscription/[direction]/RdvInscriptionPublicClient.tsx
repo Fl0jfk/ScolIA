@@ -39,6 +39,12 @@ type MatchChoice =
   | { kind: "create" }
   | null;
 
+type OrigineEtab = {
+  codeRne: string;
+  label: string;
+  adresse: string | null;
+};
+
 function formatHm(iso: string): string {
   return new Date(iso).toLocaleTimeString("fr-FR", {
     timeZone: "Europe/Paris",
@@ -108,6 +114,20 @@ export default function RdvInscriptionPublicClient({
   const [candidates, setCandidates] = useState<MatchCandidate[] | null>(null);
   const [matchChoice, setMatchChoice] = useState<MatchChoice>(null);
   const [matchBusy, setMatchBusy] = useState(false);
+  const [hasPap, setHasPap] = useState<"yes" | "no" | "">("");
+  const [papBringToRdv, setPapBringToRdv] = useState(false);
+  const [papFile, setPapFile] = useState<{
+    s3Key: string;
+    fileName: string;
+    mimeType: string;
+  } | null>(null);
+  const [papUploadBusy, setPapUploadBusy] = useState(false);
+  const [origineCp, setOrigineCp] = useState("");
+  const [origineDept, setOrigineDept] = useState("");
+  const [origineQuery, setOrigineQuery] = useState("");
+  const [origineResults, setOrigineResults] = useState<OrigineEtab[]>([]);
+  const [origineSelected, setOrigineSelected] = useState<OrigineEtab | null>(null);
+  const [origineBusy, setOrigineBusy] = useState(false);
   const [consent, setConsent] = useState(false);
   const [honeypot, setHoneypot] = useState("");
   const [busy, setBusy] = useState(false);
@@ -240,11 +260,101 @@ export default function RdvInscriptionPublicClient({
     }
   }
 
+  async function searchOrigine() {
+    setFormError(null);
+    setOrigineBusy(true);
+    setOrigineSelected(null);
+    try {
+      const params = new URLSearchParams();
+      if (origineCp.trim()) params.set("cp", origineCp.trim());
+      if (origineDept.trim()) params.set("dept", origineDept.trim());
+      if (origineQuery.trim()) params.set("q", origineQuery.trim());
+      if (!params.has("cp") && !params.has("dept") && !params.has("q")) {
+        setFormError("Indiquez un code postal, un département ou un nom d’établissement.");
+        return;
+      }
+      const res = await fetch(`/api/fiches-dialogue/public/etablissements?${params}`);
+      const data = (await res.json()) as {
+        etablissements?: OrigineEtab[];
+        error?: string;
+        hint?: string;
+      };
+      if (!res.ok) {
+        setFormError(data.error || "Recherche établissement impossible.");
+        return;
+      }
+      setOrigineResults(data.etablissements || []);
+      if (!(data.etablissements || []).length) {
+        setFormError(data.hint || "Aucun établissement trouvé — affinez le code postal ou le nom.");
+      }
+    } catch {
+      setFormError("Erreur réseau — réessayez.");
+    } finally {
+      setOrigineBusy(false);
+    }
+  }
+
+  async function uploadPapFile(file: File) {
+    setFormError(null);
+    setPapUploadBusy(true);
+    try {
+      const prep = await fetch("/api/rdv-inscription/pap-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: file.name,
+          contentType: file.type || "application/pdf",
+          size: file.size,
+        }),
+      });
+      const prepJ = (await prep.json()) as {
+        uploadUrl?: string;
+        s3Key?: string;
+        fileName?: string;
+        contentType?: string;
+        error?: string;
+      };
+      if (!prep.ok || !prepJ.uploadUrl || !prepJ.s3Key) {
+        throw new Error(prepJ.error || "Préparation upload impossible");
+      }
+      const put = await fetch(prepJ.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/pdf" },
+        body: file,
+      });
+      if (!put.ok) throw new Error("Échec envoi du fichier");
+      setPapFile({
+        s3Key: prepJ.s3Key,
+        fileName: prepJ.fileName || file.name,
+        mimeType: prepJ.contentType || file.type || "application/pdf",
+      });
+      setPapBringToRdv(false);
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "Upload PAP impossible");
+    } finally {
+      setPapUploadBusy(false);
+    }
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
     if (!matchChoice) {
       setFormError("Confirmez l’élève (ou créez un nouveau dossier) avant de réserver.");
+      return;
+    }
+    if (!origineSelected) {
+      setFormError("Sélectionnez l’établissement d’origine.");
+      return;
+    }
+    if (hasPap !== "yes" && hasPap !== "no") {
+      setFormError("Indiquez si votre enfant a un PAP.");
+      return;
+    }
+    if (hasPap === "yes" && !papFile && !papBringToRdv) {
+      setFormError(
+        "Déposez le PAP ou confirmez que vous l’apporterez au rendez-vous (obligatoire le jour J).",
+      );
       return;
     }
     if (!niveauId) {
@@ -273,6 +383,14 @@ export default function RdvInscriptionPublicClient({
           niveauId,
           eleveId: matchChoice.kind === "eleve" ? matchChoice.id : null,
           createNew: matchChoice.kind === "create",
+          hasPap,
+          papS3Key: papFile?.s3Key || null,
+          papFileName: papFile?.fileName || null,
+          papMimeType: papFile?.mimeType || null,
+          papBringToRdv: hasPap === "yes" && !papFile,
+          etablissementOrigineRne: origineSelected.codeRne,
+          etablissementOrigineLabel: origineSelected.label,
+          etablissementOrigineAdresse: origineSelected.adresse,
           consent: true,
           website: honeypot,
         }),
@@ -543,7 +661,197 @@ export default function RdvInscriptionPublicClient({
 
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
               <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-                3 · Niveau demandé
+                3 · Établissement d’origine
+              </h2>
+              <p className="mt-2 text-sm text-slate-500">
+                Filtrez par code postal (recommandé) ou département, puis choisissez l’établissement.
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <label className="block text-sm">
+                  <span className="font-semibold text-slate-800">Code postal</span>
+                  <input
+                    className={fieldClass}
+                    value={origineCp}
+                    onChange={(e) => setOrigineCp(e.target.value)}
+                    placeholder="76500"
+                    inputMode="numeric"
+                    disabled={!matchReady}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-semibold text-slate-800">Département (UAI)</span>
+                  <input
+                    className={fieldClass}
+                    value={origineDept}
+                    onChange={(e) => setOrigineDept(e.target.value)}
+                    placeholder="076"
+                    disabled={!matchReady}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="font-semibold text-slate-800">Nom (optionnel)</span>
+                  <input
+                    className={fieldClass}
+                    value={origineQuery}
+                    onChange={(e) => setOrigineQuery(e.target.value)}
+                    placeholder="Collège…"
+                    disabled={!matchReady}
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                disabled={!matchReady || origineBusy}
+                onClick={() => void searchOrigine()}
+                className="mt-3 rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-900 disabled:opacity-50"
+              >
+                {origineBusy ? "Recherche…" : "Rechercher l’établissement"}
+              </button>
+              {origineResults.length > 0 ? (
+                <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto">
+                  {origineResults.map((e) => {
+                    const selected = origineSelected?.codeRne === e.codeRne;
+                    return (
+                      <li key={e.codeRne}>
+                        <button
+                          type="button"
+                          onClick={() => setOrigineSelected(e)}
+                          className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                            selected
+                              ? "bg-sky-700 text-white"
+                              : "bg-slate-50 text-slate-800 ring-1 ring-slate-200 hover:bg-white"
+                          }`}
+                        >
+                          <span className="font-semibold">{e.label}</span>
+                          {e.adresse ? (
+                            <span
+                              className={`mt-0.5 block text-xs ${
+                                selected ? "text-sky-100" : "text-slate-500"
+                              }`}
+                            >
+                              {e.adresse}
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+              {origineSelected ? (
+                <p className="mt-3 text-sm text-emerald-700">
+                  Sélection : <strong>{origineSelected.label}</strong>
+                </p>
+              ) : null}
+            </section>
+
+            <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+                4 · PAP (Plan d’accompagnement personnalisé)
+              </h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Votre enfant a-t-il un PAP ?
+              </p>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={!matchReady}
+                  onClick={() => {
+                    setHasPap("no");
+                    setPapFile(null);
+                    setPapBringToRdv(false);
+                  }}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-bold ${
+                    hasPap === "no"
+                      ? "bg-slate-800 text-white"
+                      : "bg-slate-50 text-slate-700 ring-1 ring-slate-200"
+                  }`}
+                >
+                  Non
+                </button>
+                <button
+                  type="button"
+                  disabled={!matchReady}
+                  onClick={() => setHasPap("yes")}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-bold ${
+                    hasPap === "yes"
+                      ? "bg-sky-700 text-white"
+                      : "bg-slate-50 text-slate-700 ring-1 ring-slate-200"
+                  }`}
+                >
+                  Oui
+                </button>
+              </div>
+              {hasPap === "yes" ? (
+                <div className="mt-4 space-y-3">
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                    Le PAP doit être <strong>présent au rendez-vous</strong> : la direction traite le
+                    dossier PAP en même temps que l’inscription. Si vous ne l’avez pas sous la main
+                    maintenant, vous pouvez le déposer plus tard, mais il faudra l’apporter le jour J.
+                  </p>
+                  <label
+                    className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition ${
+                      papFile
+                        ? "border-emerald-300 bg-emerald-50"
+                        : "border-slate-300 bg-slate-50 hover:border-sky-400"
+                    }`}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) void uploadPapFile(f);
+                    }}
+                  >
+                    <span className="text-sm font-semibold text-slate-800">
+                      {papUploadBusy
+                        ? "Envoi…"
+                        : papFile
+                          ? `Déposé : ${papFile.fileName}`
+                          : "Glissez-déposez le PAP (PDF / image) — facultatif"}
+                    </span>
+                    <span className="mt-1 text-xs text-slate-500">ou cliquez pour choisir un fichier</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="application/pdf,image/jpeg,image/png,image/webp"
+                      disabled={papUploadBusy || !matchReady}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void uploadPapFile(f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  {!papFile ? (
+                    <label className="flex items-start gap-3 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 rounded border-slate-300 text-sky-700"
+                        checked={papBringToRdv}
+                        onChange={(e) => setPapBringToRdv(e.target.checked)}
+                      />
+                      <span>
+                        Je n’ai pas le fichier maintenant : je m’engage à{" "}
+                        <strong>apporter le PAP au rendez-vous</strong> (indispensable pour le
+                        traitement le jour J).
+                      </span>
+                    </label>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-sm font-semibold text-slate-600 underline"
+                      onClick={() => setPapFile(null)}
+                    >
+                      Retirer le fichier
+                    </button>
+                  )}
+                </div>
+              ) : null}
+            </section>
+
+            <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+                5 · Niveau demandé
               </h2>
               <label className="mt-4 block text-sm">
                 <span className="font-semibold text-slate-800">Classe / formation</span>
@@ -566,7 +874,7 @@ export default function RdvInscriptionPublicClient({
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
               <div className="flex flex-wrap items-end justify-between gap-2">
                 <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-                  4 · Choisir un créneau
+                  6 · Choisir un créneau
                 </h2>
                 <p className="text-xs text-slate-500">
                   {slots.length} créneau{slots.length > 1 ? "x" : ""} · {dayKeys.length} jour
@@ -713,7 +1021,7 @@ export default function RdvInscriptionPublicClient({
 
               <button
                 type="submit"
-                disabled={busy || !matchReady || !eventId}
+                disabled={busy || !matchReady || !eventId || !origineSelected || !hasPap}
                 className="mt-5 w-full rounded-xl bg-sky-700 px-4 py-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? "Réservation…" : "Confirmer le rendez-vous"}

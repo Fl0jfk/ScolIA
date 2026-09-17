@@ -48,6 +48,23 @@ export async function POST(req: Request, ctx: Ctx) {
       niveauId: String(body.niveauId || "").trim(),
       eleveId: body.eleveId ? String(body.eleveId).trim() : null,
       createNew: body.createNew === true || body.createNew === "true" || body.createNew === 1,
+      hasPap: body.hasPap === "yes" || body.hasPap === "no" ? body.hasPap : undefined,
+      papS3Key: body.papS3Key ? String(body.papS3Key).trim() : null,
+      papFileName: body.papFileName ? String(body.papFileName).trim() : null,
+      papMimeType: body.papMimeType ? String(body.papMimeType).trim() : null,
+      papBringToRdv:
+        body.papBringToRdv === true ||
+        body.papBringToRdv === "true" ||
+        body.papBringToRdv === 1,
+      etablissementOrigineRne: body.etablissementOrigineRne
+        ? String(body.etablissementOrigineRne).trim()
+        : null,
+      etablissementOrigineLabel: body.etablissementOrigineLabel
+        ? String(body.etablissementOrigineLabel).trim()
+        : null,
+      etablissementOrigineAdresse: body.etablissementOrigineAdresse
+        ? String(body.etablissementOrigineAdresse).trim()
+        : null,
     });
 
     if (!result.ok) {

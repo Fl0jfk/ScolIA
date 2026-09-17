@@ -28,6 +28,7 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/api/rdv-inscription/(.*)/book",
   "/api/rdv-inscription/(.*)/match",
   "/api/rdv-inscription/confirm",
+  "/api/rdv-inscription/pap-upload",
   "/api/rdv-inscription/reconfirm-cron",
   "/faire-une-demande(.*)",
   "/demande-parents(.*)",
