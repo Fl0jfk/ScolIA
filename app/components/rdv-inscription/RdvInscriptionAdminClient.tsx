@@ -138,9 +138,8 @@ export default function RdvInscriptionAdminClient() {
       <header>
         <h1 className="text-2xl font-bold text-slate-900">RDV inscription direction</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Prise de rendez-vous automatique avec les agendas Google des directrices. Les créneaux
-          dont le titre contient le motif ci-dessous sont proposés aux parents (aujourd’hui : «{" "}
-          {config.eventTitlePattern} »).
+          Chaque direction a son agenda Google, son texte de page, son motif de titre et son
+          e-mail secrétariat.
         </p>
       </header>
 
@@ -158,7 +157,7 @@ export default function RdvInscriptionAdminClient() {
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900">Compte Google technique</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Connectez un compte Google Workspace, puis demandez à chaque directrice de{" "}
+          Connectez un compte Google, puis demandez à chaque directrice de{" "}
           <strong>partager son agenda</strong> avec ce compte (droits de modification des
           événements).
         </p>
@@ -212,125 +211,41 @@ export default function RdvInscriptionAdminClient() {
             </>
           )}
         </div>
-      </section>
-
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900">Paramètres généraux</h2>
         <form
-          className="mt-4 grid gap-3 sm:grid-cols-2"
+          className="mt-4"
           onSubmit={(e) => {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
             void put({
               action: "save-config",
-              config: {
-                enabled: fd.get("enabled") === "on",
-                title: String(fd.get("title") || ""),
-                intro: String(fd.get("intro") || ""),
-                eventTitlePattern: String(fd.get("eventTitlePattern") || ""),
-                notifyEmail: String(fd.get("notifyEmail") || "") || null,
-                location: String(fd.get("location") || ""),
-                consentLabel: String(fd.get("consentLabel") || ""),
-                horizonDays: Number(fd.get("horizonDays") || 60),
-              },
+              config: { enabled: fd.get("enabled") === "on" },
             });
           }}
         >
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+          <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" name="enabled" defaultChecked={config.enabled} />
-            <span className="font-semibold">Module activé (pages publiques)</span>
+            <span className="font-semibold">Coupe-circuit global (désactiver toutes les pages)</span>
           </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className="font-semibold">Titre</span>
-            <input
-              name="title"
-              defaultValue={config.title}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            />
-          </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className="font-semibold">Introduction</span>
-            <textarea
-              name="intro"
-              rows={3}
-              defaultValue={config.intro}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            />
-          </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className="font-semibold">Texte recherché dans le titre Google</span>
-            <input
-              name="eventTitlePattern"
-              defaultValue={config.eventTitlePattern}
-              placeholder="rdv inscription"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            />
-            <span className="mt-1 block text-xs text-slate-500">
-              Saisissez le texte exact que les directrices mettent dans le titre de l’événement
-              Google (ex. <code className="font-mono">RDV inscription</code>). On cherche cette
-              chaîne telle quelle (casse et accents ignorés). Plusieurs formulations possibles,
-              séparées par <code className="font-mono">|</code> :{" "}
-              <code className="font-mono">RDV inscription | rendez-vous inscription</code>.
-            </span>
-          </label>
-          <label className="block text-sm">
-            <span className="font-semibold">Horizon (jours)</span>
-            <input
-              name="horizonDays"
-              type="number"
-              min={7}
-              max={180}
-              defaultValue={config.horizonDays}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="font-semibold">E-mail notif secrétariat</span>
-            <input
-              name="notifyEmail"
-              type="email"
-              defaultValue={config.notifyEmail || ""}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="font-semibold">Lieu</span>
-            <input
-              name="location"
-              defaultValue={config.location}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            />
-          </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className="font-semibold">Libellé consentement</span>
-            <input
-              name="consentLabel"
-              defaultValue={config.consentLabel}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            />
-          </label>
-          <div className="sm:col-span-2">
-            <button
-              type="submit"
-              disabled={busy}
-              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-60"
-            >
-              Enregistrer
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-2 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold disabled:opacity-60"
+          >
+            Enregistrer
+          </button>
         </form>
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900">Directions & agendas</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Indiquez l’identifiant Google de chaque agenda (souvent l’e-mail de la directrice, ou
-          l’ID « …@group.calendar.google.com »).
+          Paramétrez chaque direction indépendamment (agenda, textes, motif Google, notif
+          secrétariat, horizon).
         </p>
         <div className="mt-4 space-y-6">
           {directions.map((d) => (
             <form
-              key={d.id}
+              key={`${d.id}-${d.eventTitlePattern}-${d.notifyEmail || ""}-${d.horizonDays}-${d.title}`}
               className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-2"
               onSubmit={(e) => {
                 e.preventDefault();
@@ -343,12 +258,22 @@ export default function RdvInscriptionAdminClient() {
                     label: String(fd.get("label") || ""),
                     googleCalendarId: String(fd.get("googleCalendarId") || ""),
                     directriceDisplayName: String(fd.get("directriceDisplayName") || "") || null,
+                    title: String(fd.get("title") || ""),
+                    intro: String(fd.get("intro") || ""),
+                    eventTitlePattern: String(fd.get("eventTitlePattern") || ""),
+                    notifyEmail: String(fd.get("notifyEmail") || "") || null,
+                    location: String(fd.get("location") || ""),
+                    consentLabel: String(fd.get("consentLabel") || ""),
+                    horizonDays: Number(fd.get("horizonDays") || 60),
                     active: fd.get("active") === "on",
                     sortOrder: Number(fd.get("sortOrder") || d.sortOrder),
                   },
                 });
               }}
             >
+              <div className="sm:col-span-2 border-b border-slate-200 pb-2">
+                <p className="text-base font-bold text-slate-900">{d.label}</p>
+              </div>
               <label className="block text-sm">
                 <span className="font-semibold">Libellé</span>
                 <input
@@ -391,6 +316,73 @@ export default function RdvInscriptionAdminClient() {
                   className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
                 />
               </label>
+              <label className="block text-sm sm:col-span-2">
+                <span className="font-semibold">Titre page publique</span>
+                <input
+                  name="title"
+                  defaultValue={d.title}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm sm:col-span-2">
+                <span className="font-semibold">Introduction</span>
+                <textarea
+                  name="intro"
+                  rows={2}
+                  defaultValue={d.intro}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm sm:col-span-2">
+                <span className="font-semibold">Texte recherché dans le titre Google</span>
+                <input
+                  name="eventTitlePattern"
+                  defaultValue={d.eventTitlePattern}
+                  placeholder="RDV inscription"
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+                />
+                <span className="mt-1 block text-xs text-slate-500">
+                  Exactement ce que cette directrice écrit dans le titre (casse/accents ignorés).
+                  Plusieurs formulations :{" "}
+                  <code className="font-mono">RDV inscription | rendez-vous inscription</code>.
+                </span>
+              </label>
+              <label className="block text-sm">
+                <span className="font-semibold">Horizon (jours)</span>
+                <input
+                  name="horizonDays"
+                  type="number"
+                  min={7}
+                  max={180}
+                  defaultValue={d.horizonDays}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-semibold">E-mail notif secrétariat</span>
+                <input
+                  name="notifyEmail"
+                  type="email"
+                  defaultValue={d.notifyEmail || ""}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-semibold">Lieu</span>
+                <input
+                  name="location"
+                  defaultValue={d.location}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm sm:col-span-2">
+                <span className="font-semibold">Libellé consentement</span>
+                <input
+                  name="consentLabel"
+                  defaultValue={d.consentLabel}
+                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+                />
+              </label>
               <label className="flex items-center gap-2 text-sm sm:col-span-2">
                 <input type="checkbox" name="active" defaultChecked={d.active} />
                 <span className="font-semibold">Direction active (page publique)</span>
@@ -423,7 +415,7 @@ export default function RdvInscriptionAdminClient() {
                       setSampleTitles(payload.sampleTitles || []);
                       const count = payload.count ?? 0;
                       const upcoming = payload.upcomingEventCount ?? 0;
-                      const motif = payload.titlePattern || config.eventTitlePattern;
+                      const motif = payload.titlePattern || d.eventTitlePattern;
                       if (count > 0) {
                         setMessage(
                           `${count} créneau(x) libre(s) sur « ${d.label} » (motif « ${motif} »).`,
@@ -434,7 +426,7 @@ export default function RdvInscriptionAdminClient() {
                         );
                       } else {
                         setMessage(
-                          `0 créneau libre sur « ${d.label} » pour le motif « ${motif} », alors que ${upcoming} événement(s) à venir ont été lus. Adaptez le texte recherché ci-dessus pour qu’il figure dans le titre Google.`,
+                          `0 créneau libre sur « ${d.label} » pour le motif « ${motif} », alors que ${upcoming} événement(s) à venir ont été lus. Adaptez le texte recherché de cette direction.`,
                         );
                       }
                     }
@@ -466,8 +458,8 @@ export default function RdvInscriptionAdminClient() {
               ))}
             </ul>
             <p className="mt-2 text-xs">
-              Copiez un fragment de ces titres dans « Texte recherché dans le titre Google »,
-              enregistrez, puis retestez.
+              Copiez un fragment dans « Texte recherché dans le titre Google » de cette
+              direction, enregistrez, puis retestez.
             </p>
           </div>
         ) : null}

@@ -1,14 +1,8 @@
 /** Types métier — RDV inscriptions (Google Agenda). */
 
+/** Config globale du module (activation + état Google) — le reste est par direction. */
 export type RdvInscriptionConfigPublic = {
   enabled: boolean;
-  title: string;
-  intro: string;
-  eventTitlePattern: string;
-  notifyEmail: string | null;
-  location: string;
-  consentLabel: string;
-  horizonDays: number;
   googleLinked: boolean;
   googleLinkedEmail: string | null;
   googleLinkedAt: string | null;
@@ -20,8 +14,26 @@ export type RdvInscriptionDirectionRow = {
   label: string;
   googleCalendarId: string;
   directriceDisplayName: string | null;
+  title: string;
+  intro: string;
+  eventTitlePattern: string;
+  notifyEmail: string | null;
+  location: string;
+  consentLabel: string;
+  horizonDays: number;
   active: boolean;
   sortOrder: number;
+};
+
+/** Sous-ensemble utilisé pour les mails / page publique d’une direction. */
+export type RdvInscriptionDirectionPageSettings = {
+  title: string;
+  intro: string;
+  eventTitlePattern: string;
+  notifyEmail: string | null;
+  location: string;
+  consentLabel: string;
+  horizonDays: number;
 };
 
 export type RdvInscriptionSlot = {

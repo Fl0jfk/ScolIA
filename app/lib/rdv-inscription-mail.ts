@@ -2,7 +2,10 @@ import "server-only";
 
 import { buildCalendarEventIcs } from "@/app/lib/calendar-ics";
 import { escapeHtml } from "@/app/lib/escape-html";
-import type { RdvInscriptionBookingRow, RdvInscriptionConfigPublic } from "@/app/lib/rdv-inscription-types";
+import type {
+  RdvInscriptionBookingRow,
+  RdvInscriptionDirectionPageSettings,
+} from "@/app/lib/rdv-inscription-types";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
 
 function formatSlotFr(startAt: string, endAt: string): string {
@@ -25,7 +28,7 @@ function formatSlotFr(startAt: string, endAt: string): string {
 }
 
 export async function sendRdvInscriptionConfirmationMails(opts: {
-  config: RdvInscriptionConfigPublic;
+  page: RdvInscriptionDirectionPageSettings;
   booking: RdvInscriptionBookingRow;
   directionLabel: string;
   directriceName?: string | null;
@@ -42,8 +45,8 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
 
   const slotLabel = formatSlotFr(opts.booking.startAt, opts.booking.endAt);
   const student = `${opts.booking.studentFirstName} ${opts.booking.studentLastName}`;
-  const location = opts.config.location.trim();
-  const title = `${opts.config.title} — ${opts.directionLabel}`;
+  const location = opts.page.location.trim();
+  const title = `${opts.page.title} — ${opts.directionLabel}`;
 
   const ics = buildCalendarEventIcs({
     title: `${title} — ${student}`,
@@ -100,7 +103,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
     };
   }
 
-  const notify = opts.config.notifyEmail?.trim();
+  const notify = opts.page.notifyEmail?.trim();
   if (notify) {
     try {
       await transporter.sendMail({

@@ -26,8 +26,9 @@ export async function listPublicSlotsForDirection(slug: string): Promise<{
   slots: RdvInscriptionSlot[];
 } | { ok: false; status: number; error: string }> {
   const config = await getRdvInscriptionConfig();
-  if (!config.enabled) {
-    return { ok: false, status: 404, error: "Prise de rendez-vous non disponible." };
+  const direction = await getRdvInscriptionDirectionBySlug(slug, { activeOnly: true });
+  if (!direction) {
+    return { ok: false, status: 404, error: "Direction introuvable." };
   }
   if (!config.googleLinked) {
     return {
@@ -35,11 +36,6 @@ export async function listPublicSlotsForDirection(slug: string): Promise<{
       status: 503,
       error: "Agenda non connecté — contactez l’établissement.",
     };
-  }
-
-  const direction = await getRdvInscriptionDirectionBySlug(slug, { activeOnly: true });
-  if (!direction) {
-    return { ok: false, status: 404, error: "Direction introuvable." };
   }
   if (!direction.googleCalendarId.trim()) {
     return {
@@ -52,15 +48,15 @@ export async function listPublicSlotsForDirection(slug: string): Promise<{
   try {
     const slots = await listAvailableInscriptionSlots({
       calendarId: direction.googleCalendarId,
-      titlePattern: config.eventTitlePattern,
-      horizonDays: config.horizonDays,
+      titlePattern: direction.eventTitlePattern,
+      horizonDays: direction.horizonDays,
     });
     return {
       ok: true,
-      configTitle: config.title,
-      intro: config.intro,
-      consentLabel: config.consentLabel,
-      location: config.location,
+      configTitle: direction.title,
+      intro: direction.intro,
+      consentLabel: direction.consentLabel,
+      location: direction.location,
       directionLabel: direction.label,
       directriceDisplayName: direction.directriceDisplayName,
       slots,
@@ -82,16 +78,12 @@ export async function bookPublicRdvInscription(
   | { ok: false; status: number; error: string }
 > {
   const config = await getRdvInscriptionConfig();
-  if (!config.enabled) {
-    return { ok: false, status: 404, error: "Prise de rendez-vous non disponible." };
-  }
-  if (!config.googleLinked) {
-    return { ok: false, status: 503, error: "Agenda non connecté." };
-  }
-
   const direction = await getRdvInscriptionDirectionBySlug(slug, { activeOnly: true });
   if (!direction?.googleCalendarId.trim()) {
     return { ok: false, status: 404, error: "Direction introuvable." };
+  }
+  if (!config.googleLinked) {
+    return { ok: false, status: 503, error: "Agenda non connecté." };
   }
 
   const studentFirstName = input.studentFirstName.trim();
@@ -129,7 +121,7 @@ export async function bookPublicRdvInscription(
   const gcal = await bookInscriptionCalendarEvent({
     calendarId: direction.googleCalendarId,
     eventId,
-    titlePattern: config.eventTitlePattern,
+    titlePattern: direction.eventTitlePattern,
     bookingId,
     studentFirstName,
     studentLastName,
@@ -164,7 +156,6 @@ export async function bookPublicRdvInscription(
       parentPhone,
     });
   } catch (e) {
-    // Concurrence unique index : le créneau a déjà une ligne
     const msg = e instanceof Error ? e.message : String(e);
     if (/unique|duplicate/i.test(msg)) {
       return { ok: false, status: 409, error: "Ce créneau vient d’être pris." };
@@ -173,7 +164,15 @@ export async function bookPublicRdvInscription(
   }
 
   const mail = await sendRdvInscriptionConfirmationMails({
-    config,
+    page: {
+      title: direction.title,
+      intro: direction.intro,
+      eventTitlePattern: direction.eventTitlePattern,
+      notifyEmail: direction.notifyEmail,
+      location: direction.location,
+      consentLabel: direction.consentLabel,
+      horizonDays: direction.horizonDays,
+    },
     booking,
     directionLabel: direction.label,
     directriceName: direction.directriceDisplayName,

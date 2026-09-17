@@ -47,7 +47,7 @@ export const rdvInscriptionConfig = pgTable(
   ],
 );
 
-/** Une direction = une page publique + un calendarId Google. */
+/** Une direction = une page publique + un calendarId Google + ses propres textes / motif / notif. */
 export const rdvInscriptionDirection = pgTable(
   "rdv_inscription_direction",
   {
@@ -60,6 +60,17 @@ export const rdvInscriptionDirection = pgTable(
     label: text("label").notNull(),
     googleCalendarId: text("google_calendar_id").notNull().default(""),
     directriceDisplayName: text("directrice_display_name"),
+    /** Titre affiché sur la page publique de cette direction. */
+    title: text("title").notNull().default("Rendez-vous d’inscription"),
+    intro: text("intro").notNull().default(""),
+    /** Sous-chaîne exacte attendue dans le titre Google pour cette direction. */
+    eventTitlePattern: text("event_title_pattern").notNull().default("rendez-vous inscription"),
+    notifyEmail: text("notify_email"),
+    location: text("location").notNull().default(""),
+    consentLabel: text("consent_label").notNull().default(
+      "J’accepte que mes coordonnées soient utilisées pour organiser ce rendez-vous d’inscription.",
+    ),
+    horizonDays: integer("horizon_days").notNull().default(60),
     active: integer("active").notNull().default(1),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

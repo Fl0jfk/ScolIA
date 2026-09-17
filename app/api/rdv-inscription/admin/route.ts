@@ -5,6 +5,7 @@ import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { canManageRdvInscription } from "@/app/lib/rdv-inscription-access";
 import {
   getRdvInscriptionConfig,
+  getRdvInscriptionDirectionById,
   listRdvInscriptionBookings,
   listRdvInscriptionDirections,
   updateRdvInscriptionConfig,
@@ -90,25 +91,23 @@ export async function PUT(req: Request) {
 
     if (action === "test-slots") {
       const directionId = String(body.directionId || "").trim();
-      const directions = await listRdvInscriptionDirections();
-      const dir = directions.find((d) => d.id === directionId);
+      const dir = await getRdvInscriptionDirectionById(directionId);
       if (!dir?.googleCalendarId.trim()) {
         return NextResponse.json({ error: "Direction ou calendarId manquant." }, { status: 400 });
       }
-      const config = await getRdvInscriptionConfig();
       const { listAvailableInscriptionSlotsDetailed } = await import(
         "@/app/lib/rdv-inscription-gcal"
       );
       const result = await listAvailableInscriptionSlotsDetailed({
         calendarId: dir.googleCalendarId,
-        titlePattern: config.eventTitlePattern,
-        horizonDays: config.horizonDays,
+        titlePattern: dir.eventTitlePattern,
+        horizonDays: dir.horizonDays,
       });
       return NextResponse.json({
         success: true,
         count: result.slots.length,
         slots: result.slots.slice(0, 20),
-        titlePattern: config.eventTitlePattern,
+        titlePattern: dir.eventTitlePattern,
         upcomingEventCount: result.upcomingEventCount,
         sampleTitles: result.sampleTitles,
       });
@@ -130,10 +129,27 @@ export async function PUT(req: Request) {
           dir.directriceDisplayName === null || dir.directriceDisplayName === undefined
             ? null
             : String(dir.directriceDisplayName),
+        title: typeof dir.title === "string" ? dir.title : undefined,
+        intro: typeof dir.intro === "string" ? dir.intro : undefined,
+        eventTitlePattern:
+          typeof dir.eventTitlePattern === "string" ? dir.eventTitlePattern : undefined,
+        notifyEmail:
+          dir.notifyEmail === null
+            ? null
+            : typeof dir.notifyEmail === "string"
+              ? dir.notifyEmail
+              : undefined,
+        location: typeof dir.location === "string" ? dir.location : undefined,
+        consentLabel: typeof dir.consentLabel === "string" ? dir.consentLabel : undefined,
+        horizonDays: typeof dir.horizonDays === "number" ? dir.horizonDays : undefined,
         active: dir.active === true || dir.active === 1 || dir.active === "true",
         sortOrder: typeof dir.sortOrder === "number" ? dir.sortOrder : undefined,
       });
-      return NextResponse.json({ success: true, direction: saved });
+      return NextResponse.json({
+        success: true,
+        direction: saved,
+        config: await getRdvInscriptionConfig(),
+      });
     }
 
     if (action === "save-config") {
@@ -142,19 +158,6 @@ export async function PUT(req: Request) {
         : body;
       const config = await updateRdvInscriptionConfig({
         enabled: typeof patch.enabled === "boolean" ? patch.enabled : undefined,
-        title: typeof patch.title === "string" ? patch.title : undefined,
-        intro: typeof patch.intro === "string" ? patch.intro : undefined,
-        eventTitlePattern:
-          typeof patch.eventTitlePattern === "string" ? patch.eventTitlePattern : undefined,
-        notifyEmail:
-          patch.notifyEmail === null
-            ? null
-            : typeof patch.notifyEmail === "string"
-              ? patch.notifyEmail
-              : undefined,
-        location: typeof patch.location === "string" ? patch.location : undefined,
-        consentLabel: typeof patch.consentLabel === "string" ? patch.consentLabel : undefined,
-        horizonDays: typeof patch.horizonDays === "number" ? patch.horizonDays : undefined,
       });
       return NextResponse.json({ success: true, config });
     }

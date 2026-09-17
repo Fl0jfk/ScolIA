@@ -38,16 +38,12 @@ function toIso(d: Date | null | undefined): string | null {
   return d.toISOString();
 }
 
+const DEFAULT_INTRO =
+  "Choisissez un créneau pour rencontrer la direction après votre inscription / préinscription.";
+
 function mapConfig(row: typeof rdvInscriptionConfig.$inferSelect): RdvInscriptionConfigPublic {
   return {
     enabled: row.enabled === 1,
-    title: row.title,
-    intro: row.intro,
-    eventTitlePattern: row.eventTitlePattern,
-    notifyEmail: row.notifyEmail?.trim() || null,
-    location: row.location || "",
-    consentLabel: row.consentLabel,
-    horizonDays: row.horizonDays > 0 ? row.horizonDays : 60,
     googleLinked: row.googleLinked === 1,
     googleLinkedEmail: row.googleLinkedEmail?.trim() || null,
     googleLinkedAt: toIso(row.googleLinkedAt),
@@ -61,6 +57,13 @@ function mapDirection(row: typeof rdvInscriptionDirection.$inferSelect): RdvInsc
     label: row.label,
     googleCalendarId: row.googleCalendarId || "",
     directriceDisplayName: row.directriceDisplayName?.trim() || null,
+    title: row.title?.trim() || DEFAULT_RDV_INSCRIPTION_TITLE,
+    intro: row.intro ?? "",
+    eventTitlePattern: row.eventTitlePattern?.trim() || DEFAULT_RDV_INSCRIPTION_PATTERN,
+    notifyEmail: row.notifyEmail?.trim() || null,
+    location: row.location || "",
+    consentLabel: row.consentLabel?.trim() || DEFAULT_RDV_INSCRIPTION_CONSENT,
+    horizonDays: row.horizonDays > 0 ? row.horizonDays : 60,
     active: row.active === 1,
     sortOrder: row.sortOrder,
   };
@@ -85,13 +88,34 @@ function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscript
   };
 }
 
+function directionDefaultsFromConfig(cfg?: {
+  title?: string | null;
+  intro?: string | null;
+  eventTitlePattern?: string | null;
+  notifyEmail?: string | null;
+  location?: string | null;
+  consentLabel?: string | null;
+  horizonDays?: number | null;
+}) {
+  return {
+    title: cfg?.title?.trim() || DEFAULT_RDV_INSCRIPTION_TITLE,
+    intro: cfg?.intro ?? DEFAULT_INTRO,
+    eventTitlePattern: cfg?.eventTitlePattern?.trim() || DEFAULT_RDV_INSCRIPTION_PATTERN,
+    notifyEmail: cfg?.notifyEmail?.trim() || null,
+    location: cfg?.location?.trim() || "",
+    consentLabel: cfg?.consentLabel?.trim() || DEFAULT_RDV_INSCRIPTION_CONSENT,
+    horizonDays:
+      typeof cfg?.horizonDays === "number" && cfg.horizonDays > 0 ? cfg.horizonDays : 60,
+  };
+}
+
 /** Assure une ligne config + directions par défaut (école / collège / lycée). */
 export async function ensureRdvInscriptionDefaults(etablissementId?: string): Promise<void> {
   const etabId = await requireEtabId(etablissementId);
   const db = requireDb();
 
   const existing = await db
-    .select({ id: rdvInscriptionConfig.id })
+    .select()
     .from(rdvInscriptionConfig)
     .where(eq(rdvInscriptionConfig.etablissementId, etabId))
     .limit(1);
@@ -101,14 +125,16 @@ export async function ensureRdvInscriptionDefaults(etablissementId?: string): Pr
       etablissementId: etabId,
       enabled: 0,
       title: DEFAULT_RDV_INSCRIPTION_TITLE,
-      intro:
-        "Choisissez un créneau pour rencontrer la direction après votre inscription / préinscription.",
+      intro: DEFAULT_INTRO,
       eventTitlePattern: DEFAULT_RDV_INSCRIPTION_PATTERN,
       consentLabel: DEFAULT_RDV_INSCRIPTION_CONSENT,
       horizonDays: 60,
       googleLinked: 0,
     });
   }
+
+  const cfgRow = existing[0];
+  const seed = directionDefaultsFromConfig(cfgRow);
 
   const dirs = await db
     .select({ slug: rdvInscriptionDirection.slug })
@@ -124,6 +150,7 @@ export async function ensureRdvInscriptionDefaults(etablissementId?: string): Pr
       googleCalendarId: "",
       active: 0,
       sortOrder: d.sortOrder,
+      ...seed,
     });
   }
 }
@@ -142,13 +169,6 @@ export async function getRdvInscriptionConfig(
   if (!rows[0]) {
     return {
       enabled: false,
-      title: DEFAULT_RDV_INSCRIPTION_TITLE,
-      intro: "",
-      eventTitlePattern: DEFAULT_RDV_INSCRIPTION_PATTERN,
-      notifyEmail: null,
-      location: "",
-      consentLabel: DEFAULT_RDV_INSCRIPTION_CONSENT,
-      horizonDays: 60,
       googleLinked: false,
       googleLinkedEmail: null,
       googleLinkedAt: null,
@@ -158,16 +178,7 @@ export async function getRdvInscriptionConfig(
 }
 
 export async function updateRdvInscriptionConfig(
-  patch: Partial<{
-    enabled: boolean;
-    title: string;
-    intro: string;
-    eventTitlePattern: string;
-    notifyEmail: string | null;
-    location: string;
-    consentLabel: string;
-    horizonDays: number;
-  }>,
+  patch: Partial<{ enabled: boolean }>,
   etablissementId?: string,
 ): Promise<RdvInscriptionConfigPublic> {
   await ensureRdvInscriptionDefaults(etablissementId);
@@ -178,22 +189,6 @@ export async function updateRdvInscriptionConfig(
     updatedAt: new Date(),
   };
   if (typeof patch.enabled === "boolean") updates.enabled = patch.enabled ? 1 : 0;
-  if (typeof patch.title === "string") updates.title = patch.title.trim() || DEFAULT_RDV_INSCRIPTION_TITLE;
-  if (typeof patch.intro === "string") updates.intro = patch.intro;
-  if (typeof patch.eventTitlePattern === "string") {
-    updates.eventTitlePattern =
-      patch.eventTitlePattern.trim() || DEFAULT_RDV_INSCRIPTION_PATTERN;
-  }
-  if (patch.notifyEmail !== undefined) {
-    updates.notifyEmail = patch.notifyEmail?.trim() || null;
-  }
-  if (typeof patch.location === "string") updates.location = patch.location.trim();
-  if (typeof patch.consentLabel === "string") {
-    updates.consentLabel = patch.consentLabel.trim() || DEFAULT_RDV_INSCRIPTION_CONSENT;
-  }
-  if (typeof patch.horizonDays === "number" && Number.isFinite(patch.horizonDays)) {
-    updates.horizonDays = Math.min(180, Math.max(7, Math.round(patch.horizonDays)));
-  }
 
   await db
     .update(rdvInscriptionConfig)
@@ -310,6 +305,23 @@ export async function getRdvInscriptionDirectionBySlug(
   return mapDirection(row);
 }
 
+export async function getRdvInscriptionDirectionById(
+  id: string,
+  etablissementId?: string,
+): Promise<RdvInscriptionDirectionRow | null> {
+  await ensureRdvInscriptionDefaults(etablissementId);
+  const etabId = await requireEtabId(etablissementId);
+  const db = requireDb();
+  const rows = await db
+    .select()
+    .from(rdvInscriptionDirection)
+    .where(
+      and(eq(rdvInscriptionDirection.etablissementId, etabId), eq(rdvInscriptionDirection.id, id)),
+    )
+    .limit(1);
+  return rows[0] ? mapDirection(rows[0]) : null;
+}
+
 export async function upsertRdvInscriptionDirection(
   input: {
     id?: string;
@@ -317,6 +329,13 @@ export async function upsertRdvInscriptionDirection(
     label: string;
     googleCalendarId: string;
     directriceDisplayName?: string | null;
+    title?: string;
+    intro?: string;
+    eventTitlePattern?: string;
+    notifyEmail?: string | null;
+    location?: string;
+    consentLabel?: string;
+    horizonDays?: number;
     active: boolean;
     sortOrder?: number;
   },
@@ -332,6 +351,26 @@ export async function upsertRdvInscriptionDirection(
   const label = input.label.trim();
   if (!label) throw new Error("Libellé requis.");
 
+  const pageFields: Partial<typeof rdvInscriptionDirection.$inferInsert> = {};
+  if (typeof input.title === "string") {
+    pageFields.title = input.title.trim() || DEFAULT_RDV_INSCRIPTION_TITLE;
+  }
+  if (typeof input.intro === "string") pageFields.intro = input.intro;
+  if (typeof input.eventTitlePattern === "string") {
+    pageFields.eventTitlePattern =
+      input.eventTitlePattern.trim() || DEFAULT_RDV_INSCRIPTION_PATTERN;
+  }
+  if (input.notifyEmail !== undefined) {
+    pageFields.notifyEmail = input.notifyEmail?.trim() || null;
+  }
+  if (typeof input.location === "string") pageFields.location = input.location.trim();
+  if (typeof input.consentLabel === "string") {
+    pageFields.consentLabel = input.consentLabel.trim() || DEFAULT_RDV_INSCRIPTION_CONSENT;
+  }
+  if (typeof input.horizonDays === "number" && Number.isFinite(input.horizonDays)) {
+    pageFields.horizonDays = Math.min(180, Math.max(7, Math.round(input.horizonDays)));
+  }
+
   if (input.id) {
     const updates: Partial<typeof rdvInscriptionDirection.$inferInsert> = {
       slug,
@@ -340,6 +379,7 @@ export async function upsertRdvInscriptionDirection(
       directriceDisplayName: input.directriceDisplayName?.trim() || null,
       active: input.active ? 1 : 0,
       updatedAt: new Date(),
+      ...pageFields,
     };
     if (typeof input.sortOrder === "number" && Number.isFinite(input.sortOrder)) {
       updates.sortOrder = Math.round(input.sortOrder);
@@ -353,6 +393,15 @@ export async function upsertRdvInscriptionDirection(
           eq(rdvInscriptionDirection.id, input.id),
         ),
       );
+
+    // Activer une direction ⇒ ouvrir le module public automatiquement.
+    if (input.active) {
+      await db
+        .update(rdvInscriptionConfig)
+        .set({ enabled: 1, updatedAt: new Date() })
+        .where(eq(rdvInscriptionConfig.etablissementId, etabId));
+    }
+
     const rows = await db
       .select()
       .from(rdvInscriptionDirection)
@@ -368,6 +417,7 @@ export async function upsertRdvInscriptionDirection(
   }
 
   const id = randomUUID();
+  const seed = directionDefaultsFromConfig();
   await db.insert(rdvInscriptionDirection).values({
     id,
     etablissementId: etabId,
@@ -380,7 +430,22 @@ export async function upsertRdvInscriptionDirection(
       typeof input.sortOrder === "number" && Number.isFinite(input.sortOrder)
         ? Math.round(input.sortOrder)
         : 99,
+    title: pageFields.title ?? seed.title,
+    intro: pageFields.intro ?? seed.intro,
+    eventTitlePattern: pageFields.eventTitlePattern ?? seed.eventTitlePattern,
+    notifyEmail: pageFields.notifyEmail !== undefined ? pageFields.notifyEmail : seed.notifyEmail,
+    location: pageFields.location ?? seed.location,
+    consentLabel: pageFields.consentLabel ?? seed.consentLabel,
+    horizonDays: pageFields.horizonDays ?? seed.horizonDays,
   });
+
+  if (input.active) {
+    await db
+      .update(rdvInscriptionConfig)
+      .set({ enabled: 1, updatedAt: new Date() })
+      .where(eq(rdvInscriptionConfig.etablissementId, etabId));
+  }
+
   const rows = await db
     .select()
     .from(rdvInscriptionDirection)
