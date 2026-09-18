@@ -20,9 +20,11 @@ test("ICS location utilise le téléphone établissement, pas un 06 parent", () 
     endAt: "2026-10-02T15:30:00.000Z",
     uid: "rdv-test@scola",
   });
-  assert.match(ics, /LOCATION:.*02 32 86 50 90/);
-  assert.match(ics, /Contact établissement : 02 32 86 50 90/);
-  assert.doesNotMatch(ics, /0600000099/);
+  // Les lignes ICS sont pliées à ~75 car. : on regarde le contenu déplié.
+  const unfolded = ics.replace(/\r\n[ \t]/g, "");
+  assert.match(unfolded, /LOCATION:.*Tél\. 02 32 86 50 90/);
+  assert.match(unfolded, /Contact établissement : 02 32 86 50 90/);
+  assert.doesNotMatch(unfolded, /0600000099/);
 });
 
 test("ICS conserve une adresse custom et y ajoute le tél. établissement", () => {
