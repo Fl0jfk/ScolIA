@@ -13,6 +13,7 @@ type DocRow = {
   mimeType: string | null;
   fileUrl: string | null;
   createdAt: string | null;
+  canDelete?: boolean;
 };
 
 type DossierPayload = {
@@ -24,6 +25,9 @@ type DossierPayload = {
     status?: string | null;
   };
   documents?: DocRow[];
+  meta?: {
+    canDeleteDocuments?: boolean;
+  };
   error?: string;
 };
 
@@ -40,6 +44,7 @@ export default function EleveInscriptionDocsClient() {
   const [data, setData] = useState<DossierPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [progressLabel, setProgressLabel] = useState<string | null>(null);
   const [lastUpload, setLastUpload] = useState<LastUploadSummary | null>(null);
 
@@ -68,6 +73,7 @@ export default function EleveInscriptionDocsClient() {
   }, [load]);
 
   const docs = (data?.documents || []).filter((d) => d.tiroir === "inscription");
+  const canDeleteDocs = Boolean(data?.meta?.canDeleteDocuments);
 
   async function handleFiles(files: File[]) {
     if (!files.length || !id) return;
@@ -103,6 +109,39 @@ export default function EleveInscriptionDocsClient() {
     } finally {
       setBusy(false);
       setProgressLabel(null);
+    }
+  }
+
+  async function deleteDocument(doc: DocRow) {
+    if (!id || busy || deletingId) return;
+    const label = doc.title.trim() || "cette pièce";
+    if (
+      !window.confirm(
+        `Supprimer définitivement « ${label} » ? Cette action est irréversible.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingId(doc.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/eleves/${encodeURIComponent(id)}/dossier`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_document",
+          documentId: doc.id,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        throw new Error(json.error || "Suppression impossible.");
+      }
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Suppression impossible.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -165,7 +204,7 @@ export default function EleveInscriptionDocsClient() {
         </p>
         <div className="mt-4">
           <InscriptionDocsDropZone
-            busy={busy}
+            busy={busy || Boolean(deletingId)}
             progressLabel={progressLabel}
             hint={identityHint}
             onFiles={(files) => void handleFiles(files)}
@@ -200,29 +239,45 @@ export default function EleveInscriptionDocsClient() {
           <p className="mt-4 text-sm text-slate-500">Aucun document pour l’instant.</p>
         ) : (
           <ul className="mt-4 divide-y divide-slate-100">
-            {docs.map((d) => (
-              <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
-                <div>
-                  <p className="font-medium text-slate-900">{d.title}</p>
-                  <p className="text-xs text-slate-500">
-                    {d.mimeType || "fichier"}
-                    {d.createdAt
-                      ? ` · ${new Date(d.createdAt).toLocaleDateString("fr-FR")}`
-                      : ""}
-                  </p>
-                </div>
-                {d.fileUrl ? (
-                  <a
-                    href={d.fileUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm font-semibold text-sky-700 hover:underline"
-                  >
-                    Ouvrir
-                  </a>
-                ) : null}
-              </li>
-            ))}
+            {docs.map((d) => {
+              const showDelete = canDeleteDocs || d.canDelete === true;
+              const isDeleting = deletingId === d.id;
+              return (
+                <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-slate-900">{d.title}</p>
+                    <p className="text-xs text-slate-500">
+                      {d.mimeType || "fichier"}
+                      {d.createdAt
+                        ? ` · ${new Date(d.createdAt).toLocaleDateString("fr-FR")}`
+                        : ""}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {d.fileUrl ? (
+                      <a
+                        href={d.fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm font-semibold text-sky-700 hover:underline"
+                      >
+                        Ouvrir
+                      </a>
+                    ) : null}
+                    {showDelete ? (
+                      <button
+                        type="button"
+                        disabled={busy || Boolean(deletingId)}
+                        onClick={() => void deleteDocument(d)}
+                        className="text-sm font-semibold text-rose-700 hover:underline disabled:opacity-50"
+                      >
+                        {isDeleting ? "Suppression…" : "Supprimer"}
+                      </button>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

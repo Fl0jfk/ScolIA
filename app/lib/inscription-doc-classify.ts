@@ -5,9 +5,8 @@ import { runTextractForPdfBytes } from "@/app/lib/ocr-textract";
 import {
   buildInscriptionDocumentTitle,
   guessInscriptionKindFromFileName,
-  INSCRIPTION_DOC_KINDS,
   inscriptionDocKindLabel,
-  isInscriptionDocKind,
+  inscriptionKindFromAiType,
   type InscriptionDocKind,
 } from "@/app/lib/inscription-doc-kinds";
 
@@ -27,39 +26,38 @@ function cleanField(v: unknown): string | null {
   return t;
 }
 
-function parseKind(raw: unknown, fileName: string): InscriptionDocKind {
-  if (typeof raw === "string") {
-    const slug = raw
-      .trim()
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[\s-]+/g, "_");
-    if (isInscriptionDocKind(slug)) return slug;
-    // Aliases courants renvoyés par le modèle
-    if (/fiche|inscription/.test(slug)) return "fiche_inscription";
-    if (/bulletin/.test(slug)) return "bulletin";
-    if (/releve|notes/.test(slug)) return "releve_notes";
-    if (/identite|cni|passeport/.test(slug)) return "piece_identite";
-    if (/livret/.test(slug)) return "livret_famille";
-    if (/domicile/.test(slug)) return "justificatif_domicile";
-    if (/photo/.test(slug)) return "photo_identite";
-    if (/assurance|mutuelle/.test(slug)) return "attestation_assurance";
-    if (/scolarite/.test(slug)) return "certificat_scolarite";
-    if (/radiation|exeat/.test(slug)) return "certificat_radiation";
-    if (/vaccin|sante/.test(slug)) return "vaccinations";
-    if (slug === "pap") return "pap";
-    if (slug === "pai") return "pai";
-    if (slug === "pps") return "pps";
-    if (/gevasco/.test(slug)) return "gevasco";
-    if (/jugement|garde|autorite/.test(slug)) return "jugement";
-  }
-  return guessInscriptionKindFromFileName(fileName);
+/**
+ * Même esprit que `analyzeDocMatchEleve` : décrire le document, ne pas inventer.
+ * Différence : l’élève du dossier est déjà connu → pas de nom / prénom.
+ */
+function classifyExtractionPrompt(): string {
+  return `Analyse ce document scolaire ou administratif.
+Extrais UNIQUEMENT ce qui est clairement présent. Ne devine JAMAIS.
+
+L'élève du dossier est déjà connu : n'extrais PAS de nom ni de prénom.
+
+- titre_document : titre EXPLICITE pour nommer le fichier, SANS nom/prénom.
+  Ex. "Bulletin scolaire 2ème semestre 2A", "Carte d'identité", "Attestation d'assurance scolaire", "Certificat de scolarité".
+  Interdit : "Document", "Fichier", "PDF".
+- type : Bulletin, Relevé de notes, Carte d'identité, Certificat de scolarité, Certificat de radiation, Livret de famille, Justificatif de domicile, Photo d'identité, Attestation d'assurance, Fiche d'inscription, Vaccinations, PAP, PAI, PPS, GEVASCO, Jugement, Autre
+- detail : précision utile sinon "non_trouvé"
+- origine : "interne" si document de l'établissement (bulletin, relevé, certificat de scolarité, Pronote, Charlemagne),
+  "externe" si CNI, passeport, CAF, mutuelle, médecin, assurance, organisme extérieur.
+
+JSON uniquement :
+{
+  "titre_document": "...",
+  "type": "...",
+  "detail": "...",
+  "origine": "interne"
+}
+Si un champ est absent : "non_trouvé".`;
 }
 
 async function mistralJsonCompletion(
   apiKey: string,
   messages: Array<{ role: "user" | "system"; content: string | unknown }>,
+  model: string,
 ): Promise<Record<string, unknown>> {
   const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
     method: "POST",
@@ -68,7 +66,7 @@ async function mistralJsonCompletion(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "mistral-small-latest",
+      model,
       messages,
       temperature: 0,
       response_format: { type: "json_object" },
@@ -89,17 +87,71 @@ async function mistralJsonCompletion(
   return JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
 }
 
-const KIND_LIST_FOR_PROMPT = INSCRIPTION_DOC_KINDS.join(", ");
-
-function classifyPromptPreamble(): string {
-  return `Tu classifies une pièce pour un dossier d'inscription scolaire français.
-Réponds UNIQUEMENT en JSON :
-{
-  "kind": "<un parmi : ${KIND_LIST_FOR_PROMPT}>",
-  "titre_document": "<titre court SANS nom ni prénom d'élève, ex. Bulletin 2e semestre 2024-2025>"
+function buildResult(opts: {
+  nom: string;
+  prenom: string;
+  kind: InscriptionDocKind;
+  detail: string | null;
+  usedOcr: boolean;
+  warning?: string;
+}): InscriptionDocClassification {
+  return {
+    kind: opts.kind,
+    kindLabel: inscriptionDocKindLabel(opts.kind),
+    detail: opts.detail,
+    title: buildInscriptionDocumentTitle({
+      nom: opts.nom,
+      prenom: opts.prenom,
+      kind: opts.kind,
+      detail: opts.detail,
+    }),
+    usedOcr: opts.usedOcr,
+    warning: opts.warning,
+  };
 }
-Interdit dans titre_document : Document, Fichier, PDF, ou un nom/prénom.
-Si le type est ambigu : kind = "autre" et un titre précis si possible.`;
+
+function classificationFromExtracted(
+  extracted: Record<string, unknown>,
+  opts: { nom: string; prenom: string; fileName: string },
+): InscriptionDocClassification {
+  const titre = cleanField(extracted.titre_document);
+  const type = cleanField(extracted.type);
+  const detailRaw = cleanField(extracted.detail);
+  const origine = cleanField(extracted.origine);
+  const kind = inscriptionKindFromAiType({
+    type,
+    titre,
+    detail: detailRaw,
+    origine,
+    fileName: opts.fileName,
+  });
+  // Préférer le titre explicite IA ; sinon détail ; sinon label du kind.
+  const detail =
+    titre ||
+    (detailRaw && !/^non[_\s-]?trouv/i.test(detailRaw) ? detailRaw : null) ||
+    null;
+  return buildResult({
+    nom: opts.nom,
+    prenom: opts.prenom,
+    kind,
+    detail,
+    usedOcr: true,
+  });
+}
+
+function fallbackFromFileName(
+  opts: { nom: string; prenom: string; fileName: string },
+  warning: string,
+): InscriptionDocClassification {
+  const kind = guessInscriptionKindFromFileName(opts.fileName);
+  return buildResult({
+    nom: opts.nom,
+    prenom: opts.prenom,
+    kind,
+    detail: null,
+    usedOcr: false,
+    warning,
+  });
 }
 
 /** Classification à partir du texte OCR (élève déjà connu — pas de matching identité). */
@@ -109,63 +161,36 @@ export async function classifyInscriptionDocFromText(
 ): Promise<InscriptionDocClassification> {
   const apiKey = await getMistralApiKey();
   if (!apiKey || !text.trim()) {
-    const kind = guessInscriptionKindFromFileName(opts.fileName);
-    return {
-      kind,
-      kindLabel: inscriptionDocKindLabel(kind),
-      detail: null,
-      title: buildInscriptionDocumentTitle({
-        nom: opts.nom,
-        prenom: opts.prenom,
-        kind,
-      }),
-      usedOcr: false,
-      warning: apiKey
+    return fallbackFromFileName(
+      opts,
+      apiKey
         ? "Texte OCR vide — type estimé depuis le nom de fichier."
         : "IA non configurée — type estimé depuis le nom de fichier.",
-    };
+    );
   }
 
   try {
-    const extracted = await mistralJsonCompletion(apiKey, [
-      {
-        role: "user",
-        content: `${classifyPromptPreamble()}
+    const extracted = await mistralJsonCompletion(
+      apiKey,
+      [
+        {
+          role: "user",
+          content: `${classifyExtractionPrompt()}
 
-Texte OCR :
+Texte :
 ---
 ${text.slice(0, 12_000)}
 ---`,
-      },
-    ]);
-    const kind = parseKind(extracted.kind, opts.fileName);
-    const detail = cleanField(extracted.titre_document);
-    return {
-      kind,
-      kindLabel: inscriptionDocKindLabel(kind),
-      detail,
-      title: buildInscriptionDocumentTitle({
-        nom: opts.nom,
-        prenom: opts.prenom,
-        kind,
-        detail,
-      }),
-      usedOcr: true,
-    };
+        },
+      ],
+      "mistral-medium",
+    );
+    return classificationFromExtracted(extracted, opts);
   } catch (err) {
-    const kind = guessInscriptionKindFromFileName(opts.fileName);
-    return {
-      kind,
-      kindLabel: inscriptionDocKindLabel(kind),
-      detail: null,
-      title: buildInscriptionDocumentTitle({
-        nom: opts.nom,
-        prenom: opts.prenom,
-        kind,
-      }),
-      usedOcr: false,
-      warning: err instanceof Error ? err.message : "Classification IA impossible.",
-    };
+    return fallbackFromFileName(
+      opts,
+      err instanceof Error ? err.message : "Classification IA impossible.",
+    );
   }
 }
 
@@ -176,64 +201,34 @@ async function classifyInscriptionImageBytes(
 ): Promise<InscriptionDocClassification> {
   const apiKey = await getMistralApiKey();
   if (!apiKey) {
-    const kind = guessInscriptionKindFromFileName(opts.fileName);
-    return {
-      kind,
-      kindLabel: inscriptionDocKindLabel(kind),
-      detail: null,
-      title: buildInscriptionDocumentTitle({
-        nom: opts.nom,
-        prenom: opts.prenom,
-        kind,
-      }),
-      usedOcr: false,
-      warning: "IA non configurée — type estimé depuis le nom de fichier.",
-    };
+    return fallbackFromFileName(opts, "IA non configurée — type estimé depuis le nom de fichier.");
   }
 
   const mime = mimeType.startsWith("image/") ? mimeType : "image/jpeg";
   const b64 = Buffer.from(bytes).toString("base64");
   try {
-    const extracted = await mistralJsonCompletion(apiKey, [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: classifyPromptPreamble() },
-          {
-            type: "image_url",
-            image_url: { url: `data:${mime};base64,${b64}` },
-          },
-        ],
-      },
-    ]);
-    const kind = parseKind(extracted.kind, opts.fileName);
-    const detail = cleanField(extracted.titre_document);
-    return {
-      kind,
-      kindLabel: inscriptionDocKindLabel(kind),
-      detail,
-      title: buildInscriptionDocumentTitle({
-        nom: opts.nom,
-        prenom: opts.prenom,
-        kind,
-        detail,
-      }),
-      usedOcr: true,
-    };
+    const extracted = await mistralJsonCompletion(
+      apiKey,
+      [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: classifyExtractionPrompt() },
+            {
+              type: "image_url",
+              image_url: { url: `data:${mime};base64,${b64}` },
+            },
+          ],
+        },
+      ],
+      "mistral-medium",
+    );
+    return classificationFromExtracted(extracted, opts);
   } catch (err) {
-    const kind = guessInscriptionKindFromFileName(opts.fileName);
-    return {
-      kind,
-      kindLabel: inscriptionDocKindLabel(kind),
-      detail: null,
-      title: buildInscriptionDocumentTitle({
-        nom: opts.nom,
-        prenom: opts.prenom,
-        kind,
-      }),
-      usedOcr: false,
-      warning: err instanceof Error ? err.message : "Classification image impossible.",
-    };
+    return fallbackFromFileName(
+      opts,
+      err instanceof Error ? err.message : "Classification image impossible.",
+    );
   }
 }
 
@@ -263,19 +258,10 @@ export async function classifyInscriptionDocumentBytes(
       const ocr = await runTextractForPdfBytes(bytes);
       return classifyInscriptionDocFromText(ocr.text, opts);
     } catch (err) {
-      const kind = guessInscriptionKindFromFileName(opts.fileName);
-      return {
-        kind,
-        kindLabel: inscriptionDocKindLabel(kind),
-        detail: null,
-        title: buildInscriptionDocumentTitle({
-          nom: opts.nom,
-          prenom: opts.prenom,
-          kind,
-        }),
-        usedOcr: false,
-        warning: err instanceof Error ? err.message : "OCR PDF impossible.",
-      };
+      return fallbackFromFileName(
+        opts,
+        err instanceof Error ? err.message : "OCR PDF impossible.",
+      );
     }
   }
 
@@ -283,17 +269,5 @@ export async function classifyInscriptionDocumentBytes(
     return classifyInscriptionImageBytes(bytes, opts.mimeType, opts);
   }
 
-  const kind = guessInscriptionKindFromFileName(opts.fileName);
-  return {
-    kind,
-    kindLabel: inscriptionDocKindLabel(kind),
-    detail: null,
-    title: buildInscriptionDocumentTitle({
-      nom: opts.nom,
-      prenom: opts.prenom,
-      kind,
-    }),
-    usedOcr: false,
-    warning: "Format non OCR — type estimé depuis le nom de fichier.",
-  };
+  return fallbackFromFileName(opts, "Format non OCR — type estimé depuis le nom de fichier.");
 }

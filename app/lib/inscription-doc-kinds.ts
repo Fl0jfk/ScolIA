@@ -73,6 +73,64 @@ export function buildInscriptionDocumentTitle(opts: {
   return `${identity} — ${nature}`.slice(0, 200);
 }
 
+/**
+ * Mappe le couple type / origine renvoyé par l’IA (même vocabulaire que
+ * `analyzeDocMatchEleve`) vers un kind d’inscription.
+ */
+export function inscriptionKindFromAiType(opts: {
+  type?: string | null;
+  titre?: string | null;
+  detail?: string | null;
+  origine?: string | null;
+  fileName?: string | null;
+}): InscriptionDocKind {
+  const type = String(opts.type || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+  const blob = `${opts.type || ""} ${opts.titre || ""} ${opts.detail || ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const origine = String(opts.origine || "")
+    .trim()
+    .toLowerCase();
+
+  if (isInscriptionDocKind(type.replace(/[\s-]+/g, "_"))) {
+    return type.replace(/[\s-]+/g, "_") as InscriptionDocKind;
+  }
+
+  if (/carte\s*d[' ]?identit|piece\s*d[' ]?identit|\bcni\b|passeport|titre\s*de\s*sejour/.test(blob)) {
+    return "piece_identite";
+  }
+  if (/bulletin/.test(blob)) return "bulletin";
+  if (/releve/.test(blob) || /notes/.test(type)) return "releve_notes";
+  if (/livret/.test(blob)) return "livret_famille";
+  if (/domicile|quittance|facture/.test(blob)) return "justificatif_domicile";
+  if (/photo/.test(blob)) return "photo_identite";
+  if (/assurance|mutuelle|responsabilite/.test(blob)) return "attestation_assurance";
+  if (/radiation|exeat/.test(blob)) return "certificat_radiation";
+  if (/fiche|inscription|formulaire/.test(blob)) return "fiche_inscription";
+  if (/\bpap\b/.test(blob)) return "pap";
+  if (/\bpai\b/.test(blob)) return "pai";
+  if (/\bpps\b/.test(blob)) return "pps";
+  if (/gevasco/.test(blob)) return "gevasco";
+  if (/jugement|garde|autorite/.test(blob)) return "jugement";
+  if (/vaccin|sante|carnet/.test(blob)) return "vaccinations";
+
+  // « Certificat » : comme l’OCR dossiers — interne = scolarité, sinon on lit le titre.
+  if (/certificat/.test(blob) || /attestation/.test(type)) {
+    if (/scolarit/.test(blob) || origine === "interne") return "certificat_scolarite";
+    if (/radiation|exeat/.test(blob)) return "certificat_radiation";
+    if (origine === "externe" && /identit|cni|passeport/.test(blob)) return "piece_identite";
+    if (/scolarit/.test(blob)) return "certificat_scolarite";
+  }
+
+  if (opts.fileName) return guessInscriptionKindFromFileName(opts.fileName);
+  return "autre";
+}
+
 /** Heuristique nom de fichier si l’OCR / l’IA est indisponible. */
 export function guessInscriptionKindFromFileName(fileName: string): InscriptionDocKind {
   const n = fileName
@@ -87,9 +145,9 @@ export function guessInscriptionKindFromFileName(fileName: string): InscriptionD
   if (/domicile|edf|facture|quittance/.test(n)) return "justificatif_domicile";
   if (/photo|portrait|id.?photo/.test(n)) return "photo_identite";
   if (/assurance|mutuelle|responsabilite.?civile|rc\b/.test(n)) return "attestation_assurance";
-  if (/scolarite|scolarité/.test(n)) return "certificat_scolarite";
-  if (/radiation|exeat|exéat/.test(n)) return "certificat_radiation";
-  if (/vaccin|sante|santé|carnet/.test(n)) return "vaccinations";
+  if (/scolarite|scolarit/.test(n)) return "certificat_scolarite";
+  if (/radiation|exeat/.test(n)) return "certificat_radiation";
+  if (/vaccin|sante|carnet/.test(n)) return "vaccinations";
   if (/\bpap\b/.test(n)) return "pap";
   if (/\bpai\b/.test(n)) return "pai";
   if (/\bpps\b/.test(n)) return "pps";

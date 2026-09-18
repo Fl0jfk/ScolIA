@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   buildInscriptionDocumentTitle,
   guessInscriptionKindFromFileName,
+  inscriptionKindFromAiType,
 } from "./inscription-doc-kinds";
 
 describe("inscription-doc-kinds", () => {
@@ -30,5 +31,32 @@ describe("inscription-doc-kinds", () => {
     assert.equal(guessInscriptionKindFromFileName("Bulletin_T1.pdf"), "bulletin");
     assert.equal(guessInscriptionKindFromFileName("CNI_recto.jpg"), "piece_identite");
     assert.equal(guessInscriptionKindFromFileName("random.pdf"), "autre");
+  });
+
+  it("maps AI type/origine like dossier OCR (CNI externe vs certificat interne)", () => {
+    assert.equal(
+      inscriptionKindFromAiType({
+        type: "Carte d'identité",
+        titre: "Carte d'identité",
+        origine: "externe",
+      }),
+      "piece_identite",
+    );
+    assert.equal(
+      inscriptionKindFromAiType({
+        type: "Certificat",
+        titre: "Certificat de scolarité",
+        origine: "interne",
+      }),
+      "certificat_scolarite",
+    );
+    assert.equal(
+      inscriptionKindFromAiType({
+        type: "Bulletin",
+        titre: "Bulletin scolaire 2ème semestre 2A",
+        origine: "interne",
+      }),
+      "bulletin",
+    );
   });
 });
