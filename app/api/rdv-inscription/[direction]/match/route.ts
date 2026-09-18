@@ -59,7 +59,10 @@ export async function POST(req: Request, ctx: Ctx) {
       }),
     );
 
-    return NextResponse.json({ candidates: result.candidates });
+    return NextResponse.json({
+      candidates: result.candidates,
+      homeEtablissement: result.homeEtablissement,
+    });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

@@ -1,14 +1,20 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/index";
-import { eleve } from "@/db/schema";
+import {
+  eleve,
+  eleveFoyerLink,
+  etablissement,
+  foyerResponsable,
+} from "@/db/schema";
 import { listElevesFromDb } from "@/app/lib/ent-core-db";
 import { createElevePreinscrit } from "@/app/lib/eleve-create-preinscrit";
 import {
   elevesMatchingParentContact,
   matchRdvInscriptionCandidates,
   type RdvMatchCandidate,
+  type RdvMatchParent,
 } from "@/app/lib/rdv-inscription-match";
 
 export async function searchRdvInscriptionMatchCandidates(opts: {
@@ -21,13 +27,112 @@ export async function searchRdvInscriptionMatchCandidates(opts: {
   const eleves = await listElevesFromDb(opts.etablissementId, {
     status: ["preinscrit", "inscrit"],
   });
-  return matchRdvInscriptionCandidates({
+  const base = matchRdvInscriptionCandidates({
     eleves,
     parentEmail: opts.parentEmail,
     parentPhone: opts.parentPhone,
     studentLastName: opts.studentLastName,
     studentFirstName: opts.studentFirstName,
   });
+  if (!base.length) return [];
+
+  const parentsByEleve = await listFoyerParentsForEleves(
+    opts.etablissementId,
+    base.map((c) => c.id),
+  );
+  return base.map((c) => ({
+    ...c,
+    parents: parentsByEleve.get(c.id) || [],
+  }));
+}
+
+async function listFoyerParentsForEleves(
+  etablissementId: string,
+  eleveIds: string[],
+): Promise<Map<string, RdvMatchParent[]>> {
+  const out = new Map<string, RdvMatchParent[]>();
+  if (!eleveIds.length) return out;
+
+  const db = getDb();
+  const links = await db
+    .select({
+      eleveId: eleveFoyerLink.eleveId,
+      foyerId: eleveFoyerLink.foyerId,
+    })
+    .from(eleveFoyerLink)
+    .where(
+      and(
+        eq(eleveFoyerLink.etablissementId, etablissementId),
+        inArray(eleveFoyerLink.eleveId, eleveIds),
+      ),
+    );
+  if (!links.length) return out;
+
+  const foyerIds = [...new Set(links.map((l) => l.foyerId))];
+  const responsables = await db
+    .select({
+      foyerId: foyerResponsable.foyerId,
+      nom: foyerResponsable.nom,
+      prenom: foyerResponsable.prenom,
+      email: foyerResponsable.email,
+      rang: foyerResponsable.rang,
+    })
+    .from(foyerResponsable)
+    .where(
+      and(
+        eq(foyerResponsable.etablissementId, etablissementId),
+        inArray(foyerResponsable.foyerId, foyerIds),
+      ),
+    )
+    .orderBy(asc(foyerResponsable.rang));
+
+  const byFoyer = new Map<string, RdvMatchParent[]>();
+  for (const r of responsables) {
+    const prenom = r.prenom.trim();
+    const nom = r.nom.trim();
+    if (!prenom || !nom) continue;
+    const list = byFoyer.get(r.foyerId) || [];
+    list.push({
+      prenom,
+      nom,
+      email: r.email?.trim().toLowerCase() || null,
+      rang: r.rang,
+    });
+    byFoyer.set(r.foyerId, list);
+  }
+
+  for (const link of links) {
+    const parents = byFoyer.get(link.foyerId) || [];
+    if (!parents.length) continue;
+    const existing = out.get(link.eleveId) || [];
+    const seen = new Set(existing.map((p) => `${p.prenom}|${p.nom}|${p.email || ""}`));
+    for (const p of parents) {
+      const key = `${p.prenom}|${p.nom}|${p.email || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      existing.push(p);
+    }
+    out.set(link.eleveId, existing);
+  }
+  return out;
+}
+
+/** Établissement courant (groupe scolaire) pour origine auto en réinscription. */
+export async function getHomeEtablissementForRdv(
+  etablissementId: string,
+): Promise<{ codeRne: string; label: string; adresse: string | null } | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ name: etablissement.name, slug: etablissement.slug })
+    .from(etablissement)
+    .where(eq(etablissement.id, etablissementId))
+    .limit(1);
+  if (!row?.name?.trim()) return null;
+  return {
+    codeRne: `INTERNE-${row.slug}`.toUpperCase().slice(0, 20),
+    label: `${row.name.trim()} (groupe scolaire)`,
+    adresse: null,
+  };
 }
 
 /** Vérifie qu’un eleveId appartient bien au contact parent (anti-usurpation). */

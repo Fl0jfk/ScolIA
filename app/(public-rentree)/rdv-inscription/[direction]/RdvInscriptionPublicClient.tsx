@@ -26,16 +26,24 @@ export type PublicRdvPageProps = {
   initialError: string | null;
 };
 
+type MatchParent = {
+  prenom: string;
+  nom: string;
+  email: string | null;
+  rang: number;
+};
+
 type MatchCandidate = {
   id: string;
   prenom: string;
   nom: string;
   classe: string | null;
   status: string;
+  parents: MatchParent[];
 };
 
 type MatchChoice =
-  | { kind: "eleve"; id: string; label: string }
+  | { kind: "eleve"; id: string; label: string; parents: MatchParent[] }
   | { kind: "create" }
   | null;
 
@@ -44,6 +52,32 @@ type OrigineEtab = {
   label: string;
   adresse: string | null;
 };
+
+function namesFromParents(
+  parents: MatchParent[],
+  attendee: "madame" | "monsieur" | "les_deux",
+  parentEmail: string,
+): { first: string; last: string } {
+  const email = parentEmail.trim().toLowerCase();
+  const byEmail = parents.find((p) => p.email && p.email === email);
+  const sorted = [...parents].sort((a, b) => a.rang - b.rang);
+  if (attendee === "les_deux" && sorted.length >= 2) {
+    return {
+      first: `${sorted[0]!.prenom} & ${sorted[1]!.prenom}`,
+      last:
+        sorted[0]!.nom.toLowerCase() === sorted[1]!.nom.toLowerCase()
+          ? sorted[0]!.nom
+          : `${sorted[0]!.nom} / ${sorted[1]!.nom}`,
+    };
+  }
+  if (attendee === "monsieur") {
+    const p = sorted[1] || byEmail || sorted[0];
+    return p ? { first: p.prenom, last: p.nom } : { first: "", last: "" };
+  }
+  // madame (ou défaut)
+  const p = byEmail || sorted[0];
+  return p ? { first: p.prenom, last: p.nom } : { first: "", last: "" };
+}
 
 function formatHm(iso: string): string {
   return new Date(iso).toLocaleTimeString("fr-FR", {
@@ -116,6 +150,7 @@ export default function RdvInscriptionPublicClient({
   const [niveauId, setNiveauId] = useState(levels[0]?.id || "");
   const [candidates, setCandidates] = useState<MatchCandidate[] | null>(null);
   const [matchChoice, setMatchChoice] = useState<MatchChoice>(null);
+  const [homeEtablissement, setHomeEtablissement] = useState<OrigineEtab | null>(null);
   const [matchBusy, setMatchBusy] = useState(false);
   const [hasPap, setHasPap] = useState<"yes" | "no" | "">("");
   const [papBringToRdv, setPapBringToRdv] = useState(false);
@@ -222,6 +257,50 @@ export default function RdvInscriptionPublicClient({
   function resetMatch() {
     setCandidates(null);
     setMatchChoice(null);
+    setHomeEtablissement(null);
+    setOrigineSelected(null);
+    setOrigineResults([]);
+    setRdvAttendee("");
+  }
+
+  const matchedParents =
+    matchChoice?.kind === "eleve" ? matchChoice.parents : [];
+  const showAttendeeChoice = Boolean(
+    matchChoice?.kind === "eleve" && matchedParents.length > 0,
+  );
+  const showParentNameFields = Boolean(
+    matchChoice && (!showAttendeeChoice || matchChoice.kind === "create"),
+  );
+
+  function applyAttendee(next: "madame" | "monsieur" | "les_deux") {
+    setRdvAttendee(next);
+    if (matchChoice?.kind !== "eleve") return;
+    const names = namesFromParents(matchChoice.parents, next, parentEmail);
+    if (names.first) setParentFirstName(names.first);
+    if (names.last) setParentLastName(names.last);
+  }
+
+  function selectMatchedEleve(c: MatchCandidate) {
+    setMatchChoice({
+      kind: "eleve",
+      id: c.id,
+      label: `${c.prenom} ${c.nom}${c.classe ? ` (${c.classe})` : ""}`,
+      parents: c.parents || [],
+    });
+    if (homeEtablissement) {
+      setOrigineSelected(homeEtablissement);
+      setOrigineResults([]);
+    }
+    setRdvAttendee("");
+    setParentFirstName("");
+    setParentLastName("");
+  }
+
+  function selectCreateNew() {
+    setMatchChoice({ kind: "create" });
+    setOrigineSelected(null);
+    setRdvAttendee("");
+    // Garder les noms déjà saisis si l’utilisateur revient en arrière.
   }
 
   async function onSearchChild() {
@@ -249,17 +328,23 @@ export default function RdvInscriptionPublicClient({
       });
       const data = (await res.json()) as {
         candidates?: MatchCandidate[];
+        homeEtablissement?: OrigineEtab | null;
         error?: string;
       };
       if (!res.ok) {
         setFormError(data.error || "Recherche impossible.");
         return;
       }
-      const list = data.candidates || [];
+      const list = (data.candidates || []).map((c) => ({
+        ...c,
+        parents: Array.isArray(c.parents) ? c.parents : [],
+      }));
       setCandidates(list);
+      setHomeEtablissement(data.homeEtablissement || null);
       // Pas de match → le dossier préinscrit sera ouvert à la confirmation du RDV (pas un choix parent).
       if (list.length === 0) {
         setMatchChoice({ kind: "create" });
+        setOrigineSelected(null);
       }
     } catch {
       setFormError("Erreur réseau — réessayez.");
@@ -277,6 +362,7 @@ export default function RdvInscriptionPublicClient({
       if (origineCp.trim()) params.set("cp", origineCp.trim());
       if (origineDept.trim()) params.set("dept", origineDept.trim());
       if (origineQuery.trim()) params.set("q", origineQuery.trim());
+      params.set("limit", "100");
       if (!params.has("cp") && !params.has("dept") && !params.has("q")) {
         setFormError("Indiquez un code postal, un département ou un nom d’établissement.");
         return;
@@ -366,10 +452,14 @@ export default function RdvInscriptionPublicClient({
       return;
     }
     if (!parentFirstName.trim() || !parentLastName.trim()) {
-      setFormError("Indiquez le prénom et le nom du parent.");
+      setFormError(
+        showAttendeeChoice
+          ? "Indiquez qui sera présent au rendez-vous (les noms se remplissent alors automatiquement)."
+          : "Indiquez le prénom et le nom du parent.",
+      );
       return;
     }
-    if (!rdvAttendee) {
+    if (showAttendeeChoice && !rdvAttendee) {
       setFormError("Indiquez qui sera présent au rendez-vous.");
       return;
     }
@@ -398,7 +488,7 @@ export default function RdvInscriptionPublicClient({
           parentPhone,
           parentFirstName,
           parentLastName,
-          rdvAttendee,
+          rdvAttendee: showAttendeeChoice ? rdvAttendee || null : null,
           niveauId,
           eleveId: matchChoice.kind === "eleve" ? matchChoice.id : null,
           createNew: matchChoice.kind === "create",
@@ -568,65 +658,6 @@ export default function RdvInscriptionPublicClient({
                     disabled={!identityUnlocked}
                   />
                 </label>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block text-sm">
-                    <span className="font-semibold text-slate-800">Prénom du parent</span>
-                    <input
-                      required
-                      className={fieldClass}
-                      value={parentFirstName}
-                      onChange={(e) => setParentFirstName(e.target.value)}
-                      autoComplete="given-name"
-                      placeholder="Prénom"
-                      disabled={!identityUnlocked}
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="font-semibold text-slate-800">Nom du parent</span>
-                    <input
-                      required
-                      className={fieldClass}
-                      value={parentLastName}
-                      onChange={(e) => setParentLastName(e.target.value)}
-                      autoComplete="family-name"
-                      placeholder="Nom (peut différer de l’élève)"
-                      disabled={!identityUnlocked}
-                    />
-                  </label>
-                </div>
-                <fieldset className="block text-sm" disabled={!identityUnlocked}>
-                  <legend className="font-semibold text-slate-800">
-                    Qui sera présent au rendez-vous ?
-                  </legend>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {(
-                      [
-                        { id: "madame", label: "Madame" },
-                        { id: "monsieur", label: "Monsieur" },
-                        { id: "les_deux", label: "Les deux" },
-                      ] as const
-                    ).map((opt) => (
-                      <label
-                        key={opt.id}
-                        className={`inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition ${
-                          rdvAttendee === opt.id
-                            ? "border-sky-600 bg-sky-50 text-sky-900"
-                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-                        } ${!identityUnlocked ? "opacity-50" : ""}`}
-                      >
-                        <input
-                          type="radio"
-                          name="rdvAttendee"
-                          className="sr-only"
-                          checked={rdvAttendee === opt.id}
-                          onChange={() => setRdvAttendee(opt.id)}
-                          required
-                        />
-                        {opt.label}
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
               </div>
             </section>
 
@@ -694,16 +725,11 @@ export default function RdvInscriptionPublicClient({
                       {candidates.map((c) => {
                         const selected =
                           matchChoice?.kind === "eleve" && matchChoice.id === c.id;
-                        const label = `${c.nom.toUpperCase()} ${c.prenom}${
-                          c.classe ? ` · ${c.classe}` : ""
-                        }`;
                         return (
                           <button
                             key={c.id}
                             type="button"
-                            onClick={() =>
-                              setMatchChoice({ kind: "eleve", id: c.id, label })
-                            }
+                            onClick={() => selectMatchedEleve(c)}
                             className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
                               selected
                                 ? "bg-sky-700 text-white shadow-sm"
@@ -727,7 +753,7 @@ export default function RdvInscriptionPublicClient({
                       })}
                       <button
                         type="button"
-                        onClick={() => setMatchChoice({ kind: "create" })}
+                        onClick={() => selectCreateNew()}
                         className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
                           matchChoice?.kind === "create"
                             ? "bg-slate-700 text-white"
@@ -752,10 +778,106 @@ export default function RdvInscriptionPublicClient({
               ) : null}
             </section>
 
+            {matchReady ? (
+              <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
+                <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+                  2b · Parent au rendez-vous
+                </h2>
+                {showAttendeeChoice ? (
+                  <>
+                    <p className="mt-2 text-sm text-slate-500">
+                      Les parents sont déjà connus pour cet enfant. Indiquez seulement qui sera
+                      présent.
+                    </p>
+                    <fieldset className="mt-4 block text-sm">
+                      <legend className="font-semibold text-slate-800">
+                        Qui sera présent au rendez-vous ?
+                      </legend>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {(
+                          [
+                            { id: "madame", label: "Madame" },
+                            { id: "monsieur", label: "Monsieur" },
+                            { id: "les_deux", label: "Les deux" },
+                          ] as const
+                        ).map((opt) => (
+                          <label
+                            key={opt.id}
+                            className={`inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                              rdvAttendee === opt.id
+                                ? "border-sky-600 bg-sky-50 text-sky-900"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="rdvAttendee"
+                              className="sr-only"
+                              checked={rdvAttendee === opt.id}
+                              onChange={() => applyAttendee(opt.id)}
+                            />
+                            {opt.label}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                    {parentFirstName.trim() && parentLastName.trim() ? (
+                      <p className="mt-3 text-sm text-emerald-700">
+                        Présent :{" "}
+                        <strong>
+                          {parentFirstName} {parentLastName}
+                        </strong>
+                      </p>
+                    ) : null}
+                  </>
+                ) : showParentNameFields ? (
+                  <>
+                    <p className="mt-2 text-sm text-slate-500">
+                      Indiquez le prénom et le nom du parent qui prend rendez-vous (pas besoin de
+                      préciser Madame / Monsieur / les deux).
+                    </p>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <label className="block text-sm">
+                        <span className="font-semibold text-slate-800">Prénom du parent</span>
+                        <input
+                          required
+                          className={fieldClass}
+                          value={parentFirstName}
+                          onChange={(e) => setParentFirstName(e.target.value)}
+                          autoComplete="given-name"
+                          placeholder="Prénom"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="font-semibold text-slate-800">Nom du parent</span>
+                        <input
+                          required
+                          className={fieldClass}
+                          value={parentLastName}
+                          onChange={(e) => setParentLastName(e.target.value)}
+                          autoComplete="family-name"
+                          placeholder="Nom (peut différer de l’élève)"
+                        />
+                      </label>
+                    </div>
+                  </>
+                ) : null}
+              </section>
+            ) : null}
+
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
               <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
                 3 · Établissement d’origine
               </h2>
+              {matchChoice?.kind === "eleve" &&
+              homeEtablissement &&
+              origineSelected?.codeRne === homeEtablissement.codeRne ? (
+                <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  Élève déjà scolarisé chez nous : établissement d’origine renseigné
+                  automatiquement — <strong>{origineSelected.label}</strong>
+                </div>
+              ) : (
+                <>
               <p className="mt-2 text-sm text-slate-500">
                 Filtrez par code postal (recommandé) ou département, puis choisissez l’établissement.
               </p>
@@ -801,7 +923,7 @@ export default function RdvInscriptionPublicClient({
                 {origineBusy ? "Recherche…" : "Rechercher l’établissement"}
               </button>
               {origineResults.length > 0 ? (
-                <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto">
+                <ul className="mt-3 max-h-72 space-y-1 overflow-y-auto">
                   {origineResults.map((e) => {
                     const selected = origineSelected?.codeRne === e.codeRne;
                     return (
@@ -836,6 +958,8 @@ export default function RdvInscriptionPublicClient({
                   Sélection : <strong>{origineSelected.label}</strong>
                 </p>
               ) : null}
+                </>
+              )}
             </section>
 
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
@@ -1130,7 +1254,7 @@ export default function RdvInscriptionPublicClient({
                   !hasPap ||
                   !parentFirstName.trim() ||
                   !parentLastName.trim() ||
-                  !rdvAttendee
+                  (showAttendeeChoice && !rdvAttendee)
                 }
                 className="mt-5 w-full rounded-xl bg-sky-700 px-4 py-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
               >

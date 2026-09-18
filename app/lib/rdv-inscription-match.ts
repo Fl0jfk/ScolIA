@@ -6,6 +6,13 @@
 import { identityKey, normalizePersonPart } from "@/app/lib/eleve-photos-match";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 
+export type RdvMatchParent = {
+  prenom: string;
+  nom: string;
+  email: string | null;
+  rang: number;
+};
+
 export type RdvMatchCandidate = {
   id: string;
   prenom: string;
@@ -13,6 +20,8 @@ export type RdvMatchCandidate = {
   nom: string;
   classe: string | null;
   status: string;
+  /** Responsables foyer liés (si connus) — pour déduire qui sera présent. */
+  parents: RdvMatchParent[];
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -131,5 +140,6 @@ export function matchRdvInscriptionCandidates(opts: {
     nom: e.nom,
     classe: e.classe?.trim() || null,
     status: e.status || "inscrit",
+    parents: [],
   }));
 }

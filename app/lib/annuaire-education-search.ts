@@ -60,7 +60,7 @@ export async function searchAnnuaireEducation(opts: {
   cp?: string;
   limit?: number;
 }): Promise<AnnuaireEtablissementHit[]> {
-  const limit = Math.min(50, Math.max(1, opts.limit ?? 30));
+  const limit = Math.min(100, Math.max(1, opts.limit ?? 80));
   const clauses: string[] = [];
 
   const cp = (opts.cp || "").replace(/\D+/g, "").slice(0, 5);

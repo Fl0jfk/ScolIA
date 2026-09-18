@@ -161,7 +161,11 @@ export async function matchPublicRdvInscription(opts: {
   studentFirstName: string;
   studentLastName: string;
 }): Promise<
-  | { ok: true; candidates: RdvMatchCandidate[] }
+  | {
+      ok: true;
+      candidates: RdvMatchCandidate[];
+      homeEtablissement: { codeRne: string; label: string; adresse: string | null } | null;
+    }
   | { ok: false; status: number; error: string }
 > {
   const direction = await getRdvInscriptionDirectionBySlug(opts.slug, { activeOnly: true });
@@ -183,14 +187,18 @@ export async function matchPublicRdvInscription(opts: {
     return { ok: false, status: 503, error: "Établissement introuvable." };
   }
 
-  const candidates = await searchRdvInscriptionMatchCandidates({
-    etablissementId: etabId,
-    parentEmail,
-    parentPhone: opts.parentPhone,
-    studentFirstName,
-    studentLastName,
-  });
-  return { ok: true, candidates };
+  const { getHomeEtablissementForRdv } = await import("@/app/lib/rdv-inscription-eleve");
+  const [candidates, homeEtablissement] = await Promise.all([
+    searchRdvInscriptionMatchCandidates({
+      etablissementId: etabId,
+      parentEmail,
+      parentPhone: opts.parentPhone,
+      studentFirstName,
+      studentLastName,
+    }),
+    getHomeEtablissementForRdv(etabId),
+  ]);
+  return { ok: true, candidates, homeEtablissement };
 }
 
 export async function bookPublicRdvInscription(
@@ -240,13 +248,8 @@ export async function bookPublicRdvInscription(
       error: "Indiquez le prénom et le nom du parent qui prend rendez-vous.",
     };
   }
-  if (!rdvAttendee) {
-    return {
-      ok: false,
-      status: 400,
-      error: "Indiquez qui sera présent au rendez-vous (Madame, Monsieur ou les deux).",
-    };
-  }
+  // rdvAttendee optionnel : utile seulement quand on déduit les parents du dossier ;
+  // si le parent saisit son nom, on sait déjà qui vient.
   if (parentFirstName.length > 80 || parentLastName.length > 80) {
     return { ok: false, status: 400, error: "Nom / prénom du parent trop longs." };
   }

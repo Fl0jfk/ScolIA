@@ -23,7 +23,7 @@ function hasUsableLabel(hit: EtabHit): boolean {
  * 2. Annuaire national MEN si le référentiel local est vide / incomplet
  *    (ex. seuls les UAJ Communs sans libellé).
  *
- * Query : ?q=…&dept=076&cp=76500&limit=30
+ * Query : ?q=…&dept=076&cp=76500&limit=80
  */
 export async function GET(req: Request) {
   const etabId = await resolveCurrentEtablissementId();
@@ -35,7 +35,7 @@ export async function GET(req: Request) {
   const q = url.searchParams.get("q")?.trim() || "";
   const dept = url.searchParams.get("dept")?.trim() || "";
   const cp = url.searchParams.get("cp")?.trim().replace(/\s+/g, "") || "";
-  const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 30)));
+  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 80)));
 
   if (!q && !dept && !cp) {
     return NextResponse.json({
@@ -93,9 +93,9 @@ export async function GET(req: Request) {
   }));
 
   const usableLocal = localHits.filter(hasUsableLabel);
-  // Moins de 5 résultats « utiles » → le référentiel Siècle n’est probablement
-  // pas importé (souvent 1–2 UAJ Communs). On complète avec l’annuaire national.
-  const needAnnuaire = usableLocal.length < 5;
+  // Recherche par CP : toujours croiser l’annuaire national (Siècle local est souvent incomplet).
+  // Sinon, compléter si moins de 8 libellés utiles.
+  const needAnnuaire = Boolean(cp) || usableLocal.length < 8;
 
   let etablissements: EtabHit[] = usableLocal;
   let source: "siecle" | "annuaire" | "mixte" = "siecle";
