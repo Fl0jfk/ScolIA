@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 import { bookPublicRdvInscription } from "@/app/lib/rdv-inscription-service";
+import { readRdvEmailGateSession } from "@/app/lib/rdv-inscription-email-gate";
+import { normalizeParentEmail } from "@/app/lib/eleves-parent-emails";
 
 const bookLimiter = createMemoryRateLimiter({
   windowMs: 10 * 60 * 1000,
@@ -25,6 +27,14 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ error: "Direction requise." }, { status: 400 });
     }
 
+    const gate = await readRdvEmailGateSession({ directionSlug: slug });
+    if (!gate) {
+      return NextResponse.json(
+        { error: "Confirmez d’abord votre e-mail via le lien reçu." },
+        { status: 401 },
+      );
+    }
+
     const body = (await req.json()) as Record<string, unknown>;
     const honeypot = String(body.website || body.company || "").trim();
     if (honeypot) {
@@ -39,6 +49,14 @@ export async function POST(req: Request, ctx: Ctx) {
       );
     }
 
+    const parentEmail = normalizeParentEmail(String(body.parentEmail || ""));
+    if (parentEmail !== gate.email) {
+      return NextResponse.json(
+        { error: "L’e-mail ne correspond pas à la session vérifiée." },
+        { status: 403 },
+      );
+    }
+
     const attendeeRaw = String(body.rdvAttendee || "").trim();
     const rdvAttendee =
       attendeeRaw === "madame" || attendeeRaw === "monsieur" || attendeeRaw === "les_deux"
@@ -49,7 +67,7 @@ export async function POST(req: Request, ctx: Ctx) {
       eventId: String(body.eventId || "").trim(),
       studentFirstName: String(body.studentFirstName || "").trim(),
       studentLastName: String(body.studentLastName || "").trim(),
-      parentEmail: String(body.parentEmail || "").trim(),
+      parentEmail,
       parentPhone: String(body.parentPhone || "").trim(),
       parentFirstName: String(body.parentFirstName || "").trim() || undefined,
       parentLastName: String(body.parentLastName || "").trim() || undefined,

@@ -318,7 +318,6 @@ export async function bookPublicRdvInscription(
       etablissementId: etabId,
       eleveId,
       parentEmail,
-      parentPhone,
     });
     if (!ok) {
       return {
@@ -507,7 +506,6 @@ export async function confirmPublicRdvInscription(token: string): Promise<
       etablissementId: found.etablissementId,
       eleveId,
       parentEmail: found.parentEmail,
-      parentPhone: found.parentPhone,
     });
     if (!ok) {
       return {

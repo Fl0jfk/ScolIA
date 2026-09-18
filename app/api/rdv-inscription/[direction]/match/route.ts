@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
 import { matchPublicRdvInscription } from "@/app/lib/rdv-inscription-service";
+import { readRdvEmailGateSession } from "@/app/lib/rdv-inscription-email-gate";
+import { normalizeParentEmail } from "@/app/lib/eleves-parent-emails";
 
 const matchLimiter = createMemoryRateLimiter({
   windowMs: 10 * 60 * 1000,
@@ -9,7 +11,7 @@ const matchLimiter = createMemoryRateLimiter({
 
 type Ctx = { params: Promise<{ direction: string }> };
 
-/** Matching protégé : e-mail obligatoire, pool = foyer du contact uniquement. */
+/** Matching protégé : session e-mail vérifiée obligatoire. */
 export async function POST(req: Request, ctx: Ctx) {
   try {
     const ip = clientIpFromRequest(req);
@@ -26,15 +28,21 @@ export async function POST(req: Request, ctx: Ctx) {
       return NextResponse.json({ error: "Direction requise." }, { status: 400 });
     }
 
+    const gate = await readRdvEmailGateSession({ directionSlug: slug });
+    if (!gate) {
+      return NextResponse.json(
+        { error: "Confirmez d’abord votre e-mail via le lien reçu." },
+        { status: 401 },
+      );
+    }
+
     const body = (await req.json()) as Record<string, unknown>;
-    const parentEmail = String(body.parentEmail || "").trim().toLowerCase();
-    if (parentEmail) {
-      if (!(await matchLimiter.allow(`email:${parentEmail}`))) {
-        return NextResponse.json(
-          { error: "Trop de tentatives pour cet e-mail." },
-          { status: 429 },
-        );
-      }
+    const parentEmail = normalizeParentEmail(String(body.parentEmail || ""));
+    if (parentEmail !== gate.email) {
+      return NextResponse.json(
+        { error: "L’e-mail ne correspond pas à la session vérifiée." },
+        { status: 403 },
+      );
     }
 
     const result = await matchPublicRdvInscription({

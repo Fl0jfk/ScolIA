@@ -83,6 +83,27 @@ export const rdvInscriptionDirection = pgTable(
   ],
 );
 
+/** Double opt-in e-mail avant d’ouvrir le formulaire public. */
+export const rdvInscriptionEmailGate = pgTable(
+  "rdv_inscription_email_gate",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    directionSlug: text("direction_slug").notNull(),
+    parentEmail: text("parent_email").notNull(),
+    token: text("token").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("rdv_inscription_email_gate_token_uidx").on(t.token),
+    index("rdv_inscription_email_gate_etab_email_idx").on(t.etablissementId, t.parentEmail),
+  ],
+);
+
 /** Miroir d’une réservation parent (source de vérité agenda = Google après confirmation). */
 export const rdvInscriptionBooking = pgTable(
   "rdv_inscription_booking",
@@ -157,5 +178,6 @@ export const rdvInscriptionBooking = pgTable(
 export const rdvInscriptionSchema = {
   rdvInscriptionConfig,
   rdvInscriptionDirection,
+  rdvInscriptionEmailGate,
   rdvInscriptionBooking,
 };

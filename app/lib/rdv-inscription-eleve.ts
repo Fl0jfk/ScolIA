@@ -17,6 +17,37 @@ import {
   type RdvMatchParent,
 } from "@/app/lib/rdv-inscription-match";
 
+export async function listChildrenForVerifiedParentEmail(opts: {
+  etablissementId: string;
+  parentEmail: string;
+}): Promise<RdvMatchCandidate[]> {
+  const eleves = await listElevesFromDb(opts.etablissementId, {
+    status: ["preinscrit", "inscrit"],
+  });
+  const pool = elevesMatchingParentContact(eleves, opts.parentEmail);
+  const base: RdvMatchCandidate[] = pool
+    .filter((e) => Boolean(e.id))
+    .sort((a, b) => a.nom.localeCompare(b.nom, "fr") || a.prenom.localeCompare(b.prenom, "fr"))
+    .slice(0, 20)
+    .map((e) => ({
+      id: e.id!,
+      prenom: e.prenom,
+      nom: e.nom,
+      classe: e.classe?.trim() || null,
+      status: e.status || "inscrit",
+      parents: [],
+    }));
+  if (!base.length) return [];
+  const parentsByEleve = await listFoyerParentsForEleves(
+    opts.etablissementId,
+    base.map((c) => c.id),
+  );
+  return base.map((c) => ({
+    ...c,
+    parents: parentsByEleve.get(c.id) || [],
+  }));
+}
+
 export async function searchRdvInscriptionMatchCandidates(opts: {
   etablissementId: string;
   parentEmail: string;
@@ -140,7 +171,7 @@ export async function assertEleveBelongsToParentContact(opts: {
   etablissementId: string;
   eleveId: string;
   parentEmail: string;
-  parentPhone: string;
+  parentPhone?: string;
 }): Promise<boolean> {
   const eleves = await listElevesFromDb(opts.etablissementId, {
     status: ["preinscrit", "inscrit"],

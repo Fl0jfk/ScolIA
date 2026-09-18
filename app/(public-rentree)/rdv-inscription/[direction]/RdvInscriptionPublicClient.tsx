@@ -151,7 +151,10 @@ export default function RdvInscriptionPublicClient({
   const [candidates, setCandidates] = useState<MatchCandidate[] | null>(null);
   const [matchChoice, setMatchChoice] = useState<MatchChoice>(null);
   const [homeEtablissement, setHomeEtablissement] = useState<OrigineEtab | null>(null);
-  const [matchBusy, setMatchBusy] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [emailGateLoading, setEmailGateLoading] = useState(true);
+  const [emailPending, setEmailPending] = useState(false);
+  const [emailGateBusy, setEmailGateBusy] = useState(false);
   const [hasPap, setHasPap] = useState<"yes" | "no" | "">("");
   const [papBringToRdv, setPapBringToRdv] = useState(false);
   const [papFile, setPapFile] = useState<{
@@ -178,7 +181,6 @@ export default function RdvInscriptionPublicClient({
   const [formError, setFormError] = useState<string | null>(null);
 
   const emailOk = EMAIL_RE.test(parentEmail.trim());
-  const identityUnlocked = emailOk;
 
   const byDay = useMemo(() => {
     const map = new Map<string, PublicRdvSlot[]>();
@@ -254,12 +256,140 @@ export default function RdvInscriptionPublicClient({
     }
   }, [initialError, initialSlots.length, refreshSlots]);
 
-  function resetMatch() {
+  function applySessionCandidates(
+    listRaw: MatchCandidate[] | undefined,
+    home: OrigineEtab | null | undefined,
+  ) {
+    const list = (listRaw || []).map((c) => ({
+      ...c,
+      parents: Array.isArray(c.parents) ? c.parents : [],
+    }));
+    setCandidates(list);
+    setHomeEtablissement(home || null);
+    setMatchChoice(null);
+    setOrigineSelected(null);
+    setOrigineResults([]);
+    setRdvAttendee("");
+    setParentFirstName("");
+    setParentLastName("");
+    if (list.length === 0) {
+      setMatchChoice({ kind: "create" });
+    }
+  }
+
+  const loadEmailSession = useCallback(async () => {
+    setEmailGateLoading(true);
+    try {
+      const res = await fetch(
+        `/api/rdv-inscription/${encodeURIComponent(directionSlug)}/email-session`,
+      );
+      const data = (await res.json()) as {
+        verified?: boolean;
+        email?: string;
+        candidates?: MatchCandidate[];
+        homeEtablissement?: OrigineEtab | null;
+      };
+      if (res.ok && data.verified && data.email) {
+        setEmailVerified(true);
+        setEmailPending(false);
+        setParentEmail(data.email);
+        applySessionCandidates(data.candidates, data.homeEtablissement);
+      } else {
+        setEmailVerified(false);
+      }
+    } catch {
+      setEmailVerified(false);
+    } finally {
+      setEmailGateLoading(false);
+    }
+  }, [directionSlug]);
+
+  useEffect(() => {
+    void loadEmailSession();
+  }, [loadEmailSession]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const emailError = params.get("email_error");
+    if (emailError) {
+      setFormError(
+        emailError === "rate"
+          ? "Trop de tentatives. Réessayez dans quelques minutes."
+          : emailError === "error"
+            ? "Lien de confirmation invalide. Demandez un nouvel e-mail."
+            : decodeURIComponent(emailError),
+      );
+      params.delete("email_error");
+      const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
+      window.history.replaceState({}, "", next);
+    }
+    if (params.get("email_ok") === "1") {
+      params.delete("email_ok");
+      const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
+      window.history.replaceState({}, "", next);
+      void loadEmailSession();
+    }
+  }, [loadEmailSession]);
+
+  async function onStartEmailGate(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    if (!emailOk) {
+      setFormError("Saisissez un e-mail parent valide.");
+      return;
+    }
+    setEmailGateBusy(true);
+    try {
+      const res = await fetch(
+        `/api/rdv-inscription/${encodeURIComponent(directionSlug)}/email-start`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parentEmail }),
+        },
+      );
+      const data = (await res.json()) as {
+        pending?: boolean;
+        message?: string;
+        mailWarning?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        setFormError(data.error || "Envoi impossible.");
+        return;
+      }
+      setEmailPending(true);
+      if (data.mailWarning) {
+        setFormError(data.mailWarning);
+      }
+    } catch {
+      setFormError("Erreur réseau — réessayez.");
+    } finally {
+      setEmailGateBusy(false);
+    }
+  }
+
+  async function onChangeEmail() {
+    setFormError(null);
+    try {
+      await fetch(`/api/rdv-inscription/${encodeURIComponent(directionSlug)}/email-session`, {
+        method: "DELETE",
+      });
+    } catch {
+      /* ignore */
+    }
+    setEmailVerified(false);
+    setEmailPending(false);
     setCandidates(null);
     setMatchChoice(null);
     setHomeEtablissement(null);
     setOrigineSelected(null);
-    setOrigineResults([]);
+    setStudentFirstName("");
+    setStudentLastName("");
+    setParentPhone("");
+    setParentFirstName("");
+    setParentLastName("");
     setRdvAttendee("");
   }
 
@@ -287,6 +417,8 @@ export default function RdvInscriptionPublicClient({
       label: `${c.prenom} ${c.nom}${c.classe ? ` (${c.classe})` : ""}`,
       parents: c.parents || [],
     });
+    setStudentFirstName(c.prenom);
+    setStudentLastName(c.nom);
     if (homeEtablissement) {
       setOrigineSelected(homeEtablissement);
       setOrigineResults([]);
@@ -298,59 +430,10 @@ export default function RdvInscriptionPublicClient({
 
   function selectCreateNew() {
     setMatchChoice({ kind: "create" });
+    setStudentFirstName("");
+    setStudentLastName("");
     setOrigineSelected(null);
     setRdvAttendee("");
-    // Garder les noms déjà saisis si l’utilisateur revient en arrière.
-  }
-
-  async function onSearchChild() {
-    setFormError(null);
-    if (!emailOk) {
-      setFormError("Saisissez d’abord un e-mail parent valide.");
-      return;
-    }
-    if (!studentFirstName.trim() || !studentLastName.trim()) {
-      setFormError("Indiquez le nom et le prénom de l’élève.");
-      return;
-    }
-    setMatchBusy(true);
-    resetMatch();
-    try {
-      const res = await fetch(`/api/rdv-inscription/${encodeURIComponent(directionSlug)}/match`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          parentEmail,
-          parentPhone,
-          studentFirstName,
-          studentLastName,
-        }),
-      });
-      const data = (await res.json()) as {
-        candidates?: MatchCandidate[];
-        homeEtablissement?: OrigineEtab | null;
-        error?: string;
-      };
-      if (!res.ok) {
-        setFormError(data.error || "Recherche impossible.");
-        return;
-      }
-      const list = (data.candidates || []).map((c) => ({
-        ...c,
-        parents: Array.isArray(c.parents) ? c.parents : [],
-      }));
-      setCandidates(list);
-      setHomeEtablissement(data.homeEtablissement || null);
-      // Pas de match → le dossier préinscrit sera ouvert à la confirmation du RDV (pas un choix parent).
-      if (list.length === 0) {
-        setMatchChoice({ kind: "create" });
-        setOrigineSelected(null);
-      }
-    } catch {
-      setFormError("Erreur réseau — réessayez.");
-    } finally {
-      setMatchBusy(false);
-    }
   }
 
   async function searchOrigine() {
@@ -435,6 +518,14 @@ export default function RdvInscriptionPublicClient({
     setFormError(null);
     if (!matchChoice) {
       setFormError("Confirmez l’identité de l’élève avant de réserver.");
+      return;
+    }
+    if (!studentFirstName.trim() || !studentLastName.trim()) {
+      setFormError("Indiquez le prénom et le nom de l’élève.");
+      return;
+    }
+    if (!parentPhone.trim()) {
+      setFormError("Indiquez le téléphone du parent.");
       return;
     }
     if (!origineSelected) {
@@ -617,164 +708,197 @@ export default function RdvInscriptionPublicClient({
           </div>
         ) : null}
 
-        {slots.length > 0 ? (
+        {slots.length > 0 && emailGateLoading ? (
+          <div className="rounded-xl bg-white px-5 py-8 text-center text-sm text-slate-500 shadow-sm ring-1 ring-slate-200/80">
+            Vérification de votre session…
+          </div>
+        ) : null}
+
+        {slots.length > 0 && !emailGateLoading && !emailVerified ? (
+          <form onSubmit={onStartEmailGate} className="space-y-6">
+            <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+                1 · Confirmez votre e-mail
+              </h2>
+              <p className="mt-2 text-sm text-slate-500">
+                Avant d’accéder au formulaire, nous vous envoyons un lien de confirmation. C’est
+                ainsi que nous retrouvons vos enfants déjà connus — sans pouvoir explorer les
+                dossiers avec une adresse inventée.
+              </p>
+              {emailPending ? (
+                <div className="mt-4 space-y-3 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-950 ring-1 ring-sky-100">
+                  <p className="font-semibold">E-mail envoyé à {parentEmail.trim().toLowerCase()}</p>
+                  <p>
+                    Ouvrez votre boîte et cliquez sur « Confirmer mon e-mail ». Vous pourrez ensuite
+                    choisir l’enfant et réserver un créneau.
+                  </p>
+                  <button
+                    type="submit"
+                    disabled={emailGateBusy || !emailOk}
+                    className="rounded-lg bg-sky-800 px-3 py-2 text-xs font-bold text-white hover:bg-sky-900 disabled:opacity-50"
+                  >
+                    {emailGateBusy ? "Envoi…" : "Renvoyer le lien"}
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-4 grid gap-4">
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-800">E-mail du parent</span>
+                    <input
+                      required
+                      type="email"
+                      className={fieldClass}
+                      value={parentEmail}
+                      onChange={(e) => setParentEmail(e.target.value)}
+                      autoComplete="email"
+                      placeholder="prenom.nom@email.fr"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={emailGateBusy || !emailOk}
+                    className="w-full rounded-xl bg-sky-700 px-4 py-3 text-sm font-bold text-white transition hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {emailGateBusy ? "Envoi…" : "Recevoir le lien de confirmation"}
+                  </button>
+                </div>
+              )}
+            </section>
+            {formError ? (
+              <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                {formError}
+              </p>
+            ) : null}
+          </form>
+        ) : null}
+
+        {slots.length > 0 && emailVerified ? (
           <form onSubmit={onSubmit} className="space-y-6">
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
               <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-                1 · Vos coordonnées
+                1 · E-mail confirmé
               </h2>
-              <p className="mt-2 text-sm text-slate-500">
-                L’e-mail est demandé en premier pour protéger les dossiers élèves.
+              <p className="mt-3 text-sm text-slate-700">
+                <span className="font-semibold text-emerald-800">{parentEmail}</span>
+                <button
+                  type="button"
+                  onClick={() => void onChangeEmail()}
+                  className="ml-3 text-xs font-semibold text-sky-700 underline-offset-2 hover:underline"
+                >
+                  Changer d’e-mail
+                </button>
               </p>
-              <div className="mt-4 grid gap-4">
-                <label className="block text-sm">
-                  <span className="font-semibold text-slate-800">E-mail du parent</span>
-                  <input
-                    required
-                    type="email"
-                    className={fieldClass}
-                    value={parentEmail}
-                    onChange={(e) => {
-                      setParentEmail(e.target.value);
-                      resetMatch();
-                    }}
-                    autoComplete="email"
-                    placeholder="prenom.nom@email.fr"
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="font-semibold text-slate-800">Téléphone du parent</span>
-                  <input
-                    required
-                    type="tel"
-                    className={fieldClass}
-                    value={parentPhone}
-                    onChange={(e) => {
-                      setParentPhone(e.target.value);
-                      resetMatch();
-                    }}
-                    autoComplete="tel"
-                    placeholder="06 …"
-                    disabled={!identityUnlocked}
-                  />
-                </label>
-              </div>
+              <label className="mt-4 block text-sm">
+                <span className="font-semibold text-slate-800">Téléphone du parent</span>
+                <input
+                  required
+                  type="tel"
+                  className={fieldClass}
+                  value={parentPhone}
+                  onChange={(e) => setParentPhone(e.target.value)}
+                  autoComplete="tel"
+                  placeholder="06 …"
+                />
+              </label>
             </section>
 
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
               <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-                2 · Identifier l’élève
+                2 · Pour quel enfant ?
               </h2>
               <p className="mt-2 text-sm text-slate-500">
-                On vérifie si l’enfant est déjà connu pour cet e-mail. Le dossier d’inscription
-                sera ouvert automatiquement à la confirmation du rendez-vous.
+                Enfants liés à cet e-mail. Le dossier d’inscription sera ouvert à la confirmation du
+                rendez-vous.
               </p>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <label className="block text-sm">
-                  <span className="font-semibold text-slate-800">Prénom de l’élève</span>
-                  <input
-                    required
-                    className={fieldClass}
-                    value={studentFirstName}
-                    onChange={(e) => {
-                      setStudentFirstName(e.target.value);
-                      resetMatch();
-                    }}
-                    autoComplete="given-name"
-                    placeholder="Prénom"
-                    disabled={!identityUnlocked}
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="font-semibold text-slate-800">Nom de l’élève</span>
-                  <input
-                    required
-                    className={fieldClass}
-                    value={studentLastName}
-                    onChange={(e) => {
-                      setStudentLastName(e.target.value);
-                      resetMatch();
-                    }}
-                    autoComplete="family-name"
-                    placeholder="Nom"
-                    disabled={!identityUnlocked}
-                  />
-                </label>
-              </div>
-              <button
-                type="button"
-                disabled={!identityUnlocked || matchBusy}
-                onClick={() => void onSearchChild()}
-                className="mt-4 w-full rounded-xl bg-slate-800 px-4 py-3 text-sm font-bold text-white transition hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {matchBusy ? "Recherche…" : "Rechercher mon enfant"}
-              </button>
 
-              {candidates ? (
+              {candidates && candidates.length > 0 ? (
                 <div className="mt-4 space-y-2">
-                  {candidates.length === 0 ? (
-                    <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                      Aucun enfant trouvé pour ces coordonnées — on ouvrira le dossier à la
-                      confirmation du rendez-vous.
-                    </p>
-                  ) : (
-                    <>
-                      <p className="text-sm text-slate-600">
-                        Un ou plusieurs enfants correspondent. Confirmez le bon :
-                      </p>
-                      {candidates.map((c) => {
-                        const selected =
-                          matchChoice?.kind === "eleve" && matchChoice.id === c.id;
-                        return (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => selectMatchedEleve(c)}
-                            className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
-                              selected
-                                ? "bg-sky-700 text-white shadow-sm"
-                                : "bg-slate-50 text-slate-800 ring-1 ring-slate-200 hover:bg-white"
-                            }`}
-                          >
-                            <span className="font-semibold">
-                              Est-ce bien {c.prenom} {c.nom.toUpperCase()} ?
-                            </span>
-                            {c.classe ? (
-                              <span
-                                className={`mt-0.5 block text-xs ${
-                                  selected ? "text-sky-100" : "text-slate-500"
-                                }`}
-                              >
-                                {c.classe}
-                              </span>
-                            ) : null}
-                          </button>
-                        );
-                      })}
+                  <p className="text-sm text-slate-600">Confirmez le bon enfant :</p>
+                  {candidates.map((c) => {
+                    const selected =
+                      matchChoice?.kind === "eleve" && matchChoice.id === c.id;
+                    return (
                       <button
+                        key={c.id}
                         type="button"
-                        onClick={() => selectCreateNew()}
+                        onClick={() => selectMatchedEleve(c)}
                         className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
-                          matchChoice?.kind === "create"
-                            ? "bg-slate-700 text-white"
-                            : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+                          selected
+                            ? "bg-sky-700 text-white shadow-sm"
+                            : "bg-slate-50 text-slate-800 ring-1 ring-slate-200 hover:bg-white"
                         }`}
                       >
-                        Non, ce n’est pas mon enfant
+                        <span className="font-semibold">
+                          Est-ce bien {c.prenom} {c.nom.toUpperCase()} ?
+                        </span>
+                        {c.classe ? (
+                          <span
+                            className={`mt-0.5 block text-xs ${
+                              selected ? "text-sky-100" : "text-slate-500"
+                            }`}
+                          >
+                            {c.classe}
+                          </span>
+                        ) : null}
                       </button>
-                    </>
-                  )}
-                  {matchChoice?.kind === "eleve" ? (
-                    <p className="text-sm text-emerald-700">
-                      Élève confirmé : <strong>{matchChoice.label}</strong>
-                    </p>
-                  ) : null}
-                  {matchChoice?.kind === "create" && candidates.length > 0 ? (
-                    <p className="text-sm text-slate-600">
-                      Compris — le dossier sera ouvert à la confirmation du rendez-vous.
-                    </p>
-                  ) : null}
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => selectCreateNew()}
+                    className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
+                      matchChoice?.kind === "create"
+                        ? "bg-slate-700 text-white"
+                        : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    Ce n’est pas mon enfant — nouveau dossier
+                  </button>
                 </div>
+              ) : (
+                <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  Aucun enfant connu pour cet e-mail — indiquez les nom et prénom pour ouvrir un
+                  dossier à la confirmation du rendez-vous.
+                </p>
+              )}
+
+              {matchChoice?.kind === "create" || (candidates && candidates.length === 0) ? (
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-800">Prénom de l’élève</span>
+                    <input
+                      required
+                      className={fieldClass}
+                      value={studentFirstName}
+                      onChange={(e) => {
+                        setStudentFirstName(e.target.value);
+                        if (matchChoice?.kind !== "create") setMatchChoice({ kind: "create" });
+                      }}
+                      autoComplete="given-name"
+                      placeholder="Prénom"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-800">Nom de l’élève</span>
+                    <input
+                      required
+                      className={fieldClass}
+                      value={studentLastName}
+                      onChange={(e) => {
+                        setStudentLastName(e.target.value);
+                        if (matchChoice?.kind !== "create") setMatchChoice({ kind: "create" });
+                      }}
+                      autoComplete="family-name"
+                      placeholder="Nom"
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              {matchChoice?.kind === "eleve" ? (
+                <p className="mt-3 text-sm text-emerald-700">
+                  Élève confirmé : <strong>{matchChoice.label}</strong>
+                </p>
               ) : null}
             </section>
 
