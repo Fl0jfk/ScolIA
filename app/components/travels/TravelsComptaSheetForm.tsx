@@ -302,10 +302,15 @@ export default function TravelsComptaSheetForm({
     });
     setSaveState("saving");
     setError(null);
+    const cleanedAides = finalSheet.aidesIndividuelles.filter(
+      (row) => row.name.trim() || row.amount != null,
+    );
     const cleanedSheet = computeComptaSheetDerived({
       ...finalSheet,
       depenses: withoutBlankDepenses(finalSheet.depenses),
       recettesLignes: withoutBlankRecettesLignes(finalSheet.recettesLignes ?? []),
+      aidesIndividuelles:
+        cleanedAides.length > 0 ? cleanedAides : [{ name: "", amount: null }],
     });
     try {
       const res = await fetch("/api/travels/compta-sheet", {
@@ -611,6 +616,21 @@ export default function TravelsComptaSheetForm({
 
   function addAide() {
     patch({ aidesIndividuelles: [...sheet.aidesIndividuelles, { name: "", amount: null }] });
+  }
+
+  function removeAide(index: number) {
+    const next = sheet.aidesIndividuelles.filter((_, i) => i !== index);
+    patch({
+      aidesIndividuelles: next.length > 0 ? next : [{ name: "", amount: null }],
+    });
+  }
+
+  function pruneBlankAide(index: number) {
+    const row = sheet.aidesIndividuelles[index];
+    if (!row) return;
+    if (row.name.trim() || row.amount != null) return;
+    if (sheet.aidesIndividuelles.length <= 1) return;
+    removeAide(index);
   }
 
   function applyMargePreset(presetId: ComptaMargePresetId) {
@@ -1250,6 +1270,7 @@ export default function TravelsComptaSheetForm({
                   <tr className="border-b border-slate-100 text-left text-xs text-slate-400">
                     <th className="p-3 font-bold">Nom — Prénom</th>
                     <th className="p-3 font-bold w-36">Montant</th>
+                    {!readOnly ? <th className="p-3 w-24" /> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -1259,6 +1280,7 @@ export default function TravelsComptaSheetForm({
                         <input
                           value={row.name}
                           onChange={(e) => updateAide(index, "name", e.target.value)}
+                          onBlur={() => pruneBlankAide(index)}
                           readOnly={readOnly}
                           disabled={readOnly}
                           className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm bg-white disabled:bg-slate-50"
@@ -1269,16 +1291,30 @@ export default function TravelsComptaSheetForm({
                         <EuroAmountInput
                           value={row.amount}
                           onChange={(v) => updateAide(index, "amount", v)}
+                          onBlur={() => pruneBlankAide(index)}
                           readOnly={readOnly}
                         />
                       </td>
+                      {!readOnly ? (
+                        <td className="p-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => removeAide(index)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="Supprimer cette aide individuelle"
+                            aria-label="Supprimer cette aide individuelle"
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="bg-slate-100 font-bold text-slate-600">
                     <td className="p-3">Total aides individuelles (informatif)</td>
-                    <td className="p-3 text-right font-mono">
+                    <td className="p-3 text-right font-mono" colSpan={readOnly ? 1 : 2}>
                       {derived.totalAidesIndividuelles != null
                         ? `${formatEuroDisplay(derived.totalAidesIndividuelles)} €`
                         : "—"}
