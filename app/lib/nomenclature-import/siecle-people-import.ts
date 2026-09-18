@@ -114,7 +114,10 @@ export async function importSiecleElevesXml(
   const merged = mergeElevesLists(
     existing,
     [...withMefLabels, ...sortisForMerge],
-    { replaceRegime },
+    {
+      replaceRegime,
+      ...(cycle === "college" || cycle === "lycee" ? { importCycle: cycle } : {}),
+    },
   );
   const normalized = await normalizeElevesToSiecleClasses(etablissementId, merged.eleves);
   await saveElevesRegistry(normalized.eleves);

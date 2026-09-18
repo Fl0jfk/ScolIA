@@ -3,6 +3,11 @@ import type { EleveConfig } from "@/app/lib/eleves-config";
 import { buildEleveFolderName, normalizeEleveDateNaissance, validateElevesJson } from "@/app/lib/eleves-config";
 import { canonicalRegimeLabel } from "@/app/lib/eleve-regime";
 import { isDateSortiePassee } from "@/app/lib/siecle-eleves-parse";
+import { guessClassLevelFromClasse } from "@/app/lib/class-allocation-level-heuristic";
+import type { ClassLevel } from "@/app/lib/class-allocation-types";
+
+/** Cycle d’import Siècle (collège / lycée séparés — une sortie collège ne radie pas un lycéen). */
+export type ElevesImportCycleScope = "college" | "lycee";
 
 export type ElevesImportSource = "pronote" | "ecoledirecte" | "auto";
 
@@ -390,10 +395,36 @@ function personIdentityKey(nom: string, prenom: string): string {
   return `${normalizePersonPart(nom)}§${normalizePersonPart(prenom)}`;
 }
 
+function cycleOfEleve(e: Pick<EleveConfig, "classe" | "secteur">): ClassLevel | null {
+  return guessClassLevelFromClasse(e.classe) ?? null;
+}
+
+/**
+ * Collège et lycée sont deux « fiches » logiques du groupe scolaire.
+ * Une DATE_SORTIE sur l’import collège ferme la scolarité collège, mais si la
+ * fiche courante est déjà lycée (ex. 2A), l’élève n’est pas radié du tenant.
+ * Il n’est « vraiment sorti » que si sa classe actuelle est encore du cycle importé
+ * (ou indéterminée) — pas s’il a déjà réapparu sur l’autre cycle.
+ */
+function shouldApplyAncienFromCycleImport(
+  existing: EleveConfig,
+  importCycle: ElevesImportCycleScope | undefined,
+): boolean {
+  if (!importCycle) return true;
+  const existingCycle = cycleOfEleve(existing);
+  // Pas de cycle lisible sur la fiche → on applique la sortie (cas « vraiment sorti »).
+  if (!existingCycle) return true;
+  // École : hors du duo collège/lycée Siècle — ne pas radier via un import collège/lycée.
+  if (existingCycle === "ecole") return false;
+  // Même cycle que l’import → sortie réelle pour ce cycle.
+  // Autre cycle (collège vs lycée) → la fiche « autonome » de l’autre établissement reste.
+  return existingCycle === importCycle;
+}
+
 function mergeEleveFields(
   existing: EleveConfig,
   incoming: EleveConfig,
-  opts?: { replaceRegime?: boolean },
+  opts?: { replaceRegime?: boolean; importCycle?: ElevesImportCycleScope },
 ): EleveConfig {
   const nom = incoming.nom.trim() || existing.nom;
   const prenom = incoming.prenom.trim() || existing.prenom;
@@ -421,16 +452,27 @@ function mergeEleveFields(
   if (incoming.parent2Phone?.trim()) merged.parent2Phone = incoming.parent2Phone.trim();
   if (incoming.dateNaissance?.trim()) merged.dateNaissance = incoming.dateNaissance.trim();
   if (incoming.lieuNaissance?.trim()) merged.lieuNaissance = incoming.lieuNaissance.trim();
-  if (opts?.replaceRegime && "regime" in incoming) {
+
+  const incomingAncien = incoming.status === "ancien";
+  const protectOtherCycle =
+    incomingAncien && !shouldApplyAncienFromCycleImport(existing, opts?.importCycle);
+
+  if (opts?.replaceRegime && "regime" in incoming && !protectOtherCycle) {
     const t = incoming.regime?.trim();
     if (t) merged.regime = t;
     else delete merged.regime;
-  } else if (incoming.regime?.trim()) {
+  } else if (incoming.regime?.trim() && !protectOtherCycle) {
     merged.regime = incoming.regime.trim();
   }
   if (incoming.sexe) merged.sexe = incoming.sexe;
   if (incoming.photoKey?.trim()) merged.photoKey = incoming.photoKey.trim();
-  if (incoming.status) merged.status = incoming.status;
+  if (incoming.status) {
+    if (protectOtherCycle) {
+      // Garde le statut / la classe lycée (ou collège) déjà en fiche.
+    } else {
+      merged.status = incoming.status;
+    }
+  }
   if (incoming.lv1?.trim()) merged.lv1 = incoming.lv1.trim();
   if (incoming.lv2?.trim()) merged.lv2 = incoming.lv2.trim();
   if (incoming.options?.length) merged.options = [...incoming.options];
@@ -685,7 +727,12 @@ export type ElevesMergeStats = {
 export function mergeElevesLists(
   existing: EleveConfig[],
   incoming: EleveConfig[],
-  opts?: { replaceRegime?: boolean; fillOnly?: boolean },
+  opts?: {
+    replaceRegime?: boolean;
+    fillOnly?: boolean;
+    /** Import Siècle collège ou lycée : les sorties de l’autre cycle sont ignorées. */
+    importCycle?: ElevesImportCycleScope;
+  },
 ): { eleves: EleveConfig[]; stats: ElevesMergeStats } {
   const result = [...existing];
   const touched = new Set<number>();
@@ -697,7 +744,17 @@ export function mergeElevesLists(
   for (const inc of incoming) {
     const idx = findExistingEleveIndex(result, inc);
     if (idx >= 0) {
-      result[idx] = mergeEleveFields(result[idx]!, inc, opts);
+      const current = result[idx]!;
+      // Sorti sur un autre cycle que la fiche actuelle → ne pas fusionner du tout
+      // (évite aussi d’écraser la classe lycée avec une classe collège vide / ancienne).
+      if (
+        inc.status === "ancien" &&
+        opts?.importCycle &&
+        !shouldApplyAncienFromCycleImport(current, opts.importCycle)
+      ) {
+        continue;
+      }
+      result[idx] = mergeEleveFields(current, inc, opts);
       touched.add(idx);
       updated++;
     } else if (opts?.fillOnly) {
