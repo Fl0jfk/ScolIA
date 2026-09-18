@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { getAppSession } from "@/app/lib/intranet-session";
@@ -87,11 +87,37 @@ export async function GET(req: Request, ctx: Ctx) {
   try {
     const s3Client = await getTenantDataS3Client();
     const bucket = await getBucketName();
+    const key = s3Key(access.s3Key);
+    try {
+      await s3Client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    } catch (headErr) {
+      const name =
+        headErr && typeof headErr === "object" && "name" in headErr
+          ? String((headErr as { name?: string }).name || "")
+          : "";
+      const code =
+        headErr && typeof headErr === "object" && "Code" in headErr
+          ? String((headErr as { Code?: string }).Code || "")
+          : "";
+      if (name === "NotFound" || name === "NoSuchKey" || code === "NotFound" || code === "NoSuchKey") {
+        console.warn("[eleves/documents/file] NoSuchKey", { bucket, key, documentId, eleveId });
+        return NextResponse.json(
+          {
+            error:
+              "Fichier introuvable sur le stockage. La pièce est référencée mais le PDF n’est plus accessible.",
+            code: "S3_KEY_MISSING",
+          },
+          { status: 404 },
+        );
+      }
+      throw headErr;
+    }
+
     const fileName = safeFileName(access.doc.title, "document.pdf");
     const contentType = access.doc.mimeType || "application/pdf";
     const command = new GetObjectCommand({
       Bucket: bucket,
-      Key: s3Key(access.s3Key),
+      Key: key,
       ResponseContentType: contentType,
       ResponseContentDisposition: `inline; filename="${fileName}"`,
     });
