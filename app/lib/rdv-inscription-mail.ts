@@ -2,6 +2,10 @@ import "server-only";
 
 import { buildCalendarEventIcs } from "@/app/lib/calendar-ics";
 import { escapeHtml } from "@/app/lib/escape-html";
+import {
+  buildRdvInscriptionIcsLocation,
+  RDV_ETABLISSEMENT_PHONE,
+} from "@/app/lib/rdv-inscription-contact";
 import type {
   RdvInscriptionBookingRow,
   RdvInscriptionDirectionPageSettings,
@@ -110,6 +114,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
   const slotLabel = formatSlotFr(opts.booking.startAt, opts.booking.endAt);
   const student = `${opts.booking.studentFirstName} ${opts.booking.studentLastName}`;
   const location = opts.page.location.trim();
+  const icsLocation = buildRdvInscriptionIcsLocation(location);
   const title = `${opts.page.title} — ${opts.directionLabel}`;
 
   const ics = buildCalendarEventIcs({
@@ -119,12 +124,12 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
       opts.directriceName ? `Avec : ${opts.directriceName}` : "",
       `Élève : ${student}`,
       opts.booking.niveauLabel ? `Niveau : ${opts.booking.niveauLabel}` : "",
-      `Téléphone : ${opts.booking.parentPhone}`,
-      location ? `Lieu : ${location}` : "",
+      `Contact établissement : ${RDV_ETABLISSEMENT_PHONE}`,
+      `Lieu : ${icsLocation}`,
     ]
       .filter(Boolean)
       .join("\n"),
-    location: location || undefined,
+    location: icsLocation,
     startAt: opts.booking.startAt,
     endAt: opts.booking.endAt,
     uid: `rdv-inscription-${opts.booking.id}@scola`,
@@ -151,10 +156,11 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
         <p><strong>Élève :</strong> ${escapeHtml(student)}<br/>
         <strong>Direction :</strong> ${escapeHtml(opts.directionLabel)}<br/>
         <strong>Créneau :</strong> ${escapeHtml(slotLabel)}
-        ${location ? `<br/><strong>Lieu :</strong> ${escapeHtml(location)}` : ""}
+        <br/><strong>Lieu :</strong> ${escapeHtml(icsLocation)}
         ${opts.directriceName ? `<br/><strong>Avec :</strong> ${escapeHtml(opts.directriceName)}` : ""}
+        <br/><strong>Téléphone établissement :</strong> ${escapeHtml(RDV_ETABLISSEMENT_PHONE)}
         </p>
-        <p>Un fichier calendrier (.ics) est joint à cet e-mail.</p>
+        <p>Un fichier calendrier (.ics) est joint à cet e-mail. En cas de question sur le rendez-vous, contactez l’établissement au ${escapeHtml(RDV_ETABLISSEMENT_PHONE)}.</p>
         <p>Cordialement,<br/>L’établissement</p>
       `,
       attachments: [
