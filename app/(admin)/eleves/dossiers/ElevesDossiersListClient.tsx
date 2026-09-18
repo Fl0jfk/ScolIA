@@ -16,6 +16,8 @@ import {
   documentAccessDurationLabel,
 } from "@/app/lib/eleve-document-access-duration";
 import ElevePhotoLazy from "@/app/components/eleves/ElevePhotoLazy";
+import InscriptionDocsDropZone from "@/app/components/eleves/InscriptionDocsDropZone";
+import { uploadInscriptionDocuments } from "@/app/lib/inscription-docs-upload-client";
 
 type EleveAccompagnementListDoc = {
   kind: AccompagnementKind;
@@ -121,6 +123,8 @@ export default function ElevesDossiersListClient() {
   const [busy, setBusy] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [createBusy, setCreateBusy] = useState(false);
+  const [createPendingFiles, setCreatePendingFiles] = useState<File[]>([]);
+  const [createUploadProgress, setCreateUploadProgress] = useState<string | null>(null);
   const [createForm, setCreateForm] = useState({
     prenom: "",
     nom: "",
@@ -386,6 +390,7 @@ export default function ElevesDossiersListClient() {
     e.preventDefault();
     setError(null);
     setCreateBusy(true);
+    setCreateUploadProgress(null);
     try {
       const res = await fetch("/api/eleves/create", {
         method: "POST",
@@ -410,7 +415,34 @@ export default function ElevesDossiersListClient() {
         setError(j.error || "Création impossible.");
         return;
       }
+
+      const pending = createPendingFiles;
+      if (pending.length > 0) {
+        setCreateUploadProgress(`Dépôt des pièces (0/${pending.length})…`);
+        const uploadResults = await uploadInscriptionDocuments({
+          eleveId: j.eleve.id,
+          files: pending,
+          onProgress: (done, total, current) => {
+            if (done >= total) {
+              setCreateUploadProgress("Finalisation…");
+              return;
+            }
+            setCreateUploadProgress(`Pièce ${done + 1}/${total} — ${current} (OCR…)`);
+          },
+        });
+        const failed = uploadResults.filter((r) => !r.ok);
+        if (failed.length > 0) {
+          setError(
+            `Dossier créé, mais ${failed.length} pièce(s) en échec : ${failed
+              .slice(0, 2)
+              .map((r) => r.error || r.fileName)
+              .join(" · ")}. Vous pouvez les rajouter sur la page documents.`,
+          );
+        }
+      }
+
       setShowCreate(false);
+      setCreatePendingFiles([]);
       setCreateForm({
         prenom: "",
         nom: "",
@@ -428,6 +460,7 @@ export default function ElevesDossiersListClient() {
       setError("Erreur réseau — réessayez.");
     } finally {
       setCreateBusy(false);
+      setCreateUploadProgress(null);
     }
   }
 
@@ -447,7 +480,10 @@ export default function ElevesDossiersListClient() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={() => setShowCreate((v) => !v)}
+                onClick={() => {
+                  setShowCreate((v) => !v);
+                  setCreatePendingFiles([]);
+                }}
                 className="rounded-xl bg-sky-700 px-3 py-2 text-sm font-bold text-white hover:bg-sky-800"
               >
                 {showCreate ? "Fermer" : "Créer un dossier"}
@@ -506,8 +542,8 @@ export default function ElevesDossiersListClient() {
             Nouveau dossier préinscrit
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            L’e-mail parent sert au matching des RDV d’inscription. Déposez ensuite les pièces sur
-            la page documents d’inscription.
+            L’e-mail parent sert au matching des RDV d’inscription. Vous pouvez déjà déposer les
+            pièces ici : l’IA reconnaît le type et ajoute le nom de l’élève au titre.
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
@@ -592,6 +628,47 @@ export default function ElevesDossiersListClient() {
               </label>
             ) : null}
           </div>
+
+          <div className="mt-5">
+            <p className="mb-2 text-sm font-semibold text-slate-800">
+              Pièces d’inscription (optionnel)
+            </p>
+            <InscriptionDocsDropZone
+              busy={createBusy}
+              progressLabel={createUploadProgress}
+              hint={
+                createForm.prenom.trim() && createForm.nom.trim()
+                  ? `Seront nommées pour ${createForm.prenom.trim()} ${createForm.nom.trim().toUpperCase()}`
+                  : "Les fichiers seront analysés à la création du dossier"
+              }
+              onFiles={(files) => {
+                setCreatePendingFiles((prev) => [...prev, ...files]);
+              }}
+            />
+            {createPendingFiles.length > 0 ? (
+              <ul className="mt-3 space-y-1 text-sm text-slate-700">
+                {createPendingFiles.map((f, idx) => (
+                  <li
+                    key={`${f.name}-${f.size}-${idx}`}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span className="truncate">{f.name}</span>
+                    <button
+                      type="button"
+                      disabled={createBusy}
+                      className="shrink-0 text-xs font-semibold text-red-600 hover:underline disabled:opacity-50"
+                      onClick={() =>
+                        setCreatePendingFiles((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                    >
+                      Retirer
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+
           <button
             type="submit"
             disabled={createBusy}

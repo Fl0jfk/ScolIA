@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import InscriptionDocsDropZone from "@/app/components/eleves/InscriptionDocsDropZone";
+import { uploadInscriptionDocuments } from "@/app/lib/inscription-docs-upload-client";
 
 type DocRow = {
   id: string;
@@ -25,19 +27,26 @@ type DossierPayload = {
   error?: string;
 };
 
+type LastUploadSummary = {
+  ok: number;
+  fail: number;
+  titles: string[];
+  errors: string[];
+};
+
 export default function EleveInscriptionDocsClient() {
   const params = useParams();
   const id = String(params?.id || "").trim();
   const [data, setData] = useState<DossierPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [uploadTitle, setUploadTitle] = useState("");
+  const [progressLabel, setProgressLabel] = useState<string | null>(null);
+  const [lastUpload, setLastUpload] = useState<LastUploadSummary | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
     setError(null);
     try {
-      // Les documents ne sont renvoyés que via ?part=extras (socle = core sans pièces).
       const res = await fetch(
         `/api/eleves/${encodeURIComponent(id)}/dossier?part=extras`,
         { cache: "no-store" },
@@ -60,58 +69,40 @@ export default function EleveInscriptionDocsClient() {
 
   const docs = (data?.documents || []).filter((d) => d.tiroir === "inscription");
 
-  async function onUpload(files: FileList | null) {
-    if (!files?.length || !id) return;
+  async function handleFiles(files: File[]) {
+    if (!files.length || !id) return;
     setBusy(true);
     setError(null);
+    setLastUpload(null);
     try {
-      for (const file of Array.from(files)) {
-        const prep = await fetch(`/api/eleves/${encodeURIComponent(id)}/documents/upload`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fileName: file.name,
-            contentType: file.type || "application/octet-stream",
-            size: file.size,
-          }),
-        });
-        const prepJ = (await prep.json()) as {
-          uploadUrl?: string;
-          error?: string;
-          s3Key?: string;
-        };
-        if (!prep.ok || !prepJ.uploadUrl) {
-          throw new Error(prepJ.error || "Préparation upload impossible");
-        }
-        const put = await fetch(prepJ.uploadUrl, {
-          method: "PUT",
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-          body: file,
-        });
-        if (!put.ok) throw new Error("Échec envoi fichier");
-        const title = uploadTitle.trim() || file.name;
-        const reg = await fetch(`/api/eleves/${encodeURIComponent(id)}/dossier`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "register_document",
-            tiroir: "inscription",
-            title,
-            mimeType: file.type || "application/octet-stream",
-            s3Key: prepJ.s3Key,
-            confidentialite: "standard",
-            source: "upload",
-          }),
-        });
-        const regJ = (await reg.json()) as { error?: string };
-        if (!reg.ok) throw new Error(regJ.error || "Enregistrement impossible");
+      const results = await uploadInscriptionDocuments({
+        eleveId: id,
+        files,
+        onProgress: (done, total, current) => {
+          if (done >= total) {
+            setProgressLabel("Finalisation…");
+            return;
+          }
+          setProgressLabel(`Fichier ${done + 1}/${total} — ${current} (OCR…)`);
+        },
+      });
+      const ok = results.filter((r) => r.ok);
+      const fail = results.filter((r) => !r.ok);
+      setLastUpload({
+        ok: ok.length,
+        fail: fail.length,
+        titles: ok.map((r) => r.title || r.fileName),
+        errors: fail.map((r) => `${r.fileName}: ${r.error || "échec"}`),
+      });
+      if (fail.length && !ok.length) {
+        setError(fail[0]?.error || "Aucun fichier n’a pu être déposé.");
       }
-      setUploadTitle("");
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur upload");
     } finally {
       setBusy(false);
+      setProgressLabel(null);
     }
   }
 
@@ -129,6 +120,9 @@ export default function EleveInscriptionDocsClient() {
   }
 
   const eleve = data?.eleve;
+  const identityHint = eleve
+    ? `Dossier : ${eleve.prenom} ${eleve.nom.toUpperCase()} — pas besoin de renommer les fichiers`
+    : undefined;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
@@ -159,6 +153,44 @@ export default function EleveInscriptionDocsClient() {
           {error}
         </p>
       ) : null}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+          Déposer des pièces
+        </h2>
+        <p className="mt-2 text-sm text-slate-600">
+          Glissez plusieurs fichiers : l’OCR / l’IA reconnaît le type (fiche d’inscription,
+          bulletins, pièce d’identité, etc.) et ajoute automatiquement le nom de l’élève au
+          titre.
+        </p>
+        <div className="mt-4">
+          <InscriptionDocsDropZone
+            busy={busy}
+            progressLabel={progressLabel}
+            hint={identityHint}
+            onFiles={(files) => void handleFiles(files)}
+          />
+        </div>
+        {lastUpload ? (
+          <div className="mt-4 space-y-1 text-sm">
+            {lastUpload.ok > 0 ? (
+              <p className="font-medium text-emerald-800">
+                {lastUpload.ok} document(s) ajouté(s)
+                {lastUpload.titles.length
+                  ? ` : ${lastUpload.titles.slice(0, 4).join(" · ")}${
+                      lastUpload.titles.length > 4 ? "…" : ""
+                    }`
+                  : ""}
+              </p>
+            ) : null}
+            {lastUpload.fail > 0 ? (
+              <p className="text-amber-800">
+                {lastUpload.fail} échec(s) — {lastUpload.errors.slice(0, 3).join(" · ")}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
@@ -193,33 +225,6 @@ export default function EleveInscriptionDocsClient() {
             ))}
           </ul>
         )}
-      </section>
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-          Ajouter un document
-        </h2>
-        <label className="mt-4 block text-sm">
-          <span className="font-semibold text-slate-800">Titre (optionnel)</span>
-          <input
-            className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2"
-            value={uploadTitle}
-            onChange={(e) => setUploadTitle(e.target.value)}
-            placeholder="Ex. Justificatif domicile"
-          />
-        </label>
-        <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-sky-800">
-          {busy ? "Envoi…" : "Choisir un fichier"}
-          <input
-            type="file"
-            className="hidden"
-            disabled={busy}
-            onChange={(e) => {
-              void onUpload(e.target.files);
-              e.target.value = "";
-            }}
-          />
-        </label>
       </section>
     </div>
   );

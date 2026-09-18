@@ -14,6 +14,7 @@ import {
   listAssignedClassesForTeacher,
   teacherCanAccessEleveClasse,
 } from "@/app/lib/eleve-dossier-prof";
+import { canManageElevePreinscriptions } from "@/app/lib/eleve-dossier-scope";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
 import { sanitizeS3FileName, s3Key } from "@/app/lib/s3-path";
@@ -46,7 +47,12 @@ export async function POST(req: Request, ctx: Ctx) {
     orgAdmin: Boolean(session.user.orgAdmin),
     platformAdmin: Boolean(session.user.platformAdmin),
   });
-  if (!sections.has("documents")) {
+  const mayInscriptionUpload = canManageElevePreinscriptions({
+    roles,
+    orgAdmin: Boolean(session.user.orgAdmin),
+    platformAdmin: Boolean(session.user.platformAdmin),
+  });
+  if (!sections.has("documents") && !mayInscriptionUpload) {
     return NextResponse.json({ error: "Section documents non autorisée." }, { status: 403 });
   }
 
@@ -70,6 +76,7 @@ export async function POST(req: Request, ctx: Ctx) {
   const body = (await req.json()) as {
     fileName?: string;
     fileType?: string;
+    contentType?: string;
     size?: number;
   };
   const size = Number(body.size || 0);
@@ -82,7 +89,9 @@ export async function POST(req: Request, ctx: Ctx) {
     "_",
   );
   const fileKey = s3Key(`eleves-dossier/${eleveId}/${Date.now()}-${safeName}`);
-  const contentType = String(body.fileType || "application/octet-stream");
+  const contentType = String(
+    body.fileType || body.contentType || "application/octet-stream",
+  );
 
   try {
     const s3Client = await getTenantDataS3Client();
