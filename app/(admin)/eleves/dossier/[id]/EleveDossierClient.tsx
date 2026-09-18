@@ -459,8 +459,12 @@ export default function EleveDossierClient() {
         );
       }
       const cats = payload.meta?.docCategories ?? [];
+      const tiroirs = payload.meta?.tiroirs ?? [];
       setDocCategory((prev) => {
         if (prev === "tous") return cats.length === 1 ? cats[0]! : "tous";
+        if (prev === "inscription") {
+          return tiroirs.includes("inscription") ? "inscription" : cats.length === 1 ? cats[0]! : "tous";
+        }
         if (cats.includes(prev)) return prev;
         return cats.length === 1 ? cats[0]! : "tous";
       });
