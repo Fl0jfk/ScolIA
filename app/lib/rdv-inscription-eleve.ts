@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   eleve,
@@ -20,6 +20,10 @@ import {
   type RdvMatchParent,
 } from "@/app/lib/rdv-inscription-match";
 import { normalizeEleveDateNaissance } from "@/app/lib/eleves-config";
+import {
+  isValidParentEmail,
+  normalizeParentEmail,
+} from "@/app/lib/eleves-parent-emails";
 
 export async function listChildrenForVerifiedParentEmail(opts: {
   etablissementId: string;
@@ -28,7 +32,22 @@ export async function listChildrenForVerifiedParentEmail(opts: {
   const eleves = await listElevesFromDb(opts.etablissementId, {
     status: ["preinscrit", "inscrit"],
   });
-  const pool = elevesMatchingParentContact(eleves, opts.parentEmail);
+  const byContact = elevesMatchingParentContact(eleves, opts.parentEmail);
+  const foyerEleveIds = await listEleveIdsLinkedToFoyerEmail({
+    etablissementId: opts.etablissementId,
+    parentEmail: opts.parentEmail,
+  });
+  const byId = new Map<string, (typeof eleves)[number]>();
+  for (const e of byContact) {
+    if (e.id) byId.set(e.id, e);
+  }
+  if (foyerEleveIds.length) {
+    const foyerSet = new Set(foyerEleveIds);
+    for (const e of eleves) {
+      if (e.id && foyerSet.has(e.id)) byId.set(e.id, e);
+    }
+  }
+  const pool = [...byId.values()];
   const base: RdvMatchCandidate[] = pool
     .filter((e) => Boolean(e.id))
     .sort((a, b) => a.nom.localeCompare(b.nom, "fr") || a.prenom.localeCompare(b.prenom, "fr"))
@@ -50,6 +69,36 @@ export async function listChildrenForVerifiedParentEmail(opts: {
     ...c,
     parents: parentsByEleve.get(c.id) || [],
   }));
+}
+
+/**
+ * Élèves liés à un e-mail saisi sur un responsable de foyer
+ * (dossier élève → Famille), pas seulement les champs Siècle de la fiche.
+ */
+async function listEleveIdsLinkedToFoyerEmail(opts: {
+  etablissementId: string;
+  parentEmail: string;
+}): Promise<string[]> {
+  const email = normalizeParentEmail(opts.parentEmail);
+  if (!isValidParentEmail(email)) return [];
+  const db = getDb();
+  const rows = await db
+    .selectDistinct({ eleveId: eleveFoyerLink.eleveId })
+    .from(foyerResponsable)
+    .innerJoin(
+      eleveFoyerLink,
+      and(
+        eq(eleveFoyerLink.etablissementId, foyerResponsable.etablissementId),
+        eq(eleveFoyerLink.foyerId, foyerResponsable.foyerId),
+      ),
+    )
+    .where(
+      and(
+        eq(foyerResponsable.etablissementId, opts.etablissementId),
+        sql`lower(trim(coalesce(${foyerResponsable.email}, ''))) = ${email}`,
+      ),
+    );
+  return rows.map((r) => r.eleveId).filter(Boolean);
 }
 
 export async function searchRdvInscriptionMatchCandidates(opts: {
@@ -215,7 +264,13 @@ export async function assertEleveBelongsToParentContact(opts: {
     opts.parentEmail,
     opts.parentPhone,
   );
-  return pool.some((e) => e.id === opts.eleveId);
+  if (pool.some((e) => e.id === opts.eleveId)) return true;
+
+  const foyerIds = await listEleveIdsLinkedToFoyerEmail({
+    etablissementId: opts.etablissementId,
+    parentEmail: opts.parentEmail,
+  });
+  return foyerIds.includes(opts.eleveId);
 }
 
 /**
