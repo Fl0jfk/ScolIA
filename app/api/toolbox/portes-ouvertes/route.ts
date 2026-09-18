@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { getToolboxConfig, saveToolboxConfig } from "@/app/lib/toolbox-config";
 import {
   addPortesOuvertesStaff,
@@ -95,7 +95,7 @@ function hasConfigPatch(body: z.infer<typeof PutSchema>): boolean {
 }
 
 export async function GET() {
-  const gate = await requireAdmin();
+  const gate = await requireModule("evenements");
   if (!gate.ok) return gate.response;
   try {
     return NextResponse.json(await poAdminResponse());
@@ -105,7 +105,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("evenements");
   if (!gate.ok) return gate.response;
   try {
     const parsed = PutSchema.safeParse(await req.json().catch(() => null));

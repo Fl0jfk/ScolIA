@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { getTenantAppUrl } from "@/app/lib/tenant-context";
 import {
@@ -12,7 +12,7 @@ import { listPortesOuvertesRegistrations, countRegistrationsBySlotAndCycle } fro
 import { PORTES_OUVERTES_CYCLES, PORTES_OUVERTES_CYCLE_LABELS } from "@/app/lib/portes-ouvertes-types";
 
 export async function GET() {
-  const gate = await requireAdmin();
+  const gate = await requireModule("evenements");
   if (!gate.ok) return gate.response;
   try {
     const [config, app, publicOrigin] = await Promise.all([
@@ -50,7 +50,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("evenements");
   if (!gate.ok) return gate.response;
   try {
     const body = await req.json();

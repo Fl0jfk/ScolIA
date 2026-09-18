@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ToolboxToolId } from "@/app/lib/toolbox-types";
 import { TOOLBOX_ADMIN_LINKS, TOOLBOX_HUB_LINKS, type ToolboxAdminLinkMeta, type ToolboxHubLinkMeta } from "@/app/lib/toolbox-tools";
 import { renderToolboxAdminIcon, renderToolboxHubIcon, renderToolboxIcon } from "@/app/components/toolbox/ToolboxIcons";
+import { useCanAccessAdminSettings } from "@/app/hooks/useCanAccessAdminSettings";
+import { useCanAccessModule } from "@/app/hooks/useCanAccessModule";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 
 type PublicTool = {
@@ -27,6 +29,8 @@ type Props = {
 export default function ToolboxModal({ open, onClose }: Props) {
   const router = useRouter();
   const isOrgAdmin = useIsOrgAdmin();
+  const canAccessSettings = useCanAccessAdminSettings();
+  const { canAccess: canAccessEvenements } = useCanAccessModule("evenements");
   const [tools, setTools] = useState<PublicTool[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -39,6 +43,16 @@ export default function ToolboxModal({ open, onClose }: Props) {
       .catch(() => setTools([]))
       .finally(() => setLoading(false));
   }, [open]);
+
+  const adminLinks = useMemo(() => {
+    return TOOLBOX_ADMIN_LINKS.filter((link) => {
+      if (link.id === "parametres") return canAccessSettings;
+      if (link.id === "evenements") return canAccessEvenements;
+      // Communication reste derrière RequireOrgAdmin côté page hub.
+      if (link.id === "communication") return isOrgAdmin;
+      return false;
+    });
+  }, [canAccessSettings, canAccessEvenements, isOrgAdmin]);
 
   if (!open) return null;
 
@@ -73,9 +87,9 @@ export default function ToolboxModal({ open, onClose }: Props) {
     router.push(link.adminPath);
   }
 
-  const adminLinks = isOrgAdmin ? TOOLBOX_ADMIN_LINKS : [];
   const hubLinks = TOOLBOX_HUB_LINKS;
   const hasTiles = tools.length > 0 || hubLinks.length > 0 || adminLinks.length > 0;
+  const showConfigFooter = isOrgAdmin || canAccessEvenements;
 
   return (
     <div
@@ -174,29 +188,35 @@ export default function ToolboxModal({ open, onClose }: Props) {
             </div>
           )}
 
-          {isOrgAdmin && (
+          {showConfigFooter && (
             <div className="mt-6 pt-4 border-t border-slate-100 flex flex-wrap gap-2 justify-center">
-              <Link
-                href="/toolbox"
-                onClick={onClose}
-                className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800"
-              >
-                Configurer les outils
-              </Link>
-              <Link
-                href="/etablissement/evenements"
-                onClick={onClose}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
-              >
-                Événements
-              </Link>
-              <Link
-                href="/etablissement/communication"
-                onClick={onClose}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
-              >
-                Communication
-              </Link>
+              {isOrgAdmin ? (
+                <Link
+                  href="/toolbox"
+                  onClick={onClose}
+                  className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                >
+                  Configurer les outils
+                </Link>
+              ) : null}
+              {canAccessEvenements ? (
+                <Link
+                  href="/etablissement/evenements"
+                  onClick={onClose}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Événements
+                </Link>
+              ) : null}
+              {isOrgAdmin ? (
+                <Link
+                  href="/etablissement/communication"
+                  onClick={onClose}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Communication
+                </Link>
+              ) : null}
             </div>
           )}
         </div>

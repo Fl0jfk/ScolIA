@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import RequireOrgAdmin from "@/app/components/RequireOrgAdmin";
+import RequireModuleAccess from "@/app/components/RequireModuleAccess";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
@@ -599,7 +599,7 @@ export default function EvenementsHubClient() {
   const poEnabled = po?.enabled ?? config.tools["portes-ouvertes"].enabled;
 
   return (
-    <RequireOrgAdmin>
+    <RequireModuleAccess moduleId="evenements">
       <ModulePageShell maxWidthClass="max-w-[1280px]" className="space-y-6">
         <ModulePageHeader
           eyebrow="Établissement"
@@ -1166,7 +1166,7 @@ export default function EvenementsHubClient() {
           .
         </p>
       </ModulePageShell>
-    </RequireOrgAdmin>
+    </RequireModuleAccess>
   );
 }
 

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { drawSecretSanta } from "@/app/lib/secret-santa";
 import { getToolboxConfig } from "@/app/lib/toolbox-config";
 
 export async function POST(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("evenements");
   if (!gate.ok) return gate.response;
   try {
     const toolbox = await getToolboxConfig();

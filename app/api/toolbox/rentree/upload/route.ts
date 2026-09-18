@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { rentreePublicDocumentPathUrl } from "@/app/lib/rentree-public-urls";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName } from "@/app/lib/s3-storage";
@@ -27,7 +27,7 @@ function safeFileName(name: string): string {
 }
 
 export async function POST(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("evenements");
   if (!gate.ok) return gate.response;
 
   try {

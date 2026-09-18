@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import RequireOrgAdmin from "@/app/components/RequireOrgAdmin";
+import RequireModuleAccess from "@/app/components/RequireModuleAccess";
 
 type Pair = { giver: string; receiver: string };
 
@@ -40,7 +40,7 @@ export default function SecretSantaPage() {
   }
 
   return (
-    <RequireOrgAdmin>
+    <RequireModuleAccess moduleId="evenements">
       <main className="mx-auto max-w-2xl px-4 py-10">
         <Link
           href="/etablissement/evenements?tab=secret-santa"
@@ -117,6 +117,6 @@ export default function SecretSantaPage() {
           </div>
         )}
       </main>
-    </RequireOrgAdmin>
+    </RequireModuleAccess>
   );
 }

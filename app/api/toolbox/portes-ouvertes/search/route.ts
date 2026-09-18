@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import {
   searchPortesOuvertesStaffPeople,
   type PortesOuvertesStaffSearchKind,
@@ -11,7 +11,7 @@ function parseKind(v: string | null): PortesOuvertesStaffSearchKind {
 }
 
 export async function GET(req: Request) {
-  const gate = await requireAdmin();
+  const gate = await requireModule("evenements");
   if (!gate.ok) return gate.response;
   const url = new URL(req.url);
   const kind = parseKind(url.searchParams.get("kind"));
