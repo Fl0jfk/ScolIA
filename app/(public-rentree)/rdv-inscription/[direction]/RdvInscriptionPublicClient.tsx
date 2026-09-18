@@ -503,6 +503,12 @@ export default function RdvInscriptionPublicClient({
               <span className="font-medium text-slate-800">{location}</span>
             </p>
           ) : null}
+          <p
+            role="note"
+            className="mt-5 rounded-xl border-2 border-red-600 bg-red-50 px-4 py-3.5 text-center text-base font-extrabold leading-snug text-red-700 sm:text-lg"
+          >
+            La présence de l’enfant au rendez-vous est indispensable.
+          </p>
         </header>
 
         {loadError ? (
@@ -969,6 +975,13 @@ export default function RdvInscriptionPublicClient({
                   {dayKeys.length > 1 ? "s" : ""}
                 </p>
               </div>
+
+              <p
+                role="note"
+                className="mt-4 rounded-xl border-2 border-red-600 bg-red-50 px-4 py-3 text-center text-base font-extrabold leading-snug text-red-700 sm:text-lg"
+              >
+                La présence de l’enfant au rendez-vous est indispensable.
+              </p>
 
               {!matchReady ? (
                 <p className="mt-4 text-sm text-slate-500">

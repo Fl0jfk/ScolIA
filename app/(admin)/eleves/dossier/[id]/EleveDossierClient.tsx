@@ -353,7 +353,9 @@ export default function EleveDossierClient() {
     title: "",
   });
   const [accompagnementKind, setAccompagnementKind] = useState<AccompagnementKind>("pap");
-  const [docCategory, setDocCategory] = useState<EleveDocCategorie | "tous">("tous");
+  const [docCategory, setDocCategory] = useState<EleveDocCategorie | "tous" | "inscription">(
+    "tous",
+  );
   const [accessForm, setAccessForm] = useState<{
     documentId: string;
     durationDays: number;
@@ -511,6 +513,9 @@ export default function EleveDossierClient() {
 
   const uploadTiroirsForCategory = useMemo(() => {
     if (!data) return [] as string[];
+    if (docCategory === "inscription") {
+      return data.meta.tiroirs.includes("inscription") ? ["inscription"] : data.meta.tiroirs;
+    }
     const active =
       docCategory === "tous"
         ? allowedDocCategories
@@ -528,6 +533,9 @@ export default function EleveDossierClient() {
   const filteredDocuments = useMemo(() => {
     if (!data) return [];
     if (docCategory === "tous") return data.documents;
+    if (docCategory === "inscription") {
+      return data.documents.filter((d) => d.tiroir === "inscription");
+    }
     const tiroirs = new Set(CATEGORIE_TIROIRS[docCategory]);
     return data.documents.filter((d) => tiroirs.has(d.tiroir as keyof typeof TIROIR_TO_CATEGORIE));
   }, [data, docCategory]);
@@ -2138,21 +2146,23 @@ export default function EleveDossierClient() {
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-3">
-              <h2 className="text-sm font-bold text-slate-800">Documents du dossier</h2>
-              <div className="flex flex-wrap items-center gap-3">
-                <Link
-                  href={`/eleves/dossier/${encodeURIComponent(id)}/inscription`}
-                  className="text-xs font-semibold text-sky-700 hover:underline"
-                >
-                  Documents d’inscription
-                </Link>
-                <p className="text-xs text-slate-500">
-                  Silos : administratif, vie scolaire, compta, santé, psychologue.
+              <div>
+                <h2 className="text-sm font-bold text-slate-800">Documents du dossier</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  Réinscriptions : les pièces vont dans le filtre{" "}
+                  <strong className="font-semibold text-slate-700">Inscription</strong> (même dossier,
+                  sans créer une nouvelle fiche).
                 </p>
               </div>
+              <Link
+                href={`/eleves/dossier/${encodeURIComponent(id)}/inscription`}
+                className="rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800"
+              >
+                Page documents d’inscription
+              </Link>
             </div>
 
-            {allowedDocCategories.length > 0 ? (
+            {allowedDocCategories.length > 0 || data.meta.tiroirs.includes("inscription") ? (
               <div className="flex flex-wrap gap-2 border-b border-slate-100 pb-3">
                 {allowedDocCategories.length > 1 ? (
                   <button
@@ -2165,6 +2175,22 @@ export default function EleveDossierClient() {
                     }`}
                   >
                     Tous
+                  </button>
+                ) : null}
+                {data.meta.tiroirs.includes("inscription") ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDocCategory("inscription");
+                      setUploadMeta((m) => ({ ...m, tiroir: "inscription" }));
+                    }}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                      docCategory === "inscription"
+                        ? "bg-sky-700 text-white"
+                        : "bg-sky-50 text-sky-800 ring-1 ring-sky-200 hover:bg-sky-100"
+                    }`}
+                  >
+                    Inscription
                   </button>
                 ) : null}
                 {allowedDocCategories.map((cat) => (
