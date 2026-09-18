@@ -37,7 +37,11 @@ export default function EleveInscriptionDocsClient() {
     if (!id) return;
     setError(null);
     try {
-      const res = await fetch(`/api/eleves/${encodeURIComponent(id)}/dossier`);
+      // Les documents ne sont renvoyés que via ?part=extras (socle = core sans pièces).
+      const res = await fetch(
+        `/api/eleves/${encodeURIComponent(id)}/dossier?part=extras`,
+        { cache: "no-store" },
+      );
       const json = (await res.json()) as DossierPayload & { error?: string };
       if (!res.ok) {
         setError(json.error || "Accès refusé ou dossier introuvable.");
