@@ -3,6 +3,7 @@ import { getJson, putJson, deleteJson } from "@/app/lib/s3-storage";
 import { generateStageSecureCode } from "@/app/lib/stage-secure-code";
 import { STAGE_S3 } from "@/app/lib/stage-types";
 import { notifyIdentityAccessOtp } from "@/app/lib/stage-notify";
+import { isEstablishmentDirectionEmail } from "@/app/lib/eleve-direction-email";
 
 export const IDENTITY_OTP_TTL_MS = 30 * 60 * 1000;
 /** Preuve post-OTP : 7 jours (reprise appareil / création de dossier sans renvoyer de mail). */
@@ -45,6 +46,8 @@ export function collectIdentityOtpRecipients(emails: Array<string | null | undef
       .trim()
       .toLowerCase();
     if (!email || !isValidEmail(email) || seen.has(email)) continue;
+    // Ne jamais envoyer l’OTP identité au mail CE / direction.
+    if (isEstablishmentDirectionEmail(email)) continue;
     seen.add(email);
     out.push(email);
   }

@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { buildEleveFolderName, normalizeEleveDateNaissance, validateElevesJson } from "@/app/lib/eleves-config";
+import { sanitizeElevePersonalEmail, isEstablishmentDirectionEmail } from "@/app/lib/eleve-direction-email";
 import { canonicalRegimeLabel } from "@/app/lib/eleve-regime";
 import { isDateSortiePassee } from "@/app/lib/siecle-eleves-parse";
 import { guessClassLevelFromClasse } from "@/app/lib/class-allocation-level-heuristic";
@@ -449,7 +450,16 @@ function mergeEleveFields(
   if (incoming.mef?.trim()) merged.mef = incoming.mef.trim();
   if (incoming.formation?.trim()) merged.formation = incoming.formation.trim();
   if (incoming.secteur?.trim()) merged.secteur = incoming.secteur.trim();
-  if (incoming.email?.trim()) merged.email = incoming.email.trim();
+  if (incoming.email?.trim()) {
+    const cleanEmail = sanitizeElevePersonalEmail(incoming.email);
+    if (cleanEmail) {
+      merged.email = cleanEmail;
+    }
+    // Mail CE/RNE en entrée : ignorer (ne pas écraser un vrai mail élève).
+  }
+  if (merged.email && isEstablishmentDirectionEmail(merged.email)) {
+    delete merged.email;
+  }
   if (incoming.parentEmail?.trim()) merged.parentEmail = incoming.parentEmail.trim();
   if (incoming.parent1Email?.trim()) merged.parent1Email = incoming.parent1Email.trim();
   if (incoming.parent2Email?.trim()) merged.parent2Email = incoming.parent2Email.trim();
@@ -564,7 +574,7 @@ function parseRowsToEleves(
     if (classe) entry.classe = classe;
     const mef = cellStr(row, colMap.mef);
     if (mef) entry.mef = mef;
-    const email = cellStr(row, colMap.email);
+    const email = sanitizeElevePersonalEmail(cellStr(row, colMap.email));
     if (email) entry.email = email;
     const parentEmail = cellStr(row, colMap.parentEmail);
     if (parentEmail) entry.parentEmail = parentEmail;

@@ -8,6 +8,7 @@ import {
   ageInYearsAt,
 } from "@/app/lib/stage-constraints-config";
 import { normalizeEleveDateNaissance } from "@/app/lib/eleves-config";
+import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
 import { findEleveByIne } from "@/app/lib/eleves-registry";
 import { generateAndStoreConventionPdf, isPaperBasedConventionPdf, isScoliaGeneratedConventionPdf } from "@/app/lib/stage-pdf-store";
 import {
@@ -1791,7 +1792,7 @@ export async function createPublicPreconventionDraft(student: {
       className: student.className.trim(),
       level: inferStudentLevelFromClass(student.className),
       dateNaissance,
-      email: student.email?.trim() || undefined,
+      email: sanitizeElevePersonalEmail(student.email),
       parent1Email: parent1,
       parent2Email: parent2,
       parentEmail: parent1,
@@ -1866,7 +1867,7 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
         normalizeEleveDateNaissance(
           str(studentRaw.dateNaissance, base?.student.dateNaissance ?? ""),
         ) || undefined,
-      email: str(studentRaw.email, base?.student.email) || undefined,
+      email: sanitizeElevePersonalEmail(str(studentRaw.email, base?.student.email)),
       parent1Email:
         str(studentRaw.parent1Email, base?.student.parent1Email) ||
         str(studentRaw.parentEmail, base?.student.parentEmail) ||

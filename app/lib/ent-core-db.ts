@@ -32,6 +32,7 @@ import { classKey } from "@/app/lib/stage-referents-config";
 import type { PersonnelRecord } from "@/app/lib/personnel-types";
 import { normalizePersonnelRecord } from "@/app/lib/personnel-types";
 import { classifyRegime } from "@/app/lib/eleve-regime";
+import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
 import {
   buildEleveDossierClassCatalog,
   resolveSiteIdForClass,
@@ -185,6 +186,7 @@ function dateOrNull(raw: string | undefined | null): string | null {
 
 export function eleveRowToConfig(row: EleveRow): EleveConfig {
   const status = normalizeEleveStatus(row.status);
+  const personalEmail = sanitizeElevePersonalEmail(row.email);
   return {
     id: row.id,
     ine: row.ine ?? "",
@@ -193,7 +195,7 @@ export function eleveRowToConfig(row: EleveRow): EleveConfig {
     folderName: row.folderName,
     ...(row.classe ? { classe: row.classe } : {}),
     ...(status ? { status } : {}),
-    ...(row.email ? { email: row.email } : {}),
+    ...(personalEmail ? { email: personalEmail } : {}),
     ...(row.parentEmail ? { parentEmail: row.parentEmail } : {}),
     ...(row.parent1Email ? { parent1Email: row.parent1Email } : {}),
     ...(row.parent2Email ? { parent2Email: row.parent2Email } : {}),
@@ -229,7 +231,7 @@ function eleveConfigToValues(etablissementId: string, e: EleveConfig) {
     prenom,
     folderName,
     classe: emptyToNull(e.classe),
-    email: emptyToNull(e.email),
+    email: emptyToNull(sanitizeElevePersonalEmail(e.email)),
     parentEmail: emptyToNull(e.parentEmail),
     parent1Email: emptyToNull(e.parent1Email),
     parent2Email: emptyToNull(e.parent2Email),

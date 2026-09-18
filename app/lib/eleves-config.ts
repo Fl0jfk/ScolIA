@@ -1,3 +1,5 @@
+import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
+
 /** Nom de famille pour dossier OneDrive (MAJUSCULES). */
 export function formatEleveNomForFolder(nom: string): string {
   return String(nom ?? "").trim().toUpperCase();
@@ -182,7 +184,7 @@ export function validateElevesJson(
     const secteur = String(o.secteur ?? "").trim();
     const classe = String(o.classe ?? "").trim();
     const status = normalizeEleveStatus(o.status);
-    const email = String(o.email ?? "").trim();
+    const email = sanitizeElevePersonalEmail(String(o.email ?? "")) || "";
     const parentEmail = String(o.parentEmail ?? "").trim();
     const parent1Email = String(o.parent1Email ?? "").trim();
     const parent2Email = String(o.parent2Email ?? "").trim();

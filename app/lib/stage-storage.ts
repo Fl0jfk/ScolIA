@@ -1,4 +1,5 @@
 import { getJson, putJson, deleteJson } from "@/app/lib/s3-storage";
+import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
 import {
   STAGE_S3,
   type StageConvention,
@@ -12,6 +13,21 @@ import {
   type StageStudentTokenRef,
   studentDossierKey,
 } from "@/app/lib/stage-types";
+
+/** Retire un éventuel mail CE/RNE stocké à tort sur l’élève de la convention. */
+function withSanitizedStudentEmail(convention: StageConvention): StageConvention {
+  const raw = convention.student.email;
+  const cleaned = sanitizeElevePersonalEmail(raw);
+  const previous = raw?.trim() ? raw.trim().toLowerCase() : undefined;
+  if (cleaned === previous) return convention;
+  return {
+    ...convention,
+    student: {
+      ...convention.student,
+      email: cleaned,
+    },
+  };
+}
 
 export async function getOffersIndex(): Promise<StageOfferIndexEntry[]> {
   const hit = await getJson<StageOfferIndexEntry[]>(STAGE_S3.offersIndex);
@@ -56,28 +72,30 @@ export async function saveStageOffer(offer: StageOffer) {
 
 export async function getStageConvention(id: string): Promise<StageConvention | null> {
   const hit = await getJson<StageConvention>(STAGE_S3.convention(id));
-  return hit?.data ?? null;
+  if (!hit?.data) return null;
+  return withSanitizedStudentEmail(hit.data);
 }
 
 export async function saveStageConvention(convention: StageConvention) {
-  await putJson(STAGE_S3.convention(convention.id), convention);
+  const sanitized = withSanitizedStudentEmail(convention);
+  await putJson(STAGE_S3.convention(sanitized.id), sanitized);
   const index = await getConventionsIndex();
   const entry: StageConventionIndexEntry = {
-    id: convention.id,
-    status: convention.status,
-    studentName: `${convention.student.firstName} ${convention.student.lastName}`.trim(),
-    className: convention.student.className,
-    level: convention.student.level,
-    companyName: convention.company.name,
-    internshipKind: convention.internshipKind,
-    periodStart: convention.schedule.periodStart,
-    periodEnd: convention.schedule.periodEnd,
-    schoolYear: convention.schoolYear,
-    updatedAt: convention.updatedAt,
-    stageLabel: convention.stageLabel?.trim() || undefined,
-    teacherReferentEmail: convention.teacherReferent.email?.toLowerCase() || undefined,
+    id: sanitized.id,
+    status: sanitized.status,
+    studentName: `${sanitized.student.firstName} ${sanitized.student.lastName}`.trim(),
+    className: sanitized.student.className,
+    level: sanitized.student.level,
+    companyName: sanitized.company.name,
+    internshipKind: sanitized.internshipKind,
+    periodStart: sanitized.schedule.periodStart,
+    periodEnd: sanitized.schedule.periodEnd,
+    schoolYear: sanitized.schoolYear,
+    updatedAt: sanitized.updatedAt,
+    stageLabel: sanitized.stageLabel?.trim() || undefined,
+    teacherReferentEmail: sanitized.teacherReferent.email?.toLowerCase() || undefined,
   };
-  const pos = index.findIndex((x) => x.id === convention.id);
+  const pos = index.findIndex((x) => x.id === sanitized.id);
   if (pos >= 0) index[pos] = entry;
   else index.unshift(entry);
   await saveConventionsIndex(index);

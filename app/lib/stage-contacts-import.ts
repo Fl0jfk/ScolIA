@@ -1,5 +1,6 @@
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import { normalizeEleveDateNaissance } from "@/app/lib/eleves-config";
+import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
 
 function normalizePersonPart(value: string): string {
   return String(value || "")
@@ -106,7 +107,7 @@ export function applyStageContactsEmails(
 
     const parent1 = cleanEmail(inc.parent1Email || inc.parentEmail);
     const parent2 = cleanEmail(inc.parent2Email);
-    const eleveEmail = cleanEmail(inc.email);
+    const eleveEmail = sanitizeElevePersonalEmail(inc.email) || "";
 
     if (parent1 && parent1 !== cleanEmail(current.parent1Email || current.parentEmail)) {
       next.parent1Email = parent1;

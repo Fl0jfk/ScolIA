@@ -3,6 +3,7 @@ import {
   type EleveConfig,
   type EleveStatus,
 } from "@/app/lib/eleves-config";
+import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
 import { canonicalRegimeLabel, isRegimeInterne } from "@/app/lib/eleve-regime";
 import {
   attrValue,
@@ -64,7 +65,11 @@ function eleveFromSiecleBlock(
   const codeRegime = tagValue(el.inner, "CODE_REGIME");
   const codeSexe = tagValue(el.inner, "CODE_SEXE");
   const dateNaiss = tagValue(el.inner, "DATE_NAISS");
-  const email = firstNonEmpty(tagValue(el.inner, "MEL"), tagValue(el.inner, "EMAIL"));
+  // MEL/EMAIL Siècle sur la fiche élève = souvent le mail CE/établissement (répété
+  // à l’identique pour toute la classe). On ne le prend que s’il ressemble à un mail perso.
+  const email = sanitizeElevePersonalEmail(
+    firstNonEmpty(tagValue(el.inner, "MEL"), tagValue(el.inner, "EMAIL")),
+  );
   const codeStructure = firstNonEmpty(
     tagValue(el.inner, "CODE_STRUCTURE"),
     tagValue(el.inner, "CODE_DIVISION"),
