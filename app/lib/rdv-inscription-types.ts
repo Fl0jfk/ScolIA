@@ -111,6 +111,8 @@ export type RdvInscriptionBookInput = {
   eleveId?: string | null;
   /** Création d’un nouveau préinscrit à la validation e-mail. */
   createNew?: boolean;
+  /** Date de naissance (AAAA-MM-JJ) — obligatoire si matching identité. */
+  studentDateNaissance?: string | null;
   hasPap?: "yes" | "no";
   papS3Key?: string | null;
   papFileName?: string | null;

@@ -75,6 +75,11 @@ export async function POST(req: Request, ctx: Ctx) {
       niveauId: String(body.niveauId || "").trim(),
       eleveId: body.eleveId ? String(body.eleveId).trim() : null,
       createNew: body.createNew === true || body.createNew === "true" || body.createNew === 1,
+      studentDateNaissance: body.studentDateNaissance
+        ? String(body.studentDateNaissance).trim()
+        : body.dateNaissance
+          ? String(body.dateNaissance).trim()
+          : null,
       hasPap: body.hasPap === "yes" || body.hasPap === "no" ? body.hasPap : undefined,
       papS3Key: body.papS3Key ? String(body.papS3Key).trim() : null,
       papFileName: body.papFileName ? String(body.papFileName).trim() : null,

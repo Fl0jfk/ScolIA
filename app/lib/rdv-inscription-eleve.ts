@@ -12,10 +12,14 @@ import { listElevesFromDb } from "@/app/lib/ent-core-db";
 import { createElevePreinscrit } from "@/app/lib/eleve-create-preinscrit";
 import {
   elevesMatchingParentContact,
+  eleveMatchesRdvIdentity,
+  matchRdvInscriptionByIdentity,
   matchRdvInscriptionCandidates,
+  scoreEleveNameMatch,
   type RdvMatchCandidate,
   type RdvMatchParent,
 } from "@/app/lib/rdv-inscription-match";
+import { normalizeEleveDateNaissance } from "@/app/lib/eleves-config";
 
 export async function listChildrenForVerifiedParentEmail(opts: {
   etablissementId: string;
@@ -64,6 +68,36 @@ export async function searchRdvInscriptionMatchCandidates(opts: {
     parentPhone: opts.parentPhone,
     studentLastName: opts.studentLastName,
     studentFirstName: opts.studentFirstName,
+  });
+  if (!base.length) return [];
+
+  const parentsByEleve = await listFoyerParentsForEleves(
+    opts.etablissementId,
+    base.map((c) => c.id),
+  );
+  return base.map((c) => ({
+    ...c,
+    parents: parentsByEleve.get(c.id) || [],
+  }));
+}
+
+/** Matching identité (nom + prénom + naissance) — uniquement après gate e-mail. */
+export async function searchRdvInscriptionByIdentity(opts: {
+  etablissementId: string;
+  studentLastName: string;
+  studentFirstName: string;
+  dateNaissance: string;
+}): Promise<RdvMatchCandidate[]> {
+  const dob = normalizeEleveDateNaissance(opts.dateNaissance);
+  if (!dob) return [];
+  const eleves = await listElevesFromDb(opts.etablissementId, {
+    status: ["preinscrit", "inscrit"],
+  });
+  const base = matchRdvInscriptionByIdentity({
+    eleves,
+    studentLastName: opts.studentLastName,
+    studentFirstName: opts.studentFirstName,
+    dateNaissance: dob,
   });
   if (!base.length) return [];
 
@@ -182,6 +216,66 @@ export async function assertEleveBelongsToParentContact(opts: {
     opts.parentPhone,
   );
   return pool.some((e) => e.id === opts.eleveId);
+}
+
+/**
+ * Autorise le lien élève si contact parent connu OU identité (nom/prénom/naissance)
+ * — pour les foyers séparés absents de l’extract.
+ */
+export async function assertEleveAllowedForRdvParent(opts: {
+  etablissementId: string;
+  eleveId: string;
+  parentEmail: string;
+  studentFirstName: string;
+  studentLastName: string;
+  dateNaissance?: string | null;
+}): Promise<boolean> {
+  if (
+    await assertEleveBelongsToParentContact({
+      etablissementId: opts.etablissementId,
+      eleveId: opts.eleveId,
+      parentEmail: opts.parentEmail,
+    })
+  ) {
+    return true;
+  }
+  const dob = normalizeEleveDateNaissance(opts.dateNaissance || "");
+  if (!dob) return false;
+  const eleves = await listElevesFromDb(opts.etablissementId, {
+    status: ["preinscrit", "inscrit"],
+  });
+  const found = eleves.find((e) => e.id === opts.eleveId);
+  if (!found) return false;
+  return eleveMatchesRdvIdentity(found, {
+    studentFirstName: opts.studentFirstName,
+    studentLastName: opts.studentLastName,
+    dateNaissance: dob,
+  });
+}
+
+/** À la confirmation : contact OU même identité nom/prénom que la réservation. */
+export async function assertEleveStillMatchesRdvBooking(opts: {
+  etablissementId: string;
+  eleveId: string;
+  parentEmail: string;
+  studentFirstName: string;
+  studentLastName: string;
+}): Promise<boolean> {
+  if (
+    await assertEleveBelongsToParentContact({
+      etablissementId: opts.etablissementId,
+      eleveId: opts.eleveId,
+      parentEmail: opts.parentEmail,
+    })
+  ) {
+    return true;
+  }
+  const eleves = await listElevesFromDb(opts.etablissementId, {
+    status: ["preinscrit", "inscrit"],
+  });
+  const found = eleves.find((e) => e.id === opts.eleveId);
+  if (!found) return false;
+  return scoreEleveNameMatch(found, opts.studentLastName, opts.studentFirstName) >= 80;
 }
 
 export async function createPreinscritFromRdvBooking(opts: {

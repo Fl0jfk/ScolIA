@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import type { EleveConfig } from "@/app/lib/eleves-config";
 import {
   elevesMatchingParentContact,
+  matchRdvInscriptionByIdentity,
   matchRdvInscriptionCandidates,
   normalizeParentPhone,
   scoreEleveNameMatch,
@@ -22,6 +23,7 @@ function eleve(partial: Partial<EleveConfig> & Pick<EleveConfig, "id" | "nom" | 
     parentPhone: partial.parentPhone,
     parent1Phone: partial.parent1Phone,
     parent2Phone: partial.parent2Phone,
+    dateNaissance: partial.dateNaissance,
     status: partial.status || "inscrit",
   } as EleveConfig;
 }
@@ -102,5 +104,50 @@ describe("rdv-inscription-match", () => {
     });
     assert.equal(cands.length, 1);
     assert.equal(cands[0]!.id, "2");
+  });
+
+  it("matche par identité nom+prénom+naissance (foyer séparé)", () => {
+    const eleves = [
+      eleve({
+        id: "x",
+        nom: "DURAND",
+        prenom: "Léa",
+        parentEmail: "mere@ex.com",
+        dateNaissance: "2012-03-15",
+      }),
+      eleve({
+        id: "y",
+        nom: "DURAND",
+        prenom: "Léa",
+        parentEmail: "autre@ex.com",
+        dateNaissance: "2010-01-01",
+      }),
+    ];
+    // Sans contact : le père séparé retrouve quand même l’enfant avec la naissance.
+    const cands = matchRdvInscriptionByIdentity({
+      eleves,
+      studentLastName: "Durand",
+      studentFirstName: "Léa",
+      dateNaissance: "15/03/2012",
+    });
+    assert.equal(cands.length, 1);
+    assert.equal(cands[0]!.id, "x");
+
+    const wrongDob = matchRdvInscriptionByIdentity({
+      eleves,
+      studentLastName: "Durand",
+      studentFirstName: "Léa",
+      dateNaissance: "2010-01-01",
+    });
+    assert.equal(wrongDob.length, 1);
+    assert.equal(wrongDob[0]!.id, "y");
+
+    const noDob = matchRdvInscriptionByIdentity({
+      eleves,
+      studentLastName: "Durand",
+      studentFirstName: "Léa",
+      dateNaissance: "",
+    });
+    assert.equal(noDob.length, 0);
   });
 });

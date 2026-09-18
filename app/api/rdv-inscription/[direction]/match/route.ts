@@ -4,14 +4,20 @@ import { matchPublicRdvInscription } from "@/app/lib/rdv-inscription-service";
 import { readRdvEmailGateSession } from "@/app/lib/rdv-inscription-email-gate";
 import { normalizeParentEmail } from "@/app/lib/eleves-parent-emails";
 
+/** Strict : matching identité expose des élèves — peu de tentatives. */
 const matchLimiter = createMemoryRateLimiter({
-  windowMs: 10 * 60 * 1000,
-  max: 20,
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+});
+
+const matchEmailLimiter = createMemoryRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
 });
 
 type Ctx = { params: Promise<{ direction: string }> };
 
-/** Matching protégé : session e-mail vérifiée obligatoire. */
+/** Matching protégé : session e-mail vérifiée + nom/prénom/naissance. */
 export async function POST(req: Request, ctx: Ctx) {
   try {
     const ip = clientIpFromRequest(req);
@@ -36,6 +42,13 @@ export async function POST(req: Request, ctx: Ctx) {
       );
     }
 
+    if (!(await matchEmailLimiter.allow(`email:${gate.email}`))) {
+      return NextResponse.json(
+        { error: "Trop de recherches pour cet e-mail. Réessayez plus tard." },
+        { status: 429 },
+      );
+    }
+
     const body = (await req.json()) as Record<string, unknown>;
     const parentEmail = normalizeParentEmail(String(body.parentEmail || ""));
     if (parentEmail !== gate.email) {
@@ -51,6 +64,7 @@ export async function POST(req: Request, ctx: Ctx) {
       parentPhone: String(body.parentPhone || "").trim(),
       studentFirstName: String(body.studentFirstName || "").trim(),
       studentLastName: String(body.studentLastName || "").trim(),
+      dateNaissance: String(body.dateNaissance || body.studentDateNaissance || "").trim(),
     });
 
     if (!result.ok) {
@@ -63,6 +77,7 @@ export async function POST(req: Request, ctx: Ctx) {
         ip,
         email: parentEmail,
         slug,
+        mode: result.mode,
         count: result.candidates.length,
       }),
     );
@@ -70,6 +85,7 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({
       candidates: result.candidates,
       homeEtablissement: result.homeEtablissement,
+      mode: result.mode,
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

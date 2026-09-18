@@ -30,10 +30,13 @@ import {
   sendRdvInscriptionCreatedPreinscritNotify,
 } from "@/app/lib/rdv-inscription-mail";
 import {
-  assertEleveBelongsToParentContact,
+  assertEleveAllowedForRdvParent,
+  assertEleveStillMatchesRdvBooking,
   createPreinscritFromRdvBooking,
+  searchRdvInscriptionByIdentity,
   searchRdvInscriptionMatchCandidates,
 } from "@/app/lib/rdv-inscription-eleve";
+import { normalizeEleveDateNaissance } from "@/app/lib/eleves-config";
 import {
   getInscriptionLevelMeta,
   isInscriptionLevelId,
@@ -160,11 +163,14 @@ export async function matchPublicRdvInscription(opts: {
   parentPhone?: string;
   studentFirstName: string;
   studentLastName: string;
+  /** Obligatoire pour le matching identité (foyers séparés). */
+  dateNaissance: string;
 }): Promise<
   | {
       ok: true;
       candidates: RdvMatchCandidate[];
       homeEtablissement: { codeRne: string; label: string; adresse: string | null } | null;
+      mode: "contact" | "identity";
     }
   | { ok: false; status: number; error: string }
 > {
@@ -181,6 +187,14 @@ export async function matchPublicRdvInscription(opts: {
   if (!studentFirstName || !studentLastName) {
     return { ok: false, status: 400, error: "Nom et prénom de l’élève requis." };
   }
+  const dateNaissance = normalizeEleveDateNaissance(opts.dateNaissance);
+  if (!dateNaissance) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Date de naissance de l’élève requise (JJ/MM/AAAA).",
+    };
+  }
 
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) {
@@ -188,17 +202,28 @@ export async function matchPublicRdvInscription(opts: {
   }
 
   const { getHomeEtablissementForRdv } = await import("@/app/lib/rdv-inscription-eleve");
-  const [candidates, homeEtablissement] = await Promise.all([
-    searchRdvInscriptionMatchCandidates({
-      etablissementId: etabId,
-      parentEmail,
-      parentPhone: opts.parentPhone,
-      studentFirstName,
-      studentLastName,
-    }),
-    getHomeEtablissementForRdv(etabId),
-  ]);
-  return { ok: true, candidates, homeEtablissement };
+  const homeEtablissement = await getHomeEtablissementForRdv(etabId);
+
+  // 1) D’abord le pool contact (si l’e-mail est déjà connu sur un foyer).
+  const byContact = await searchRdvInscriptionMatchCandidates({
+    etablissementId: etabId,
+    parentEmail,
+    parentPhone: opts.parentPhone,
+    studentFirstName,
+    studentLastName,
+  });
+  if (byContact.length) {
+    return { ok: true, candidates: byContact, homeEtablissement, mode: "contact" };
+  }
+
+  // 2) Sinon identité complète (parent séparé / contact absent de l’extract).
+  const byIdentity = await searchRdvInscriptionByIdentity({
+    etablissementId: etabId,
+    studentFirstName,
+    studentLastName,
+    dateNaissance,
+  });
+  return { ok: true, candidates: byIdentity, homeEtablissement, mode: "identity" };
 }
 
 export async function bookPublicRdvInscription(
@@ -314,10 +339,13 @@ export async function bookPublicRdvInscription(
   }
 
   if (eleveId) {
-    const ok = await assertEleveBelongsToParentContact({
+    const ok = await assertEleveAllowedForRdvParent({
       etablissementId: etabId,
       eleveId,
       parentEmail,
+      studentFirstName,
+      studentLastName,
+      dateNaissance: input.studentDateNaissance,
     });
     if (!ok) {
       return {
@@ -502,10 +530,12 @@ export async function confirmPublicRdvInscription(token: string): Promise<
       };
     }
   } else {
-    const ok = await assertEleveBelongsToParentContact({
+    const ok = await assertEleveStillMatchesRdvBooking({
       etablissementId: found.etablissementId,
       eleveId,
       parentEmail: found.parentEmail,
+      studentFirstName: found.studentFirstName,
+      studentLastName: found.studentLastName,
     });
     if (!ok) {
       return {
