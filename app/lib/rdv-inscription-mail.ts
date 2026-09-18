@@ -2,10 +2,7 @@ import "server-only";
 
 import { buildCalendarEventIcs } from "@/app/lib/calendar-ics";
 import { escapeHtml } from "@/app/lib/escape-html";
-import {
-  buildRdvInscriptionIcsLocation,
-  RDV_ETABLISSEMENT_PHONE,
-} from "@/app/lib/rdv-inscription-contact";
+import { buildRdvInscriptionIcsLocation } from "@/app/lib/rdv-inscription-contact";
 import { formatRdvAttendeeLabel } from "@/app/lib/rdv-inscription-gcal-format";
 import type {
   RdvInscriptionBookingRow,
@@ -136,8 +133,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
       opts.booking.niveauLabel ? `Niveau demandé : ${opts.booking.niveauLabel}` : "",
       parentName ? `Parent : ${parentName}` : "",
       presentLabel ? `Présent au RDV : ${presentLabel}` : "",
-      `Contact établissement : ${RDV_ETABLISSEMENT_PHONE}`,
-      `Lieu : ${icsLocation}`,
+      // Téléphone : uniquement dans LOCATION (icsLocation), pas dans la description.
     ]
       .filter(Boolean)
       .join("\n"),
@@ -170,9 +166,9 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
         <strong>Créneau :</strong> ${escapeHtml(slotLabel)}
         <br/><strong>Lieu :</strong> ${escapeHtml(icsLocation)}
         ${opts.directriceName ? `<br/><strong>Avec :</strong> ${escapeHtml(opts.directriceName)}` : ""}
-        <br/><strong>Téléphone établissement :</strong> ${escapeHtml(RDV_ETABLISSEMENT_PHONE)}
         </p>
-        <p>Un fichier calendrier (.ics) est joint à cet e-mail. En cas de question sur le rendez-vous, contactez l’établissement au ${escapeHtml(RDV_ETABLISSEMENT_PHONE)}.</p>
+        <p>Un fichier calendrier (.ics) est joint à cet e-mail.</p>
+        <p>En cas de question sur le rendez-vous, ou si vous souhaitez le modifier voire l’annuler, contactez l’établissement.</p>
         <p>Cordialement,<br/>L’établissement</p>
       `,
       attachments: [
