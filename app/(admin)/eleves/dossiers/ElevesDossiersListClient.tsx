@@ -674,7 +674,11 @@ export default function ElevesDossiersListClient() {
             disabled={createBusy}
             className="mt-4 rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-sky-800 disabled:opacity-50"
           >
-            {createBusy ? "Création…" : "Créer le dossier"}
+            {createBusy
+              ? createUploadProgress || "Création…"
+              : createPendingFiles.length > 0
+                ? `Créer le dossier (${createPendingFiles.length} pièce${createPendingFiles.length > 1 ? "s" : ""})`
+                : "Créer le dossier"}
           </button>
         </form>
       ) : null}
