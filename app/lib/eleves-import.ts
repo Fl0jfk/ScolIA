@@ -417,14 +417,24 @@ function shouldTouchEleveForCycleImport(
   return existingCycle === importCycle;
 }
 
+/**
+ * Règle d’or import : on ne remplace une valeur que si l’incoming en apporte une.
+ * Champ vide / absent dans le fichier → on conserve l’existant (jamais de wipe).
+ * DATE_SORTIE (status ancien) : on marque Ancien mais on garde la classe déjà connue
+ * (« il était en 2B, il est sorti » — pas besoin d’écraser la classe).
+ */
 function mergeEleveFields(
   existing: EleveConfig,
   incoming: EleveConfig,
   opts?: { replaceRegime?: boolean; importCycle?: ElevesImportCycleScope },
 ): EleveConfig {
+  const isSorti = incoming.status === "ancien";
   const nom = incoming.nom.trim() || existing.nom;
   const prenom = incoming.prenom.trim() || existing.prenom;
-  const classe = incoming.classe?.trim() || existing.classe;
+  // Sorti : conserver la classe en base. Sinon : incoming non vide uniquement.
+  const classe = isSorti
+    ? existing.classe
+    : incoming.classe?.trim() || existing.classe;
   const folderName = buildEleveFolderName(nom, prenom);
 
   const merged: EleveConfig = {
@@ -448,10 +458,10 @@ function mergeEleveFields(
   if (incoming.parent2Phone?.trim()) merged.parent2Phone = incoming.parent2Phone.trim();
   if (incoming.dateNaissance?.trim()) merged.dateNaissance = incoming.dateNaissance.trim();
   if (incoming.lieuNaissance?.trim()) merged.lieuNaissance = incoming.lieuNaissance.trim();
+  // Régime : jamais supprimer si l’incoming n’en apporte pas.
   if (opts?.replaceRegime && "regime" in incoming) {
     const t = incoming.regime?.trim();
     if (t) merged.regime = t;
-    else delete merged.regime;
   } else if (incoming.regime?.trim()) {
     merged.regime = incoming.regime.trim();
   }
@@ -727,6 +737,10 @@ export function mergeElevesLists(
   let unmatched = 0;
 
   for (const inc of incoming) {
+    // Sorti sans INE : ne jamais fusionner (homonymes → fausse radiation 2nde/1ère).
+    if (inc.status === "ancien" && !inc.ine?.trim()) {
+      continue;
+    }
     const idx = findExistingEleveIndex(result, inc);
     if (idx >= 0) {
       const current = result[idx]!;

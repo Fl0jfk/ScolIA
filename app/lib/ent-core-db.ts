@@ -357,6 +357,10 @@ export async function upsertElevesInDb(
             options: eleve.options,
             ine: eleve.ine,
             sourceKey: eleve.sourceKey,
+            classe: eleve.classe,
+            mef: eleve.mef,
+            secteur: eleve.secteur,
+            regime: eleve.regime,
           })
           .from(eleve)
           .where(eq(eleve.id, existing.id))
@@ -371,6 +375,11 @@ export async function upsertElevesInDb(
         if (!patch.lieuNaissance && cur?.lieuNaissance) {
           patch.lieuNaissance = cur.lieuNaissance;
         }
+        // Classe / MEF / régime : jamais vider si l’import n’apporte rien à la place.
+        if (!patch.classe && cur?.classe) patch.classe = cur.classe;
+        if (!patch.mef && cur?.mef) patch.mef = cur.mef;
+        if (!patch.secteur && cur?.secteur) patch.secteur = cur.secteur;
+        if (!patch.regime && cur?.regime) patch.regime = cur.regime;
         if (!patch.parentEmail && cur?.parentEmail) patch.parentEmail = cur.parentEmail;
         if (!patch.parent1Email && cur?.parent1Email) patch.parent1Email = cur.parent1Email;
         if (!patch.parent2Email && cur?.parent2Email) patch.parent2Email = cur.parent2Email;

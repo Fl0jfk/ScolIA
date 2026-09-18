@@ -136,3 +136,138 @@ test("sortie collège radie un élève sans classe (pas de fiche lycée détecta
   });
   assert.equal(eleves[0]?.status, "ancien");
 });
+
+test("DATE_SORTIE → ancien mais conserve la classe 2B (même sans CODE_STRUCTURE)", () => {
+  const existing: EleveConfig[] = [
+    {
+      ine: "INE2B",
+      nom: "HAVIS",
+      prenom: "Gabriel",
+      folderName: "HAVIS Gabriel",
+      classe: "2B",
+      status: "inscrit",
+    },
+  ];
+  const sortiSansClasse: EleveConfig = {
+    ine: "INE2B",
+    nom: "HAVIS",
+    prenom: "Gabriel",
+    folderName: "HAVIS Gabriel",
+    status: "ancien",
+    regime: "Externe",
+  };
+  const { eleves } = mergeElevesLists(existing, [sortiSansClasse], {
+    replaceRegime: true,
+    importCycle: "lycee",
+  });
+  assert.equal(eleves[0]?.status, "ancien");
+  assert.equal(eleves[0]?.classe, "2B");
+});
+
+test("DATE_SORTIE ne remplace pas une classe 2B par TA du fichier sorti", () => {
+  const existing: EleveConfig[] = [
+    {
+      ine: "INE2B2",
+      nom: "DUPONT",
+      prenom: "Alice",
+      folderName: "DUPONT Alice",
+      classe: "2B",
+      status: "inscrit",
+    },
+  ];
+  const sortiTerm: EleveConfig = {
+    ine: "INE2B2",
+    nom: "DUPONT",
+    prenom: "Alice",
+    folderName: "DUPONT Alice",
+    classe: "TA",
+    status: "ancien",
+    regime: "Externe",
+  };
+  const { eleves } = mergeElevesLists(existing, [sortiTerm], {
+    replaceRegime: true,
+    importCycle: "lycee",
+  });
+  assert.equal(eleves[0]?.status, "ancien");
+  assert.equal(eleves[0]?.classe, "2B");
+});
+
+test("XML sans classe ne vide pas une classe déjà en fiche", () => {
+  const existing: EleveConfig[] = [
+    {
+      ine: "INE2C",
+      nom: "DURAND",
+      prenom: "Leo",
+      folderName: "DURAND Leo",
+      classe: "2C",
+      status: "inscrit",
+      regime: "Demi-pensionnaire",
+    },
+  ];
+  const sansClasse: EleveConfig = {
+    ine: "INE2C",
+    nom: "DURAND",
+    prenom: "Leo",
+    folderName: "DURAND Leo",
+    status: "inscrit",
+  };
+  const { eleves } = mergeElevesLists(existing, [sansClasse], {
+    importCycle: "lycee",
+  });
+  assert.equal(eleves[0]?.classe, "2C");
+  assert.equal(eleves[0]?.status, "inscrit");
+  assert.equal(eleves[0]?.regime, "Demi-pensionnaire");
+});
+
+test("sortie lycée sans INE ne radie pas par homonymie", () => {
+  const existing: EleveConfig[] = [
+    {
+      ine: "INEOK",
+      nom: "MARTIN",
+      prenom: "Paul",
+      folderName: "MARTIN Paul",
+      classe: "2A",
+      status: "inscrit",
+    },
+  ];
+  const sortiSansIne: EleveConfig = {
+    nom: "MARTIN",
+    prenom: "Paul",
+    folderName: "MARTIN Paul",
+    status: "ancien",
+    regime: "Externe",
+  };
+  const { eleves, stats } = mergeElevesLists(existing, [sortiSansIne], {
+    replaceRegime: true,
+    importCycle: "lycee",
+  });
+  assert.equal(eleves[0]?.status, "inscrit");
+  assert.equal(stats.updated, 0);
+});
+
+test("sortie lycée radie bien une terminale TA en gardant la classe", () => {
+  const existing: EleveConfig[] = [
+    {
+      ine: "INET",
+      nom: "LEROY",
+      prenom: "Ines",
+      folderName: "LEROY Ines",
+      classe: "TA",
+      status: "inscrit",
+    },
+  ];
+  const sorti: EleveConfig = {
+    ine: "INET",
+    nom: "LEROY",
+    prenom: "Ines",
+    folderName: "LEROY Ines",
+    status: "ancien",
+    regime: "Externe",
+  };
+  const { eleves } = mergeElevesLists(existing, [sorti], {
+    replaceRegime: true,
+    importCycle: "lycee",
+  });
+  assert.equal(eleves[0]?.status, "ancien");
+  assert.equal(eleves[0]?.classe, "TA");
+});
