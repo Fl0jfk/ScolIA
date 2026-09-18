@@ -3,9 +3,26 @@ import { and, ilike, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { refEtablissement } from "@/db/schema";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { searchAnnuaireEducation } from "@/app/lib/annuaire-education-search";
+
+type EtabHit = {
+  codeRne: string;
+  label: string;
+  adresse: string | null;
+  codeNature: string | null;
+};
+
+function hasUsableLabel(hit: EtabHit): boolean {
+  const label = hit.label.trim();
+  return Boolean(label) && label.toUpperCase() !== hit.codeRne.toUpperCase();
+}
 
 /**
- * Recherche publique (lien fiche de dialogue / RDV) dans le référentiel RNE.
+ * Recherche publique (fiche de dialogue / RDV) :
+ * 1. `ref_etablissement` (import Siècle Etablissements.xml)
+ * 2. Annuaire national MEN si le référentiel local est vide / incomplet
+ *    (ex. seuls les UAJ Communs sans libellé).
+ *
  * Query : ?q=…&dept=076&cp=76500&limit=30
  */
 export async function GET(req: Request) {
@@ -68,12 +85,36 @@ export async function GET(req: Request) {
     .where(and(...conditions))
     .limit(limit);
 
+  const localHits: EtabHit[] = rows.map((r) => ({
+    codeRne: r.codeRne,
+    label: [r.denomPrinc, r.denomCompl, r.sigle].filter(Boolean).join(" — ") || r.codeRne,
+    adresse: r.adresse,
+    codeNature: r.codeNature,
+  }));
+
+  const usableLocal = localHits.filter(hasUsableLabel);
+  // Moins de 5 résultats « utiles » → le référentiel Siècle n’est probablement
+  // pas importé (souvent 1–2 UAJ Communs). On complète avec l’annuaire national.
+  const needAnnuaire = usableLocal.length < 5;
+
+  let etablissements: EtabHit[] = usableLocal;
+  let source: "siecle" | "annuaire" | "mixte" = "siecle";
+
+  if (needAnnuaire) {
+    const national = await searchAnnuaireEducation({ q, dept, cp, limit });
+    const byRne = new Map<string, EtabHit>();
+    for (const hit of national) byRne.set(hit.codeRne.toUpperCase(), hit);
+    for (const hit of usableLocal) byRne.set(hit.codeRne.toUpperCase(), hit);
+    etablissements = [...byRne.values()].slice(0, limit);
+    source = usableLocal.length ? "mixte" : "annuaire";
+  }
+
   return NextResponse.json({
-    etablissements: rows.map((r) => ({
-      codeRne: r.codeRne,
-      label: [r.denomPrinc, r.denomCompl, r.sigle].filter(Boolean).join(" — ") || r.codeRne,
-      adresse: r.adresse,
-      codeNature: r.codeNature,
-    })),
+    etablissements,
+    source,
+    hint:
+      etablissements.length === 0
+        ? "Aucun établissement trouvé — affinez le code postal, le département (076) ou le nom."
+        : undefined,
   });
 }
