@@ -231,6 +231,7 @@ test("sortie lycée sans INE ne radie pas par homonymie", () => {
     },
   ];
   const sortiSansIne: EleveConfig = {
+    ine: "",
     nom: "MARTIN",
     prenom: "Paul",
     folderName: "MARTIN Paul",
