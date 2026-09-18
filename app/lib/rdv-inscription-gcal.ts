@@ -349,6 +349,9 @@ export async function confirmInscriptionCalendarEvent(opts: {
   studentLastName: string;
   parentEmail: string;
   parentPhone: string;
+  parentFirstName?: string | null;
+  parentLastName?: string | null;
+  rdvAttendee?: "madame" | "monsieur" | "les_deux" | null;
   niveauLabel?: string | null;
   dossierInscriptionUrl?: string | null;
   hasPap?: "yes" | "no" | null;
@@ -396,11 +399,21 @@ export async function confirmInscriptionCalendarEvent(opts: {
     return { ok: false, reason: "past", message: "Ce créneau est déjà passé." };
   }
 
-  const studentLabel = `${opts.studentLastName.trim().toUpperCase()} ${opts.studentFirstName.trim()}`;
-  const newTitle = `Rendez-vous — ${studentLabel}`;
+  const { buildRdvInscriptionGcalSummary, formatRdvAttendeeLabel } = await import(
+    "@/app/lib/rdv-inscription-gcal-format"
+  );
+  const newTitle = buildRdvInscriptionGcalSummary({
+    studentLastName: opts.studentLastName,
+    studentFirstName: opts.studentFirstName,
+    niveauLabel: opts.niveauLabel,
+  });
+  const parentName = [opts.parentFirstName?.trim(), opts.parentLastName?.trim()]
+    .filter(Boolean)
+    .join(" ");
+  const presentLabel = formatRdvAttendeeLabel(opts.rdvAttendee);
   const descriptionLines = [
     `Élève : ${opts.studentFirstName.trim()} ${opts.studentLastName.trim()}`,
-    opts.niveauLabel?.trim() ? `Niveau : ${opts.niveauLabel.trim()}` : "",
+    opts.niveauLabel?.trim() ? `Niveau demandé : ${opts.niveauLabel.trim()}` : "",
     opts.etablissementOrigineLabel?.trim()
       ? `Établissement d’origine : ${opts.etablissementOrigineLabel.trim()}`
       : "",
@@ -413,6 +426,8 @@ export async function confirmInscriptionCalendarEvent(opts: {
       : opts.hasPap === "no"
         ? "PAP : non"
         : "",
+    parentName ? `Parent : ${parentName}` : "",
+    presentLabel ? `Présent au RDV : ${presentLabel}` : "",
     `E-mail parent : ${opts.parentEmail.trim()}`,
     `Téléphone parent : ${opts.parentPhone.trim()}`,
     opts.dossierInscriptionUrl?.trim()

@@ -68,6 +68,12 @@ export type RdvInscriptionBookingRow = {
   studentLastName: string;
   parentEmail: string;
   parentPhone: string;
+  /** Prénom du parent / responsable. */
+  parentFirstName: string | null;
+  /** Nom du parent / responsable (peut différer de l’élève). */
+  parentLastName: string | null;
+  /** madame | monsieur | les_deux */
+  rdvAttendee: "madame" | "monsieur" | "les_deux" | null;
   niveauId: string | null;
   niveauLabel: string | null;
   eleveId: string | null;
@@ -96,6 +102,10 @@ export type RdvInscriptionBookInput = {
   studentLastName: string;
   parentEmail: string;
   parentPhone: string;
+  parentFirstName?: string;
+  parentLastName?: string;
+  /** madame | monsieur | les_deux */
+  rdvAttendee?: "madame" | "monsieur" | "les_deux";
   niveauId: string;
   /** Élève confirmé par le parent (matching interactif). */
   eleveId?: string | null;

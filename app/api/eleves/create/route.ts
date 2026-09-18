@@ -51,6 +51,8 @@ export async function POST(req: Request) {
       prenom: String(body.prenom || ""),
       parentEmail: String(body.parentEmail || ""),
       parentPhone: String(body.parentPhone || ""),
+      parentFirstName: body.parentFirstName ? String(body.parentFirstName) : null,
+      parentLastName: body.parentLastName ? String(body.parentLastName) : null,
       classe: body.classe ? String(body.classe) : null,
       siteId: body.siteId ? String(body.siteId) : null,
       sourcePrefix: "manuel",

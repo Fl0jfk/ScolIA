@@ -104,6 +104,11 @@ export const rdvInscriptionBooking = pgTable(
     studentLastName: text("student_last_name").notNull(),
     parentEmail: text("parent_email").notNull(),
     parentPhone: text("parent_phone").notNull(),
+    /** Prénom / nom du parent (peut différer de l’élève). */
+    parentFirstName: text("parent_first_name"),
+    parentLastName: text("parent_last_name"),
+    /** madame | monsieur | les_deux — qui vient au RDV. */
+    rdvAttendee: text("rdv_attendee"),
     /** Niveau demandé (InscriptionLevelId). */
     niveauId: text("niveau_id"),
     niveauLabel: text("niveau_label"),

@@ -54,6 +54,8 @@ export async function createPreinscritFromRdvBooking(opts: {
   prenom: string;
   parentEmail: string;
   parentPhone: string;
+  parentFirstName?: string | null;
+  parentLastName?: string | null;
   niveauLabel?: string | null;
   directionSlug?: string | null;
 }): Promise<string> {
@@ -70,6 +72,8 @@ export async function createPreinscritFromRdvBooking(opts: {
     prenom: opts.prenom,
     parentEmail: opts.parentEmail,
     parentPhone: opts.parentPhone,
+    parentFirstName: opts.parentFirstName,
+    parentLastName: opts.parentLastName,
     classe: opts.niveauLabel,
     siteId: secteur,
     sourcePrefix: "rdv-inscription",

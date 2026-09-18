@@ -99,6 +99,14 @@ function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscript
     studentLastName: row.studentLastName,
     parentEmail: row.parentEmail,
     parentPhone: row.parentPhone,
+    parentFirstName: row.parentFirstName?.trim() || null,
+    parentLastName: row.parentLastName?.trim() || null,
+    rdvAttendee:
+      row.rdvAttendee === "madame" ||
+      row.rdvAttendee === "monsieur" ||
+      row.rdvAttendee === "les_deux"
+        ? row.rdvAttendee
+        : null,
     niveauId: row.niveauId,
     niveauLabel: row.niveauLabel,
     eleveId: row.eleveId,
@@ -503,6 +511,9 @@ export async function insertRdvInscriptionBooking(input: {
   studentLastName: string;
   parentEmail: string;
   parentPhone: string;
+  parentFirstName?: string | null;
+  parentLastName?: string | null;
+  rdvAttendee?: "madame" | "monsieur" | "les_deux" | null;
   niveauId?: string | null;
   niveauLabel?: string | null;
   eleveId?: string | null;
@@ -540,6 +551,14 @@ export async function insertRdvInscriptionBooking(input: {
     studentLastName: input.studentLastName.trim(),
     parentEmail: input.parentEmail.trim().toLowerCase(),
     parentPhone: input.parentPhone.trim(),
+    parentFirstName: input.parentFirstName?.trim() || null,
+    parentLastName: input.parentLastName?.trim() || null,
+    rdvAttendee:
+      input.rdvAttendee === "madame" ||
+      input.rdvAttendee === "monsieur" ||
+      input.rdvAttendee === "les_deux"
+        ? input.rdvAttendee
+        : null,
     niveauId: input.niveauId?.trim() || null,
     niveauLabel: input.niveauLabel?.trim() || null,
     eleveId: input.eleveId?.trim() || null,

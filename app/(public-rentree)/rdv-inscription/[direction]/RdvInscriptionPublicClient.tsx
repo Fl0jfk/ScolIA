@@ -110,6 +110,9 @@ export default function RdvInscriptionPublicClient({
   const [studentLastName, setStudentLastName] = useState("");
   const [parentEmail, setParentEmail] = useState("");
   const [parentPhone, setParentPhone] = useState("");
+  const [parentFirstName, setParentFirstName] = useState("");
+  const [parentLastName, setParentLastName] = useState("");
+  const [rdvAttendee, setRdvAttendee] = useState<"madame" | "monsieur" | "les_deux" | "">("");
   const [niveauId, setNiveauId] = useState(levels[0]?.id || "");
   const [candidates, setCandidates] = useState<MatchCandidate[] | null>(null);
   const [matchChoice, setMatchChoice] = useState<MatchChoice>(null);
@@ -252,7 +255,12 @@ export default function RdvInscriptionPublicClient({
         setFormError(data.error || "Recherche impossible.");
         return;
       }
-      setCandidates(data.candidates || []);
+      const list = data.candidates || [];
+      setCandidates(list);
+      // Pas de match → le dossier préinscrit sera ouvert à la confirmation du RDV (pas un choix parent).
+      if (list.length === 0) {
+        setMatchChoice({ kind: "create" });
+      }
     } catch {
       setFormError("Erreur réseau — réessayez.");
     } finally {
@@ -340,7 +348,7 @@ export default function RdvInscriptionPublicClient({
     e.preventDefault();
     setFormError(null);
     if (!matchChoice) {
-      setFormError("Confirmez l’élève (ou créez un nouveau dossier) avant de réserver.");
+      setFormError("Confirmez l’identité de l’élève avant de réserver.");
       return;
     }
     if (!origineSelected) {
@@ -353,8 +361,16 @@ export default function RdvInscriptionPublicClient({
     }
     if (hasPap === "yes" && !papFile && !papBringToRdv) {
       setFormError(
-        "Déposez le PAP ou confirmez que vous l’apporterez au rendez-vous (obligatoire le jour J).",
+        "Déposez le PAP maintenant, ou confirmez que vous l’apporterez le jour J.",
       );
+      return;
+    }
+    if (!parentFirstName.trim() || !parentLastName.trim()) {
+      setFormError("Indiquez le prénom et le nom du parent.");
+      return;
+    }
+    if (!rdvAttendee) {
+      setFormError("Indiquez qui sera présent au rendez-vous.");
       return;
     }
     if (!niveauId) {
@@ -380,6 +396,9 @@ export default function RdvInscriptionPublicClient({
           studentLastName,
           parentEmail,
           parentPhone,
+          parentFirstName,
+          parentLastName,
+          rdvAttendee,
           niveauId,
           eleveId: matchChoice.kind === "eleve" ? matchChoice.id : null,
           createNew: matchChoice.kind === "create",
@@ -543,6 +562,65 @@ export default function RdvInscriptionPublicClient({
                     disabled={!identityUnlocked}
                   />
                 </label>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-800">Prénom du parent</span>
+                    <input
+                      required
+                      className={fieldClass}
+                      value={parentFirstName}
+                      onChange={(e) => setParentFirstName(e.target.value)}
+                      autoComplete="given-name"
+                      placeholder="Prénom"
+                      disabled={!identityUnlocked}
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-800">Nom du parent</span>
+                    <input
+                      required
+                      className={fieldClass}
+                      value={parentLastName}
+                      onChange={(e) => setParentLastName(e.target.value)}
+                      autoComplete="family-name"
+                      placeholder="Nom (peut différer de l’élève)"
+                      disabled={!identityUnlocked}
+                    />
+                  </label>
+                </div>
+                <fieldset className="block text-sm" disabled={!identityUnlocked}>
+                  <legend className="font-semibold text-slate-800">
+                    Qui sera présent au rendez-vous ?
+                  </legend>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(
+                      [
+                        { id: "madame", label: "Madame" },
+                        { id: "monsieur", label: "Monsieur" },
+                        { id: "les_deux", label: "Les deux" },
+                      ] as const
+                    ).map((opt) => (
+                      <label
+                        key={opt.id}
+                        className={`inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition ${
+                          rdvAttendee === opt.id
+                            ? "border-sky-600 bg-sky-50 text-sky-900"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                        } ${!identityUnlocked ? "opacity-50" : ""}`}
+                      >
+                        <input
+                          type="radio"
+                          name="rdvAttendee"
+                          className="sr-only"
+                          checked={rdvAttendee === opt.id}
+                          onChange={() => setRdvAttendee(opt.id)}
+                          required
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
               </div>
             </section>
 
@@ -550,6 +628,10 @@ export default function RdvInscriptionPublicClient({
               <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
                 2 · Identifier l’élève
               </h2>
+              <p className="mt-2 text-sm text-slate-500">
+                On vérifie si l’enfant est déjà connu pour cet e-mail. Le dossier d’inscription
+                sera ouvert automatiquement à la confirmation du rendez-vous.
+              </p>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <label className="block text-sm">
                   <span className="font-semibold text-slate-800">Prénom de l’élève</span>
@@ -595,64 +677,69 @@ export default function RdvInscriptionPublicClient({
                 <div className="mt-4 space-y-2">
                   {candidates.length === 0 ? (
                     <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                      Aucun enfant trouvé pour ces coordonnées. Vous pouvez créer un nouveau
-                      dossier.
+                      Aucun enfant trouvé pour ces coordonnées — on ouvrira le dossier à la
+                      confirmation du rendez-vous.
                     </p>
                   ) : (
-                    candidates.map((c) => {
-                      const selected =
-                        matchChoice?.kind === "eleve" && matchChoice.id === c.id;
-                      const label = `${c.nom.toUpperCase()} ${c.prenom}${
-                        c.classe ? ` · ${c.classe}` : ""
-                      }`;
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() =>
-                            setMatchChoice({ kind: "eleve", id: c.id, label })
-                          }
-                          className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
-                            selected
-                              ? "bg-sky-700 text-white shadow-sm"
-                              : "bg-slate-50 text-slate-800 ring-1 ring-slate-200 hover:bg-white"
-                          }`}
-                        >
-                          <span className="font-semibold">
-                            Est-ce bien {c.prenom} {c.nom.toUpperCase()} ?
-                          </span>
-                          {c.classe ? (
-                            <span
-                              className={`mt-0.5 block text-xs ${
-                                selected ? "text-sky-100" : "text-slate-500"
-                              }`}
-                            >
-                              {c.classe}
+                    <>
+                      <p className="text-sm text-slate-600">
+                        Un ou plusieurs enfants correspondent. Confirmez le bon :
+                      </p>
+                      {candidates.map((c) => {
+                        const selected =
+                          matchChoice?.kind === "eleve" && matchChoice.id === c.id;
+                        const label = `${c.nom.toUpperCase()} ${c.prenom}${
+                          c.classe ? ` · ${c.classe}` : ""
+                        }`;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() =>
+                              setMatchChoice({ kind: "eleve", id: c.id, label })
+                            }
+                            className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
+                              selected
+                                ? "bg-sky-700 text-white shadow-sm"
+                                : "bg-slate-50 text-slate-800 ring-1 ring-slate-200 hover:bg-white"
+                            }`}
+                          >
+                            <span className="font-semibold">
+                              Est-ce bien {c.prenom} {c.nom.toUpperCase()} ?
                             </span>
-                          ) : null}
-                        </button>
-                      );
-                    })
+                            {c.classe ? (
+                              <span
+                                className={`mt-0.5 block text-xs ${
+                                  selected ? "text-sky-100" : "text-slate-500"
+                                }`}
+                              >
+                                {c.classe}
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => setMatchChoice({ kind: "create" })}
+                        className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
+                          matchChoice?.kind === "create"
+                            ? "bg-slate-700 text-white"
+                            : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        Non, ce n’est pas mon enfant
+                      </button>
+                    </>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => setMatchChoice({ kind: "create" })}
-                    className={`w-full rounded-xl px-4 py-3 text-left text-sm font-semibold transition ${
-                      matchChoice?.kind === "create"
-                        ? "bg-amber-600 text-white"
-                        : "bg-amber-50 text-amber-950 ring-1 ring-amber-200 hover:bg-amber-100"
-                    }`}
-                  >
-                    Créer un nouveau dossier préinscrit
-                  </button>
                   {matchChoice?.kind === "eleve" ? (
                     <p className="text-sm text-emerald-700">
                       Élève confirmé : <strong>{matchChoice.label}</strong>
                     </p>
                   ) : null}
-                  {matchChoice?.kind === "create" ? (
-                    <p className="text-sm text-amber-800">
-                      Un nouveau dossier sera créé à la validation du rendez-vous.
+                  {matchChoice?.kind === "create" && candidates.length > 0 ? (
+                    <p className="text-sm text-slate-600">
+                      Compris — le dossier sera ouvert à la confirmation du rendez-vous.
                     </p>
                   ) : null}
                 </div>
@@ -785,9 +872,9 @@ export default function RdvInscriptionPublicClient({
               {hasPap === "yes" ? (
                 <div className="mt-4 space-y-3">
                   <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                    Le PAP doit être <strong>présent au rendez-vous</strong> : la direction traite le
-                    dossier PAP en même temps que l’inscription. Si vous ne l’avez pas sous la main
-                    maintenant, vous pouvez le déposer plus tard, mais il faudra l’apporter le jour J.
+                    Le PAP doit être <strong>présent au rendez-vous</strong> : la direction le traite
+                    en même temps que l’inscription. Si vous ne l’avez pas sous la main maintenant,
+                    il faudra penser à <strong>l’apporter le jour J</strong>.
                   </p>
                   <label
                     className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition ${
@@ -807,9 +894,11 @@ export default function RdvInscriptionPublicClient({
                         ? "Envoi…"
                         : papFile
                           ? `Déposé : ${papFile.fileName}`
-                          : "Glissez-déposez le PAP (PDF / image) — facultatif"}
+                          : "Glissez-déposez le PAP (PDF / image) — facultatif maintenant"}
                     </span>
-                    <span className="mt-1 text-xs text-slate-500">ou cliquez pour choisir un fichier</span>
+                    <span className="mt-1 text-xs text-slate-500">
+                      ou cliquez pour choisir un fichier — sinon engagement ci-dessous
+                    </span>
                     <input
                       type="file"
                       className="hidden"
@@ -831,9 +920,8 @@ export default function RdvInscriptionPublicClient({
                         onChange={(e) => setPapBringToRdv(e.target.checked)}
                       />
                       <span>
-                        Je n’ai pas le fichier maintenant : je m’engage à{" "}
-                        <strong>apporter le PAP au rendez-vous</strong> (indispensable pour le
-                        traitement le jour J).
+                        Je n’ai pas le fichier sous la main : je m’engage à{" "}
+                        <strong>apporter le PAP le jour du rendez-vous</strong>.
                       </span>
                     </label>
                   ) : (
@@ -1021,7 +1109,16 @@ export default function RdvInscriptionPublicClient({
 
               <button
                 type="submit"
-                disabled={busy || !matchReady || !eventId || !origineSelected || !hasPap}
+                disabled={
+                  busy ||
+                  !matchReady ||
+                  !eventId ||
+                  !origineSelected ||
+                  !hasPap ||
+                  !parentFirstName.trim() ||
+                  !parentLastName.trim() ||
+                  !rdvAttendee
+                }
                 className="mt-5 w-full rounded-xl bg-sky-700 px-4 py-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? "Réservation…" : "Confirmer le rendez-vous"}

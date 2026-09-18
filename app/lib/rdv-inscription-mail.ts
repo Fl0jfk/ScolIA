@@ -6,11 +6,16 @@ import {
   buildRdvInscriptionIcsLocation,
   RDV_ETABLISSEMENT_PHONE,
 } from "@/app/lib/rdv-inscription-contact";
+import { formatRdvAttendeeLabel } from "@/app/lib/rdv-inscription-gcal-format";
 import type {
   RdvInscriptionBookingRow,
   RdvInscriptionDirectionPageSettings,
 } from "@/app/lib/rdv-inscription-types";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
+
+function parentDisplayName(booking: RdvInscriptionBookingRow): string {
+  return [booking.parentFirstName, booking.parentLastName].filter(Boolean).join(" ");
+}
 
 function formatSlotFr(startAt: string, endAt: string): string {
   const start = new Date(startAt);
@@ -115,15 +120,22 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
   const student = `${opts.booking.studentFirstName} ${opts.booking.studentLastName}`;
   const location = opts.page.location.trim();
   const icsLocation = buildRdvInscriptionIcsLocation(location);
-  const title = `${opts.page.title} — ${opts.directionLabel}`;
+  const parentName = parentDisplayName(opts.booking);
+  const presentLabel = formatRdvAttendeeLabel(opts.booking.rdvAttendee);
+  const mailTitle = `${opts.page.title} — ${opts.directionLabel}`;
+  const gcalTitle = `RDV inscription — ${opts.booking.studentLastName.trim().toUpperCase()} ${opts.booking.studentFirstName.trim()}${
+    opts.booking.niveauLabel?.trim() ? ` — ${opts.booking.niveauLabel.trim()}` : ""
+  }`;
 
   const ics = buildCalendarEventIcs({
-    title: `${title} — ${student}`,
+    title: gcalTitle,
     description: [
       `Rendez-vous d’inscription (${opts.directionLabel}).`,
       opts.directriceName ? `Avec : ${opts.directriceName}` : "",
       `Élève : ${student}`,
-      opts.booking.niveauLabel ? `Niveau : ${opts.booking.niveauLabel}` : "",
+      opts.booking.niveauLabel ? `Niveau demandé : ${opts.booking.niveauLabel}` : "",
+      parentName ? `Parent : ${parentName}` : "",
+      presentLabel ? `Présent au RDV : ${presentLabel}` : "",
       `Contact établissement : ${RDV_ETABLISSEMENT_PHONE}`,
       `Lieu : ${icsLocation}`,
     ]
@@ -149,7 +161,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
     await transporter.sendMail({
       from: smtp.user,
       to: opts.booking.parentEmail,
-      subject: `Réservation validée — ${title}`,
+      subject: `Réservation validée — ${mailTitle}`,
       html: `
         <p>Bonjour,</p>
         <p>Votre rendez-vous d’inscription est <strong>validé</strong>.</p>
@@ -196,8 +208,18 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
             <li><strong>E-mail :</strong> ${escapeHtml(opts.booking.parentEmail)}</li>
             <li><strong>Tél. :</strong> ${escapeHtml(opts.booking.parentPhone)}</li>
             ${
+              parentDisplayName(opts.booking)
+                ? `<li><strong>Parent :</strong> ${escapeHtml(parentDisplayName(opts.booking))}</li>`
+                : ""
+            }
+            ${
+              formatRdvAttendeeLabel(opts.booking.rdvAttendee)
+                ? `<li><strong>Présent au RDV :</strong> ${escapeHtml(formatRdvAttendeeLabel(opts.booking.rdvAttendee))}</li>`
+                : ""
+            }
+            ${
               opts.booking.niveauLabel
-                ? `<li><strong>Niveau :</strong> ${escapeHtml(opts.booking.niveauLabel)}</li>`
+                ? `<li><strong>Niveau demandé :</strong> ${escapeHtml(opts.booking.niveauLabel)}</li>`
                 : ""
             }
             ${
@@ -295,9 +317,14 @@ export async function sendRdvInscriptionCreatedPreinscritNotify(opts: {
         (aucune fiche élève trouvée pour ces coordonnées parent).</p>
         <ul>
           <li><strong>Élève :</strong> ${escapeHtml(student)}</li>
-          <li><strong>Niveau :</strong> ${escapeHtml(opts.booking.niveauLabel || "—")}</li>
+          <li><strong>Niveau demandé :</strong> ${escapeHtml(opts.booking.niveauLabel || "—")}</li>
           <li><strong>E-mail :</strong> ${escapeHtml(opts.booking.parentEmail)}</li>
           <li><strong>Tél. :</strong> ${escapeHtml(opts.booking.parentPhone)}</li>
+          ${
+            parentDisplayName(opts.booking)
+              ? `<li><strong>Parent :</strong> ${escapeHtml(parentDisplayName(opts.booking))}</li>`
+              : ""
+          }
         </ul>
         <p><a href="${escapeHtml(opts.dossierUrl)}">Ouvrir les documents d’inscription</a></p>
       `,

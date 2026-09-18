@@ -213,6 +213,14 @@ export async function bookPublicRdvInscription(
   const studentLastName = input.studentLastName.trim();
   const parentEmail = input.parentEmail.trim().toLowerCase();
   const parentPhone = input.parentPhone.trim();
+  const parentFirstName = input.parentFirstName?.trim() || "";
+  const parentLastName = input.parentLastName?.trim() || "";
+  const rdvAttendee =
+    input.rdvAttendee === "madame" ||
+    input.rdvAttendee === "monsieur" ||
+    input.rdvAttendee === "les_deux"
+      ? input.rdvAttendee
+      : null;
   const eventId = input.eventId.trim();
   const niveauId = input.niveauId.trim();
   const createNew = Boolean(input.createNew);
@@ -224,6 +232,23 @@ export async function bookPublicRdvInscription(
       status: 400,
       error: "Créneau, élève, e-mail et téléphone sont requis.",
     };
+  }
+  if (!parentFirstName || !parentLastName) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Indiquez le prénom et le nom du parent qui prend rendez-vous.",
+    };
+  }
+  if (!rdvAttendee) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Indiquez qui sera présent au rendez-vous (Madame, Monsieur ou les deux).",
+    };
+  }
+  if (parentFirstName.length > 80 || parentLastName.length > 80) {
+    return { ok: false, status: 400, error: "Nom / prénom du parent trop longs." };
   }
   if (!isValidParentEmail(parentEmail)) {
     return { ok: false, status: 400, error: "E-mail invalide." };
@@ -347,6 +372,9 @@ export async function bookPublicRdvInscription(
       studentLastName,
       parentEmail,
       parentPhone,
+      parentFirstName,
+      parentLastName,
+      rdvAttendee,
       niveauId: niveauMeta.id,
       niveauLabel: niveauMeta.label,
       eleveId,
@@ -457,6 +485,8 @@ export async function confirmPublicRdvInscription(token: string): Promise<
         prenom: found.studentFirstName,
         parentEmail: found.parentEmail,
         parentPhone: found.parentPhone,
+        parentFirstName: found.parentFirstName,
+        parentLastName: found.parentLastName,
         niveauLabel: found.niveauLabel,
         directionSlug: found.directionSlug,
       });
@@ -499,6 +529,9 @@ export async function confirmPublicRdvInscription(token: string): Promise<
     studentLastName: found.studentLastName,
     parentEmail: found.parentEmail,
     parentPhone: found.parentPhone,
+    parentFirstName: found.parentFirstName,
+    parentLastName: found.parentLastName,
+    rdvAttendee: found.rdvAttendee,
     niveauLabel: found.niveauLabel,
     dossierInscriptionUrl,
     hasPap: found.hasPap,

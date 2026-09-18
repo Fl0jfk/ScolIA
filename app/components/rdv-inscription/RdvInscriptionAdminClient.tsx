@@ -530,8 +530,33 @@ export default function RdvInscriptionAdminClient() {
                     </td>
                     <td className="py-2 pr-3">
                       {b.studentFirstName} {b.studentLastName}
+                      {b.niveauLabel ? (
+                        <>
+                          <br />
+                          <span className="text-xs text-slate-500">
+                            Niveau demandé : {b.niveauLabel}
+                          </span>
+                        </>
+                      ) : null}
                     </td>
                     <td className="py-2 pr-3">
+                      {[b.parentFirstName, b.parentLastName].filter(Boolean).join(" ") || (
+                        <span className="text-slate-400">—</span>
+                      )}
+                      {b.rdvAttendee ? (
+                        <>
+                          <br />
+                          <span className="text-xs text-slate-500">
+                            Présent :{" "}
+                            {b.rdvAttendee === "madame"
+                              ? "Madame"
+                              : b.rdvAttendee === "monsieur"
+                                ? "Monsieur"
+                                : "Les deux"}
+                          </span>
+                        </>
+                      ) : null}
+                      <br />
                       <a className="text-sky-700 hover:underline" href={`mailto:${b.parentEmail}`}>
                         {b.parentEmail}
                       </a>

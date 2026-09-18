@@ -101,6 +101,8 @@ export default function ElevesDossiersListClient() {
   const [createForm, setCreateForm] = useState({
     prenom: "",
     nom: "",
+    parentFirstName: "",
+    parentLastName: "",
     parentEmail: "",
     parentPhone: "",
     classe: "",
@@ -327,6 +329,8 @@ export default function ElevesDossiersListClient() {
         body: JSON.stringify({
           prenom: createForm.prenom,
           nom: createForm.nom,
+          parentFirstName: createForm.parentFirstName || null,
+          parentLastName: createForm.parentLastName || null,
           parentEmail: createForm.parentEmail,
           parentPhone: createForm.parentPhone,
           classe: createForm.classe || null,
@@ -346,6 +350,8 @@ export default function ElevesDossiersListClient() {
       setCreateForm({
         prenom: "",
         nom: "",
+        parentFirstName: "",
+        parentLastName: "",
         parentEmail: "",
         parentPhone: "",
         classe: "",
@@ -445,6 +451,24 @@ export default function ElevesDossiersListClient() {
                 className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
                 value={createForm.nom}
                 onChange={(e) => setCreateForm((f) => ({ ...f, nom: e.target.value }))}
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-semibold text-slate-800">Prénom du parent</span>
+              <input
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                value={createForm.parentFirstName}
+                onChange={(e) => setCreateForm((f) => ({ ...f, parentFirstName: e.target.value }))}
+                placeholder="Optionnel"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="font-semibold text-slate-800">Nom du parent</span>
+              <input
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                value={createForm.parentLastName}
+                onChange={(e) => setCreateForm((f) => ({ ...f, parentLastName: e.target.value }))}
+                placeholder="Si différent de l’élève"
               />
             </label>
             <label className="block text-sm sm:col-span-2">

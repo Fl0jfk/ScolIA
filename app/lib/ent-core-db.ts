@@ -543,6 +543,9 @@ type ParentContactSeed = {
   parentPhone?: string | null;
   parent1Phone?: string | null;
   parent2Phone?: string | null;
+  /** Identité du parent / responsable (si connue, sinon repli élève / e-mail). */
+  parentFirstName?: string | null;
+  parentLastName?: string | null;
 };
 
 /**
@@ -597,7 +600,8 @@ export async function ensureEleveFoyerFromParentContacts(
 
   if (seeds.length === 0) return false;
 
-  const familyName = contacts.nom.trim() || "Famille";
+  const familyName =
+    contacts.parentLastName?.trim() || contacts.nom.trim() || "Famille";
   const [createdFoyer] = await db
     .insert(foyer)
     .values({
@@ -612,11 +616,19 @@ export async function ensureEleveFoyerFromParentContacts(
   for (let i = 0; i < seeds.length; i++) {
     const seed = seeds[i]!;
     const localPart = seed.email?.split("@")[0]?.trim() || seed.label;
+    const responsablePrenom =
+      i === 0
+        ? contacts.parentFirstName?.trim() || localPart
+        : localPart;
+    const responsableNom =
+      i === 0
+        ? contacts.parentLastName?.trim() || familyName
+        : familyName;
     await db.insert(foyerResponsable).values({
       etablissementId,
       foyerId: createdFoyer.id,
-      nom: familyName,
-      prenom: localPart,
+      nom: responsableNom,
+      prenom: responsablePrenom,
       email: seed.email,
       telephone: seed.telephone,
       autoriteParentale: true,

@@ -13,6 +13,9 @@ export type CreateElevePreinscritInput = {
   prenom: string;
   parentEmail: string;
   parentPhone?: string | null;
+  /** Identité du parent (peut différer du nom de l’élève). */
+  parentFirstName?: string | null;
+  parentLastName?: string | null;
   classe?: string | null;
   siteId?: string | null;
   /** Prefixe source_key (rdv-inscription | manuel | …). */
@@ -72,6 +75,8 @@ export async function createElevePreinscrit(
       prenom,
       parentEmail,
       parentPhone: parentPhone || null,
+      parentFirstName: input.parentFirstName?.trim() || null,
+      parentLastName: input.parentLastName?.trim() || null,
     });
   } catch (e) {
     console.error("[createElevePreinscrit] foyer:", e);

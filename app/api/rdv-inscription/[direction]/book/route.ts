@@ -39,12 +39,21 @@ export async function POST(req: Request, ctx: Ctx) {
       );
     }
 
+    const attendeeRaw = String(body.rdvAttendee || "").trim();
+    const rdvAttendee =
+      attendeeRaw === "madame" || attendeeRaw === "monsieur" || attendeeRaw === "les_deux"
+        ? attendeeRaw
+        : undefined;
+
     const result = await bookPublicRdvInscription(slug, {
       eventId: String(body.eventId || "").trim(),
       studentFirstName: String(body.studentFirstName || "").trim(),
       studentLastName: String(body.studentLastName || "").trim(),
       parentEmail: String(body.parentEmail || "").trim(),
       parentPhone: String(body.parentPhone || "").trim(),
+      parentFirstName: String(body.parentFirstName || "").trim() || undefined,
+      parentLastName: String(body.parentLastName || "").trim() || undefined,
+      rdvAttendee,
       niveauId: String(body.niveauId || "").trim(),
       eleveId: body.eleveId ? String(body.eleveId).trim() : null,
       createNew: body.createNew === true || body.createNew === "true" || body.createNew === 1,
