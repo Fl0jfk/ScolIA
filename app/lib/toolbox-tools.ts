@@ -64,10 +64,10 @@ export type ToolboxHubLinkMeta = {
 export const TOOLBOX_HUB_LINKS: ToolboxHubLinkMeta[] = [
   {
     id: "photocopies-couleur",
-    label: "Photocopies couleur",
+    label: "Photocopies",
     shortLabel: "Photo.",
-    description: "Demander une impression couleur — validation direction puis service impressions.",
-    adminPath: "/photocopies-couleur",
+    description: "Noir et blanc (direct) ou couleur (validation direction) — service impressions.",
+    adminPath: "/photocopies",
     color: "text-fuchsia-800",
     bg: "bg-fuchsia-50",
   },

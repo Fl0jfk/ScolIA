@@ -291,13 +291,13 @@ function ModuleQuickActions({
     return (
       <div className="mt-auto flex flex-wrap gap-2 pt-3">
         <Link
-          href="/photocopies-couleur"
+          href="/photocopies"
           className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
         >
           Ouvrir
         </Link>
         <Link
-          href="/photocopies-couleur#file-impression"
+          href="/photocopies#file-impression"
           className="rounded-full border border-white/70 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-[var(--dash-primary)] hover:bg-white"
         >
           File impression

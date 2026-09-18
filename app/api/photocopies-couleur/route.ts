@@ -25,10 +25,18 @@ import {
   resolvePhotocopiesOpsEmailsWithHandlers,
   resolvePhotocopiesOpsViewer,
 } from "@/app/lib/photocopies-couleur-ops-server";
-import type { PhotoCopieActor, PhotoCopieDocument, PhotoCopieRecord } from "@/app/lib/photocopies-couleur-types";
+import type {
+  PhotoCopieActor,
+  PhotoCopieDocument,
+  PhotoCopieRecord,
+  PhotoCopieTypeImpression,
+} from "@/app/lib/photocopies-couleur-types";
 import {
   PHOTOCOPIES_MAX_DOCUMENTS,
   getPhotocopieDocuments,
+  isPhotoCopieNoirBlanc,
+  normalizePhotoCopieTypeImpression,
+  photoCopieTypeImpressionLabel,
   photocopieDocumentFields,
   photocopiePersonLabel,
 } from "@/app/lib/photocopies-couleur-types";
@@ -151,6 +159,92 @@ function parseDocumentsFromBody(body: Record<string, unknown>): {
 
 function isValidEtab(v: string, establishments: Establishment[]): boolean {
   return Boolean(matchEstablishment(establishments, v));
+}
+
+type PhotocopieMailer = NonNullable<Awaited<ReturnType<typeof getMailer>>>;
+
+async function notifyOpsPrintQueue(opts: {
+  mail: PhotocopieMailer;
+  record: PhotoCopieRecord;
+  opsEmails: string[];
+  baseUrl: string;
+  directionNote?: string;
+  /** Acceptation direction vs dépôt N&B direct. */
+  source: "direction" | "noir_blanc";
+}) {
+  const { mail, record, opsEmails, baseUrl, directionNote, source } = opts;
+  if (opsEmails.length === 0) return;
+
+  const typeLabel = photoCopieTypeImpressionLabel(
+    normalizePhotoCopieTypeImpression(record.typeImpression),
+  );
+  const opsAttachments = await loadDocumentAttachments(record);
+  const opsDocs = getPhotocopieDocuments(record);
+  const opsLink = `${baseUrl}#file-impression`;
+  const attachmentLabel =
+    opsAttachments.length === 1
+      ? `Le document à imprimer est joint à cet e-mail (${opsDocs[0]?.fileName || "PDF"}).`
+      : opsAttachments.length > 1
+        ? `${opsAttachments.length} documents à imprimer sont joints à cet e-mail (${opsDocs
+            .map((d) => d.fileName)
+            .join(", ")}).`
+        : `Aucun PDF joint : voir l'intranet ou contacter le demandeur.`;
+
+  const intro =
+    source === "noir_blanc"
+      ? `Une demande de photocopies noir et blanc a été déposée : elle est directement dans votre file d'impression (validation direction non requise).`
+      : `Une demande de photocopies couleur a été acceptée : elle est dans votre file d'impression sur l'intranet.`;
+
+  const { smtp, transporter } = mail;
+  await transporter.sendMail({
+    from: `"Demandes photocopies" <${smtp.user}>`,
+    to: opsEmails.join(", "),
+    subject: `[À imprimer] Photocopies ${typeLabel.toLowerCase()} — ${record.createdBy.name} (${record.etablissement})`,
+    text: [
+      `Bonjour,`,
+      ``,
+      intro,
+      ``,
+      `Type : ${typeLabel}`,
+      `Demandeur : ${record.createdBy.name} (${record.createdBy.email})`,
+      record.submittedBy
+        ? `Déposée par : ${record.submittedBy.name} (${record.submittedBy.email})`
+        : "",
+      `Établissement : ${record.etablissement}`,
+      source === "direction" && record.decidedBy?.name
+        ? `Décision par : ${record.decidedBy.name}`
+        : "",
+      `Nombre : ${record.nombrePhotocopies}`,
+      `Motif : ${record.motif}`,
+      `Classes / matière : ${record.classesOuMatiere}`,
+      directionNote ? `Note direction : ${directionNote}` : "",
+      attachmentLabel,
+      ``,
+      `Ouvrir la file d'impression : ${opsLink}`,
+      ``,
+      `Cordialement,`,
+      `Plateforme La Providence Nicolas Barré`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    html: `<p>Bonjour,</p>
+<p>${intro}</p>
+<ul>
+<li>Type : ${typeLabel}</li>
+<li>Demandeur : ${record.createdBy.name} (${record.createdBy.email})</li>
+${record.submittedBy ? `<li>Déposée par : ${record.submittedBy.name}</li>` : ""}
+<li>Établissement : ${record.etablissement}</li>
+<li>Nombre : ${record.nombrePhotocopies}</li>
+<li>Classes / matière : ${record.classesOuMatiere}</li>
+${opsDocs.length > 0 ? `<li>PDF : ${opsDocs.map((d) => d.fileName).join(", ")}</li>` : ""}
+</ul>
+<p style="margin:1.5rem 0;">
+  <a href="${opsLink}" style="display:inline-block;padding:12px 24px;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">
+    Ouvrir la file d'impression
+  </a>
+</p>`,
+    ...(opsAttachments.length > 0 ? { attachments: opsAttachments } : {}),
+  });
 }
 
 function enrichPhotocopieActor<T extends PhotoCopieActor>(
@@ -339,11 +433,18 @@ export async function POST(req: Request) {
   }
   const documentFields = photocopieDocumentFields(parsedDocs.docs);
 
+  const typeImpression: PhotoCopieTypeImpression = normalizePhotoCopieTypeImpression(
+    body.typeImpression ?? body.type ?? body.modeImpression,
+  );
+  const isNoirBlanc = typeImpression === "NOIR_BLANC";
+  const nowIso = new Date().toISOString();
+
   const record: PhotoCopieRecord = {
     id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    status: "EN_ATTENTE",
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    status: isNoirBlanc ? "ACCEPTEE" : "EN_ATTENTE",
+    typeImpression,
     createdBy: {
       userId: subjectUserId,
       name: subjectName,
@@ -362,10 +463,67 @@ export async function POST(req: Request) {
     all.push(record);
     await saveIndex(all);
 
-    const dir = await resolveDirectorMail(etablissement);
     const mail = await getMailer();
     const docAttachments = await loadDocumentAttachments(record);
-    const photocopiesLink = await tenantAbsolutePath("/photocopies-couleur");
+    const photocopiesLink = await tenantAbsolutePath("/photocopies");
+    const typeLabel = photoCopieTypeImpressionLabel(typeImpression);
+
+    if (isNoirBlanc) {
+      // N&B : pas de direction — file impressions directement.
+      if (mail) {
+        const opsEmails = await resolvePhotocopiesOpsEmailsWithHandlers();
+        try {
+          await notifyOpsPrintQueue({
+            mail,
+            record,
+            opsEmails,
+            baseUrl: photocopiesLink,
+            source: "noir_blanc",
+          });
+        } catch (mailErr) {
+          console.error("[photocopies-couleur] mail ops N&B:", mailErr);
+        }
+
+        // Accusé de réception au demandeur (pas de validation direction).
+        const creatorEmail = record.createdBy.email?.trim();
+        if (creatorEmail) {
+          const { smtp, transporter } = mail;
+          try {
+            await transporter.sendMail({
+              from: `"Demandes photocopies" <${smtp.user}>`,
+              to: creatorEmail,
+              subject: "Votre demande de photocopies noir et blanc est en impression",
+              text: [
+                `Bonjour ${record.createdBy.name},`,
+                ``,
+                `Votre demande de photocopies noir et blanc a été transmise directement au service impressions (validation direction non requise).`,
+                ``,
+                `Établissement : ${etablissement}`,
+                `Nombre : ${nb}`,
+                `Classes / matière : ${classeField}`,
+                `Motif : ${motif}`,
+                ``,
+                `Vous serez prévenu(e) lorsqu'elles seront prêtes.`,
+                ``,
+                `Détail sur l'intranet : ${photocopiesLink}`,
+                ``,
+                `Cordialement,`,
+                `La Providence Nicolas Barré`,
+              ].join("\n"),
+            });
+          } catch (mailErr) {
+            console.error("[photocopies-couleur] mail demandeur N&B:", mailErr);
+          }
+        }
+      } else {
+        console.warn("[photocopies-couleur] SMTP non configuré — pas d'email ops N&B.");
+      }
+
+      return NextResponse.json({ success: true, id: record.id, status: record.status });
+    }
+
+    // Couleur : circuit direction inchangé.
+    const dir = await resolveDirectorMail(etablissement);
     if (mail) {
       const { smtp, transporter } = mail;
       try {
@@ -378,6 +536,7 @@ export async function POST(req: Request) {
             ``,
             `Une nouvelle demande de photocopies couleur a été déposée sur l'intranet.`,
             ``,
+            `Type : ${typeLabel}`,
             `Demandeur : ${record.createdBy.name} (${record.createdBy.email})`,
             submittedBy
               ? `Déposée par : ${submittedBy.name} (${submittedBy.email}) pour le compte de l'enseignant.`
@@ -408,7 +567,7 @@ export async function POST(req: Request) {
       console.warn("[photocopies-couleur] SMTP non configuré — pas d'email direction.");
     }
 
-    return NextResponse.json({ success: true, id: record.id });
+    return NextResponse.json({ success: true, id: record.id, status: record.status });
   } catch (e) {
     console.error("[photocopies-couleur] POST", e);
     return NextResponse.json({ error: "Enregistrement impossible." }, { status: 500 });
@@ -460,7 +619,7 @@ export async function PATCH(req: Request) {
 
     const current = all[idx];
     const bundle = await loadAppConfig();
-    const base = await tenantAbsolutePath("/photocopies-couleur");
+    const base = await tenantAbsolutePath("/photocopies");
 
     // —— Ops : marquer imprimée (ACCEPTEE → PRETE) ——
     if (statusRaw === "PRETE") {
@@ -475,7 +634,7 @@ export async function PATCH(req: Request) {
       }
       if (current.status !== "ACCEPTEE") {
         return NextResponse.json(
-          { error: "Seules les demandes acceptées par la direction peuvent être marquées imprimées." },
+          { error: "Seules les demandes en file d'impression peuvent être marquées imprimées." },
           { status: 400 },
         );
       }
@@ -495,19 +654,23 @@ export async function PATCH(req: Request) {
 
       const mail = await getMailer();
       const creatorEmail = updated.createdBy.email?.trim();
+      const typeLabel = photoCopieTypeImpressionLabel(
+        normalizePhotoCopieTypeImpression(updated.typeImpression),
+      );
       if (mail && creatorEmail) {
         const { smtp, transporter } = mail;
         try {
           await transporter.sendMail({
             from: `"Demandes photocopies" <${smtp.user}>`,
             to: creatorEmail,
-            subject: "Vos photocopies couleur sont prêtes",
+            subject: `Vos photocopies ${typeLabel.toLowerCase()} sont prêtes`,
             text: [
               `Bonjour ${updated.createdBy.name},`,
               ``,
-              `Vos photocopies couleur sont prêtes à être retirées.`,
+              `Vos photocopies ${typeLabel.toLowerCase()} sont prêtes à être retirées.`,
               ``,
               `Établissement : ${updated.etablissement}`,
+              `Type : ${typeLabel}`,
               `Nombre : ${updated.nombrePhotocopies}`,
               `Classes / matière : ${updated.classesOuMatiere}`,
               `Marqué prêt par : ${readyByName}`,
@@ -518,9 +681,10 @@ export async function PATCH(req: Request) {
               `La Providence Nicolas Barré`,
             ].join("\n"),
             html: `<p>Bonjour ${updated.createdBy.name},</p>
-<p><strong>Vos photocopies couleur sont prêtes</strong> à être retirées.</p>
+<p><strong>Vos photocopies ${typeLabel.toLowerCase()} sont prêtes</strong> à être retirées.</p>
 <ul>
 <li>Établissement : ${updated.etablissement}</li>
+<li>Type : ${typeLabel}</li>
 <li>Nombre : ${updated.nombrePhotocopies}</li>
 <li>Classes / matière : ${updated.classesOuMatiere}</li>
 </ul>
@@ -534,7 +698,13 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true });
     }
 
-    // —— Direction : accepter / refuser ——
+    // —— Direction : accepter / refuser (uniquement circuit couleur) ——
+    if (isPhotoCopieNoirBlanc(current)) {
+      return NextResponse.json(
+        { error: "Les photocopies noir et blanc ne passent pas par la direction." },
+        { status: 400 },
+      );
+    }
     if (!canManagePhotocopiesDemand(current, roles, bundle.establishments, userId)) {
       return NextResponse.json({ error: "Décision réservée à la direction concernée." }, { status: 403 });
     }
@@ -545,6 +715,7 @@ export async function PATCH(req: Request) {
     const updated: PhotoCopieRecord = {
       ...current,
       status: statusRaw as "ACCEPTEE" | "REFUSEE",
+      typeImpression: normalizePhotoCopieTypeImpression(current.typeImpression),
       updatedAt: new Date().toISOString(),
       decidedBy: { userId, name: readyByName },
       decidedAt: new Date().toISOString(),
@@ -608,62 +779,14 @@ export async function PATCH(req: Request) {
       }
 
       if (updated.status === "ACCEPTEE" && opsEmails.length > 0) {
-        const opsAttachments = await loadDocumentAttachments(updated);
-        const opsDocs = getPhotocopieDocuments(updated);
-        const opsLink = `${base}#file-impression`;
-        const attachmentLabel =
-          opsAttachments.length === 1
-            ? `Le document à imprimer est joint à cet e-mail (${opsDocs[0]?.fileName || "PDF"}).`
-            : opsAttachments.length > 1
-              ? `${opsAttachments.length} documents à imprimer sont joints à cet e-mail (${opsDocs
-                  .map((d) => d.fileName)
-                  .join(", ")}).`
-              : `Aucun PDF joint : voir l'intranet ou contacter le demandeur.`;
         try {
-          await transporter.sendMail({
-            from: `"Demandes photocopies" <${smtp.user}>`,
-            to: opsEmails.join(", "),
-            subject: `[À imprimer] Photocopies couleur — ${updated.createdBy.name} (${updated.etablissement})`,
-            text: [
-              `Bonjour,`,
-              ``,
-              `Une demande de photocopies couleur a été acceptée : elle est dans votre file d'impression sur l'intranet.`,
-              ``,
-              `Demandeur : ${updated.createdBy.name} (${updated.createdBy.email})`,
-              updated.submittedBy
-                ? `Déposée par : ${updated.submittedBy.name} (${updated.submittedBy.email})`
-                : "",
-              `Établissement : ${updated.etablissement}`,
-              `Décision par : ${updated.decidedBy?.name}`,
-              `Nombre : ${updated.nombrePhotocopies}`,
-              `Motif : ${updated.motif}`,
-              `Classes / matière : ${updated.classesOuMatiere}`,
-              directionNote ? `Note direction : ${directionNote}` : "",
-              attachmentLabel,
-              ``,
-              `Ouvrir la file d'impression : ${opsLink}`,
-              ``,
-              `Cordialement,`,
-              `Plateforme La Providence Nicolas Barré`,
-            ]
-              .filter(Boolean)
-              .join("\n"),
-            html: `<p>Bonjour,</p>
-<p>Une demande de photocopies couleur a été <strong>acceptée</strong> : elle est dans votre <strong>file d'impression</strong> sur l'intranet.</p>
-<ul>
-<li>Demandeur : ${updated.createdBy.name} (${updated.createdBy.email})</li>
-${updated.submittedBy ? `<li>Déposée par : ${updated.submittedBy.name}</li>` : ""}
-<li>Établissement : ${updated.etablissement}</li>
-<li>Nombre : ${updated.nombrePhotocopies}</li>
-<li>Classes / matière : ${updated.classesOuMatiere}</li>
-${opsDocs.length > 0 ? `<li>PDF : ${opsDocs.map((d) => d.fileName).join(", ")}</li>` : ""}
-</ul>
-<p style="margin:1.5rem 0;">
-  <a href="${opsLink}" style="display:inline-block;padding:12px 24px;background:#0f766e;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700;">
-    Ouvrir la file d'impression
-  </a>
-</p>`,
-            ...(opsAttachments.length > 0 ? { attachments: opsAttachments } : {}),
+          await notifyOpsPrintQueue({
+            mail,
+            record: updated,
+            opsEmails,
+            baseUrl: base,
+            directionNote,
+            source: "direction",
           });
         } catch (e) {
           console.error("[photocopies-couleur] mail ops:", e);

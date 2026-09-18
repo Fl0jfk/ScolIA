@@ -22,10 +22,14 @@ import {
   PHOTOCOPIES_MAX_DOCUMENTS,
   getPhotocopieDocuments,
   hasPhotocopieDocuments,
+  normalizePhotoCopieTypeImpression,
+  photoCopieTypeImpressionLabel,
   photocopieDocumentFields,
   type PhotoCopieDocument,
   type PhotoCopieRecord,
+  type PhotoCopieTypeImpression,
 } from "@/app/lib/photocopies-couleur-types";
+import { resolvePhotocopiesOpsEmailsWithHandlers } from "@/app/lib/photocopies-couleur-ops-server";
 
 const INDEX_KEY = "photocopies-couleur/index.json";
 
@@ -107,7 +111,7 @@ export async function handleListPhotocopies(
   const { establishments } = await loadEtabOptions();
   const f = getPhotocopiesRoleFlags(ctx.roles);
   if (!canCreatePhotocopiesDemand(ctx.roles) && !f.isDirection && !isAnyDirectionRole(ctx.roles)) {
-    return { ok: false, error: "Accès réservé aux photocopies couleur.", code: "MODULE_FORBIDDEN" };
+    return { ok: false, error: "Accès réservé aux photocopies.", code: "MODULE_FORBIDDEN" };
   }
 
   const statusFilter = typeof args.status === "string" ? args.status.trim().toUpperCase() : "";
@@ -140,7 +144,7 @@ export async function handleListPhotocopies(
     data: {
       items: brief,
       totalVisible: items.length,
-      ctas: [{ label: "Ouvrir Photocopies couleur", href: "/photocopies-couleur" }],
+      ctas: [{ label: "Ouvrir Photocopies", href: "/photocopies" }],
     },
     summaryFr:
       brief.length === 0
@@ -173,6 +177,12 @@ export async function handleCreatePhotocopie(
   let etablissement = String(args.etablissement || "").trim();
   let motif = String(args.motif || "").trim();
   let classesOuMatiere = String(args.classesOuMatiere || "").trim();
+  const typeRaw = args.typeImpression ?? args.type;
+  const typeProvided =
+    typeRaw !== undefined && typeRaw !== null && String(typeRaw).trim() !== "";
+  const typeImpression: PhotoCopieTypeImpression | null = typeProvided
+    ? normalizePhotoCopieTypeImpression(typeRaw)
+    : null;
   const nbRaw = args.nombrePhotocopies;
   const nb = Number(nbRaw);
   const parsedDocs = parseDocumentsFromArgs(args);
@@ -182,9 +192,10 @@ export async function handleCreatePhotocopie(
   const docs = parsedDocs.docs;
   const documentFields = photocopieDocumentFields(docs);
 
-  const total = 4;
+  const total = 5;
   let step = 1;
   const draft = (): Record<string, unknown> => ({
+    ...(typeImpression ? { typeImpression } : {}),
     etablissement,
     motif,
     classesOuMatiere,
@@ -192,13 +203,33 @@ export async function handleCreatePhotocopie(
     ...documentFields,
   });
 
+  if (!typeImpression) {
+    return choicesResult(
+      "create_photocopie_demand",
+      "typeImpression",
+      wizardStep(step, total, "Photocopies — noir et blanc ou couleur ?"),
+      [
+        {
+          value: "NOIR_BLANC",
+          label: "Noir et blanc (direct impressions)",
+        },
+        {
+          value: "COULEUR",
+          label: "Couleur (validation direction)",
+        },
+      ],
+      draft(),
+    );
+  }
+  step += 1;
+
   const { establishments, choices } = await loadEtabOptions();
   const matched = matchEstablishment(establishments, etablissement);
   if (!matched) {
     return choicesResult(
       "create_photocopie_demand",
       "etablissement",
-      wizardStep(step, total, "Demande de photocopies couleur — pour quel établissement ?"),
+      wizardStep(step, total, "Pour quel établissement ?"),
       choices,
       draft(),
     );
@@ -241,6 +272,9 @@ export async function handleCreatePhotocopie(
     );
   }
 
+  const typeLabel = photoCopieTypeImpressionLabel(typeImpression);
+  const isNoirBlanc = typeImpression === "NOIR_BLANC";
+
   if (!ctx.confirmed) {
     const pdfLine =
       docs.length === 0
@@ -253,6 +287,7 @@ export async function handleCreatePhotocopie(
       needsConfirmation: true,
       tool: "create_photocopie_demand",
       args: {
+        typeImpression,
         etablissement,
         motif,
         classesOuMatiere,
@@ -260,7 +295,8 @@ export async function handleCreatePhotocopie(
         ...documentFields,
       },
       summaryFr:
-        `Récapitulatif — ${nb} photocopie(s) couleur\n` +
+        `Récapitulatif — ${nb} photocopie(s) ${typeLabel.toLowerCase()}\n` +
+        `• Circuit : ${isNoirBlanc ? "direct service impressions" : "validation direction puis impressions"}\n` +
         `• Établissement : ${etablissement}\n` +
         `• Classes / matière : ${classesOuMatiere}\n` +
         `• Motif : ${motif.slice(0, 160)}${motif.length > 160 ? "…" : ""}\n` +
@@ -268,11 +304,13 @@ export async function handleCreatePhotocopie(
     };
   }
 
+  const nowIso = new Date().toISOString();
   const record: PhotoCopieRecord = {
     id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    status: "EN_ATTENTE",
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    status: isNoirBlanc ? "ACCEPTEE" : "EN_ATTENTE",
+    typeImpression,
     createdBy: {
       userId: ctx.userId,
       name: [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || ctx.email,
@@ -296,52 +334,78 @@ export async function handleCreatePhotocopie(
     const dirName = est?.directorName || est?.label || etablissement;
     const smtp = await getTenantSmtpConfig();
     const transporter = smtp ? await createTenantTransporter() : null;
-    if (transporter && smtp && dirEmail) {
-      const link = await tenantAbsolutePath("/photocopies-couleur");
-      const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [];
-      const usedNames = new Map<string, number>();
-      for (const doc of getPhotocopieDocuments(record)) {
-        const bytes = await getObjectBytes(doc.key);
-        if (!bytes?.length) continue;
-        const base = doc.fileName || "document.pdf";
-        const count = (usedNames.get(base) ?? 0) + 1;
-        usedNames.set(base, count);
-        const filename =
-          count === 1
-            ? base
-            : /\.pdf$/i.test(base)
-              ? base.replace(/\.pdf$/i, `-${count}.pdf`)
-              : `${base}-${count}`;
-        attachments.push({
-          filename,
-          content: bytes,
-          contentType: doc.contentType || "application/pdf",
+    const link = await tenantAbsolutePath("/photocopies");
+    const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [];
+    const usedNames = new Map<string, number>();
+    for (const doc of getPhotocopieDocuments(record)) {
+      const bytes = await getObjectBytes(doc.key);
+      if (!bytes?.length) continue;
+      const base = doc.fileName || "document.pdf";
+      const count = (usedNames.get(base) ?? 0) + 1;
+      usedNames.set(base, count);
+      const filename =
+        count === 1
+          ? base
+          : /\.pdf$/i.test(base)
+            ? base.replace(/\.pdf$/i, `-${count}.pdf`)
+            : `${base}-${count}`;
+      attachments.push({
+        filename,
+        content: bytes,
+        contentType: doc.contentType || "application/pdf",
+      });
+    }
+
+    if (transporter && smtp) {
+      if (isNoirBlanc) {
+        const opsEmails = await resolvePhotocopiesOpsEmailsWithHandlers();
+        if (opsEmails.length > 0) {
+          await transporter.sendMail({
+            from: `"Demandes photocopies" <${smtp.user}>`,
+            to: opsEmails.join(", "),
+            subject: `[À imprimer] Photocopies noir et blanc — ${record.createdBy.name} (${etablissement})`,
+            text: [
+              `Bonjour,`,
+              ``,
+              `Une demande de photocopies noir et blanc a été déposée (validation direction non requise).`,
+              ``,
+              `Demandeur : ${record.createdBy.name} (${record.createdBy.email})`,
+              `Établissement : ${etablissement}`,
+              `Motif : ${motif}`,
+              `Classes / matière : ${classesOuMatiere}`,
+              `Nombre : ${nb}`,
+              ``,
+              `File d'impression : ${link}#file-impression`,
+            ].join("\n"),
+            ...(attachments.length > 0 ? { attachments } : {}),
+          });
+        }
+      } else if (dirEmail) {
+        await transporter.sendMail({
+          from: `"Demandes photocopies" <${smtp.user}>`,
+          to: dirEmail,
+          subject: `Photocopies couleur — nouvelle demande (${etablissement})`,
+          text: [
+            `Bonjour ${dirName},`,
+            ``,
+            `Demandeur : ${record.createdBy.name} (${record.createdBy.email})`,
+            `Établissement : ${etablissement}`,
+            `Motif : ${motif}`,
+            `Classes / matière : ${classesOuMatiere}`,
+            `Nombre : ${nb}`,
+            attachments.length === 1
+              ? `Document à imprimer : joint à cet e-mail.`
+              : attachments.length > 1
+                ? `${attachments.length} documents à imprimer : joints à cet e-mail.`
+                : "",
+            ``,
+            `Traiter : ${link}`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          ...(attachments.length > 0 ? { attachments } : {}),
         });
       }
-      await transporter.sendMail({
-        from: `"Demandes photocopies" <${smtp.user}>`,
-        to: dirEmail,
-        subject: `Photocopies couleur — nouvelle demande (${etablissement})`,
-        text: [
-          `Bonjour ${dirName},`,
-          ``,
-          `Demandeur : ${record.createdBy.name} (${record.createdBy.email})`,
-          `Établissement : ${etablissement}`,
-          `Motif : ${motif}`,
-          `Classes / matière : ${classesOuMatiere}`,
-          `Nombre : ${nb}`,
-          attachments.length === 1
-            ? `Document à imprimer : joint à cet e-mail.`
-            : attachments.length > 1
-              ? `${attachments.length} documents à imprimer : joints à cet e-mail.`
-              : "",
-          ``,
-          `Traiter : ${link}`,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-        ...(attachments.length > 0 ? { attachments } : {}),
-      });
     }
   } catch (err) {
     console.warn("[brain-ai] photocopies mail failed", err);
@@ -351,15 +415,18 @@ export async function handleCreatePhotocopie(
     ok: true,
     data: {
       id: record.id,
-      followUrl: "/photocopies-couleur",
-      ctas: [{ label: "Suivre la demande", href: "/photocopies-couleur" }],
+      status: record.status,
+      typeImpression,
+      followUrl: "/photocopies",
+      ctas: [{ label: "Suivre la demande", href: "/photocopies" }],
     },
     summaryFr:
-      `Demande photocopies créée (${record.id}) — ${nb} ex. pour ${classesOuMatiere}` +
+      `Demande photocopies ${typeLabel.toLowerCase()} créée (${record.id}) — ${nb} ex. pour ${classesOuMatiere}` +
+      (isNoirBlanc ? " (file impressions)." : " (en attente direction).") +
       (docs.length === 0
-        ? "."
+        ? ""
         : docs.length === 1
-          ? ` avec PDF « ${docs[0].fileName} ».`
-          : ` avec ${docs.length} PDF.`),
+          ? ` PDF « ${docs[0].fileName} ».`
+          : ` ${docs.length} PDF.`),
   };
 }

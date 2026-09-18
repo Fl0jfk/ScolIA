@@ -590,7 +590,9 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
   let photocopiesOpsBypass = false;
   if (
     !pathAllowed &&
-    (pathname === "/photocopies-couleur" ||
+    (pathname === "/photocopies" ||
+      pathname.startsWith("/photocopies/") ||
+      pathname === "/photocopies-couleur" ||
       pathname.startsWith("/photocopies-couleur/") ||
       pathname === "/api/photocopies-couleur" ||
       pathname.startsWith("/api/photocopies-couleur/"))

@@ -157,9 +157,9 @@ export default function SettingsNotificationsPanel({
           />
         </SettingsField>
         <SettingsField
-          label="Réceptionnaires photocopies couleur"
+          label="Réceptionnaires photocopies"
           as="div"
-          hint="Préférez Paramètres → Droits modules → case « Réceptionnaire impressions » sous Photocopies couleur. Cette liste e-mail reste un repli legacy."
+          hint="Préférez Paramètres → Droits modules → case « Réceptionnaire impressions » sous Photocopies. Cette liste e-mail reste un repli legacy."
         >
           <DirectoryPeopleSelect
             members={directoryMembers}

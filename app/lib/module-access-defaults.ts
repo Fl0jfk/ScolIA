@@ -243,7 +243,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
   ],
 };
 
-/** Rôles réceptionnaires photocopies couleur par défaut (file « à imprimer »). */
+/** Rôles réceptionnaires photocopies par défaut (file « à imprimer »). */
 export const ROLE_DEFAULT_PHOTOCOPIES_OPS: ReadonlySet<string> = new Set(["accueil"]);
 
 export function roleHasDefaultPhotocopiesOps(role: string): boolean {

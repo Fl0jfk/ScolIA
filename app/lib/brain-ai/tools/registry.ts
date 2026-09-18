@@ -257,7 +257,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "list_photocopies",
     description:
-      "Liste les demandes de photocopies couleur visibles (soi ou direction établissement). Filtre status optionnel.",
+      "Liste les demandes de photocopies visibles (soi ou direction établissement). Filtre status optionnel.",
     parameters: {
       type: "object",
       properties: {
@@ -266,7 +266,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
       },
       additionalProperties: false,
     },
-    pathPrefix: "/photocopies-couleur",
+    pathPrefix: "/photocopies",
     moduleId: "photocopies-couleur",
     requiresAuth: true,
     mutates: false,
@@ -275,10 +275,15 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "create_photocopie_demand",
     description:
-      "Démarre / poursuit un wizard de photocopies couleur. Appeler immédiatement (même sans args) : établissement → motif → classes/matière → nombre → confirmation. Si PDF joints via trombone, passer documents[] (max 5) ou documentKey/documentFileName/documentContentType.",
+      "Démarre / poursuit un wizard de photocopies. Appeler immédiatement (même sans args) : typeImpression (NOIR_BLANC|COULEUR) → établissement → motif → classes/matière → nombre → confirmation. N&B = file impressions directe ; couleur = validation direction. Si PDF joints via trombone, passer documents[] (max 5) ou documentKey/documentFileName/documentContentType.",
     parameters: {
       type: "object",
       properties: {
+        typeImpression: {
+          type: "string",
+          enum: ["NOIR_BLANC", "COULEUR"],
+          description: "NOIR_BLANC = direct impressions ; COULEUR = validation direction",
+        },
         etablissement: { type: "string" },
         motif: { type: "string" },
         classesOuMatiere: { type: "string" },
@@ -303,7 +308,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
       required: [],
       additionalProperties: false,
     },
-    pathPrefix: "/photocopies-couleur",
+    pathPrefix: "/photocopies",
     moduleId: "photocopies-couleur",
     requiresAuth: true,
     mutates: true,

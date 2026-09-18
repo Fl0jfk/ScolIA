@@ -44,7 +44,7 @@ const SKIP_MODULE_IDS = new Set([
 export type ModuleAccessOverride = {
   modules: string[];
   dossierSections?: EleveDossierSection[];
-  /** Réceptionnaire file d'impression photocopies couleur. */
+  /** Réceptionnaire file d'impression photocopies. */
   photocopiesOps?: boolean;
   /** Administrateur du module réservation de salles. */
   profRoomAdmin?: boolean;

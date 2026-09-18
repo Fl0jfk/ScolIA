@@ -460,17 +460,17 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "photocopies-couleur",
-    pathPrefixes: ["/photocopies-couleur", "/api/photocopies-couleur"],
+    pathPrefixes: ["/photocopies", "/photocopies-couleur", "/api/photocopies-couleur"],
     allowedRoles: [...DIRECTIONS, "administratif", "accueil", "professeur"],
     dashboard: {
       id: 502,
-      name: "Photocopies couleur",
+      name: "Photocopies",
       img: "",
-      link: "/photocopies-couleur",
+      link: "/photocopies",
       external: false,
       variant: "photocopies-couleur",
       description:
-        "Demander une impression couleur — validation direction puis service impressions.",
+        "Photocopies noir et blanc (direct impressions) ou couleur (validation direction).",
     },
   },
   {

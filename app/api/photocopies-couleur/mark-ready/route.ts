@@ -7,6 +7,10 @@ import {
 import { tenantAbsolutePath } from "@/app/lib/tenant-context";
 import { openPhotocopieReadyToken } from "@/app/lib/photocopies-couleur-ready-token";
 import type { PhotoCopieRecord } from "@/app/lib/photocopies-couleur-types";
+import {
+  normalizePhotoCopieTypeImpression,
+  photoCopieTypeImpressionLabel,
+} from "@/app/lib/photocopies-couleur-types";
 
 const INDEX_KEY = "photocopies-couleur/index.json";
 
@@ -121,7 +125,10 @@ export async function GET(req: Request) {
     await saveIndex(all);
 
     const creatorEmail = updated.createdBy.email?.trim();
-    const intranetLink = await tenantAbsolutePath("/photocopies-couleur");
+    const intranetLink = await tenantAbsolutePath("/photocopies");
+    const typeLabel = photoCopieTypeImpressionLabel(
+      normalizePhotoCopieTypeImpression(updated.typeImpression),
+    );
     const smtp = await getTenantSmtpConfig();
     const transporter = smtp ? await createTenantTransporter() : null;
     if (transporter && smtp && creatorEmail) {
@@ -129,13 +136,14 @@ export async function GET(req: Request) {
         await transporter.sendMail({
           from: `"Demandes photocopies" <${smtp.user}>`,
           to: creatorEmail,
-          subject: "Vos photocopies couleur sont prêtes",
+          subject: `Vos photocopies ${typeLabel.toLowerCase()} sont prêtes`,
           text: [
             `Bonjour ${updated.createdBy.name},`,
             ``,
-            `Vos photocopies couleur sont prêtes à être retirées.`,
+            `Vos photocopies ${typeLabel.toLowerCase()} sont prêtes à être retirées.`,
             ``,
             `Établissement : ${updated.etablissement}`,
+            `Type : ${typeLabel}`,
             `Nombre : ${updated.nombrePhotocopies}`,
             `Classes / matière : ${updated.classesOuMatiere}`,
             ``,
@@ -145,9 +153,10 @@ export async function GET(req: Request) {
             `La Providence Nicolas Barré`,
           ].join("\n"),
           html: `<p>Bonjour ${updated.createdBy.name},</p>
-<p><strong>Vos photocopies couleur sont prêtes</strong> à être retirées.</p>
+<p><strong>Vos photocopies ${typeLabel.toLowerCase()} sont prêtes</strong> à être retirées.</p>
 <ul>
 <li>Établissement : ${updated.etablissement}</li>
+<li>Type : ${typeLabel}</li>
 <li>Nombre : ${updated.nombrePhotocopies}</li>
 <li>Classes / matière : ${updated.classesOuMatiere}</li>
 </ul>

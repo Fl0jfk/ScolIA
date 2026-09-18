@@ -1325,8 +1325,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
             opsPending === 1
               ? who
                 ? `Demande validée de ${who}`
-                : "1 photocopie couleur à imprimer"
-              : `${opsPending} photocopies couleur à imprimer`,
+                : "1 photocopie à imprimer"
+              : `${opsPending} photocopies à imprimer`,
         });
       }
 
@@ -1350,8 +1350,8 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           href: photoHome,
           detail:
             readyCount === 1
-              ? "Votre demande de photocopies couleur est prête"
-              : `${readyCount} demandes de photocopies couleur sont prêtes`,
+              ? "Votre demande de photocopies est prête"
+              : `${readyCount} demandes de photocopies sont prêtes`,
         });
       }
 
@@ -1376,7 +1376,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
         pushNotif({
           id: "photo-dir",
           moduleId: "photocopies-couleur",
-          label: "Photocopies couleur",
+          label: "Photocopies",
           count: pendingDir,
           href: photoHome,
           detail:
@@ -1395,7 +1395,7 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           pillarId: "services",
           moduleId: "photocopies-couleur",
           href: photoSlides[0]!.href || photoHome,
-          label: "Photocopies couleur",
+          label: "Photocopies",
           rich: true,
           badge: `${totalPhoto}`,
           detail: photoSlides.map((s) => s.label).join(" · "),
@@ -1408,11 +1408,11 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
           pillarId: "services",
           moduleId: "photocopies-couleur",
           href: isOps ? `${photoHome}#file-impression` : photoHome,
-          label: "Photocopies couleur",
+          label: "Photocopies",
           rich: true,
           detail: isOps
             ? "File d'impression — rien en attente"
-            : "Demander une impression couleur",
+            : "Demander une impression (N&B ou couleur)",
           tone: "neutral",
         });
       }

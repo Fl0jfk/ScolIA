@@ -623,29 +623,29 @@ const MODULE_TOURS: ModuleTourDefinition[] = [
   },
   {
     moduleId: "photocopies-couleur",
-    title: "Photocopies couleur",
+    title: "Photocopies",
     steps: [
       {
         title: "Demandes d'impression",
-        body: "Les enseignants et le personnel déposent une demande de photocopies couleur. La direction de l'établissement concerné accepte ou refuse avant envoi au service impressions.",
+        body: "Choisissez noir et blanc (envoi direct au service impressions) ou couleur (validation de la direction avant impression).",
       },
       {
         target: "photocopies-new",
         title: "Nouvelle demande",
-        body: "Choisissez l'établissement, le motif, les classes ou la matière, le nombre de copies et joignez le PDF à imprimer (recommandé).",
+        body: "Indiquez le type d'impression, l'établissement, le motif, les classes ou la matière, le nombre de copies et joignez le PDF à imprimer (recommandé).",
         bullets: [
-          "Un e-mail valide sur votre compte est requis pour recevoir la décision.",
+          "Un e-mail valide sur votre compte est requis pour le suivi et le retrait.",
         ],
       },
       {
         target: "photocopies-mine",
         title: "Mes demandes",
-        body: "Suivez l'état de vos demandes : en attente, acceptée ou refusée, avec le message éventuel de la direction.",
+        body: "Suivez l'état de vos demandes : en attente (couleur), à imprimer, refusée ou prête.",
       },
       {
         target: "photocopies-queue",
         title: "File direction",
-        body: "Pour les directions : traitez les demandes de votre pôle (école, collège ou lycée). Acceptez ou refusez — le demandeur est notifié par e-mail.",
+        body: "Pour les directions : traitez uniquement les demandes couleur de votre pôle. Acceptez ou refusez — le demandeur est notifié par e-mail.",
       },
     ],
   },

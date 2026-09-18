@@ -1,5 +1,8 @@
 export type PhotoCopieStatus = "EN_ATTENTE" | "ACCEPTEE" | "REFUSEE" | "PRETE";
 
+/** Couleur : validation direction. Noir & blanc : envoi direct au service impressions. */
+export type PhotoCopieTypeImpression = "COULEUR" | "NOIR_BLANC";
+
 export type PhotoCopieEtablissement = string;
 
 export type PhotoCopieActor = {
@@ -42,6 +45,11 @@ export type PhotoCopieRecord = {
   createdAt: string;
   updatedAt: string;
   status: PhotoCopieStatus;
+  /**
+   * Absent sur les anciennes demandes (= couleur, circuit direction).
+   * `NOIR_BLANC` : créée directement en `ACCEPTEE` (file impressions, sans direction).
+   */
+  typeImpression?: PhotoCopieTypeImpression;
   createdBy: PhotoCopieActor & { email: string };
   submittedBy?: PhotoCopieActor & { roles?: string[] };
   etablissement: PhotoCopieEtablissement;
@@ -138,7 +146,7 @@ export function isPhotocopieReadyUnseen(rec: {
 }
 
 export function photoCopieStatusLabel(status: PhotoCopieStatus): string {
-  if (status === "ACCEPTEE") return "Acceptée";
+  if (status === "ACCEPTEE") return "À imprimer";
   if (status === "REFUSEE") return "Refusée";
   if (status === "PRETE") return "Prête";
   return "En attente";
@@ -149,4 +157,35 @@ export function photoCopieStatusBadgeClass(status: PhotoCopieStatus): string {
   if (status === "ACCEPTEE") return "bg-sky-50 text-sky-800 border-sky-200";
   if (status === "REFUSEE") return "bg-rose-50 text-rose-800 border-rose-200";
   return "bg-amber-50 text-amber-800 border-amber-200";
+}
+
+/** Normalise le type (anciennes demandes sans champ = couleur). */
+export function normalizePhotoCopieTypeImpression(
+  value: unknown,
+): PhotoCopieTypeImpression {
+  const raw = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+  if (raw === "NOIR_BLANC" || raw === "NB" || raw === "NOIR_ET_BLANC" || raw === "N_B") {
+    return "NOIR_BLANC";
+  }
+  return "COULEUR";
+}
+
+export function photoCopieTypeImpressionLabel(type: PhotoCopieTypeImpression): string {
+  return type === "NOIR_BLANC" ? "Noir et blanc" : "Couleur";
+}
+
+export function isPhotoCopieNoirBlanc(record: {
+  typeImpression?: PhotoCopieTypeImpression | string | null;
+}): boolean {
+  return normalizePhotoCopieTypeImpression(record.typeImpression) === "NOIR_BLANC";
+}
+
+/** True si la demande a (ou aurait) dû passer par la direction. */
+export function isPhotoCopieDirectionCircuit(record: {
+  typeImpression?: PhotoCopieTypeImpression | string | null;
+}): boolean {
+  return !isPhotoCopieNoirBlanc(record);
 }
