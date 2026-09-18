@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   anneeScolaire,
+  documentAccessRequest,
   eleve,
   eleveDocument,
   eleveFoyerLink,
@@ -12,9 +13,10 @@ import {
   foyer,
   foyerResponsable,
 } from "@/db/schema";
-import { requireAppUser } from "@/app/lib/intranet-session";
+import { getAppSession, requireAppUser } from "@/app/lib/intranet-session";
 import { resolveCurrentEtablissementId, syncEleveScolariteFromEleveRow, ensureEleveFoyerFromParentContacts } from "@/app/lib/ent-core-db";
 import {
+  canDecideDocumentAccessGrant,
   canDeleteEleveAccompagnementDocument,
   canDeleteEleveDocument,
   canDeleteSpecificEleveDocument,
@@ -28,6 +30,11 @@ import {
   type EleveDocConfidentialite,
   type EleveDocTiroir,
 } from "@/app/lib/eleve-dossier-access";
+import { normalizeDocumentAccessDurationDays } from "@/app/lib/eleve-document-access-duration";
+import {
+  documentAccessOwnerKind,
+  notifyDocumentAccessOwner,
+} from "@/app/lib/eleve-document-access-notify";
 import {
   accompagnementKindDef,
   detectAccompagnementKind,
@@ -79,6 +86,7 @@ const TIROIRS: EleveDocTiroir[] = [
   "sante",
   "vie_scolaire",
   "orientation",
+  "psychologue",
 ];
 const CONFIDS: EleveDocConfidentialite[] = ["standard", "restreint", "sante"];
 
@@ -363,6 +371,59 @@ export async function GET(req: Request, ctx: Ctx) {
       d.createdAt instanceof Date ? d.createdAt.toISOString() : String(d.createdAt ?? ""),
   }));
 
+  const pendingAccessRequests =
+    needDocs && loadExtras
+      ? await db
+          .select({
+            id: documentAccessRequest.id,
+            documentId: documentAccessRequest.documentId,
+            requesterUserId: documentAccessRequest.requesterUserId,
+            durationDays: documentAccessRequest.durationDays,
+            note: documentAccessRequest.note,
+            createdAt: documentAccessRequest.createdAt,
+            docTitle: eleveDocument.title,
+            docTiroir: eleveDocument.tiroir,
+            docConfidentialite: eleveDocument.confidentialite,
+          })
+          .from(documentAccessRequest)
+          .innerJoin(eleveDocument, eq(documentAccessRequest.documentId, eleveDocument.id))
+          .where(
+            and(
+              eq(documentAccessRequest.etablissementId, etabId),
+              eq(eleveDocument.eleveId, id),
+              eq(documentAccessRequest.status, "pending"),
+            ),
+          )
+          .orderBy(desc(documentAccessRequest.createdAt))
+          .limit(50)
+          .then((rows) =>
+            rows
+              .filter((r) =>
+                canDecideDocumentAccessGrant(
+                  {
+                    tiroir: r.docTiroir,
+                    title: r.docTitle,
+                    confidentialite: r.docConfidentialite,
+                  },
+                  roles,
+                  { orgAdmin, platformAdmin },
+                ),
+              )
+              .map((r) => ({
+                id: r.id,
+                documentId: r.documentId,
+                requesterUserId: r.requesterUserId,
+                durationDays: r.durationDays,
+                note: r.note,
+                createdAt:
+                  r.createdAt instanceof Date
+                    ? r.createdAt.toISOString()
+                    : String(r.createdAt ?? ""),
+                docTitle: r.docTitle,
+              })),
+          )
+      : [];
+
   type AccompagnementPayload = {
     kind: "pap" | "pai" | "pps" | "gevasco";
     code: string;
@@ -579,7 +640,7 @@ export async function GET(req: Request, ctx: Ctx) {
       tiroirs: [...eleveDocTiroirsForRoles(roles, { orgAdmin, platformAdmin })],
       docCategories: eleveDocCategoriesMetaForRoles(roles, { orgAdmin, platformAdmin }),
     },
-    pendingAccessRequests: [],
+    pendingAccessRequests,
     enCoursMaintenant: {
       activity: null,
       reason: "pas_edt" as const,
@@ -988,6 +1049,22 @@ export async function POST(req: Request, ctx: Ctx) {
         { status: 403 },
       );
     }
+    // Administratif / direction : tiroir santé = dispositifs d’accompagnement uniquement
+    // (le médical reste à l’infirmerie).
+    if (
+      tiroir === "sante" &&
+      !isAccompagnementDocumentTitle(title) &&
+      !hasRole(roles, "infirmerie") &&
+      !platformAdmin
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Pour le tiroir santé hors PAP/PAI/PPS/GEVASCO, seul l’infirmerie peut déposer. Utilisez le dépôt accompagnement pour un PAP.",
+        },
+        { status: 403 },
+      );
+    }
 
     const [doc] = await db
       .insert(eleveDocument)
@@ -1018,14 +1095,186 @@ export async function POST(req: Request, ctx: Ctx) {
     return NextResponse.json({ success: true, document: doc });
   }
 
-  if (action === "request_document_access" || action === "decide_document_access") {
-    return NextResponse.json(
-      {
-        error:
-          "Les demandes d’accès documents sont désactivées : PAP, PAI, PPS et GEVASCO sont accessibles directement.",
+  if (action === "request_document_access") {
+    if (!sections.has("documents")) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+    }
+    const documentId = String(body.documentId || "");
+    if (!documentId) {
+      return NextResponse.json({ error: "documentId requis." }, { status: 400 });
+    }
+    const [doc] = await db
+      .select()
+      .from(eleveDocument)
+      .where(
+        and(
+          eq(eleveDocument.etablissementId, etabId),
+          eq(eleveDocument.eleveId, id),
+          eq(eleveDocument.id, documentId),
+        ),
+      )
+      .limit(1);
+    if (!doc) {
+      return NextResponse.json({ error: "Document introuvable." }, { status: 404 });
+    }
+
+    // PAP / accompagnement : pas de demande — accès direct pédagogique.
+    if (isAccompagnementDocumentTitle(doc.title)) {
+      return NextResponse.json(
+        {
+          error:
+            "Les dispositifs d’accompagnement (PAP, PAI, PPS, GEVASCO) sont accessibles directement — aucune demande requise.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const ownerKind = documentAccessOwnerKind(doc);
+    if (ownerKind === "direction") {
+      return NextResponse.json(
+        { error: "Ce document n’utilise pas le circuit de demande d’accès." },
+        { status: 400 },
+      );
+    }
+
+    // Le propriétaire du silo n’a pas à demander.
+    if (canDecideDocumentAccessGrant(doc, roles, { orgAdmin, platformAdmin })) {
+      return NextResponse.json(
+        { error: "Vous avez déjà accès à ce document." },
+        { status: 400 },
+      );
+    }
+
+    const durationDays = normalizeDocumentAccessDurationDays(body.durationDays, 7);
+    const [created] = await db
+      .insert(documentAccessRequest)
+      .values({
+        etablissementId: etabId,
+        documentId,
+        requesterUserId: authUserId,
+        status: "pending",
+        durationDays,
+        note: body.note?.trim() || null,
+      })
+      .returning();
+
+    await recordEleveAccessAudit({
+      etablissementId: etabId,
+      actorUserId: authUserId,
+      resourceType: "document",
+      resourceId: documentId,
+      eleveId: id,
+      action: "request",
+      metadata: { requestId: created.id, durationDays, ownerKind },
+    });
+
+    after(async () => {
+      try {
+        const session = await getAppSession();
+        const u = session?.user;
+        const requesterName =
+          [u?.name, u?.firstName && u?.lastName ? `${u.firstName} ${u.lastName}` : null, u?.email]
+            .filter(Boolean)
+            .join(" — ") || authUserId;
+        await notifyDocumentAccessOwner({
+          etablissementId: etabId,
+          ownerKind,
+          eleveNom: row.nom,
+          elevePrenom: row.prenom,
+          classe: row.classe,
+          documentTitle: doc.title,
+          documentTiroir: doc.tiroir,
+          requesterName,
+          requesterEmail: u?.email ?? null,
+          durationDays,
+          note: body.note,
+        });
+      } catch (err) {
+        console.error("[eleves/dossier] notify document access", err);
+      }
+    });
+
+    return NextResponse.json({ success: true, request: created });
+  }
+
+  if (action === "decide_document_access") {
+    if (body.decision !== "approved" && body.decision !== "rejected") {
+      return NextResponse.json({ error: "Décision invalide." }, { status: 400 });
+    }
+    const requestId = String(body.requestId || "");
+    const [reqRow] = await db
+      .select()
+      .from(documentAccessRequest)
+      .where(
+        and(
+          eq(documentAccessRequest.etablissementId, etabId),
+          eq(documentAccessRequest.id, requestId),
+          eq(documentAccessRequest.status, "pending"),
+        ),
+      )
+      .limit(1);
+    if (!reqRow) {
+      return NextResponse.json({ error: "Demande introuvable." }, { status: 404 });
+    }
+
+    const [doc] = await db
+      .select()
+      .from(eleveDocument)
+      .where(
+        and(
+          eq(eleveDocument.etablissementId, etabId),
+          eq(eleveDocument.id, reqRow.documentId),
+          eq(eleveDocument.eleveId, id),
+        ),
+      )
+      .limit(1);
+    if (!doc) {
+      return NextResponse.json({ error: "Document introuvable." }, { status: 404 });
+    }
+    if (!canDecideDocumentAccessGrant(doc, roles, { orgAdmin, platformAdmin })) {
+      return NextResponse.json(
+        { error: "Réservé au propriétaire du silo (psychologue / infirmerie)." },
+        { status: 403 },
+      );
+    }
+
+    const now = new Date();
+    let expiresAt: Date | null = null;
+    let durationDays = reqRow.durationDays;
+    if (body.decision === "approved") {
+      durationDays = normalizeDocumentAccessDurationDays(
+        body.durationDays ?? reqRow.durationDays,
+        7,
+      );
+      expiresAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+    }
+
+    const [updated] = await db
+      .update(documentAccessRequest)
+      .set({
+        status: body.decision,
+        durationDays,
+        decidedByUserId: authUserId,
+        decidedAt: now,
+        expiresAt,
+      })
+      .where(eq(documentAccessRequest.id, reqRow.id))
+      .returning();
+
+    await recordEleveAccessAudit({
+      etablissementId: etabId,
+      actorUserId: authUserId,
+      resourceType: "document",
+      resourceId: reqRow.documentId,
+      eleveId: id,
+      action: body.decision === "approved" ? "grant" : "deny",
+      metadata: {
+        requestId: reqRow.id,
+        durationDays,
+        expiresAt: expiresAt?.toISOString() ?? null,
       },
-      { status: 410 },
-    );
+    });
+    return NextResponse.json({ success: true, request: updated });
   }
 
   if (action === "delete_document" || action === "delete_accompagnement_document") {

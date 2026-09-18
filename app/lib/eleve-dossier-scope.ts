@@ -39,6 +39,9 @@ export function canViewFullElevesDossierHub(opts: {
     hasRole(opts.roles, "accueil") ||
     hasRole(opts.roles, "surveillant") ||
     hasRole(opts.roles, "cpe") ||
+    hasRole(opts.roles, "comptabilite") ||
+    hasRole(opts.roles, "infirmerie") ||
+    hasRole(opts.roles, "psychologue") ||
     opts.roles.includes("admin")
   );
 }

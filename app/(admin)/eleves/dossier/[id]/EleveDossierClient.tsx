@@ -19,6 +19,7 @@ import {
   detectAccompagnementKind,
   type AccompagnementKind,
 } from "@/app/lib/eleve-pap";
+import { DOCUMENT_ACCESS_DURATION_OPTIONS } from "@/app/lib/eleve-document-access-duration";
 import EleveFinancesPanel from "@/app/components/eleves/EleveFinancesPanel";
 import EleveDossierSidebar from "@/app/components/eleves/EleveDossierSidebar";
 import ElevePhotoLazy from "@/app/components/eleves/ElevePhotoLazy";
@@ -74,6 +75,15 @@ function IconUpload({ className }: { className?: string }) {
     <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
       <path d="M12 16V4m0 0l-4 4m4-4l4 4" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M4 14v4a2 2 0 002 2h12a2 2 0 002-2v-4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconLock({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V8a4 4 0 118 0v3" strokeLinecap="round" />
     </svg>
   );
 }
@@ -143,6 +153,7 @@ type DossierPayload = {
     title: string;
     canOpen: boolean;
     canDelete?: boolean;
+    canRequestAccess?: boolean;
     lockedReason: string | null;
     source: string;
     anneeLabel: string | null;
@@ -172,6 +183,15 @@ type DossierPayload = {
     canOpen?: boolean;
   } | null;
   classmates?: Array<{ id: string; nom: string; prenom: string }>;
+  pendingAccessRequests?: Array<{
+    id: string;
+    documentId: string;
+    requesterUserId: string;
+    durationDays: number;
+    note: string | null;
+    createdAt: string;
+    docTitle: string;
+  }>;
   meta: {
     sites: Array<{ siteId: string; label: string; kind: string | null }>;
     annees: Array<{ id: string; label: string; isCurrent: boolean }>;
@@ -182,7 +202,7 @@ type DossierPayload = {
     canDeleteDocuments?: boolean;
     profRestrictedView?: boolean;
     tiroirs: string[];
-    docCategories?: Array<"administratif" | "financier" | "sante">;
+    docCategories?: EleveDocCategorie[];
   };
   enCoursMaintenant: {
     activity: {
@@ -334,6 +354,11 @@ export default function EleveDossierClient() {
   });
   const [accompagnementKind, setAccompagnementKind] = useState<AccompagnementKind>("pap");
   const [docCategory, setDocCategory] = useState<EleveDocCategorie | "tous">("tous");
+  const [accessForm, setAccessForm] = useState<{
+    documentId: string;
+    durationDays: number;
+    note: string;
+  } | null>(null);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const cacheKey = `scola:eleve-dossier:${id}`;
@@ -471,9 +496,15 @@ export default function EleveDossierClient() {
         const c = TIROIR_TO_CATEGORIE[t as keyof typeof TIROIR_TO_CATEGORIE];
         if (c) fromTiroirs.add(c);
       }
-      return (["administratif", "financier", "sante"] as EleveDocCategorie[]).filter((c) =>
-        fromTiroirs.has(c),
-      );
+      return (
+        [
+          "administratif",
+          "vie_scolaire",
+          "financier",
+          "sante",
+          "psychologue",
+        ] as EleveDocCategorie[]
+      ).filter((c) => fromTiroirs.has(c));
     }
     return data.meta.docCategories;
   }, [data]);
@@ -722,6 +753,30 @@ export default function EleveDossierClient() {
     await postAction({
       action: "delete_document",
       documentId,
+    });
+  }
+
+  async function requestAccess() {
+    if (!accessForm) return;
+    const ok = await postAction({
+      action: "request_document_access",
+      documentId: accessForm.documentId,
+      durationDays: accessForm.durationDays,
+      note: accessForm.note || null,
+    });
+    if (ok) setAccessForm(null);
+  }
+
+  async function decideAccess(
+    requestId: string,
+    decision: "approved" | "rejected",
+    durationDays?: number,
+  ) {
+    await postAction({
+      action: "decide_document_access",
+      requestId,
+      decision,
+      durationDays,
     });
   }
 
@@ -2018,6 +2073,69 @@ export default function EleveDossierClient() {
 
       {tab === "documents" ? (
         <section className="space-y-4">
+          {(data.pendingAccessRequests?.length ?? 0) > 0 ? (
+            <div className="rounded-3xl border border-amber-200 bg-amber-50/60 p-6 space-y-3">
+              <h2 className="text-sm font-bold text-amber-900">Demandes d’accès en attente</h2>
+              <ul className="space-y-2">
+                {data.pendingAccessRequests!.map((r) => (
+                  <li
+                    key={r.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 text-sm border border-amber-100"
+                  >
+                    <div>
+                      <p className="font-semibold">{r.docTitle}</p>
+                      <p className="text-xs text-slate-500">
+                        Durée demandée :{" "}
+                        {DOCUMENT_ACCESS_DURATION_OPTIONS.find((o) => o.days === r.durationDays)
+                          ?.label || `${r.durationDays} j`}
+                        {r.note ? ` · ${r.note}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        id={`decide-duration-${r.id}`}
+                        defaultValue={r.durationDays}
+                        className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                        aria-label="Durée d’accès"
+                      >
+                        {DOCUMENT_ACCESS_DURATION_OPTIONS.map((o) => (
+                          <option key={o.days} value={o.days}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          const sel = document.getElementById(
+                            `decide-duration-${r.id}`,
+                          ) as HTMLSelectElement | null;
+                          void decideAccess(
+                            r.id,
+                            "approved",
+                            sel ? Number(sel.value) : r.durationDays,
+                          );
+                        }}
+                        className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-bold text-white"
+                      >
+                        Approuver
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void decideAccess(r.id, "rejected")}
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold"
+                      >
+                        Refuser
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <h2 className="text-sm font-bold text-slate-800">Documents du dossier</h2>
@@ -2029,7 +2147,7 @@ export default function EleveDossierClient() {
                   Documents d’inscription
                 </Link>
                 <p className="text-xs text-slate-500">
-                  Classés automatiquement : administratif, financier / comptable, santé.
+                  Silos : administratif, vie scolaire, compta, santé, psychologue.
                 </p>
               </div>
             </div>
@@ -2250,7 +2368,7 @@ export default function EleveDossierClient() {
                         ) : d.canOpen ? (
                           <IconFile className="h-7 w-7 text-slate-400" />
                         ) : (
-                          <IconFile className="h-7 w-7 text-slate-300" />
+                          <IconLock className="h-7 w-7 text-amber-500" />
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -2281,6 +2399,25 @@ export default function EleveDossierClient() {
                             ) : (
                               <span className="text-xs font-bold text-emerald-700">Accessible</span>
                             )
+                          ) : d.canRequestAccess || d.lockedReason === "grant_required" ? (
+                            <button
+                              type="button"
+                              className="text-xs font-bold text-amber-700 hover:underline"
+                              onClick={() =>
+                                setAccessForm({
+                                  documentId: d.id,
+                                  durationDays: 7,
+                                  note:
+                                    d.tiroir === "psychologue"
+                                      ? "Consultation direction — documents psychologue"
+                                      : d.tiroir === "sante"
+                                        ? "Consultation direction — dossier santé"
+                                        : "",
+                                })
+                              }
+                            >
+                              Demander l’accès
+                            </button>
                           ) : (
                             <span className="text-xs font-semibold text-slate-400">
                               Non accessible
@@ -2308,6 +2445,62 @@ export default function EleveDossierClient() {
               </ul>
             )}
           </div>
+
+          {accessForm ? (
+            <div className="rounded-3xl border border-amber-200 bg-white p-6 space-y-3 shadow-sm">
+              <h3 className="text-sm font-bold text-slate-900">Demande d’accès</h3>
+              <p className="text-xs text-slate-500">
+                Le propriétaire du silo (psychologue ou infirmerie) recevra la demande et choisira
+                la durée d’accès pour vous uniquement.
+              </p>
+              <label className="block text-xs font-semibold text-slate-600">
+                Durée souhaitée
+                <select
+                  value={accessForm.durationDays}
+                  onChange={(ev) =>
+                    setAccessForm((f) =>
+                      f ? { ...f, durationDays: Number(ev.target.value) } : f,
+                    )
+                  }
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                >
+                  {DOCUMENT_ACCESS_DURATION_OPTIONS.map((o) => (
+                    <option key={o.days} value={o.days}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-xs font-semibold text-slate-600">
+                Motif
+                <textarea
+                  value={accessForm.note}
+                  onChange={(ev) =>
+                    setAccessForm((f) => (f ? { ...f, note: ev.target.value } : f))
+                  }
+                  rows={2}
+                  className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                />
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void requestAccess()}
+                  className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white"
+                >
+                  Envoyer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAccessForm(null)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
         </div>

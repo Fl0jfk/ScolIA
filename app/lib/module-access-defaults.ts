@@ -284,11 +284,14 @@ export const ROLE_DEFAULT_DOSSIER_SECTIONS: Record<string, readonly DefaultDossi
   direction_ecole: DOSSIER_SECTIONS_COMPLET,
   direction_college: DOSSIER_SECTIONS_COMPLET,
   direction_lycee: DOSSIER_SECTIONS_COMPLET,
+  /** Documents = silo facturation uniquement. */
   comptabilite: ["identite", "scolarite", "famille", "facturation", "documents"],
+  /** Documents = silo santé (PAP·PAI·PPS·GEVASCO + médical). */
   infirmerie: ["identite", "scolarite", "famille", "sante", "documents"],
-  psychologue: ["identite", "scolarite"],
+  /** Documents = silo psychologue uniquement (invisible aux autres sans grant). */
+  psychologue: ["identite", "scolarite", "documents"],
   surveillant: ["identite", "scolarite", "famille"],
-  /** Documents : catégorie administratif uniquement (pas financier / santé). */
+  /** Documents = vie scolaire + dossier scolaire partagé. */
   cpe: ["identite", "scolarite", "famille", "documents", "notes", "vie_scolaire"],
   internat: ["identite", "scolarite", "famille", "vie_scolaire"],
 };

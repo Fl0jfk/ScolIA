@@ -30,6 +30,16 @@ function isDirection(roles: string[]): boolean {
   return INTRANET_DIRECTION_SLUGS.some((slug) => roles.includes(slug));
 }
 
+/** Direction / admin établissement (pas platform). */
+function isEstablishmentAuthority(
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  return Boolean(
+    opts?.orgAdmin || isExactAdmin(roles) || isDirection(roles),
+  );
+}
+
 export type EleveDossierSection =
   | "identite"
   | "scolarite"
@@ -47,37 +57,99 @@ export type EleveDocTiroir =
   | "voyages"
   | "sante"
   | "vie_scolaire"
-  | "orientation";
+  | "orientation"
+  | "psychologue";
 
 export type EleveDocConfidentialite = "standard" | "restreint" | "sante";
+
+export const ALL_ELEVE_DOC_TIROIRS: EleveDocTiroir[] = [
+  "scolaire",
+  "inscription",
+  "facturation",
+  "voyages",
+  "sante",
+  "vie_scolaire",
+  "orientation",
+  "psychologue",
+];
+
+/** Document santé hors PAP/PAI/PPS/GEVASCO → gate infirmerie. */
+export function isOwnerGatedSanteDocument(
+  doc: Pick<EleveDocumentRow, "tiroir" | "title"> | { tiroir: string; title: string },
+): boolean {
+  return doc.tiroir === "sante" && !isAccompagnementDocumentTitle(doc.title);
+}
+
+/** Psy ou santé médicale (hors accompagnement) : ouverture via grant propriétaire. */
+export function isOwnerGatedDocument(
+  doc: Pick<EleveDocumentRow, "tiroir" | "title" | "confidentialite"> | {
+    tiroir: string;
+    title: string;
+    confidentialite?: string;
+  },
+): boolean {
+  if (doc.tiroir === "psychologue") return true;
+  if (isOwnerGatedSanteDocument(doc)) return true;
+  if (doc.confidentialite === "sante" || doc.confidentialite === "restreint") return true;
+  return false;
+}
+
+/** Qui peut valider une demande d’accès pour ce document. */
+export function canDecideDocumentAccessGrant(
+  doc: Pick<EleveDocumentRow, "tiroir" | "title" | "confidentialite">,
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  if (opts?.platformAdmin) return true;
+  if (doc.tiroir === "psychologue") {
+    return hasRole(roles, "psychologue");
+  }
+  if (isOwnerGatedSanteDocument(doc) || doc.confidentialite === "sante") {
+    return hasRole(roles, "infirmerie");
+  }
+  if (doc.confidentialite === "restreint") {
+    return isEstablishmentAuthority(roles, opts);
+  }
+  return false;
+}
 
 /** Catégories documents visibles nativement pour le rôle. */
 export function eleveDocCategoriesForRoles(
   roles: string[],
   opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
 ): Set<EleveDocCategorie> {
-  if (opts?.platformAdmin || opts?.orgAdmin || isExactAdmin(roles) || isDirection(roles)) {
-    return new Set<EleveDocCategorie>(["administratif", "financier", "sante"]);
+  if (opts?.platformAdmin || isEstablishmentAuthority(roles, opts)) {
+    return new Set<EleveDocCategorie>([
+      "administratif",
+      "vie_scolaire",
+      "financier",
+      "sante",
+      "psychologue",
+    ]);
   }
   const out = new Set<EleveDocCategorie>();
   if (hasRole(roles, "administratif")) {
     out.add("administratif");
-    out.add("financier");
-    out.add("sante"); // dépôt / consultation PAP·PAI·PPS (et docs santé standard)
+    out.add("sante"); // PAP·PAI·PPS·GEVASCO uniquement (filtré à la liste)
   }
   if (hasRole(roles, "comptabilite")) {
     out.add("financier");
   }
-  if (hasRole(roles, "infirmerie") || hasRole(roles, "psychologue")) {
+  if (hasRole(roles, "infirmerie")) {
     out.add("sante");
   }
-  if (hasRole(roles, "cpe") || hasRole(roles, "surveillant")) {
-    out.add("administratif");
-    out.add("sante"); // PAP·PAI·PPS·GEVASCO (filtrés à la liste / ouverture)
+  if (hasRole(roles, "psychologue")) {
+    out.add("psychologue");
+  }
+  if (hasRole(roles, "cpe")) {
+    out.add("vie_scolaire");
+    out.add("administratif"); // dossier scolaire partagé
+  }
+  if (hasRole(roles, "surveillant")) {
+    out.add("vie_scolaire");
   }
   if (hasRole(roles, "professeur")) {
-    out.add("administratif");
-    out.add("sante"); // PAP·PAI·PPS·GEVASCO visibles (accès direct)
+    out.add("sante"); // PAP·PAI·PPS·GEVASCO (synthèse / ouverture ciblée)
   }
   return out;
 }
@@ -112,7 +184,6 @@ export function eleveDossierSectionsForRoles(
       "facturation",
     ]);
   }
-  // Professeur : identité (synthèse) + scolarité uniquement — pas notes / docs / VS.
   if (hasRole(roles, "cpe")) {
     out.add("vie_scolaire");
     out.add("documents");
@@ -125,6 +196,9 @@ export function eleveDossierSectionsForRoles(
   if (hasRole(roles, "infirmerie")) {
     out.add("sante");
     out.add("famille");
+    out.add("documents");
+  }
+  if (hasRole(roles, "psychologue")) {
     out.add("documents");
   }
   if (hasRole(roles, "comptabilite")) {
@@ -142,24 +216,51 @@ export function eleveDossierSectionsForRoles(
   return out;
 }
 
-/** Tiroirs documents accessibles nativement (sans demande). */
+/** Tiroirs documents accessibles nativement (liste / dépôt selon rôle). */
 export function eleveDocTiroirsForRoles(
   roles: string[],
   opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
 ): Set<EleveDocTiroir> {
-  const categories = eleveDocCategoriesForRoles(roles, opts);
-  const tiroirs = new Set<EleveDocTiroir>(
-    tiroirsForCategories(categories) as EleveDocTiroir[],
-  );
-
-  // Affinages métier dans la catégorie administratif
-  if (hasRole(roles, "professeur") && !isDirection(roles) && !opts?.orgAdmin) {
-    // Prof : scolaire + voyages + santé (PAP·PAI·PPS uniquement à l’ouverture / liste).
-    return new Set<EleveDocTiroir>(["scolaire", "voyages", "sante"]);
+  if (opts?.platformAdmin || isEstablishmentAuthority(roles, opts)) {
+    return new Set<EleveDocTiroir>(ALL_ELEVE_DOC_TIROIRS);
   }
-  if (hasRole(roles, "cpe") || hasRole(roles, "surveillant")) {
+
+  const tiroirs = new Set<EleveDocTiroir>();
+
+  if (hasRole(roles, "administratif")) {
+    tiroirs.add("scolaire");
+    tiroirs.add("inscription");
+    tiroirs.add("voyages");
+    tiroirs.add("orientation");
+    tiroirs.add("sante"); // accompagnement uniquement à la liste
+  }
+  if (hasRole(roles, "comptabilite")) {
+    tiroirs.add("facturation");
+  }
+  if (hasRole(roles, "infirmerie")) {
+    tiroirs.add("sante");
+  }
+  if (hasRole(roles, "psychologue")) {
+    tiroirs.add("psychologue");
+  }
+  if (hasRole(roles, "cpe")) {
     tiroirs.add("vie_scolaire");
     tiroirs.add("scolaire");
+  }
+  if (hasRole(roles, "surveillant")) {
+    tiroirs.add("vie_scolaire");
+  }
+  if (hasRole(roles, "professeur")) {
+    // Synthèse uniquement — tiroirs pour ouverture PAP ciblée.
+    tiroirs.add("sante");
+  }
+
+  // Repli catégories → tiroirs si rien d’explicite (sécurité).
+  if (tiroirs.size === 0) {
+    const categories = eleveDocCategoriesForRoles(roles, opts);
+    for (const t of tiroirsForCategories(categories)) {
+      tiroirs.add(t as EleveDocTiroir);
+    }
   }
 
   return tiroirs;
@@ -170,90 +271,25 @@ export function eleveDocCategoriesMetaForRoles(
   opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
 ): EleveDocCategorie[] {
   const allowed = eleveDocCategoriesForRoles(roles, opts);
-  return (["administratif", "financier", "sante"] as EleveDocCategorie[]).filter((c) =>
-    allowed.has(c),
-  );
+  return DOC_CATEGORIE_ORDER_LOCAL.filter((c) => allowed.has(c));
 }
 
-/** Enregistrement d’un document (upload) selon tiroir et confidentialité. */
-export function canRegisterEleveDocument(
-  tiroir: EleveDocTiroir,
-  confidentialite: EleveDocConfidentialite,
-  roles: string[],
-  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
-): boolean {
-  const allowedTiroirs = eleveDocTiroirsForRoles(roles, opts);
-  if (!allowedTiroirs.has(tiroir)) return false;
-  if (
-    opts?.orgAdmin ||
-    opts?.platformAdmin ||
-    isExactAdmin(roles) ||
-    isDirection(roles)
-  ) {
-    return true;
-  }
-  if (confidentialite === "restreint") return false;
-  if (confidentialite === "sante") {
-    return hasRole(roles, "infirmerie");
-  }
-  // Accompagnement pédagogique PAP·PAI·PPS·GEVASCO (tiroir santé, confidentialité standard).
-  if (tiroir === "sante") {
-    return (
-      hasRole(roles, "administratif") ||
-      hasRole(roles, "infirmerie") ||
-      isDirection(roles) ||
-      isExactAdmin(roles)
-    );
-  }
-  return true;
-}
+const DOC_CATEGORIE_ORDER_LOCAL: EleveDocCategorie[] = [
+  "administratif",
+  "vie_scolaire",
+  "financier",
+  "sante",
+  "psychologue",
+];
 
-/**
- * Suppression d’une pièce du dossier élève (classique ou accompagnement) :
- * direction, admin, administratif.
- */
-export function canDeleteEleveDocument(
-  roles: string[],
-  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
-): boolean {
-  return Boolean(
-    opts?.orgAdmin ||
-      opts?.platformAdmin ||
-      isExactAdmin(roles) ||
-      isDirection(roles) ||
-      hasRole(roles, "administratif"),
-  );
-}
-
-/** Suppression PAP / PAI / PPS / GEVASCO : même périmètre que les pièces classiques. */
-export function canDeleteEleveAccompagnementDocument(
-  roles: string[],
-  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
-): boolean {
-  return canDeleteEleveDocument(roles, opts);
-}
-
-/**
- * Peut supprimer cette pièce précise : droit global de suppression + droit
- * d’enregistrement sur le tiroir / la confidentialité du document.
- */
-export function canDeleteSpecificEleveDocument(
-  doc: { tiroir: EleveDocTiroir; confidentialite: EleveDocConfidentialite },
-  roles: string[],
-  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
-): boolean {
-  if (!canDeleteEleveDocument(roles, opts)) return false;
-  return canRegisterEleveDocument(doc.tiroir, doc.confidentialite, roles, opts);
-}
-
-/** Viewer pédagogique : ouvre PAP·PAI·PPS·GEVASCO sans demande à la direction. */
+/** Viewer pédagogique : ouvre PAP·PAI·PPS·GEVASCO sans demande. */
 function isPedagogicalAccompagnementViewer(
   roles: string[],
   opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
 ): boolean {
   if (
-    opts?.orgAdmin ||
     opts?.platformAdmin ||
+    opts?.orgAdmin ||
     isExactAdmin(roles) ||
     isDirection(roles) ||
     hasRole(roles, "infirmerie") ||
@@ -268,31 +304,167 @@ function isPedagogicalAccompagnementViewer(
   );
 }
 
+/** Administratif : voit / gère l’accompagnement, pas le médical. */
+function isAdministratifAccompagnementOnly(
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  if (opts?.platformAdmin || isEstablishmentAuthority(roles, opts)) return false;
+  if (hasRole(roles, "infirmerie")) return false;
+  return hasRole(roles, "administratif");
+}
+
+/** Enregistrement d’un document (upload) selon tiroir et confidentialité. */
+export function canRegisterEleveDocument(
+  tiroir: EleveDocTiroir,
+  confidentialite: EleveDocConfidentialite,
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  if (opts?.platformAdmin) return true;
+  if (confidentialite === "restreint") {
+    return isEstablishmentAuthority(roles, opts);
+  }
+  if (confidentialite === "sante") {
+    return hasRole(roles, "infirmerie");
+  }
+
+  if (tiroir === "psychologue") {
+    return hasRole(roles, "psychologue");
+  }
+  if (tiroir === "sante") {
+    // Dépôt PAP·PAI·PPS·GEVASCO : admin / direction / infirmerie.
+    // Autres pièces santé : infirmerie uniquement.
+    return (
+      hasRole(roles, "infirmerie") ||
+      hasRole(roles, "administratif") ||
+      isEstablishmentAuthority(roles, opts)
+    );
+  }
+  if (tiroir === "facturation") {
+    return hasRole(roles, "comptabilite") || isEstablishmentAuthority(roles, opts);
+  }
+  if (tiroir === "vie_scolaire") {
+    return (
+      hasRole(roles, "cpe") ||
+      hasRole(roles, "surveillant") ||
+      isEstablishmentAuthority(roles, opts)
+    );
+  }
+  // Silos admin (scolaire, inscription, voyages, orientation)
+  if (
+    tiroir === "scolaire" ||
+    tiroir === "inscription" ||
+    tiroir === "voyages" ||
+    tiroir === "orientation"
+  ) {
+    return (
+      hasRole(roles, "administratif") ||
+      (tiroir === "scolaire" && hasRole(roles, "cpe")) ||
+      isEstablishmentAuthority(roles, opts)
+    );
+  }
+  return false;
+}
+
+/**
+ * Suppression d’une pièce du dossier élève :
+ * propriétaire du silo, ou autorité établissement (sauf psy / médical → propriétaire).
+ */
+export function canDeleteEleveDocument(
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  return Boolean(
+    opts?.platformAdmin ||
+      opts?.orgAdmin ||
+      isExactAdmin(roles) ||
+      isDirection(roles) ||
+      hasRole(roles, "administratif") ||
+      hasRole(roles, "cpe") ||
+      hasRole(roles, "comptabilite") ||
+      hasRole(roles, "infirmerie") ||
+      hasRole(roles, "psychologue"),
+  );
+}
+
+/** Suppression PAP / PAI / PPS / GEVASCO : même périmètre métier dépôt. */
+export function canDeleteEleveAccompagnementDocument(
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  return (
+    Boolean(opts?.platformAdmin) ||
+    isEstablishmentAuthority(roles, opts) ||
+    hasRole(roles, "administratif") ||
+    hasRole(roles, "infirmerie")
+  );
+}
+
+export function canDeleteSpecificEleveDocument(
+  doc: { tiroir: EleveDocTiroir; confidentialite: EleveDocConfidentialite; title?: string },
+  roles: string[],
+  opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
+): boolean {
+  if (opts?.platformAdmin) return true;
+  if (doc.tiroir === "psychologue") {
+    return hasRole(roles, "psychologue");
+  }
+  if (doc.tiroir === "sante") {
+    if (doc.title && isAccompagnementDocumentTitle(doc.title)) {
+      return canDeleteEleveAccompagnementDocument(roles, opts);
+    }
+    return hasRole(roles, "infirmerie");
+  }
+  if (!canDeleteEleveDocument(roles, opts)) return false;
+  return canRegisterEleveDocument(doc.tiroir, doc.confidentialite, roles, opts);
+}
+
 export function canOpenDocumentWithoutGrant(
   doc: Pick<EleveDocumentRow, "tiroir" | "confidentialite" | "title">,
   roles: string[],
   opts?: { orgAdmin?: boolean; platformAdmin?: boolean },
 ): boolean {
-  if (
-    opts?.orgAdmin ||
-    opts?.platformAdmin ||
-    isExactAdmin(roles) ||
-    isDirection(roles)
-  ) {
-    return true;
+  if (opts?.platformAdmin) return true;
+
+  // Psychologue : uniquement le psy (même pas la direction).
+  if (doc.tiroir === "psychologue") {
+    return hasRole(roles, "psychologue");
   }
+
+  // PAP / PAI / PPS / GEVASCO : accès pédagogique + métiers dépôt.
+  if (doc.tiroir === "sante" && isAccompagnementDocumentTitle(doc.title)) {
+    if (doc.confidentialite === "restreint") return false;
+    if (
+      isEstablishmentAuthority(roles, opts) ||
+      hasRole(roles, "infirmerie") ||
+      hasRole(roles, "administratif") ||
+      hasRole(roles, "professeur") ||
+      hasRole(roles, "cpe") ||
+      hasRole(roles, "surveillant")
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  // Santé médicale (hors accompagnement) : infirmerie uniquement.
+  if (doc.tiroir === "sante" || doc.confidentialite === "sante") {
+    return hasRole(roles, "infirmerie");
+  }
+
+  if (doc.confidentialite === "restreint") {
+    return isEstablishmentAuthority(roles, opts);
+  }
+
   const allowed = eleveDocTiroirsForRoles(roles, opts);
   if (!allowed.has(doc.tiroir as EleveDocTiroir)) return false;
-  if (doc.confidentialite === "sante") {
-    if (!hasRole(roles, "infirmerie") && !isDirection(roles) && !isExactAdmin(roles)) {
-      return false;
-    }
+
+  // Prof / CPE / surveillant : pas d’ouverture libre hors accompagnement déjà traité.
+  if (isPedagogicalAccompagnementViewer(roles, opts)) {
+    return false;
   }
-  if (doc.confidentialite === "restreint") return false;
-  // Prof / CPE / surveillant : tiroir santé = PAP·PAI·PPS·GEVASCO uniquement (accès direct).
-  if (doc.tiroir === "sante" && isPedagogicalAccompagnementViewer(roles, opts)) {
-    return isAccompagnementDocumentTitle(doc.title);
-  }
+
   return true;
 }
 
@@ -360,7 +532,8 @@ export async function listEleveDocumentsForViewer(opts: {
     createdAt: Date;
     canOpen: boolean;
     canDelete: boolean;
-    lockedReason: "tiroir" | "confidentialite" | null;
+    lockedReason: "tiroir" | "confidentialite" | "grant_required" | null;
+    canRequestAccess: boolean;
   }>
 > {
   const db = getDb();
@@ -387,19 +560,21 @@ export async function listEleveDocumentsForViewer(opts: {
     createdAt: Date;
     canOpen: boolean;
     canDelete: boolean;
-    lockedReason: "tiroir" | "confidentialite" | null;
+    lockedReason: "tiroir" | "confidentialite" | "grant_required" | null;
+    canRequestAccess: boolean;
   }> = [];
 
-  const allowedTiroirs = eleveDocTiroirsForRoles(opts.roles, {
+  const roleOpts = {
     orgAdmin: opts.orgAdmin,
     platformAdmin: opts.platformAdmin,
-  });
-  const pedagogicalPapOnly = isPedagogicalAccompagnementViewer(opts.roles, {
-    orgAdmin: opts.orgAdmin,
-    platformAdmin: opts.platformAdmin,
-  });
+  };
+  const allowedTiroirs = eleveDocTiroirsForRoles(opts.roles, roleOpts);
+  const pedagogicalPapOnly = isPedagogicalAccompagnementViewer(opts.roles, roleOpts);
+  const adminAccompagnementOnly = isAdministratifAccompagnementOnly(opts.roles, roleOpts);
+  const authority = isEstablishmentAuthority(opts.roles, roleOpts);
 
   for (const doc of docs) {
+    // Prof / CPE / surveillant : tiroir santé = accompagnement uniquement.
     if (
       pedagogicalPapOnly &&
       doc.tiroir === "sante" &&
@@ -407,13 +582,29 @@ export async function listEleveDocumentsForViewer(opts: {
     ) {
       continue;
     }
-    const tiroirAllowed = allowedTiroirs.has(doc.tiroir as EleveDocTiroir);
+    // Administratif : santé = accompagnement uniquement (pas le médical).
+    if (
+      adminAccompagnementOnly &&
+      doc.tiroir === "sante" &&
+      !isAccompagnementDocumentTitle(doc.title)
+    ) {
+      continue;
+    }
+    // Psychologue : invisible hors psy / autorité (autorité voit verrouillé pour demander).
+    if (doc.tiroir === "psychologue") {
+      const isPsy = hasRole(opts.roles, "psychologue");
+      if (!isPsy && !authority && !opts.platformAdmin) {
+        continue;
+      }
+    } else if (!allowedTiroirs.has(doc.tiroir as EleveDocTiroir)) {
+      // Hors silo métier : invisible (ex. compta ne voit pas le scolaire).
+      if (!authority && !opts.platformAdmin) {
+        continue;
+      }
+    }
 
-    let canOpen = canOpenDocumentWithoutGrant(doc, opts.roles, {
-      orgAdmin: opts.orgAdmin,
-      platformAdmin: opts.platformAdmin,
-    });
-    let lockedReason: "tiroir" | "confidentialite" | null = null;
+    let canOpen = canOpenDocumentWithoutGrant(doc, opts.roles, roleOpts);
+    let lockedReason: "tiroir" | "confidentialite" | "grant_required" | null = null;
     if (!canOpen) {
       const grant = await hasActiveDocumentGrant({
         etablissementId: opts.etablissementId,
@@ -422,21 +613,31 @@ export async function listEleveDocumentsForViewer(opts: {
       });
       if (grant) {
         canOpen = true;
-      } else if (!tiroirAllowed) {
-        // Hors catégorie métier (ex. santé pour la compta) : invisible.
+      } else if (isOwnerGatedDocument(doc)) {
+        lockedReason = "grant_required";
+      } else if (!allowedTiroirs.has(doc.tiroir as EleveDocTiroir)) {
         continue;
       } else {
         lockedReason = "confidentialite";
       }
     }
+
     const canDelete = canDeleteSpecificEleveDocument(
       {
         tiroir: doc.tiroir as EleveDocTiroir,
         confidentialite: doc.confidentialite as EleveDocConfidentialite,
+        title: doc.title,
       },
       opts.roles,
-      { orgAdmin: opts.orgAdmin, platformAdmin: opts.platformAdmin },
+      roleOpts,
     );
+
+    const canRequestAccess =
+      !canOpen &&
+      lockedReason === "grant_required" &&
+      !hasRole(opts.roles, "psychologue") &&
+      !(doc.tiroir === "sante" && hasRole(opts.roles, "infirmerie"));
+
     out.push({
       id: doc.id,
       tiroir: doc.tiroir,
@@ -445,7 +646,6 @@ export async function listEleveDocumentsForViewer(opts: {
       source: doc.source,
       anneeLabel: doc.anneeLabel,
       mimeType: doc.mimeType,
-      // Proxy pré-signé (bucket privé) — jamais l’URL S3 brute.
       fileUrl:
         canOpen && (doc.fileUrl || doc.s3Key)
           ? eleveDocumentFileProxyPath(opts.eleveId, doc.id)
@@ -454,6 +654,7 @@ export async function listEleveDocumentsForViewer(opts: {
       canOpen,
       canDelete,
       lockedReason,
+      canRequestAccess,
     });
   }
   return out;
@@ -468,16 +669,11 @@ export type EleveAccompagnementDoc = {
   createdAt: Date;
 };
 
-/** Dernier document id par kind d’accompagnement, pour la liste élèves. */
 export type EleveAccompagnementListItem = {
   kind: AccompagnementKind;
   documentId: string;
 };
 
-/**
- * Par élève : dernier document par dispositif (PAP / PAI / PPS / GEVASCO).
- * Ordre de retour aligné sur `ACCOMPAGNEMENT_KINDS`.
- */
 export async function listEleveLatestAccompagnementByKind(opts: {
   etablissementId: string;
   eleveIds: string[];
@@ -534,7 +730,6 @@ export async function listEleveLatestAccompagnementByKind(opts: {
   return out;
 }
 
-/** Par élève : kinds PAP / PAI / PPS / GEVASCO présents (tiroir santé, fichier présent). */
 export async function listEleveAccompagnementKinds(opts: {
   etablissementId: string;
   eleveIds: string[];
@@ -547,7 +742,6 @@ export async function listEleveAccompagnementKinds(opts: {
   return out;
 }
 
-/** Élèves ayant au moins un PAP / PAI / PPS / GEVASCO. */
 export async function listEleveIdsWithPap(opts: {
   etablissementId: string;
   eleveIds: string[];
@@ -556,10 +750,6 @@ export async function listEleveIdsWithPap(opts: {
   return new Set(map.keys());
 }
 
-/**
- * Dernier document par dispositif (PAP, PAI, PPS, GEVASCO) — pour badges synthèse.
- * Ordre de retour : pap, puis pai, puis pps, puis gevasco (si présents).
- */
 export async function getLatestAccompagnementDocumentsForEleve(opts: {
   etablissementId: string;
   eleveId: string;
