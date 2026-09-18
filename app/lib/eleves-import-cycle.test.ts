@@ -31,6 +31,34 @@ test("sortie collège ne radie pas un lycéen 2A (même INE)", () => {
   assert.equal(eleves[0]?.classe, "2A");
 });
 
+test("import collège ne réécrit pas la classe d’un lycéen 2B", () => {
+  const existing: EleveConfig[] = [
+    {
+      ine: "INE2B",
+      nom: "HAVIS",
+      prenom: "Gabriel",
+      folderName: "HAVIS Gabriel",
+      classe: "2B",
+      status: "inscrit",
+    },
+  ];
+  const collegeRow: EleveConfig = {
+    ine: "INE2B",
+    nom: "HAVIS",
+    prenom: "Gabriel",
+    folderName: "HAVIS Gabriel",
+    classe: "3F",
+    status: "inscrit",
+  };
+  const { eleves, stats } = mergeElevesLists(existing, [collegeRow], {
+    importCycle: "college",
+  });
+  assert.equal(eleves[0]?.classe, "2B");
+  assert.equal(eleves[0]?.status, "inscrit");
+  assert.equal(stats.updated, 0);
+  assert.equal(stats.kept, 1);
+});
+
 test("sortie collège radie bien un élève encore en classe collège (pas de fiche lycée)", () => {
   const existing: EleveConfig[] = [
     {

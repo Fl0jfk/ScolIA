@@ -400,24 +400,20 @@ function cycleOfEleve(e: Pick<EleveConfig, "classe" | "secteur">): ClassLevel | 
 }
 
 /**
- * Collège et lycée sont deux « fiches » logiques du groupe scolaire.
- * Une DATE_SORTIE sur l’import collège ferme la scolarité collège, mais si la
- * fiche courante est déjà lycée (ex. 2A), l’élève n’est pas radié du tenant.
- * Il n’est « vraiment sorti » que si sa classe actuelle est encore du cycle importé
- * (ou indéterminée) — pas s’il a déjà réapparu sur l’autre cycle.
+ * Collège et lycée = deux scolarités autonomes du groupe.
+ * Un import Siècle d’un cycle ne doit ni radier ni réécrire la classe / le statut
+ * d’un élève déjà scolarisé sur l’autre cycle (ex. import collège vs fiche 2B lycée).
  */
-function shouldApplyAncienFromCycleImport(
+function shouldTouchEleveForCycleImport(
   existing: EleveConfig,
   importCycle: ElevesImportCycleScope | undefined,
 ): boolean {
   if (!importCycle) return true;
   const existingCycle = cycleOfEleve(existing);
-  // Pas de cycle lisible sur la fiche → on applique la sortie (cas « vraiment sorti »).
+  // Pas de cycle lisible → on laisse l’import poser la scolarité de ce cycle.
   if (!existingCycle) return true;
-  // École : hors du duo collège/lycée Siècle — ne pas radier via un import collège/lycée.
+  // École : hors duo collège/lycée — ne pas toucher via ces imports.
   if (existingCycle === "ecole") return false;
-  // Même cycle que l’import → sortie réelle pour ce cycle.
-  // Autre cycle (collège vs lycée) → la fiche « autonome » de l’autre établissement reste.
   return existingCycle === importCycle;
 }
 
@@ -452,27 +448,16 @@ function mergeEleveFields(
   if (incoming.parent2Phone?.trim()) merged.parent2Phone = incoming.parent2Phone.trim();
   if (incoming.dateNaissance?.trim()) merged.dateNaissance = incoming.dateNaissance.trim();
   if (incoming.lieuNaissance?.trim()) merged.lieuNaissance = incoming.lieuNaissance.trim();
-
-  const incomingAncien = incoming.status === "ancien";
-  const protectOtherCycle =
-    incomingAncien && !shouldApplyAncienFromCycleImport(existing, opts?.importCycle);
-
-  if (opts?.replaceRegime && "regime" in incoming && !protectOtherCycle) {
+  if (opts?.replaceRegime && "regime" in incoming) {
     const t = incoming.regime?.trim();
     if (t) merged.regime = t;
     else delete merged.regime;
-  } else if (incoming.regime?.trim() && !protectOtherCycle) {
+  } else if (incoming.regime?.trim()) {
     merged.regime = incoming.regime.trim();
   }
   if (incoming.sexe) merged.sexe = incoming.sexe;
   if (incoming.photoKey?.trim()) merged.photoKey = incoming.photoKey.trim();
-  if (incoming.status) {
-    if (protectOtherCycle) {
-      // Garde le statut / la classe lycée (ou collège) déjà en fiche.
-    } else {
-      merged.status = incoming.status;
-    }
-  }
+  if (incoming.status) merged.status = incoming.status;
   if (incoming.lv1?.trim()) merged.lv1 = incoming.lv1.trim();
   if (incoming.lv2?.trim()) merged.lv2 = incoming.lv2.trim();
   if (incoming.options?.length) merged.options = [...incoming.options];
@@ -745,13 +730,8 @@ export function mergeElevesLists(
     const idx = findExistingEleveIndex(result, inc);
     if (idx >= 0) {
       const current = result[idx]!;
-      // Sorti sur un autre cycle que la fiche actuelle → ne pas fusionner du tout
-      // (évite aussi d’écraser la classe lycée avec une classe collège vide / ancienne).
-      if (
-        inc.status === "ancien" &&
-        opts?.importCycle &&
-        !shouldApplyAncienFromCycleImport(current, opts.importCycle)
-      ) {
+      // Autre cycle déjà en fiche (ex. 2B lycée pendant un import collège) → ne pas toucher.
+      if (opts?.importCycle && !shouldTouchEleveForCycleImport(current, opts.importCycle)) {
         continue;
       }
       result[idx] = mergeEleveFields(current, inc, opts);
