@@ -151,8 +151,34 @@ export function matchRdvInscriptionCandidates(opts: {
 
 /**
  * Matching identité (foyer séparé / contact absent de l’extract) :
- * nom + prénom + date de naissance exacte. À n’appeler qu’après gate e-mail.
+ * date de naissance exacte + au moins le nom OU le prénom
+ * (casse / accents ignorés). À n’appeler qu’après gate e-mail.
  */
+export function personPartEquals(a: string, b: string): boolean {
+  const left = normalizePersonPart(a);
+  const right = normalizePersonPart(b);
+  return Boolean(left) && left === right;
+}
+
+/** Score 2 = nom+prénom, 1 = un seul côté — null si pas de match. */
+export function scoreRdvIdentityMatch(
+  eleve: EleveConfig,
+  opts: { studentLastName: string; studentFirstName: string; dateNaissance: string },
+): number | null {
+  const dob = normalizeEleveDateNaissance(opts.dateNaissance);
+  const eDob = normalizeEleveDateNaissance(eleve.dateNaissance || "");
+  if (!dob || !eDob || dob !== eDob) return null;
+
+  const last = opts.studentLastName.trim();
+  const first = opts.studentFirstName.trim();
+  if (!last && !first) return null;
+
+  const nomOk = last ? personPartEquals(eleve.nom, last) : false;
+  const prenomOk = first ? personPartEquals(eleve.prenom, first) : false;
+  if (!nomOk && !prenomOk) return null;
+  return (nomOk ? 1 : 0) + (prenomOk ? 1 : 0);
+}
+
 export function matchRdvInscriptionByIdentity(opts: {
   eleves: EleveConfig[];
   studentLastName: string;
@@ -164,15 +190,17 @@ export function matchRdvInscriptionByIdentity(opts: {
   if (!dob) return [];
   const first = opts.studentFirstName.trim();
   const last = opts.studentLastName.trim();
-  if (!first || !last) return [];
+  if (!first && !last) return [];
 
   const scored = opts.eleves
     .filter((e) => Boolean(e.id))
     .map((e) => {
-      const eDob = normalizeEleveDateNaissance(e.dateNaissance || "");
-      if (!eDob || eDob !== dob) return null;
-      const score = scoreEleveNameMatch(e, last, first);
-      if (score < 80) return null;
+      const score = scoreRdvIdentityMatch(e, {
+        studentLastName: last,
+        studentFirstName: first,
+        dateNaissance: dob,
+      });
+      if (score == null) return null;
       return { eleve: e, score };
     })
     .filter((x): x is { eleve: EleveConfig; score: number } => x !== null)
@@ -189,13 +217,10 @@ export function matchRdvInscriptionByIdentity(opts: {
   }));
 }
 
-/** L’élève correspond à l’identité saisie (nom/prénom + naissance). */
+/** L’élève correspond à l’identité saisie (naissance + nom et/ou prénom). */
 export function eleveMatchesRdvIdentity(
   eleve: EleveConfig,
   opts: { studentLastName: string; studentFirstName: string; dateNaissance: string },
 ): boolean {
-  const dob = normalizeEleveDateNaissance(opts.dateNaissance);
-  const eDob = normalizeEleveDateNaissance(eleve.dateNaissance || "");
-  if (!dob || !eDob || dob !== eDob) return false;
-  return scoreEleveNameMatch(eleve, opts.studentLastName, opts.studentFirstName) >= 80;
+  return scoreRdvIdentityMatch(eleve, opts) != null;
 }

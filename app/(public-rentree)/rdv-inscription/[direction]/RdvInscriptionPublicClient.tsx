@@ -237,7 +237,7 @@ export default function RdvInscriptionPublicClient({
     [slots, eventId],
   );
 
-  const matchReady = Boolean(matchChoice);
+  const matchReady = matchChoice?.kind === "eleve";
 
   const refreshSlots = useCallback(async () => {
     try {
@@ -408,9 +408,7 @@ export default function RdvInscriptionPublicClient({
   const showAttendeeChoice = Boolean(
     matchChoice?.kind === "eleve" && matchedParents.length > 0,
   );
-  const showParentNameFields = Boolean(
-    matchChoice && (!showAttendeeChoice || matchChoice.kind === "create"),
-  );
+  const showParentNameFields = Boolean(matchChoice?.kind === "eleve" && !showAttendeeChoice);
 
   function applyAttendee(next: "madame" | "monsieur" | "les_deux") {
     setRdvAttendee(next);
@@ -438,29 +436,10 @@ export default function RdvInscriptionPublicClient({
     setParentLastName("");
   }
 
-  function selectCreateNew() {
-    setMatchChoice({ kind: "create" });
-    setStudentFirstName("");
-    setStudentLastName("");
-    setStudentDateNaissance("");
-    setOrigineSelected(null);
-    setRdvAttendee("");
-    setShowIdentitySearch(true);
-  }
-
-  function openIdentitySearch() {
-    setMatchChoice(null);
-    setStudentFirstName("");
-    setStudentLastName("");
-    setStudentDateNaissance("");
-    setCandidates(null);
-    setShowIdentitySearch(true);
-  }
-
   async function onSearchByIdentity() {
     setFormError(null);
-    if (!studentFirstName.trim() || !studentLastName.trim()) {
-      setFormError("Indiquez le prénom et le nom de l’élève.");
+    if (!studentFirstName.trim() && !studentLastName.trim()) {
+      setFormError("Indiquez au moins le prénom ou le nom de l’élève.");
       return;
     }
     if (!studentDateNaissance.trim()) {
@@ -497,7 +476,9 @@ export default function RdvInscriptionPublicClient({
       setCandidates(list);
       if (data.homeEtablissement) setHomeEtablissement(data.homeEtablissement);
       if (list.length === 0) {
-        setMatchChoice({ kind: "create" });
+        setFormError(
+          "Aucun élève trouvé. Vérifiez la date de naissance et l’orthographe exacte de la préinscription École Directe (majuscules / accents acceptés), puis réessayez.",
+        );
       }
     } catch {
       setFormError("Erreur réseau — réessayez.");
@@ -586,7 +567,7 @@ export default function RdvInscriptionPublicClient({
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
-    if (!matchChoice) {
+    if (!matchChoice || matchChoice.kind !== "eleve") {
       setFormError("Confirmez l’identité de l’élève avant de réserver.");
       return;
     }
@@ -594,7 +575,7 @@ export default function RdvInscriptionPublicClient({
       setFormError("Indiquez le prénom et le nom de l’élève.");
       return;
     }
-    if (showIdentitySearch && matchChoice?.kind === "eleve" && !studentDateNaissance.trim()) {
+    if (showIdentitySearch && !studentDateNaissance.trim()) {
       setFormError("Indiquez la date de naissance utilisée pour la recherche.");
       return;
     }
@@ -655,8 +636,8 @@ export default function RdvInscriptionPublicClient({
           parentLastName,
           rdvAttendee: showAttendeeChoice ? rdvAttendee || null : null,
           niveauId,
-          eleveId: matchChoice.kind === "eleve" ? matchChoice.id : null,
-          createNew: matchChoice.kind === "create",
+          eleveId: matchChoice.id,
+          createNew: false,
           studentDateNaissance: studentDateNaissance.trim() || null,
           hasPap,
           papS3Key: papFile?.s3Key || null,
@@ -881,61 +862,59 @@ export default function RdvInscriptionPublicClient({
               <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
                 2 · Pour quel enfant ?
               </h2>
-              <p className="mt-2 text-sm text-slate-500">
-                {emailLinked && !showIdentitySearch
-                  ? "Enfants liés à cet e-mail. Sinon, recherchez avec le nom et la date de naissance."
-                  : "Si votre e-mail n’est pas celui enregistré (famille séparée, autre foyer), recherchez l’enfant avec nom, prénom et date de naissance."}
-              </p>
 
-              {emailLinked && !showIdentitySearch && emailChildren.length > 0 ? (
-                <div className="mt-4 space-y-2">
-                  <p className="text-sm text-slate-600">Confirmez le bon enfant :</p>
-                  {emailChildren.map((c) => {
-                    const selected =
-                      matchChoice?.kind === "eleve" && matchChoice.id === c.id;
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => selectMatchedEleve(c)}
-                        className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
-                          selected
-                            ? "bg-sky-700 text-white shadow-sm"
-                            : "bg-slate-50 text-slate-800 ring-1 ring-slate-200 hover:bg-white"
-                        }`}
-                      >
-                        <span className="font-semibold">
-                          Est-ce bien {c.prenom} {c.nom.toUpperCase()} ?
-                        </span>
-                        {c.classe ? (
-                          <span
-                            className={`mt-0.5 block text-xs ${
-                              selected ? "text-sky-100" : "text-slate-500"
+              {emailLinked && !showIdentitySearch ? (
+                <>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Enfants liés à cet e-mail. Confirmez celui pour qui vous prenez rendez-vous.
+                  </p>
+                  {emailChildren.length > 0 ? (
+                    <div className="mt-4 space-y-2">
+                      {emailChildren.map((c) => {
+                        const selected =
+                          matchChoice?.kind === "eleve" && matchChoice.id === c.id;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => selectMatchedEleve(c)}
+                            className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
+                              selected
+                                ? "bg-sky-700 text-white shadow-sm"
+                                : "bg-slate-50 text-slate-800 ring-1 ring-slate-200 hover:bg-white"
                             }`}
                           >
-                            {c.classe}
-                          </span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                  <button
-                    type="button"
-                    onClick={() => openIdentitySearch()}
-                    className="w-full rounded-xl bg-white px-4 py-3 text-left text-sm text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
-                  >
-                    Mon enfant n’est pas dans la liste — rechercher autrement
-                  </button>
-                </div>
+                            <span className="font-semibold">
+                              Est-ce bien {c.prenom} {c.nom.toUpperCase()} ?
+                            </span>
+                            {c.classe ? (
+                              <span
+                                className={`mt-0.5 block text-xs ${
+                                  selected ? "text-sky-100" : "text-slate-500"
+                                }`}
+                              >
+                                {c.classe}
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </>
               ) : null}
 
               {showIdentitySearch ? (
-                <div className="mt-4 space-y-4">
+                <div className="mt-2 space-y-4">
+                  <p className="text-sm text-slate-500">
+                    Cet e-mail n’est pas encore lié à un foyer connu. Indiquez l’identité de l’élève{" "}
+                    <strong>exactement comme sur la préinscription École Directe</strong> (casse et
+                    accents acceptés). Il faut la date de naissance et au moins le nom ou le prénom.
+                  </p>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="block text-sm">
                       <span className="font-semibold text-slate-800">Prénom de l’élève</span>
                       <input
-                        required
                         className={fieldClass}
                         value={studentFirstName}
                         onChange={(e) => {
@@ -949,7 +928,6 @@ export default function RdvInscriptionPublicClient({
                     <label className="block text-sm">
                       <span className="font-semibold text-slate-800">Nom de l’élève</span>
                       <input
-                        required
                         className={fieldClass}
                         value={studentLastName}
                         onChange={(e) => {
@@ -978,8 +956,7 @@ export default function RdvInscriptionPublicClient({
                     type="button"
                     disabled={
                       matchBusy ||
-                      !studentFirstName.trim() ||
-                      !studentLastName.trim() ||
+                      (!studentFirstName.trim() && !studentLastName.trim()) ||
                       !studentDateNaissance.trim()
                     }
                     onClick={() => void onSearchByIdentity()}
@@ -988,74 +965,39 @@ export default function RdvInscriptionPublicClient({
                     {matchBusy ? "Recherche…" : "Rechercher mon enfant"}
                   </button>
 
-                  {candidates && showIdentitySearch ? (
+                  {candidates && candidates.length > 0 ? (
                     <div className="space-y-2">
-                      {candidates.length === 0 ? (
-                        <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                          Aucun élève trouvé avec ces informations — un dossier sera ouvert à la
-                          confirmation du rendez-vous.
-                        </p>
-                      ) : (
-                        <>
-                          <p className="text-sm text-slate-600">Confirmez le bon enfant :</p>
-                          {candidates.map((c) => {
-                            const selected =
-                              matchChoice?.kind === "eleve" && matchChoice.id === c.id;
-                            return (
-                              <button
-                                key={c.id}
-                                type="button"
-                                onClick={() => selectMatchedEleve(c)}
-                                className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
-                                  selected
-                                    ? "bg-sky-700 text-white shadow-sm"
-                                    : "bg-slate-50 text-slate-800 ring-1 ring-slate-200 hover:bg-white"
-                                }`}
-                              >
-                                <span className="font-semibold">
-                                  Est-ce bien {c.prenom} {c.nom.toUpperCase()} ?
-                                </span>
-                                {c.classe ? (
-                                  <span
-                                    className={`mt-0.5 block text-xs ${
-                                      selected ? "text-sky-100" : "text-slate-500"
-                                    }`}
-                                  >
-                                    {c.classe}
-                                  </span>
-                                ) : null}
-                              </button>
-                            );
-                          })}
+                      <p className="text-sm text-slate-600">Confirmez le bon enfant :</p>
+                      {candidates.map((c) => {
+                        const selected =
+                          matchChoice?.kind === "eleve" && matchChoice.id === c.id;
+                        return (
                           <button
+                            key={c.id}
                             type="button"
-                            onClick={() => selectCreateNew()}
+                            onClick={() => selectMatchedEleve(c)}
                             className={`w-full rounded-xl px-4 py-3 text-left text-sm transition ${
-                              matchChoice?.kind === "create"
-                                ? "bg-slate-700 text-white"
-                                : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+                              selected
+                                ? "bg-sky-700 text-white shadow-sm"
+                                : "bg-slate-50 text-slate-800 ring-1 ring-slate-200 hover:bg-white"
                             }`}
                           >
-                            Ce n’est pas mon enfant — nouveau dossier
+                            <span className="font-semibold">
+                              Est-ce bien {c.prenom} {c.nom.toUpperCase()} ?
+                            </span>
+                            {c.classe ? (
+                              <span
+                                className={`mt-0.5 block text-xs ${
+                                  selected ? "text-sky-100" : "text-slate-500"
+                                }`}
+                              >
+                                {c.classe}
+                              </span>
+                            ) : null}
                           </button>
-                        </>
-                      )}
+                        );
+                      })}
                     </div>
-                  ) : null}
-
-                  {emailLinked ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowIdentitySearch(false);
-                        setMatchChoice(null);
-                        setStudentDateNaissance("");
-                        setCandidates(null);
-                      }}
-                      className="text-xs font-semibold text-sky-700 underline-offset-2 hover:underline"
-                    >
-                      ← Revenir aux enfants liés à mon e-mail
-                    </button>
                   ) : null}
                 </div>
               ) : null}
@@ -1063,11 +1005,6 @@ export default function RdvInscriptionPublicClient({
               {matchChoice?.kind === "eleve" ? (
                 <p className="mt-3 text-sm text-emerald-700">
                   Élève confirmé : <strong>{matchChoice.label}</strong>
-                </p>
-              ) : null}
-              {matchChoice?.kind === "create" ? (
-                <p className="mt-3 text-sm text-slate-600">
-                  Nouveau dossier — les nom et prénom ci-dessus seront utilisés à la confirmation.
                 </p>
               ) : null}
             </section>

@@ -184,8 +184,12 @@ export async function matchPublicRdvInscription(opts: {
   }
   const studentFirstName = opts.studentFirstName.trim();
   const studentLastName = opts.studentLastName.trim();
-  if (!studentFirstName || !studentLastName) {
-    return { ok: false, status: 400, error: "Nom et prénom de l’élève requis." };
+  if (!studentFirstName && !studentLastName) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Indiquez au moins le nom ou le prénom de l’élève (comme sur École Directe).",
+    };
   }
   const dateNaissance = normalizeEleveDateNaissance(opts.dateNaissance);
   if (!dateNaissance) {
@@ -204,7 +208,7 @@ export async function matchPublicRdvInscription(opts: {
   const { getHomeEtablissementForRdv } = await import("@/app/lib/rdv-inscription-eleve");
   const homeEtablissement = await getHomeEtablissementForRdv(etabId);
 
-  // 1) D’abord le pool contact (si l’e-mail est déjà connu sur un foyer).
+  // 1) Si l’e-mail est déjà connu sur un foyer : matching contact + nom (pas d’identité globale).
   const byContact = await searchRdvInscriptionMatchCandidates({
     etablissementId: etabId,
     parentEmail,
@@ -216,7 +220,7 @@ export async function matchPublicRdvInscription(opts: {
     return { ok: true, candidates: byContact, homeEtablissement, mode: "contact" };
   }
 
-  // 2) Sinon identité complète (parent séparé / contact absent de l’extract).
+  // 2) E-mail non reconnu : identité (naissance + nom OU prénom), jamais de création de dossier.
   const byIdentity = await searchRdvInscriptionByIdentity({
     etablissementId: etabId,
     studentFirstName,
@@ -292,15 +296,19 @@ export async function bookPublicRdvInscription(
   if (!niveauMeta) {
     return { ok: false, status: 400, error: "Niveau inconnu." };
   }
-  if (!createNew && !eleveId) {
+  if (createNew) {
     return {
       ok: false,
       status: 400,
-      error: "Confirmez l’élève trouvé ou créez un nouveau dossier.",
+      error: "La création d’un nouveau dossier n’est pas disponible ici. Retrouvez l’élève déjà préinscrit.",
     };
   }
-  if (createNew && eleveId) {
-    return { ok: false, status: 400, error: "Choix élève incohérent." };
+  if (!eleveId) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Confirmez l’élève trouvé avant de réserver.",
+    };
   }
   if (studentFirstName.length > 80 || studentLastName.length > 80) {
     return { ok: false, status: 400, error: "Nom / prénom trop longs." };

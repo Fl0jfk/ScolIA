@@ -106,7 +106,7 @@ describe("rdv-inscription-match", () => {
     assert.equal(cands[0]!.id, "2");
   });
 
-  it("matche par identité nom+prénom+naissance (foyer séparé)", () => {
+  it("matche par identité : naissance + nom OU prénom (casse/accents)", () => {
     const eleves = [
       eleve({
         id: "x",
@@ -117,37 +117,47 @@ describe("rdv-inscription-match", () => {
       }),
       eleve({
         id: "y",
-        nom: "DURAND",
-        prenom: "Léa",
+        nom: "MARTIN",
+        prenom: "Paul",
         parentEmail: "autre@ex.com",
-        dateNaissance: "2010-01-01",
+        dateNaissance: "2012-03-15",
       }),
     ];
-    // Sans contact : le père séparé retrouve quand même l’enfant avec la naissance.
-    const cands = matchRdvInscriptionByIdentity({
+    // Père séparé : e-mail inconnu, retrouve avec naissance + prénom seul (accent/casse).
+    const byPrenom = matchRdvInscriptionByIdentity({
       eleves,
-      studentLastName: "Durand",
-      studentFirstName: "Léa",
+      studentLastName: "",
+      studentFirstName: "lea",
       dateNaissance: "15/03/2012",
     });
-    assert.equal(cands.length, 1);
-    assert.equal(cands[0]!.id, "x");
+    assert.equal(byPrenom.length, 1);
+    assert.equal(byPrenom[0]!.id, "x");
 
-    const wrongDob = matchRdvInscriptionByIdentity({
+    const byNom = matchRdvInscriptionByIdentity({
       eleves,
-      studentLastName: "Durand",
-      studentFirstName: "Léa",
-      dateNaissance: "2010-01-01",
+      studentLastName: "durand",
+      studentFirstName: "",
+      dateNaissance: "2012-03-15",
     });
-    assert.equal(wrongDob.length, 1);
-    assert.equal(wrongDob[0]!.id, "y");
+    assert.equal(byNom.length, 1);
+    assert.equal(byNom[0]!.id, "x");
 
-    const noDob = matchRdvInscriptionByIdentity({
+    // Naissance seule → rien
+    const dobOnly = matchRdvInscriptionByIdentity({
       eleves,
-      studentLastName: "Durand",
-      studentFirstName: "Léa",
-      dateNaissance: "",
+      studentLastName: "",
+      studentFirstName: "",
+      dateNaissance: "2012-03-15",
     });
-    assert.equal(noDob.length, 0);
+    assert.equal(dobOnly.length, 0);
+
+    // Mauvais prénom + bonne naissance → rien
+    const wrong = matchRdvInscriptionByIdentity({
+      eleves,
+      studentLastName: "",
+      studentFirstName: "Sophie",
+      dateNaissance: "2012-03-15",
+    });
+    assert.equal(wrong.length, 0);
   });
 });
