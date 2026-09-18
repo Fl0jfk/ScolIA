@@ -777,9 +777,7 @@ export default function RdvInscriptionPublicClient({
                 1 · Confirmez votre e-mail
               </h2>
               <p className="mt-2 text-sm text-slate-500">
-                Avant d’accéder au formulaire, nous vous envoyons un lien de confirmation. C’est
-                ainsi que nous retrouvons vos enfants déjà connus — sans pouvoir explorer les
-                dossiers avec une adresse inventée.
+                Avant d’accéder au formulaire, nous vous envoyons un lien de confirmation.
               </p>
               {emailPending ? (
                 <div className="mt-4 space-y-3 rounded-xl bg-sky-50 px-4 py-3 text-sm text-sky-950 ring-1 ring-sky-100">
