@@ -437,21 +437,15 @@ export async function confirmInscriptionCalendarEvent(opts: {
       private: priv,
       shared: current.extendedProperties?.shared || undefined,
     },
-    attendees: [
-      ...(current.attendees || []).filter(
-        (a) => a.email && a.email.toLowerCase() !== opts.parentEmail.trim().toLowerCase(),
-      ),
-      {
-        email: opts.parentEmail.trim().toLowerCase(),
-        displayName: `Parent — ${studentLabel}`,
-      },
-    ],
+    // Pas d’invités Google : le parent reçoit déjà le mail ScolIA + ICS.
+    // sendUpdates=all + attendees déclenchait « Invitation : répondre oui/non ».
+    attendees: [],
   };
 
   const ifMatch = current.etag?.trim();
   const res = await gcalFetch(
     accessToken,
-    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}?sendUpdates=all`,
+    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}?sendUpdates=none`,
     {
       method: "PATCH",
       headers: ifMatch ? { "If-Match": ifMatch } : undefined,
@@ -575,7 +569,7 @@ export async function cancelConfirmedInscriptionEvent(opts: {
 
   const res = await gcalFetch(
     accessToken,
-    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}?sendUpdates=all`,
+    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}?sendUpdates=none`,
     {
       method: "PATCH",
       body: JSON.stringify({
