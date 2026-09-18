@@ -90,6 +90,33 @@ export async function POST(req: NextRequest) {
   }
 
   const dataBucket = await getBucketName();
+  let postMessageOrigin: string | undefined;
+  const originHeader = req.headers.get("origin")?.trim();
+  if (originHeader) {
+    try {
+      postMessageOrigin = new URL(originHeader).origin;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!postMessageOrigin) {
+    const referer = req.headers.get("referer")?.trim();
+    if (referer) {
+      try {
+        postMessageOrigin = new URL(referer).origin;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  if (!postMessageOrigin) {
+    try {
+      postMessageOrigin = new URL(getWopiHostUrl()).origin;
+    } catch {
+      postMessageOrigin = undefined;
+    }
+  }
+
   const token = signWopiToken({
     fileId,
     userId: gate.ctx.userId,
@@ -107,6 +134,7 @@ export async function POST(req: NextRequest) {
     fileShareId,
     relPath,
     sessionId,
+    ...(postMessageOrigin ? { postMessageOrigin } : {}),
   });
 
   const wopiSrc = `${getWopiHostUrl()}/api/wopi/files/${fileId}`;

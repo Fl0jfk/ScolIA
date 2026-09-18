@@ -33,3 +33,4 @@ curl -sS -o /dev/null -w "%{http_code}\n" \
 - `domain` / `aliasgroup1` / `frame_ancestors` doivent inclure tous les hôtes tenant (`lpnb.scolia.fr`, `www.scolia.fr`, …).
 - CSP app : `frame-src` autorise `https://*.functions.fnc.fr-par.scw.cloud` + `COLLABORA_URL`.
 - CNAME `office.scolia.fr` : uniquement si DNS Domains & DNS est accessible (sinon rester sur l’URL functions).
+- Impression : `DownloadAsPostMessage` + handler `Download_As` côté hôte (Chrome bloque `contentWindow.print()` dans l’iframe Collabora). Ne pas mettre d’attribut `allow` restrictif sur l’iframe same-origin.

@@ -36,6 +36,8 @@ export type WopiAccessClaims = {
   fileShareId: string | null;
   relPath: string;
   sessionId: string;
+  /** Origine de la page hôte (postMessage impression / export). */
+  postMessageOrigin?: string;
   exp: number;
 };
 

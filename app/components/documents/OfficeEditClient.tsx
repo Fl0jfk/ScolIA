@@ -32,6 +32,109 @@ type TokenPayload = {
   relPath: string;
 };
 
+type CollaboraMessage = {
+  MessageId?: string;
+  Values?: {
+    Status?: string;
+    Type?: string;
+    URL?: string;
+    Filename?: string;
+  };
+};
+
+function parseCollaboraMessage(data: unknown): CollaboraMessage | null {
+  if (data == null) return null;
+  if (typeof data === "string") {
+    try {
+      return JSON.parse(data) as CollaboraMessage;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof data === "object") return data as CollaboraMessage;
+  return null;
+}
+
+/** Réécrit les URLs Collabora absolues vers l’hôte same-origin (/cool, /browser). */
+function resolveOfficeDownloadUrl(raw: string, editorSrc: string | null): string {
+  const parsed = new URL(raw, window.location.href);
+  const editorSameOrigin =
+    !editorSrc ||
+    editorSrc.startsWith("/") ||
+    (() => {
+      try {
+        return new URL(editorSrc, window.location.href).origin === window.location.origin;
+      } catch {
+        return false;
+      }
+    })();
+  const officePath =
+    parsed.pathname.startsWith("/cool") ||
+    parsed.pathname.startsWith("/browser") ||
+    parsed.pathname.startsWith("/hosting");
+  if (editorSameOrigin && officePath) {
+    return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  }
+  return parsed.href;
+}
+
+async function printOfficePdf(url: string): Promise<void> {
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) {
+    throw new Error(`Téléchargement PDF impossible (${res.status}).`);
+  }
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const frame = document.createElement("iframe");
+  frame.setAttribute("title", "Impression");
+  frame.style.position = "fixed";
+  frame.style.right = "0";
+  frame.style.bottom = "0";
+  frame.style.width = "0";
+  frame.style.height = "0";
+  frame.style.border = "0";
+  frame.src = blobUrl;
+  document.body.appendChild(frame);
+
+  const cleanup = () => {
+    try {
+      frame.remove();
+    } catch {
+      /* ignore */
+    }
+    try {
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  await new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Délai dépassé lors de l’ouverture du PDF."));
+    }, 30_000);
+    frame.onload = () => {
+      window.clearTimeout(timer);
+      try {
+        frame.contentWindow?.focus();
+        frame.contentWindow?.print();
+      } catch (err) {
+        cleanup();
+        reject(err instanceof Error ? err : new Error("Impression impossible."));
+        return;
+      }
+      window.setTimeout(cleanup, 60_000);
+      resolve();
+    };
+    frame.onerror = () => {
+      window.clearTimeout(timer);
+      cleanup();
+      reject(new Error("Chargement du PDF impossible."));
+    };
+  });
+}
+
 export default function OfficeEditClient(props: Props) {
   const router = useRouter();
   const sessionStorageKey = useMemo(
@@ -65,6 +168,7 @@ export default function OfficeEditClient(props: Props) {
   const [peers, setPeers] = useState<Peer[]>([]);
   const [shareMembers, setShareMembers] = useState<string[]>([]);
   const [shareBusy, setShareBusy] = useState(false);
+  const [printBusy, setPrintBusy] = useState(false);
 
   const returnHref = "/documents/office";
   const bootstrapping = useRef(false);
@@ -72,6 +176,9 @@ export default function OfficeEditClient(props: Props) {
   const tokenRef = useRef<TokenPayload | null>(null);
   /** URL iframe figée — évite remount Collabora (coupure WS) si le token JWT est renouvelé. */
   const stableEditorUrl = useRef<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const collaboraOriginRef = useRef<string | null>(null);
+  const hostReadySentRef = useRef(false);
   tokenRef.current = token;
 
   const releaseSession = useCallback(
@@ -159,6 +266,7 @@ export default function OfficeEditClient(props: Props) {
           setToken({ ...next, editorUrl: stableEditorUrl.current });
         } else {
           if (next.editorUrl) stableEditorUrl.current = next.editorUrl;
+          hostReadySentRef.current = false;
           setToken(next);
         }
 
@@ -244,6 +352,90 @@ export default function OfficeEditClient(props: Props) {
     };
   }, [releaseSession, sessionId]);
 
+  const sendToCollabora = useCallback((messageId: string, values?: Record<string, unknown>) => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    const target = collaboraOriginRef.current || "*";
+    const payload = {
+      MessageId: messageId,
+      SendTime: Date.now(),
+      Values: values || {},
+    };
+    win.postMessage(JSON.stringify(payload), target);
+  }, []);
+
+  const handleDownloadAs = useCallback(
+    async (values: CollaboraMessage["Values"] | undefined) => {
+      const type = String(values?.Type || "").toLowerCase();
+      const rawUrl = String(values?.URL || "").trim();
+      if (!rawUrl) return;
+      if (type !== "print" && type !== "export" && type !== "slideshow") return;
+
+      const url = resolveOfficeDownloadUrl(rawUrl, stableEditorUrl.current);
+      if (type === "print") {
+        setPrintBusy(true);
+        try {
+          await printOfficePdf(url);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Impression impossible.");
+        } finally {
+          setPrintBusy(false);
+        }
+        return;
+      }
+
+      // export / slideshow : téléchargement classique
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = String(values?.Filename || tokenRef.current?.fileName || "document");
+      a.rel = "noopener";
+      a.target = "_blank";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const msg = parseCollaboraMessage(event.data);
+      if (!msg?.MessageId) return;
+
+      const editorSrc = stableEditorUrl.current;
+      if (editorSrc && !editorSrc.startsWith("/")) {
+        try {
+          const expected = new URL(editorSrc, window.location.href).origin;
+          if (event.origin !== expected && event.origin !== window.location.origin) return;
+        } catch {
+          /* ignore */
+        }
+      } else if (event.origin !== window.location.origin && collaboraOriginRef.current) {
+        if (event.origin !== collaboraOriginRef.current) return;
+      }
+
+      collaboraOriginRef.current = event.origin;
+
+      if (msg.MessageId === "App_LoadingStatus") {
+        const status = String(msg.Values?.Status || "");
+        if (
+          !hostReadySentRef.current &&
+          (status === "Frame_Ready" || status === "Initialized" || status === "Document_Loaded")
+        ) {
+          hostReadySentRef.current = true;
+          sendToCollabora("Host_PostmessageReady");
+        }
+        return;
+      }
+
+      if (msg.MessageId === "Download_As" || msg.MessageId === "Action_Download_As") {
+        void handleDownloadAs(msg.Values);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [handleDownloadAs, sendToCollabora]);
+
   const leave = () => {
     if (token?.fileId) releaseSession(token.fileId, sessionId, true);
     stableEditorUrl.current = null;
@@ -315,12 +507,33 @@ export default function OfficeEditClient(props: Props) {
     void bootstrap(true);
   };
 
+  const requestPrint = () => {
+    setPrintBusy(true);
+    sendToCollabora("Action_Print");
+    // Collabora répond via Download_As (DownloadAsPostMessage) — sécurité anti-blocage UI.
+    window.setTimeout(() => setPrintBusy(false), 15_000);
+  };
+
   const title = token?.fileName || props.path.split("/").pop() || "Document";
 
   const iframeSrc = useMemo(() => {
     if (stableEditorUrl.current) return stableEditorUrl.current;
     return token?.editorUrl || null;
   }, [token?.editorUrl]);
+
+  const editorSameOrigin = useMemo(() => {
+    if (!iframeSrc) return true;
+    if (iframeSrc.startsWith("/")) return true;
+    try {
+      return (
+        new URL(iframeSrc, typeof window !== "undefined" ? window.location.href : "http://localhost")
+          .origin ===
+        (typeof window !== "undefined" ? window.location.origin : "http://localhost")
+      );
+    } catch {
+      return false;
+    }
+  }, [iframeSrc]);
 
   const showEditor = Boolean(iframeSrc && token?.collaboraConfigured);
 
@@ -335,6 +548,16 @@ export default function OfficeEditClient(props: Props) {
           ← Retour
         </button>
         <p className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">{title}</p>
+        {showEditor ? (
+          <button
+            type="button"
+            disabled={printBusy}
+            onClick={requestPrint}
+            className="rounded-lg px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+          >
+            {printBusy ? "Impression…" : "Imprimer"}
+          </button>
+        ) : null}
         {token?.isOwner && versions.length > 0 ? (
           <button
             type="button"
@@ -356,10 +579,15 @@ export default function OfficeEditClient(props: Props) {
       <div className="relative min-h-0 flex-1">
         {showEditor ? (
           <iframe
+            ref={iframeRef}
             title={title}
             src={iframeSrc!}
             className="h-full w-full border-0"
-            allow="clipboard-read; clipboard-write; fullscreen"
+            // Same-origin : pas d’allow (sinon Chrome casse contentWindow.print / Download_As).
+            // Cross-origin : délégation clipboard comme Nextcloud richdocuments.
+            {...(editorSameOrigin
+              ? {}
+              : { allow: "clipboard-read *; clipboard-write *" })}
             referrerPolicy="no-referrer-when-downgrade"
           />
         ) : loading ? (

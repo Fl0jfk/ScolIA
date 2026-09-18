@@ -6,6 +6,7 @@ import {
   clearWopiLock,
   headOfficeObjectMeta,
   wopiTimestamp,
+  getWopiHostUrl,
 } from "@/app/lib/office-wopi";
 
 function extractToken(req: NextRequest): string | null {
@@ -40,6 +41,14 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
   const meta = await headOfficeObjectMeta(claims.storageKey, claims.dataBucket);
   const lastModified = wopiTimestamp(meta.lastModified);
+  let postMessageOrigin = claims.postMessageOrigin?.trim() || "";
+  if (!postMessageOrigin) {
+    try {
+      postMessageOrigin = new URL(getWopiHostUrl()).origin;
+    } catch {
+      postMessageOrigin = "";
+    }
+  }
   return NextResponse.json({
     BaseFileName: claims.fileName,
     Size: meta.size,
@@ -54,6 +63,12 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     SupportsGetLock: true,
     SupportsExtendedLockLength: true,
     LastModifiedTime: lastModified,
+    // Chrome bloque contentWindow.print() dans l’iframe Collabora :
+    // l’hôte reçoit Download_As et ouvre le dialogue d’impression.
+    DownloadAsPostMessage: true,
+    UserCanPrint: true,
+    DisablePrint: false,
+    ...(postMessageOrigin ? { PostMessageOrigin: postMessageOrigin } : {}),
   });
 }
 
