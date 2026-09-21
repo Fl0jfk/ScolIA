@@ -69,7 +69,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
 
 export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
   professeur: [
-    // Appels de classe réactivés (occupancy) ; pas de sanctions / carnet par défaut.
+    // Appels + notes saisie (occupancy / Rejoindre) ; pas de sanctions / carnet par défaut.
     "eleve-dossier",
     "certificates",
     "organigramme",
@@ -84,6 +84,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "assistance",
     "vs-calendrier",
     "vs-appels",
+    "notes",
     "rh",
     "absences",
     "demandes-hse",

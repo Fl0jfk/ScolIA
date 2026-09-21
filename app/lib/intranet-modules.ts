@@ -779,7 +779,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "notes",
     pathPrefixes: ["/notes", "/api/notes"],
-    allowedRoles: [...DIRECTIONS, "administratif", "admin", "cpe"],
+    // Professeur : saisie du quotidien (face app native plus tard ; intranet staff en attendant).
+    allowedRoles: [...DIRECTIONS, "administratif", "admin", "cpe", "professeur"],
     dashboard: {
       id: 51,
       name: "Notes & bulletins",
@@ -1040,12 +1041,8 @@ export function rolesAllowModule(
 
     // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
     if (module.id === "pilotage-eleves") return false;
-    // Sanctions / carnet / API absences VS pure : encore masqués. Appels = réactivés (occupancy).
-    if (
-      module.id === "vs-absences" ||
-      module.id === "vs-sanctions" ||
-      module.id === "vs-carnet"
-    ) {
+    // Sanctions / carnet encore masqués. Absences VS + appels = réactivés (justifs / occupancy).
+    if (module.id === "vs-sanctions" || module.id === "vs-carnet") {
       return false;
     }
 

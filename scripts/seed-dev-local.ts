@@ -15,8 +15,14 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
   account,
+  anneeScolaire,
   eleve,
   etablissement,
+  noteDevoir,
+  noteMatiere,
+  notePeriode,
+  noteTypeDevoir,
+  noteValeur,
   twoFactor,
   user,
   userMembership,
@@ -416,6 +422,128 @@ async function main() {
       console.log(`[seed] absence a_traiter du jour pour ${child.prenom}`);
     }
 
+    // —— Notes démo (saisie → parent voit sans clôture) ——
+    const existingMatieres = await db
+      .select()
+      .from(noteMatiere)
+      .where(eq(noteMatiere.etablissementId, etab.id));
+    if (!existingMatieres.length) {
+      for (const m of [
+        { code: "MATHS", libelle: "Mathématiques" },
+        { code: "FRAN", libelle: "Français" },
+        { code: "HG", libelle: "Histoire-Géographie" },
+        { code: "AGL1", libelle: "Anglais LV1" },
+        { code: "EPS", libelle: "EPS" },
+      ]) {
+        await db.insert(noteMatiere).values({
+          etablissementId: etab.id,
+          code: m.code,
+          libelle: m.libelle,
+        });
+      }
+      console.log("[seed] matières notes créées");
+    }
+    const [anneeCourante] = await db
+      .select()
+      .from(anneeScolaire)
+      .where(and(eq(anneeScolaire.etablissementId, etab.id), eq(anneeScolaire.isCurrent, true)))
+      .limit(1);
+    const existingPeriodes = await db
+      .select()
+      .from(notePeriode)
+      .where(eq(notePeriode.etablissementId, etab.id));
+    if (!existingPeriodes.length) {
+      for (const p of [
+        { code: "T1", libelle: "1er trimestre", ordre: 1 },
+        { code: "T2", libelle: "2e trimestre", ordre: 2 },
+        { code: "T3", libelle: "3e trimestre", ordre: 3 },
+      ]) {
+        await db.insert(notePeriode).values({
+          etablissementId: etab.id,
+          code: p.code,
+          libelle: p.libelle,
+          ordre: p.ordre,
+          statut: "ouverte",
+          anneeScolaireId: anneeCourante?.id ?? null,
+        });
+      }
+      console.log("[seed] périodes notes créées");
+    }
+    for (const t of [
+      { code: "DS", libelle: "Devoir surveillé" },
+      { code: "DM", libelle: "Devoir maison" },
+    ]) {
+      await db
+        .insert(noteTypeDevoir)
+        .values({ etablissementId: etab.id, code: t.code, libelle: t.libelle })
+        .onConflictDoNothing();
+    }
+
+    const [maths] = await db
+      .select()
+      .from(noteMatiere)
+      .where(and(eq(noteMatiere.etablissementId, etab.id), eq(noteMatiere.code, "MATHS")))
+      .limit(1);
+    const [t1] = await db
+      .select()
+      .from(notePeriode)
+      .where(and(eq(notePeriode.etablissementId, etab.id), eq(notePeriode.code, "T1")))
+      .limit(1);
+    if (maths && t1) {
+      const [existingDevoir] = await db
+        .select()
+        .from(noteDevoir)
+        .where(
+          and(
+            eq(noteDevoir.etablissementId, etab.id),
+            eq(noteDevoir.libelle, "Contrôle seed JUSTIF"),
+            eq(noteDevoir.classe, DEV_PARENT_SEED.childClasse),
+          ),
+        )
+        .limit(1);
+      let devoirId = existingDevoir?.id;
+      if (!devoirId) {
+        const [createdDevoir] = await db
+          .insert(noteDevoir)
+          .values({
+            etablissementId: etab.id,
+            matiereId: maths.id,
+            periodeId: t1.id,
+            classe: DEV_PARENT_SEED.childClasse,
+            libelle: "Contrôle seed JUSTIF",
+            dateDevoir: today,
+            coefficient: "1",
+            createdByUserId: DEV_SEED.userId,
+          })
+          .returning();
+        devoirId = createdDevoir.id;
+        console.log(`[seed] devoir notes créé: ${createdDevoir.libelle}`);
+      }
+      const [existingNote] = await db
+        .select()
+        .from(noteValeur)
+        .where(
+          and(
+            eq(noteValeur.etablissementId, etab.id),
+            eq(noteValeur.devoirId, devoirId),
+            eq(noteValeur.eleveId, child.id),
+          ),
+        )
+        .limit(1);
+      if (!existingNote) {
+        await db.insert(noteValeur).values({
+          etablissementId: etab.id,
+          devoirId,
+          eleveId: child.id,
+          valeur: "14.5",
+          absent: false,
+          dispense: false,
+          appreciation: "Bon travail — seed démo notes famille",
+        });
+        console.log(`[seed] note 14.5 pour ${child.prenom} ${child.nom}`);
+      }
+    }
+
     console.log(
       JSON.stringify(
         {
@@ -429,6 +557,8 @@ async function main() {
           slug: DEV_SEED.slug,
           signInUrl: "http://localhost:3000/auth/sign-in?dev_tenant=default",
           familleUrl: "http://localhost:3000/famille/absences?dev_tenant=default",
+          familleNotesUrl: "http://localhost:3000/famille/notes?dev_tenant=default",
+          notesSaisieUrl: "http://localhost:3000/notes/saisie?dev_tenant=default",
           totpHelper: "npm run seed:dev:totp",
         },
         null,
