@@ -44,13 +44,25 @@ test("planRegimeCutover — même régime = no-op", () => {
   assert.equal(plan.noop, true);
 });
 
-test("planRegimeCutover — date d’effet trop tôt", () => {
+test("planRegimeCutover — même jour = correction in-place", () => {
+  const plan = planRegimeCutover({
+    open: { regime: "Externe", dateDebut: "2025-09-01", dateFin: null },
+    nextRegime: "Demi-pension",
+    effectiveOn: "2025-09-01",
+  });
+  assert.equal(plan.noop, false);
+  assert.equal(plan.replaceOpen, true);
+  assert.equal(plan.closeDateFin, null);
+  assert.equal(plan.next.regime, "Demi-pension");
+});
+
+test("planRegimeCutover — date d’effet avant le début", () => {
   assert.throws(
     () =>
       planRegimeCutover({
         open: { regime: "Externe", dateDebut: "2025-09-01", dateFin: null },
         nextRegime: "Demi-pension",
-        effectiveOn: "2025-09-01",
+        effectiveOn: "2025-08-31",
       }),
     (err: unknown) => err instanceof EleveCoreError && err.code === "REGIME_DATE_ORDER",
   );

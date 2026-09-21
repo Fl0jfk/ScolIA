@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   eleve,
@@ -533,18 +533,19 @@ export async function applyRegimeChange(
         eq(eleveRegimePeriode.etablissementId, opts.etablissementId),
         eq(eleveRegimePeriode.scolariteId, scolariteId),
         eq(eleveRegimePeriode.eleveId, opts.eleveId),
+        isNull(eleveRegimePeriode.dateFin),
       ),
     )
-    .orderBy(desc(eleveRegimePeriode.dateDebut));
+    .orderBy(desc(eleveRegimePeriode.dateDebut))
+    .limit(1);
 
-  const openPeriod =
-    open && !open.dateFin
-      ? {
-          regime: open.regime,
-          dateDebut: String(open.dateDebut),
-          dateFin: null as string | null,
-        }
-      : null;
+  const openPeriod = open
+    ? {
+        regime: open.regime,
+        dateDebut: String(open.dateDebut),
+        dateFin: null as string | null,
+      }
+    : null;
 
   const plan = planRegimeCutover({
     open: openPeriod,
@@ -553,21 +554,27 @@ export async function applyRegimeChange(
   });
   if (plan.noop) return { noop: true, scolariteId };
 
-  if (open && !open.dateFin && plan.closeDateFin) {
+  if (plan.replaceOpen && open) {
     await db
       .update(eleveRegimePeriode)
-      .set({ dateFin: plan.closeDateFin, updatedAt: new Date() })
+      .set({ regime: plan.next.regime, updatedAt: new Date() })
       .where(eq(eleveRegimePeriode.id, open.id));
+  } else {
+    if (open && plan.closeDateFin) {
+      await db
+        .update(eleveRegimePeriode)
+        .set({ dateFin: plan.closeDateFin, updatedAt: new Date() })
+        .where(eq(eleveRegimePeriode.id, open.id));
+    }
+    await db.insert(eleveRegimePeriode).values({
+      etablissementId: opts.etablissementId,
+      eleveId: opts.eleveId,
+      scolariteId,
+      regime: plan.next.regime,
+      dateDebut: plan.next.dateDebut,
+      dateFin: null,
+    });
   }
-
-  await db.insert(eleveRegimePeriode).values({
-    etablissementId: opts.etablissementId,
-    eleveId: opts.eleveId,
-    scolariteId,
-    regime: plan.next.regime,
-    dateDebut: plan.next.dateDebut,
-    dateFin: null,
-  });
 
   await db
     .update(eleve)
@@ -593,6 +600,7 @@ export async function applyRegimeChange(
         after: plan.next.regime,
         effectiveOn,
         closedOn: plan.closeDateFin,
+        replaceOpen: plan.replaceOpen,
       },
       actorUserId: write?.actorUserId,
     },
@@ -614,7 +622,28 @@ export async function syncScolariteCouranteFromPlat(
   write?: EleveCoreWriteOpts,
 ): Promise<void> {
   const classe = opts.classe?.trim() || null;
+  const asTerminee = opts.status === "ancien" || opts.status === "archive";
+
+  if (!classe && asTerminee) {
+    const enCours = await findEnCours({
+      etablissementId: opts.etablissementId,
+      eleveId: opts.eleveId,
+    });
+    if (enCours) {
+      await closeEnCours(
+        enCours,
+        {
+          etablissementId: opts.etablissementId,
+          eleveId: opts.eleveId,
+          reason: "status_ancien",
+        },
+        { ...write, skipHooks: true },
+      );
+    }
+    return;
+  }
   if (!classe) return;
+
   const { scolariteId } = await applyClasseCourante(
     {
       etablissementId: opts.etablissementId,
@@ -625,33 +654,12 @@ export async function syncScolariteCouranteFromPlat(
     },
     { ...write, skipHooks: true },
   );
+  if (!scolariteId || asTerminee) return;
+
   const regime = storedRegimeLabel(opts.regime ?? null);
   if (!regime) return;
-  const db = getDb();
-  const [open] = await db
-    .select({ id: eleveRegimePeriode.id })
-    .from(eleveRegimePeriode)
-    .where(
-      and(
-        eq(eleveRegimePeriode.scolariteId, scolariteId),
-        eq(eleveRegimePeriode.etablissementId, opts.etablissementId),
-      ),
-    )
-    .limit(1);
+
   const today = new Date().toISOString().slice(0, 10);
-  if (!open) {
-    await applyRegimeChange(
-      {
-        etablissementId: opts.etablissementId,
-        eleveId: opts.eleveId,
-        regime,
-        effectiveOn: today,
-        scolariteId,
-      },
-      { ...write, skipHooks: true },
-    );
-    return;
-  }
   await applyRegimeChange(
     {
       etablissementId: opts.etablissementId,
@@ -661,6 +669,60 @@ export async function syncScolariteCouranteFromPlat(
       scolariteId,
     },
     { ...write, skipHooks: write?.skipHooks ?? true },
+  );
+}
+
+export async function applyEleveStatus(
+  opts: {
+    etablissementId: string;
+    eleveId: string;
+    status: "preinscrit" | "inscrit" | "ancien" | "archive";
+  },
+  write?: EleveCoreWriteOpts,
+): Promise<void> {
+  const db = getDb();
+  const [before] = await db
+    .select({ status: eleve.status })
+    .from(eleve)
+    .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)))
+    .limit(1);
+  if (!before) throw new EleveCoreError("ELEVE_NOT_FOUND", "Élève introuvable.");
+  if (before.status === opts.status) return;
+
+  await db
+    .update(eleve)
+    .set({ status: opts.status, updatedAt: new Date() })
+    .where(and(eq(eleve.etablissementId, opts.etablissementId), eq(eleve.id, opts.eleveId)));
+
+  if (opts.status === "ancien" || opts.status === "archive") {
+    const enCours = await findEnCours({
+      etablissementId: opts.etablissementId,
+      eleveId: opts.eleveId,
+    });
+    if (enCours) {
+      await closeEnCours(
+        enCours,
+        {
+          etablissementId: opts.etablissementId,
+          eleveId: opts.eleveId,
+          reason: `status_${opts.status}`,
+        },
+        write,
+      );
+    }
+  }
+
+  await emit(
+    {
+      etablissementId: opts.etablissementId,
+      type: METIER_EVENT_TYPES.ELEVE_STATUS_CHANGED,
+      aggregate: "eleve",
+      aggregateId: opts.eleveId,
+      eleveId: opts.eleveId,
+      payload: { before: before.status, after: opts.status },
+      actorUserId: write?.actorUserId,
+    },
+    write,
   );
 }
 

@@ -95,12 +95,18 @@ export type RegimePeriodInput = {
 /**
  * Ferme la période ouverte la veille de `effectiveOn`, ouvre la nouvelle.
  * Même régime déjà ouvert → no-op.
+ * Même jour que le début de la période ouverte → correction in-place (`replaceOpen`).
  */
 export function planRegimeCutover(args: {
   open: RegimePeriodInput | null;
   nextRegime: string;
   effectiveOn: string;
-}): { noop: boolean; closeDateFin: string | null; next: RegimePeriodInput } {
+}): {
+  noop: boolean;
+  replaceOpen: boolean;
+  closeDateFin: string | null;
+  next: RegimePeriodInput;
+} {
   const effectiveOn = assertIsoDate(args.effectiveOn, "date d’effet");
   const nextRegime = storedRegimeLabel(args.nextRegime);
   if (!nextRegime) {
@@ -110,6 +116,7 @@ export function planRegimeCutover(args: {
   if (!args.open) {
     return {
       noop: false,
+      replaceOpen: false,
       closeDateFin: null,
       next: { regime: nextRegime, dateDebut: effectiveOn, dateFin: null },
     };
@@ -119,16 +126,26 @@ export function planRegimeCutover(args: {
   if (openRegime === nextRegime && args.open.dateFin == null) {
     return {
       noop: true,
+      replaceOpen: false,
       closeDateFin: null,
       next: { ...args.open, regime: openRegime },
     };
   }
 
-  if (compareIsoDate(effectiveOn, args.open.dateDebut) <= 0) {
+  const cmp = compareIsoDate(effectiveOn, args.open.dateDebut);
+  if (cmp < 0) {
     throw new EleveCoreError(
       "REGIME_DATE_ORDER",
-      "La date d’effet doit être après le début de la période actuelle.",
+      "La date d’effet doit être après (ou égale à) le début de la période actuelle.",
     );
+  }
+  if (cmp === 0) {
+    return {
+      noop: false,
+      replaceOpen: true,
+      closeDateFin: null,
+      next: { regime: nextRegime, dateDebut: effectiveOn, dateFin: null },
+    };
   }
 
   const closeDateFin = dayBefore(effectiveOn);
@@ -141,6 +158,7 @@ export function planRegimeCutover(args: {
 
   return {
     noop: false,
+    replaceOpen: false,
     closeDateFin,
     next: { regime: nextRegime, dateDebut: effectiveOn, dateFin: null },
   };

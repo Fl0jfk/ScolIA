@@ -134,11 +134,39 @@ test("socle élève — tenant, régime daté, prevue (intégration)", async (t)
       (err: unknown) => err instanceof EleveCoreError && err.code === "SAME_YEAR",
     );
 
-    const [evt] = await db
+    // Correction régime le même jour (import) — pas d’erreur d’ordre.
+    await applyRegimeChange(
+      {
+        etablissementId: etabA.id,
+        eleveId: thomas.id,
+        regime: "Externe",
+        effectiveOn: "2027-01-15",
+      },
+      { skipHooks: true },
+    );
+    assert.equal(
+      await getRegimeAtDate({ etablissementId: etabA.id, eleveId: thomas.id, on: "2027-01-15" }),
+      "Externe",
+    );
+
+    const { applyEleveStatus } = await import("@/app/lib/eleve-core/port");
+    await applyEleveStatus(
+      { etablissementId: etabA.id, eleveId: thomas.id, status: "ancien" },
+      { skipHooks: true },
+    );
+    const afterAncien = await getEleve({ etablissementId: etabA.id, eleveId: thomas.id });
+    assert.equal(afterAncien?.status, "ancien");
+    assert.equal(afterAncien?.scolariteId, null);
+    assert.ok(afterAncien?.prevue, "la scolarité prévue N+1 reste");
+
+    const events = await db
       .select({ type: metierEvent.type })
       .from(metierEvent)
       .where(eq(metierEvent.eleveId, thomas.id));
-    assert.ok(evt);
+    const types = new Set(events.map((e) => e.type));
+    assert.ok(types.has("scolarite.opened") || types.has("scolarite.classe_changed"));
+    assert.ok(types.has("eleve.regime_changed"));
+    assert.ok(types.has("eleve.status_changed"));
   } finally {
     await db.delete(etablissement).where(eq(etablissement.id, etabA.id));
     await db.delete(etablissement).where(eq(etablissement.id, etabB.id));

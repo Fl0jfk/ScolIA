@@ -6,6 +6,7 @@ export {
   listRegimePeriodes,
   applyClasseCourante,
   applyRegimeChange,
+  applyEleveStatus,
   openPrevueScolarite,
   syncScolariteCouranteFromPlat,
   recordFoyerChanged,
