@@ -6,8 +6,13 @@ import type { MailPreviewType } from "@/app/lib/travels-mail-preview";
 import { complexNeedsBus } from "@/app/lib/travels-trip-helpers";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 import { normalizeTravelImageUrl } from "@/app/lib/travels-image-url";
-import { TripButton, TripSection } from "@/app/components/travels/TripDetailUI";
+import { TripAlert, TripButton, TripSection } from "@/app/components/travels/TripDetailUI";
 import { TripMailPreviewModal } from "@/app/components/travels/hub/TripMailPreviewModal";
+import {
+  formatImpactPreviewAlert,
+  formatImpactPreviewLines,
+  type ImpactPreviewLike,
+} from "@/app/lib/impact-engine/format-preview";
 
 function existingTransportRequest(trip: TravelsTrip) {
   const tr = trip.data.transportRequest;
@@ -38,6 +43,7 @@ export function TripActionsPanel({
   const [cancelNotifyCuisine, setCancelNotifyCuisine] = useState(true);
   const [showRequalifyModal, setShowRequalifyModal] = useState(false);
   const [requalifyForm, setRequalifyForm] = useState(() => existingTransportRequest(trip));
+  const [impactBanner, setImpactBanner] = useState<string[] | null>(null);
 
   const canRequalifyToBus =
     canManage &&
@@ -118,10 +124,18 @@ export function TripActionsPanel({
       const j = await res.json();
       if (!res.ok) throw new Error(j.error);
       onTripUpdated(j.trip);
+      const impactLines = formatImpactPreviewLines(j.impactPreview as ImpactPreviewLike | null);
+      if (impactLines.length > 0) setImpactBanner(impactLines);
+      const impactBit = formatImpactPreviewAlert(j.impactPreview as ImpactPreviewLike | null);
       alert(
-        j.emailsSent?.length
-          ? `Sortie annulée. ${j.emailsSent.length} notification(s) envoyée(s).`
-          : "Sortie annulée.",
+        [
+          j.emailsSent?.length
+            ? `Sortie annulée. ${j.emailsSent.length} notification(s) envoyée(s).`
+            : "Sortie annulée.",
+          impactBit,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       );
     } catch (e) {
       alert(e instanceof Error ? e.message : "Annulation impossible");
@@ -178,6 +192,17 @@ export function TripActionsPanel({
 
   return (
     <>
+      {impactBanner && impactBanner.length > 0 ? (
+        <div className="mb-4">
+          <TripAlert tone="info" icon="🧠" title="Impacts après annulation">
+            <ul className="mt-1 list-disc space-y-1 pl-4 text-sm">
+              {impactBanner.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </TripAlert>
+        </div>
+      ) : null}
       <TripSection title="Actions du sas voyage" subtitle="Export, annulation, aperçus mails" icon="⚡">
         <div className="grid gap-4 sm:grid-cols-2">
           {canRequalifyToBus && (

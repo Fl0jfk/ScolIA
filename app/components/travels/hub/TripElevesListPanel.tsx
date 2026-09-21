@@ -31,6 +31,11 @@ import {
   isTripSelectedClass,
   prioritizeClassesForTrip,
 } from "@/app/lib/travels-classes";
+import {
+  formatImpactPreviewAlert,
+  formatImpactPreviewLines,
+  type ImpactPreviewLike,
+} from "@/app/lib/impact-engine/format-preview";
 
 type Props = {
   trip: TravelsTrip;
@@ -62,6 +67,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   );
   /** Activer la page de suivi parents (blog) à la confirmation. */
   const [activateParentBlog, setActivateParentBlog] = useState(false);
+  const [impactBanner, setImpactBanner] = useState<string[] | null>(null);
 
   const needsBus = complexNeedsBus(trip);
   const horairesRequired = parentHorairesRequiredForTrip(trip);
@@ -476,6 +482,8 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || "Confirmation impossible");
       if (j.trip) onTripUpdated(j.trip as TravelsTrip);
+      const impactLines = formatImpactPreviewLines(j.impactPreview as ImpactPreviewLike | null);
+      if (impactLines.length > 0) setImpactBanner(impactLines);
       const bits = [
         j.sentTo?.length ? `Transporteur : ${j.sentTo.length} envoi(s)` : null,
         j.parentsNotified
@@ -491,6 +499,7 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
           ? "Commande cuisine envoyée au chef + liste « qui mange » à la collègue décompte."
           : null,
         j.cuisineError ? `Cuisine non envoyée : ${j.cuisineError}` : null,
+        formatImpactPreviewAlert(j.impactPreview as ImpactPreviewLike | null) || null,
       ].filter(Boolean);
       alert(bits.length ? `Liste confirmée.\n${bits.join("\n")}` : "Liste confirmée.");
     } catch (e) {
@@ -591,6 +600,16 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
               : " Pour une sortie de proximité, les horaires parents restent facultatifs."}
           </TripAlert>
         )}
+
+        {impactBanner && impactBanner.length > 0 ? (
+          <TripAlert tone="info" icon="🧠" title="Impacts (cerveau)">
+            <ul className="mt-1 list-disc space-y-1 pl-4 text-sm">
+              {impactBanner.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </TripAlert>
+        ) : null}
 
         {!confirmed && (
           <TripAlert tone="info" icon="ℹ️" title="À quoi sert cette liste ?">

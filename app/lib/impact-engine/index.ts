@@ -31,4 +31,6 @@ export {
 } from "./signals";
 
 export { previewVoyageImpacts, type PreviewVoyageImpactsOpts } from "./preview";
+export { formatImpactPreviewAlert, formatImpactPreviewLines } from "./format-preview";
+export type { ImpactPreviewLike } from "./format-preview";
 export { onTravelListeConfirmed, onTravelCancelled } from "./hooks";

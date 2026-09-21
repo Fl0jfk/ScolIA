@@ -13,6 +13,11 @@ import type {
   AccueilPeriodMode,
   AccueilSearchHit,
 } from "@/app/lib/accueil-absences-types";
+import {
+  ACCUEIL_EN_SORTIE_CODE,
+  formatAccueilEnSortieConfirm,
+  type AccueilEnSortieHit,
+} from "@/app/lib/accueil-absence-occupancy";
 import { parisDateKey } from "@/app/lib/paris-time";
 
 function todayIso(): string {
@@ -63,6 +68,8 @@ export default function AccueilAbsencesClient({ embedded = false }: { embedded?:
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [focusSearchNonce, setFocusSearchNonce] = useState(0);
+  const [enSortieHits, setEnSortieHits] = useState<AccueilEnSortieHit[]>([]);
+  const [enSortieWarning, setEnSortieWarning] = useState<string | null>(null);
 
   const focusSearch = useCallback(() => {
     setFocusSearchNonce((n) => n + 1);
@@ -124,6 +131,8 @@ export default function AccueilAbsencesClient({ embedded = false }: { embedded?:
     setStartTime("08:00");
     setEndTime("12:00");
     setMotif("");
+    setEnSortieHits([]);
+    setEnSortieWarning(null);
   }, []);
 
   const readyForNext = useCallback(() => {
@@ -135,6 +144,8 @@ export default function AccueilAbsencesClient({ embedded = false }: { embedded?:
     setSelected(h);
     setHits([]);
     setQ(h.displayName);
+    setEnSortieHits([]);
+    setEnSortieWarning(null);
     if (isProfHit(h)) {
       setEtablissement(defaultEtablissementForHit(h, activeEstablishments));
     } else {
@@ -142,7 +153,48 @@ export default function AccueilAbsencesClient({ embedded = false }: { embedded?:
     }
   };
 
-  const submit = async () => {
+  // Bandeau occupancy dès qu’un élève + période sont connus.
+  useEffect(() => {
+    if (!selected || selected.kind !== "eleve") {
+      setEnSortieHits([]);
+      setEnSortieWarning(null);
+      return;
+    }
+    const effectiveEnd = mode === "multi_day" ? endDate : startDate;
+    let cancelled = false;
+    const t = setTimeout(() => {
+      void (async () => {
+        try {
+          const params = new URLSearchParams({
+            eleveId: selected.id,
+            startDate,
+            endDate: effectiveEnd,
+          });
+          const res = await fetch(`/api/accueil/absences/presence?${params}`, {
+            cache: "no-store",
+          });
+          const data = (await res.json()) as {
+            enSortie?: AccueilEnSortieHit[];
+            warning?: string | null;
+          };
+          if (cancelled || !res.ok) return;
+          setEnSortieHits(data.enSortie || []);
+          setEnSortieWarning(data.warning || null);
+        } catch {
+          if (!cancelled) {
+            setEnSortieHits([]);
+            setEnSortieWarning(null);
+          }
+        }
+      })();
+    }, 120);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [selected, startDate, endDate, mode]);
+
+  const submit = async (opts?: { force?: boolean }) => {
     if (!selected) return;
     const isEleve = selected.kind === "eleve";
     const isProf = isProfHit(selected);
@@ -171,13 +223,30 @@ export default function AccueilAbsencesClient({ embedded = false }: { embedded?:
           canal: "telephone",
           eleveNature: isEleve ? eleveNature : undefined,
           etablissement: isProf ? etablissement : undefined,
+          force: opts?.force === true ? true : undefined,
         }),
       });
       const data = (await res.json()) as {
         error?: string;
         displayName?: string;
         pendingDirection?: boolean;
+        code?: string;
+        enSortie?: AccueilEnSortieHit[];
+        canForce?: boolean;
       };
+      if (res.status === 409 && data.code === ACCUEIL_EN_SORTIE_CODE && data.canForce) {
+        const hits = data.enSortie || enSortieHits;
+        setEnSortieHits(hits);
+        setEnSortieWarning(data.error || null);
+        const ok = window.confirm(formatAccueilEnSortieConfirm(hits));
+        if (ok) {
+          setBusy(false);
+          await submit({ force: true });
+          return;
+        }
+        setError(data.error || "Élève en sortie scolaire — déclaration annulée.");
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "Enregistrement impossible");
       const name = data.displayName || selected.displayName;
       if (data.pendingDirection) {
@@ -264,6 +333,24 @@ export default function AccueilAbsencesClient({ embedded = false }: { embedded?:
               />
             )}
           </label>
+
+          {enSortieWarning ? (
+            <div
+              role="status"
+              className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950"
+            >
+              <p className="font-semibold">En sortie scolaire</p>
+              <p className="mt-1 opacity-90">{enSortieWarning}</p>
+              {enSortieHits.length > 0 ? (
+                <p className="mt-1 text-xs text-sky-800/80">
+                  {enSortieHits
+                    .map((h) => h.date)
+                    .filter((d, i, a) => a.indexOf(d) === i)
+                    .join(" · ")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {!selected && hits.length > 0 ? (
             <ul className="divide-y divide-slate-100 rounded-2xl border border-slate-200 overflow-hidden">

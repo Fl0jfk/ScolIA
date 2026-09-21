@@ -34,6 +34,13 @@ import {
   createAbsenceAccueilEleve,
   listAccueilEleveAbsencesForDate,
 } from "@/app/lib/vs-absences-db";
+import {
+  AccueilEnSortieConflictError,
+  periodDatesForAccueilCheck,
+  picksEnSortieHits,
+  type AccueilEnSortieHit,
+} from "@/app/lib/accueil-absence-occupancy";
+import { occupancyFactForEleve } from "@/app/lib/occupancy";
 
 export type AccueilDeclareInput = {
   kind: AccueilPersonKind;
@@ -52,6 +59,11 @@ export type AccueilDeclareInput = {
    * la validation direction et le filtre du tableau des absents.
    */
   etablissement?: string | null;
+  /**
+   * Élèves : ignorer le garde-fou occupancy `en_sortie` (cas rare).
+   * Sans force → conflit si l’élève est en sortie sur la période.
+   */
+  force?: boolean;
   actor: {
     userId: string;
     name: string;
@@ -59,6 +71,26 @@ export type AccueilDeclareInput = {
     roles: string[];
   };
 };
+
+/** Lecture occupancy sur la période — zéro écriture. */
+export async function findAccueilEnSortieHits(opts: {
+  etablissementId: string;
+  eleveId: string;
+  startDate: string;
+  endDate: string;
+}): Promise<AccueilEnSortieHit[]> {
+  const dates = periodDatesForAccueilCheck(opts.startDate, opts.endDate);
+  const facts = [];
+  for (const date of dates) {
+    const fact = await occupancyFactForEleve({
+      etablissementId: opts.etablissementId,
+      date,
+      eleveId: opts.eleveId,
+    });
+    if (fact) facts.push(fact);
+  }
+  return picksEnSortieHits(facts);
+}
 
 function periodFromMode(input: AccueilDeclareInput) {
   if (input.mode === "hours") {
@@ -322,6 +354,20 @@ export async function declareAccueilAbsence(
       throw new Error(periodForEleve.error || "Période invalide.");
     }
     const elevePeriod = periodForEleve.data;
+
+    // Cerveau : en_sortie ≠ absence bulletin — bloquer sauf force explicite.
+    if (!input.force) {
+      const enSortieHits = await findAccueilEnSortieHits({
+        etablissementId,
+        eleveId: row.id,
+        startDate: elevePeriod.startDate,
+        endDate: elevePeriod.endDate,
+      });
+      if (enSortieHits.length > 0) {
+        throw new AccueilEnSortieConflictError(enSortieHits);
+      }
+    }
+
     const created = await createAbsenceAccueilEleve(etablissementId, {
       eleveId: row.id,
       dateDebut: elevePeriod.startDate,

@@ -572,6 +572,8 @@ export async function GET() {
       title: string;
       detail: string;
     }> = [];
+    let creneauxVidesCount = 0;
+    let creneauxVidesTravelId: string | null = null;
 
     try {
       const { resolveCurrentEtablissementId } = await import("@/app/lib/ent-core-db");
@@ -579,6 +581,15 @@ export async function GET() {
       const etabId = await resolveCurrentEtablissementId();
       if (etabId) {
         anneeScolaireLabel = (await resolveAnneeCouranteMeta(etabId)).label;
+        try {
+          const { listCreneauVideSignals } = await import("@/app/lib/impact-engine");
+          const signals = listCreneauVideSignals(etabId);
+          creneauxVidesCount = signals.length;
+          const travelIds = [...new Set(signals.map((s) => s.travelId).filter(Boolean))];
+          creneauxVidesTravelId = travelIds.length === 1 ? travelIds[0]! : null;
+        } catch (err) {
+          console.warn("[dashboard/signals] creneaux vides", err);
+        }
         if (
           accessibleModuleIds.has("eleve-dossier") &&
           businessUserId &&
@@ -720,6 +731,8 @@ export async function GET() {
         facturesEnRetard,
         anneeScolaireLabel,
         unseenAccompagnementAlerts,
+        creneauxVidesCount,
+        creneauxVidesTravelId,
       });
       void valkeySetJson(signalsCacheKey, signals, VALKEY_TTL.dashboardSignals);
       return NextResponse.json(signals);

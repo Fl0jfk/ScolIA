@@ -16,6 +16,8 @@
     "test:impact-engine": "npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/impact-engine/empty-slots.test.ts",
     "test:core-read": "npx tsx --test app/lib/brain-ai/core-read.test.ts",
     "test:vs-appel-occupancy": "npx tsx --test app/lib/vs-appel-occupancy.test.ts",
+    "test:accueil-occupancy": "npx tsx --test app/lib/accueil-absence-occupancy.test.ts",
+    "test:impact-format": "npx tsx --test app/lib/impact-engine/format-preview.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
