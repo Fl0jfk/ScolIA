@@ -17,6 +17,7 @@
     "test:core-read": "npx tsx --test app/lib/brain-ai/core-read.test.ts",
     "test:vs-appel-occupancy": "npx tsx --test app/lib/vs-appel-occupancy.test.ts",
     "test:feuille-du-jour": "npx tsx --test app/lib/feuille-du-jour.test.ts",
+    "test:famille-justif": "npx tsx --test app/lib/famille-absences-justify.test.ts",
     "test:accueil-occupancy": "npx tsx --test app/lib/accueil-absence-occupancy.test.ts",
     "test:impact-format": "npx tsx --test app/lib/impact-engine/format-preview.test.ts",
     "db:generate": "drizzle-kit generate",

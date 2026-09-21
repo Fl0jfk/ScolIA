@@ -678,8 +678,9 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-absences",
     pathPrefixes: ["/api/vie-scolaire/absences"],
-    // Module masqué — suivi absents élèves dans Appels (presence) ; hub Absences = accueil.
-    allowedRoles: [],
+    // Réactivé : suivi CPE des absents + justificatifs familles (onglet Présence).
+    // Charlemagne reste l’outil officiel VS tant que le pont n’est pas branché.
+    allowedRoles: [...DIRECTIONS, "cpe", "administratif", "surveillant", "admin"],
   },
   {
     id: "vs-sanctions",

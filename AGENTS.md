@@ -65,7 +65,16 @@ Tests = Postgres **local** `127.0.0.1` (`install.sh`). Pas de migration / seed /
 | Mot de passe | `DevLocalPass1!` |
 | TOTP | secret `DEVLOCALTOTPSECRET00000000000001` — générer le code via `npm run seed:dev:totp` |
 
-Ce compte est **orgAdmin** + rôle `admin`, MFA déjà activée. Ne jamais utiliser ces identifiants en production.
+Compte **parent** (portail `/famille`, absences / justifs) :
+
+| Champ | Valeur |
+|-------|--------|
+| E-mail | `parent@localhost.dev` |
+| Mot de passe | `DevParentPass1!` |
+| MFA | non (démo locale) |
+| Enfant seed | Léo JUSTIF (classe 4B) |
+
+Ces comptes sont locaux uniquement. Ne jamais utiliser ces identifiants en production.
 
 Tenant local mono-instance : slug `default`, cookie/query `dev_tenant` (voir `app/lib/local-dev.ts`).
 

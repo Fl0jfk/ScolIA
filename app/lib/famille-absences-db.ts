@@ -119,6 +119,7 @@ export async function submitFamilleAbsenceJustification(
     .set({
       motif: trimmed,
       statut: "a_traiter",
+      source: "famille",
       updatedAt: new Date(),
     })
     .where(

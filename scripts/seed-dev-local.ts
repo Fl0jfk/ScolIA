@@ -15,11 +15,13 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
   account,
+  eleve,
   etablissement,
   twoFactor,
   user,
   userMembership,
   userRole,
+  vsAbsenceEleve,
 } from "../db/schema";
 
 function loadEnvFile(path: string) {
@@ -56,6 +58,19 @@ export const DEV_SEED = {
   firstName: "Admin",
   lastName: "Local",
   userId: "dev-local-admin",
+} as const;
+
+/** Compte parent local — portail `/famille` (sans MFA pour démo justifs). */
+export const DEV_PARENT_SEED = {
+  email: "parent@localhost.dev",
+  password: "DevParentPass1!",
+  firstName: "Parent",
+  lastName: "Local",
+  userId: "dev-local-parent",
+  childSourceKey: "brain-test:justif-famille",
+  childNom: "JUSTIF",
+  childPrenom: "Leo",
+  childClasse: "4B",
 } as const;
 
 async function main() {
@@ -224,6 +239,183 @@ async function main() {
       });
     }
 
+    // —— Parent démo (justifs absences /famille) ——
+    let [parentUser] = await db
+      .select()
+      .from(user)
+      .where(eq(user.id, DEV_PARENT_SEED.userId))
+      .limit(1);
+    if (!parentUser) {
+      [parentUser] = await db
+        .select()
+        .from(user)
+        .where(eq(user.email, DEV_PARENT_SEED.email))
+        .limit(1);
+    }
+    if (!parentUser) {
+      const [created] = await db
+        .insert(user)
+        .values({
+          id: DEV_PARENT_SEED.userId,
+          name: `${DEV_PARENT_SEED.firstName} ${DEV_PARENT_SEED.lastName}`,
+          email: DEV_PARENT_SEED.email,
+          emailVerified: true,
+          etablissementId: etab.id,
+          externalUserId: DEV_PARENT_SEED.userId,
+          firstName: DEV_PARENT_SEED.firstName,
+          lastName: DEV_PARENT_SEED.lastName,
+          platformAdmin: false,
+          orgAdmin: false,
+          mustChangePassword: false,
+          twoFactorEnabled: false,
+        })
+        .returning();
+      parentUser = created;
+      console.log(`[seed] parent créé: ${parentUser.email}`);
+    } else {
+      await db
+        .update(user)
+        .set({
+          etablissementId: etab.id,
+          emailVerified: true,
+          orgAdmin: false,
+          twoFactorEnabled: false,
+          firstName: DEV_PARENT_SEED.firstName,
+          lastName: DEV_PARENT_SEED.lastName,
+          name: `${DEV_PARENT_SEED.firstName} ${DEV_PARENT_SEED.lastName}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(user.id, parentUser.id));
+      console.log(`[seed] parent mis à jour: ${parentUser.email}`);
+    }
+
+    const parentHashed = await hashPassword(DEV_PARENT_SEED.password);
+    const [parentAccount] = await db
+      .select()
+      .from(account)
+      .where(and(eq(account.userId, parentUser.id), eq(account.providerId, "credential")))
+      .limit(1);
+    if (parentAccount) {
+      await db
+        .update(account)
+        .set({
+          password: parentHashed,
+          issuer: "local:credential",
+          accountId: parentUser.id,
+          updatedAt: new Date(),
+        })
+        .where(eq(account.id, parentAccount.id));
+    } else {
+      await db.insert(account).values({
+        id: crypto.randomUUID(),
+        issuer: "local:credential",
+        accountId: parentUser.id,
+        providerId: "credential",
+        userId: parentUser.id,
+        password: parentHashed,
+      });
+    }
+    await db.delete(twoFactor).where(eq(twoFactor.userId, parentUser.id));
+
+    await db
+      .insert(userMembership)
+      .values({
+        userId: parentUser.id,
+        etablissementId: etab.id,
+        context: "famille",
+        active: true,
+      })
+      .onConflictDoUpdate({
+        target: [userMembership.userId, userMembership.etablissementId],
+        set: { active: true, context: "famille", updatedAt: new Date() },
+      });
+
+    const [parentRole] = await db
+      .select()
+      .from(userRole)
+      .where(
+        and(
+          eq(userRole.userId, parentUser.id),
+          eq(userRole.etablissementId, etab.id),
+          eq(userRole.role, "parent"),
+        ),
+      )
+      .limit(1);
+    if (!parentRole) {
+      await db.insert(userRole).values({
+        etablissementId: etab.id,
+        userId: parentUser.id,
+        role: "parent",
+      });
+    }
+
+    let [child] = await db
+      .select()
+      .from(eleve)
+      .where(
+        and(
+          eq(eleve.etablissementId, etab.id),
+          eq(eleve.sourceKey, DEV_PARENT_SEED.childSourceKey),
+        ),
+      )
+      .limit(1);
+    if (!child) {
+      const [created] = await db
+        .insert(eleve)
+        .values({
+          etablissementId: etab.id,
+          sourceKey: DEV_PARENT_SEED.childSourceKey,
+          ine: "INEJUSTIF001",
+          nom: DEV_PARENT_SEED.childNom,
+          prenom: DEV_PARENT_SEED.childPrenom,
+          folderName: `${DEV_PARENT_SEED.childNom} ${DEV_PARENT_SEED.childPrenom}`,
+          status: "inscrit",
+          classe: DEV_PARENT_SEED.childClasse,
+          parentEmail: DEV_PARENT_SEED.email,
+        })
+        .returning();
+      child = created;
+      console.log(`[seed] enfant justif créé: ${child.prenom} ${child.nom}`);
+    } else {
+      await db
+        .update(eleve)
+        .set({
+          parentEmail: DEV_PARENT_SEED.email,
+          classe: DEV_PARENT_SEED.childClasse,
+          updatedAt: new Date(),
+        })
+        .where(eq(eleve.id, child.id));
+    }
+
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
+    const [existingAbs] = await db
+      .select()
+      .from(vsAbsenceEleve)
+      .where(
+        and(
+          eq(vsAbsenceEleve.etablissementId, etab.id),
+          eq(vsAbsenceEleve.eleveId, child.id),
+          eq(vsAbsenceEleve.dateDebut, today),
+          eq(vsAbsenceEleve.source, "appel"),
+        ),
+      )
+      .limit(1);
+    if (!existingAbs) {
+      await db.insert(vsAbsenceEleve).values({
+        etablissementId: etab.id,
+        eleveId: child.id,
+        dateDebut: today,
+        dateFin: today,
+        type: "absence",
+        statut: "a_traiter",
+        justifie: false,
+        motif: null,
+        source: "appel",
+        createdByNom: "seed:dev",
+      });
+      console.log(`[seed] absence a_traiter du jour pour ${child.prenom}`);
+    }
+
     console.log(
       JSON.stringify(
         {
@@ -231,8 +423,12 @@ async function main() {
           email: DEV_SEED.email,
           password: DEV_SEED.password,
           totpSecret: DEV_SEED.totpSecret,
+          parentEmail: DEV_PARENT_SEED.email,
+          parentPassword: DEV_PARENT_SEED.password,
+          parentChild: `${DEV_PARENT_SEED.childPrenom} ${DEV_PARENT_SEED.childNom}`,
           slug: DEV_SEED.slug,
           signInUrl: "http://localhost:3000/auth/sign-in?dev_tenant=default",
+          familleUrl: "http://localhost:3000/famille/absences?dev_tenant=default",
           totpHelper: "npm run seed:dev:totp",
         },
         null,

@@ -36,7 +36,13 @@ function canJustify(a: Absence): boolean {
   if (a.justifie || a.statut === "justifiee" || a.statut === "non_justifiee" || a.statut === "classee") {
     return false;
   }
-  return a.statut === "en_cours" || a.statut === "justif_recue" || Boolean(a.motifEnAttente);
+  // Mapping API famille : a_traiter sans motif → en_cours ; avec motif → justif_recue.
+  return (
+    a.statut === "en_cours" ||
+    a.statut === "justif_recue" ||
+    a.statut === "a_traiter" ||
+    Boolean(a.motifEnAttente)
+  );
 }
 
 export default function FamilleAbsencesClient() {
