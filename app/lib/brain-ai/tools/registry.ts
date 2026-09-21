@@ -24,8 +24,140 @@ import {
   handleGetWeekSheetRange,
   handleGetWeekSheetToday,
 } from "@/app/lib/brain-ai/tools/handlers/week-sheet";
+import {
+  handleGetEdt,
+  handleGetEleve,
+  handleGetGrilleRepas,
+  handleGetPresenceJour,
+  handleGetTenantContext,
+  handleGetVoyage,
+  handleSearchEleves,
+} from "@/app/lib/brain-ai/tools/handlers/core-read";
 
 const BRAIN_TOOLS: BrainToolDefinition[] = [
+  {
+    name: "get_tenant_context",
+    description:
+      "Contexte établissement courant (slug, sites, présence d’un site internat). À appeler avant de parler d’internat ou multi-sites.",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
+    pathPrefix: "/api/dashboard/signals",
+    moduleId: "dashboard-week-sheet",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetTenantContext,
+  },
+  {
+    name: "search_eleves",
+    description:
+      "Recherche d’élèves (nom, prénom, INE, classe). Homonymes → choix. Accueil : liste sans foyer.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        limit: { type: "number" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleSearchEleves,
+  },
+  {
+    name: "get_eleve",
+    description:
+      "Fiche élève filtrée par droits dossier (identité / scolarité / famille). Pas de création. Prof hors classe → refus.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+        query: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetEleve,
+  },
+  {
+    name: "get_presence_jour",
+    description:
+      "Où est l’élève / la classe aujourd’hui (occupancy) : en_sortie, absent_vs, en_stage, en_cours… " +
+      "en_sortie ≠ absence bulletin. Params : eleveId | query | classe, date optionnelle.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+        query: { type: "string" },
+        classe: { type: "string" },
+        date: { type: "string", description: "YYYY-MM-DD (défaut aujourd’hui Paris)" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetPresenceJour,
+  },
+  {
+    name: "get_edt",
+    description:
+      "Créneaux EDT ScolIA (`edt_creneau`) pour une date / classe. Étiquette source — grille non STS auto.",
+    parameters: {
+      type: "object",
+      properties: {
+        date: { type: "string" },
+        classe: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/vie-scolaire/calendrier",
+    moduleId: "vs-calendrier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetEdt,
+  },
+  {
+    name: "get_voyage",
+    description:
+      "Dossier voyage + liste participants live (eleve_id). Orthogonal à get_trip_status (workflow). Accueil : résumé sans fiche.",
+    parameters: {
+      type: "object",
+      properties: {
+        tripId: { type: "string" },
+      },
+      required: ["tripId"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/travels",
+    moduleId: "travels",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetVoyage,
+  },
+  {
+    name: "get_grille_repas",
+    description:
+      "Droit repas élève (grille scolarité). Ops cantine = unavailable. Pas d’allergies inventées.",
+    parameters: {
+      type: "object",
+      properties: {
+        eleveId: { type: "string" },
+      },
+      required: ["eleveId"],
+      additionalProperties: false,
+    },
+    pathPrefix: "/eleves/dossiers",
+    moduleId: "eleve-dossier",
+    requiresAuth: true,
+    mutates: false,
+    handler: handleGetGrilleRepas,
+  },
   {
     name: "get_week_sheet_today",
     description:
