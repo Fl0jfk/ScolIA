@@ -582,8 +582,12 @@ export async function GET() {
       if (etabId) {
         anneeScolaireLabel = (await resolveAnneeCouranteMeta(etabId)).label;
         try {
-          const { listCreneauVideSignals } = await import("@/app/lib/impact-engine");
-          const signals = listCreneauVideSignals(etabId);
+          const { loadCreneauVideSignalsForDashboard } = await import("@/app/lib/impact-engine");
+          const { parisDateKey } = await import("@/app/lib/paris-time");
+          const signals = await loadCreneauVideSignalsForDashboard({
+            etablissementId: etabId,
+            date: parisDateKey(new Date()),
+          });
           creneauxVidesCount = signals.length;
           const travelIds = [...new Set(signals.map((s) => s.travelId).filter(Boolean))];
           creneauxVidesTravelId = travelIds.length === 1 ? travelIds[0]! : null;

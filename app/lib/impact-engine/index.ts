@@ -33,4 +33,5 @@ export {
 export { previewVoyageImpacts, type PreviewVoyageImpactsOpts } from "./preview";
 export { formatImpactPreviewAlert, formatImpactPreviewLines } from "./format-preview";
 export type { ImpactPreviewLike } from "./format-preview";
+export { loadCreneauVideSignalsForDashboard } from "./refresh-dashboard";
 export { onTravelListeConfirmed, onTravelCancelled } from "./hooks";
