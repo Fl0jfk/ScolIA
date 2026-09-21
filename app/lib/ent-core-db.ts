@@ -6,7 +6,6 @@ import {
   anneeScolaire,
   eleve,
   eleveFoyerLink,
-  eleveScolarite,
   etablissementSite,
   foyer,
   foyerResponsable,
@@ -31,7 +30,6 @@ import type { ClassAllocationTeacherAssignment } from "@/app/lib/class-allocatio
 import { classKey } from "@/app/lib/stage-referents-config";
 import type { PersonnelRecord } from "@/app/lib/personnel-types";
 import { normalizePersonnelRecord } from "@/app/lib/personnel-types";
-import { classifyRegime } from "@/app/lib/eleve-regime";
 import { sanitizeElevePersonalEmail } from "@/app/lib/eleve-direction-email";
 import {
   buildEleveDossierClassCatalog,
@@ -449,10 +447,6 @@ export async function ensureEleveScolariteCourante(
   if (!classe) return;
 
   const db = getDb();
-  const anneeId = await ensureCurrentAnneeScolaire(etablissementId);
-  const eleveStatus = normalizeEleveStatus(input.status);
-  const scolariteStatut = eleveStatus === "ancien" || eleveStatus === "archive" ? "terminee" : "en_cours";
-
   let resolvedCatalog = catalog;
   if (!resolvedCatalog) {
     const sites = await db
@@ -465,61 +459,19 @@ export async function ensureEleveScolariteCourante(
       .where(eq(etablissementSite.etablissementId, etablissementId));
     resolvedCatalog = await buildEleveDossierClassCatalog(sites);
   }
-
   const siteId = resolveSiteIdForClass(classe, resolvedCatalog);
-  const regimeKind = classifyRegime(input.regime);
-  const demiPension = regimeKind === "demi_pension";
-  const hasRegimeInfo = Boolean(String(input.regime ?? "").trim());
-
-  const [existing] = await db
-    .select({
-      id: eleveScolarite.id,
-      classe: eleveScolarite.classe,
-      siteId: eleveScolarite.siteId,
-      demiPension: eleveScolarite.demiPension,
-      statut: eleveScolarite.statut,
-    })
-    .from(eleveScolarite)
-    .where(
-      and(
-        eq(eleveScolarite.etablissementId, etablissementId),
-        eq(eleveScolarite.eleveId, eleveId),
-        eq(eleveScolarite.anneeScolaireId, anneeId),
-      ),
-    )
-    .limit(1);
-
-  if (existing) {
-    const changed =
-      existing.classe !== classe ||
-      (siteId != null && existing.siteId !== siteId) ||
-      (hasRegimeInfo && existing.demiPension !== demiPension) ||
-      existing.statut !== scolariteStatut;
-
-    if (changed) {
-      await db
-        .update(eleveScolarite)
-        .set({
-          classe,
-          ...(siteId ? { siteId } : {}),
-          ...(hasRegimeInfo ? { demiPension } : {}),
-          statut: scolariteStatut,
-          updatedAt: new Date(),
-        })
-        .where(eq(eleveScolarite.id, existing.id));
-    }
-    return;
-  }
-
-  await db.insert(eleveScolarite).values({
-    etablissementId,
-    eleveId,
-    anneeScolaireId: anneeId,
-    classe,
-    ...(siteId ? { siteId } : {}),
-    demiPension,
-    statut: scolariteStatut,
-  });
+  const { syncScolariteCouranteFromPlat } = await import("@/app/lib/eleve-core/port");
+  await syncScolariteCouranteFromPlat(
+    {
+      etablissementId,
+      eleveId,
+      classe,
+      regime: input.regime,
+      status: input.status,
+      siteId,
+    },
+    { skipHooks: true },
+  );
 }
 
 /** Rattrapage : crée / met à jour la scolarité courante depuis la fiche élève plate. */

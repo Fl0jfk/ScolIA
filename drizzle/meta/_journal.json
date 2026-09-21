@@ -351,6 +351,13 @@
       "when": 1787680000000,
       "tag": "0049_rdv_inscription_email_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1787685000000,
+      "tag": "0050_eleve_core_socle",
+      "breakpoints": true
     }
   ]
 }

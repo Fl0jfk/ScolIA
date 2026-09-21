@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "crypto";
 import { getDb } from "@/db/index";
-import { eleve, eleveScolarite } from "@/db/schema";
+import { eleve } from "@/db/schema";
 import { buildEleveFolderName } from "@/app/lib/eleves-config";
 import { ensureEleveFoyerFromParentContacts } from "@/app/lib/ent-core-db";
 import { isValidParentEmail } from "@/app/lib/eleves-parent-emails";
@@ -61,12 +61,22 @@ export async function createElevePreinscrit(
     secteur: siteId,
   });
 
-  await db.insert(eleveScolarite).values({
+  const { openPrevueScolarite } = await import("@/app/lib/eleve-core/port");
+  const { recordMetierEvent } = await import("@/app/lib/eleve-core/journal");
+  const { METIER_EVENT_TYPES } = await import("@/app/lib/eleve-core/events");
+  await openPrevueScolarite({
     etablissementId: input.etablissementId,
     eleveId: id,
-    siteId,
     classe,
-    statut: "prevue",
+    siteId,
+  });
+  await recordMetierEvent({
+    etablissementId: input.etablissementId,
+    type: METIER_EVENT_TYPES.ELEVE_CREATED,
+    aggregate: "eleve",
+    aggregateId: id,
+    eleveId: id,
+    payload: { status: "preinscrit", source: prefix },
   });
 
   try {

@@ -691,6 +691,8 @@ type DossierBody = {
   updateEleveClasse?: boolean;
   scolariteId?: string;
   grilleRepas?: unknown;
+  regime?: string;
+  effectiveOn?: string;
   documentId?: string;
   durationDays?: number;
   note?: string | null;
@@ -824,6 +826,11 @@ export async function POST(req: Request, ctx: Ctx) {
       eleveId: id,
       action: "create",
     });
+    const { recordFoyerChanged } = await import("@/app/lib/eleve-core/port");
+    await recordFoyerChanged(
+      { etablissementId: etabId, eleveId: id, foyerId: f.id, action: "create_foyer" },
+      { actorUserId: authUserId },
+    );
     return NextResponse.json({ success: true, foyerId: f.id });
   }
 
@@ -903,51 +910,118 @@ export async function POST(req: Request, ctx: Ctx) {
     const classe = body.classe?.trim() || null;
     const siteId = body.siteId?.trim() || null;
     const statut = String(body.statut || "en_cours").trim() || "en_cours";
+    const { EleveCoreError, applyClasseCourante, openPrevueScolarite } = await import(
+      "@/app/lib/eleve-core/port"
+    );
 
-    if (body.closePrevious !== false) {
-      await db
-        .update(eleveScolarite)
-        .set({ statut: "terminee", updatedAt: new Date() })
-        .where(
-          and(
-            eq(eleveScolarite.etablissementId, etabId),
-            eq(eleveScolarite.eleveId, id),
-            eq(eleveScolarite.statut, "en_cours"),
-          ),
+    try {
+      if (statut === "prevue") {
+        const { scolariteId } = await openPrevueScolarite(
+          {
+            etablissementId: etabId,
+            eleveId: id,
+            classe,
+            siteId,
+            anneeScolaireId: body.anneeScolaireId || null,
+            etablissementPrecedent: body.etablissementPrecedent?.trim() || null,
+            demiPension: Boolean(body.demiPension),
+          },
+          { actorUserId: authUserId },
         );
-    }
+        const [sc] = await db
+          .select()
+          .from(eleveScolarite)
+          .where(eq(eleveScolarite.id, scolariteId))
+          .limit(1);
+        await recordEleveAccessAudit({
+          etablissementId: etabId,
+          actorUserId: authUserId,
+          resourceType: "fiche_eleve",
+          resourceId: id,
+          eleveId: id,
+          action: "create_scolarite",
+          metadata: { scolariteId, siteId, classe, statut: "prevue" },
+        });
+        return NextResponse.json({ success: true, scolarite: sc });
+      }
 
-    const [sc] = await db
-      .insert(eleveScolarite)
-      .values({
+      if (!classe) {
+        return NextResponse.json({ error: "Classe requise pour une scolarité en cours." }, { status: 400 });
+      }
+      const { scolariteId } = await applyClasseCourante(
+        {
+          etablissementId: etabId,
+          eleveId: id,
+          classe,
+          siteId,
+          anneeScolaireId: body.anneeScolaireId || null,
+          etablissementPrecedent: body.etablissementPrecedent?.trim() || null,
+        },
+        { actorUserId: authUserId },
+      );
+      const [sc] = await db
+        .select()
+        .from(eleveScolarite)
+        .where(eq(eleveScolarite.id, scolariteId))
+        .limit(1);
+      await recordEleveAccessAudit({
         etablissementId: etabId,
+        actorUserId: authUserId,
+        resourceType: "fiche_eleve",
+        resourceId: id,
         eleveId: id,
-        anneeScolaireId: body.anneeScolaireId || null,
-        siteId,
-        classe,
-        statut,
-        demiPension: Boolean(body.demiPension),
-        etablissementPrecedent: body.etablissementPrecedent?.trim() || null,
-      })
-      .returning();
-
-    if (body.updateEleveClasse !== false && classe) {
-      await db
-        .update(eleve)
-        .set({ classe, updatedAt: new Date(), status: "inscrit" })
-        .where(and(eq(eleve.etablissementId, etabId), eq(eleve.id, id)));
+        action: "create_scolarite",
+        metadata: { scolariteId, siteId, classe },
+      });
+      return NextResponse.json({ success: true, scolarite: sc });
+    } catch (error) {
+      if (error instanceof EleveCoreError) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+      }
+      throw error;
     }
+  }
 
-    await recordEleveAccessAudit({
-      etablissementId: etabId,
-      actorUserId: authUserId,
-      resourceType: "fiche_eleve",
-      resourceId: id,
-      eleveId: id,
-      action: "create_scolarite",
-      metadata: { scolariteId: sc.id, siteId, classe },
-    });
-    return NextResponse.json({ success: true, scolarite: sc });
+  if (action === "update_regime") {
+    if (!sections.has("scolarite") || !canEditStructure(roles, { orgAdmin, platformAdmin })) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+    }
+    const regime = String(body.regime || "").trim();
+    const effectiveOn = String(body.effectiveOn || "").trim();
+    if (!regime || !effectiveOn) {
+      return NextResponse.json(
+        { error: "Régime et date d’effet (AAAA-MM-JJ) requis." },
+        { status: 400 },
+      );
+    }
+    const { EleveCoreError, applyRegimeChange } = await import("@/app/lib/eleve-core/port");
+    try {
+      const result = await applyRegimeChange(
+        {
+          etablissementId: etabId,
+          eleveId: id,
+          regime,
+          effectiveOn,
+          scolariteId: body.scolariteId || undefined,
+        },
+        { actorUserId: authUserId },
+      );
+      await recordEleveAccessAudit({
+        etablissementId: etabId,
+        actorUserId: authUserId,
+        resourceType: "fiche_eleve",
+        resourceId: id,
+        eleveId: id,
+        action: "update_regime",
+        metadata: { ...result, regime, effectiveOn },
+      });
+      return NextResponse.json({ success: true, ...result });
+    } catch (error) {
+      if (error instanceof EleveCoreError) {
+        return NextResponse.json({ error: error.message, code: error.code }, { status: 400 });
+      }
+      throw error;
+    }
   }
 
   if (action === "update_grille_repas") {
@@ -1017,6 +1091,20 @@ export async function POST(req: Request, ctx: Ctx) {
       action: "update_grille_repas",
       metadata: { scolariteId, repasParSemaine: midiCount },
     });
+    const { recordMetierEvent } = await import("@/app/lib/eleve-core/journal");
+    const { METIER_EVENT_TYPES } = await import("@/app/lib/eleve-core/events");
+    const { runEleveCoreHooks } = await import("@/app/lib/eleve-core/hooks");
+    const grilleEvent = {
+      etablissementId: etabId,
+      type: METIER_EVENT_TYPES.SCOLARITE_GRILLE_REPAS_CHANGED,
+      aggregate: "scolarite" as const,
+      aggregateId: scolariteId,
+      eleveId: id,
+      payload: { repasParSemaine: midiCount },
+      actorUserId: authUserId,
+    };
+    await recordMetierEvent(grilleEvent);
+    await runEleveCoreHooks(grilleEvent);
     return NextResponse.json({ success: true, scolarite: updated });
   }
 
