@@ -10,6 +10,8 @@
     "test:ocr-match": "npx tsx --test app/lib/ocr-eleve-match.test.ts",
     "test:eleve-core": "npx tsx --test app/lib/eleve-core/invariants.test.ts app/lib/eleve-regime.test.ts app/lib/eleves-import-cycle.test.ts",
     "test:eleve-core:db": "npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/eleve-core/port.integration.test.ts",
+    "test:occupancy": "npx tsx --test app/lib/occupancy/merge.test.ts",
+    "test:occupancy:db": "npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/occupancy/port.integration.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",

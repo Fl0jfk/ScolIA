@@ -13,6 +13,7 @@ import {
   timesOverlap,
   type AccueilAbsenceCanal,
 } from "@/app/lib/accueil-absences-types";
+import { listEleveIdsEnSortieOnDate } from "@/app/lib/occupancy";
 
 export type AppelLigneStatut = "present" | "absent" | "retard" | "dispense";
 export type AbsenceType = "absence" | "retard";
@@ -228,6 +229,12 @@ export async function saveAppelLignes(
   if (!appel) throw new Error("Appel introuvable.");
   if (appel.statut === "clos") throw new Error("Appel déjà clos.");
 
+  const enSortie = await listEleveIdsEnSortieOnDate({
+    etablissementId,
+    date: asDateKey(appel.dateAppel) || String(appel.dateAppel).slice(0, 10),
+    eleveIds: lignes.map((l) => l.eleveId),
+  });
+
   let saved = 0;
   for (const ligne of lignes) {
     const statut = ligne.statut;
@@ -256,6 +263,9 @@ export async function saveAppelLignes(
     saved += 1;
 
     if (isNonPresent(statut)) {
+      // Sortie ≠ absence bulletin : pas d'INSERT vs_absence_eleve.
+      if (enSortie.has(ligne.eleveId)) continue;
+
       const covered = await eleveHasAccueilCoveringSlot(etablissementId, ligne.eleveId, {
         date: appel.dateAppel,
         heureDebut: appel.heureDebut,

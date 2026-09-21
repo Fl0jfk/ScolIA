@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   travel,
@@ -14,6 +14,10 @@ import {
   isEntCoreDbEnabled,
   resolveCurrentEtablissementId,
 } from "@/app/lib/ent-core-db";
+import {
+  normalizeParticipantIneKey,
+  resolveEleveIdsByIneKeys,
+} from "@/app/lib/travel-participant-resolve";
 import type { TravelsTrip } from "@/app/lib/travels-types";
 
 const SKIP_ROOT = new Set([
@@ -133,6 +137,7 @@ async function hydrateTravel(
       droitImageOk: p.droitImageOk !== false,
       panierRepas: p.panierRepas === true,
       ...(p.classe ? { classe: p.classe } : {}),
+      ...(p.eleveId ? { eleveId: p.eleveId } : {}),
     }));
 
   const data = {
@@ -274,30 +279,11 @@ export async function upsertTravelInDb(
     }
   }
 
-  await db
-    .delete(travelParticipant)
-    .where(
-      and(
-        eq(travelParticipant.etablissementId, etablissementId),
-        eq(travelParticipant.travelId, main.id),
-      ),
-    );
-  const eleves = Array.isArray(data.participantEleves) ? data.participantEleves : [];
-  if (eleves.length > 0) {
-    await db.insert(travelParticipant).values(
-      eleves.map((p, i) => ({
-        etablissementId,
-        travelId: main.id,
-        eleveKey: String(p.ine ?? ""),
-        nom: String(p.nom ?? ""),
-        prenom: String(p.prenom ?? ""),
-        classe: p.classe ? String(p.classe) : null,
-        droitImageOk: p.droitImageOk !== false,
-        panierRepas: p.panierRepas === true,
-        sortOrder: i,
-      })),
-    );
-  }
+  await syncTravelParticipants({
+    etablissementId,
+    travelId: main.id,
+    eleves: Array.isArray(data.participantEleves) ? data.participantEleves : [],
+  });
 
   await db
     .delete(travelHistory)
@@ -338,6 +324,108 @@ export async function upsertTravelInDb(
         sortOrder: i,
       })),
     );
+  }
+}
+
+/**
+ * Sync participants d'un voyage : upsert unitaire par clé INE, DELETE ciblé des absents.
+ * Remplit `eleve_id` via matching INE strict (orphelins restent null).
+ */
+async function syncTravelParticipants(opts: {
+  etablissementId: string;
+  travelId: string;
+  eleves: Array<{
+    ine?: string | null;
+    nom?: string | null;
+    prenom?: string | null;
+    classe?: string | null;
+    droitImageOk?: boolean;
+    panierRepas?: boolean;
+    eleveId?: string | null;
+  }>;
+}): Promise<void> {
+  const db = getDb();
+  const { etablissementId, travelId, eleves } = opts;
+
+  const existing = await db
+    .select()
+    .from(travelParticipant)
+    .where(
+      and(
+        eq(travelParticipant.etablissementId, etablissementId),
+        eq(travelParticipant.travelId, travelId),
+      ),
+    );
+
+  const byKey = new Map<string, (typeof existing)[number]>();
+  for (const row of existing) {
+    const key = normalizeParticipantIneKey(row.eleveKey);
+    if (key && !byKey.has(key)) byKey.set(key, row);
+  }
+
+  const resolved = await resolveEleveIdsByIneKeys({
+    etablissementId,
+    keys: eleves.map((p) => String(p.ine ?? "")),
+  });
+
+  const keptIds = new Set<string>();
+  const toInsert: Array<typeof travelParticipant.$inferInsert> = [];
+
+  for (let i = 0; i < eleves.length; i++) {
+    const p = eleves[i]!;
+    const eleveKey = String(p.ine ?? "");
+    const keyNorm = normalizeParticipantIneKey(eleveKey);
+    const eleveId =
+      (p.eleveId && String(p.eleveId).trim()) ||
+      (keyNorm ? resolved.get(keyNorm) : undefined) ||
+      null;
+    const values = {
+      eleveKey,
+      eleveId,
+      nom: String(p.nom ?? ""),
+      prenom: String(p.prenom ?? ""),
+      classe: p.classe ? String(p.classe) : null,
+      droitImageOk: p.droitImageOk !== false,
+      panierRepas: p.panierRepas === true,
+      sortOrder: i,
+    };
+
+    const prev = keyNorm ? byKey.get(keyNorm) : undefined;
+    if (prev) {
+      keptIds.add(prev.id);
+      await db
+        .update(travelParticipant)
+        .set(values)
+        .where(
+          and(
+            eq(travelParticipant.etablissementId, etablissementId),
+            eq(travelParticipant.id, prev.id),
+          ),
+        );
+    } else {
+      toInsert.push({
+        etablissementId,
+        travelId,
+        ...values,
+      });
+    }
+  }
+
+  const orphanIds = existing.filter((row) => !keptIds.has(row.id)).map((row) => row.id);
+  if (orphanIds.length > 0) {
+    await db
+      .delete(travelParticipant)
+      .where(
+        and(
+          eq(travelParticipant.etablissementId, etablissementId),
+          eq(travelParticipant.travelId, travelId),
+          inArray(travelParticipant.id, orphanIds),
+        ),
+      );
+  }
+
+  if (toInsert.length > 0) {
+    await db.insert(travelParticipant).values(toInsert);
   }
 }
 

@@ -191,15 +191,26 @@ export const travelParticipant = pgTable(
     travelId: text("travel_id")
       .notNull()
       .references(() => travel.id, { onDelete: "cascade" }),
+    /** Snapshot INE / clé picker — document gelé CSV. */
     eleveKey: text("eleve_key").notNull().default(""),
+    /**
+     * Lien live vers `eleve.id` (occupancy). Nullable si INE orphelin —
+     * revue humaine, pas d'invention. FK SQL dans migration 0051 (évite import circulaire).
+     */
+    eleveId: uuid("eleve_id"),
     nom: text("nom").notNull().default(""),
     prenom: text("prenom").notNull().default(""),
+    /** Snapshot classe au moment de la liste — pas la SoT effectif. */
     classe: text("classe"),
     droitImageOk: boolean("droit_image_ok").notNull().default(true),
     panierRepas: boolean("panier_repas").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
   },
-  (t) => [index("travel_participant_travel_idx").on(t.etablissementId, t.travelId)],
+  (t) => [
+    index("travel_participant_travel_idx").on(t.etablissementId, t.travelId),
+    index("travel_participant_eleve_idx").on(t.etablissementId, t.eleveId),
+    index("travel_participant_key_idx").on(t.etablissementId, t.travelId, t.eleveKey),
+  ],
 );
 
 export const travelHistory = pgTable(
