@@ -8,3 +8,5 @@ alwaysApply: true
 - Objectif : SaaS / ENT souverain, fluide, proactif, intelligent ; zéro friction administrative pour les établissements.
 - **Zéro fainéantise :** jamais de code partiel, jamais de `// TODO`, `// ...`, fonctions tronquées ou stubs. Toujours du code complet, prêt pour la prod.
 - Préférer une solution complète et propre à un patch rapide incomplet.
+- **Vertical slice** : une fonctionnalité importante traverse UI → métier → persistance → domaines liés → permissions → tenant → **geste utilisateur observable**. Pas des fondations interminables sans démonstration.
+- **Deux validations** : technique **et** valeur fonctionnelle (`scola-value-gate.mdc`). Ni l’une ni l’autre ne remplace l’autre. L’objectif est un ENT utilisable et cohérent, pas un codebase sophistiqué.

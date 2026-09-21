@@ -8,9 +8,10 @@ alwaysApply: true
 Après **chaque** période de code **et** ses tests, **avant** de rendre la main :
 
 1. Ouvrir `docs/annuaire-avancement.md` du store agent Cursor du run (fichier suivi Florian).
-2. Ajouter une entrée au **journal** : Fait / Testé / OK (trois coches, seulement si vraiment OK).
+2. Ajouter une entrée au **journal** : Fait / Testé / OK **technique** — **et** un **Value Gate** (VALEUR / PARTIEL / INFRA SEULE). Ne pas cocher OK produit si seul le technique est vert.
 3. Cocher la ligne correspondante dans la **file d’attente**.
 4. Recalculer **un seul** pourcentage : « vrai ENT » (quotidien parent / élève / prof). **Pas** un tableau Charlemagne / Pronote / Skolengo à chaque fois.
-5. Mettre à jour la **jauge** en haut. Un lot 100 % back peut laisser le % **inchangé** ; le noter quand même.
+5. Mettre à jour la **jauge** en haut. Un lot 100 % back **sans** scénario utilisateur démontré laisse le % **inchangé** ; le noter (`INFRA SEULE`).
 
 Ne pas inventer un saut de % sans livrable qui change l’usage ENT.
+Un test vert **n’autorise pas** un saut de jauge.
