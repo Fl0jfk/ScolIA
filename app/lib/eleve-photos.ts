@@ -38,18 +38,25 @@ const SIGNED_URL_CACHE_MS = 50 * 60 * 1000; // signatures ~1h — on garde 50 mi
 
 export type ElevePhotoIndex = Record<string, string>;
 
-let photoIndexCache: { at: number; data: ElevePhotoIndex } | null = null;
+let photoIndexCacheByTenant = new Map<string, { at: number; data: ElevePhotoIndex }>();
 const signedUrlCache = new Map<string, { url: string; exp: number }>();
 
+async function photoIndexCacheKey(): Promise<string> {
+  const { resolveCacheTenantSlug } = await import("@/app/lib/cache-tenant-key");
+  return resolveCacheTenantSlug();
+}
+
 export async function loadElevePhotoIndex(): Promise<ElevePhotoIndex> {
-  if (photoIndexCache && Date.now() - photoIndexCache.at < PHOTO_INDEX_CACHE_MS) {
-    return photoIndexCache.data;
+  const key = await photoIndexCacheKey();
+  const hitMem = photoIndexCacheByTenant.get(key);
+  if (hitMem && Date.now() - hitMem.at < PHOTO_INDEX_CACHE_MS) {
+    return hitMem.data;
   }
   try {
     const hit = await getJson<ElevePhotoIndex>(PHOTO_INDEX_KEY);
     const data =
       hit?.data && typeof hit.data === "object" ? hit.data : ({} as ElevePhotoIndex);
-    photoIndexCache = { at: Date.now(), data };
+    photoIndexCacheByTenant.set(key, { at: Date.now(), data });
     return data;
   } catch (e) {
     console.warn("[eleve-photos] loadElevePhotoIndex", e);
@@ -58,7 +65,7 @@ export async function loadElevePhotoIndex(): Promise<ElevePhotoIndex> {
 }
 
 export function invalidateElevePhotoIndexCache(): void {
-  photoIndexCache = null;
+  photoIndexCacheByTenant.clear();
 }
 
 async function signedUrlCached(key: string, expiresIn = 60 * 60): Promise<string | null> {

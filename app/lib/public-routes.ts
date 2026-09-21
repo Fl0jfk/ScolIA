@@ -47,7 +47,6 @@ export const PROXY_PUBLIC_ROUTE_MATCHERS = [
   "/api/requests/parent-portal",
   "/api/supplies/send",
   "/api/supplies/pdf",
-  "/api/chatbot",
   "/api/site/public",
   "/api/site/header-logo",
   "/api/public/site/posts",

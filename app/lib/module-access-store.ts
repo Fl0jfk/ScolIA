@@ -6,83 +6,99 @@ import {
   parseModuleAccess,
   type ModuleAccessConfig,
 } from "@/app/lib/module-access";
+import { resolveCacheTenantSlug } from "@/app/lib/cache-tenant-key";
 import { valkeyDel, valkeyGetJson, valkeySetJson } from "@/app/lib/valkey";
 import { VALKEY_TTL, valkeyKeyModuleAccessConfig } from "@/app/lib/valkey-keys";
 
 const SOFT_TTL_MS = 120_000;
 const HARD_TTL_MS = 15 * 60_000;
-let cache: { at: number; config: ModuleAccessConfig } | null = null;
-let refreshInFlight: Promise<ModuleAccessConfig> | null = null;
 
-function tenantKey(): string {
-  return process.env.DEFAULT_TENANT_SLUG?.trim() || "default";
-}
+type ModuleAccessCacheEntry = { at: number; config: ModuleAccessConfig };
+
+const caches = new Map<string, ModuleAccessCacheEntry>();
+const refreshInFlightBySlug = new Map<string, Promise<ModuleAccessConfig>>();
 
 export function getModuleAccessSync(): ModuleAccessConfig {
-  return cache?.config ?? defaultModuleAccess();
+  // Synchrone : dernier slug vu, sinon défaut (évite de croiser deux tenants).
+  if (caches.size === 1) {
+    const only = caches.values().next().value;
+    if (only) return only.config;
+  }
+  return defaultModuleAccess();
 }
 
 export function invalidateModuleAccessCache(): void {
-  cache = null;
-  void valkeyDel(valkeyKeyModuleAccessConfig(tenantKey()));
+  caches.clear();
+  refreshInFlightBySlug.clear();
+  void resolveCacheTenantSlug()
+    .then((slug) => valkeyDel(valkeyKeyModuleAccessConfig(slug)))
+    .catch(() => undefined);
 }
 
 export async function loadModuleAccess(): Promise<ModuleAccessConfig> {
+  const slug = await resolveCacheTenantSlug();
   const now = Date.now();
-  if (cache && now - cache.at < SOFT_TTL_MS) return cache.config;
-  if (cache && now - cache.at < HARD_TTL_MS) {
-    void refreshModuleAccessBackground();
-    return cache.config;
+  const hit = caches.get(slug);
+  if (hit && now - hit.at < SOFT_TTL_MS) return hit.config;
+  if (hit && now - hit.at < HARD_TTL_MS) {
+    void refreshModuleAccessBackground(slug);
+    return hit.config;
   }
-  return loadModuleAccessFresh();
+  return loadModuleAccessFresh(slug);
 }
 
-function refreshModuleAccessBackground(): void {
-  if (refreshInFlight) return;
-  refreshInFlight = loadModuleAccessFresh()
+function refreshModuleAccessBackground(slug: string): void {
+  if (refreshInFlightBySlug.has(slug)) return;
+  const p = loadModuleAccessFresh(slug)
     .catch((error) => {
       console.error("[module-access] refresh background", error);
-      return cache?.config ?? defaultModuleAccess();
+      return caches.get(slug)?.config ?? defaultModuleAccess();
     })
     .finally(() => {
-      refreshInFlight = null;
+      refreshInFlightBySlug.delete(slug);
     });
+  refreshInFlightBySlug.set(slug, p);
 }
 
-async function loadModuleAccessFresh(): Promise<ModuleAccessConfig> {
-  if (refreshInFlight) return refreshInFlight;
-  refreshInFlight = (async () => {
-    const vk = valkeyKeyModuleAccessConfig(tenantKey());
+async function loadModuleAccessFresh(slug: string): Promise<ModuleAccessConfig> {
+  const inflight = refreshInFlightBySlug.get(slug);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const vk = valkeyKeyModuleAccessConfig(slug);
     const fromValkey = await valkeyGetJson<ModuleAccessConfig>(vk);
     if (fromValkey) {
-      cache = { at: Date.now(), config: fromValkey };
+      caches.set(slug, { at: Date.now(), config: fromValkey });
       return fromValkey;
     }
     try {
       const raw = await getJson<unknown>("settings/module-access.json");
       const config = raw?.data ? parseModuleAccess(raw.data) : defaultModuleAccess();
-      cache = { at: Date.now(), config };
+      caches.set(slug, { at: Date.now(), config });
       void valkeySetJson(vk, config, VALKEY_TTL.moduleAccessConfig);
       return config;
     } catch (error) {
       console.error("[module-access] load", error);
       const config = defaultModuleAccess();
-      cache = { at: Date.now(), config };
+      caches.set(slug, { at: Date.now(), config });
       return config;
     }
   })();
+
+  refreshInFlightBySlug.set(slug, promise);
   try {
-    return await refreshInFlight;
+    return await promise;
   } finally {
-    refreshInFlight = null;
+    refreshInFlightBySlug.delete(slug);
   }
 }
 
 export async function saveModuleAccess(config: ModuleAccessConfig): Promise<ModuleAccessConfig> {
   const parsed = parseModuleAccess(config);
   await putJson("settings/module-access.json", parsed);
-  cache = { at: Date.now(), config: parsed };
-  const vk = valkeyKeyModuleAccessConfig(tenantKey());
+  const slug = await resolveCacheTenantSlug();
+  caches.set(slug, { at: Date.now(), config: parsed });
+  const vk = valkeyKeyModuleAccessConfig(slug);
   void valkeySetJson(vk, parsed, VALKEY_TTL.moduleAccessConfig);
   return parsed;
 }

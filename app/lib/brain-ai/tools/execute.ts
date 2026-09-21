@@ -20,6 +20,18 @@ export async function executeBrainTool(
   rawArgs: unknown,
   ctx: BrainToolCtx,
 ): Promise<BrainToolResult> {
+  if (!ctx.etablissementId?.trim()) {
+    console.info("[brain-ai] tool denied — missing etablissementId", {
+      userId: ctx.userId,
+      tool: name,
+    });
+    return {
+      ok: false,
+      error: "Établissement non résolu — outil refusé.",
+      code: "MISSING_ETABLISSEMENT",
+    };
+  }
+
   const tool = getBrainTool(name);
   if (!tool) {
     return { ok: false, error: `Outil inconnu: ${name}`, code: "UNKNOWN_TOOL" };
@@ -29,6 +41,7 @@ export async function executeBrainTool(
   if (!gate.ok) {
     console.info("[brain-ai] tool denied", {
       userId: ctx.userId,
+      etablissementId: ctx.etablissementId,
       tool: name,
       code: gate.code,
     });
@@ -46,16 +59,36 @@ export async function executeBrainTool(
       !result.ok && "needsConfirmation" in result && result.needsConfirmation === true;
     console.info("[brain-ai] tool", {
       userId: ctx.userId,
+      etablissementId: ctx.etablissementId,
       tool: name,
       args: sanitizeArgs(args),
       ok: result.ok,
       needsConfirm,
       error: result.ok ? undefined : "error" in result ? result.error : undefined,
     });
+    if (result.ok) {
+      void import("@/app/lib/data-access-audit")
+        .then(({ writeDataAccessAudit }) =>
+          writeDataAccessAudit({
+            etablissementId: ctx.etablissementId!,
+            userId: ctx.userId,
+            resourceType: "brain_tool",
+            resourceId: name,
+            action: "search",
+            metadata: { tool: name, args: sanitizeArgs(args) },
+          }),
+        )
+        .catch(() => undefined);
+    }
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[brain-ai] tool error", { userId: ctx.userId, tool: name, error: message });
+    console.error("[brain-ai] tool error", {
+      userId: ctx.userId,
+      etablissementId: ctx.etablissementId,
+      tool: name,
+      error: message,
+    });
     return { ok: false, error: message, code: "TOOL_ERROR" };
   }
 }

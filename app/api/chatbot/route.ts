@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { isEleveBienEtreProfile } from "@/app/lib/bien-etre-profile";
 import { runBrainChat } from "@/app/lib/brain-ai/run-chat";
 import type { BrainToolCtx } from "@/app/lib/brain-ai/types";
+import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { intranetRolesFromMetadata, rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { isOrgAdminFromPublicMetadata, safeCurrentUser } from "@/app/lib/intranet-session";
 import { createMemoryRateLimiter, clientIpFromRequest } from "@/app/lib/memory-rate-limit";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
+import { getTenant } from "@/app/lib/tenant-context";
 
 export const runtime = "nodejs";
 
@@ -32,7 +34,13 @@ const chatbotLimiter = createMemoryRateLimiter({ windowMs: 60_000, max: 30 });
 export async function POST(req: Request) {
   try {
     const user = await safeCurrentUser();
-    if (user && isEleveBienEtreProfile(rolesFromUserLike(user))) {
+    if (!user) {
+      return NextResponse.json(
+        { error: "Authentification requise.", code: "AUTH_REQUIRED" },
+        { status: 401 },
+      );
+    }
+    if (isEleveBienEtreProfile(rolesFromUserLike(user))) {
       return NextResponse.json(
         {
           error: "Utilise la bulle bien-être 💜 (bot d'écoute), pas l'assistant institutionnel.",
@@ -53,7 +61,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "message requis" }, { status: 400 });
     }
 
-    const rateKey = user?.id || clientIpFromRequest(req);
+    const rateKey = user.id || clientIpFromRequest(req);
     if (!(await chatbotLimiter.allow(rateKey))) {
       return NextResponse.json(
         { error: "Trop de messages. Réessayez dans une minute.", code: "RATE_LIMIT" },
@@ -61,17 +69,27 @@ export async function POST(req: Request) {
       );
     }
 
-    const roles = intranetRolesFromMetadata(user?.publicMetadata);
+    const etablissementId = await resolveCurrentEtablissementId();
+    let tenantSlug: string | null = null;
+    try {
+      tenantSlug = (await getTenant()).slug;
+    } catch {
+      tenantSlug = null;
+    }
+
+    const roles = intranetRolesFromMetadata(user.publicMetadata);
     const toolCtx: BrainToolCtx = {
-      userId: user?.id ?? null,
+      userId: user.id,
       roles,
-      isOrgAdmin: isOrgAdminFromPublicMetadata(user?.publicMetadata),
-      audience: user && audience === "private" ? "private" : "public",
+      isOrgAdmin: isOrgAdminFromPublicMetadata(user.publicMetadata),
+      audience: audience === "private" ? "private" : "public",
       confirmed: confirm,
-      firstName: user?.firstName || undefined,
-      lastName: user?.lastName || undefined,
-      name: user?.fullName || undefined,
-      email: user?.primaryEmailAddress?.emailAddress || undefined,
+      etablissementId,
+      tenantSlug,
+      firstName: user.firstName || undefined,
+      lastName: user.lastName || undefined,
+      name: user.fullName || undefined,
+      email: user.primaryEmailAddress?.emailAddress || undefined,
     };
 
     const mistralKey = (await getMistralApiKey()) ?? null;

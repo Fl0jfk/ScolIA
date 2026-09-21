@@ -42,6 +42,12 @@ export type BrainToolCtx = {
   isOrgAdmin: boolean;
   audience: BrainAudience;
   confirmed: boolean;
+  /**
+   * UUID établissement courant — **obligatoire** pour exécuter un tool.
+   * Null = hors tenant / non résolu → refus dans `executeBrainTool`.
+   */
+  etablissementId: string | null;
+  tenantSlug?: string | null;
   firstName?: string;
   lastName?: string;
   /** Libellé complet Better-Auth — repli si first/last absents. */

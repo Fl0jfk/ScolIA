@@ -73,17 +73,28 @@ import { saveOrganigramConfig, laprovidenceOrganigramConfig } from "@/app/lib/or
 /** Soft : servi immédiat. Hard : au-delà on recharge en bloquant. */
 const SOFT_TTL_MS = 120_000;
 const HARD_TTL_MS = 15 * 60_000;
-let cache: { at: number; bundle: AppConfigBundle; allEstablishments: Establishment[] } | null =
-  null;
-let refreshInFlight: Promise<AppConfigBundle> | null = null;
+
+type AppConfigCacheEntry = {
+  at: number;
+  bundle: AppConfigBundle;
+  allEstablishments: Establishment[];
+};
+
+/** Une entrée par slug tenant — ne plus partager un seul `cache` process. */
+const caches = new Map<string, AppConfigCacheEntry>();
+const refreshInFlightBySlug = new Map<string, Promise<AppConfigBundle>>();
 
 export function invalidateAppConfigCache() {
-  cache = null;
-  const slug = process.env.DEFAULT_TENANT_SLUG?.trim() || "default";
-  void import("@/app/lib/valkey")
-    .then(({ valkeyDel }) =>
-      import("@/app/lib/valkey-keys").then(({ valkeyKeyAppConfig }) =>
-        valkeyDel(valkeyKeyAppConfig(slug)),
+  // Write path rare : purge process (tous slugs) ; Valkey = slug courant seulement.
+  caches.clear();
+  refreshInFlightBySlug.clear();
+  void import("@/app/lib/cache-tenant-key")
+    .then(({ resolveCacheTenantSlug }) => resolveCacheTenantSlug())
+    .then((slug) =>
+      import("@/app/lib/valkey").then(({ valkeyDel }) =>
+        import("@/app/lib/valkey-keys").then(({ valkeyKeyAppConfig }) =>
+          valkeyDel(valkeyKeyAppConfig(slug)),
+        ),
       ),
     )
     .catch(() => undefined);
@@ -228,27 +239,30 @@ function withInferredOrganizationKind(identity: SiteIdentity, establishments: Es
 }
 
 export async function loadAppConfig(): Promise<AppConfigBundle> {
+  const { resolveCacheTenantSlug } = await import("@/app/lib/cache-tenant-key");
+  const slug = await resolveCacheTenantSlug();
   const now = Date.now();
-  if (cache && now - cache.at < SOFT_TTL_MS) return cache.bundle;
-  if (cache && now - cache.at < HARD_TTL_MS) {
+  const hit = caches.get(slug);
+  if (hit && now - hit.at < SOFT_TTL_MS) return hit.bundle;
+  if (hit && now - hit.at < HARD_TTL_MS) {
     // Stale-while-revalidate : ne jamais bloquer le hot path sur S3.
-    void refreshAppConfigBackground();
-    return cache.bundle;
+    void refreshAppConfigBackground(slug);
+    return hit.bundle;
   }
-  return loadAppConfigFresh();
+  return loadAppConfigFresh(slug);
 }
 
-function refreshAppConfigBackground(): void {
-  void loadAppConfigFresh().catch((error) => {
+function refreshAppConfigBackground(slug: string): void {
+  void loadAppConfigFresh(slug).catch((error) => {
     console.error("[app-config] refresh background", error);
   });
 }
 
-async function loadAppConfigFresh(): Promise<AppConfigBundle> {
-  if (refreshInFlight) return refreshInFlight;
+async function loadAppConfigFresh(slug: string): Promise<AppConfigBundle> {
+  const inflight = refreshInFlightBySlug.get(slug);
+  if (inflight) return inflight;
 
-  refreshInFlight = (async (): Promise<AppConfigBundle> => {
-  const slug = process.env.DEFAULT_TENANT_SLUG?.trim() || "default";
+  const promise = (async (): Promise<AppConfigBundle> => {
   try {
     const { valkeyGetJson, valkeySetJson } = await import("@/app/lib/valkey");
     const { VALKEY_TTL, valkeyKeyAppConfig } = await import("@/app/lib/valkey-keys");
@@ -258,11 +272,11 @@ async function loadAppConfigFresh(): Promise<AppConfigBundle> {
       allEstablishments: Establishment[];
     }>(vk);
     if (fromValkey?.bundle) {
-      cache = {
+      caches.set(slug, {
         at: Date.now(),
         bundle: fromValkey.bundle,
         allEstablishments: fromValkey.allEstablishments,
-      };
+      });
       return fromValkey.bundle;
     }
   } catch {
@@ -357,7 +371,7 @@ async function loadAppConfigFresh(): Promise<AppConfigBundle> {
     teachingGroups,
     classAllocation: defaultClassAllocationSettings(),
   };
-  cache = { at: Date.now(), bundle, allEstablishments };
+  caches.set(slug, { at: Date.now(), bundle, allEstablishments });
   void import("@/app/lib/valkey")
     .then(({ valkeySetJson }) =>
       import("@/app/lib/valkey-keys").then(({ VALKEY_TTL, valkeyKeyAppConfig }) =>
@@ -371,17 +385,21 @@ async function loadAppConfigFresh(): Promise<AppConfigBundle> {
     .catch(() => undefined);
   return bundle;
   })().finally(() => {
-    refreshInFlight = null;
+    refreshInFlightBySlug.delete(slug);
   });
 
-  return refreshInFlight;
+  refreshInFlightBySlug.set(slug, promise);
+  return promise;
 }
 
 /** Tous les sites (actifs et inactifs) — pour l’UI Paramètres / onboarding. */
 export async function loadAllEstablishments(): Promise<Establishment[]> {
-  if (cache && Date.now() - cache.at < HARD_TTL_MS) return cache.allEstablishments;
+  const { resolveCacheTenantSlug } = await import("@/app/lib/cache-tenant-key");
+  const slug = await resolveCacheTenantSlug();
+  const hit = caches.get(slug);
+  if (hit && Date.now() - hit.at < HARD_TTL_MS) return hit.allEstablishments;
   await loadAppConfig();
-  return cache?.allEstablishments ?? [];
+  return caches.get(slug)?.allEstablishments ?? [];
 }
 
 export async function saveSiteIdentity(data: SiteIdentity, opts?: { allowEmptyName?: boolean }) {
