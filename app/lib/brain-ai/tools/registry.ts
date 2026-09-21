@@ -18,6 +18,7 @@ import {
   handleCreateTrip,
   handleGetTripStatus,
   handleListTripsBrief,
+  handlePreviewVoyageImpacts,
 } from "@/app/lib/brain-ai/tools/handlers/travels";
 import {
   handleGetWeekSheetRange,
@@ -121,6 +122,26 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
     requiresAuth: true,
     mutates: true,
     handler: handleCreateTrip,
+  },
+  {
+    name: "preview_voyage_impacts",
+    description:
+      "Calcule les impacts A/B/C/D d’une sortie scolaire (créneaux EDT potentiellement vidés, " +
+      "questions resto/internat/accompagnateurs). Orthogonal à get_trip_status (workflow). " +
+      "Ne décide pas et n’écrit pas le planning. Paramètres : tripId ou query.",
+    parameters: {
+      type: "object",
+      properties: {
+        tripId: { type: "string" },
+        query: { type: "string", description: "Titre ou destination partielle" },
+      },
+      additionalProperties: false,
+    },
+    pathPrefix: "/travels",
+    moduleId: "travels",
+    requiresAuth: true,
+    mutates: false,
+    handler: handlePreviewVoyageImpacts,
   },
   {
     name: "list_rooms",

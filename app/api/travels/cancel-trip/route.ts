@@ -109,11 +109,20 @@ export async function POST(req: Request) {
       index.map((t) => (t.id === tripId ? { ...t, status: "ANNULE", data: { ...t.data, ...updatedTrip.data } } : t)),
     );
 
+    let impactPreview: unknown = null;
+    try {
+      const { onTravelCancelled } = await import("@/app/lib/impact-engine");
+      impactPreview = await onTravelCancelled({ trip: updatedTrip });
+    } catch (impactErr) {
+      console.error("[cancel-trip] impact-engine", impactErr);
+    }
+
     return NextResponse.json({
       success: true,
       trip: updatedTrip,
       emailsSent,
       dateRange: tripDateRangeLabel(trip.data),
+      impactPreview,
     });
   } catch (e) {
     console.error("[cancel-trip]", e);

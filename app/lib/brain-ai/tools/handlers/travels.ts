@@ -504,3 +504,70 @@ export async function handleCreateTrip(
     summaryFr: `Séjour « ${title} » créé. Complétez le dossier sur /travels/${id}.`,
   };
 }
+
+/**
+ * Impacts A/B/C/D d’une sortie (créneaux vidés, questions resto/internat…).
+ * Orthogonal à `get_trip_status` (workflow dossier). Zéro écriture planning.
+ */
+export async function handlePreviewVoyageImpacts(
+  ctx: BrainToolCtx,
+  args: Record<string, unknown>,
+): Promise<BrainToolResult> {
+  const etablissementId = ctx.etablissementId?.trim() || "";
+  if (!etablissementId) {
+    return { ok: false, error: "Établissement non résolu", code: "MISSING_ETABLISSEMENT" };
+  }
+
+  const tripId = typeof args.tripId === "string" ? args.tripId.trim() : "";
+  const query = typeof args.query === "string" ? args.query.trim().toLowerCase() : "";
+
+  let resolvedId = tripId;
+  if (!resolvedId && query) {
+    const trips = await loadTripsIndex();
+    const hit = trips.find((t) => {
+      const title = String(t.data?.title || "").toLowerCase();
+      const dest = String(t.data?.destination || "").toLowerCase();
+      return title.includes(query) || dest.includes(query) || t.id.toLowerCase() === query;
+    });
+    resolvedId = hit?.id || "";
+  }
+  if (!resolvedId) {
+    return {
+      ok: false,
+      error: "Indiquez tripId (ou query titre/destination) pour prévisualiser les impacts.",
+      code: "MISSING_TRIP",
+    };
+  }
+
+  try {
+    const { previewVoyageImpacts } = await import("@/app/lib/impact-engine");
+    const preview = await previewVoyageImpacts({
+      etablissementId,
+      travelId: resolvedId,
+      mode: "as_if_active",
+      persistSignals: false,
+    });
+
+    const aCount = preview.impacts.filter((i) => i.tiroir === "A").length;
+    const bCount = preview.impacts.filter((i) => i.tiroir === "B").length;
+    const cCount = preview.impacts.filter((i) => i.tiroir === "C").length;
+    const dCount = preview.impacts.filter((i) => i.tiroir === "D").length;
+    const videLabel =
+      preview.creneauxVides.length === 0
+        ? "aucun créneau 100 % vidé"
+        : `${preview.creneauxVides.length} créneau(x) vidé(s) (signal VS, pas de remplacement inventé)`;
+
+    return {
+      ok: true,
+      data: preview,
+      summaryFr:
+        `Impacts « ${preview.title || resolvedId} » (${preview.status}) : ` +
+        `A×${aCount} B×${bCount} C×${cCount} D×${dCount} — ${videLabel}. ` +
+        `Participants liés ${preview.participantLinkedCount}/${preview.participantCount}. ` +
+        `Aucune écriture teacher_planning_replacement.`,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: message, code: "IMPACT_PREVIEW_FAILED" };
+  }
+}

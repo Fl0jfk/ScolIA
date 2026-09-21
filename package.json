@@ -13,6 +13,7 @@
     "test:occupancy": "npx tsx --test app/lib/occupancy/merge.test.ts",
     "test:occupancy:db": "npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/occupancy/port.integration.test.ts",
     "test:cache-tenant": "npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/cache-tenant-isolation.test.ts",
+    "test:impact-engine": "npx tsx --test --require ./scripts/stub-server-only.cjs app/lib/impact-engine/empty-slots.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
