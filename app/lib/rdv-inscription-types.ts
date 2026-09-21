@@ -121,7 +121,15 @@ export type RdvInscriptionBookInput = {
   etablissementOrigineRne?: string | null;
   etablissementOrigineLabel?: string | null;
   etablissementOrigineAdresse?: string | null;
+  /**
+   * Anti-clic trop rapide : le parent doit retaper « CONFIRME »
+   * (insensible à la casse / accents).
+   */
+  confirmTyped?: string;
 };
+
+/** Phrase à retaper pour valider une réservation publique. */
+export const RDV_BOOK_CONFIRM_PHRASE = "CONFIRME";
 
 export const DEFAULT_RDV_INSCRIPTION_TITLE = "Rendez-vous d’inscription";
 export const DEFAULT_RDV_INSCRIPTION_PATTERN = "rendez-vous inscription";

@@ -94,9 +94,24 @@ export default function RdvInscriptionAdminClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const json = (await res.json()) as { error?: string; success?: boolean };
+      const json = (await res.json()) as {
+        error?: string;
+        success?: boolean;
+        mailWarning?: string;
+        already?: boolean;
+      };
       if (!res.ok) throw new Error(json.error || "Échec.");
-      setMessage("Enregistré.");
+      if (body.action === "confirm-booking") {
+        setMessage(
+          json.already
+            ? "Réservation déjà confirmée."
+            : json.mailWarning
+              ? `Confirmé (attention mail : ${json.mailWarning})`
+              : "Réservation confirmée — mail récap envoyé au parent.",
+        );
+      } else {
+        setMessage("Enregistré.");
+      }
       await load();
       return json;
     } catch (e) {
@@ -105,6 +120,14 @@ export default function RdvInscriptionAdminClient() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function confirmPendingBooking(bookingId: string, studentLabel: string) {
+    const ok = window.confirm(
+      `Confirmer manuellement le rendez-vous de ${studentLabel} ?\n\nLe parent recevra le mail de confirmation avec fichier calendrier.`,
+    );
+    if (!ok) return;
+    await put({ action: "confirm-booking", bookingId });
   }
 
   async function copyLink(url: string) {
@@ -581,6 +604,21 @@ export default function RdvInscriptionAdminClient() {
                               ? "Expiré"
                               : "Annulé"}
                       </span>
+                      {b.status === "pending" ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            void confirmPendingBooking(
+                              b.id,
+                              `${b.studentFirstName} ${b.studentLastName}`,
+                            )
+                          }
+                          className="mt-1.5 block text-xs font-semibold text-sky-700 hover:underline disabled:opacity-50"
+                        >
+                          Confirmer maintenant
+                        </button>
+                      ) : null}
                     </td>
                     <td className="py-2">
                       {b.googleHtmlLink ? (

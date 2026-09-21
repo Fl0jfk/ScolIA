@@ -97,6 +97,7 @@ export async function POST(req: Request, ctx: Ctx) {
       etablissementOrigineAdresse: body.etablissementOrigineAdresse
         ? String(body.etablissementOrigineAdresse).trim()
         : null,
+      confirmTyped: String(body.confirmTyped || "").trim(),
     });
 
     if (!result.ok) {
@@ -105,13 +106,13 @@ export async function POST(req: Request, ctx: Ctx) {
 
     return NextResponse.json({
       success: true,
-      pending: true,
+      pending: false,
       bookingId: result.booking.id,
       startAt: result.booking.startAt,
       endAt: result.booking.endAt,
       mailWarning: result.mailWarning || undefined,
       message:
-        "Un e-mail vient de vous être envoyé : cliquez sur le lien pour valider votre créneau.",
+        "Rendez-vous confirmé. Un e-mail de confirmation avec fichier calendrier (.ics) vous a été envoyé.",
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

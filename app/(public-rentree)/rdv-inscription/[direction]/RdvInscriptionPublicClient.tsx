@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
 import { parisDateKey, parseParisDateTime } from "@/app/lib/paris-time";
+import { RDV_BOOK_CONFIRM_PHRASE } from "@/app/lib/rdv-inscription-types";
 
 export type PublicRdvSlot = {
   eventId: string;
@@ -175,6 +176,7 @@ export default function RdvInscriptionPublicClient({
   const [origineSelected, setOrigineSelected] = useState<OrigineEtab | null>(null);
   const [origineBusy, setOrigineBusy] = useState(false);
   const [consent, setConsent] = useState(false);
+  const [confirmTyped, setConfirmTyped] = useState("");
   const [honeypot, setHoneypot] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<{
@@ -186,6 +188,12 @@ export default function RdvInscriptionPublicClient({
   const [formError, setFormError] = useState<string | null>(null);
 
   const emailOk = EMAIL_RE.test(parentEmail.trim());
+  const confirmPhraseOk =
+    confirmTyped
+      .trim()
+      .toUpperCase()
+      .normalize("NFD")
+      .replace(/\p{M}/gu, "") === RDV_BOOK_CONFIRM_PHRASE;
 
   const byDay = useMemo(() => {
     const map = new Map<string, PublicRdvSlot[]>();
@@ -621,6 +629,10 @@ export default function RdvInscriptionPublicClient({
       setFormError("Merci d’accepter le traitement de vos coordonnées.");
       return;
     }
+    if (!confirmPhraseOk) {
+      setFormError(`Pour confirmer, saisissez ${RDV_BOOK_CONFIRM_PHRASE} dans le champ prévu.`);
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch(`/api/rdv-inscription/${encodeURIComponent(directionSlug)}/book`, {
@@ -647,6 +659,7 @@ export default function RdvInscriptionPublicClient({
           etablissementOrigineRne: origineSelected.codeRne,
           etablissementOrigineLabel: origineSelected.label,
           etablissementOrigineAdresse: origineSelected.adresse,
+          confirmTyped,
           consent: true,
           website: honeypot,
         }),
@@ -667,7 +680,7 @@ export default function RdvInscriptionPublicClient({
         return;
       }
       setDone({
-        pending: data.pending === true,
+        pending: false,
         startAt: data.startAt || "",
         endAt: data.endAt || "",
         mailWarning: data.mailWarning,
@@ -1456,6 +1469,25 @@ export default function RdvInscriptionPublicClient({
                 <span>{consentLabel}</span>
               </label>
 
+              <label className="mt-5 block text-sm text-slate-700">
+                <span className="font-medium text-slate-900">
+                  Confirmation — saisissez{" "}
+                  <span className="font-mono tracking-wide text-sky-800">{RDV_BOOK_CONFIRM_PHRASE}</span>
+                </span>
+                <span className="mt-1 block text-xs text-slate-500">
+                  Pour éviter une réservation trop rapide, retapez ce mot exact.
+                </span>
+                <input
+                  type="text"
+                  value={confirmTyped}
+                  onChange={(e) => setConfirmTyped(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={RDV_BOOK_CONFIRM_PHRASE}
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                />
+              </label>
+
               <input
                 type="text"
                 name="website"
@@ -1483,7 +1515,9 @@ export default function RdvInscriptionPublicClient({
                   !hasPap ||
                   !parentFirstName.trim() ||
                   !parentLastName.trim() ||
-                  (showAttendeeChoice && !rdvAttendee)
+                  (showAttendeeChoice && !rdvAttendee) ||
+                  !consent ||
+                  !confirmPhraseOk
                 }
                 className="mt-5 w-full rounded-xl bg-sky-700 px-4 py-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
               >

@@ -11,6 +11,7 @@ import {
   markRdvInscriptionBookingExpired,
   findBookingByConfirmToken,
   findBookingByReconfirmToken,
+  findRdvInscriptionBookingById,
   markRdvInscriptionReconfirm,
   listBookingsDueForReconfirmMail,
   markRdvInscriptionReconfirmMailSent,
@@ -25,7 +26,6 @@ import {
 } from "@/app/lib/rdv-inscription-gcal";
 import {
   sendRdvInscriptionConfirmationMails,
-  sendRdvInscriptionValidationMail,
   sendRdvInscriptionReconfirmMail,
   sendRdvInscriptionCreatedPreinscritNotify,
 } from "@/app/lib/rdv-inscription-mail";
@@ -49,10 +49,11 @@ import type {
   RdvInscriptionBookingRow,
   RdvInscriptionSlot,
 } from "@/app/lib/rdv-inscription-types";
+import { RDV_BOOK_CONFIRM_PHRASE } from "@/app/lib/rdv-inscription-types";
 import type { RdvMatchCandidate } from "@/app/lib/rdv-inscription-match";
 import { isValidParentEmail } from "@/app/lib/eleves-parent-emails";
 
-/** Délai pour cliquer le lien de validation (anti-spam). */
+/** Délai de filet pour un hold pending non finalisé (échec technique). */
 export const RDV_CONFIRM_TTL_MS = 2 * 60 * 60 * 1000;
 
 async function releaseExpiredPendings(etablissementId?: string): Promise<void> {
@@ -230,11 +231,23 @@ export async function matchPublicRdvInscription(opts: {
   return { ok: true, candidates: byIdentity, homeEtablissement, mode: "identity" };
 }
 
+export function normalizeRdvBookConfirmPhrase(value: string): string {
+  return value
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+}
+
+export function isValidRdvBookConfirmPhrase(value: string | undefined | null): boolean {
+  return normalizeRdvBookConfirmPhrase(value || "") === RDV_BOOK_CONFIRM_PHRASE;
+}
+
 export async function bookPublicRdvInscription(
   slug: string,
   input: RdvInscriptionBookInput,
 ): Promise<
-  | { ok: true; pending: true; booking: RdvInscriptionBookingRow; mailWarning?: string }
+  | { ok: true; pending: false; booking: RdvInscriptionBookingRow; mailWarning?: string }
   | { ok: false; status: number; error: string }
 > {
   const config = await getRdvInscriptionConfig();
@@ -244,6 +257,14 @@ export async function bookPublicRdvInscription(
   }
   if (!config.googleLinked) {
     return { ok: false, status: 503, error: "Agenda non connecté." };
+  }
+
+  if (!isValidRdvBookConfirmPhrase(input.confirmTyped)) {
+    return {
+      ok: false,
+      status: 400,
+      error: `Pour confirmer, saisissez ${RDV_BOOK_CONFIRM_PHRASE} dans le champ prévu.`,
+    };
   }
 
   const studentFirstName = input.studentFirstName.trim();
@@ -375,8 +396,7 @@ export async function bookPublicRdvInscription(
   }
 
   const bookingId = randomUUID();
-  const confirmToken = randomBytes(32).toString("hex");
-  const confirmExpiresAt = new Date(Date.now() + RDV_CONFIRM_TTL_MS);
+  const holdExpiresAt = new Date(Date.now() + RDV_CONFIRM_TTL_MS);
 
   const hold = await holdInscriptionCalendarEvent({
     calendarId: direction.googleCalendarId,
@@ -395,9 +415,9 @@ export async function bookPublicRdvInscription(
     return { ok: false, status, error: hold.message };
   }
 
-  let booking: RdvInscriptionBookingRow;
+  let pendingBooking: RdvInscriptionBookingRow;
   try {
-    booking = await insertRdvInscriptionBooking({
+    pendingBooking = await insertRdvInscriptionBooking({
       bookingId,
       directionId: direction.id,
       directionSlug: direction.slug,
@@ -426,8 +446,9 @@ export async function bookPublicRdvInscription(
       etablissementOrigineLabel,
       etablissementOrigineAdresse,
       status: "pending",
-      confirmToken,
-      confirmExpiresAt,
+      confirmToken: null,
+      // Filet si la finalisation échoue : libère le créneau après TTL.
+      confirmExpiresAt: holdExpiresAt,
     });
   } catch (e) {
     try {
@@ -446,36 +467,43 @@ export async function bookPublicRdvInscription(
     throw e;
   }
 
-  const confirmUrl = await tenantAbsolutePath(
-    `/api/rdv-inscription/confirm?token=${encodeURIComponent(confirmToken)}`,
-  );
-
-  const mail = await sendRdvInscriptionValidationMail({
-    page: directionPageSettings(direction),
-    booking,
-    directionLabel: direction.label,
-    directriceName: direction.directriceDisplayName,
-    confirmUrl,
-    expiresAt: confirmExpiresAt,
+  const confirmed = await finalizeRdvInscriptionBookingConfirmation({
+    ...pendingBooking,
+    etablissementId: etabId,
   });
+  if (!confirmed.ok) {
+    return {
+      ok: false,
+      status:
+        confirmed.error === "taken"
+          ? 409
+          : confirmed.error === "expired"
+            ? 410
+            : 500,
+      error: confirmed.message,
+    };
+  }
 
   return {
     ok: true,
-    pending: true,
-    booking,
-    mailWarning: mail.error,
+    pending: false,
+    booking: confirmed.booking,
+    mailWarning: confirmed.mailWarning,
   };
 }
 
-export async function confirmPublicRdvInscription(token: string): Promise<
+type BookingWithEtab = RdvInscriptionBookingRow & { etablissementId: string };
+
+/**
+ * Finalise une réservation pending : agenda Google, statut confirmed, mails récap + ICS.
+ * Utilisé à la réservation publique, via lien legacy, ou confirmation admin.
+ */
+async function finalizeRdvInscriptionBookingConfirmation(
+  found: BookingWithEtab,
+): Promise<
   | { ok: true; booking: RdvInscriptionBookingRow; already?: boolean; mailWarning?: string }
   | { ok: false; error: "invalid" | "expired" | "taken" | "error"; message: string }
 > {
-  const found = await findBookingByConfirmToken(token);
-  if (!found) {
-    return { ok: false, error: "invalid", message: "Lien de validation invalide ou déjà utilisé." };
-  }
-
   if (found.status === "confirmed") {
     return { ok: true, booking: found, already: true };
   }
@@ -631,6 +659,56 @@ export async function confirmPublicRdvInscription(token: string): Promise<
     ok: true,
     booking,
     mailWarning: mail.error,
+  };
+}
+
+/** Lien e-mail legacy (anciennes réservations pending). */
+export async function confirmPublicRdvInscription(token: string): Promise<
+  | { ok: true; booking: RdvInscriptionBookingRow; already?: boolean; mailWarning?: string }
+  | { ok: false; error: "invalid" | "expired" | "taken" | "error"; message: string }
+> {
+  const found = await findBookingByConfirmToken(token);
+  if (!found) {
+    return { ok: false, error: "invalid", message: "Lien de validation invalide ou déjà utilisé." };
+  }
+  return finalizeRdvInscriptionBookingConfirmation(found);
+}
+
+/** Confirmation manuelle depuis l’admin (dégager un « En attente mail »). */
+export async function confirmRdvInscriptionBookingAsAdmin(bookingId: string): Promise<
+  | { ok: true; booking: RdvInscriptionBookingRow; already?: boolean; mailWarning?: string }
+  | { ok: false; status: number; error: string }
+> {
+  const found = await findRdvInscriptionBookingById({ bookingId });
+  if (!found) {
+    return { ok: false, status: 404, error: "Réservation introuvable." };
+  }
+  if (found.status === "confirmed") {
+    return { ok: true, booking: found, already: true };
+  }
+  if (found.status !== "pending") {
+    return {
+      ok: false,
+      status: 400,
+      error: "Seules les réservations « En attente mail » peuvent être confirmées manuellement.",
+    };
+  }
+
+  // Contourne l’expiration du lien : la direction valide explicitement.
+  const result = await finalizeRdvInscriptionBookingConfirmation({
+    ...found,
+    confirmExpiresAt: null,
+  });
+  if (!result.ok) {
+    const status =
+      result.error === "taken" ? 409 : result.error === "expired" ? 410 : 500;
+    return { ok: false, status, error: result.message };
+  }
+  return {
+    ok: true,
+    booking: result.booking,
+    already: result.already,
+    mailWarning: result.mailWarning,
   };
 }
 

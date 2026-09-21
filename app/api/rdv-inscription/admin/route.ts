@@ -89,6 +89,26 @@ export async function PUT(req: Request) {
       return NextResponse.json({ success: true, google: await getRdvInscriptionGoogleLinkStatus() });
     }
 
+    if (action === "confirm-booking") {
+      const bookingId = String(body.bookingId || "").trim();
+      if (!bookingId) {
+        return NextResponse.json({ error: "bookingId requis." }, { status: 400 });
+      }
+      const { confirmRdvInscriptionBookingAsAdmin } = await import(
+        "@/app/lib/rdv-inscription-service"
+      );
+      const result = await confirmRdvInscriptionBookingAsAdmin(bookingId);
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({
+        success: true,
+        booking: result.booking,
+        already: result.already === true,
+        mailWarning: result.mailWarning || undefined,
+      });
+    }
+
     if (action === "test-slots") {
       const directionId = String(body.directionId || "").trim();
       const dir = await getRdvInscriptionDirectionById(directionId);

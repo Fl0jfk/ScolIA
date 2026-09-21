@@ -636,6 +636,30 @@ export async function findBookingByConfirmToken(
   return { ...mapBooking(row), etablissementId: row.etablissementId };
 }
 
+export async function findRdvInscriptionBookingById(opts: {
+  bookingId: string;
+  etablissementId?: string;
+}): Promise<(RdvInscriptionBookingRow & { etablissementId: string }) | null> {
+  const bookingId = opts.bookingId.trim();
+  if (!bookingId) return null;
+  if (!isDatabaseConfigured()) return null;
+  const etabId = await requireEtabId(opts.etablissementId);
+  const db = requireDb();
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, etabId),
+        eq(rdvInscriptionBooking.id, bookingId),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  return { ...mapBooking(row), etablissementId: row.etablissementId };
+}
+
 export async function markRdvInscriptionBookingConfirmed(opts: {
   bookingId: string;
   etablissementId: string;
