@@ -6,13 +6,18 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { extendAgentPath } from "./load-mcp-env.mjs";
+
+extendAgentPath();
 
 function candidates() {
   const home = homedir();
   const local = process.env.LOCALAPPDATA || "";
   const list = [
     process.env.UVX_PATH,
+    "/usr/local/bin/uvx",
     join(home, ".local", "bin", process.platform === "win32" ? "uvx.exe" : "uvx"),
+    join(home, "bin", process.platform === "win32" ? "uvx.exe" : "uvx"),
     join(home, ".cargo", "bin", process.platform === "win32" ? "uvx.exe" : "uvx"),
     "uvx",
   ];
@@ -33,7 +38,7 @@ function resolveUvx() {
 const uvx = resolveUvx();
 if (!uvx) {
   console.error(
-    "[fetch-mcp] uvx introuvable. Installe uv : https://docs.astral.sh/uv/getting-started/installation/",
+    "[fetch-mcp] uvx introuvable. Relance .cursor/install.sh (installe uv).",
   );
   process.exit(1);
 }

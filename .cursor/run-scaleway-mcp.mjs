@@ -5,36 +5,17 @@
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { extendAgentPath, loadMcpEnv } from "./load-mcp-env.mjs";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-
-function loadEnvFile(filePath) {
-  if (!existsSync(filePath)) return;
-  const text = readFileSync(filePath, "utf8");
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const eq = line.indexOf("=");
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env) || process.env[key] === "") {
-      process.env[key] = value;
-    }
-  }
-}
-
-loadEnvFile(join(root, ".cursor", "mcp.local.env"));
-loadEnvFile(join(root, ".env.local"));
-loadEnvFile(join(root, ".env"));
+extendAgentPath();
+loadMcpEnv([
+  "SCW_ACCESS_KEY",
+  "SCW_SECRET_KEY",
+  "SCW_DEFAULT_ORGANIZATION_ID",
+  "SCW_DEFAULT_PROJECT_ID",
+  "SCW_DEFAULT_REGION",
+]);
 
 /** Charge SCW_* depuis ~/.config/scw/config.yaml si `scw login` a déjà tourné. */
 function loadScwConfigYaml() {
@@ -43,11 +24,11 @@ function loadScwConfigYaml() {
   if (!existsSync(configPath)) return;
   const text = readFileSync(configPath, "utf8");
   const map = {
-    "access_key": "SCW_ACCESS_KEY",
-    "secret_key": "SCW_SECRET_KEY",
-    "default_organization_id": "SCW_DEFAULT_ORGANIZATION_ID",
-    "default_project_id": "SCW_DEFAULT_PROJECT_ID",
-    "default_region": "SCW_DEFAULT_REGION",
+    access_key: "SCW_ACCESS_KEY",
+    secret_key: "SCW_SECRET_KEY",
+    default_organization_id: "SCW_DEFAULT_ORGANIZATION_ID",
+    default_project_id: "SCW_DEFAULT_PROJECT_ID",
+    default_region: "SCW_DEFAULT_REGION",
   };
   for (const rawLine of text.split(/\r?\n/)) {
     const m = rawLine.match(/^\s*([a-z_]+):\s*(.+)\s*$/);
@@ -83,6 +64,8 @@ function candidates() {
   const home = homedir();
   return [
     process.env.SCW_PATH,
+    "/usr/local/bin/scw",
+    join(home, "bin", process.platform === "win32" ? "scw.exe" : "scw"),
     join(home, ".local", "bin", process.platform === "win32" ? "scw.exe" : "scw"),
     findInWinGetPackages(),
     "scw",
@@ -101,7 +84,7 @@ function resolveScw() {
 const scw = resolveScw();
 if (!scw) {
   console.error(
-    "[scaleway-mcp] scw introuvable. Installe la CLI : winget install -e --id Scaleway.cli",
+    "[scaleway-mcp] scw introuvable. Relance .cursor/install.sh (installe la CLI).",
   );
   process.exit(1);
 }
@@ -118,7 +101,7 @@ if (missing.length > 0) {
     `[scaleway-mcp] Variables manquantes : ${missing.join(", ")}`,
   );
   console.error(
-    "[scaleway-mcp] Lance `scw login` (navigateur), ou renseigne SCW_* dans .cursor/mcp.local.env",
+    "[scaleway-mcp] Renseigne SCW_* dans l’env process ou .cursor/mcp.local.env (pas de login interactif).",
   );
   process.exit(1);
 }

@@ -1,0 +1,11 @@
+{
+  "name": "scola-mcp",
+  "version": "1.0.0",
+  "description": "MCP ScolIA (postgres, browser, fetch, mistral, scaleway, github) + repli CLI. Aucun secret dans le plugin ; lecture via process.env / .env.local.",
+  "author": {
+    "name": "ScolIA"
+  },
+  "keywords": ["scola", "mcp", "postgres", "playwright", "scaleway"],
+  "mcpServers": "mcp.json",
+  "skills": "skills"
+}

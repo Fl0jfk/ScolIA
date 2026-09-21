@@ -3,33 +3,32 @@
     "postgres": {
       "type": "stdio",
       "command": "node",
-      "args": ["${workspaceFolder}/.cursor/run-postgres-mcp.mjs"]
+      "args": ["${CURSOR_PLUGIN_ROOT}/launch.mjs", "postgres"]
     },
     "browser": {
       "type": "stdio",
       "command": "node",
-      "args": ["${workspaceFolder}/.cursor/run-browser-mcp.mjs"]
+      "args": ["${CURSOR_PLUGIN_ROOT}/launch.mjs", "browser"]
     },
     "fetch": {
       "type": "stdio",
       "command": "node",
-      "args": ["${workspaceFolder}/.cursor/run-fetch-mcp.mjs"]
+      "args": ["${CURSOR_PLUGIN_ROOT}/launch.mjs", "fetch"]
     },
     "mistral": {
       "type": "stdio",
       "command": "node",
-      "args": ["${workspaceFolder}/.cursor/run-mistral-mcp.mjs"],
-      "envFile": "${workspaceFolder}/.cursor/mcp.local.env"
+      "args": ["${CURSOR_PLUGIN_ROOT}/launch.mjs", "mistral"]
     },
     "scaleway": {
       "type": "stdio",
       "command": "node",
-      "args": ["${workspaceFolder}/.cursor/run-scaleway-mcp.mjs"]
+      "args": ["${CURSOR_PLUGIN_ROOT}/launch.mjs", "scaleway"]
     },
     "github": {
       "type": "stdio",
       "command": "node",
-      "args": ["${workspaceFolder}/.cursor/run-github-mcp.mjs"]
+      "args": ["${CURSOR_PLUGIN_ROOT}/launch.mjs", "github"]
     }
   }
 }

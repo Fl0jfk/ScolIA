@@ -10,6 +10,8 @@ node_modules
 !.env.local.example
 .env.local
 .cursor/mcp.local.env
+.cursor/tools/.last-screenshot.png
+.cursor/tools/.browser-runner.cjs
 .next/
 
 # caches / bruit local

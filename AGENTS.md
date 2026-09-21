@@ -45,33 +45,35 @@ Postgres local Cloud Agent (si `install.sh`) :
 - URL : `postgresql://scola:scola_dev_pwd@127.0.0.1:5432/scola`
 - Variables dans `.env.local` (gitignored), généré par `.cursor/install.sh`
 
-## MCP
+## MCP et outils agents
 
-Config IDE / projet : `.cursor/mcp.json` (chemins portables Linux/macOS). Wrapper Postgres : `.cursor/run-postgres-mcp.sh`.
+Florian n’a **rien à coller** (pas de JSON dashboard, pas d’Authenticate). Secrets uniquement via `process.env` / `.env.local` / `.cursor/mcp.local.env` (gitignored).
 
-Config **dashboard Cloud Agents** (à coller) : `.cursor/mcp.cloud.dashboard.json`.
+| Surface | Ce qui est branché |
+|---------|-------------------|
+| **IDE / Project** | `.cursor/mcp.json` (stdio via wrappers `node` + `${workspaceFolder}`) + plugin `.cursor/plugins/scola-mcp` chargé par le hook `workspaceOpen` |
+| **Cloud Agent (cette VM)** | Binaires installés par `install.sh` (`uvx`, `scw`, Playwright Chromium, `psql`). Catalogue MCP Cloud = dashboard Cursor seulement |
+| **Repli tous agents** | `.cursor/tools/` — `psql.sh`, `fetch.mjs`, `browser.mjs`, `scw.sh`, `status.sh` (pas de protocole MCP) |
 
 | Serveur | Rôle | Prérequis |
 |---------|------|-----------|
 | **postgres** | Lire schéma / données | `MCP_DATABASE_URL` ou `DATABASE_URL` |
-| **browser** | Playwright UI locale | Chromium (`npx playwright install chromium`) |
-| **fetch** | Doc officielle | `uvx` (installé par `install.sh`) |
-| **mistral** | OCR / vision | `MISTRAL_API_KEY` |
-| **scaleway** | Infra | `scw` + `SCW_*` |
+| **browser** | Playwright UI locale | Chromium (`install.sh`) |
+| **fetch** | Doc officielle | `uvx` (`install.sh` → `/usr/local/bin/uvx`) |
+| **mistral** | OCR / vision | `MISTRAL_API_KEY` si présent, sinon le wrapper échoue clairement |
+| **scaleway** | Infra lecture | `scw` + `SCW_*` si présents ; **pas de mutation prod** |
+| **github** | Optionnel | `GITHUB_TOKEN` / PAT + binaire `github-mcp-server` ; sinon ignoré |
 
-### Important — Cloud Agents
+**Limitation Cursor :** un Cloud Agent déjà lancé ne voit pas les MCP de l’IDE (`.cursor/mcp.json` / plugin projet) ; `workspaceOpen` ne s’exécute pas sur Cloud Agents. Un nouvel agent IDE charge le plugin ; un Cloud Agent utilise le repli `.cursor/tools/` tant que le dashboard équipe n’a pas le MCP (hors de portée repo).
 
-`.cursor/mcp.json` **n’est pas** chargé automatiquement par les Cloud Agents. Il faut enregistrer les serveurs dans le dashboard :
+Si un MCP n’est pas dans le catalogue de la session : le dire, utiliser le repli, **ne pas inventer** l’état.
 
-1. [cursor.com/agents](https://cursor.com/agents) → **MCP** (équipe : Dashboard → Integrations & MCP)
-2. Ajouter chaque serveur **stdio** en copiant depuis `.cursor/mcp.cloud.dashboard.json`
-3. Coller les **vraies** valeurs dans `env` du MCP (`${env:…}` est peu fiable en cloud)
-4. Si `mcpServerAllowlist` est défini dans l’environnement, y autoriser les commandes `npx` / `uvx` / `bash` / `scw`
-5. Activer les serveurs → lancer un **nouvel** agent
-
-Sur une VM cloud, les binaires sont déjà préparés par `install.sh` (`uvx`, `scw`, Playwright). Sans enregistrement dashboard, l’agent ne voit que les MCP Cursor internes — repli : `psql` / `curl` / computer-use.
-
-Si un MCP n’est pas disponible : le signaler, ne pas inventer l’état.
+```bash
+bash .cursor/tools/status.sh
+bash .cursor/tools/psql.sh -c 'SELECT 1'
+node .cursor/tools/fetch.mjs https://example.com
+node .cursor/tools/browser.mjs http://localhost:3000
+```
 
 ## Multi-tenant & sécurité (rappel)
 
@@ -99,9 +101,10 @@ Flux parent : e-mail d’abord → matching protégé (pool = enfants liés au c
 
 ### Boot
 
-1. `.cursor/start.sh` démarre PostgreSQL.
+1. `.cursor/start.sh` démarre PostgreSQL et rattache `uvx` / `scw` à `/usr/local/bin`.
 2. Terminal `next-dev` : `npm run dev` (port **3000**).
 3. Si besoin : `npm run seed:dev` (idempotent).
+4. Diagnostic outils : `bash .cursor/tools/status.sh`.
 
 ### Validation minimale d’un changement UI / auth
 
@@ -109,7 +112,7 @@ Flux parent : e-mail d’abord → matching protégé (pool = enfants liés au c
 2. Ouvrir `/auth/sign-in?dev_tenant=default`
 3. Login seed + TOTP (`npm run seed:dev:totp`)
 4. Vérifier absence d’erreurs console / 500
-5. Si mutation BDD : contrôler via MCP postgres ou `psql`
+5. Si mutation BDD : contrôler via MCP postgres **ou** `bash .cursor/tools/psql.sh`
 
 ### Secrets optionnels (dashboard)
 

@@ -5,7 +5,7 @@
     "context": ".cursor"
   },
   "install": "bash .cursor/install.sh",
-  "start": "bash .cursor/start.sh",
+  "start": "export PATH=\"$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH\"; bash .cursor/start.sh",
   "terminals": [
     {
       "name": "next-dev",

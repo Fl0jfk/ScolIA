@@ -1,5 +1,5 @@
 ---
-description: Quand et comment utiliser les MCP (Postgres, Fetch, Browser, Mistral, Scaleway)
+description: Quand et comment utiliser les MCP (Postgres, Fetch, Browser, Mistral, Scaleway) et le repli CLI du repo
 alwaysApply: true
 ---
 
@@ -9,14 +9,18 @@ alwaysApply: true
 |-----|--------|
 | **postgres** | Vérifier schéma, migrations Drizzle, état des tables avant/après mutation |
 | **fetch** | Doc officielle récente (Better-Auth, Drizzle, Next.js App Router) — éviter syntaxe obsolète |
-| **browser** | Playwright MCP : tester UI locale (login, formulaires, clics, refresh) — **pas Puppeteer** |
+| **browser** | Playwright UI locale : tester login, formulaires, clics, refresh — **pas Puppeteer** |
 | **mistral** | Valider extraction OCR / PDF uploadés (nécessite `MISTRAL_API_KEY`) |
-| **scaleway** | Infra (containers, logs, buckets) quand pertinent (nécessite CLI `scw` + secrets) |
+| **scaleway** | Infra (containers, logs, buckets) en **lecture** (nécessite CLI `scw` + secrets) |
 
 ## Disponibilité
 
-- Utiliser le MCP **s’il est listé et prêt** dans la session.
-- Si absent / erreur d’auth / binaire manquant : **le signaler**, ne pas inventer l’état.
-- Repli accepté : `psql` (Postgres local), `curl` (HTTP), computer-use / Playwright manuel (UI).
+- Utiliser le MCP **s’il est listé et prêt** dans la session (IDE : `.cursor/mcp.json` + plugin `scola-mcp`).
+- Cloud Agent : le catalogue MCP dashboard n’est **pas** fourni par le repo. Repli obligatoire :
+  - Postgres : `bash .cursor/tools/psql.sh -c '…'`
+  - HTTP : `node .cursor/tools/fetch.mjs <url>`
+  - UI : `node .cursor/tools/browser.mjs <url>`
+  - Diagnostic : `bash .cursor/tools/status.sh`
+- Si absent / erreur / binaire manquant : **le signaler**, ne pas inventer l’état.
 
-Postgres MCP lit `MCP_DATABASE_URL` ou `DATABASE_URL` via `.cursor/run-postgres-mcp.sh`.
+Wrappers MCP : `.cursor/run-*-mcp.mjs` lisent `process.env` puis `.cursor/mcp.local.env` / `.env.local`. Aucun secret en dur. Pas de mutation prod Scaleway.

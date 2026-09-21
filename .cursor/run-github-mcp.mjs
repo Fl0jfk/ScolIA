@@ -1,41 +1,17 @@
 #!/usr/bin/env node
 /**
  * Lanceur cross-platform du MCP GitHub officiel (github-mcp-server).
- * Auth via GITHUB_PERSONAL_ACCESS_TOKEN / GITHUB_TOKEN (mcp.local.env).
+ * Auth via GITHUB_PERSONAL_ACCESS_TOKEN / GITHUB_TOKEN (env / mcp.local.env).
+ * Pas d’OAuth interactif.
  */
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { extendAgentPath, loadMcpEnv } from "./load-mcp-env.mjs";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-
-function loadEnvFile(filePath) {
-  if (!existsSync(filePath)) return;
-  const text = readFileSync(filePath, "utf8");
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const eq = line.indexOf("=");
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (!(key in process.env) || process.env[key] === "") {
-      process.env[key] = value;
-    }
-  }
-}
-
-loadEnvFile(join(root, ".cursor", "mcp.local.env"));
-loadEnvFile(join(root, ".env.local"));
-loadEnvFile(join(root, ".env"));
+extendAgentPath();
+loadMcpEnv(["GITHUB_PERSONAL_ACCESS_TOKEN", "GITHUB_TOKEN"]);
 
 if (!process.env.GITHUB_PERSONAL_ACCESS_TOKEN && process.env.GITHUB_TOKEN) {
   process.env.GITHUB_PERSONAL_ACCESS_TOKEN = process.env.GITHUB_TOKEN;
@@ -44,7 +20,7 @@ if (!process.env.GITHUB_PERSONAL_ACCESS_TOKEN && process.env.GITHUB_TOKEN) {
 const token = process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
 if (!token) {
   console.error(
-    "[github-mcp] GITHUB_PERSONAL_ACCESS_TOKEN manquant (.cursor/mcp.local.env).",
+    "[github-mcp] GITHUB_PERSONAL_ACCESS_TOKEN / GITHUB_TOKEN manquant — serveur optionnel, ignoré.",
   );
   process.exit(1);
 }
@@ -53,7 +29,18 @@ function candidates() {
   const home = homedir();
   return [
     process.env.GITHUB_MCP_SERVER_PATH,
-    join(home, ".local", "bin", process.platform === "win32" ? "github-mcp-server.exe" : "github-mcp-server"),
+    "/usr/local/bin/github-mcp-server",
+    join(
+      home,
+      ".local",
+      "bin",
+      process.platform === "win32" ? "github-mcp-server.exe" : "github-mcp-server",
+    ),
+    join(
+      home,
+      "bin",
+      process.platform === "win32" ? "github-mcp-server.exe" : "github-mcp-server",
+    ),
     "github-mcp-server",
   ].filter(Boolean);
 }
@@ -69,7 +56,7 @@ function resolveBinary() {
 const bin = resolveBinary();
 if (!bin) {
   console.error(
-    "[github-mcp] binaire introuvable. Télécharge github-mcp-server dans ~/.local/bin",
+    "[github-mcp] binaire introuvable. Relance .cursor/install.sh.",
   );
   process.exit(1);
 }

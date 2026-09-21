@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$ROOT/.cursor/ensure-agent-path.sh"
 ENV_FILE="$ROOT/.cursor/mcp.local.env"
 DOTENV_LOCAL="$ROOT/.env.local"
 

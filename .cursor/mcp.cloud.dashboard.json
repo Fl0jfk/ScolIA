@@ -1,47 +1,35 @@
 {
+  "_comment": "Référence historique dashboard Cloud Agents. Florian n’a rien à coller : les wrappers lisent process.env / .env.local. Les Cloud Agents ne chargent pas ce fichier ; repli = .cursor/tools/.",
   "mcpServers": {
     "postgres": {
       "type": "stdio",
-      "command": "bash",
-      "args": ["/workspace/.cursor/run-postgres-mcp.sh"],
-      "env": {
-        "MCP_DATABASE_URL": "REMPLACER_PAR_URL_POSTGRES_SCALEWAY_OU_LAISSER_SECRET_ENV"
-      }
-    },
-    "fetch": {
-      "type": "stdio",
-      "command": "uvx",
-      "args": ["mcp-server-fetch"]
+      "command": "node",
+      "args": ["/workspace/.cursor/run-postgres-mcp.mjs"]
     },
     "browser": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@0.0.79"]
+      "command": "node",
+      "args": ["/workspace/.cursor/run-browser-mcp.mjs"]
+    },
+    "fetch": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/workspace/.cursor/run-fetch-mcp.mjs"]
     },
     "mistral": {
       "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "mistral-mcp@0.8.2"],
-      "env": {
-        "MISTRAL_API_KEY": "REMPLACER_PAR_TA_CLE_MISTRAL"
-      }
+      "command": "node",
+      "args": ["/workspace/.cursor/run-mistral-mcp.mjs"]
     },
     "scaleway": {
       "type": "stdio",
-      "command": "scw",
-      "args": [
-        "mcp",
-        "server",
-        "serve",
-        "namespaces=container,registry,object,rdb,tem,cockpit,iam"
-      ],
-      "env": {
-        "SCW_ACCESS_KEY": "REMPLACER",
-        "SCW_SECRET_KEY": "REMPLACER",
-        "SCW_DEFAULT_ORGANIZATION_ID": "REMPLACER_UUID",
-        "SCW_DEFAULT_PROJECT_ID": "REMPLACER_UUID",
-        "SCW_DEFAULT_REGION": "fr-par"
-      }
+      "command": "node",
+      "args": ["/workspace/.cursor/run-scaleway-mcp.mjs"]
+    },
+    "github": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/workspace/.cursor/run-github-mcp.mjs"]
     }
   }
 }

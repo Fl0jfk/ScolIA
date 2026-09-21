@@ -1,0 +1,16 @@
+{
+  "name": "scola",
+  "owner": {
+    "name": "ScolIA"
+  },
+  "metadata": {
+    "description": "Plugin MCP ScolIA versionné dans le repo. Import dashboard optionnel ; l’IDE le charge via .cursor/mcp.json + workspaceOpen."
+  },
+  "plugins": [
+    {
+      "name": "scola-mcp",
+      "source": ".cursor/plugins/scola-mcp",
+      "description": "Postgres, Playwright, fetch, Mistral, Scaleway, GitHub (stdio, secrets via env)."
+    }
+  ]
+}
