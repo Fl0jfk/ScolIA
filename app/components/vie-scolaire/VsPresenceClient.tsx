@@ -7,12 +7,13 @@ import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";
 import ModuleTabNav, { type ModuleTabItem } from "@/app/components/module-chrome/ModuleTabNav";
 import VsAbsencesClient from "@/app/components/vie-scolaire/VsAbsencesClient";
 import VsAppelsClient from "@/app/components/vie-scolaire/VsAppelsClient";
+import FeuilleDuJourClient from "@/app/components/vie-scolaire/FeuilleDuJourClient";
 import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
 import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 
-type PresenceTab = "appel" | "absences";
+type PresenceTab = "appel" | "feuille" | "absences";
 
 function canFollowAbsences(roles: string[], orgAdmin: boolean): boolean {
   if (orgAdmin || hasGlobalAdminRole(roles)) return true;
@@ -36,6 +37,7 @@ export default function VsPresenceClient() {
   const tab = useMemo((): PresenceTab => {
     const raw = searchParams.get("tab");
     if (raw === "absences" && showAbsences) return "absences";
+    if (raw === "feuille" || raw === "jour" || raw === "presence") return "feuille";
     if (raw === "appel" || raw === "appels") return "appel";
     if (searchParams.get("filtre") && showAbsences) return "absences";
     return "appel";
@@ -46,6 +48,9 @@ export default function VsPresenceClient() {
     if (next === "appel") {
       params.set("tab", "appel");
       params.delete("filtre");
+    } else if (next === "feuille") {
+      params.set("tab", "feuille");
+      params.delete("filtre");
     } else {
       params.set("tab", "absences");
     }
@@ -55,6 +60,7 @@ export default function VsPresenceClient() {
 
   const tabs: ModuleTabItem<PresenceTab>[] = [
     { id: "appel", label: "Appel", icon: "✅" },
+    { id: "feuille", label: "Feuille du jour", icon: "📍" },
     { id: "absences", label: "Absences", icon: "⏱️", hidden: !showAbsences },
   ];
 
@@ -63,10 +69,11 @@ export default function VsPresenceClient() {
       <ModulePageHeader
         eyebrow="Vie scolaire"
         title="Appels & absences"
-        description="Présence en classe (appel branché sur occupancy : sortie ≠ absence bulletin), puis suivi CPE des absents et justificatifs."
+        description="Présence en classe (appel), feuille du jour (où est X — occupancy), puis suivi CPE des absents."
       />
       <ModuleTabNav tabs={tabs} active={tab} onChange={setTab} className="mb-4" />
       {tab === "appel" ? <VsAppelsClient embedded /> : null}
+      {tab === "feuille" ? <FeuilleDuJourClient /> : null}
       {tab === "absences" && showAbsences ? <VsAbsencesClient embedded /> : null}
     </ModulePageShell>
   );

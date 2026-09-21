@@ -661,16 +661,18 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/vie-scolaire/appels",
       "/vie-scolaire/absences",
       "/api/vie-scolaire/appels",
+      "/api/vie-scolaire/presence-jour",
     ],
     // Réactivé après socle occupancy : l’appel lit en_sortie / stage (hors bulletin pour sortie).
-    allowedRoles: [...DIRECTIONS, "cpe", "professeur", "surveillant", "administratif"],
+    // Feuille du jour = lecture occupancy « où est X ».
+    allowedRoles: [...DIRECTIONS, "cpe", "professeur", "surveillant", "administratif", "accueil"],
     dashboard: {
       id: 244,
       name: "Appels",
       img: "",
       link: "/vie-scolaire/presence",
       external: false,
-      description: "Appel de classe — occupancy (sortie ≠ absence bulletin).",
+      description: "Appel + feuille du jour (où est X) — occupancy, sortie ≠ bulletin.",
     },
   },
   {
