@@ -23,4 +23,4 @@ alwaysApply: true
   - Diagnostic : `bash .cursor/tools/status.sh`
 - Si absent / erreur / binaire manquant : **le signaler**, ne pas inventer l’état.
 
-Wrappers MCP : `.cursor/run-*-mcp.mjs` lisent `process.env` puis `.cursor/mcp.local.env` / `.env.local`. Aucun secret en dur. Pas de mutation prod Scaleway.
+Wrappers MCP : `.cursor/run-*-mcp.mjs` lisent `process.env` puis `.cursor/mcp.local.env` / `.env.local`. Aucun secret en dur. Pas de mutation prod Scaleway. Tests SQL = `127.0.0.1` uniquement (`psql.sh` refuse une URL distante sans `SCOLA_ALLOW_REMOTE_DB=1`).

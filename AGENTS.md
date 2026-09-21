@@ -2,6 +2,18 @@
 
 Repo **docslapro / ScolIA** : ENT / intranet scolaire (Next.js App Router, Drizzle, PostgreSQL, Better-Auth).
 
+## Git — production protégée
+
+| Branche | Rôle |
+|---------|------|
+| **`main`** | Production. Un push déclenche `.github/workflows/deploy-scaleway.yml` (conteneur Scaleway réel). |
+| **`dev`** | Intégration architecture / lots métier. Branche de travail des agents. |
+| `feature/…` | Optionnel, à partir de `dev`, puis merge dans `dev`. |
+
+**Jamais** de `git push origin main` pour un lot métier. Passage prod = validation humaine puis merge `dev` → `main`.
+
+Tests = Postgres **local** `127.0.0.1` (`install.sh`). Pas de migration / seed / wipe sur la RDB Scaleway. `scripts/apply-migrations-direct.mjs` refuse une URL non locale sauf `ALLOW_PROD_MIGRATION=1` (validation humaine obligatoire).
+
 ## Commandes essentielles
 
 | Action | Commande |
@@ -35,8 +47,8 @@ Incohérence connue dans l’historique Drizzle : `0000_initial.sql` est déjà 
 
 | Contexte | Méthode |
 |----------|---------|
-| **Dev / Cloud Agent (base locale)** | `npx drizzle-kit push --force` (aligne sur `db/schema.ts`) |
-| **Prod / Scaleway (déjà peuplée)** | `node scripts/apply-migrations-direct.mjs` (backfill jusqu’à `0013` puis apply) |
+| **Dev / Cloud Agent (base locale)** | `npx drizzle-kit push --force` — **uniquement** si `DATABASE_URL` = `127.0.0.1` |
+| **Prod / Scaleway** | `node scripts/apply-migrations-direct.mjs` **interdit** sans validation humaine + `ALLOW_PROD_MIGRATION=1` |
 
 Ne pas « corriger » `0002` à la légère : la prod repose sur le backfill. Documenter tout changement de stratégie ici.
 
@@ -94,6 +106,8 @@ Flux parent : e-mail d’abord → matching protégé (pool = enfants liés au c
 ## Hors scope sans confirmation explicite
 
 - Mutations prod Scaleway (RDB, buckets, containers)
+- `git push origin main` / merge vers `main`
+- `scripts/apply-migrations-direct.mjs` ou `drizzle-kit push` contre une URL non locale
 - Envoi d’e-mails réels (SMTP)
 - Import massif SIECLE / données élèves réelles
 
@@ -120,7 +134,7 @@ Non requis pour booter localement. Utile pour OCR / S3 / MCP Scaleway / cache Va
 
 - `MISTRAL_API_KEY`
 - `SCW_ACCESS_KEY`, `SCW_SECRET_KEY`, `SCW_DEFAULT_ORGANIZATION_ID`, `SCW_DEFAULT_PROJECT_ID`, `SCW_DEFAULT_REGION`
-- `MCP_DATABASE_URL` (Postgres Scaleway lecture seule, si tests contre la vraie base)
+- `MCP_DATABASE_URL` — **ne pas** y mettre l’URL RDB prod pour tester ; cette VM = `127.0.0.1`
 - `VALKEY_URL` (ou `REDIS_URL`) — cache partagé auth / messagerie / dossiers / dashboard. Sans URL, l’app tourne avec repli mémoire + Postgres.
 
 ### Fichiers env Cloud

@@ -1,0 +1,24 @@
+---
+description: Git — main = production protégée ; développer sur dev (jamais push direct main)
+alwaysApply: true
+---
+
+# Git — production protégée
+
+- **`main` = production.** Chaque `git push origin main` déclenche le workflow GitHub **Deploy container** (image Scaleway + redéploiement du conteneur réel).
+- **Ne jamais** committer ni pousser un lot métier sur `main`.
+- **`dev` = intégration** de la nouvelle architecture. C’est la branche de travail par défaut.
+- Features optionnelles : `feature/…` à partir de `dev`, puis merge dans `dev`.
+- Passage prod : **validation humaine explicite**, puis merge `dev` → `main` (PR). Pas de push direct.
+
+## Routine agent
+
+- Avant de coder : `git fetch origin && git checkout dev && git pull origin dev`.
+- Après un changement logique : `git add`, `git commit`, `git push origin dev`.
+- **Interdit** : `git push origin main`, `--force` sur `main`/`dev`, merge vers `main` sans demande explicite.
+
+## Base de données
+
+- Tests et `drizzle-kit push` : **uniquement** Postgres local `127.0.0.1` (`postgresql://scola:…@127.0.0.1:5432/scola`).
+- **Interdit** : pointer `DATABASE_URL` / `MCP_DATABASE_URL` vers la RDB Scaleway pour développer ou tester.
+- `scripts/apply-migrations-direct.mjs` refuse une URL non locale sauf `ALLOW_PROD_MIGRATION=1` **et** validation humaine.

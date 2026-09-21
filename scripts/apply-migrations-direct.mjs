@@ -1,10 +1,12 @@
 /**
  * Applique les migrations SQL en direct.
  * Gère l'historique mixte (hash SHA vs tag) : backfill les tags déjà en prod sans re-jouer le SQL.
+ *
+ * Par défaut : URL locale uniquement. Prod : ALLOW_PROD_MIGRATION=1 + validation humaine.
  */
 import fs from "node:fs";
 import path from "node:path";
-import postgres from "postgres";
+import { assertLocalDatabase } from "./assert-local-database.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const journalPath = path.join(root, "drizzle", "meta", "_journal.json");
@@ -18,7 +20,9 @@ if (!url) {
   console.error("DATABASE_URL manquant.");
   process.exit(1);
 }
+assertLocalDatabase(url, { action: "apply-migrations-direct" });
 
+const postgres = (await import("postgres")).default;
 const sql = postgres(url, {
   ssl: process.env.NODE_TLS_REJECT_UNAUTHORIZED === "0" ? { rejectUnauthorized: false } : undefined,
   connect_timeout: 120,

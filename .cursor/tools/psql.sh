@@ -43,7 +43,12 @@ fi
 if [[ "$URL" == *"127.0.0.1"* || "$URL" == *"localhost"* ]]; then
   echo "[tools/psql] target=local" >&2
 else
-  echo "[tools/psql] target=remote" >&2
+  if [[ "${SCOLA_ALLOW_REMOTE_DB:-}" != "1" ]]; then
+    echo "[tools/psql] Refus : URL distante (pas 127.0.0.1). Tests = Postgres local." >&2
+    echo "[tools/psql] Dérogation lecture (jamais un wipe) : SCOLA_ALLOW_REMOTE_DB=1" >&2
+    exit 1
+  fi
+  echo "[tools/psql] target=remote (SCOLA_ALLOW_REMOTE_DB=1)" >&2
 fi
 
 exec psql "$URL" "$@"
