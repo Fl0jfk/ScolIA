@@ -23,7 +23,7 @@ function hrefWithEnfant(base: string, enfantId: string | null | undefined): stri
 export default function FamilleNav({ enfantId }: Props) {
   const pathname = usePathname();
   return (
-    <nav className="flex flex-wrap gap-2 mt-3">
+    <nav className="flex flex-wrap gap-2 mt-3 items-center">
       {LINKS.map((l) => {
         const href = hrefWithEnfant(l.href, enfantId);
         const active = pathname === l.href || (l.href !== "/famille" && pathname.startsWith(l.href));
@@ -41,6 +41,12 @@ export default function FamilleNav({ enfantId }: Props) {
           </Link>
         );
       })}
+      <Link
+        href="/sign-out?dev_tenant=default"
+        className="rounded-lg px-3 py-1.5 text-xs font-bold text-slate-500 border border-slate-200 bg-white hover:bg-slate-50 ml-auto"
+      >
+        Se déconnecter
+      </Link>
     </nav>
   );
 }
