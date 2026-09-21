@@ -19,6 +19,8 @@ import {
 } from "@/app/lib/vs-calendrier-db";
 import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
 import { requireAppUser } from "@/app/lib/app-session";
+import { getPresenceJour } from "@/app/lib/occupancy";
+import { badgesByEleveId, type AppelOccupancyBadge } from "@/app/lib/vs-appel-occupancy";
 
 async function withPhotoUrls<
   T extends { id?: string; eleveId?: string; nom: string; prenom: string; ine?: string | null; photoKey?: string | null },
@@ -35,6 +37,25 @@ async function withPhotoUrls<
     const id = r.id || r.eleveId || "";
     return { ...r, photoUrl: urls[id] ?? null };
   });
+}
+
+async function occupancyBadgesForEleves(
+  etablissementId: string,
+  date: string,
+  eleveIds: string[],
+): Promise<Map<string, AppelOccupancyBadge>> {
+  if (eleveIds.length === 0) return new Map();
+  try {
+    const result = await getPresenceJour({
+      etablissementId,
+      date,
+      eleveIds,
+    });
+    return badgesByEleveId(result.facts);
+  } catch (err) {
+    console.error("[vs-appels] occupancy", err);
+    return new Map();
+  }
 }
 
 export async function GET(req: Request) {
@@ -58,16 +79,25 @@ export async function GET(req: Request) {
         id: l.eleveId,
       })),
     );
-    const prevenu = await listAccueilCoveringForEleves(
-      etabId,
-      lignes.map((l) => l.eleveId),
-      { date: data.appel.dateAppel, heureDebut: data.appel.heureDebut, heureFin: data.appel.heureFin },
-    );
+    const dateKey = String(data.appel.dateAppel).slice(0, 10);
+    const [prevenu, occupancyMap] = await Promise.all([
+      listAccueilCoveringForEleves(
+        etabId,
+        lignes.map((l) => l.eleveId),
+        { date: data.appel.dateAppel, heureDebut: data.appel.heureDebut, heureFin: data.appel.heureFin },
+      ),
+      occupancyBadgesForEleves(
+        etabId,
+        dateKey,
+        lignes.map((l) => l.eleveId),
+      ),
+    ]);
     return NextResponse.json({
       ...data,
       lignes: lignes.map((l) => ({
         ...l,
         prevenuAccueil: prevenu.has(l.eleveId),
+        occupancy: occupancyMap.get(l.eleveId) ?? null,
       })),
     });
   }
@@ -176,18 +206,30 @@ export async function POST(req: Request) {
         : await listElevesForClasse(etabId, classe);
       const elevesWithPhotos = await withPhotoUrls(eleves);
       const existing = await getAppelWithLignes(etabId, appel.id);
-      const prevenu = await listAccueilCoveringForEleves(
-        etabId,
-        elevesWithPhotos.map((e) => e.id),
-        { date: dateAppel, heureDebut, heureFin },
-      );
+      const [prevenu, occupancyMap] = await Promise.all([
+        listAccueilCoveringForEleves(
+          etabId,
+          elevesWithPhotos.map((e) => e.id),
+          { date: dateAppel, heureDebut, heureFin },
+        ),
+        occupancyBadgesForEleves(
+          etabId,
+          dateAppel,
+          elevesWithPhotos.map((e) => e.id),
+        ),
+      ]);
       const lignes = (existing?.lignes ?? []).map((l) => ({
         ...l,
         prevenuAccueil: prevenu.has(l.eleveId),
+        occupancy: occupancyMap.get(l.eleveId) ?? null,
       }));
       return NextResponse.json({
         appel,
-        eleves: elevesWithPhotos.map((e) => ({ ...e, prevenuAccueil: prevenu.has(e.id) })),
+        eleves: elevesWithPhotos.map((e) => ({
+          ...e,
+          prevenuAccueil: prevenu.has(e.id),
+          occupancy: occupancyMap.get(e.id) ?? null,
+        })),
         lignes,
       });
     }

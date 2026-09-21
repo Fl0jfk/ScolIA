@@ -55,6 +55,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
   // Vie scolaire
   "internat",
   "vs-calendrier",
+  "vs-appels",
   "accueil-absences",
   "absences-accueil-consultation",
   "accueil-portes-ouvertes",
@@ -68,7 +69,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
 
 export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
   professeur: [
-    // Pas de boîte à outils ni vie scolaire (appels / absences élèves / carnet) par défaut.
+    // Appels de classe réactivés (occupancy) ; pas de sanctions / carnet par défaut.
     "eleve-dossier",
     "certificates",
     "organigramme",
@@ -82,6 +83,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "photocopies-couleur",
     "assistance",
     "vs-calendrier",
+    "vs-appels",
     "rh",
     "absences",
     "demandes-hse",
@@ -107,6 +109,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "assistance",
     "internat",
     "vs-calendrier",
+    "vs-appels",
     "accueil-absences",
     "accueil-portes-ouvertes",
     "rdv-inscription",
@@ -218,6 +221,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "assistance",
     "internat",
     "vs-calendrier",
+    "vs-appels",
     "accueil-absences",
     "absences-accueil-consultation",
     "rh",

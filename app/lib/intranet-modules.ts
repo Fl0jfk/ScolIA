@@ -662,9 +662,16 @@ export const INTRANET_MODULES: IntranetModule[] = [
       "/vie-scolaire/absences",
       "/api/vie-scolaire/appels",
     ],
-    // Module masqué (UI + signaux) — en cours de développement ; API conservée.
-    // Tuile absorbée dans « Absences » (accueil-absences) dès réactivation des rôles.
-    allowedRoles: [],
+    // Réactivé après socle occupancy : l’appel lit en_sortie / stage (hors bulletin pour sortie).
+    allowedRoles: [...DIRECTIONS, "cpe", "professeur", "surveillant", "administratif"],
+    dashboard: {
+      id: 244,
+      name: "Appels",
+      img: "",
+      link: "/vie-scolaire/presence",
+      external: false,
+      description: "Appel de classe — occupancy (sortie ≠ absence bulletin).",
+    },
   },
   {
     id: "vs-absences",
@@ -1030,9 +1037,8 @@ export function rolesAllowModule(
 
     // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
     if (module.id === "pilotage-eleves") return false;
-    // Vie scolaire (appels, absences, sanctions, carnet) : masqués en UI — modules en dev.
+    // Sanctions / carnet / API absences VS pure : encore masqués. Appels = réactivés (occupancy).
     if (
-      module.id === "vs-appels" ||
       module.id === "vs-absences" ||
       module.id === "vs-sanctions" ||
       module.id === "vs-carnet"
@@ -1161,6 +1167,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
   "pillar-vie-scolaire": [
     "internat",
     "vs-calendrier",
+    "vs-appels",
     "accueil-absences",
     "groupes-pedagogiques",
   ],

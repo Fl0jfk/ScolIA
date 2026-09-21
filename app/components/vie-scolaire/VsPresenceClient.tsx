@@ -63,7 +63,7 @@ export default function VsPresenceClient() {
       <ModulePageHeader
         eyebrow="Vie scolaire"
         title="Appels & absences"
-        description="Présence en classe (appel), puis suivi CPE des absents, justificatifs familles et relances — un seul endroit."
+        description="Présence en classe (appel branché sur occupancy : sortie ≠ absence bulletin), puis suivi CPE des absents et justificatifs."
       />
       <ModuleTabNav tabs={tabs} active={tab} onChange={setTab} className="mb-4" />
       {tab === "appel" ? <VsAppelsClient embedded /> : null}

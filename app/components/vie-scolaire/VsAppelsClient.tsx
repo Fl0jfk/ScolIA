@@ -3,6 +3,16 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+type LigneStatut = "present" | "absent" | "retard" | "dispense";
+
+type OccupancyBadge = {
+  tag: string;
+  labelFr: string;
+  excludeFromBulletin: boolean;
+  suggestedStatut: LigneStatut | null;
+  detailFr?: string;
+};
+
 type EleveRow = {
   id: string;
   nom: string;
@@ -10,6 +20,8 @@ type EleveRow = {
   photoKey: string | null;
   photoUrl?: string | null;
   classe: string | null;
+  prevenuAccueil?: boolean;
+  occupancy?: OccupancyBadge | null;
 };
 
 type CreneauRow = {
@@ -33,8 +45,6 @@ type AppelResume = {
   matiereLibelle: string | null;
 };
 
-type LigneStatut = "present" | "absent" | "retard" | "dispense";
-
 type LigneState = {
   eleveId: string;
   statut: LigneStatut;
@@ -51,6 +61,26 @@ function todayIso(): string {
 
 function initials(prenom: string, nom: string): string {
   return `${prenom.slice(0, 1)}${nom.slice(0, 1)}`.toUpperCase();
+}
+
+function resolveInitialStatut(
+  existing: string | undefined,
+  prevenu: boolean,
+  occupancy: OccupancyBadge | null | undefined,
+): LigneStatut {
+  if (existing === "present" || existing === "absent" || existing === "retard" || existing === "dispense") {
+    return existing;
+  }
+  if (occupancy?.suggestedStatut) return occupancy.suggestedStatut;
+  if (prevenu) return "absent";
+  return "present";
+}
+
+function occupancyBadgeClass(tag: string): string {
+  if (tag === "en_sortie") return "bg-sky-50 text-sky-900 border-sky-200";
+  if (tag === "en_stage") return "bg-violet-50 text-violet-900 border-violet-200";
+  if (tag === "absent_vs") return "bg-amber-50 text-amber-900 border-amber-200";
+  return "bg-slate-50 text-slate-700 border-slate-200";
 }
 
 export default function VsAppelsClient({ embedded = false }: { embedded?: boolean }) {
@@ -99,24 +129,32 @@ export default function VsAppelsClient({ embedded = false }: { embedded?: boolea
 
   const applyAppelPayload = (data: {
     appel: { id: string; statut: string };
-    eleves: Array<EleveRow & { prevenuAccueil?: boolean }>;
+    eleves: Array<EleveRow>;
     lignes: Array<{
       eleveId: string;
       statut: string;
       retardMinutes?: number | null;
       prevenuAccueil?: boolean;
+      occupancy?: OccupancyBadge | null;
     }>;
   }) => {
     setAppelId(data.appel.id);
     setClos(data.appel.statut === "clos");
-    setEleves(data.eleves || []);
+    const elevesNext = (data.eleves || []).map((e) => {
+      const ligneOcc = (data.lignes || []).find((l) => l.eleveId === e.id)?.occupancy;
+      return {
+        ...e,
+        occupancy: e.occupancy ?? ligneOcc ?? null,
+      };
+    });
+    setEleves(elevesNext);
     const next: Record<string, LigneState> = {};
-    for (const e of data.eleves || []) {
+    for (const e of elevesNext) {
       const existing = (data.lignes || []).find((l) => l.eleveId === e.id);
       const prevenu = Boolean(existing?.prevenuAccueil || e.prevenuAccueil);
       next[e.id] = {
         eleveId: e.id,
-        statut: (existing?.statut as LigneStatut) || (prevenu ? "absent" : "present"),
+        statut: resolveInitialStatut(existing?.statut, prevenu, e.occupancy),
         retardMinutes: existing?.retardMinutes ?? null,
       };
     }
@@ -151,8 +189,12 @@ export default function VsAppelsClient({ embedded = false }: { embedded?: boolea
       if (!res.ok) throw new Error(data.error || "Impossible de démarrer l'appel");
       applyAppelPayload(data);
       setClasse(classeCible);
+      const enSortie = (data.eleves || []).filter(
+        (e: EleveRow) => e.occupancy?.tag === "en_sortie",
+      ).length;
       setMessage(
         `${(data.eleves || []).length} élève(s)` +
+          (enSortie > 0 ? ` · ${enSortie} en sortie (hors bulletin)` : "") +
           (creneau
             ? ` — ${creneau.heureDebut}–${creneau.heureFin}${creneau.matiereLibelle ? ` · ${creneau.matiereLibelle}` : ""}`
             : "") +
@@ -379,6 +421,7 @@ export default function VsAppelsClient({ embedded = false }: { embedded?: boolea
             {eleves.map((e) => {
               const ligne = lignes[e.id];
               const statut = ligne?.statut || "present";
+              const occ = e.occupancy;
               return (
                 <li
                   key={e.id}
@@ -401,6 +444,15 @@ export default function VsAppelsClient({ embedded = false }: { embedded?: boolea
                       <p className="font-bold text-slate-900 truncate">
                         {e.prenom} {e.nom}
                       </p>
+                      {occ ? (
+                        <p
+                          className={`mt-1 inline-flex max-w-full truncate rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${occupancyBadgeClass(occ.tag)}`}
+                          title={occ.detailFr || occ.labelFr}
+                        >
+                          {occ.labelFr}
+                          {occ.excludeFromBulletin ? " · hors bulletin" : ""}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1">
