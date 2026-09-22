@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { DocumentFileIcon } from "@/app/components/documents/DocumentSystemIcons";
 import InscriptionDocsDropZone from "@/app/components/eleves/InscriptionDocsDropZone";
 import { uploadInscriptionDocuments } from "@/app/lib/inscription-docs-upload-client";
 
@@ -37,6 +38,25 @@ type LastUploadSummary = {
   titles: string[];
   errors: string[];
 };
+
+function extFromDoc(doc: DocRow): string {
+  const mime = (doc.mimeType || "").toLowerCase();
+  if (mime.includes("pdf")) return "pdf";
+  if (mime.startsWith("image/")) {
+    const sub = mime.split("/")[1] || "png";
+    return sub === "jpeg" ? "jpg" : sub;
+  }
+  const fromTitle = doc.title.match(/\.([a-z0-9]+)$/i)?.[1];
+  if (fromTitle) return fromTitle.toLowerCase();
+  const fromUrl = doc.fileUrl?.match(/\.([a-z0-9]+)(?:\?|$)/i)?.[1];
+  return (fromUrl || "pdf").toLowerCase();
+}
+
+function kindLabel(ext: string): string {
+  if (ext === "pdf") return "PDF";
+  if (["jpg", "jpeg", "png", "gif", "webp", "heic", "bmp"].includes(ext)) return "Image";
+  return ext.toUpperCase() || "Fichier";
+}
 
 export default function EleveInscriptionDocsClient() {
   const params = useParams();
@@ -193,93 +213,135 @@ export default function EleveInscriptionDocsClient() {
         </p>
       ) : null}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-          Déposer des pièces
-        </h2>
-        <p className="mt-2 text-sm text-slate-600">
-          Glissez plusieurs fichiers : l’OCR / l’IA reconnaît le type (fiche d’inscription,
-          bulletins, pièce d’identité, etc.) et ajoute automatiquement le nom de l’élève au
-          titre.
-        </p>
-        <div className="mt-4">
-          <InscriptionDocsDropZone
-            busy={busy || Boolean(deletingId)}
-            progressLabel={progressLabel}
-            hint={identityHint}
-            onFiles={(files) => void handleFiles(files)}
-          />
-        </div>
-        {lastUpload ? (
-          <div className="mt-4 space-y-1 text-sm">
-            {lastUpload.ok > 0 ? (
-              <p className="font-medium text-emerald-800">
-                {lastUpload.ok} document(s) ajouté(s)
-                {lastUpload.titles.length
-                  ? ` : ${lastUpload.titles.slice(0, 4).join(" · ")}${
-                      lastUpload.titles.length > 4 ? "…" : ""
-                    }`
-                  : ""}
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-5">
+        {docs.length > 0 ? (
+          <div>
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+                Pièces déjà déposées
+              </h2>
+              <p className="text-xs text-slate-400">
+                {docs.length} fichier{docs.length > 1 ? "s" : ""}
               </p>
-            ) : null}
-            {lastUpload.fail > 0 ? (
-              <p className="text-amber-800">
-                {lastUpload.fail} échec(s) — {lastUpload.errors.slice(0, 3).join(" · ")}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
+            </div>
+            <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 sm:gap-3 items-start">
+              {docs.map((d) => {
+                const ext = extFromDoc(d);
+                const showDelete = canDeleteDocs || d.canDelete === true;
+                const isDeleting = deletingId === d.id;
+                const dateLabel = d.createdAt
+                  ? new Date(d.createdAt).toLocaleDateString("fr-FR")
+                  : null;
+                const openable = Boolean(d.fileUrl);
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-          Pièces du tiroir inscription
-        </h2>
-        {docs.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-500">Aucun document pour l’instant.</p>
-        ) : (
-          <ul className="mt-4 divide-y divide-slate-100">
-            {docs.map((d) => {
-              const showDelete = canDeleteDocs || d.canDelete === true;
-              const isDeleting = deletingId === d.id;
-              return (
-                <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-slate-900">{d.title}</p>
-                    <p className="text-xs text-slate-500">
-                      {d.mimeType || "fichier"}
-                      {d.createdAt
-                        ? ` · ${new Date(d.createdAt).toLocaleDateString("fr-FR")}`
-                        : ""}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    {d.fileUrl ? (
-                      <a
-                        href={d.fileUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm font-semibold text-sky-700 hover:underline"
-                      >
-                        Ouvrir
-                      </a>
-                    ) : null}
+                return (
+                  <div
+                    key={d.id}
+                    className="group relative flex flex-col items-center p-2.5 rounded-2xl border-2 border-transparent bg-transparent transition-all w-full min-w-0 hover:bg-slate-50/80 hover:border-slate-200 hover:shadow-sm"
+                  >
                     {showDelete ? (
                       <button
                         type="button"
                         disabled={busy || Boolean(deletingId)}
-                        onClick={() => void deleteDocument(d)}
-                        className="text-sm font-semibold text-rose-700 hover:underline disabled:opacity-50"
+                        title="Supprimer"
+                        aria-label={`Supprimer ${d.title}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteDocument(d);
+                        }}
+                        className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-white/95 text-rose-600 opacity-0 shadow-sm ring-1 ring-slate-200 transition group-hover:opacity-100 hover:bg-rose-50 disabled:opacity-40"
                       >
-                        {isDeleting ? "Suppression…" : "Supprimer"}
+                        <span className="text-sm leading-none" aria-hidden>
+                          ×
+                        </span>
                       </button>
                     ) : null}
+
+                    {openable ? (
+                      <a
+                        href={d.fileUrl!}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={d.title}
+                        className="flex w-full flex-col items-center outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl"
+                      >
+                        <div className="mb-1.5 shrink-0">
+                          <DocumentFileIcon ext={ext} />
+                        </div>
+                        <span className="text-center text-[10px] font-medium text-gray-700 w-full leading-snug break-words px-0.5 line-clamp-2">
+                          {d.title}
+                        </span>
+                        <span className="mt-0.5 text-[9px] font-medium text-gray-500 text-center leading-tight">
+                          {kindLabel(ext)}
+                          {dateLabel ? ` · ${dateLabel}` : ""}
+                        </span>
+                      </a>
+                    ) : (
+                      <div className="flex w-full flex-col items-center" title={d.title}>
+                        <div className="mb-1.5 shrink-0">
+                          <DocumentFileIcon ext={ext} />
+                        </div>
+                        <span className="text-center text-[10px] font-medium text-gray-700 w-full leading-snug break-words px-0.5 line-clamp-2">
+                          {d.title}
+                        </span>
+                        <span className="mt-0.5 text-[9px] font-medium text-gray-500 text-center leading-tight">
+                          {kindLabel(ext)}
+                          {dateLabel ? ` · ${dateLabel}` : ""}
+                        </span>
+                      </div>
+                    )}
+
+                    {isDeleting ? (
+                      <span className="mt-0.5 text-[9px] text-blue-600 font-bold">…</span>
+                    ) : null}
                   </div>
-                </li>
-              );
-            })}
-          </ul>
+                );
+              })}
+            </div>
+          </div>
+        ) : data ? (
+          <p className="text-sm text-slate-500">Aucun document pour l’instant.</p>
+        ) : (
+          <p className="text-sm text-slate-400">Chargement des pièces…</p>
         )}
+
+        <div className={docs.length > 0 ? "border-t border-slate-100 pt-5" : undefined}>
+          <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
+            Déposer des pièces
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Glissez plusieurs fichiers : l’OCR / l’IA reconnaît le type (fiche d’inscription,
+            bulletins, pièce d’identité, etc.) et ajoute automatiquement le nom de l’élève au
+            titre.
+          </p>
+          <div className="mt-4">
+            <InscriptionDocsDropZone
+              busy={busy || Boolean(deletingId)}
+              progressLabel={progressLabel}
+              hint={identityHint}
+              onFiles={(files) => void handleFiles(files)}
+            />
+          </div>
+          {lastUpload ? (
+            <div className="mt-4 space-y-1 text-sm">
+              {lastUpload.ok > 0 ? (
+                <p className="font-medium text-emerald-800">
+                  {lastUpload.ok} document(s) ajouté(s)
+                  {lastUpload.titles.length
+                    ? ` : ${lastUpload.titles.slice(0, 4).join(" · ")}${
+                        lastUpload.titles.length > 4 ? "…" : ""
+                      }`
+                    : ""}
+                </p>
+              ) : null}
+              {lastUpload.fail > 0 ? (
+                <p className="text-amber-800">
+                  {lastUpload.fail} échec(s) — {lastUpload.errors.slice(0, 3).join(" · ")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </section>
     </div>
   );
