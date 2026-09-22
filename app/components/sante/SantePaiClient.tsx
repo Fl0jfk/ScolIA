@@ -201,6 +201,27 @@ export default function SantePaiClient() {
     setError(null);
     setOkMsg(null);
     try {
+      const saveRes = await fetch("/api/sante/pai", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editing.id,
+          action: "update",
+          protocole,
+          traitementsAutorises: traitements,
+          notes,
+          documentId: documentId || null,
+          dateDebut: dateDebut || null,
+          dateFin: dateFin || null,
+        }),
+      });
+      const saveData = (await saveRes.json().catch(() => ({}))) as { error?: string };
+      if (!saveRes.ok) {
+        setError(saveData.error || "Enregistrement avant validation impossible.");
+        return;
+      }
+
       const res = await fetch("/api/sante/pai", {
         method: "PATCH",
         credentials: "include",

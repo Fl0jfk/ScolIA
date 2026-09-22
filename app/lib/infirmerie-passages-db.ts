@@ -5,15 +5,21 @@ import { getDb } from "@/db/index";
 import { eleve, infirmeriePassage } from "@/db/schema";
 import { sqlPersonNameMatches } from "@/app/lib/person-name-search";
 import {
+  isInfirmerieContexte,
   isInfirmerieSuite,
+  type InfirmerieContexte,
   type InfirmeriePassageRow,
   type InfirmerieSuite,
 } from "@/app/lib/infirmerie-passages-shared";
 
 export {
+  INFIRMERIE_CONTEXTES,
+  INFIRMERIE_CONTEXTE_LABELS,
   INFIRMERIE_SUITES,
   INFIRMERIE_SUITE_LABELS,
+  isInfirmerieContexte,
   isInfirmerieSuite,
+  type InfirmerieContexte,
   type InfirmeriePassageRow,
   type InfirmerieSuite,
 } from "@/app/lib/infirmerie-passages-shared";
@@ -35,6 +41,7 @@ function mapRow(r: {
   motifCourt: string;
   suite: string | null;
   soinsNotes: string | null;
+  contexte: string | null;
   signalVieScolaire: boolean;
   auteurNom: string | null;
 }): InfirmeriePassageRow {
@@ -49,6 +56,7 @@ function mapRow(r: {
     motifCourt: r.motifCourt,
     suite: isInfirmerieSuite(r.suite) ? r.suite : null,
     soinsNotes: r.soinsNotes,
+    contexte: isInfirmerieContexte(r.contexte) ? r.contexte : "journee",
     signalVieScolaire: r.signalVieScolaire,
     auteurNom: r.auteurNom,
   };
@@ -70,6 +78,7 @@ export async function listInfirmeriePassagesOuverts(
       motifCourt: infirmeriePassage.motifCourt,
       suite: infirmeriePassage.suite,
       soinsNotes: infirmeriePassage.soinsNotes,
+      contexte: infirmeriePassage.contexte,
       signalVieScolaire: infirmeriePassage.signalVieScolaire,
       auteurNom: infirmeriePassage.auteurNom,
     })
@@ -124,6 +133,7 @@ export async function openInfirmeriePassage(
   opts: {
     eleveId: string;
     motifCourt?: string;
+    contexte?: string;
     auteurUserId?: string | null;
     auteurNom?: string | null;
   },
@@ -131,6 +141,10 @@ export async function openInfirmeriePassage(
   const db = getDb();
   const eleveId = opts.eleveId.trim();
   if (!eleveId) throw new Error("Élève requis.");
+
+  const contexte: InfirmerieContexte = isInfirmerieContexte(opts.contexte)
+    ? opts.contexte
+    : "journee";
 
   const [eleveRow] = await db
     .select({
@@ -168,6 +182,7 @@ export async function openInfirmeriePassage(
       eleveId,
       arrivee: new Date(),
       motifCourt: (opts.motifCourt ?? "").trim(),
+      contexte,
       signalVieScolaire: true,
       auteurUserId: opts.auteurUserId ?? null,
       auteurNom: opts.auteurNom ?? null,
@@ -180,6 +195,7 @@ export async function openInfirmeriePassage(
       motifCourt: infirmeriePassage.motifCourt,
       suite: infirmeriePassage.suite,
       soinsNotes: infirmeriePassage.soinsNotes,
+      contexte: infirmeriePassage.contexte,
       signalVieScolaire: infirmeriePassage.signalVieScolaire,
       auteurNom: infirmeriePassage.auteurNom,
     });
@@ -246,6 +262,7 @@ export async function closeInfirmeriePassage(
       motifCourt: infirmeriePassage.motifCourt,
       suite: infirmeriePassage.suite,
       soinsNotes: infirmeriePassage.soinsNotes,
+      contexte: infirmeriePassage.contexte,
       signalVieScolaire: infirmeriePassage.signalVieScolaire,
       auteurNom: infirmeriePassage.auteurNom,
     })

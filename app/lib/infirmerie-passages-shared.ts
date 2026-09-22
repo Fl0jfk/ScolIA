@@ -18,6 +18,15 @@ export const INFIRMERIE_SUITE_LABELS: Record<InfirmerieSuite, string> = {
   autre: "Autre",
 };
 
+export const INFIRMERIE_CONTEXTES = ["journee", "nuit_internat"] as const;
+
+export type InfirmerieContexte = (typeof INFIRMERIE_CONTEXTES)[number];
+
+export const INFIRMERIE_CONTEXTE_LABELS: Record<InfirmerieContexte, string> = {
+  journee: "Journée",
+  nuit_internat: "Nuit internat",
+};
+
 export type InfirmeriePassageRow = {
   id: string;
   eleveId: string;
@@ -29,10 +38,15 @@ export type InfirmeriePassageRow = {
   motifCourt: string;
   suite: InfirmerieSuite | null;
   soinsNotes: string | null;
+  contexte: InfirmerieContexte;
   signalVieScolaire: boolean;
   auteurNom: string | null;
 };
 
 export function isInfirmerieSuite(v: string | null | undefined): v is InfirmerieSuite {
   return !!v && (INFIRMERIE_SUITES as readonly string[]).includes(v);
+}
+
+export function isInfirmerieContexte(v: string | null | undefined): v is InfirmerieContexte {
+  return !!v && (INFIRMERIE_CONTEXTES as readonly string[]).includes(v);
 }

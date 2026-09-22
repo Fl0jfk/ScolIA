@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  INFIRMERIE_CONTEXTES,
+  INFIRMERIE_CONTEXTE_LABELS,
   INFIRMERIE_SUITES,
   INFIRMERIE_SUITE_LABELS,
+  type InfirmerieContexte,
   type InfirmeriePassageRow,
   type InfirmerieSuite,
 } from "@/app/lib/infirmerie-passages-shared";
@@ -27,6 +30,7 @@ export default function InfirmeriePassagesClient() {
   const [hits, setHits] = useState<EleveLite[]>([]);
   const [selected, setSelected] = useState<EleveLite | null>(null);
   const [motif, setMotif] = useState("");
+  const [contexte, setContexte] = useState<InfirmerieContexte>("journee");
   const [closingId, setClosingId] = useState<string | null>(null);
   const [suite, setSuite] = useState<InfirmerieSuite>("retour_cours");
   const [soinsNotes, setSoinsNotes] = useState("");
@@ -82,7 +86,7 @@ export default function InfirmeriePassagesClient() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eleveId: selected.id, motifCourt: motif }),
+        body: JSON.stringify({ eleveId: selected.id, motifCourt: motif, contexte }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
@@ -180,6 +184,20 @@ export default function InfirmeriePassagesClient() {
             </ul>
           ) : null}
           <label className="block text-sm font-semibold text-slate-800">
+            Contexte
+            <select
+              value={contexte}
+              onChange={(e) => setContexte(e.target.value as InfirmerieContexte)}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal"
+            >
+              {INFIRMERIE_CONTEXTES.map((c) => (
+                <option key={c} value={c}>
+                  {INFIRMERIE_CONTEXTE_LABELS[c]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm font-semibold text-slate-800">
             Motif court (optionnel)
             <input
               value={motif}
@@ -232,6 +250,7 @@ export default function InfirmeriePassagesClient() {
                     </p>
                     <p className="text-xs text-slate-500">
                       Arrivée {formatHeure(p.arrivee)}
+                      {` · ${INFIRMERIE_CONTEXTE_LABELS[p.contexte]}`}
                       {p.motifCourt ? ` · ${p.motifCourt}` : ""}
                     </p>
                   </div>

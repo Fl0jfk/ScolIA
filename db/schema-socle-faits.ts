@@ -81,6 +81,8 @@ export const infirmeriePassage = pgTable(
     suite: text("suite"),
     /** Ce qui a été fait — reste à l’infirmerie, pas le signal VS. */
     soinsNotes: text("soins_notes"),
+    /** journee | nuit_internat — même geste, autre horaire. */
+    contexte: text("contexte").notNull().default("journee"),
     signalVieScolaire: boolean("signal_vie_scolaire").notNull().default(true),
     auteurUserId: text("auteur_user_id"),
     auteurNom: text("auteur_nom"),
@@ -93,6 +95,10 @@ export const infirmeriePassage = pgTable(
     check(
       "infirmerie_passage_suite_chk",
       sql`${t.suite} is null or ${t.suite} in ('repos', 'retour_cours', 'renvoi_famille', 'urgence', 'autre')`,
+    ),
+    check(
+      "infirmerie_passage_contexte_chk",
+      sql`${t.contexte} in ('journee', 'nuit_internat')`,
     ),
   ],
 );
@@ -228,6 +234,38 @@ export const santePai = pgTable(
       "sante_pai_statut_chk",
       sql`${t.statut} in ('brouillon', 'valide', 'expire', 'revoque')`,
     ),
+  ],
+);
+
+/**
+ * Inaptitude EPS datée. Crée / tient un extrait `portee=eps`.
+ * Soft-désactivation — pas de DELETE.
+ */
+export const santeInaptitudeEps = pgTable(
+  "sante_inaptitude_eps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    eleveId: uuid("eleve_id").notNull(),
+    dateDebut: date("date_debut").notNull(),
+    dateFin: date("date_fin"),
+    /** Motif court côté infirmerie (pas diffusé tel quel). */
+    motif: text("motif").notNull().default(""),
+    /** Libellé vu par l’EPS via sante_extrait. */
+    libelleExtrait: text("libelle_extrait").notNull(),
+    documentId: uuid("document_id"),
+    extraitId: uuid("extrait_id"),
+    actif: boolean("actif").notNull().default(true),
+    auteurUserId: text("auteur_user_id"),
+    auteurNom: text("auteur_nom"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("sante_inaptitude_eps_eleve_idx").on(t.etablissementId, t.eleveId, t.dateDebut),
+    index("sante_inaptitude_eps_actif_idx").on(t.etablissementId, t.actif),
   ],
 );
 
@@ -739,6 +777,7 @@ export const socleFaitsSchema = {
   santeMedicamentPrise,
   santeAccident,
   santePai,
+  santeInaptitudeEps,
   conseilSeance,
   conseilAvis,
   bulletin,

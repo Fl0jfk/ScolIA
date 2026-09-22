@@ -8,7 +8,7 @@ export default function SanteEspacePage() {
       <ModulePageHeader
         eyebrow="Santé"
         title="Espace santé"
-        description="Bloc infirmerie — passages, fiches, médicaments, accidents, PAI, extraits. Inaptitude EPS et nuit internat restent ouverts."
+        description="Bloc infirmerie — passages (journée / nuit internat), fiches, PAI, médicaments, accidents, inaptitudes EPS, extraits."
         actions={
           <Link href="/sante" className="text-sm font-bold text-indigo-600 hover:underline">
             ← Espace Santé
@@ -19,7 +19,7 @@ export default function SanteEspacePage() {
         <div className="rounded-3xl border border-rose-200 bg-rose-50/60 p-6 text-sm text-slate-700">
           <p className="font-bold text-rose-950">Passages à l’infirmerie</p>
           <p className="mt-1">
-            Qui est là, puis la suite (retour cours, renvoi famille…). Le motif reste à
+            Qui est là (journée ou nuit internat), puis la suite. Le motif reste à
             l’infirmerie ; la vie scolaire voit le signal.
           </p>
           <Link
@@ -51,6 +51,16 @@ export default function SanteEspacePage() {
             className="mt-4 inline-flex rounded-xl bg-teal-800 px-4 py-2 text-xs font-bold text-white"
           >
             Gérer les PAI
+          </Link>
+        </div>
+        <div className="rounded-3xl border border-indigo-200 bg-indigo-50/50 p-6 text-sm text-slate-700">
+          <p className="font-bold text-indigo-950">Inaptitudes EPS</p>
+          <p className="mt-1">Certificat daté → extrait EPS diffusé automatiquement.</p>
+          <Link
+            href="/sante/inaptitudes"
+            className="mt-4 inline-flex rounded-xl bg-indigo-800 px-4 py-2 text-xs font-bold text-white"
+          >
+            Gérer les inaptitudes
           </Link>
         </div>
         <div className="rounded-3xl border border-sky-200 bg-sky-50/50 p-6 text-sm text-slate-700">
@@ -86,17 +96,14 @@ export default function SanteEspacePage() {
             Gérer les extraits
           </Link>
         </div>
-        <div className="space-y-3 rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
-          <p className="font-semibold text-slate-800">Encore ouvert dans le bloc</p>
-          <ul className="list-disc space-y-1 pl-5">
-            <li>Inaptitude EPS → extrait</li>
-            <li>Nuit internat</li>
-          </ul>
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
+          <p className="font-semibold text-slate-800">Documents santé</p>
+          <p className="mt-1">PAI, PAP, ordonnances dans le tiroir du dossier élève.</p>
           <Link
             href="/eleves/dossiers"
-            className="mt-2 inline-flex rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white"
+            className="mt-3 inline-flex rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white"
           >
-            Dossiers élèves (documents santé)
+            Dossiers élèves
           </Link>
         </div>
       </div>

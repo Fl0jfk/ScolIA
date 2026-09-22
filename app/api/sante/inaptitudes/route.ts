@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { requireAppUser } from "@/app/lib/app-session";
+import { searchElevesForInfirmerie } from "@/app/lib/infirmerie-passages-db";
 import {
-  closeInfirmeriePassage,
-  listInfirmeriePassagesOuverts,
-  openInfirmeriePassage,
-  searchElevesForInfirmerie,
-} from "@/app/lib/infirmerie-passages-db";
+  createSanteInaptitudeEps,
+  desactiverSanteInaptitudeEps,
+  listSanteInaptitudesEps,
+} from "@/app/lib/sante-inaptitudes-db";
 
 export async function GET(req: Request) {
   const gate = await requireModule("sante");
@@ -23,8 +23,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ eleves });
   }
 
-  const passages = await listInfirmeriePassagesOuverts(etabId);
-  return NextResponse.json({ passages });
+  const eleveId = url.searchParams.get("eleveId")?.trim() || undefined;
+  const inaptitudes = await listSanteInaptitudesEps(etabId, { eleveId });
+  return NextResponse.json({ inaptitudes });
 }
 
 export async function POST(req: Request) {
@@ -37,8 +38,10 @@ export async function POST(req: Request) {
   const appUser = await requireAppUser();
   const body = (await req.json().catch(() => ({}))) as {
     eleveId?: string;
-    motifCourt?: string;
-    contexte?: string;
+    dateDebut?: string;
+    dateFin?: string | null;
+    motif?: string;
+    libelleExtrait?: string;
   };
 
   try {
@@ -47,20 +50,20 @@ export async function POST(req: Request) {
         appUser.user.name ||
         null
       : null;
-    const passage = await openInfirmeriePassage(etabId, {
+    const inaptitude = await createSanteInaptitudeEps(etabId, {
       eleveId: String(body.eleveId || ""),
-      motifCourt: body.motifCourt,
-      contexte: body.contexte,
+      dateDebut: String(body.dateDebut || ""),
+      dateFin: body.dateFin,
+      motif: body.motif,
+      libelleExtrait: String(body.libelleExtrait || ""),
       auteurUserId: appUser.ok ? appUser.user.id : null,
       auteurNom,
     });
-    return NextResponse.json({ passage });
+    return NextResponse.json({ inaptitude });
   } catch (e) {
-    const code = (e as { code?: string })?.code;
-    const status = code === "ALREADY_OPEN" ? 409 : 400;
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Ouverture impossible.", code },
-      { status },
+      { error: e instanceof Error ? e.message : "Création impossible." },
+      { status: 400 },
     );
   }
 }
@@ -75,22 +78,17 @@ export async function PATCH(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     id?: string;
     action?: string;
-    suite?: string;
-    soinsNotes?: string;
   };
-  if (body.action !== "close") {
-    return NextResponse.json({ error: "Action inconnue (close)." }, { status: 400 });
+  if (body.action !== "desactiver") {
+    return NextResponse.json({ error: "Action inconnue (desactiver)." }, { status: 400 });
   }
 
   try {
-    const passage = await closeInfirmeriePassage(etabId, String(body.id || ""), {
-      suite: body.suite,
-      soinsNotes: body.soinsNotes,
-    });
-    return NextResponse.json({ passage });
+    await desactiverSanteInaptitudeEps(etabId, String(body.id || ""));
+    return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Clôture impossible." },
+      { error: e instanceof Error ? e.message : "Désactivation impossible." },
       { status: 400 },
     );
   }
