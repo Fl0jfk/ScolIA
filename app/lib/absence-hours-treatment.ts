@@ -217,7 +217,9 @@ export function congeExceptionnelJoursAide(code?: string | null): string {
   return `${sub.aide} Indicatif — jours ouvrables successifs (sauf accord). Les dates restent libres.`;
 }
 
-export function isNonDiscretionaryTreatment(value?: string | null): boolean {
+export function isNonDiscretionaryTreatment(
+  value?: string | null,
+): value is NonDiscretionaryAbsenceTreatment {
   return value === "MALADIE" || value === "ENFANT_MALADE" || value === "CONGE_EXCEPTIONNEL";
 }
 
