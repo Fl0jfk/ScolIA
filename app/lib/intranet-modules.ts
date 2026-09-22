@@ -835,7 +835,27 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/sante/espace",
       external: false,
-      description: "Passages, suite de soin, extraits. Bloc infirmerie encore ouvert.",
+      description: "Passages infirmerie, PAI, extraits, médicaments, accidents.",
+    },
+  },
+  {
+    id: "passages",
+    pathPrefixes: ["/passages", "/api/passages"],
+    allowedRoles: [
+      ...DIRECTIONS,
+      "admin",
+      "administratif",
+      "accueil",
+      "cpe",
+      "surveillant",
+    ],
+    dashboard: {
+      id: 53,
+      name: "Passages & cantine",
+      img: "",
+      link: "/passages",
+      external: false,
+      description: "Portail entrée/sortie et repas pris au self.",
     },
   },
   {
