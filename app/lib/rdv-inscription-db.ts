@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import {
@@ -885,7 +885,7 @@ export async function listRdvInscriptionBookings(opts?: {
 }): Promise<RdvInscriptionBookingRow[]> {
   const etabId = await requireEtabId(opts?.etablissementId);
   const db = requireDb();
-  const limit = Math.min(200, Math.max(1, opts?.limit ?? 100));
+  const limit = Math.min(300, Math.max(1, opts?.limit ?? 200));
   const conditions = [eq(rdvInscriptionBooking.etablissementId, etabId)];
   if (opts?.directionSlug) {
     conditions.push(eq(rdvInscriptionBooking.directionSlug, opts.directionSlug.trim().toLowerCase()));
@@ -894,7 +894,78 @@ export async function listRdvInscriptionBookings(opts?: {
     .select()
     .from(rdvInscriptionBooking)
     .where(and(...conditions))
-    .orderBy(desc(rdvInscriptionBooking.startAt))
+    // Plus récentes réservations en premier (pas la date du créneau).
+    .orderBy(desc(rdvInscriptionBooking.createdAt))
     .limit(limit);
   return rows.map(mapBooking);
+}
+
+/** RDV actifs (pending non expiré / confirmed) pour un élève sur une direction. */
+export async function listActiveBookingsForEleve(opts: {
+  eleveId: string;
+  directionSlug: string;
+  etablissementId?: string;
+}): Promise<Array<RdvInscriptionBookingRow & { etablissementId: string }>> {
+  const eleveId = opts.eleveId.trim();
+  const directionSlug = opts.directionSlug.trim().toLowerCase();
+  if (!eleveId || !directionSlug) return [];
+  const etabId = await requireEtabId(opts.etablissementId);
+  const db = requireDb();
+  const now = new Date();
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, etabId),
+        eq(rdvInscriptionBooking.eleveId, eleveId),
+        eq(rdvInscriptionBooking.directionSlug, directionSlug),
+        inArray(rdvInscriptionBooking.status, ["pending", "confirmed"]),
+      ),
+    )
+    .orderBy(desc(rdvInscriptionBooking.createdAt));
+
+  return rows
+    .filter((r) => {
+      if (r.status === "confirmed") return true;
+      if (r.status === "pending") {
+        if (!r.confirmExpiresAt) return true;
+        return r.confirmExpiresAt.getTime() > now.getTime();
+      }
+      return false;
+    })
+    .map((r) => ({ ...mapBooking(r), etablissementId: r.etablissementId }));
+}
+
+export async function markRdvInscriptionBookingCancelled(opts: {
+  bookingId: string;
+  etablissementId: string;
+}): Promise<RdvInscriptionBookingRow | null> {
+  const db = requireDb();
+  await db
+    .update(rdvInscriptionBooking)
+    .set({
+      status: "cancelled",
+      confirmToken: null,
+      confirmExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+        inArray(rdvInscriptionBooking.status, ["pending", "confirmed"]),
+      ),
+    );
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ? mapBooking(rows[0]) : null;
 }

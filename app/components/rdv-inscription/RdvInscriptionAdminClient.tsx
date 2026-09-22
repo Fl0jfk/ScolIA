@@ -37,6 +37,17 @@ function formatSlot(isoStart: string, isoEnd: string): string {
   return `${day} ${hm(s)}–${hm(e)}`;
 }
 
+function formatWhen(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function RdvInscriptionAdminClient() {
   const [data, setData] = useState<AdminPayload | null>(null);
   const [bookings, setBookings] = useState<RdvInscriptionBookingRow[]>([]);
@@ -527,6 +538,10 @@ export default function RdvInscriptionAdminClient() {
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900">Réservations récentes</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Triées par date de réservation (la plus récente en haut). Les créneaux remplacés
+          apparaissent en « Annulé ».
+        </p>
         {bookings.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">Aucune réservation pour l’instant.</p>
         ) : (
@@ -534,6 +549,7 @@ export default function RdvInscriptionAdminClient() {
             <table className="min-w-full text-left text-sm">
               <thead>
                 <tr className="border-b text-slate-500">
+                  <th className="py-2 pr-3 font-semibold">Réservé le</th>
                   <th className="py-2 pr-3 font-semibold">Créneau</th>
                   <th className="py-2 pr-3 font-semibold">Élève</th>
                   <th className="py-2 pr-3 font-semibold">Contact</th>
@@ -544,6 +560,15 @@ export default function RdvInscriptionAdminClient() {
               <tbody>
                 {bookings.map((b) => (
                   <tr key={b.id} className="border-b border-slate-100">
+                    <td className="py-2 pr-3 whitespace-nowrap text-xs text-slate-600">
+                      {formatWhen(b.createdAt)}
+                      {b.confirmedAt ? (
+                        <>
+                          <br />
+                          <span className="text-emerald-700">Conf. {formatWhen(b.confirmedAt)}</span>
+                        </>
+                      ) : null}
+                    </td>
                     <td className="py-2 pr-3 whitespace-nowrap">
                       <span className="text-xs font-medium uppercase text-slate-500">
                         {b.directionSlug}

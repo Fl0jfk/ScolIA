@@ -7,6 +7,8 @@ import {
   getRdvInscriptionDirectionBySlug,
   insertRdvInscriptionBooking,
   listExpiredPendingBookings,
+  listActiveBookingsForEleve,
+  markRdvInscriptionBookingCancelled,
   markRdvInscriptionBookingConfirmed,
   markRdvInscriptionBookingExpired,
   findBookingByConfirmToken,
@@ -21,6 +23,7 @@ import {
   holdInscriptionCalendarEvent,
   listAvailableInscriptionSlots,
   releaseInscriptionCalendarHold,
+  restoreInscriptionCalendarSlot,
   markParentReconfirmedOnCalendar,
   cancelConfirmedInscriptionEvent,
 } from "@/app/lib/rdv-inscription-gcal";
@@ -49,7 +52,11 @@ import type {
   RdvInscriptionBookingRow,
   RdvInscriptionSlot,
 } from "@/app/lib/rdv-inscription-types";
-import { RDV_BOOK_CONFIRM_PHRASE } from "@/app/lib/rdv-inscription-types";
+import {
+  DEFAULT_RDV_INSCRIPTION_TITLE,
+  RDV_BOOK_CONFIRM_PHRASE,
+  splitRdvTitlePatterns,
+} from "@/app/lib/rdv-inscription-types";
 import type { RdvMatchCandidate } from "@/app/lib/rdv-inscription-match";
 import { isValidParentEmail } from "@/app/lib/eleves-parent-emails";
 
@@ -243,6 +250,105 @@ export function isValidRdvBookConfirmPhrase(value: string | undefined | null): b
   return normalizeRdvBookConfirmPhrase(value || "") === RDV_BOOK_CONFIRM_PHRASE;
 }
 
+function restoreTitleForDirection(eventTitlePattern: string): string {
+  const first = splitRdvTitlePatterns(eventTitlePattern)[0]?.trim();
+  return first || DEFAULT_RDV_INSCRIPTION_TITLE;
+}
+
+/**
+ * Libère les RDV actifs du même élève (même direction) pour permettre un changement de créneau.
+ * Remet l’événement Google à l’état libre (titre motif).
+ */
+async function supersedeActiveBookingsForEleve(opts: {
+  eleveId: string;
+  directionSlug: string;
+  etablissementId: string;
+  titlePattern: string;
+  keepEventId?: string | null;
+}): Promise<{ supersededIds: string[]; warnings: string[] }> {
+  const active = await listActiveBookingsForEleve({
+    eleveId: opts.eleveId,
+    directionSlug: opts.directionSlug,
+    etablissementId: opts.etablissementId,
+  });
+  const supersededIds: string[] = [];
+  const warnings: string[] = [];
+  const restoreTitle = restoreTitleForDirection(opts.titlePattern);
+  const keepEventId = opts.keepEventId?.trim() || "";
+
+  for (const prev of active) {
+    if (keepEventId && prev.googleEventId === keepEventId) {
+      continue;
+    }
+    try {
+      if (prev.status === "pending") {
+        await releaseInscriptionCalendarHold({
+          calendarId: prev.googleCalendarId,
+          eventId: prev.googleEventId,
+          bookingId: prev.id,
+        });
+      } else if (prev.status === "confirmed") {
+        const restored = await restoreInscriptionCalendarSlot({
+          calendarId: prev.googleCalendarId,
+          eventId: prev.googleEventId,
+          bookingId: prev.id,
+          restoreTitle,
+        });
+        if (!restored.ok) {
+          warnings.push(`${prev.id}: ${restored.message}`);
+        }
+      }
+      await markRdvInscriptionBookingCancelled({
+        bookingId: prev.id,
+        etablissementId: opts.etablissementId,
+      });
+      supersededIds.push(prev.id);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      warnings.push(`${prev.id}: ${msg}`);
+      console.error("[rdv-inscription] supersede:", e);
+    }
+  }
+
+  return { supersededIds, warnings };
+}
+
+/** RDV actif déjà pris pour cet élève (affichage public « vous avez déjà un rendez-vous »). */
+export async function getActiveRdvBookingForEleve(opts: {
+  directionSlug: string;
+  eleveId: string;
+  parentEmail: string;
+}): Promise<
+  | { ok: true; booking: RdvInscriptionBookingRow | null }
+  | { ok: false; status: number; error: string }
+> {
+  const slug = opts.directionSlug.trim().toLowerCase();
+  const eleveId = opts.eleveId.trim();
+  const parentEmail = opts.parentEmail.trim().toLowerCase();
+  if (!slug || !eleveId || !parentEmail) {
+    return { ok: false, status: 400, error: "Paramètres manquants." };
+  }
+  if (!isValidParentEmail(parentEmail)) {
+    return { ok: false, status: 400, error: "E-mail invalide." };
+  }
+
+  const etabId = await resolveCurrentEtablissementId();
+  if (!etabId) {
+    return { ok: false, status: 503, error: "Établissement introuvable." };
+  }
+
+  const active = await listActiveBookingsForEleve({
+    eleveId,
+    directionSlug: slug,
+    etablissementId: etabId,
+  });
+  const booking = active.find((b) => b.parentEmail === parentEmail) || null;
+  if (active.length > 0 && !booking) {
+    return { ok: false, status: 403, error: "Élève non rattaché à ces coordonnées parent." };
+  }
+  return { ok: true, booking };
+}
+
 export async function bookPublicRdvInscription(
   slug: string,
   input: RdvInscriptionBookInput,
@@ -385,7 +491,21 @@ export async function bookPublicRdvInscription(
     }
   }
 
+  const resolvedEleveId = eleveId as string;
+
   await releaseExpiredPendings();
+
+  // Changement de créneau : libère / remet à l’origine les RDV actifs du même élève.
+  const supersede = await supersedeActiveBookingsForEleve({
+    eleveId: resolvedEleveId,
+    directionSlug: direction.slug,
+    etablissementId: etabId,
+    titlePattern: direction.eventTitlePattern,
+    keepEventId: eventId,
+  });
+  if (supersede.warnings.length) {
+    console.warn("[rdv-inscription] supersede warnings:", supersede.warnings);
+  }
 
   const existing = await findActiveBookingByGoogleEvent({
     calendarId: direction.googleCalendarId,

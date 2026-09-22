@@ -608,3 +608,68 @@ export async function cancelConfirmedInscriptionEvent(opts: {
   }
   return { ok: true };
 }
+
+/**
+ * Remet un créneau confirmé à l’état « libre » (titre motif, sans props ScolIA)
+ * pour qu’il réapparaisse dans la liste publique.
+ */
+export async function restoreInscriptionCalendarSlot(opts: {
+  calendarId: string;
+  eventId: string;
+  bookingId: string;
+  restoreTitle: string;
+  accessToken?: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
+  const current = await getCalendarEvent({
+    calendarId: opts.calendarId,
+    eventId: opts.eventId,
+    accessToken,
+  });
+  if (!current?.id) {
+    return { ok: true };
+  }
+
+  const priv: Record<string, string> = {
+    ...(current.extendedProperties?.private || {}),
+  };
+  const owned =
+    !priv[SCOLA_BOOKING_ID_PROP] || priv[SCOLA_BOOKING_ID_PROP] === opts.bookingId;
+  if (!owned) {
+    return {
+      ok: false,
+      message: "Créneau rattaché à une autre réservation — restauration refusée.",
+    };
+  }
+
+  delete priv[SCOLA_BOOKED_PROP];
+  delete priv[SCOLA_PENDING_PROP];
+  delete priv[SCOLA_BOOKING_ID_PROP];
+
+  const restoreTitle = opts.restoreTitle.trim() || "Rendez-vous inscription";
+  const res = await gcalFetch(
+    accessToken,
+    `/calendars/${encodeCalendarId(opts.calendarId)}/events/${encodeURIComponent(opts.eventId)}?sendUpdates=none`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        summary: restoreTitle,
+        description: "",
+        transparency: "opaque",
+        attendees: [],
+        extendedProperties: {
+          private: priv,
+          shared: current.extendedProperties?.shared || undefined,
+        },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    return {
+      ok: false,
+      message: `Restauration Google échouée (${res.status}): ${body.slice(0, 200)}`,
+    };
+  }
+  return { ok: true };
+}

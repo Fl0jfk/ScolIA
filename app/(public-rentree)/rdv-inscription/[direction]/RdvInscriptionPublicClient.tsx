@@ -179,6 +179,15 @@ export default function RdvInscriptionPublicClient({
   const [confirmTyped, setConfirmTyped] = useState("");
   const [honeypot, setHoneypot] = useState("");
   const [busy, setBusy] = useState(false);
+  const [existingBooking, setExistingBooking] = useState<{
+    id: string;
+    status: string;
+    startAt: string;
+    endAt: string;
+    niveauLabel: string | null;
+  } | null>(null);
+  const [existingBusy, setExistingBusy] = useState(false);
+  const [modifyExisting, setModifyExisting] = useState(false);
   const [done, setDone] = useState<{
     pending?: boolean;
     startAt: string;
@@ -442,6 +451,38 @@ export default function RdvInscriptionPublicClient({
     setRdvAttendee("");
     setParentFirstName("");
     setParentLastName("");
+    setExistingBooking(null);
+    setModifyExisting(false);
+    void loadExistingBooking(c.id);
+  }
+
+  async function loadExistingBooking(eleveId: string) {
+    setExistingBusy(true);
+    try {
+      const res = await fetch(
+        `/api/rdv-inscription/${encodeURIComponent(directionSlug)}/existing?eleveId=${encodeURIComponent(eleveId)}&parentEmail=${encodeURIComponent(parentEmail.trim())}`,
+      );
+      const data = (await res.json()) as {
+        booking?: {
+          id: string;
+          status: string;
+          startAt: string;
+          endAt: string;
+          niveauLabel: string | null;
+        } | null;
+        error?: string;
+      };
+      if (!res.ok) {
+        setExistingBooking(null);
+        return;
+      }
+      setExistingBooking(data.booking || null);
+      setModifyExisting(false);
+    } catch {
+      setExistingBooking(null);
+    } finally {
+      setExistingBusy(false);
+    }
   }
 
   async function onSearchByIdentity() {
@@ -1349,9 +1390,51 @@ export default function RdvInscriptionPublicClient({
                 La présence de l’enfant au rendez-vous est indispensable.
               </p>
 
+              {matchReady && existingBusy ? (
+                <p className="mt-4 text-sm text-slate-500">Vérification d’un rendez-vous existant…</p>
+              ) : null}
+
+              {matchReady && existingBooking && !modifyExisting ? (
+                <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                  <p className="font-bold">Vous avez déjà un rendez-vous</p>
+                  <p className="mt-1">
+                    {formatSlotRange(existingBooking.startAt, existingBooking.endAt)}
+                    {existingBooking.niveauLabel ? ` · ${existingBooking.niveauLabel}` : ""}
+                  </p>
+                  <p className="mt-2 text-xs text-amber-900/80">
+                    Si vous choisissez un autre créneau, l’ancien sera libéré automatiquement.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModifyExisting(true);
+                      setEventId("");
+                    }}
+                    className="mt-3 rounded-lg bg-amber-800 px-3 py-2 text-xs font-bold text-white hover:bg-amber-900"
+                  >
+                    Modifier mon créneau
+                  </button>
+                </div>
+              ) : null}
+
+              {matchReady && existingBooking && modifyExisting ? (
+                <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+                  <p className="font-semibold">Modification du rendez-vous</p>
+                  <p className="mt-1 text-xs text-sky-900/80">
+                    Créneau actuel : {formatSlotRange(existingBooking.startAt, existingBooking.endAt)}.
+                    En confirmant un nouveau créneau, l’ancien sera remis disponible.
+                  </p>
+                </div>
+              ) : null}
+
               {!matchReady ? (
                 <p className="mt-4 text-sm text-slate-500">
                   Confirmez d’abord l’élève pour débloquer les créneaux.
+                </p>
+              ) : existingBooking && !modifyExisting ? (
+                <p className="mt-4 text-sm text-slate-500">
+                  Votre créneau est déjà réservé. Cliquez sur « Modifier mon créneau » pour en
+                  choisir un autre.
                 </p>
               ) : (
                 <>
@@ -1458,6 +1541,7 @@ export default function RdvInscriptionPublicClient({
               )}
             </section>
 
+            {existingBooking && !modifyExisting ? null : (
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
               <label className="flex items-start gap-3 text-sm leading-relaxed text-slate-700">
                 <input
@@ -1476,6 +1560,9 @@ export default function RdvInscriptionPublicClient({
                 </span>
                 <span className="mt-1 block text-xs text-slate-500">
                   Pour éviter une réservation trop rapide, retapez ce mot exact.
+                  {existingBooking
+                    ? " L’ancien créneau sera libéré au profit du nouveau."
+                    : ""}
                 </span>
                 <input
                   type="text"
@@ -1521,9 +1608,14 @@ export default function RdvInscriptionPublicClient({
                 }
                 className="mt-5 w-full rounded-xl bg-sky-700 px-4 py-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {busy ? "Réservation…" : "Confirmer le rendez-vous"}
+                {busy
+                  ? "Réservation…"
+                  : existingBooking
+                    ? "Confirmer le nouveau créneau"
+                    : "Confirmer le rendez-vous"}
               </button>
             </section>
+            )}
           </form>
         ) : null}
       </main>

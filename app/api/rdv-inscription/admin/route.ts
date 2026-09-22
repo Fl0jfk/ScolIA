@@ -42,7 +42,7 @@ export async function GET(req: Request) {
 
     if (view === "bookings") {
       const directionSlug = url.searchParams.get("direction") || undefined;
-      const bookings = await listRdvInscriptionBookings({ directionSlug, limit: 150 });
+      const bookings = await listRdvInscriptionBookings({ directionSlug, limit: 250 });
       return NextResponse.json({ bookings });
     }
 
