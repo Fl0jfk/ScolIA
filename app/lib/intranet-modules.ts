@@ -691,8 +691,16 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-carnet",
     pathPrefixes: ["/vie-scolaire/carnet", "/api/vie-scolaire/carnet"],
-    // Module masqué (UI + signaux) — en cours de développement ; API conservée.
-    allowedRoles: [],
+    // Réactivé : carnet de liaison unidirectionnel établissement → famille + accusé.
+    allowedRoles: [...DIRECTIONS, "cpe", "administratif", "professeur", "surveillant", "admin"],
+    dashboard: {
+      id: 63,
+      name: "Carnet de liaison",
+      img: "",
+      link: "/vie-scolaire/carnet",
+      external: false,
+      description: "Messages aux familles et accusés de lecture.",
+    },
   },
   {
     id: "stages",
@@ -1041,8 +1049,8 @@ export function rolesAllowModule(
 
     // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
     if (module.id === "pilotage-eleves") return false;
-    // Sanctions / carnet encore masqués. Absences VS + appels = réactivés (justifs / occupancy).
-    if (module.id === "vs-sanctions" || module.id === "vs-carnet") {
+    // Sanctions encore masquées. Carnet de liaison = réactivé (famille lit + signe).
+    if (module.id === "vs-sanctions") {
       return false;
     }
 

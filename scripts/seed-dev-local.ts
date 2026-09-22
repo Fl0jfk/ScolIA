@@ -29,6 +29,7 @@ import {
   userMembership,
   userRole,
   vsAbsenceEleve,
+  vsCarnetEntree,
 } from "../db/schema";
 
 function loadEnvFile(path: string) {
@@ -604,6 +605,33 @@ async function main() {
       console.log(`[seed] ${edtInserted} créneaux EDT ${DEV_PARENT_SEED.childClasse}`);
     }
 
+    // —— Carnet de liaison démo (staff → famille + signature) ——
+    const [existingCarnet] = await db
+      .select({ id: vsCarnetEntree.id })
+      .from(vsCarnetEntree)
+      .where(
+        and(
+          eq(vsCarnetEntree.etablissementId, etab.id),
+          eq(vsCarnetEntree.eleveId, child.id),
+          eq(vsCarnetEntree.titre, "Seed carnet JUSTIF"),
+        ),
+      )
+      .limit(1);
+    if (!existingCarnet) {
+      await db.insert(vsCarnetEntree).values({
+        etablissementId: etab.id,
+        eleveId: child.id,
+        dateEntree: today,
+        categorie: "information",
+        titre: "Seed carnet JUSTIF",
+        corps: "Message de test : merci de signer ce carnet pour valider la boucle famille.",
+        visibleFamille: true,
+        createdByUserId: DEV_SEED.userId,
+        createdByNom: "seed:dev CPE",
+      });
+      console.log(`[seed] entrée carnet pour ${child.prenom} ${child.nom}`);
+    }
+
     console.log(
       JSON.stringify(
         {
@@ -619,6 +647,8 @@ async function main() {
           familleUrl: "http://localhost:3000/famille/absences?dev_tenant=default",
           familleNotesUrl: "http://localhost:3000/famille/notes?dev_tenant=default",
           familleEdtUrl: "http://localhost:3000/famille/edt?dev_tenant=default",
+          familleCarnetUrl: "http://localhost:3000/famille/carnet?dev_tenant=default",
+          carnetStaffUrl: "http://localhost:3000/vie-scolaire/carnet?dev_tenant=default",
           notesSaisieUrl: "http://localhost:3000/notes/saisie?dev_tenant=default",
           totpHelper: "npm run seed:dev:totp",
         },
