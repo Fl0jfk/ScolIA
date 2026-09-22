@@ -124,6 +124,26 @@ export async function GET(req: Request) {
 
     const roster = await buildStageClassRoster(className, schoolYear);
 
+    const { resolvePhotoUrlsForEleves } = await import("@/app/lib/eleve-photos");
+    const photoIds = roster.students
+      .filter((s) => Boolean(s.eleveId))
+      .map((s) => ({
+        id: s.eleveId!,
+        nom: s.nom,
+        prenom: s.prenom,
+        ine: s.ine,
+        photoKey: s.photoKey,
+      }));
+    const photoUrls =
+      photoIds.length > 0 ? await resolvePhotoUrlsForEleves(photoIds).catch(() => ({})) : {};
+    const rosterWithPhotos = {
+      ...roster,
+      students: roster.students.map((s) => ({
+        ...s,
+        photoUrl: s.eleveId ? photoUrls[s.eleveId] ?? null : null,
+      })),
+    };
+
     return NextResponse.json({
       schoolYear,
       availableClasses,
@@ -134,7 +154,7 @@ export async function GET(req: Request) {
       })),
       canAssignReferent,
       teachers,
-      roster,
+      roster: rosterWithPhotos,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

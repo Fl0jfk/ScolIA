@@ -27,9 +27,8 @@ export default function StagesClassePanel({
       <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-[#1F3D2B]">Suivi des stages par classe</h2>
         <p className="mt-2 text-sm text-stone-600 max-w-3xl">
-          Cliquez sur un élève pour voir toutes ses conventions (statuts, signatures, référent).
-          Ouvrez un dossier pour valider, relancer ou suivre les signatures — le dossier s&apos;affiche
-          directement sous l&apos;élève.
+          Vue classe avec photo, statut et avancement des signatures. Ouvrez un élève puis son
+          dossier pour valider, relancer ou suivre chaque signataire.
         </p>
         <div className="mt-6">
           <StageClassRosterPanel

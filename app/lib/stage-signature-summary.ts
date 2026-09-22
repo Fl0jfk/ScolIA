@@ -81,44 +81,31 @@ function mapSignature(
 }
 
 /**
- * Compte les unités « requises » : chaque signataire non-parent compte 1,
- * et le groupe parent (1 et/ou 2) compte pour 1 au total.
+ * Compte chaque signature individuellement (affichage 4/5, etc.).
+ * La règle métier « un seul parent suffit pour clôturer » reste dans
+ * `conventionAllSignaturesValidated` / `complete`, pas dans ce ratio.
  */
-function requiredSignatureUnits(signatures: StageSignature[]): {
+function countSignatureProgress(signatures: StageSignature[]): {
   total: number;
   signed: number;
   pending: number;
   refused: number;
 } {
-  const parentSigs = signatures.filter((s) => isParentStageSignerRole(s.role));
-  const otherSigs = signatures.filter((s) => !isParentStageSignerRole(s.role));
-
-  let signed = otherSigs.filter(isStageSignatureFullyValidated).length;
-  let refused = otherSigs.filter((s) => s.status === "refuse").length;
-  let pending =
-    otherSigs.length -
-    otherSigs.filter(isStageSignatureFullyValidated).length -
-    refused;
-  let total = otherSigs.length;
-
-  if (parentSigs.length > 0) {
-    total += 1;
-    if (parentSigs.some(isStageSignatureFullyValidated)) {
-      signed += 1;
-    } else if (parentSigs.every((s) => s.status === "refuse")) {
-      refused += 1;
-    } else {
-      pending += 1;
-    }
+  let signed = 0;
+  let pending = 0;
+  let refused = 0;
+  for (const sig of signatures) {
+    if (isStageSignatureFullyValidated(sig)) signed += 1;
+    else if (sig.status === "refuse") refused += 1;
+    else pending += 1;
   }
-
-  return { total, signed, pending, refused };
+  return { total: signatures.length, signed, pending, refused };
 }
 
 export function buildSignatureSummary(convention: StageConvention): StageSignatureSummary {
   const signatures = convention.signatures;
   const items = signatures.map((sig) => mapSignature(sig, signatures));
-  const units = requiredSignatureUnits(signatures);
+  const units = countSignatureProgress(signatures);
   return {
     total: units.total,
     signed: units.signed,

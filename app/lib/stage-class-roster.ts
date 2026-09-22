@@ -38,6 +38,11 @@ export type StageRosterStudent = {
   nom: string;
   prenom: string;
   ine?: string;
+  /** Id Postgres dossier élève (photos / lien). */
+  eleveId?: string;
+  photoKey?: string;
+  /** URL photo signée (renseignée par l’API roster). */
+  photoUrl?: string | null;
   folderName?: string;
   rosterStatus: StageRosterStudentStatus;
   conventions: StageRosterConvention[];
@@ -218,6 +223,8 @@ export async function buildStageClassRoster(
       nom: eleve.nom,
       prenom: eleve.prenom,
       ine: eleve.ine || undefined,
+      eleveId: eleve.id?.trim() || undefined,
+      photoKey: eleve.photoKey?.trim() || undefined,
       folderName: eleve.folderName,
       rosterStatus: "sans_stage",
       conventions: [],
@@ -241,6 +248,15 @@ export async function buildStageClassRoster(
       rosterStatus: "sans_stage",
       conventions: [],
     };
+
+    if (!row.eleveId) {
+      const matchedEleve = classEleves.find((e) => namesMatch(e, convention.student));
+      if (matchedEleve?.id?.trim()) {
+        row.eleveId = matchedEleve.id.trim();
+        row.photoKey = matchedEleve.photoKey?.trim() || row.photoKey;
+        row.ine = row.ine || matchedEleve.ine || undefined;
+      }
+    }
 
     row.conventions.push(toRosterConvention(convention));
     studentMap.set(key, row);

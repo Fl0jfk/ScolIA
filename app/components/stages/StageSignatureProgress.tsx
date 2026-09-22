@@ -9,6 +9,12 @@ const STATUS_STYLES = {
   refuse: "bg-rose-50 text-rose-800 border-rose-200",
 } as const;
 
+const DOT_STYLES = {
+  signe: "bg-emerald-500",
+  en_attente: "bg-amber-400",
+  refuse: "bg-rose-500",
+} as const;
+
 function signedLabel(item: StageSignatureSummary["items"][number]): string {
   if (item.signMethod === "code_confirm") {
     const proof = stageSignatureProofRef({
@@ -23,6 +29,18 @@ function signedLabel(item: StageSignatureSummary["items"][number]): string {
   return "Signé";
 }
 
+function shortRoleLabel(label: string): string {
+  const raw = label.trim();
+  if (/responsable légal 1/i.test(raw)) return "Parent 1";
+  if (/responsable légal 2/i.test(raw)) return "Parent 2";
+  if (/tuteur/i.test(raw)) return "Tuteur";
+  if (/^RH/i.test(raw) || /rh entreprise/i.test(raw)) return "RH";
+  if (/professeur/i.test(raw) || /référent/i.test(raw)) return "Référent";
+  if (/direction/i.test(raw)) return "Direction";
+  if (/élève|eleve/i.test(raw)) return "Élève";
+  return raw.length > 14 ? `${raw.slice(0, 12)}…` : raw;
+}
+
 export default function StageSignatureProgress({
   summary,
   compact = false,
@@ -33,30 +51,67 @@ export default function StageSignatureProgress({
   if (summary.total === 0) {
     return (
       <p className="text-xs text-stone-500">
-        {compact ? "Signatures : pas encore lancées" : "Les signatures seront lancées après validation administrative."}
+        {compact
+          ? "Signatures : pas encore lancées"
+          : "Les signatures seront lancées après validation administrative."}
       </p>
     );
   }
 
   const pct = Math.round((summary.signed / summary.total) * 100);
+  const nonBlockingPending = summary.items.filter((i) => i.nonBlocking).length;
 
   return (
-    <div className={compact ? "space-y-1" : "space-y-2"}>
+    <div className={compact ? "space-y-2" : "space-y-2.5"}>
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="font-semibold text-stone-700">
           Signatures : {summary.signed}/{summary.total}
         </span>
-        <span className={summary.complete ? "text-emerald-700 font-semibold" : "text-amber-800"}>
-          {summary.complete ? "Complet" : `${pct} %`}
+        <span
+          className={
+            summary.complete ? "font-semibold text-emerald-700" : "font-medium text-amber-800"
+          }
+        >
+          {summary.complete
+            ? nonBlockingPending > 0
+              ? "Circuit OK"
+              : "Complet"
+            : `${pct} %`}
         </span>
       </div>
-      <div className="h-1.5 w-full rounded-full bg-stone-100 overflow-hidden">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-stone-100">
         <div
-          className={`h-full rounded-full transition-all ${summary.complete ? "bg-emerald-500" : "bg-amber-400"}`}
+          className={`h-full rounded-full transition-all ${
+            summary.complete ? "bg-emerald-500" : "bg-amber-400"
+          }`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      {!compact && (
+
+      {compact ? (
+        <div className="flex flex-wrap gap-1.5">
+          {summary.items.map((item) => (
+            <span
+              key={item.id}
+              title={`${item.label} — ${
+                item.status === "signe"
+                  ? "Signé"
+                  : item.status === "refuse"
+                    ? "Refusé"
+                    : item.nonBlocking
+                      ? "Autre parent déjà signé"
+                      : "En attente"
+              }`}
+              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[item.status]} ${
+                item.nonBlocking ? "opacity-70" : ""
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${DOT_STYLES[item.status]}`} />
+              {shortRoleLabel(item.label)}
+            </span>
+          ))}
+        </div>
+      ) : (
         <ul className="space-y-1">
           {summary.items.map((item) => (
             <li
