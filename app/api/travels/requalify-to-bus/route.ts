@@ -39,7 +39,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Dossier introuvable" }, { status: 404 });
     }
 
-    const access = await assertTravelsTripAccess(trip, { requireOwnerOrDirection: true });
+    const access = await assertTravelsTripAccess(trip, { requireDirection: true });
     if (!access.ok) {
       return NextResponse.json({ error: access.error }, { status: access.status });
     }

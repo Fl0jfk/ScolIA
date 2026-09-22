@@ -24,11 +24,14 @@ function existingTransportRequest(trip: TravelsTrip) {
 export function TripActionsPanel({
   trip,
   canManage,
+  /** Requalification SIMPLE/COMPLEX → bus : direction, admin général, administratif (pas le seul demandeur). */
+  canRequalify = false,
   isGlobalAdmin = false,
   onTripUpdated,
 }: {
   trip: TravelsTrip;
   canManage: boolean;
+  canRequalify?: boolean;
   isGlobalAdmin?: boolean;
   onTripUpdated: (trip: TravelsTrip) => void;
 }) {
@@ -40,7 +43,7 @@ export function TripActionsPanel({
   const [requalifyForm, setRequalifyForm] = useState(() => existingTransportRequest(trip));
 
   const canRequalifyToBus =
-    canManage &&
+    canRequalify &&
     !complexNeedsBus(trip) &&
     (trip.type === "SIMPLE" || trip.type === "COMPLEX") &&
     !["ANNULE", "SEANCE_ANNULEE", "REJETE"].includes(String(trip.status));

@@ -1,4 +1,5 @@
 import { intranetRolesFromMetadata, rolesFromUserLike } from "@/app/lib/intranet-roles";
+import { isOrgAdminFromPublicMetadata } from "@/app/lib/intranet-auth-metadata";
 import { hasGlobalAdminRole, hasRole } from "@/app/lib/intranet-role-utils";
 
 export function userHasAdministratifRoleFromMetadata(
@@ -7,11 +8,16 @@ export function userHasAdministratifRoleFromMetadata(
   return hasRole(intranetRolesFromMetadata(publicMetadata), "administratif");
 }
 
-/** Réattribuer le créateur d'un dossier voyage (administratif ou admin org). */
+/**
+ * Staff voyage « admin » : rôle administratif OU administrateur général
+ * (rôle `admin`, flag org_admin, etc.).
+ */
 export function canReassignTravelsOwner(
   user: { publicMetadata?: Record<string, unknown> | null } | null | undefined,
 ): boolean {
-  const roles = intranetRolesFromMetadata(user?.publicMetadata);
+  const meta = user?.publicMetadata;
+  if (isOrgAdminFromPublicMetadata(meta)) return true;
+  const roles = intranetRolesFromMetadata(meta);
   return hasRole(roles, "administratif") || hasGlobalAdminRole(roles);
 }
 

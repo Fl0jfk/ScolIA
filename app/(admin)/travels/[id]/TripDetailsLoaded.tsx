@@ -1411,6 +1411,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
     }
   };
   const withBusLogistics = complexNeedsBus(trip);
+  /** Direction / admin général / administratif — pas le seul demandeur. */
+  const canRequalifyToBus = canSign || isGlobalAdmin || isAdministratif;
   const etabForSign = trip.data?.etablissement || "";
   const transportSnapshot = trip.data?.transportQuoteSnapshot;
   const currentEffectifTotal =
@@ -1686,7 +1688,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
 
       {trip.type === "SIMPLE" &&
         hubTab === "overview" &&
-        (isOwner || canSign) &&
+        canRequalifyToBus &&
         !["ANNULE", "SEANCE_ANNULEE", "REJETE"].includes(String(trip.status)) && (
           <TripAlert
             tone="warning"
@@ -1709,7 +1711,7 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
           icon="ℹ️"
           title="Sans transport bus"
           action={
-            (isOwner || canSign) &&
+            canRequalifyToBus &&
             !["ANNULE", "SEANCE_ANNULEE", "REJETE"].includes(String(trip.status)) ? (
               <TripButton variant="secondary" size="sm" onClick={() => setHubTab("actions")}>
                 Activer le bus + devis
@@ -1829,7 +1831,8 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
       {hubTab === "actions" && (
         <TripActionsPanel
           trip={trip}
-          canManage={isOwner || canSign}
+          canManage={isOwner || canSign || isGlobalAdmin || isAdministratif}
+          canRequalify={canRequalifyToBus}
           isGlobalAdmin={isGlobalAdmin}
           onTripUpdated={(t) => {
             setTrip(t);

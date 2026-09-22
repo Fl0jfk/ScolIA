@@ -4,7 +4,7 @@ import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useEffect, useMemo, useState } from "react";
 import TravelsTeacherPicker from "@/app/components/travels/TravelsTeacherPicker";
 import type { DirectoryAssigneeOption } from "@/app/components/domain-planning/DomainAssigneePicker";
-import { userHasAdministratifRoleFromMetadata } from "@/app/lib/travels-roles";
+import { canReassignTravelsOwner } from "@/app/lib/travels-roles";
 
 export type TravelsOwnerFields = {
   ownerId: string;
@@ -24,7 +24,7 @@ export default function TravelsOwnerAssignSection({
   onPendingChange,
 }: Props) {
   const { user, isLoaded } = useSessionUser();
-  const isAdministratif = userHasAdministratifRoleFromMetadata(user?.publicMetadata as Record<string, unknown>);
+  const isAdministratif = canReassignTravelsOwner(user);
   const [assignForOther, setAssignForOther] = useState(false);
   const [users, setUsers] = useState<DirectoryAssigneeOption[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
