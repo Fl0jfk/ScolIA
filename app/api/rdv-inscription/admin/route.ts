@@ -109,6 +109,26 @@ export async function PUT(req: Request) {
       });
     }
 
+    if (action === "cancel-booking") {
+      const bookingId = String(body.bookingId || "").trim();
+      if (!bookingId) {
+        return NextResponse.json({ error: "bookingId requis." }, { status: 400 });
+      }
+      const { cancelRdvInscriptionBookingAsAdmin } = await import(
+        "@/app/lib/rdv-inscription-service"
+      );
+      const result = await cancelRdvInscriptionBookingAsAdmin(bookingId);
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      return NextResponse.json({
+        success: true,
+        booking: result.booking,
+        remainingCount: result.remaining.length,
+        mailWarning: result.mailWarning || undefined,
+      });
+    }
+
     if (action === "test-slots") {
       const directionId = String(body.directionId || "").trim();
       const dir = await getRdvInscriptionDirectionById(directionId);

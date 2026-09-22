@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-rate-limit";
-import { getActiveRdvBookingForEleve } from "@/app/lib/rdv-inscription-service";
+import { getActiveRdvBookingsForEleve } from "@/app/lib/rdv-inscription-service";
 import { readRdvEmailGateSession } from "@/app/lib/rdv-inscription-email-gate";
 import { normalizeParentEmail } from "@/app/lib/eleves-parent-emails";
 
@@ -11,7 +11,31 @@ const existingLimiter = createMemoryRateLimiter({
 
 type Ctx = { params: Promise<{ direction: string }> };
 
-/** RDV déjà actif pour l’élève (session e-mail vérifiée). */
+function mapPublicBooking(b: {
+  id: string;
+  status: string;
+  startAt: string;
+  endAt: string;
+  studentFirstName: string;
+  studentLastName: string;
+  niveauLabel: string | null;
+  createdAt: string;
+  confirmedAt: string | null;
+}) {
+  return {
+    id: b.id,
+    status: b.status,
+    startAt: b.startAt,
+    endAt: b.endAt,
+    studentFirstName: b.studentFirstName,
+    studentLastName: b.studentLastName,
+    niveauLabel: b.niveauLabel,
+    createdAt: b.createdAt,
+    confirmedAt: b.confirmedAt,
+  };
+}
+
+/** RDV déjà actifs pour l’élève (session e-mail vérifiée). */
 export async function GET(req: Request, ctx: Ctx) {
   try {
     if (!(await existingLimiter.allow(clientIpFromRequest(req)))) {
@@ -50,7 +74,7 @@ export async function GET(req: Request, ctx: Ctx) {
       return NextResponse.json({ error: "eleveId requis." }, { status: 400 });
     }
 
-    const result = await getActiveRdvBookingForEleve({
+    const result = await getActiveRdvBookingsForEleve({
       directionSlug: slug,
       eleveId,
       parentEmail,
@@ -59,20 +83,11 @@ export async function GET(req: Request, ctx: Ctx) {
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
+    const bookings = result.bookings.map(mapPublicBooking);
     return NextResponse.json({
-      booking: result.booking
-        ? {
-            id: result.booking.id,
-            status: result.booking.status,
-            startAt: result.booking.startAt,
-            endAt: result.booking.endAt,
-            studentFirstName: result.booking.studentFirstName,
-            studentLastName: result.booking.studentLastName,
-            niveauLabel: result.booking.niveauLabel,
-            createdAt: result.booking.createdAt,
-            confirmedAt: result.booking.confirmedAt,
-          }
-        : null,
+      bookings,
+      /** Compat : premier RDV (le plus récent). */
+      booking: bookings[0] || null,
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

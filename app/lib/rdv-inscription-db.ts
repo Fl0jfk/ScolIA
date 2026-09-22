@@ -900,29 +900,31 @@ export async function listRdvInscriptionBookings(opts?: {
   return rows.map(mapBooking);
 }
 
-/** RDV actifs (pending non expiré / confirmed) pour un élève sur une direction. */
+/** RDV actifs (pending non expiré / confirmed) pour un élève (optionnellement une direction). */
 export async function listActiveBookingsForEleve(opts: {
   eleveId: string;
-  directionSlug: string;
+  directionSlug?: string;
   etablissementId?: string;
 }): Promise<Array<RdvInscriptionBookingRow & { etablissementId: string }>> {
   const eleveId = opts.eleveId.trim();
-  const directionSlug = opts.directionSlug.trim().toLowerCase();
-  if (!eleveId || !directionSlug) return [];
+  if (!eleveId) return [];
   const etabId = await requireEtabId(opts.etablissementId);
   const db = requireDb();
   const now = new Date();
+  const conditions = [
+    eq(rdvInscriptionBooking.etablissementId, etabId),
+    eq(rdvInscriptionBooking.eleveId, eleveId),
+    inArray(rdvInscriptionBooking.status, ["pending", "confirmed"]),
+  ];
+  if (opts.directionSlug?.trim()) {
+    conditions.push(
+      eq(rdvInscriptionBooking.directionSlug, opts.directionSlug.trim().toLowerCase()),
+    );
+  }
   const rows = await db
     .select()
     .from(rdvInscriptionBooking)
-    .where(
-      and(
-        eq(rdvInscriptionBooking.etablissementId, etabId),
-        eq(rdvInscriptionBooking.eleveId, eleveId),
-        eq(rdvInscriptionBooking.directionSlug, directionSlug),
-        inArray(rdvInscriptionBooking.status, ["pending", "confirmed"]),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(desc(rdvInscriptionBooking.createdAt));
 
   return rows

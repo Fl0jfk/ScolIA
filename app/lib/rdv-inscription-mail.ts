@@ -363,3 +363,65 @@ export async function sendRdvInscriptionCancelledByParentNotify(opts: {
     return { sent: false };
   }
 }
+
+/** Mail parent : un créneau a été annulé par l’établissement + rappel des RDV encore actifs. */
+export async function sendRdvInscriptionCancelledByAdminMail(opts: {
+  page: RdvInscriptionDirectionPageSettings;
+  cancelled: RdvInscriptionBookingRow;
+  directionLabel: string;
+  remaining: RdvInscriptionBookingRow[];
+  remainingDirectionLabels?: Record<string, string>;
+}): Promise<{ sent: boolean; error?: string }> {
+  const smtp = await getTenantSmtpConfig();
+  const transporter = await createTenantTransporter();
+  if (!smtp || !transporter) {
+    return {
+      sent: false,
+      error: "SMTP non configuré — créneau annulé sans e-mail parent.",
+    };
+  }
+
+  const student = `${opts.cancelled.studentFirstName} ${opts.cancelled.studentLastName}`;
+  const cancelledSlot = formatSlotFr(opts.cancelled.startAt, opts.cancelled.endAt);
+  const mailTitle = `${opts.page.title} — ${opts.directionLabel}`;
+
+  const remainingHtml =
+    opts.remaining.length === 0
+      ? `<p>Vous n’avez <strong>plus aucun</strong> rendez-vous d’inscription actif pour cet élève.</p>`
+      : `<p><strong>Vos rendez-vous encore actifs :</strong></p>
+        <ul>
+          ${opts.remaining
+            .map((b) => {
+              const dir =
+                opts.remainingDirectionLabels?.[b.directionSlug] || b.directionSlug;
+              const slot = formatSlotFr(b.startAt, b.endAt);
+              const niveau = b.niveauLabel ? ` · ${b.niveauLabel}` : "";
+              return `<li><strong>${escapeHtml(dir)}</strong> — ${escapeHtml(slot)}${escapeHtml(niveau)}</li>`;
+            })
+            .join("")}
+        </ul>`;
+
+  try {
+    await transporter.sendMail({
+      from: smtp.user,
+      to: opts.cancelled.parentEmail,
+      subject: `Créneau annulé — ${mailTitle}`,
+      html: `
+        <p>Bonjour,</p>
+        <p>Le créneau suivant a été <strong>supprimé</strong> par l’établissement :</p>
+        <p><strong>Élève :</strong> ${escapeHtml(student)}<br/>
+        <strong>Direction :</strong> ${escapeHtml(opts.directionLabel)}<br/>
+        <strong>Créneau :</strong> ${escapeHtml(cancelledSlot)}</p>
+        ${remainingHtml}
+        <p>Si vous avez une question, contactez l’établissement.</p>
+        <p>Cordialement,<br/>L’établissement</p>
+      `,
+    });
+    return { sent: true };
+  } catch (e) {
+    return {
+      sent: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}

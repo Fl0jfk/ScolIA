@@ -110,6 +110,7 @@ export default function RdvInscriptionAdminClient() {
         success?: boolean;
         mailWarning?: string;
         already?: boolean;
+        remainingCount?: number;
       };
       if (!res.ok) throw new Error(json.error || "Échec.");
       if (body.action === "confirm-booking") {
@@ -119,6 +120,15 @@ export default function RdvInscriptionAdminClient() {
             : json.mailWarning
               ? `Confirmé (attention mail : ${json.mailWarning})`
               : "Réservation confirmée — mail récap envoyé au parent.",
+        );
+      } else if (body.action === "cancel-booking") {
+        const remaining = typeof json.remainingCount === "number" ? json.remainingCount : null;
+        setMessage(
+          json.mailWarning
+            ? `Créneau supprimé (attention mail : ${json.mailWarning})`
+            : remaining !== null
+              ? `Créneau supprimé — mail envoyé au parent (${remaining} RDV restant${remaining > 1 ? "s" : ""}).`
+              : "Créneau supprimé — mail envoyé au parent.",
         );
       } else {
         setMessage("Enregistré.");
@@ -139,6 +149,18 @@ export default function RdvInscriptionAdminClient() {
     );
     if (!ok) return;
     await put({ action: "confirm-booking", bookingId });
+  }
+
+  async function cancelBooking(
+    bookingId: string,
+    studentLabel: string,
+    slotLabel: string,
+  ) {
+    const ok = window.confirm(
+      `Supprimer le rendez-vous de ${studentLabel} ?\n${slotLabel}\n\nLe créneau sera remis libre dans Google Agenda, et le parent recevra un e-mail (avec rappel de ses autres RDV s’il en reste).`,
+    );
+    if (!ok) return;
+    await put({ action: "cancel-booking", bookingId });
   }
 
   async function copyLink(url: string) {
@@ -642,6 +664,22 @@ export default function RdvInscriptionAdminClient() {
                           className="mt-1.5 block text-xs font-semibold text-sky-700 hover:underline disabled:opacity-50"
                         >
                           Confirmer maintenant
+                        </button>
+                      ) : null}
+                      {b.status === "pending" || b.status === "confirmed" ? (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            void cancelBooking(
+                              b.id,
+                              `${b.studentFirstName} ${b.studentLastName}`,
+                              formatSlot(b.startAt, b.endAt),
+                            )
+                          }
+                          className="mt-1.5 block text-xs font-semibold text-red-700 hover:underline disabled:opacity-50"
+                        >
+                          Supprimer
                         </button>
                       ) : null}
                     </td>

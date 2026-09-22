@@ -179,13 +179,15 @@ export default function RdvInscriptionPublicClient({
   const [confirmTyped, setConfirmTyped] = useState("");
   const [honeypot, setHoneypot] = useState("");
   const [busy, setBusy] = useState(false);
-  const [existingBooking, setExistingBooking] = useState<{
-    id: string;
-    status: string;
-    startAt: string;
-    endAt: string;
-    niveauLabel: string | null;
-  } | null>(null);
+  const [existingBookings, setExistingBookings] = useState<
+    Array<{
+      id: string;
+      status: string;
+      startAt: string;
+      endAt: string;
+      niveauLabel: string | null;
+    }>
+  >([]);
   const [existingBusy, setExistingBusy] = useState(false);
   const [modifyExisting, setModifyExisting] = useState(false);
   const [done, setDone] = useState<{
@@ -255,6 +257,7 @@ export default function RdvInscriptionPublicClient({
   );
 
   const matchReady = matchChoice?.kind === "eleve";
+  const hasExisting = existingBookings.length > 0;
 
   const refreshSlots = useCallback(async () => {
     try {
@@ -451,7 +454,7 @@ export default function RdvInscriptionPublicClient({
     setRdvAttendee("");
     setParentFirstName("");
     setParentLastName("");
-    setExistingBooking(null);
+    setExistingBookings([]);
     setModifyExisting(false);
     void loadExistingBooking(c.id);
   }
@@ -463,6 +466,13 @@ export default function RdvInscriptionPublicClient({
         `/api/rdv-inscription/${encodeURIComponent(directionSlug)}/existing?eleveId=${encodeURIComponent(eleveId)}&parentEmail=${encodeURIComponent(parentEmail.trim())}`,
       );
       const data = (await res.json()) as {
+        bookings?: Array<{
+          id: string;
+          status: string;
+          startAt: string;
+          endAt: string;
+          niveauLabel: string | null;
+        }>;
         booking?: {
           id: string;
           status: string;
@@ -473,13 +483,19 @@ export default function RdvInscriptionPublicClient({
         error?: string;
       };
       if (!res.ok) {
-        setExistingBooking(null);
+        setExistingBookings([]);
         return;
       }
-      setExistingBooking(data.booking || null);
+      const list =
+        Array.isArray(data.bookings) && data.bookings.length
+          ? data.bookings
+          : data.booking
+            ? [data.booking]
+            : [];
+      setExistingBookings(list);
       setModifyExisting(false);
     } catch {
-      setExistingBooking(null);
+      setExistingBookings([]);
     } finally {
       setExistingBusy(false);
     }
@@ -1394,15 +1410,25 @@ export default function RdvInscriptionPublicClient({
                 <p className="mt-4 text-sm text-slate-500">Vérification d’un rendez-vous existant…</p>
               ) : null}
 
-              {matchReady && existingBooking && !modifyExisting ? (
+              {matchReady && hasExisting && !modifyExisting ? (
                 <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                  <p className="font-bold">Vous avez déjà un rendez-vous</p>
-                  <p className="mt-1">
-                    {formatSlotRange(existingBooking.startAt, existingBooking.endAt)}
-                    {existingBooking.niveauLabel ? ` · ${existingBooking.niveauLabel}` : ""}
+                  <p className="font-bold">
+                    {existingBookings.length > 1
+                      ? `Vous avez déjà ${existingBookings.length} rendez-vous`
+                      : "Vous avez déjà un rendez-vous"}
                   </p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {existingBookings.map((b) => (
+                      <li key={b.id}>
+                        {formatSlotRange(b.startAt, b.endAt)}
+                        {b.niveauLabel ? ` · ${b.niveauLabel}` : ""}
+                        {b.status === "pending" ? " (en attente de validation)" : ""}
+                      </li>
+                    ))}
+                  </ul>
                   <p className="mt-2 text-xs text-amber-900/80">
-                    Si vous choisissez un autre créneau, l’ancien sera libéré automatiquement.
+                    Si vous choisissez un autre créneau, les anciens seront libérés
+                    automatiquement.
                   </p>
                   <button
                     type="button"
@@ -1417,12 +1443,17 @@ export default function RdvInscriptionPublicClient({
                 </div>
               ) : null}
 
-              {matchReady && existingBooking && modifyExisting ? (
+              {matchReady && hasExisting && modifyExisting ? (
                 <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
                   <p className="font-semibold">Modification du rendez-vous</p>
                   <p className="mt-1 text-xs text-sky-900/80">
-                    Créneau actuel : {formatSlotRange(existingBooking.startAt, existingBooking.endAt)}.
-                    En confirmant un nouveau créneau, l’ancien sera remis disponible.
+                    Créneau{existingBookings.length > 1 ? "x" : ""} actuel
+                    {existingBookings.length > 1 ? "s" : ""} :{" "}
+                    {existingBookings
+                      .map((b) => formatSlotRange(b.startAt, b.endAt))
+                      .join(" · ")}
+                    . En confirmant un nouveau créneau, le ou les anciens seront remis
+                    disponibles.
                   </p>
                 </div>
               ) : null}
@@ -1431,7 +1462,7 @@ export default function RdvInscriptionPublicClient({
                 <p className="mt-4 text-sm text-slate-500">
                   Confirmez d’abord l’élève pour débloquer les créneaux.
                 </p>
-              ) : existingBooking && !modifyExisting ? (
+              ) : hasExisting && !modifyExisting ? (
                 <p className="mt-4 text-sm text-slate-500">
                   Votre créneau est déjà réservé. Cliquez sur « Modifier mon créneau » pour en
                   choisir un autre.
@@ -1541,7 +1572,7 @@ export default function RdvInscriptionPublicClient({
               )}
             </section>
 
-            {existingBooking && !modifyExisting ? null : (
+            {hasExisting && !modifyExisting ? null : (
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
               <label className="flex items-start gap-3 text-sm leading-relaxed text-slate-700">
                 <input
@@ -1560,7 +1591,7 @@ export default function RdvInscriptionPublicClient({
                 </span>
                 <span className="mt-1 block text-xs text-slate-500">
                   Pour éviter une réservation trop rapide, retapez ce mot exact.
-                  {existingBooking
+                  {hasExisting
                     ? " L’ancien créneau sera libéré au profit du nouveau."
                     : ""}
                 </span>
@@ -1610,7 +1641,7 @@ export default function RdvInscriptionPublicClient({
               >
                 {busy
                   ? "Réservation…"
-                  : existingBooking
+                  : hasExisting
                     ? "Confirmer le nouveau créneau"
                     : "Confirmer le rendez-vous"}
               </button>
