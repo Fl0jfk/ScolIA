@@ -30,6 +30,28 @@ import {
   getStageConvention,
 } from "@/app/lib/stage-storage";
 import { STAGE_CONVENTION_STATUS_LABELS, currentStageSchoolYear } from "@/app/lib/stage-types";
+import { loadElevesRegistry } from "@/app/lib/eleves-registry";
+import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
+
+function normalizePersonPart(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[-\s]+/g, " ")
+    .trim();
+}
+
+function depositKindForConvention(c: {
+  status: string;
+  tutorEmailChangeRequest?: unknown;
+  scheduleChangeRequest?: unknown;
+}): string {
+  if (c.scheduleChangeRequest) return "Horaires";
+  if (c.tutorEmailChangeRequest) return "E-mail tuteur";
+  if (c.status === "convention_deposited") return "Convention";
+  return "Stage";
+}
 
 export async function GET() {
   try {
@@ -101,15 +123,71 @@ export async function GET() {
       roles,
     );
 
-    const mapBoardCard = (c: (typeof activeConventions)[number]) => ({
+    const mapBoardCard = (
+      c: (typeof activeConventions)[number],
+      photoByConventionId: Record<string, string>,
+    ) => ({
       id: c.id,
       studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),
       companyName: c.company.name,
       className: c.student.className,
       status: c.status,
+      photoUrl: photoByConventionId[c.id] || null,
+      depositKind: depositKindForConvention(c),
       tutorEmailChangePending: Boolean(c.tutorEmailChangeRequest),
       scheduleChangePending: Boolean(c.scheduleChangeRequest),
     });
+
+    const boardSlice = [
+      ...adminQueue.slice(0, 30),
+      ...signaturesPending.slice(0, 30),
+    ];
+    const eleves = await loadElevesRegistry().catch(() => []);
+    const byIne = new Map(
+      eleves
+        .filter((e) => e.ine?.trim())
+        .map((e) => [e.ine!.trim().toUpperCase(), e] as const),
+    );
+    const byName = new Map<string, (typeof eleves)[number]>();
+    for (const e of eleves) {
+      const key = `${normalizePersonPart(e.nom)}§${normalizePersonPart(e.prenom)}`;
+      if (!byName.has(key)) byName.set(key, e);
+    }
+
+    const elevesForPhotos: Array<{
+      id: string;
+      nom: string;
+      prenom: string;
+      ine?: string | null;
+      photoKey?: string | null;
+      conventionId: string;
+    }> = [];
+    for (const c of boardSlice) {
+      const ine = c.ocrMeta?.matchedEleveIne?.trim().toUpperCase() || "";
+      const fromIne = ine ? byIne.get(ine) : undefined;
+      const fromName = byName.get(
+        `${normalizePersonPart(c.student.lastName)}§${normalizePersonPart(c.student.firstName)}`,
+      );
+      const eleve = fromIne || fromName;
+      if (!eleve?.id) continue;
+      elevesForPhotos.push({
+        id: eleve.id,
+        nom: eleve.nom,
+        prenom: eleve.prenom,
+        ine: eleve.ine,
+        photoKey: eleve.photoKey,
+        conventionId: c.id,
+      });
+    }
+
+    const photoByEleveId = elevesForPhotos.length
+      ? await resolvePhotoUrlsForEleves(elevesForPhotos)
+      : {};
+    const photoByConventionId: Record<string, string> = {};
+    for (const row of elevesForPhotos) {
+      const url = photoByEleveId[row.id];
+      if (url) photoByConventionId[row.conventionId] = url;
+    }
 
     return NextResponse.json({
       viewer: viewer || "staff",
@@ -143,8 +221,10 @@ export async function GET() {
       },
       myPendingSignatures,
       pendingOffers: [],
-      adminQueue: adminQueue.slice(0, 30).map(mapBoardCard),
-      signaturesPending: signaturesPending.slice(0, 30).map(mapBoardCard),
+      adminQueue: adminQueue.slice(0, 30).map((c) => mapBoardCard(c, photoByConventionId)),
+      signaturesPending: signaturesPending
+        .slice(0, 30)
+        .map((c) => mapBoardCard(c, photoByConventionId)),
       conventions: activeConventions.slice(0, 100).map((c) => ({
         id: c.id,
         studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),

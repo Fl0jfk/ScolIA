@@ -27,6 +27,10 @@ export type StagesHubBoardCard = {
   companyName?: string;
   className?: string;
   status: string;
+  /** Photo élève (URL signée), si disponible. */
+  photoUrl?: string | null;
+  /** Pastille courte : Stage | Convention | Horaires | E-mail tuteur. */
+  depositKind?: string | null;
   tutorEmailChangePending?: boolean;
   scheduleChangePending?: boolean;
 };
