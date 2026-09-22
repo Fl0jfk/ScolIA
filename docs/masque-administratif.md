@@ -105,11 +105,11 @@ Le passage (`/sante/passages`, `infirmerie_passage`) est **un geste** : qui est 
 |-------|------|------|
 | Passage | Arrivée, sortie, signal « à l’infirmerie » | Fait |
 | Soin du passage | Suite (repos, retour cours, renvoi famille, urgence) + notes — obligatoire à la clôture | Fait (geste) |
-| Fiche infirmerie | Antécédents utiles à l’établissement, personnes à prévenir | Table prête, pas d’écran |
+| Fiche infirmerie | Antécédents utiles à l’établissement, personnes à prévenir — `/sante/fiches` | Fait (geste) |
 | PAI | Protocole, traitements autorisés, document. L’infirmerie valide | À faire |
 | Extrait diffusé | Cantine, EPS, voyage, internat, périscolaire — `/sante/extraits`, soft-désactivation | Fait (geste) |
-| Médicaments | Ordonnance, autorisation, journal des prises (qui, quand, quoi) | Table prête, pas d’écran |
-| Accidents | Registre : circonstances, soins, suite. Conservation longue | Table prête, pas d’écran |
+| Médicaments | Journal des prises — `/sante/medicaments` (ordonnance = document) | Fait (geste) |
+| Accidents | Registre — `/sante/accidents` (conservation longue, pas de DELETE) | Fait (geste) |
 | Inaptitude EPS | Certificat daté → extrait EPS | À faire |
 | Nuit internat | Même infirmerie, autre horaire | À faire |
 | Secret | Motif = infirmerie. Signal = vie scolaire. Dashboard = volumes, pas le dossier | Règle déjà posée, à tenir partout |
