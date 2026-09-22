@@ -159,6 +159,8 @@ export default function RdvInscriptionPublicClient({
   const [emailGateLoading, setEmailGateLoading] = useState(true);
   const [emailPending, setEmailPending] = useState(false);
   const [emailGateBusy, setEmailGateBusy] = useState(false);
+  const [rebookBanner, setRebookBanner] = useState(false);
+  const [rebookApplied, setRebookApplied] = useState(false);
   const [matchBusy, setMatchBusy] = useState(false);
   const [studentDateNaissance, setStudentDateNaissance] = useState("");
   const [hasPap, setHasPap] = useState<"yes" | "no" | "">("");
@@ -333,6 +335,38 @@ export default function RdvInscriptionPublicClient({
   useEffect(() => {
     void loadEmailSession();
   }, [loadEmailSession]);
+
+  useEffect(() => {
+    if (!emailVerified || emailGateLoading || rebookApplied) return;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("rebook") !== "1") return;
+
+    setRebookBanner(true);
+    setRebookApplied(true);
+
+    const eleveId = (params.get("eleveId") || "").trim();
+    const prenom = (params.get("prenom") || "").trim();
+    const nom = (params.get("nom") || "").trim();
+
+    const fromLinked = emailChildren.find((c) => c.id === eleveId);
+    if (fromLinked) {
+      selectMatchedEleve(fromLinked);
+    } else if (prenom || nom) {
+      setShowIdentitySearch(true);
+      if (prenom) setStudentFirstName(prenom);
+      if (nom) setStudentLastName(nom);
+    }
+
+    params.delete("rebook");
+    params.delete("eleveId");
+    params.delete("prenom");
+    params.delete("nom");
+    const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}`;
+    window.history.replaceState({}, "", next);
+    // selectMatchedEleve is stable enough for one-shot resume
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emailVerified, emailGateLoading, emailChildren, rebookApplied]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -898,6 +932,15 @@ export default function RdvInscriptionPublicClient({
 
         {slots.length > 0 && emailVerified ? (
           <form onSubmit={onSubmit} className="space-y-6">
+            {rebookBanner ? (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                <p className="font-bold">Votre précédent créneau a été annulé par l’établissement.</p>
+                <p className="mt-1">
+                  Merci de choisir un autre créneau ci-dessous. Le créneau d’origine n’est plus
+                  disponible.
+                </p>
+              </div>
+            ) : null}
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
               <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
                 1 · E-mail confirmé

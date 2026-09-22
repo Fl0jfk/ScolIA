@@ -126,6 +126,7 @@ function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscript
     reconfirmStatus,
     reconfirmMailSentAt: toIso(row.reconfirmMailSentAt),
     reconfirmedAt: toIso(row.reconfirmedAt),
+    adminCancelNote: row.adminCancelNote?.trim() || null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -970,4 +971,73 @@ export async function markRdvInscriptionBookingCancelled(opts: {
     )
     .limit(1);
   return rows[0] ? mapBooking(rows[0]) : null;
+}
+
+/** Annulation admin avec demande de rechoix (token + note). */
+export async function markRdvInscriptionBookingCancelledForReschedule(opts: {
+  bookingId: string;
+  etablissementId: string;
+  adminCancelNote: string | null;
+  rescheduleToken: string;
+  rescheduleTokenExpiresAt: Date;
+}): Promise<RdvInscriptionBookingRow | null> {
+  const db = requireDb();
+  const note = opts.adminCancelNote?.trim() || null;
+  await db
+    .update(rdvInscriptionBooking)
+    .set({
+      status: "cancelled",
+      confirmToken: null,
+      confirmExpiresAt: null,
+      adminCancelNote: note,
+      rescheduleToken: opts.rescheduleToken,
+      rescheduleTokenExpiresAt: opts.rescheduleTokenExpiresAt,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+        inArray(rdvInscriptionBooking.status, ["pending", "confirmed"]),
+      ),
+    );
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(
+      and(
+        eq(rdvInscriptionBooking.etablissementId, opts.etablissementId),
+        eq(rdvInscriptionBooking.id, opts.bookingId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ? mapBooking(rows[0]) : null;
+}
+
+export async function findBookingByRescheduleToken(
+  token: string,
+): Promise<
+  | (RdvInscriptionBookingRow & {
+      etablissementId: string;
+      rescheduleToken: string;
+      rescheduleTokenExpiresAt: Date | null;
+    })
+  | null
+> {
+  const trimmed = String(token || "").trim();
+  if (!trimmed) return null;
+  const db = requireDb();
+  const rows = await db
+    .select()
+    .from(rdvInscriptionBooking)
+    .where(eq(rdvInscriptionBooking.rescheduleToken, trimmed))
+    .limit(1);
+  const row = rows[0];
+  if (!row?.rescheduleToken) return null;
+  return {
+    ...mapBooking(row),
+    etablissementId: row.etablissementId,
+    rescheduleToken: row.rescheduleToken,
+    rescheduleTokenExpiresAt: row.rescheduleTokenExpiresAt,
+  };
 }

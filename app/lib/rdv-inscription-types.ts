@@ -93,8 +93,14 @@ export type RdvInscriptionBookingRow = {
   reconfirmStatus: RdvInscriptionReconfirmStatus | null;
   reconfirmMailSentAt: string | null;
   reconfirmedAt: string | null;
+  /** Note libre admin (demande de rechoix). */
+  adminCancelNote: string | null;
   createdAt: string;
 };
+
+/** Motif fixe inclus dans le mail « Demander un autre créneau ». */
+export const RDV_RESCHEDULE_PRESET_MOTIF =
+  "Nous sommes désolés : la direction ne pourra finalement pas être présente au rendez-vous que vous aviez choisi.";
 
 export type RdvInscriptionBookInput = {
   eventId: string;

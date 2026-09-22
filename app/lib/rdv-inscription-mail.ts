@@ -8,6 +8,7 @@ import type {
   RdvInscriptionBookingRow,
   RdvInscriptionDirectionPageSettings,
 } from "@/app/lib/rdv-inscription-types";
+import { RDV_RESCHEDULE_PRESET_MOTIF } from "@/app/lib/rdv-inscription-types";
 import { createTenantTransporter, getTenantSmtpConfig } from "@/app/lib/tenant-mail";
 
 function parentDisplayName(booking: RdvInscriptionBookingRow): string {
@@ -361,6 +362,65 @@ export async function sendRdvInscriptionCancelledByParentNotify(opts: {
     return { sent: true };
   } catch {
     return { sent: false };
+  }
+}
+
+/** Mail parent : créneau retiré par l’établissement + invitation à en choisir un autre. */
+export async function sendRdvInscriptionRescheduleRequestMail(opts: {
+  page: RdvInscriptionDirectionPageSettings;
+  booking: RdvInscriptionBookingRow;
+  directionLabel: string;
+  rebookUrl: string;
+  adminNote?: string | null;
+}): Promise<{ sent: boolean; error?: string }> {
+  const smtp = await getTenantSmtpConfig();
+  const transporter = await createTenantTransporter();
+  if (!smtp || !transporter) {
+    return {
+      sent: false,
+      error: "SMTP non configuré — créneau retiré sans e-mail parent.",
+    };
+  }
+
+  const student = `${opts.booking.studentFirstName} ${opts.booking.studentLastName}`;
+  const cancelledSlot = formatSlotFr(opts.booking.startAt, opts.booking.endAt);
+  const mailTitle = `${opts.page.title} — ${opts.directionLabel}`;
+  const note = opts.adminNote?.trim() || "";
+  const noteHtml = note
+    ? `<p><strong>Précision de l’établissement :</strong> ${escapeHtml(note)}</p>`
+    : "";
+
+  try {
+    await transporter.sendMail({
+      from: smtp.user,
+      to: opts.booking.parentEmail,
+      subject: `Nouveau créneau à choisir — ${mailTitle}`,
+      html: `
+        <p>Bonjour,</p>
+        <p>${escapeHtml(RDV_RESCHEDULE_PRESET_MOTIF)}</p>
+        ${noteHtml}
+        <p><strong>Élève :</strong> ${escapeHtml(student)}<br/>
+        <strong>Direction :</strong> ${escapeHtml(opts.directionLabel)}<br/>
+        <strong>Créneau précédent :</strong> ${escapeHtml(cancelledSlot)}</p>
+        <p>Ce créneau n’est plus disponible. Merci de <strong>choisir un autre créneau</strong> via le bouton ci-dessous (lien valable 14 jours) :</p>
+        <p style="margin:24px 0">
+          <a href="${escapeHtml(opts.rebookUrl)}"
+             style="display:inline-block;background:#0369a1;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:700">
+            Choisir un autre créneau
+          </a>
+        </p>
+        <p style="font-size:12px;color:#64748b">Si le bouton ne fonctionne pas, copiez ce lien :<br/>
+          <a href="${escapeHtml(opts.rebookUrl)}">${escapeHtml(opts.rebookUrl)}</a>
+        </p>
+        <p>Cordialement,<br/>L’établissement</p>
+      `,
+    });
+    return { sent: true };
+  } catch (e) {
+    return {
+      sent: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
   }
 }
 

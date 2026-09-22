@@ -165,6 +165,7 @@ export async function listAvailableInscriptionSlotsDetailed(opts: {
     }
 
     if (isScolaHeldEvent(ev)) continue;
+    if (/^annul[eé]/i.test(summary)) continue;
     if (!eventTitleMatchesPattern(summary, opts.titlePattern)) continue;
 
     slots.push({
@@ -554,6 +555,23 @@ export async function cancelConfirmedInscriptionEvent(opts: {
   bookingId: string;
   accessToken?: string;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
+  return retireInscriptionCalendarSlot({
+    ...opts,
+    reasonLine: "Annulé par le parent (reconfirmation J-7).",
+  });
+}
+
+/**
+ * Retire un créneau (pending ou confirmé) sans le remettre libre :
+ * titre ANNULÉ, transparent, props ScolIA effacées — ne réapparaît pas dans la liste publique.
+ */
+export async function retireInscriptionCalendarSlot(opts: {
+  calendarId: string;
+  eventId: string;
+  bookingId: string;
+  reasonLine?: string;
+  accessToken?: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
   const accessToken = opts.accessToken || (await getRdvInscriptionGoogleAccessToken());
   const current = await getCalendarEvent({
     calendarId: opts.calendarId,
@@ -564,23 +582,33 @@ export async function cancelConfirmedInscriptionEvent(opts: {
     return { ok: true };
   }
 
+  const priv: Record<string, string> = {
+    ...(current.extendedProperties?.private || {}),
+  };
+  const owned =
+    !priv[SCOLA_BOOKING_ID_PROP] || priv[SCOLA_BOOKING_ID_PROP] === opts.bookingId;
+  if (!owned) {
+    return {
+      ok: false,
+      message: "Créneau rattaché à une autre réservation — retrait refusé.",
+    };
+  }
+
   const summary = (current.summary || "").trim();
   const newSummary = summary.startsWith("ANNULÉ")
     ? summary
     : `ANNULÉ — ${summary || "Rendez-vous"}`;
   const desc = [
     (current.description || "").trim(),
-    "Annulé par le parent (reconfirmation J-7).",
+    opts.reasonLine?.trim() || "Créneau retiré par l’établissement.",
     `Réf. : ${opts.bookingId}`,
   ]
     .filter(Boolean)
     .join("\n");
 
-  const priv: Record<string, string> = {
-    ...(current.extendedProperties?.private || {}),
-  };
   delete priv[SCOLA_BOOKED_PROP];
   delete priv[SCOLA_PENDING_PROP];
+  delete priv[SCOLA_BOOKING_ID_PROP];
 
   const res = await gcalFetch(
     accessToken,
@@ -603,7 +631,7 @@ export async function cancelConfirmedInscriptionEvent(opts: {
     const body = await res.text();
     return {
       ok: false,
-      message: `Annulation Google échouée (${res.status}): ${body.slice(0, 200)}`,
+      message: `Retrait Google échoué (${res.status}): ${body.slice(0, 200)}`,
     };
   }
   return { ok: true };

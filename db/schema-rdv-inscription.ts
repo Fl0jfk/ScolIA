@@ -161,12 +161,18 @@ export const rdvInscriptionBooking = pgTable(
     reconfirmStatus: text("reconfirm_status"),
     reconfirmMailSentAt: timestamp("reconfirm_mail_sent_at", { withTimezone: true }),
     reconfirmedAt: timestamp("reconfirmed_at", { withTimezone: true }),
+    /** Note libre admin lors d’une demande de rechoix (créneau retiré). */
+    adminCancelNote: text("admin_cancel_note"),
+    /** Token one-shot / TTL pour le lien « choisir un autre créneau ». */
+    rescheduleToken: text("reschedule_token"),
+    rescheduleTokenExpiresAt: timestamp("reschedule_token_expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("rdv_inscription_booking_confirm_token_uidx").on(t.confirmToken),
     uniqueIndex("rdv_inscription_booking_reconfirm_token_uidx").on(t.reconfirmToken),
+    uniqueIndex("rdv_inscription_booking_reschedule_token_uidx").on(t.rescheduleToken),
     index("rdv_inscription_booking_etab_idx").on(t.etablissementId),
     index("rdv_inscription_booking_dir_idx").on(t.etablissementId, t.directionId),
     index("rdv_inscription_booking_status_idx").on(t.etablissementId, t.status),

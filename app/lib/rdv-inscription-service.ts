@@ -9,10 +9,12 @@ import {
   listExpiredPendingBookings,
   listActiveBookingsForEleve,
   markRdvInscriptionBookingCancelled,
+  markRdvInscriptionBookingCancelledForReschedule,
   markRdvInscriptionBookingConfirmed,
   markRdvInscriptionBookingExpired,
   findBookingByConfirmToken,
   findBookingByReconfirmToken,
+  findBookingByRescheduleToken,
   findRdvInscriptionBookingById,
   markRdvInscriptionReconfirm,
   listBookingsDueForReconfirmMail,
@@ -26,12 +28,19 @@ import {
   restoreInscriptionCalendarSlot,
   markParentReconfirmedOnCalendar,
   cancelConfirmedInscriptionEvent,
+  retireInscriptionCalendarSlot,
 } from "@/app/lib/rdv-inscription-gcal";
 import {
   sendRdvInscriptionConfirmationMails,
   sendRdvInscriptionReconfirmMail,
   sendRdvInscriptionCreatedPreinscritNotify,
+  sendRdvInscriptionRescheduleRequestMail,
 } from "@/app/lib/rdv-inscription-mail";
+import {
+  RDV_EMAIL_GATE_TTL_MS,
+  setRdvEmailGateCookie,
+} from "@/app/lib/rdv-inscription-email-gate";
+import { normalizeParentEmail } from "@/app/lib/eleves-parent-emails";
 import {
   assertEleveAllowedForRdvParent,
   assertEleveStillMatchesRdvBooking,
@@ -466,6 +475,138 @@ export async function cancelRdvInscriptionBookingAsAdmin(bookingId: string): Pro
     booking: cancelled,
     remaining,
     mailWarning: mail.error,
+  };
+}
+
+const RDV_RESCHEDULE_TOKEN_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Admin : retire le créneau (plus libre), annule la réservation, mail d’excuse + lien rechoix.
+ */
+export async function requestRdvInscriptionRescheduleAsAdmin(opts: {
+  bookingId: string;
+  note?: string | null;
+}): Promise<
+  | { ok: true; booking: RdvInscriptionBookingRow; mailWarning?: string }
+  | { ok: false; status: number; error: string }
+> {
+  const found = await findRdvInscriptionBookingById({ bookingId: opts.bookingId });
+  if (!found) {
+    return { ok: false, status: 404, error: "Réservation introuvable." };
+  }
+  if (found.status !== "pending" && found.status !== "confirmed") {
+    return {
+      ok: false,
+      status: 400,
+      error: "Cette réservation n’est plus active (déjà annulée ou expirée).",
+    };
+  }
+
+  const direction = await getRdvInscriptionDirectionBySlug(found.directionSlug, {
+    etablissementId: found.etablissementId,
+  });
+  if (!direction) {
+    return { ok: false, status: 404, error: "Direction introuvable." };
+  }
+
+  const note = String(opts.note || "").trim().slice(0, 1000) || null;
+
+  try {
+    const retired = await retireInscriptionCalendarSlot({
+      calendarId: found.googleCalendarId,
+      eventId: found.googleEventId,
+      bookingId: found.id,
+      reasonLine: note
+        ? `Retiré par l’établissement (demande de rechoix). ${note}`
+        : "Retiré par l’établissement (demande de rechoix — direction indisponible).",
+    });
+    if (!retired.ok) {
+      return { ok: false, status: 502, error: retired.message };
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      status: 502,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+
+  const rescheduleToken = randomBytes(32).toString("hex");
+  const rescheduleTokenExpiresAt = new Date(Date.now() + RDV_RESCHEDULE_TOKEN_TTL_MS);
+
+  const cancelled = await markRdvInscriptionBookingCancelledForReschedule({
+    bookingId: found.id,
+    etablissementId: found.etablissementId,
+    adminCancelNote: note,
+    rescheduleToken,
+    rescheduleTokenExpiresAt,
+  });
+  if (!cancelled) {
+    return { ok: false, status: 500, error: "Annulation impossible en base." };
+  }
+
+  const rebookUrl = await tenantAbsolutePath(
+    `/rdv-inscription/rebook?token=${encodeURIComponent(rescheduleToken)}`,
+  );
+  const mail = await sendRdvInscriptionRescheduleRequestMail({
+    page: directionPageSettings(direction),
+    booking: cancelled,
+    directionLabel: direction.label,
+    rebookUrl,
+    adminNote: note,
+  });
+
+  return {
+    ok: true,
+    booking: cancelled,
+    mailWarning: mail.error,
+  };
+}
+
+/** Parent ouvre le lien mail : pose le cookie gate et redirige vers la page direction. */
+export async function consumeRdvRescheduleToken(
+  tokenRaw: string,
+): Promise<
+  | { ok: true; redirectPath: string }
+  | { ok: false; error: string; directionSlug?: string }
+> {
+  const token = String(tokenRaw || "").trim();
+  if (!token || token.length < 20) {
+    return { ok: false, error: "Lien invalide." };
+  }
+
+  const found = await findBookingByRescheduleToken(token);
+  if (!found) {
+    return { ok: false, error: "Lien invalide ou déjà utilisé." };
+  }
+
+  if (
+    !found.rescheduleTokenExpiresAt ||
+    found.rescheduleTokenExpiresAt.getTime() <= Date.now()
+  ) {
+    return {
+      ok: false,
+      error: "Lien expiré. Contactez l’établissement pour un nouveau lien.",
+      directionSlug: found.directionSlug,
+    };
+  }
+
+  await setRdvEmailGateCookie({
+    email: normalizeParentEmail(found.parentEmail),
+    etablissementId: found.etablissementId,
+    directionSlug: found.directionSlug,
+    exp: Date.now() + RDV_EMAIL_GATE_TTL_MS,
+  });
+
+  const params = new URLSearchParams();
+  params.set("rebook", "1");
+  if (found.eleveId) params.set("eleveId", found.eleveId);
+  if (found.studentFirstName) params.set("prenom", found.studentFirstName);
+  if (found.studentLastName) params.set("nom", found.studentLastName);
+
+  return {
+    ok: true,
+    redirectPath: `/rdv-inscription/${encodeURIComponent(found.directionSlug)}?${params.toString()}`,
   };
 }
 

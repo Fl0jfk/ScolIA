@@ -7,6 +7,7 @@ import type {
   RdvInscriptionDirectionRow,
   RdvInscriptionSlot,
 } from "@/app/lib/rdv-inscription-types";
+import { RDV_RESCHEDULE_PRESET_MOTIF } from "@/app/lib/rdv-inscription-types";
 
 type AdminPayload = {
   config: RdvInscriptionConfigPublic;
@@ -73,6 +74,12 @@ export default function RdvInscriptionAdminClient() {
   const [copied, setCopied] = useState<string | null>(null);
   const [tab, setTab] = useState<AdminTab>("reglages");
   const [directionFilter, setDirectionFilter] = useState<string>("");
+  const [rescheduleTarget, setRescheduleTarget] = useState<{
+    id: string;
+    studentLabel: string;
+    slotLabel: string;
+  } | null>(null);
+  const [rescheduleNote, setRescheduleNote] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -187,6 +194,14 @@ export default function RdvInscriptionAdminClient() {
               ? `Créneau supprimé — mail envoyé au parent (${remaining} RDV restant${remaining > 1 ? "s" : ""}).`
               : "Créneau supprimé — mail envoyé au parent.",
         );
+      } else if (body.action === "request-reschedule") {
+        setMessage(
+          json.mailWarning
+            ? `Demande de rechoix envoyée (attention mail : ${json.mailWarning})`
+            : "Créneau retiré — mail d’excuse avec lien de rechoix envoyé au parent.",
+        );
+        setRescheduleTarget(null);
+        setRescheduleNote("");
       } else {
         setMessage("Enregistré.");
       }
@@ -218,6 +233,15 @@ export default function RdvInscriptionAdminClient() {
     );
     if (!ok) return;
     await put({ action: "cancel-booking", bookingId });
+  }
+
+  async function submitRescheduleRequest() {
+    if (!rescheduleTarget) return;
+    await put({
+      action: "request-reschedule",
+      bookingId: rescheduleTarget.id,
+      note: rescheduleNote.trim() || undefined,
+    });
   }
 
   async function copyLink(url: string) {
@@ -819,20 +843,37 @@ export default function RdvInscriptionAdminClient() {
                             </button>
                           ) : null}
                           {b.status === "pending" || b.status === "confirmed" ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() =>
-                                void cancelBooking(
-                                  b.id,
-                                  `${b.studentFirstName} ${b.studentLastName}`,
-                                  formatSlot(b.startAt, b.endAt),
-                                )
-                              }
-                              className="mt-1.5 block text-xs font-semibold text-red-700 hover:underline disabled:opacity-50"
-                            >
-                              Supprimer
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  setRescheduleNote("");
+                                  setRescheduleTarget({
+                                    id: b.id,
+                                    studentLabel: `${b.studentFirstName} ${b.studentLastName}`,
+                                    slotLabel: formatSlot(b.startAt, b.endAt),
+                                  });
+                                }}
+                                className="mt-1.5 block text-xs font-semibold text-amber-800 hover:underline disabled:opacity-50"
+                              >
+                                Demander un autre créneau
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() =>
+                                  void cancelBooking(
+                                    b.id,
+                                    `${b.studentFirstName} ${b.studentLastName}`,
+                                    formatSlot(b.startAt, b.endAt),
+                                  )
+                                }
+                                className="mt-1.5 block text-xs font-semibold text-red-700 hover:underline disabled:opacity-50"
+                              >
+                                Supprimer
+                              </button>
+                            </>
                           ) : null}
                         </td>
                         <td className="py-2">
@@ -858,6 +899,74 @@ export default function RdvInscriptionAdminClient() {
           )}
         </section>
       )}
+
+      {rescheduleTarget ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reschedule-title"
+          onClick={() => {
+            if (!busy) {
+              setRescheduleTarget(null);
+              setRescheduleNote("");
+            }
+          }}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="reschedule-title" className="text-lg font-bold text-slate-900">
+              Demander un autre créneau
+            </h3>
+            <p className="mt-1 text-sm text-slate-600">
+              {rescheduleTarget.studentLabel} — {rescheduleTarget.slotLabel}
+            </p>
+            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              {RDV_RESCHEDULE_PRESET_MOTIF}
+            </p>
+            <p className="mt-3 text-xs text-slate-500">
+              Le créneau sera <strong>retiré</strong> de Google Agenda (il ne sera plus libre). Le
+              parent recevra un mail d’excuse avec un lien pour en choisir un autre.
+            </p>
+            <label className="mt-4 block text-sm">
+              <span className="font-semibold text-slate-800">
+                Précision optionnelle (ajoutée au mail)
+              </span>
+              <textarea
+                rows={3}
+                value={rescheduleNote}
+                onChange={(e) => setRescheduleNote(e.target.value)}
+                maxLength={1000}
+                placeholder="Ex. indisponibilité imprévue, réunion urgente…"
+                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setRescheduleTarget(null);
+                  setRescheduleNote("");
+                }}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void submitRescheduleRequest()}
+                className="rounded-md bg-amber-700 px-3 py-1.5 text-sm font-bold text-white hover:bg-amber-800 disabled:opacity-50"
+              >
+                {busy ? "Envoi…" : "Retirer et prévenir le parent"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
