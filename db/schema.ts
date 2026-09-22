@@ -23,6 +23,7 @@ import { charlemagneP5Schema } from "./schema-charlemagne-p5";
 import { fichesDialogueSchema } from "./schema-fiches-dialogue";
 import { messagingSchema } from "./schema-messaging";
 import { rdvInscriptionSchema } from "./schema-rdv-inscription";
+import { socleFaitsSchema } from "./schema-socle-faits";
 
 export { etablissement };
 export * from "./schema-ent-relational";
@@ -36,6 +37,7 @@ export * from "./schema-fiches-dialogue";
 export * from "./schema-messaging";
 export * from "./schema-portes-ouvertes";
 export * from "./schema-rdv-inscription";
+export * from "./schema-socle-faits";
 
 /** Utilisateur Better-Auth (multi-tenant via etablissement_id). */
 export const user = pgTable(
@@ -511,6 +513,8 @@ export const foyerResponsable = pgTable(
     autoriteParentale: boolean("autorite_parentale").notNull().default(false),
     contactUrgence: boolean("contact_urgence").notNull().default(false),
     payeur: boolean("payeur").notNull().default(false),
+    /** Personne autorisée à récupérer l’enfant. Distinct de l’autorité, du payeur et de l’urgence. */
+    peutRecuperer: boolean("peut_recuperer").notNull().default(false),
     rang: integer("rang").notNull().default(1),
     userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -944,6 +948,7 @@ export const appSchema = {
   ...fichesDialogueSchema,
   ...messagingSchema,
   ...rdvInscriptionSchema,
+  ...socleFaitsSchema,
 };
 
 export const schema = {

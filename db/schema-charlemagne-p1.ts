@@ -13,6 +13,7 @@ import {
   pgTable,
   primaryKey,
   text,
+  type AnyPgColumn,
   timestamp,
   uniqueIndex,
   uuid,
@@ -285,6 +286,11 @@ export const facture = pgTable(
     dateEcheance: date("date_echeance"),
     totalHt: numeric("total_ht", { precision: 12, scale: 2 }).notNull().default("0"),
     totalTtc: numeric("total_ttc", { precision: 12, scale: 2 }).notNull().default("0"),
+    /** facture | avoir. L’avoir pointe la facture d’origine. Pas un journal comptable. */
+    nature: text("nature").notNull().default("facture"),
+    factureOrigineId: uuid("facture_origine_id").references((): AnyPgColumn => facture.id, {
+      onDelete: "set null",
+    }),
     pdfKey: text("pdf_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
