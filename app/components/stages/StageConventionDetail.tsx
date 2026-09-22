@@ -6,10 +6,11 @@ import {
   STAGE_CONVENTION_STATUS_LABELS,
   STAGE_OFFER_KIND_LABELS,
   formatCompanyAddress,
+  stageCompanyRhDisplayName,
 } from "@/app/lib/stage-types";
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
-import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 import StageSchedulePanel from "@/app/components/stages/StageSchedulePanel";
+import StageSignatureProgress from "@/app/components/stages/StageSignatureProgress";
 import { buildSignatureSummary } from "@/app/lib/stage-signature-summary";
 import { formatPeriodRangeFr } from "@/app/lib/stage-schedule";
 import type { StagesHubPermissions } from "@/app/components/stages/stages-hub-types";
@@ -569,11 +570,25 @@ function ConventionInfoSummary({ convention }: { convention: StageConvention }) 
             </>
           ) : null}
         </InfoRow>
-        {company.rhEmail ? (
+        {(stageCompanyRhDisplayName(company) || company.rhEmail) ? (
           <InfoRow label="RH entreprise">
-            <a className="text-[#2F6B4A] underline" href={`mailto:${company.rhEmail}`}>
-              {company.rhEmail}
-            </a>
+            {stageCompanyRhDisplayName(company) || null}
+            {company.rhEmail?.includes("@") ? (
+              <>
+                {stageCompanyRhDisplayName(company) ? <br /> : null}
+                <a className="text-[#2F6B4A] underline" href={`mailto:${company.rhEmail}`}>
+                  {company.rhEmail}
+                </a>
+              </>
+            ) : company.rhEmail ? (
+              <>
+                {stageCompanyRhDisplayName(company) ? <br /> : null}
+                <span className="text-amber-800 text-xs">
+                  E-mail manquant ou invalide (« {company.rhEmail} ») — corriger pour envoyer le lien
+                  de signature.
+                </span>
+              </>
+            ) : null}
           </InfoRow>
         ) : null}
         <InfoRow label="Responsable légal 1">

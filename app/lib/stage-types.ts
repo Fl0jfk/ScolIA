@@ -217,8 +217,34 @@ export type StageCompanyInfo = {
   tutorName: string;
   tutorEmail: string;
   tutorPhone?: string;
+  /**
+   * Case « RH / signataire entreprise supplémentaire ».
+   * Si true : prénom, nom et e-mail RH deviennent obligatoires pour pouvoir signer.
+   */
+  rhExtraSigner?: boolean;
+  rhFirstName?: string;
+  rhLastName?: string;
   rhEmail?: string;
 };
+
+/** Prénom + nom du RH supplémentaire (affichage PDF / fiche). */
+export function stageCompanyRhDisplayName(
+  company: Pick<StageCompanyInfo, "rhFirstName" | "rhLastName">,
+): string {
+  return [company.rhFirstName?.trim(), company.rhLastName?.trim()].filter(Boolean).join(" ");
+}
+
+/** L’élève / l’admin a demandé un signataire RH en plus du tuteur. */
+export function stageCompanyWantsRhSigner(company: StageCompanyInfo): boolean {
+  if (company.rhExtraSigner === false) return false;
+  if (company.rhExtraSigner === true) return true;
+  // Legacy : un champ RH déjà renseigné (ex. seul l’e-mail).
+  return Boolean(
+    company.rhEmail?.trim() ||
+      company.rhFirstName?.trim() ||
+      company.rhLastName?.trim(),
+  );
+}
 
 /** Adresse entreprise complète pour affichage / PDF. */
 export function formatCompanyAddress(company: Pick<StageCompanyInfo, "address" | "postalCode" | "city">): string {

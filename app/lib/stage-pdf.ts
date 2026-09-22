@@ -10,6 +10,7 @@ import {
   STAGE_OFFER_KIND_LABELS,
   STAGE_SIGNER_ROLE_LABELS,
   formatCompanyAddress,
+  stageCompanyRhDisplayName,
   type StageConvention,
   type StageSignature,
 } from "@/app/lib/stage-types";
@@ -1067,7 +1068,17 @@ export async function renderStageConventionPdf(
     { label: "Nom", value: convention.company.tutorName },
     { label: "E-mail", value: convention.company.tutorEmail },
     { label: "Téléphone", value: convention.company.tutorPhone || "" },
-    { label: "RH", value: convention.company.rhEmail || "" },
+    {
+      label: "RH",
+      value: (() => {
+        const rhName = stageCompanyRhDisplayName(convention.company);
+        const rhEmail = convention.company.rhEmail?.trim() || "";
+        if (rhName && rhEmail.includes("@")) return `${rhName} — ${rhEmail}`;
+        if (rhName) return rhName;
+        if (rhEmail.includes("@")) return rhEmail;
+        return "";
+      })(),
+    },
   ]);
 
   const yCards2 = yCards - cardH - cardGap;

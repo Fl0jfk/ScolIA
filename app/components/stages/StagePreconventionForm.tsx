@@ -1,7 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
-import type { StageConvention } from "@/app/lib/stage-types";
+import {
+  stageCompanyWantsRhSigner,
+  type StageConvention,
+} from "@/app/lib/stage-types";
 import type { StageClassPeriod, StagePeriodReminder } from "@/app/lib/stage-periods-config";
 import type {
   StageBlockedPeriod,
@@ -69,6 +72,8 @@ export default function StagePreconventionForm({
   } | null;
   cycleLabel?: string;
 }) {
+  const rhEnabled = stageCompanyWantsRhSigner(convention.company);
+
   function updateParent1Email(value: string) {
     onChange({
       ...convention,
@@ -412,22 +417,102 @@ export default function StagePreconventionForm({
             }
           />
         </Field>
-        <Field
-          label="RH / signataire entreprise — e-mail"
-          hint="Optionnel — si renseigné, cette personne reçoit aussi un lien pour signer (en plus du tuteur)."
-        >
-          <input
-            className={fieldInputClass}
-            type="email"
-            value={convention.company.rhEmail || ""}
-            onChange={(e) =>
-              onChange({
-                ...convention,
-                company: { ...convention.company, rhEmail: e.target.value },
-              })
-            }
-          />
-        </Field>
+        <div className="rounded-xl border border-stone-200 bg-stone-50/80 p-3 space-y-3">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-stone-300 text-[#2F6B4A] focus:ring-[#2F6B4A]"
+              checked={rhEnabled}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                onChange({
+                  ...convention,
+                  company: {
+                    ...convention.company,
+                    rhExtraSigner: checked,
+                    ...(checked
+                      ? {}
+                      : {
+                          rhFirstName: undefined,
+                          rhLastName: undefined,
+                          rhEmail: undefined,
+                        }),
+                  },
+                });
+              }}
+            />
+            <span className="text-sm text-stone-800">
+              <span className="font-semibold">Faire signer un RH / signataire entreprise supplémentaire</span>
+              <span className="mt-0.5 block text-[11px] font-normal text-stone-500">
+                En plus du tuteur. Prénom, nom et e-mail obligatoires — sans e-mail, cette personne ne
+                peut pas recevoir le lien de signature.
+              </span>
+            </span>
+          </label>
+          {rhEnabled ? (
+            <div className="space-y-3 pl-6">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="RH — prénom" required>
+                  <input
+                    className={fieldInputClass}
+                    value={convention.company.rhFirstName || ""}
+                    onChange={(e) =>
+                      onChange({
+                        ...convention,
+                        company: {
+                          ...convention.company,
+                          rhExtraSigner: true,
+                          rhFirstName: e.target.value,
+                        },
+                      })
+                    }
+                    autoComplete="given-name"
+                  />
+                </Field>
+                <Field label="RH — nom" required>
+                  <input
+                    className={fieldInputClass}
+                    value={convention.company.rhLastName || ""}
+                    onChange={(e) =>
+                      onChange({
+                        ...convention,
+                        company: {
+                          ...convention.company,
+                          rhExtraSigner: true,
+                          rhLastName: e.target.value,
+                        },
+                      })
+                    }
+                    autoComplete="family-name"
+                  />
+                </Field>
+              </div>
+              <Field
+                label="RH — e-mail"
+                required
+                hint="Obligatoire : c’est à cette adresse que part le lien de signature"
+              >
+                <input
+                  className={fieldInputClass}
+                  type="email"
+                  value={convention.company.rhEmail || ""}
+                  onChange={(e) =>
+                    onChange({
+                      ...convention,
+                      company: {
+                        ...convention.company,
+                        rhExtraSigner: true,
+                        rhEmail: e.target.value,
+                      },
+                    })
+                  }
+                  autoComplete="email"
+                  placeholder="prenom.nom@entreprise.fr"
+                />
+              </Field>
+            </div>
+          ) : null}
+        </div>
       </section>
 
       <section className="space-y-4">

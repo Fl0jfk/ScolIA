@@ -354,7 +354,7 @@ function StagesContent() {
   async function addSignatory() {
     if (!detail) return;
     const role = window.prompt(
-      "Rôle (professeur_referent | professeur_principal | direction | parent | tuteur_entreprise) :",
+      "Rôle (professeur_referent | professeur_principal | direction | parent | tuteur_entreprise | rh_entreprise) :",
       "professeur_referent",
     );
     if (!role) return;

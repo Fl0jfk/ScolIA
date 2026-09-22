@@ -33,6 +33,8 @@ import {
   currentStageSchoolYear,
   isExternalStageSignerRole,
   isStageSignatureFullyValidated,
+  stageCompanyRhDisplayName,
+  stageCompanyWantsRhSigner,
   stageUid,
   type StageConvention,
   type StageSchedule,
@@ -151,22 +153,32 @@ async function buildDefaultSignatures(convention: StageConvention): Promise<Stag
     convention.student.className,
   );
 
-  const sigs: Array<{ role: StageSignerRole; email?: string }> = [
+  const rhEmail = convention.company.rhEmail?.trim() || "";
+  const wantsRh =
+    stageCompanyWantsRhSigner(convention.company) && isValidEmail(rhEmail);
+  const rhName = stageCompanyRhDisplayName(convention.company);
+
+  const sigs: Array<{ role: StageSignerRole; email?: string; label?: string }> = [
     { role: "parent", email: resolveParent1Email(convention) },
     { role: "parent_2", email: resolveParent2Email(convention) },
     { role: "tuteur_entreprise", email: convention.company.tutorEmail },
-    { role: "rh_entreprise", email: convention.company.rhEmail },
+    {
+      role: "rh_entreprise",
+      email: wantsRh ? rhEmail : undefined,
+      label: rhName
+        ? `${STAGE_SIGNER_ROLE_LABELS.rh_entreprise} — ${rhName}`
+        : STAGE_SIGNER_ROLE_LABELS.rh_entreprise,
+    },
     { role: "professeur_referent", email: convention.teacherReferent.email },
     { role: "direction", email: directionEmail },
   ];
 
   return sigs
-    .filter((s) => s.role !== "rh_entreprise" || s.email)
     .filter((s) => s.email?.trim())
     .map((s) => ({
       id: stageUid("sig"),
       role: s.role,
-      label: STAGE_SIGNER_ROLE_LABELS[s.role],
+      label: s.label || STAGE_SIGNER_ROLE_LABELS[s.role],
       status: "en_attente" as const,
       signEmail: s.email!.trim(),
     }));
@@ -332,6 +344,20 @@ async function validateConventionForSubmit(convention: StageConvention): Promise
   }
   if (!isValidEmail(convention.company.tutorEmail)) {
     return "E-mail du tuteur en entreprise invalide.";
+  }
+  if (stageCompanyWantsRhSigner(convention.company)) {
+    const rhFirst = convention.company.rhFirstName?.trim() || "";
+    const rhLast = convention.company.rhLastName?.trim() || "";
+    const rhEmail = convention.company.rhEmail?.trim() || "";
+    if (!rhFirst || !rhLast) {
+      return "RH supplémentaire : indiquez le prénom et le nom.";
+    }
+    if (!rhEmail) {
+      return "RH supplémentaire : l'e-mail est obligatoire pour envoyer le lien de signature.";
+    }
+    if (!isValidEmail(rhEmail)) {
+      return "RH supplémentaire : e-mail invalide (ex. prenom.nom@entreprise.fr).";
+    }
   }
   const parent1 = resolveParent1Email(convention);
   const parent2 = resolveParent2Email(convention);
@@ -856,6 +882,11 @@ export async function reviewPreconvention(
       console.error("[stages] notify reject:", e),
     );
     return next;
+  }
+
+  const validationError = await validateConventionForSubmit(convention);
+  if (validationError) {
+    throw new Error(validationError);
   }
 
   let next: StageConvention = {
@@ -1895,6 +1926,12 @@ export function normalizeConventionInput(raw: unknown, base?: StageConvention): 
       tutorName: str(companyRaw.tutorName, base?.company.tutorName),
       tutorEmail: str(companyRaw.tutorEmail, base?.company.tutorEmail),
       tutorPhone: str(companyRaw.tutorPhone, base?.company.tutorPhone) || undefined,
+      rhExtraSigner:
+        typeof companyRaw.rhExtraSigner === "boolean"
+          ? companyRaw.rhExtraSigner
+          : base?.company.rhExtraSigner,
+      rhFirstName: str(companyRaw.rhFirstName, base?.company.rhFirstName) || undefined,
+      rhLastName: str(companyRaw.rhLastName, base?.company.rhLastName) || undefined,
       rhEmail: str(companyRaw.rhEmail, base?.company.rhEmail) || undefined,
     },
     schedule: normalizeStageSchedule(o.schedule ?? base?.schedule),
