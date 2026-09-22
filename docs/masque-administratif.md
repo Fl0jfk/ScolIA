@@ -106,7 +106,7 @@ Le passage (`/sante/passages`, `infirmerie_passage`) est **un geste** : qui est 
 | Passage | Arrivée, sortie, signal « à l’infirmerie » | Fait |
 | Soin du passage | Suite (repos, retour cours, renvoi famille, urgence) + notes — obligatoire à la clôture | Fait (geste) |
 | Fiche infirmerie | Antécédents utiles à l’établissement, personnes à prévenir — `/sante/fiches` | Fait (geste) |
-| PAI | Protocole, traitements autorisés, document. L’infirmerie valide | À faire |
+| PAI | Protocole, traitements autorisés, document — `/sante/pai`, validation soft | Fait (geste) |
 | Extrait diffusé | Cantine, EPS, voyage, internat, périscolaire — `/sante/extraits`, soft-désactivation | Fait (geste) |
 | Médicaments | Journal des prises — `/sante/medicaments` (ordonnance = document) | Fait (geste) |
 | Accidents | Registre — `/sante/accidents` (conservation longue, pas de DELETE) | Fait (geste) |
