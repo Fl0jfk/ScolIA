@@ -91,9 +91,31 @@ Quatre présences, jamais fusionnées.
 
 Autour : sanctions `vs_sanction`, carnet `vs_carnet`, stages (convention déjà là), sorties scolaires (voyages déjà là), sortie d’internat `internat_sortie` (week-end, correspondant — pas un voyage).
 
-Extrait santé `sante_extrait` : ce que la cantine, l’EPS, un voyage ou l’internat a le droit de lire (allergie, inaptitude). Le PAI reste un document.
+Réglages vie scolaire : motifs d’absence, barème des sanctions, délai de justificatif, forfait cantine ou facturation au passage.
 
-Réglages : motifs d’absence, barème des sanctions, délai de justificatif, forfait cantine ou facturation au passage.
+---
+
+## Bloc infirmerie
+
+Le passage (`/sante/passages`, `infirmerie_passage`) est **un geste** : qui est là maintenant. La vie scolaire lit le signal, pas le dossier. **Le bloc n’est pas coché.**
+
+| Volet | Rôle | État |
+|-------|------|------|
+| Passage | Arrivée, sortie, signal « à l’infirmerie » | Fait |
+| Soin du passage | Ce qui a été fait, repos, retour en cours, renvoi famille, urgence | À faire |
+| Fiche infirmerie | Antécédents utiles à l’établissement, personnes à prévenir | À faire |
+| PAI | Protocole, traitements autorisés, document. L’infirmerie valide | À faire |
+| Extrait diffusé | Cantine, EPS, voyage, internat, périscolaire — allergie, inaptitude, geste d’urgence. Table `sante_extrait` vide d’écran | À faire |
+| Médicaments | Ordonnance, autorisation, journal des prises (qui, quand, quoi) | À faire |
+| Accidents | Registre : circonstances, soins, suite. Conservation longue | À faire |
+| Inaptitude EPS | Certificat daté → extrait EPS | À faire |
+| Nuit internat | Même infirmerie, autre horaire | À faire |
+| Secret | Motif = infirmerie. Signal = vie scolaire. Dashboard = volumes, pas le dossier | Règle déjà posée, à tenir partout |
+| Documents | PAI, PAP, PPS, ordonnances dans le tiroir santé | Tiroir déjà là |
+
+Hors bloc établissement : le dossier du médecin scolaire, les vaccinations nationales. On ne refait pas un logiciel hospitalier.
+
+Réglages : motifs de passage, qui voit le motif, durée de conservation des fiches.
 
 ---
 
