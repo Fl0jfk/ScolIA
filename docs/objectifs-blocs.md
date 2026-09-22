@@ -58,11 +58,11 @@ Gestes : passage + suite ; contexte journée / nuit internat ; extraits ; fiches
 
 Détail : [Masque administratif](masque-administratif.md), section Bloc infirmerie.
 
-## Cantine et passage — ouvert
+## Cantine et passage — coché
 
 Droit (régime daté) et pris (passage au self). Porte de l’établissement (entrée / sortie). Facturation au forfait ou au réel = réglage.
 
-Gestes déjà là : régime, grille repas, occupancy lit une sortie portail ; **saisie portail** (`/passages/portail`) ; **self repas pris** (`/passages/self`, alerte extrait cantine) ; **prévision** (`/passages/prevision`, droit vs pris). Pas coché : facturation liée au passage.
+Gestes déjà là : régime, grille repas, occupancy lit une sortie portail ; **saisie portail** (`/passages/portail`) ; **self repas pris** (`/passages/self`, alerte extrait cantine) ; **prévision** (`/passages/prevision`, droit vs pris) ; **facturation** (`/passages/facturation`, forfait / réel). **Bloc coché** pour ces volets (22 sept 2026).
 
 ## Internat — ouvert
 

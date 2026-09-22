@@ -7,6 +7,13 @@ import {
   listPassagesDuJour,
   searchElevesForPassage,
 } from "@/app/lib/passages-db";
+import {
+  createBrouillonsCantineFromPassages,
+  getCantineFacturationPeriode,
+  getCantineFactuMode,
+  setCantineFactuMode,
+} from "@/app/lib/passages-facturation-db";
+import { isCantineFactuMode } from "@/app/lib/passages-facturation-shared";
 import { getPrevisionRepasDuJour } from "@/app/lib/passages-prevision-db";
 import { isPassageLieu } from "@/app/lib/passages-shared";
 import type { RepasService } from "@/app/lib/passages-prevision-shared";
@@ -43,6 +50,20 @@ export async function GET(req: Request) {
     return NextResponse.json(payload);
   }
 
+  if (url.searchParams.get("facturation") === "1") {
+    const dateDebut = url.searchParams.get("debut")?.trim() || undefined;
+    const dateFin = url.searchParams.get("fin")?.trim() || undefined;
+    const modeRaw = url.searchParams.get("mode")?.trim();
+    const mode = modeRaw && isCantineFactuMode(modeRaw) ? modeRaw : undefined;
+    const savedMode = await getCantineFactuMode(etabId);
+    const payload = await getCantineFacturationPeriode(etabId, {
+      dateDebut,
+      dateFin,
+      mode: mode ?? savedMode,
+    });
+    return NextResponse.json({ ...payload, modeSauve: savedMode });
+  }
+
   const lieuRaw = url.searchParams.get("lieu")?.trim();
   const lieu = lieuRaw && isPassageLieu(lieuRaw) ? lieuRaw : undefined;
   const date = url.searchParams.get("date")?.trim() || undefined;
@@ -58,13 +79,36 @@ export async function POST(req: Request) {
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
 
   const body = (await req.json().catch(() => ({}))) as {
+    action?: string;
     eleveId?: string;
     inviteNom?: string;
     sens?: string;
     lieu?: string;
+    mode?: string;
+    debut?: string;
+    fin?: string;
   };
 
   try {
+    if (body.action === "setCantineFactuMode") {
+      if (!body.mode || !isCantineFactuMode(body.mode)) {
+        return NextResponse.json({ error: "Mode invalide (forfait | reel)." }, { status: 400 });
+      }
+      const mode = await setCantineFactuMode(etabId, body.mode);
+      return NextResponse.json({ mode });
+    }
+
+    if (body.action === "createCantineBrouillons") {
+      const mode =
+        body.mode && isCantineFactuMode(body.mode) ? body.mode : await getCantineFactuMode(etabId);
+      const result = await createBrouillonsCantineFromPassages(etabId, {
+        dateDebut: body.debut,
+        dateFin: body.fin,
+        mode,
+      });
+      return NextResponse.json(result);
+    }
+
     const result = await createPassage(etabId, {
       eleveId: body.eleveId,
       inviteNom: body.inviteNom,
