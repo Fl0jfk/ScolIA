@@ -642,6 +642,41 @@ export default function AbsencesPageClient({
     }
   };
 
+  const reclasserArretMaladie = async (
+    item: AbsenceItem,
+    treatment: "MALADIE" | "ENFANT_MALADE",
+  ) => {
+    const label = treatment === "ENFANT_MALADE" ? "enfant malade" : "arrêt maladie";
+    if (
+      !confirm(
+        `Déclarer cette absence en « ${label} » ?\n\nElle quittera la file direction (prise d’acte) et partira directement au traitement administratif (secrétariat / compta), comme les absences maladie actuelles.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch("/api/absences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          action: "RECLASSER_ARRET_MALADIE",
+          treatment,
+          managerNote: managerNotes[item.id] || "",
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Reclassement impossible.");
+      await fetchItems();
+      setCalendarRefresh((n) => n + 1);
+      alert(
+        `Absence déclarée en ${label} et transmise au traitement. Elle n’apparaît plus dans la file direction.`,
+      );
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Erreur lors du reclassement.");
+    }
+  };
+
   const deleteJustificatif = async (itemId: string) => {
     if (!confirm("Supprimer ce justificatif ?")) return;
     try {
@@ -1377,6 +1412,34 @@ export default function AbsencesPageClient({
                         Reclasser en {resolveAbsenceScope(asRecord(item)) === "ogec" ? "Professeur" : "Personnel OGEC"}
                       </button>
                     </p>
+                    {!isNonDiscretionaryAbsence(asRecord(item)) ? (
+                      <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-600">
+                          Ancienne absence maladie ?
+                        </p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          Si c’était un arrêt maladie (déclaré avant le nouveau circuit), reclassez-la
+                          ici : elle quitte cette liste et part au traitement (secrétariat / compta),
+                          sans choix rattrapage / déduction.
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => reclasserArretMaladie(item, "MALADIE")}
+                            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs"
+                          >
+                            Déclarer en arrêt maladie
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => reclasserArretMaladie(item, "ENFANT_MALADE")}
+                            className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs"
+                          >
+                            Déclarer en enfant malade
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                     {isNonDiscretionaryAbsence(asRecord(item)) ? (
                       <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                         <p className="font-bold">

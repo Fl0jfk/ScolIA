@@ -413,6 +413,7 @@ export async function PATCH(req: Request) {
         "CLOTURER",
         "REOUVRIR",
         "CORRIGER_SCOPE",
+        "RECLASSER_ARRET_MALADIE",
         "MODIFIER_CALENDRIER",
         "TRAITER_ADMIN",
       ].includes(action)
@@ -470,6 +471,7 @@ export async function PATCH(req: Request) {
         action === "VALIDER" ||
         action === "REFUSER" ||
         action === "CORRIGER_SCOPE" ||
+        action === "RECLASSER_ARRET_MALADIE" ||
         action === "MODIFIER_CALENDRIER") &&
       !canManage
     ) {
@@ -837,6 +839,68 @@ export async function PATCH(req: Request) {
           },
         ],
       };
+    } else if (action === "RECLASSER_ARRET_MALADIE") {
+      // Anciennes déclarations libres (avant motif structuré) : la direction
+      // reclasse en maladie / enfant malade → prise d’acte + file traitement.
+      if (current.managerDecision !== "EN_ATTENTE" || current.workflowStatus === "CLOTUREE") {
+        return NextResponse.json(
+          {
+            error:
+              "Seules les absences encore en attente de validation direction peuvent être déclarées en arrêt maladie.",
+          },
+          { status: 400 },
+        );
+      }
+      const treatment =
+        body?.treatment === "ENFANT_MALADE"
+          ? ("ENFANT_MALADE" as const)
+          : body?.treatment === "MALADIE"
+            ? ("MALADIE" as const)
+            : null;
+      if (!treatment) {
+        return NextResponse.json(
+          { error: "Précisez le type : MALADIE ou ENFANT_MALADE." },
+          { status: 400 },
+        );
+      }
+      const decidedAt = new Date().toISOString();
+      const reasonLabel = reasonLabelForNonDiscretionaryTreatment(treatment);
+      const previousReason = String(current.data.reason || "").trim();
+      updated = {
+        ...updated,
+        managerDecision: "VALIDEE",
+        workflowStatus: current.justification?.fileUrl ? "JUSTIFICATIF_DEPOSE" : "A_TRAITER",
+        calendarVisible: true,
+        closedAt: null,
+        hoursTreatment: treatment,
+        staffPreferredTreatment: treatment,
+        staffPreferredMakeupSlots: null,
+        directionConfirmedMakeupSlots: null,
+        makeupSlotsRelanceAt: null,
+        data: {
+          ...updated.data,
+          reason: reasonLabel,
+        },
+        history: [
+          ...(current.history || []),
+          {
+            at: decidedAt,
+            by: actor,
+            action: "RECLASSEMENT_ARRET_MALADIE",
+            note:
+              managerNote ||
+              (previousReason && previousReason.toLowerCase() !== reasonLabel.toLowerCase()
+                ? `Reclassée en ${reasonLabel.toLowerCase()} (motif initial : ${previousReason}).`
+                : `Reclassée en ${reasonLabel.toLowerCase()}.`),
+          },
+          {
+            at: decidedAt,
+            by: actor,
+            action: "DECISION_VALIDEE",
+            note: `Prise d'acte direction — ${reasonLabel.toLowerCase()}. Dossier transmis pour traitement administratif.`,
+          },
+        ],
+      };
     } else if (action === "MODIFIER_CALENDRIER") {
       const displayName = String(body?.displayName ?? current.displayName).trim();
       const reason = String(body?.reason ?? current.data.reason).trim();
@@ -923,7 +987,7 @@ export async function PATCH(req: Request) {
 
     await saveAbsenceRecord(updated);
 
-    if (action === "VALIDER") {
+    if (action === "VALIDER" || action === "RECLASSER_ARRET_MALADIE") {
       if (updated.workflowStatus === "CLOTUREE" && updated.adminTreatedAt) {
         try {
           updated = await applyPostValidationPrivacy(updated, index);
@@ -962,7 +1026,7 @@ export async function PATCH(req: Request) {
 
     return NextResponse.json({
       success: true,
-      ...(action === "VALIDER"
+      ...(action === "VALIDER" || action === "RECLASSER_ARRET_MALADIE"
         ? {
             calendarVisible: updated.calendarVisible === true,
             validationRecipients: validationRecipients ?? [],

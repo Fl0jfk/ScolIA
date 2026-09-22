@@ -36,8 +36,22 @@ export function nonDiscretionaryTreatmentFromReason(
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{M}/gu, "");
-  if (normalized === "maladie") return "MALADIE";
-  if (normalized === "enfant malade" || normalized === "enfants malades") return "ENFANT_MALADE";
+  if (!normalized) return null;
+  if (
+    normalized === "enfant malade" ||
+    normalized === "enfants malades" ||
+    /\benfant[s]?\s+malade/.test(normalized)
+  ) {
+    return "ENFANT_MALADE";
+  }
+  if (
+    normalized === "maladie" ||
+    normalized === "arret maladie" ||
+    normalized === "arrets maladie" ||
+    /\barret[s]?\s*[- ]?\s*maladie\b/.test(normalized)
+  ) {
+    return "MALADIE";
+  }
   return null;
 }
 

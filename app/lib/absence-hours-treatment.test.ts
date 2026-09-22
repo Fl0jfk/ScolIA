@@ -121,12 +121,28 @@ test("motif Maladie / Enfant malade détectés comme non discrétionnaires", () 
     true,
   );
   assert.equal(
+    isNonDiscretionaryAbsence({ data: { reason: "arrêt maladie" } }),
+    true,
+  );
+  assert.equal(
+    isNonDiscretionaryAbsence({ data: { reason: "Arrêt-maladie du 12/03" } }),
+    true,
+  );
+  assert.equal(
+    isNonDiscretionaryAbsence({ data: { reason: "enfant malade (fille)" } }),
+    true,
+  );
+  assert.equal(
     isNonDiscretionaryAbsence({ data: { reason: "Rendez-vous médical" } }),
     false,
   );
   assert.equal(
     forcedHoursTreatmentForNonDiscretionaryAbsence({ data: { reason: "Enfant malade" } }),
     "ENFANT_MALADE",
+  );
+  assert.equal(
+    forcedHoursTreatmentForNonDiscretionaryAbsence({ data: { reason: "arrêt maladie" } }),
+    "MALADIE",
   );
 });
 
