@@ -195,6 +195,42 @@ export const santeAccident = pgTable(
   ],
 );
 
+/**
+ * PAI tenu par l’infirmerie : protocole + traitements + lien document.
+ * Le PDF reste dans `eleve_document` (tiroir santé). Statuts soft — pas de DELETE.
+ */
+export const santePai = pgTable(
+  "sante_pai",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    eleveId: uuid("eleve_id").notNull(),
+    /** brouillon | valide | expire | revoque */
+    statut: text("statut").notNull().default("brouillon"),
+    protocole: text("protocole").notNull().default(""),
+    traitementsAutorises: text("traitements_autorises").notNull().default(""),
+    documentId: uuid("document_id"),
+    dateDebut: date("date_debut"),
+    dateFin: date("date_fin"),
+    valideAt: timestamp("valide_at", { withTimezone: true }),
+    valideParUserId: text("valide_par_user_id"),
+    valideParNom: text("valide_par_nom"),
+    notes: text("notes").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("sante_pai_eleve_idx").on(t.etablissementId, t.eleveId),
+    index("sante_pai_statut_idx").on(t.etablissementId, t.statut),
+    check(
+      "sante_pai_statut_chk",
+      sql`${t.statut} in ('brouillon', 'valide', 'expire', 'revoque')`,
+    ),
+  ],
+);
+
 export const conseilSeance = pgTable(
   "conseil_seance",
   {
@@ -702,6 +738,7 @@ export const socleFaitsSchema = {
   infirmerieFiche,
   santeMedicamentPrise,
   santeAccident,
+  santePai,
   conseilSeance,
   conseilAvis,
   bulletin,
