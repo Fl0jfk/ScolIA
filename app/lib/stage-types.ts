@@ -21,6 +21,9 @@ export const STAGE_S3 = {
   watchersConfig: (schoolYear: string) => `stages/watchers/${schoolYear}.json`,
   /** Challenge OTP connexion préconvention (courte durée). */
   identityOtpChallenge: (challengeId: string) => `stages/identity-otp/${challengeId}.json`,
+  /** Choix des destinataires OTP (adresses masquées, courte durée). */
+  identityRecipientChoice: (sessionId: string) =>
+    `stages/identity-recipient-choice/${sessionId}.json`,
   /** Preuve d'identité post-OTP (session courte pour create / reprise appareil). */
   identityProof: (proofToken: string) => `stages/identity-proof/${proofToken}.json`,
   referentSignature: (externalUserId: string) => `signatures/users/${externalUserId}.png`,
