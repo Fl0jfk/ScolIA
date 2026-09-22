@@ -833,9 +833,9 @@ export const INTRANET_MODULES: IntranetModule[] = [
       id: 52,
       name: "Espace santé",
       img: "",
-      link: "/sante/passages",
+      link: "/sante/espace",
       external: false,
-      description: "Passages infirmerie, PAP et suivi santé des élèves.",
+      description: "Passages, suite de soin, extraits. Bloc infirmerie encore ouvert.",
     },
   },
   {

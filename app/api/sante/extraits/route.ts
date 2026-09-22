@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
-import { requireAppUser } from "@/app/lib/app-session";
 import {
-  closeInfirmeriePassage,
-  listInfirmeriePassagesOuverts,
-  openInfirmeriePassage,
-  searchElevesForInfirmerie,
-} from "@/app/lib/infirmerie-passages-db";
+  SANTE_EXTRAIT_PORTEES,
+  SANTE_EXTRAIT_PORTEE_LABELS,
+  createSanteExtrait,
+  desactiverSanteExtrait,
+  listSanteExtraits,
+  searchElevesForSanteExtrait,
+} from "@/app/lib/sante-extraits-db";
 
 export async function GET(req: Request) {
   const gate = await requireModule("sante");
@@ -19,12 +20,19 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const q = url.searchParams.get("q")?.trim();
   if (q) {
-    const eleves = await searchElevesForInfirmerie(etabId, q);
+    const eleves = await searchElevesForSanteExtrait(etabId, q);
     return NextResponse.json({ eleves });
   }
 
-  const passages = await listInfirmeriePassagesOuverts(etabId);
-  return NextResponse.json({ passages });
+  const portee = url.searchParams.get("portee")?.trim() || undefined;
+  const extraits = await listSanteExtraits(etabId, { portee });
+  return NextResponse.json({
+    portees: SANTE_EXTRAIT_PORTEES.map((p) => ({
+      id: p,
+      label: SANTE_EXTRAIT_PORTEE_LABELS[p],
+    })),
+    extraits,
+  });
 }
 
 export async function POST(req: Request) {
@@ -34,31 +42,23 @@ export async function POST(req: Request) {
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
 
-  const appUser = await requireAppUser();
   const body = (await req.json().catch(() => ({}))) as {
     eleveId?: string;
-    motifCourt?: string;
+    portee?: string;
+    libelle?: string;
   };
 
   try {
-    const auteurNom = appUser.ok
-      ? [appUser.user.firstName, appUser.user.lastName].filter(Boolean).join(" ") ||
-        appUser.user.name ||
-        null
-      : null;
-    const passage = await openInfirmeriePassage(etabId, {
+    const extrait = await createSanteExtrait(etabId, {
       eleveId: String(body.eleveId || ""),
-      motifCourt: body.motifCourt,
-      auteurUserId: appUser.ok ? appUser.user.id : null,
-      auteurNom,
+      portee: String(body.portee || ""),
+      libelle: String(body.libelle || ""),
     });
-    return NextResponse.json({ passage });
+    return NextResponse.json({ extrait });
   } catch (e) {
-    const code = (e as { code?: string })?.code;
-    const status = code === "ALREADY_OPEN" ? 409 : 400;
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Ouverture impossible.", code },
-      { status },
+      { error: e instanceof Error ? e.message : "Création impossible." },
+      { status: 400 },
     );
   }
 }
@@ -73,22 +73,17 @@ export async function PATCH(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     id?: string;
     action?: string;
-    suite?: string;
-    soinsNotes?: string;
   };
-  if (body.action !== "close") {
-    return NextResponse.json({ error: "Action inconnue (close)." }, { status: 400 });
+  if (body.action !== "desactiver") {
+    return NextResponse.json({ error: "Action inconnue (desactiver)." }, { status: 400 });
   }
 
   try {
-    const passage = await closeInfirmeriePassage(etabId, String(body.id || ""), {
-      suite: body.suite,
-      soinsNotes: body.soinsNotes,
-    });
-    return NextResponse.json({ passage });
+    await desactiverSanteExtrait(etabId, String(body.id || ""));
+    return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Clôture impossible." },
+      { error: e instanceof Error ? e.message : "Désactivation impossible." },
       { status: 400 },
     );
   }

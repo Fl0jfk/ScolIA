@@ -74,6 +74,13 @@ export const infirmeriePassage = pgTable(
     arrivee: timestamp("arrivee", { withTimezone: true }).notNull(),
     sortie: timestamp("sortie", { withTimezone: true }),
     motifCourt: text("motif_court").notNull().default(""),
+    /**
+     * Suite du passage (soin), renseignée à la clôture.
+     * repos | retour_cours | renvoi_famille | urgence | autre
+     */
+    suite: text("suite"),
+    /** Ce qui a été fait — reste à l’infirmerie, pas le signal VS. */
+    soinsNotes: text("soins_notes"),
     signalVieScolaire: boolean("signal_vie_scolaire").notNull().default(true),
     auteurUserId: text("auteur_user_id"),
     auteurNom: text("auteur_nom"),
@@ -83,6 +90,10 @@ export const infirmeriePassage = pgTable(
   (t) => [
     index("infirmerie_passage_eleve_idx").on(t.etablissementId, t.eleveId, t.arrivee),
     index("infirmerie_passage_ouverts_idx").on(t.etablissementId, t.sortie),
+    check(
+      "infirmerie_passage_suite_chk",
+      sql`${t.suite} is null or ${t.suite} in ('repos', 'retour_cours', 'renvoi_famille', 'urgence', 'autre')`,
+    ),
   ],
 );
 
@@ -110,6 +121,77 @@ export const santeExtrait = pgTable(
       "sante_extrait_portee_chk",
       sql`${t.portee} in ('cantine', 'eps', 'voyage', 'internat', 'periscolaire')`,
     ),
+  ],
+);
+
+/**
+ * Fiche infirmerie par élève (antécédents utiles à l’établissement).
+ * Pas le dossier du médecin scolaire. Une fiche ouverte par élève.
+ */
+export const infirmerieFiche = pgTable(
+  "infirmerie_fiche",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    eleveId: uuid("eleve_id").notNull(),
+    antecedents: text("antecedents").notNull().default(""),
+    personnesAPrevenir: text("personnes_a_prevenir").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("infirmerie_fiche_eleve_uidx").on(t.etablissementId, t.eleveId),
+  ],
+);
+
+/** Prise de médicament à l’infirmerie. L’ordonnance peut pointer un document. */
+export const santeMedicamentPrise = pgTable(
+  "sante_medicament_prise",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    eleveId: uuid("eleve_id").notNull(),
+    medicament: text("medicament").notNull(),
+    dose: text("dose"),
+    prisAt: timestamp("pris_at", { withTimezone: true }).notNull(),
+    auteurUserId: text("auteur_user_id"),
+    auteurNom: text("auteur_nom"),
+    documentId: uuid("document_id"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("sante_medicament_prise_eleve_idx").on(t.etablissementId, t.eleveId, t.prisAt),
+  ],
+);
+
+/** Registre des accidents. Conservation longue — pas de DELETE de masse. */
+export const santeAccident = pgTable(
+  "sante_accident",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    eleveId: uuid("eleve_id").notNull(),
+    dateAccident: date("date_accident").notNull(),
+    circonstances: text("circonstances").notNull().default(""),
+    soins: text("soins").notNull().default(""),
+    suite: text("suite").notNull().default(""),
+    lieu: text("lieu"),
+    auteurUserId: text("auteur_user_id"),
+    auteurNom: text("auteur_nom"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("sante_accident_eleve_idx").on(t.etablissementId, t.eleveId, t.dateAccident),
+    index("sante_accident_date_idx").on(t.etablissementId, t.dateAccident),
   ],
 );
 
@@ -617,6 +699,9 @@ export const socleFaitsSchema = {
   passage,
   infirmeriePassage,
   santeExtrait,
+  infirmerieFiche,
+  santeMedicamentPrise,
+  santeAccident,
   conseilSeance,
   conseilAvis,
   bulletin,

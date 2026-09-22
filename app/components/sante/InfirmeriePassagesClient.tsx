@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { InfirmeriePassageRow } from "@/app/lib/infirmerie-passages-db";
+import {
+  INFIRMERIE_SUITES,
+  INFIRMERIE_SUITE_LABELS,
+  type InfirmeriePassageRow,
+  type InfirmerieSuite,
+} from "@/app/lib/infirmerie-passages-shared";
 
 type EleveLite = { id: string; nom: string; prenom: string; classe: string | null };
 
@@ -22,6 +27,9 @@ export default function InfirmeriePassagesClient() {
   const [hits, setHits] = useState<EleveLite[]>([]);
   const [selected, setSelected] = useState<EleveLite | null>(null);
   const [motif, setMotif] = useState("");
+  const [closingId, setClosingId] = useState<string | null>(null);
+  const [suite, setSuite] = useState<InfirmerieSuite>("retour_cours");
+  const [soinsNotes, setSoinsNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
@@ -92,7 +100,8 @@ export default function InfirmeriePassagesClient() {
     }
   }
 
-  async function sortir(id: string) {
+  async function confirmerSortie() {
+    if (!closingId) return;
     setBusy(true);
     setError(null);
     setOkMsg(null);
@@ -101,14 +110,24 @@ export default function InfirmeriePassagesClient() {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, action: "close" }),
+        body: JSON.stringify({
+          id: closingId,
+          action: "close",
+          suite,
+          soinsNotes,
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
         setError(data.error || "Clôture impossible.");
         return;
       }
-      setOkMsg("Passage clos — l’élève n’est plus signalé à l’infirmerie.");
+      setOkMsg(
+        `Passage clos — ${INFIRMERIE_SUITE_LABELS[suite]}. L’élève n’est plus signalé à l’infirmerie.`,
+      );
+      setClosingId(null);
+      setSoinsNotes("");
+      setSuite("retour_cours");
       await load();
     } finally {
       setBusy(false);
@@ -200,32 +219,79 @@ export default function InfirmeriePassagesClient() {
         ) : (
           <ul className="mt-3 divide-y divide-slate-100">
             {passages.map((p) => (
-              <li
-                key={p.id}
-                className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <p className="font-semibold text-slate-900">
-                    {p.elevePrenom} {p.eleveNom}
-                    {p.eleveClasse ? (
-                      <span className="ml-2 text-xs font-medium text-slate-500">
-                        {p.eleveClasse}
-                      </span>
-                    ) : null}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Arrivée {formatHeure(p.arrivee)}
-                    {p.motifCourt ? ` · ${p.motifCourt}` : ""}
-                  </p>
+              <li key={p.id} className="space-y-2 py-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-900">
+                      {p.elevePrenom} {p.eleveNom}
+                      {p.eleveClasse ? (
+                        <span className="ml-2 text-xs font-medium text-slate-500">
+                          {p.eleveClasse}
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Arrivée {formatHeure(p.arrivee)}
+                      {p.motifCourt ? ` · ${p.motifCourt}` : ""}
+                    </p>
+                  </div>
+                  {closingId !== p.id ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setClosingId(p.id);
+                        setSuite("retour_cours");
+                        setSoinsNotes("");
+                      }}
+                      className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Sortie + suite
+                    </button>
+                  ) : null}
                 </div>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void sortir(p.id)}
-                  className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  Sortie infirmerie
-                </button>
+                {closingId === p.id ? (
+                  <div className="rounded-2xl border border-rose-100 bg-rose-50/50 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-rose-950">
+                      Suite du passage (reste à l’infirmerie)
+                    </p>
+                    <select
+                      value={suite}
+                      onChange={(e) => setSuite(e.target.value as InfirmerieSuite)}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    >
+                      {INFIRMERIE_SUITES.map((s) => (
+                        <option key={s} value={s}>
+                          {INFIRMERIE_SUITE_LABELS[s]}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      value={soinsNotes}
+                      onChange={(e) => setSoinsNotes(e.target.value)}
+                      placeholder="Soins / notes (optionnel)"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void confirmerSortie()}
+                        className="rounded-xl bg-rose-800 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                      >
+                        Confirmer la sortie
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setClosingId(null)}
+                        className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>

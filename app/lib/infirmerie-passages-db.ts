@@ -4,24 +4,54 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, infirmeriePassage } from "@/db/schema";
 import { sqlPersonNameMatches } from "@/app/lib/person-name-search";
+import {
+  isInfirmerieSuite,
+  type InfirmeriePassageRow,
+  type InfirmerieSuite,
+} from "@/app/lib/infirmerie-passages-shared";
 
-export type InfirmeriePassageRow = {
-  id: string;
-  eleveId: string;
-  eleveNom: string;
-  elevePrenom: string;
-  eleveClasse: string | null;
-  arrivee: string;
-  sortie: string | null;
-  motifCourt: string;
-  signalVieScolaire: boolean;
-  auteurNom: string | null;
-};
+export {
+  INFIRMERIE_SUITES,
+  INFIRMERIE_SUITE_LABELS,
+  isInfirmerieSuite,
+  type InfirmeriePassageRow,
+  type InfirmerieSuite,
+} from "@/app/lib/infirmerie-passages-shared";
 
 function toIso(d: Date | string | null | undefined): string | null {
   if (!d) return null;
   if (typeof d === "string") return d;
   return d.toISOString();
+}
+
+function mapRow(r: {
+  id: string;
+  eleveId: string;
+  eleveNom: string;
+  elevePrenom: string;
+  eleveClasse: string | null;
+  arrivee: Date | string;
+  sortie: Date | string | null;
+  motifCourt: string;
+  suite: string | null;
+  soinsNotes: string | null;
+  signalVieScolaire: boolean;
+  auteurNom: string | null;
+}): InfirmeriePassageRow {
+  return {
+    id: r.id,
+    eleveId: r.eleveId,
+    eleveNom: r.eleveNom,
+    elevePrenom: r.elevePrenom,
+    eleveClasse: r.eleveClasse,
+    arrivee: toIso(r.arrivee) ?? "",
+    sortie: toIso(r.sortie),
+    motifCourt: r.motifCourt,
+    suite: isInfirmerieSuite(r.suite) ? r.suite : null,
+    soinsNotes: r.soinsNotes,
+    signalVieScolaire: r.signalVieScolaire,
+    auteurNom: r.auteurNom,
+  };
 }
 
 export async function listInfirmeriePassagesOuverts(
@@ -38,6 +68,8 @@ export async function listInfirmeriePassagesOuverts(
       arrivee: infirmeriePassage.arrivee,
       sortie: infirmeriePassage.sortie,
       motifCourt: infirmeriePassage.motifCourt,
+      suite: infirmeriePassage.suite,
+      soinsNotes: infirmeriePassage.soinsNotes,
       signalVieScolaire: infirmeriePassage.signalVieScolaire,
       auteurNom: infirmeriePassage.auteurNom,
     })
@@ -54,18 +86,7 @@ export async function listInfirmeriePassagesOuverts(
     )
     .orderBy(desc(infirmeriePassage.arrivee));
 
-  return rows.map((r) => ({
-    id: r.id,
-    eleveId: r.eleveId,
-    eleveNom: r.eleveNom,
-    elevePrenom: r.elevePrenom,
-    eleveClasse: r.eleveClasse,
-    arrivee: toIso(r.arrivee) ?? "",
-    sortie: toIso(r.sortie),
-    motifCourt: r.motifCourt,
-    signalVieScolaire: r.signalVieScolaire,
-    auteurNom: r.auteurNom,
-  }));
+  return rows.map(mapRow);
 }
 
 export async function searchElevesForInfirmerie(
@@ -98,9 +119,6 @@ export async function searchElevesForInfirmerie(
     .limit(20);
 }
 
-/**
- * Ouvre un passage. Refuse s’il en existe déjà un ouvert pour l’élève (upsert interdit → 409 métier).
- */
 export async function openInfirmeriePassage(
   etablissementId: string,
   opts: {
@@ -160,32 +178,34 @@ export async function openInfirmeriePassage(
       arrivee: infirmeriePassage.arrivee,
       sortie: infirmeriePassage.sortie,
       motifCourt: infirmeriePassage.motifCourt,
+      suite: infirmeriePassage.suite,
+      soinsNotes: infirmeriePassage.soinsNotes,
       signalVieScolaire: infirmeriePassage.signalVieScolaire,
       auteurNom: infirmeriePassage.auteurNom,
     });
 
-  return {
-    id: inserted!.id,
-    eleveId: inserted!.eleveId,
+  return mapRow({
+    ...inserted!,
     eleveNom: eleveRow.nom,
     elevePrenom: eleveRow.prenom,
     eleveClasse: eleveRow.classe,
-    arrivee: toIso(inserted!.arrivee) ?? "",
-    sortie: toIso(inserted!.sortie),
-    motifCourt: inserted!.motifCourt,
-    signalVieScolaire: inserted!.signalVieScolaire,
-    auteurNom: inserted!.auteurNom,
-  };
+  });
 }
 
-/** Clôture le passage ouvert. Upsert par id + etablissement_id. */
+/** Clôture avec suite (soin). Upsert par id + etablissement_id. */
 export async function closeInfirmeriePassage(
   etablissementId: string,
   passageId: string,
+  opts?: { suite?: string; soinsNotes?: string },
 ): Promise<InfirmeriePassageRow> {
   const db = getDb();
   const id = passageId.trim();
   if (!id) throw new Error("Passage requis.");
+
+  const suiteRaw = (opts?.suite ?? "").trim();
+  if (!suiteRaw || !isInfirmerieSuite(suiteRaw)) {
+    throw new Error("Suite requise (repos, retour en cours, renvoi famille, urgence…).");
+  }
 
   const [existing] = await db
     .select({
@@ -204,7 +224,12 @@ export async function closeInfirmeriePassage(
   const now = new Date();
   await db
     .update(infirmeriePassage)
-    .set({ sortie: now, updatedAt: now })
+    .set({
+      sortie: now,
+      suite: suiteRaw,
+      soinsNotes: (opts?.soinsNotes ?? "").trim() || null,
+      updatedAt: now,
+    })
     .where(
       and(eq(infirmeriePassage.etablissementId, etablissementId), eq(infirmeriePassage.id, id)),
     );
@@ -219,6 +244,8 @@ export async function closeInfirmeriePassage(
       arrivee: infirmeriePassage.arrivee,
       sortie: infirmeriePassage.sortie,
       motifCourt: infirmeriePassage.motifCourt,
+      suite: infirmeriePassage.suite,
+      soinsNotes: infirmeriePassage.soinsNotes,
       signalVieScolaire: infirmeriePassage.signalVieScolaire,
       auteurNom: infirmeriePassage.auteurNom,
     })
@@ -232,16 +259,5 @@ export async function closeInfirmeriePassage(
     )
     .limit(1);
 
-  return {
-    id: row!.id,
-    eleveId: row!.eleveId,
-    eleveNom: row!.eleveNom,
-    elevePrenom: row!.elevePrenom,
-    eleveClasse: row!.eleveClasse,
-    arrivee: toIso(row!.arrivee) ?? "",
-    sortie: toIso(row!.sortie),
-    motifCourt: row!.motifCourt,
-    signalVieScolaire: row!.signalVieScolaire,
-    auteurNom: row!.auteurNom,
-  };
+  return mapRow(row!);
 }
