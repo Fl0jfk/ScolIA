@@ -1,12 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
 import type {
   StagesHubBoard,
   StagesHubBoardCard,
   StagesHubPermissions,
 } from "@/app/components/stages/stages-hub-types";
+
+type SecteurFilter = "all" | "ecole" | "college" | "lycee";
+
+const SECTEUR_OPTIONS: Array<{ value: SecteurFilter; label: string }> = [
+  { value: "all", label: "Tous les établissements" },
+  { value: "ecole", label: "École" },
+  { value: "college", label: "Collège" },
+  { value: "lycee", label: "Lycée" },
+];
 
 function studentLabel(c: StagesHubBoardCard): string {
   return (
@@ -49,6 +58,16 @@ function kindBadgeClass(kind: string | null | undefined): string {
     default:
       return "bg-emerald-100 text-emerald-900 border-emerald-200";
   }
+}
+
+function matchesSecteur(c: StagesHubBoardCard, secteur: SecteurFilter): boolean {
+  if (secteur === "all") return true;
+  return c.secteur === secteur;
+}
+
+function matchesClass(c: StagesHubBoardCard, className: string): boolean {
+  if (!className || className === "all") return true;
+  return String(c.className || "").trim() === className;
 }
 
 function BoardAvatar({ name, photoUrl }: { name: string; photoUrl?: string | null }) {
@@ -165,18 +184,75 @@ export default function StagesBoardPanel({
   onLoadDetail: (id: string) => void;
 }) {
   const seeDeposits = Boolean(permissions?.canSeeAdminDepositQueue);
+  const [secteur, setSecteur] = useState<SecteurFilter>("all");
+  const [className, setClassName] = useState("all");
+
+  const allBoardCards = useMemo(() => {
+    const list = [...(board.adminQueue || []), ...(board.signaturesPending || [])];
+    const seen = new Set<string>();
+    return list.filter((c) => {
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
+  }, [board.adminQueue, board.signaturesPending]);
+
+  const availableSecteurs = useMemo(() => {
+    const set = new Set<SecteurFilter>();
+    for (const c of allBoardCards) {
+      if (c.secteur === "ecole" || c.secteur === "college" || c.secteur === "lycee") {
+        set.add(c.secteur);
+      }
+    }
+    return set;
+  }, [allBoardCards]);
+
+  const classOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const c of allBoardCards) {
+      if (!matchesSecteur(c, secteur)) continue;
+      const cls = String(c.className || "").trim();
+      if (cls) names.add(cls);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+  }, [allBoardCards, secteur]);
+
+  useEffect(() => {
+    if (className !== "all" && !classOptions.includes(className)) {
+      setClassName("all");
+    }
+  }, [className, classOptions]);
+
+  const filteredAdminQueue = useMemo(
+    () =>
+      (board.adminQueue || []).filter(
+        (c) => matchesSecteur(c, secteur) && matchesClass(c, className),
+      ),
+    [board.adminQueue, secteur, className],
+  );
+  const filteredSignatures = useMemo(
+    () =>
+      (board.signaturesPending || []).filter(
+        (c) => matchesSecteur(c, secteur) && matchesClass(c, className),
+      ),
+    [board.signaturesPending, secteur, className],
+  );
+
   const signedCount = board.counts.signed ?? 0;
   const kpiCards: Array<[string, number]> = seeDeposits
     ? [
-        ["Dépôts à valider", board.counts.adminQueue ?? 0],
-        ["Signatures en cours", board.counts.signaturesPending ?? 0],
+        ["Dépôts à valider", filteredAdminQueue.length],
+        ["Signatures en cours", filteredSignatures.length],
         ["Conventions signées", signedCount],
       ]
     : [
-        ["Signatures en cours", board.counts.signaturesPending ?? 0],
+        ["Signatures en cours", filteredSignatures.length],
         ["À signer (moi)", board.counts.myPendingSignatures ?? 0],
         ["Conventions signées", signedCount],
       ];
+
+  const selectCls =
+    "rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm focus:border-[#2F6B4A] focus:outline-none focus:ring-2 focus:ring-[#2F6B4A]/20";
 
   return (
     <div data-tour="stages-board" className="space-y-8">
@@ -189,6 +265,62 @@ export default function StagesBoardPanel({
           </p>
         </div>
       )}
+
+      <div className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end">
+        <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-xs font-semibold text-stone-600">
+          Établissement
+          <select
+            className={selectCls}
+            value={secteur}
+            onChange={(e) => {
+              setSecteur(e.target.value as SecteurFilter);
+              setClassName("all");
+            }}
+          >
+            {SECTEUR_OPTIONS.map((opt) => (
+              <option
+                key={opt.value}
+                value={opt.value}
+                disabled={
+                  opt.value !== "all" && !availableSecteurs.has(opt.value)
+                }
+              >
+                {opt.label}
+                {opt.value !== "all" && !availableSecteurs.has(opt.value)
+                  ? " (aucun)"
+                  : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-xs font-semibold text-stone-600">
+          Classe
+          <select
+            className={selectCls}
+            value={className}
+            onChange={(e) => setClassName(e.target.value)}
+          >
+            <option value="all">Toutes les classes</option>
+            {classOptions.map((cls) => (
+              <option key={cls} value={cls}>
+                {cls}
+              </option>
+            ))}
+          </select>
+        </label>
+        {(secteur !== "all" || className !== "all") && (
+          <button
+            type="button"
+            className="text-xs font-semibold text-[#2F6B4A] underline"
+            onClick={() => {
+              setSecteur("all");
+              setClassName("all");
+            }}
+          >
+            Réinitialiser les filtres
+          </button>
+        )}
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {kpiCards.map(([label, n]) => (
@@ -203,8 +335,12 @@ export default function StagesBoardPanel({
         {seeDeposits && (
           <BoardList
             title="Dépôts à valider — stages & conventions"
-            empty="Aucun dossier en attente de validation pour le moment."
-            items={board.adminQueue}
+            empty={
+              secteur !== "all" || className !== "all"
+                ? "Aucun dossier pour ce filtre."
+                : "Aucun dossier en attente de validation pour le moment."
+            }
+            items={filteredAdminQueue}
             tone="amber"
             onLoadDetail={onLoadDetail}
             showDepositKind
@@ -220,8 +356,12 @@ export default function StagesBoardPanel({
 
         <BoardList
           title="Signatures en cours"
-          empty="Aucune signature en cours."
-          items={board.signaturesPending || []}
+          empty={
+            secteur !== "all" || className !== "all"
+              ? "Aucune signature pour ce filtre."
+              : "Aucune signature en cours."
+          }
+          items={filteredSignatures}
           tone="sky"
           onLoadDetail={onLoadDetail}
         />

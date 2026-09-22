@@ -32,6 +32,8 @@ import {
 import { STAGE_CONVENTION_STATUS_LABELS, currentStageSchoolYear } from "@/app/lib/stage-types";
 import { loadElevesRegistry } from "@/app/lib/eleves-registry";
 import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
+import { inferSecteurFromFolderName } from "@/app/lib/onedrive-eleves";
+import type { Secteur } from "@/app/lib/onedrive-eleves-types";
 
 function normalizePersonPart(value: string): string {
   return value
@@ -51,6 +53,24 @@ function depositKindForConvention(c: {
   if (c.tutorEmailChangeRequest) return "E-mail tuteur";
   if (c.status === "convention_deposited") return "Convention";
   return "Stage";
+}
+
+function resolveConventionSecteur(params: {
+  className?: string;
+  level?: string;
+  eleveSecteur?: string | null;
+}): Secteur | null {
+  const explicit = String(params.eleveSecteur || "")
+    .trim()
+    .toLowerCase();
+  if (explicit === "ecole" || explicit === "college" || explicit === "lycee") {
+    return explicit;
+  }
+  return (
+    inferSecteurFromFolderName(params.className || "") ||
+    inferSecteurFromFolderName(params.level || "") ||
+    null
+  );
 }
 
 export async function GET() {
@@ -126,11 +146,13 @@ export async function GET() {
     const mapBoardCard = (
       c: (typeof activeConventions)[number],
       photoByConventionId: Record<string, string>,
+      secteurByConventionId: Record<string, Secteur | null>,
     ) => ({
       id: c.id,
       studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),
       companyName: c.company.name,
       className: c.student.className,
+      secteur: secteurByConventionId[c.id] ?? null,
       status: c.status,
       photoUrl: photoByConventionId[c.id] || null,
       depositKind: depositKindForConvention(c),
@@ -162,6 +184,7 @@ export async function GET() {
       photoKey?: string | null;
       conventionId: string;
     }> = [];
+    const secteurByConventionId: Record<string, Secteur | null> = {};
     for (const c of boardSlice) {
       const ine = c.ocrMeta?.matchedEleveIne?.trim().toUpperCase() || "";
       const fromIne = ine ? byIne.get(ine) : undefined;
@@ -169,6 +192,11 @@ export async function GET() {
         `${normalizePersonPart(c.student.lastName)}§${normalizePersonPart(c.student.firstName)}`,
       );
       const eleve = fromIne || fromName;
+      secteurByConventionId[c.id] = resolveConventionSecteur({
+        className: c.student.className,
+        level: c.student.level,
+        eleveSecteur: eleve?.secteur,
+      });
       if (!eleve?.id) continue;
       elevesForPhotos.push({
         id: eleve.id,
@@ -221,10 +249,12 @@ export async function GET() {
       },
       myPendingSignatures,
       pendingOffers: [],
-      adminQueue: adminQueue.slice(0, 30).map((c) => mapBoardCard(c, photoByConventionId)),
+      adminQueue: adminQueue
+        .slice(0, 30)
+        .map((c) => mapBoardCard(c, photoByConventionId, secteurByConventionId)),
       signaturesPending: signaturesPending
         .slice(0, 30)
-        .map((c) => mapBoardCard(c, photoByConventionId)),
+        .map((c) => mapBoardCard(c, photoByConventionId, secteurByConventionId)),
       conventions: activeConventions.slice(0, 100).map((c) => ({
         id: c.id,
         studentName: `${c.student.firstName} ${c.student.lastName}`.trim(),

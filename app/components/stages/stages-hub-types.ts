@@ -26,6 +26,8 @@ export type StagesHubBoardCard = {
   studentName?: string;
   companyName?: string;
   className?: string;
+  /** ecole | college | lycee — pour filtre tableau de bord. */
+  secteur?: "ecole" | "college" | "lycee" | null;
   status: string;
   /** Photo élève (URL signée), si disponible. */
   photoUrl?: string | null;
