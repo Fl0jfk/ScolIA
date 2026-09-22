@@ -45,6 +45,18 @@ export function occupancyTagToAppelBadge(
         detailFr: fact.detail?.motif ? String(fact.detail.motif) : "Période de stage / PFMP.",
         source: fact.source,
       };
+    case "a_infirmerie":
+      return {
+        eleveId: fact.eleveId,
+        tag,
+        labelFr: "À l’infirmerie",
+        excludeFromBulletin: true,
+        suggestedStatut: "dispense",
+        detailFr: fact.detail?.motif
+          ? String(fact.detail.motif)
+          : "Passage infirmerie ouvert — pas une absence bulletin.",
+        source: fact.source,
+      };
     case "absent_vs":
       return {
         eleveId: fact.eleveId,
@@ -53,6 +65,16 @@ export function occupancyTagToAppelBadge(
         excludeFromBulletin: false,
         suggestedStatut: "absent",
         detailFr: fact.detail?.motif ? String(fact.detail.motif) : undefined,
+        source: fact.source,
+      };
+    case "hors_etablissement":
+      return {
+        eleveId: fact.eleveId,
+        tag,
+        labelFr: "Hors établissement",
+        excludeFromBulletin: false,
+        suggestedStatut: "absent",
+        detailFr: "Dernier passage portail = sortie.",
         source: fact.source,
       };
     case "internat":

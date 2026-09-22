@@ -47,6 +47,44 @@ test("merge — stage bat absent_vs générique", () => {
   assert.equal(isExcludedFromBulletinAbsence(fact.tag), false);
 });
 
+test("merge — infirmerie bat absent_vs et hors établissement", () => {
+  const fact = mergeOccupancySignals({
+    eleveId: "e1",
+    date: "2026-03-10",
+    signals: [
+      { eleveId: "e1", tag: "hors_etablissement", source: "passage:p1" },
+      { eleveId: "e1", tag: "absent_vs", source: "vs_absence:a1" },
+      {
+        eleveId: "e1",
+        tag: "a_infirmerie",
+        source: "infirmerie_passage:i1",
+        detail: { infirmeriePassageId: "i1", motif: "maux de tête" },
+      },
+    ],
+  });
+  assert.equal(fact.tag, "a_infirmerie");
+  assert.equal(isExcludedFromBulletinAbsence(fact.tag), true);
+  assert.equal(fact.detail?.infirmeriePassageId, "i1");
+});
+
+test("merge — hors établissement bat en_cours", () => {
+  const fact = mergeOccupancySignals({
+    eleveId: "e1",
+    date: "2026-03-10",
+    signals: [
+      {
+        eleveId: "e1",
+        tag: "hors_etablissement",
+        source: "passage:p2",
+        detail: { passageId: "p2", sens: "sortie", lieu: "portail" },
+      },
+    ],
+    defaultTag: "en_cours",
+  });
+  assert.equal(fact.tag, "hors_etablissement");
+  assert.equal(isExcludedFromBulletinAbsence(fact.tag), false);
+});
+
 test("merge — défaut en_cours si aucun signal", () => {
   const fact = mergeOccupancySignals({
     eleveId: "e1",

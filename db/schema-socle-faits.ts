@@ -20,7 +20,6 @@ import {
 } from "drizzle-orm/pg-core";
 import { etablissement } from "./etablissement-table";
 import { edtCreneau, encaissement, facture, noteMatiere, notePeriode } from "./schema-charlemagne-p1";
-import { travel } from "./schema-ent-relational";
 
 /** Porte ou self. Le repas pris = un passage `lieu = self`, pas une seconde table. */
 export const passage = pgTable(
@@ -561,7 +560,7 @@ export const depense = pgTable(
     montant: numeric("montant", { precision: 12, scale: 2 }).notNull(),
     /** prevue | payee */
     statut: text("statut").notNull().default("prevue"),
-    travelId: text("travel_id").references(() => travel.id, { onDelete: "set null" }),
+    travelId: text("travel_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

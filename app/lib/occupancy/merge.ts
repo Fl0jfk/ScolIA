@@ -9,7 +9,7 @@ import {
 
 /**
  * Fusionne les signaux d'un élève pour une date.
- * Priorité : en_sortie > en_stage > absent_vs > internat > en_cours > inconnu.
+ * Priorité : en_sortie > en_stage > a_infirmerie > absent_vs > hors_etablissement > internat > en_cours > inconnu.
  */
 export function mergeOccupancySignals(opts: {
   eleveId: string;

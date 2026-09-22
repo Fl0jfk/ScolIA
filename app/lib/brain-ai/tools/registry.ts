@@ -86,8 +86,8 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "get_presence_jour",
     description:
-      "Où est l’élève / la classe aujourd’hui (occupancy) : en_sortie, absent_vs, en_stage, en_cours… " +
-      "en_sortie ≠ absence bulletin. Params : eleveId | query | classe, date optionnelle.",
+      "Où est l’élève / la classe aujourd’hui (occupancy) : en_sortie, en_stage, a_infirmerie, absent_vs, hors_etablissement, en_cours… " +
+      "en_sortie / a_infirmerie ≠ absence bulletin. Params : eleveId | query | classe, date optionnelle.",
     parameters: {
       type: "object",
       properties: {

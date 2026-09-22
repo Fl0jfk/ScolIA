@@ -39,6 +39,24 @@ test("feuille du jour — absent_vs ≠ en_sortie", () => {
   assert.match(row.labelFr, /absent/i);
 });
 
+test("feuille du jour — a_infirmerie ≠ bulletin", () => {
+  const row = buildFeuilleDuJourRow({
+    eleveId: "e3",
+    nom: "SOIN",
+    prenom: "Clara",
+    fact: {
+      eleveId: "e3",
+      tag: "a_infirmerie",
+      source: "infirmerie_passage:i1",
+      detail: { motif: "Maux de tête" },
+    },
+  });
+  assert.equal(row.tag, "a_infirmerie");
+  assert.equal(row.excludeFromBulletin, true);
+  assert.match(row.explanationFr, /infirmerie/i);
+  assert.ok(assertSortieNotBulletin("a_infirmerie"));
+});
+
 test("feuille du jour — résumé + tri", () => {
   const rows = sortFeuilleDuJourRows([
     buildFeuilleDuJourRow({
@@ -59,12 +77,28 @@ test("feuille du jour — résumé + tri", () => {
       prenom: "B",
       fact: { eleveId: "b", tag: "absent_vs", source: "vs:y" },
     }),
+    buildFeuilleDuJourRow({
+      eleveId: "d",
+      nom: "D",
+      prenom: "D",
+      fact: { eleveId: "d", tag: "a_infirmerie", source: "infirmerie:z" },
+    }),
+    buildFeuilleDuJourRow({
+      eleveId: "e",
+      nom: "E",
+      prenom: "E",
+      fact: { eleveId: "e", tag: "hors_etablissement", source: "passage:p" },
+    }),
   ]);
   assert.equal(rows[0]!.tag, "en_sortie");
-  assert.equal(rows[1]!.tag, "absent_vs");
-  assert.equal(rows[2]!.tag, "en_cours");
+  assert.equal(rows[1]!.tag, "a_infirmerie");
+  assert.equal(rows[2]!.tag, "absent_vs");
+  assert.equal(rows[3]!.tag, "hors_etablissement");
+  assert.equal(rows[4]!.tag, "en_cours");
   const s = summarizeFeuilleDuJour(rows);
-  assert.equal(s.total, 3);
+  assert.equal(s.total, 5);
   assert.equal(s.enSortie, 1);
   assert.equal(s.absentVs, 1);
+  assert.equal(s.aInfirmerie, 1);
+  assert.equal(s.horsEtablissement, 1);
 });

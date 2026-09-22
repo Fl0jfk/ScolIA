@@ -28,6 +28,8 @@ export type FeuilleDuJourSummary = {
   enSortie: number;
   absentVs: number;
   enStage: number;
+  aInfirmerie: number;
+  horsEtablissement: number;
   autres: number;
 };
 
@@ -61,14 +63,26 @@ export function summarizeFeuilleDuJour(rows: FeuilleDuJourRow[]): FeuilleDuJourS
   let enSortie = 0;
   let absentVs = 0;
   let enStage = 0;
+  let aInfirmerie = 0;
+  let horsEtablissement = 0;
   let autres = 0;
   for (const r of rows) {
     if (r.tag === "en_sortie") enSortie += 1;
     else if (r.tag === "absent_vs") absentVs += 1;
     else if (r.tag === "en_stage") enStage += 1;
+    else if (r.tag === "a_infirmerie") aInfirmerie += 1;
+    else if (r.tag === "hors_etablissement") horsEtablissement += 1;
     else autres += 1;
   }
-  return { total: rows.length, enSortie, absentVs, enStage, autres };
+  return {
+    total: rows.length,
+    enSortie,
+    absentVs,
+    enStage,
+    aInfirmerie,
+    horsEtablissement,
+    autres,
+  };
 }
 
 /** Ordre d’affichage : anomalies / hors les murs d’abord, en_cours à la fin. */
@@ -79,16 +93,20 @@ export function sortFeuilleDuJourRows(rows: FeuilleDuJourRow[]): FeuilleDuJourRo
         return 0;
       case "en_stage":
         return 1;
-      case "absent_vs":
+      case "a_infirmerie":
         return 2;
-      case "internat":
+      case "absent_vs":
         return 3;
-      case "inconnu":
+      case "hors_etablissement":
         return 4;
-      case "en_cours":
+      case "internat":
         return 5;
-      default:
+      case "inconnu":
         return 6;
+      case "en_cours":
+        return 7;
+      default:
+        return 8;
     }
   };
   return [...rows].sort((a, b) => {
@@ -99,5 +117,5 @@ export function sortFeuilleDuJourRows(rows: FeuilleDuJourRow[]): FeuilleDuJourRo
 }
 
 export function assertSortieNotBulletin(tag: OccupancyTag): boolean {
-  return isExcludedFromBulletinAbsence(tag) === (tag === "en_sortie");
+  return isExcludedFromBulletinAbsence(tag) === (tag === "en_sortie" || tag === "a_infirmerie");
 }

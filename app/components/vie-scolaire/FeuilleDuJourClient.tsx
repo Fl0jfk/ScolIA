@@ -14,8 +14,12 @@ function tagClass(tag: string): string {
       return "bg-sky-50 text-sky-900 border-sky-200";
     case "en_stage":
       return "bg-violet-50 text-violet-900 border-violet-200";
+    case "a_infirmerie":
+      return "bg-rose-50 text-rose-900 border-rose-200";
     case "absent_vs":
       return "bg-amber-50 text-amber-950 border-amber-200";
+    case "hors_etablissement":
+      return "bg-orange-50 text-orange-950 border-orange-200";
     case "internat":
       return "bg-indigo-50 text-indigo-900 border-indigo-200";
     case "en_cours":
@@ -158,6 +162,16 @@ export default function FeuilleDuJourClient() {
           {summary.enStage > 0 ? (
             <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-violet-900">
               {summary.enStage} en stage
+            </span>
+          ) : null}
+          {summary.aInfirmerie > 0 ? (
+            <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-900">
+              {summary.aInfirmerie} à l’infirmerie
+            </span>
+          ) : null}
+          {summary.horsEtablissement > 0 ? (
+            <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-orange-950">
+              {summary.horsEtablissement} hors établissement
             </span>
           ) : null}
         </div>

@@ -182,8 +182,12 @@ export function explainOccupancyTag(tag: OccupancyTag): string {
       return "En sortie scolaire (participation voyage) — ce n’est pas une absence bulletin.";
     case "en_stage":
       return "En période de stage / PFMP.";
+    case "a_infirmerie":
+      return "À l’infirmerie — ce n’est pas une absence bulletin.";
     case "absent_vs":
       return "Absent au registre vie scolaire (accueil, appel, justif…).";
+    case "hors_etablissement":
+      return "Dernier passage portail = sortie — hors des murs.";
     case "internat":
       return "Présence / signal internat (couverture souvent partielle).";
     case "en_cours":

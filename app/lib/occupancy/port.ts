@@ -4,7 +4,9 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, eleveScolarite } from "@/db/schema";
 import { listAbsenceSignalsOnDate } from "./absences-read";
+import { listInfirmerieSignalsOnDate } from "./infirmerie-read";
 import { factsByEleveId, mergeCoverage, mergeOccupancySignals } from "./merge";
+import { listPassagePortailSignalsOnDate } from "./passage-read";
 import { listTravelPresenceOnDate, travelRowsToSignals } from "./travels-read";
 import type { OccupancyFact, OccupancyResult, OccupancySignal } from "./types";
 
@@ -135,6 +137,7 @@ async function resolveTargetEleveIds(opts: OccupancyQuery): Promise<{
 /**
  * Lecture unique de présence pour UI / famille filtrée / IA.
  * **Zéro** INSERT `vs_absence_eleve`. Internat nominatif = hors lot (coverage partial).
+ * Passage portail + infirmerie ouverte = faits live.
  */
 export async function occupancy(opts: OccupancyQuery): Promise<OccupancyResult> {
   const { eleveIds, liveClasseByEleve, coverageNote } = await resolveTargetEleveIds(opts);
@@ -151,21 +154,37 @@ export async function occupancy(opts: OccupancyQuery): Promise<OccupancyResult> 
 
   const filterIds = eleveIds.length > 0 ? eleveIds : undefined;
 
-  const [travelPresence, absenceSignals] = await Promise.all([
-    listTravelPresenceOnDate({
-      etablissementId: opts.etablissementId,
-      date: opts.date,
-      eleveIds: filterIds,
-    }),
-    listAbsenceSignalsOnDate({
-      etablissementId: opts.etablissementId,
-      date: opts.date,
-      eleveIds: filterIds,
-    }),
-  ]);
+  const [travelPresence, absenceSignals, infirmerieSignals, passageSignals] =
+    await Promise.all([
+      listTravelPresenceOnDate({
+        etablissementId: opts.etablissementId,
+        date: opts.date,
+        eleveIds: filterIds,
+      }),
+      listAbsenceSignalsOnDate({
+        etablissementId: opts.etablissementId,
+        date: opts.date,
+        eleveIds: filterIds,
+      }),
+      listInfirmerieSignalsOnDate({
+        etablissementId: opts.etablissementId,
+        date: opts.date,
+        eleveIds: filterIds,
+      }),
+      listPassagePortailSignalsOnDate({
+        etablissementId: opts.etablissementId,
+        date: opts.date,
+        eleveIds: filterIds,
+      }),
+    ]);
 
   const travelSignals = travelRowsToSignals(travelPresence.rows, liveClasseByEleve);
-  const allSignals: OccupancySignal[] = [...travelSignals, ...absenceSignals];
+  const allSignals: OccupancySignal[] = [
+    ...travelSignals,
+    ...absenceSignals,
+    ...infirmerieSignals,
+    ...passageSignals,
+  ];
 
   const targetIds =
     eleveIds.length > 0
@@ -184,7 +203,6 @@ export async function occupancy(opts: OccupancyQuery): Promise<OccupancyResult> 
   const coverages = [
     coverageNote,
     travelPresence.unmatched.length > 0 ? ("partial" as const) : ("complete" as const),
-    // Internat nominatif non branché → partial assumé si on élargit plus tard.
   ];
 
   return {

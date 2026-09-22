@@ -50,3 +50,14 @@ test("en_sortie — expliqué comme sortie, pas absence bulletin", () => {
   assert.match(text, /pas une absence bulletin/i);
   assert.doesNotMatch(text, /malade|justif/i);
 });
+
+test("a_infirmerie — expliqué, pas absence bulletin", () => {
+  const text = explainOccupancyTag("a_infirmerie");
+  assert.match(text, /infirmerie/i);
+  assert.match(text, /pas une absence bulletin/i);
+});
+
+test("hors_etablissement — dernier passage portail", () => {
+  const text = explainOccupancyTag("hors_etablissement");
+  assert.match(text, /portail/i);
+});

@@ -29,6 +29,29 @@ test("appel occupancy — absent_vs ≠ en_sortie", () => {
   assert.equal(sick.labelFr, "Déjà signalé absent");
 });
 
+test("appel occupancy — a_infirmerie exclut bulletin + dispense", () => {
+  const b = occupancyTagToAppelBadge({
+    eleveId: "e3",
+    tag: "a_infirmerie",
+    source: "infirmerie_passage:i1",
+    detail: { motif: "Maux de tête" },
+  });
+  assert.equal(b.excludeFromBulletin, true);
+  assert.equal(b.suggestedStatut, "dispense");
+  assert.equal(b.labelFr, "À l’infirmerie");
+});
+
+test("appel occupancy — hors_etablissement = absent bulletin possible", () => {
+  const b = occupancyTagToAppelBadge({
+    eleveId: "e4",
+    tag: "hors_etablissement",
+    source: "passage:p1",
+  });
+  assert.equal(b.excludeFromBulletin, false);
+  assert.equal(b.suggestedStatut, "absent");
+  assert.match(b.labelFr, /hors/i);
+});
+
 test("appel occupancy — en_cours masqué de la map UI", () => {
   const map = badgesByEleveId([
     { eleveId: "a", tag: "en_cours", source: "scolarite" },
