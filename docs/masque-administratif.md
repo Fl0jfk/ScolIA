@@ -99,7 +99,7 @@ Réglages vie scolaire : motifs d’absence, barème des sanctions, délai de ju
 
 ## Bloc infirmerie
 
-Le passage (`/sante/passages`, `infirmerie_passage`) est **un geste** : qui est là maintenant. La vie scolaire lit le signal, pas le dossier. **Le bloc n’est pas coché.**
+Le passage (`/sante/passages`, `infirmerie_passage`) est **un geste** : qui est là maintenant. La vie scolaire lit le signal, pas le dossier. **Bloc coché** (22 sept 2026) pour les volets listés ci-dessous — pas un inventaire Charlemagne ligne à ligne.
 
 | Volet | Rôle | État |
 |-------|------|------|
@@ -110,8 +110,8 @@ Le passage (`/sante/passages`, `infirmerie_passage`) est **un geste** : qui est 
 | Extrait diffusé | Cantine, EPS, voyage, internat, périscolaire — `/sante/extraits`, soft-désactivation | Fait (geste) |
 | Médicaments | Journal des prises — `/sante/medicaments` (ordonnance = document) | Fait (geste) |
 | Accidents | Registre — `/sante/accidents` (conservation longue, pas de DELETE) | Fait (geste) |
-| Inaptitude EPS | Certificat daté → extrait EPS | À faire |
-| Nuit internat | Même infirmerie, autre horaire | À faire |
+| Inaptitude EPS | Certificat daté → extrait EPS — `/sante/inaptitudes` | Fait (geste) |
+| Nuit internat | Même passage, contexte `nuit_internat` | Fait (geste) |
 | Secret | Motif = infirmerie. Signal = vie scolaire. Dashboard = volumes, pas le dossier | Règle déjà posée, à tenir partout |
 | Documents | PAI, PAP, PPS, ordonnances dans le tiroir santé | Tiroir déjà là |
 

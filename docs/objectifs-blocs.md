@@ -52,9 +52,9 @@ Appel, absences, retards, justificatifs, sanctions, carnet, exclusions, punition
 
 Gestes déjà là : appel, justifs famille, carnet (signature), feuille du jour. Pas coché : sanctions encore masquées, retards et exclusions comme chez eux, messagerie du carnet.
 
-## Infirmerie — ouvert
+## Infirmerie — coché
 
-Gestes déjà là : passage + suite ; extraits ; fiches ; médicaments ; accidents ; **PAI validé**. Pas coché : inaptitude EPS, nuit internat. Secret : motif à l’infirmerie, signal à la vie scolaire.
+Gestes : passage + suite ; contexte journée / nuit internat ; extraits ; fiches ; médicaments ; accidents ; PAI validé ; **inaptitude EPS → extrait**. Secret : motif à l’infirmerie, signal à la vie scolaire. **Bloc coché** pour ces volets (22 sept 2026) — pas un inventaire concurrent Charlemagne ligne à ligne.
 
 Détail : [Masque administratif](masque-administratif.md), section Bloc infirmerie.
 
