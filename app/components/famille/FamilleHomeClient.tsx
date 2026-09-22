@@ -7,7 +7,7 @@ export default function FamilleHomeClient() {
   return (
     <FamillePortailChrome
       title="Bienvenue"
-      description="Bulletins, absences, carnet et factures de vos enfants."
+      description="Emploi du temps, notes, absences, carnet et factures de vos enfants."
     >
       {({ selectedEnfant, enfants }) => (
         <>
@@ -38,6 +38,20 @@ export default function FamilleHomeClient() {
 
           {selectedEnfant ? (
             <div className="grid gap-3 sm:grid-cols-2">
+              <Link
+                href={`/famille/edt?enfant=${encodeURIComponent(selectedEnfant.id)}`}
+                className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 hover:bg-indigo-100"
+              >
+                <p className="font-bold text-indigo-900">Emploi du temps</p>
+                <p className="text-xs text-indigo-800 mt-1">Grille de la classe</p>
+              </Link>
+              <Link
+                href={`/famille/notes?enfant=${encodeURIComponent(selectedEnfant.id)}`}
+                className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 hover:bg-indigo-100"
+              >
+                <p className="font-bold text-indigo-900">Notes</p>
+                <p className="text-xs text-indigo-800 mt-1">Notes en cours</p>
+              </Link>
               <Link
                 href={`/famille/bulletins?enfant=${encodeURIComponent(selectedEnfant.id)}`}
                 className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 hover:bg-indigo-100"

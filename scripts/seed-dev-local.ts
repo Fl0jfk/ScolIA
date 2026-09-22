@@ -16,6 +16,7 @@ import postgres from "postgres";
 import {
   account,
   anneeScolaire,
+  edtCreneau,
   eleve,
   etablissement,
   noteDevoir,
@@ -544,6 +545,65 @@ async function main() {
       }
     }
 
+    // —— EDT démo classe 4B (famille /famille/edt) ——
+    const matieresEdt = await db
+      .select()
+      .from(noteMatiere)
+      .where(eq(noteMatiere.etablissementId, etab.id));
+    const matiereIdByCode = new Map(matieresEdt.map((m) => [m.code, m.id]));
+    const edtSlots: Array<{
+      jour: number;
+      debut: string;
+      fin: string;
+      code: string;
+      enseignant: string;
+      salle: string;
+    }> = [
+      { jour: 1, debut: "08:00", fin: "09:00", code: "MATHS", enseignant: "Mme Dupont", salle: "B12" },
+      { jour: 1, debut: "10:00", fin: "11:00", code: "FRAN", enseignant: "M. Martin", salle: "A03" },
+      { jour: 2, debut: "08:00", fin: "09:00", code: "HG", enseignant: "Mme Bernard", salle: "C01" },
+      { jour: 2, debut: "09:00", fin: "10:00", code: "AGL1", enseignant: "Ms Smith", salle: "B08" },
+      { jour: 3, debut: "08:00", fin: "09:00", code: "MATHS", enseignant: "Mme Dupont", salle: "B12" },
+      { jour: 3, debut: "10:00", fin: "12:00", code: "EPS", enseignant: "M. Leroy", salle: "Gymnase" },
+      { jour: 4, debut: "08:00", fin: "09:00", code: "FRAN", enseignant: "M. Martin", salle: "A03" },
+      { jour: 4, debut: "11:00", fin: "12:00", code: "HG", enseignant: "Mme Bernard", salle: "C01" },
+      { jour: 5, debut: "08:00", fin: "09:00", code: "AGL1", enseignant: "Ms Smith", salle: "B08" },
+      { jour: 5, debut: "09:00", fin: "10:00", code: "MATHS", enseignant: "Mme Dupont", salle: "B12" },
+    ];
+    let edtInserted = 0;
+    for (const slot of edtSlots) {
+      const [existing] = await db
+        .select({ id: edtCreneau.id })
+        .from(edtCreneau)
+        .where(
+          and(
+            eq(edtCreneau.etablissementId, etab.id),
+            eq(edtCreneau.classe, DEV_PARENT_SEED.childClasse),
+            eq(edtCreneau.jourSemaine, slot.jour),
+            eq(edtCreneau.heureDebut, slot.debut),
+            eq(edtCreneau.heureFin, slot.fin),
+          ),
+        )
+        .limit(1);
+      if (existing) continue;
+      await db.insert(edtCreneau).values({
+        etablissementId: etab.id,
+        jourSemaine: slot.jour,
+        heureDebut: slot.debut,
+        heureFin: slot.fin,
+        classe: DEV_PARENT_SEED.childClasse,
+        matiereId: matiereIdByCode.get(slot.code) ?? null,
+        enseignantNom: slot.enseignant,
+        salle: slot.salle,
+        semaine: "AB",
+        anneeScolaireId: anneeCourante?.id ?? null,
+      });
+      edtInserted += 1;
+    }
+    if (edtInserted > 0) {
+      console.log(`[seed] ${edtInserted} créneaux EDT ${DEV_PARENT_SEED.childClasse}`);
+    }
+
     console.log(
       JSON.stringify(
         {
@@ -558,6 +618,7 @@ async function main() {
           signInUrl: "http://localhost:3000/auth/sign-in?dev_tenant=default",
           familleUrl: "http://localhost:3000/famille/absences?dev_tenant=default",
           familleNotesUrl: "http://localhost:3000/famille/notes?dev_tenant=default",
+          familleEdtUrl: "http://localhost:3000/famille/edt?dev_tenant=default",
           notesSaisieUrl: "http://localhost:3000/notes/saisie?dev_tenant=default",
           totpHelper: "npm run seed:dev:totp",
         },
