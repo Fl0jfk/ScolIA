@@ -134,8 +134,12 @@ export async function GET(req: Request) {
         ine: s.ine,
         photoKey: s.photoKey,
       }));
-    const photoUrls =
-      photoIds.length > 0 ? await resolvePhotoUrlsForEleves(photoIds).catch(() => ({})) : {};
+    const photoUrls: Record<string, string> =
+      photoIds.length > 0
+        ? await resolvePhotoUrlsForEleves(photoIds).catch(
+            (): Record<string, string> => ({}),
+          )
+        : {};
     const rosterWithPhotos = {
       ...roster,
       students: roster.students.map((s) => ({
