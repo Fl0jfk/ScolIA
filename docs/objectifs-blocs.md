@@ -54,7 +54,7 @@ Gestes déjà là : appel, justifs famille, carnet (signature), feuille du jour.
 
 ## Infirmerie — ouvert
 
-Passage (fait). Puis : soin du passage, fiche, PAI, extraits cantine / EPS / voyage / internat, médicaments, accidents, inaptitude EPS, nuit internat. Secret : motif à l’infirmerie, signal à la vie scolaire.
+Gestes déjà là : passage ; **suite / notes à la clôture** ; **extraits diffusés** (cantine / EPS / voyage / internat / périscolaire). Tables prêtes : fiche, médicaments, accidents. Pas coché : PAI validé, écrans fiche / médicaments / accidents, inaptitude EPS, nuit internat. Secret : motif à l’infirmerie, signal à la vie scolaire.
 
 Détail : [Masque administratif](masque-administratif.md), section Bloc infirmerie.
 
