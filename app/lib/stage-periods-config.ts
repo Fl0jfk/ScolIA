@@ -230,3 +230,14 @@ export async function getStagePeriodsForClass(
   const entry = findClassConfig(config, className);
   return entry?.periods ?? [];
 }
+
+/** Classe explicitement activée dans Réglages stages (même sans période officielle). */
+export async function isClassEnabledInStagePeriods(
+  className: string,
+  schoolYear?: string,
+): Promise<boolean> {
+  const year = schoolYear?.trim() || currentStageSchoolYear();
+  const config = await getStagePeriodsConfig(year);
+  const entry = findClassConfig(config, className);
+  return Boolean(entry?.enabled);
+}

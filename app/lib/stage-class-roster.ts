@@ -2,6 +2,7 @@ import type { EleveConfig } from "@/app/lib/eleves-config";
 import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import {
   getStagePeriodsForClass,
+  isClassEnabledInStagePeriods,
   listStageEnabledClassNames,
   type StageClassPeriod,
 } from "@/app/lib/stage-periods-config";
@@ -196,12 +197,15 @@ export async function buildStageClassRoster(
 ): Promise<StageClassRoster> {
   const year = schoolYear?.trim() || currentStageSchoolYear();
 
-  const [eleves, index, officialPeriods] = await Promise.all([
+  const [eleves, index, officialPeriods, classEnabledInConfig] = await Promise.all([
     loadEleves(),
     getConventionsIndex(),
     getStagePeriodsForClass(className, year),
+    isClassEnabledInStagePeriods(className, year),
   ]);
   const expectsMandatoryStage = officialPeriods.length > 0;
+  /** Classe ouverte aux stages dans les réglages → toujours lister tout le registre (lycée sans période, etc.). */
+  const listFullClassRoster = expectsMandatoryStage || classEnabledInConfig;
   const classEleves = eleves.filter((e) => eleveMatchesClass(e, className));
 
   const conventions = (
@@ -274,10 +278,11 @@ export async function buildStageClassRoster(
     });
 
   /**
-   * Classe sans période officielle (ex. 5e volontaire) : ne lister que les élèves
-   * ayant déjà un dossier — pas toute la classe SIECLE.
+   * Classe hors config stages (arrivée via un dossier isolé) : ne lister que les
+   * élèves ayant déjà une convention. Dès qu’elle est activée dans Réglages
+   * (même sans période officielle, ex. lycée), on affiche toute la classe.
    */
-  const students = expectsMandatoryStage
+  const students = listFullClassRoster
     ? studentsRaw
     : studentsRaw.filter((s) => s.conventions.length > 0);
 
@@ -296,9 +301,13 @@ export async function buildStageClassRoster(
       "Liste élèves vide pour cette classe — seuls les dossiers de stage déjà ouverts sont affichés. Renseignez le champ « classe » dans le registre élèves pour un suivi complet.",
     );
   }
-  if (!expectsMandatoryStage) {
+  if (classEnabledInConfig && !expectsMandatoryStage) {
     notes.push(
-      "Aucune période officielle pour cette classe : seuls les élèves ayant déposé un stage volontaire apparaissent ici. La classe a été ajoutée aux stages concernés pour le suivi.",
+      "Aucune période officielle pour cette classe : le suivi liste toute la classe (stages volontaires possibles). Ajoutez des périodes dans Stages → Réglages si besoin.",
+    );
+  } else if (!listFullClassRoster) {
+    notes.push(
+      "Cette classe n’est pas activée dans les réglages stages : seuls les élèves ayant déjà un dossier apparaissent ici.",
     );
   }
 
