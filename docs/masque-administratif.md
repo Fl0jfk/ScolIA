@@ -2,6 +2,8 @@
 
 Décision Florian, 22 sept 2026. Tout est prévu **dans les faits**, avant les écrans. Un oubli acceptable plus tard = un **réglage** (motif, barème, délai, modèle, qui a le droit). Pas un dossier, pas une année, pas une présence, pas une facture.
 
+Les **objectifs par bloc** (ce qu’il faut pour cocher, à la mesure de Charlemagne / Pronote / École Directe) : [Objectifs par bloc](objectifs-blocs.md). Un geste livré ne coche pas le bloc.
+
 La comptabilité se fait **dans l’ENT**. Elle couvre ce qu’un établissement scolaire tient lui-même. Elle ne va pas jusqu’au travail d’un cabinet (bilan, liasse, plan comptable complet).
 
 Un fichier pour l’expert-comptable peut sortir **après**. Ce n’est pas la comptabilité. La vue `export_comptable_famille` est cette sortie, rien de plus.
