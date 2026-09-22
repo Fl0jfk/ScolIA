@@ -66,9 +66,9 @@ Gestes déjà là : régime, grille repas, occupancy lit une sortie portail ; **
 
 ## Internat — ouvert
 
-Chambres, lits datés, appel du soir, sorties week-end, infirmerie de nuit, repas du soir. L’écran actuel reste sur le JSON tant qu’on n’a pas recopié sans rien effacer.
+Chambres, lits datés, appel du soir, sorties week-end, infirmerie de nuit, repas du soir. L’écran JSON `/gestion-internat` reste tant qu’on n’a pas recopié sans rien effacer.
 
-Tables prêtes. Pas coché.
+Gestes déjà là : **chambres + affectation lit datée Postgres** (`/gestion-internat/affectations`) — sans toucher au JSON. Pas coché : appel du soir Postgres, sorties week-end, nuit.
 
 ## Stages — ouvert
 
