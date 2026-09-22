@@ -18,6 +18,7 @@ import { getDb } from "@/db/index";
 import { eleve } from "@/db/schema";
 import { and, eq } from "drizzle-orm";
 import { recordEleveAccessAudit } from "@/app/lib/eleve-dossier-access";
+import { accompagnementDownloadFileName } from "@/app/lib/eleve-pap";
 
 type Ctx = { params: Promise<{ id: string; documentId: string }> };
 
@@ -25,7 +26,7 @@ function safeFileName(raw: string | null | undefined, fallback: string): string 
   const base = String(raw || fallback)
     .replace(/["\\]/g, "")
     .replace(/[^\w.\- ()àâäéèêëïîôùûüçÀÂÄÉÈÊËÏÎÔÙÛÜÇ]+/g, "_")
-    .slice(0, 120);
+    .slice(0, 160);
   return base || fallback;
 }
 
@@ -56,7 +57,7 @@ export async function GET(req: Request, ctx: Ctx) {
 
   const db = getDb();
   const [eleveRow] = await db
-    .select({ id: eleve.id, classe: eleve.classe })
+    .select({ id: eleve.id, classe: eleve.classe, nom: eleve.nom, prenom: eleve.prenom })
     .from(eleve)
     .where(and(eq(eleve.etablissementId, etabId), eq(eleve.id, eleveId)))
     .limit(1);
@@ -113,7 +114,15 @@ export async function GET(req: Request, ctx: Ctx) {
       throw headErr;
     }
 
-    const fileName = safeFileName(access.doc.title, "document.pdf");
+    const accompagnementName = accompagnementDownloadFileName({
+      title: access.doc.title,
+      prenom: eleveRow.prenom,
+      nom: eleveRow.nom,
+    });
+    const fileName = safeFileName(
+      accompagnementName || access.doc.title,
+      "document.pdf",
+    );
     const contentType = access.doc.mimeType || "application/pdf";
     const command = new GetObjectCommand({
       Bucket: bucket,

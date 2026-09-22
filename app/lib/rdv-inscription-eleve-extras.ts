@@ -48,12 +48,28 @@ export async function attachRdvBookingExtrasToEleve(opts: {
 
   if (booking.papS3Key) {
     const title = defaultAccompagnementDocumentTitle("pap");
+    const mimeType = booking.papMimeType || "application/pdf";
+    try {
+      const { looksLikePdfUpload, stripBlankPagesInS3Object } = await import(
+        "@/app/lib/pdf-strip-blank-pages"
+      );
+      if (
+        looksLikePdfUpload({
+          mimeType,
+          s3Key: booking.papS3Key,
+        })
+      ) {
+        await stripBlankPagesInS3Object(booking.papS3Key);
+      }
+    } catch (stripErr) {
+      console.warn("[rdv-inscription] strip blank pages PAP (non bloquant)", stripErr);
+    }
     await db.insert(eleveDocument).values({
       etablissementId,
       eleveId,
       tiroir: "sante",
       title,
-      mimeType: booking.papMimeType || "application/pdf",
+      mimeType,
       s3Key: booking.papS3Key,
       confidentialite: "sante",
       source: "rdv-inscription",

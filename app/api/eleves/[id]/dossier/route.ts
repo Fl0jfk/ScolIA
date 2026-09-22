@@ -1066,6 +1066,26 @@ export async function POST(req: Request, ctx: Ctx) {
       );
     }
 
+    // PAP / PAI / PPS / GEVASCO : retirer silencieusement les versos blancs (scans recto-verso).
+    const registeredS3Key = body.s3Key ? String(body.s3Key) : null;
+    if (registeredS3Key && isAccompagnementDocumentTitle(title)) {
+      try {
+        const { looksLikePdfUpload, stripBlankPagesInS3Object } = await import(
+          "@/app/lib/pdf-strip-blank-pages"
+        );
+        if (
+          looksLikePdfUpload({
+            mimeType: body.mimeType,
+            s3Key: registeredS3Key,
+          })
+        ) {
+          await stripBlankPagesInS3Object(registeredS3Key);
+        }
+      } catch (stripErr) {
+        console.warn("[eleves/dossier] strip blank pages (non bloquant)", stripErr);
+      }
+    }
+
     const [doc] = await db
       .insert(eleveDocument)
       .values({
@@ -1074,7 +1094,7 @@ export async function POST(req: Request, ctx: Ctx) {
         tiroir,
         title,
         mimeType: body.mimeType || null,
-        s3Key: body.s3Key || null,
+        s3Key: registeredS3Key,
         fileUrl: body.fileUrl || null,
         anneeLabel: body.anneeLabel || null,
         confidentialite,
