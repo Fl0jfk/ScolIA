@@ -127,6 +127,29 @@ export const absenceHistory = pgTable(
   ],
 );
 
+/** Fil de discussion interne (déclarant ↔ direction / traitement), append-only. */
+export const absenceMessage = pgTable(
+  "absence_message",
+  {
+    id: text("id").primaryKey(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    absenceId: text("absence_id")
+      .notNull()
+      .references(() => absence.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull(),
+    userId: text("user_id").notNull().default(""),
+    userName: text("user_name").notNull().default(""),
+    roleLabel: text("role_label").notNull().default(""),
+    text: text("text").notNull(),
+  },
+  (t) => [
+    index("absence_message_absence_idx").on(t.etablissementId, t.absenceId),
+    index("absence_message_absence_at_idx").on(t.etablissementId, t.absenceId, t.at),
+  ],
+);
+
 /** Voyage scolaire. */
 export const travel = pgTable(
   "travel",

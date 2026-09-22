@@ -25,8 +25,9 @@ import type { BrainToolCtx, BrainToolResult } from "@/app/lib/brain-ai/types";
 import { establishmentChoiceOptions, matchEstablishment } from "@/app/lib/establishment-catalog";
 
 const COMMON_REASONS = [
-  "Maladie",
+  "Arrêt de travail",
   "Enfant malade",
+  "Congé exceptionnel",
   "Rendez-vous médical",
   "Formation",
   "Congé",

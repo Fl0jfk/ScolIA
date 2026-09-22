@@ -328,7 +328,7 @@ export async function notifyAbsenceJustificatifRequested(input: {
       ``,
       hasFile
         ? `${who} a besoin d’un complément ou d’un autre document (${input.record.justification?.fileName}).`
-        : `${who} vous demande une pièce justificative pour finaliser le dossier (par exemple un arrêt maladie, selon le cas).`,
+        : `${who} vous demande une pièce justificative pour finaliser le dossier (par exemple un arrêt de travail, selon le cas).`,
       input.fromProcessor
         ? `La direction a déjà validé l’absence : cette demande ne repasse pas par elle.`
         : "",
@@ -482,6 +482,84 @@ export async function notifyAbsenceAdminTreated(record: AbsenceRecord): Promise<
       record.adminNote ? `Note : ${record.adminNote}` : "",
       ``,
       `Suivi dans l’application :`,
+      link,
+      ``,
+      `Cordialement,`,
+      `L'établissement`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  });
+}
+
+/** Nouveau message sur le fil interne d’une absence. */
+export async function notifyAbsenceThreadMessage(input: {
+  record: AbsenceRecord;
+  messageText: string;
+  authorName: string;
+  authorRoleLabel: string;
+  /** true = message du déclarant → notifier direction ; false = direction/traitement → notifier déclarant */
+  fromStaff: boolean;
+}): Promise<void> {
+  const mail = await getMailer();
+  if (!mail) return;
+  const preview = input.messageText.trim().slice(0, 500);
+
+  if (input.fromStaff) {
+    const scope = resolveAbsenceScope(input.record);
+    const targets = await resolveAbsenceDecisionTargets(
+      scope,
+      scope === "ogec" ? null : input.record.data.etablissement,
+    );
+    if (targets.length === 0) return;
+    const link = await absenceAppLink(
+      input.record.managerDecision === "VALIDEE" ? "traitement" : "a-traiter",
+    );
+    for (const target of targets) {
+      if (!target.email.trim()) continue;
+      await mail.transporter.sendMail({
+        from: `"Absences" <${mail.smtp.user}>`,
+        to: target.email,
+        subject: `Message sur une absence — ${input.record.displayName || input.record.createdBy.name}`,
+        text: [
+          `Bonjour ${target.name},`,
+          ``,
+          `${input.authorName} (${input.authorRoleLabel}) a écrit sur le fil de l’absence :`,
+          ``,
+          preview,
+          ``,
+          `Personne : ${input.record.displayName || input.record.createdBy.name}`,
+          `Période : ${formatAbsencePeriod(input.record.data)}`,
+          `Motif : ${input.record.data.reason}`,
+          ``,
+          `Répondre dans l’application :`,
+          link,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      });
+    }
+    return;
+  }
+
+  const email = input.record.createdBy.email?.trim();
+  if (!email) return;
+  const link = await absenceAppLink("se-declarer");
+  await mail.transporter.sendMail({
+    from: `"Absences" <${mail.smtp.user}>`,
+    to: email,
+    subject: "Nouveau message sur votre demande d’absence",
+    text: [
+      `Bonjour ${input.record.createdBy.name},`,
+      ``,
+      `${input.authorName} (${input.authorRoleLabel}) vous a écrit au sujet de votre absence :`,
+      ``,
+      preview,
+      ``,
+      `Période : ${formatAbsencePeriod(input.record.data)}`,
+      `Motif : ${input.record.data.reason}`,
+      ``,
+      `Répondre dans l’application :`,
       link,
       ``,
       `Cordialement,`,

@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  addOuvrableDays,
+  formatCongeExceptionnelReason,
   forcedHoursTreatmentForNonDiscretionaryAbsence,
   isNonDiscretionaryAbsence,
   needsMakeupSlotsFromStaff,
@@ -65,7 +67,20 @@ test("créneaux demandés si rattrapage validé sans plage", () => {
   );
 });
 
-test("processeur : maladie / enfant malade aussi pour les profs", () => {
+test("relance active : créneaux re-demandés même si déjà proposés", () => {
+  assert.equal(
+    needsMakeupSlotsFromStaff({
+      managerDecision: "VALIDEE",
+      workflowStatus: "CLOTUREE",
+      hoursTreatment: "RATTRAPAGE_INTERNE",
+      staffPreferredMakeupSlots: "Mardi 14h-16h",
+      makeupSlotsRelanceAt: "2026-09-11T10:00:00.000Z",
+    }),
+    true,
+  );
+});
+
+test("processeur : arrêt de travail / enfant malade / congé exceptionnel aussi pour les profs", () => {
   assert.equal(
     requiresProcessorAfterValidation({
       data: { scope: "professeur" },
@@ -82,6 +97,13 @@ test("processeur : maladie / enfant malade aussi pour les profs", () => {
   );
   assert.equal(
     requiresProcessorAfterValidation({
+      data: { scope: "professeur" },
+      hoursTreatment: "CONGE_EXCEPTIONNEL",
+    }),
+    true,
+  );
+  assert.equal(
+    requiresProcessorAfterValidation({
       data: { scope: "ogec" },
       hoursTreatment: "MALADIE",
     }),
@@ -89,7 +111,7 @@ test("processeur : maladie / enfant malade aussi pour les profs", () => {
   );
 });
 
-test("préférence maladie → traitement forcé MALADIE", () => {
+test("préférence maladie / congé exceptionnel → traitement forcé", () => {
   assert.equal(
     suggestHoursTreatmentFromPreference("ogec", null, "MALADIE"),
     "MALADIE",
@@ -98,9 +120,13 @@ test("préférence maladie → traitement forcé MALADIE", () => {
     suggestHoursTreatmentFromPreference("professeur", "Lycée", "ENFANT_MALADE"),
     "ENFANT_MALADE",
   );
+  assert.equal(
+    suggestHoursTreatmentFromPreference("ogec", null, "CONGE_EXCEPTIONNEL"),
+    "CONGE_EXCEPTIONNEL",
+  );
 });
 
-test("pas de créneaux si préférence maladie en attente", () => {
+test("pas de créneaux si préférence arrêt de travail / congé exceptionnel en attente", () => {
   assert.equal(
     needsMakeupSlotsFromStaff({
       managerDecision: "EN_ATTENTE",
@@ -109,11 +135,23 @@ test("pas de créneaux si préférence maladie en attente", () => {
     }),
     false,
   );
+  assert.equal(
+    needsMakeupSlotsFromStaff({
+      managerDecision: "EN_ATTENTE",
+      workflowStatus: "OUVERTE",
+      staffPreferredTreatment: "CONGE_EXCEPTIONNEL",
+    }),
+    false,
+  );
 });
 
-test("motif Maladie / Enfant malade détectés comme non discrétionnaires", () => {
+test("motifs non discrétionnaires détectés (arrêt de travail, legacy, congé)", () => {
   assert.equal(
     isNonDiscretionaryAbsence({ data: { reason: "Maladie" } }),
+    true,
+  );
+  assert.equal(
+    isNonDiscretionaryAbsence({ data: { reason: "Arrêt de travail" } }),
     true,
   );
   assert.equal(
@@ -129,7 +167,21 @@ test("motif Maladie / Enfant malade détectés comme non discrétionnaires", () 
     true,
   );
   assert.equal(
+    isNonDiscretionaryAbsence({ data: { reason: "arrêt de travail du 12/03" } }),
+    true,
+  );
+  assert.equal(
     isNonDiscretionaryAbsence({ data: { reason: "enfant malade (fille)" } }),
+    true,
+  );
+  assert.equal(
+    isNonDiscretionaryAbsence({ data: { reason: "Congé exceptionnel" } }),
+    true,
+  );
+  assert.equal(
+    isNonDiscretionaryAbsence({
+      data: { reason: "Congé exceptionnel — Décès du père, de la mère, beau-père, belle-mère, frère ou sœur" },
+    }),
     true,
   );
   assert.equal(
@@ -144,9 +196,36 @@ test("motif Maladie / Enfant malade détectés comme non discrétionnaires", () 
     forcedHoursTreatmentForNonDiscretionaryAbsence({ data: { reason: "arrêt maladie" } }),
     "MALADIE",
   );
+  assert.equal(
+    forcedHoursTreatmentForNonDiscretionaryAbsence({ data: { reason: "Arrêt de travail" } }),
+    "MALADIE",
+  );
+  assert.equal(
+    forcedHoursTreatmentForNonDiscretionaryAbsence({ data: { reason: "Congé exceptionnel — Mariage ou PACS du salarié" } }),
+    "CONGE_EXCEPTIONNEL",
+  );
 });
 
-test("processeur : uniquement déclaration rectorat pour les profs (hors maladie)", () => {
+test("formatCongeExceptionnelReason et addOuvrableDays", () => {
+  assert.equal(
+    formatCongeExceptionnelReason("MARIAGE_PACS"),
+    "Congé exceptionnel — Mariage ou PACS du salarié",
+  );
+  assert.equal(
+    formatCongeExceptionnelReason("DECES_GRAND_PARENT"),
+    "Congé exceptionnel — Décès d’un grand-parent (ou ascendant au-delà)",
+  );
+  assert.equal(
+    formatCongeExceptionnelReason("AUTRE"),
+    "Congé exceptionnel — Autre motif familial (à préciser)",
+  );
+  // Lundi 2026-03-16 + 3 ouvrables → mercredi 18
+  assert.equal(addOuvrableDays("2026-03-16", 3), "2026-03-18");
+  // Vendredi + 2 ouvrables → lundi suivant
+  assert.equal(addOuvrableDays("2026-03-20", 2), "2026-03-23");
+});
+
+test("processeur : uniquement déclaration rectorat pour les profs (hors non discrétionnaire)", () => {
   assert.equal(
     requiresProcessorAfterValidation({
       data: { scope: "professeur" },

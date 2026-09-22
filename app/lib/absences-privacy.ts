@@ -4,7 +4,11 @@ const SENSITIVE_PATTERNS = [
   /enfant\s*malade/i,
   /arret\s*maladie/i,
   /arrêt\s*maladie/i,
+  /arret\s*de\s*travail/i,
+  /arrêt\s*de\s*travail/i,
   /\bmaladie\b/i,
+  /conge\s*exceptionnel/i,
+  /cong[eé]\s*exceptionnel/i,
   /certificat\s*m[eé]dical/i,
   /hospitalisation/i,
   /accident\s*(du\s*travail|de\s*travail)?/i,
@@ -12,7 +16,6 @@ const SENSITIVE_PATTERNS = [
   /\bpaternit[eé]\b/i,
   /grossesse/i,
   /burn[\s-]?out/i,
-  /arrêt\s*de\s*travail/i,
   /visite\s*m[eé]dicale/i,
 ];
 
@@ -35,7 +38,7 @@ function normalizePrivacyText(...parts: Array<string | undefined | null>) {
     .replace(/\p{M}/gu, "");
 }
 
-/** Détecte arrêt maladie et autres motifs/documents sensibles (pas convocation bac, etc.). */
+/** Détecte arrêt de travail, congé exceptionnel et autres motifs/documents sensibles. */
 export function isSensitiveAbsenceContent(
   reason: string | undefined,
   details?: string | null,
@@ -49,7 +52,7 @@ export function isSensitiveAbsenceContent(
 
   const onlyAdministrative =
     NON_SENSITIVE_PATTERNS.some((pattern) => pattern.test(text)) &&
-    !/maladie|arret\s*maladie|arrêt\s*maladie|certificat\s*medical|certificat\s*médical|hospitalisation/i.test(
+    !/maladie|arret\s*maladie|arrêt\s*maladie|arret\s*de\s*travail|arrêt\s*de\s*travail|conge\s*exceptionnel|cong[eé]\s*exceptionnel|certificat\s*medical|certificat\s*médical|hospitalisation/i.test(
       text,
     );
 

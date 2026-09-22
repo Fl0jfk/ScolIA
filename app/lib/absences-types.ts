@@ -14,6 +14,15 @@ export type AbsenceWorkflowStatus = "OUVERTE" | "JUSTIFICATIF_DEPOSE" | "A_TRAIT
 export type AbsenceDecision = "EN_ATTENTE" | "VALIDEE" | "REFUSEE";
 export type AbsenceSource = "self" | "admin_manual" | "admin_pdf" | "accueil";
 
+export type AbsenceThreadMessage = {
+  id: string;
+  at: string;
+  userId: string;
+  userName: string;
+  roleLabel: string;
+  text: string;
+};
+
 export type AbsenceRecord = {
   id: string;
   createdAt: string;
@@ -46,6 +55,10 @@ export type AbsenceRecord = {
     endAt: string;
     reason: string;
     details: string;
+    /** Code sous-motif congé exceptionnel (L. 3142-4). */
+    congeExceptionnelCode?: string | null;
+    /** Jours ouvrables suggérés (minimum légal) au moment de la déclaration. */
+    congeExceptionnelJoursSuggeres?: number | null;
     sourceDocument?: string;
     documentKeys?: string[];
     confidence?: number;
@@ -80,6 +93,8 @@ export type AbsenceRecord = {
   staffPreferredMakeupSlots?: string | null;
   /** Créneaux de rattrapage confirmés par la direction (texte libre). */
   directionConfirmedMakeupSlots?: string | null;
+  /** Fil interne déclarant ↔ direction / traitement (append-only). */
+  messages?: AbsenceThreadMessage[];
   history: Array<{
     at: string;
     by: string;
@@ -460,6 +475,7 @@ export function normalizeAbsenceRecord(raw: AbsenceRecord): AbsenceRecord {
     source,
     displayName,
     calendarVisible,
+    messages: Array.isArray(raw.messages) ? raw.messages : [],
     data: {
       ...data,
       scope,
@@ -520,6 +536,7 @@ export function buildAdminAbsenceRecord(params: {
     justification: null,
     justificatifRelanceAt: null,
     makeupSlotsRelanceAt: null,
+    messages: [],
     history: [
       {
         at: now,

@@ -29,10 +29,14 @@ import { viewerCanConfigureAbsenceProcessors, viewerCanSeeAbsenceDirectionQueue,
 import type { NotificationsConfig } from "@/app/lib/app-config-schemas";
 import { formatAbsencePeriod, type AbsencePeriodType } from "@/app/lib/absence-period";
 import {
+  addOuvrableDays,
+  CONGE_EXCEPTIONNEL_SUBMOTIFS,
+  congeExceptionnelJoursAide,
   forcedHoursTreatmentForNonDiscretionaryAbsence,
   formatAbsenceHoursTreatment,
   formatMakeupSlotsText,
   formatStaffPreferredTreatment,
+  getCongeExceptionnelSubmotif,
   getHoursTreatmentOptions,
   hoursTreatmentFieldLabel,
   emptyMakeupSlotDraft,
@@ -41,10 +45,12 @@ import {
   isRattrapageTreatment,
   needsMakeupSlotsFromStaff,
   NON_DISCRETIONARY_ABSENCE_REASONS,
+  nonDiscretionaryKindLabel,
   nonDiscretionaryTreatmentFromReason,
   requiresProcessorAfterValidation,
   validateHoursTreatmentForAbsence,
   type MakeupSlotDraft,
+  type NonDiscretionaryAbsenceTreatment,
 } from "@/app/lib/absence-hours-treatment";
 import { compareAbsenceRecordsAlphabetically } from "@/app/lib/absences-shared-utils";
 import {
@@ -62,6 +68,7 @@ import {
   type Etablissement,
 } from "@/app/lib/absences-page-model";
 import AbsenceMakeupSlotsEditor from "@/app/components/absences/AbsenceMakeupSlotsEditor";
+import { AbsenceInternalThreadPanel } from "@/app/components/absences/AbsenceInternalThreadPanel";
 
 const AbsencesDeclareOther = dynamic(
   () => import("@/app/components/absences/AbsencesDeclareOther"),
@@ -101,6 +108,8 @@ export default function AbsencesPageClient({
   const [endDate, setEndDate] = useState("");
   const [reasonSelect, setReasonSelect] = useState("");
   const [reasonOther, setReasonOther] = useState("");
+  const [congeExceptionnelCode, setCongeExceptionnelCode] = useState("");
+  const [reclassCongeCode, setReclassCongeCode] = useState<Record<string, string>>({});
   const [details, setDetails] = useState("");
   const [justificationFile, setJustificationFile] = useState<File | null>(null);
   const [staffPreferredTreatment, setStaffPreferredTreatment] = useState<string>("");
@@ -111,8 +120,14 @@ export default function AbsencesPageClient({
     reasonSelect === "__other__" ? reasonOther.trim() : reasonSelect.trim();
   const medicalTreatmentFromReason = nonDiscretionaryTreatmentFromReason(resolvedReason);
   const isMedicalDeclaration = Boolean(medicalTreatmentFromReason);
+  const isCongeExceptionnelDeclaration = medicalTreatmentFromReason === "CONGE_EXCEPTIONNEL";
+  const selectedCongeSub = isCongeExceptionnelDeclaration
+    ? getCongeExceptionnelSubmotif(congeExceptionnelCode)
+    : null;
   const [replyMakeupSlots, setReplyMakeupSlots] = useState<Record<string, MakeupSlotDraft[]>>({});
   const [savingMakeupSlotsId, setSavingMakeupSlotsId] = useState<string | null>(null);
+  const [threadDrafts, setThreadDrafts] = useState<Record<string, string>>({});
+  const [sendingThreadId, setSendingThreadId] = useState<string | null>(null);
   const [managerNotes, setManagerNotes] = useState<Record<string, string>>({});
   const [managerHoursTreatment, setManagerHoursTreatment] = useState<Record<string, string>>({});
   const [directionConfirmedSlots, setDirectionConfirmedSlots] = useState<Record<string, string>>({});
@@ -315,6 +330,10 @@ export default function AbsencesPageClient({
       setError("Merci d'indiquer le motif.");
       return;
     }
+    if (reasonSelect === "Congé exceptionnel" && !congeExceptionnelCode) {
+      setError("Merci de préciser le type de congé exceptionnel.");
+      return;
+    }
     if (!resolvedReason) {
       setError("Merci de remplir le motif.");
       return;
@@ -396,6 +415,9 @@ export default function AbsencesPageClient({
                 : isRattrapageTreatment(staffPreferredTreatment)
                   ? formatMakeupSlotsText(staffPreferredMakeupSlots) || null
                   : null,
+            ...(isCongeExceptionnelDeclaration && congeExceptionnelCode
+              ? { congeExceptionnelCode }
+              : {}),
           },
         }),
       });
@@ -409,6 +431,7 @@ export default function AbsencesPageClient({
       setEndDate("");
       setReasonSelect("");
       setReasonOther("");
+      setCongeExceptionnelCode("");
       setDetails("");
       setStaffPreferredTreatment("");
       setStaffPreferredMakeupSlots([emptyMakeupSlotDraft()]);
@@ -427,6 +450,44 @@ export default function AbsencesPageClient({
       email: user?.primaryEmailAddress?.emailAddress,
       notifications: processorNotifications,
     });
+
+  const canUseAbsenceThread = (item: AbsenceItem) => {
+    const isOwner =
+      item.createdBy.userId === user?.id ||
+      (user?.primaryEmailAddress?.emailAddress &&
+        item.createdBy.email?.toLowerCase() ===
+          user.primaryEmailAddress.emailAddress.toLowerCase());
+    return Boolean(isOwner || canManageItem(item) || isProcessorForItem(item));
+  };
+
+  const postThreadMessage = async (item: AbsenceItem) => {
+    const text = (threadDrafts[item.id] || "").trim();
+    if (!text || sendingThreadId) return;
+    setSendingThreadId(item.id);
+    try {
+      const res = await fetch("/api/absences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          action: "POST_MESSAGE",
+          messageText: text,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.error || "Impossible d’envoyer le message.");
+        return;
+      }
+      setThreadDrafts((prev) => ({ ...prev, [item.id]: "" }));
+      await fetchItems();
+    } catch {
+      alert("Impossible d’envoyer le message.");
+    } finally {
+      setSendingThreadId(null);
+    }
+  };
+
   const updateWorkflow = async (
     id: string,
     action:
@@ -642,14 +703,20 @@ export default function AbsencesPageClient({
     }
   };
 
-  const reclasserArretMaladie = async (
+  const reclasserNonDiscretionnaire = async (
     item: AbsenceItem,
-    treatment: "MALADIE" | "ENFANT_MALADE",
+    treatment: NonDiscretionaryAbsenceTreatment,
   ) => {
-    const label = treatment === "ENFANT_MALADE" ? "enfant malade" : "arrêt maladie";
+    const congeCode =
+      treatment === "CONGE_EXCEPTIONNEL" ? reclassCongeCode[item.id] || "" : "";
+    if (treatment === "CONGE_EXCEPTIONNEL" && !getCongeExceptionnelSubmotif(congeCode)) {
+      alert("Merci de préciser le type de congé exceptionnel.");
+      return;
+    }
+    const label = nonDiscretionaryKindLabel(treatment);
     if (
       !confirm(
-        `Déclarer cette absence en « ${label} » ?\n\nElle quittera la file direction (prise d’acte) et partira directement au traitement administratif (secrétariat / compta), comme les absences maladie actuelles.`,
+        `Déclarer cette absence en « ${label} » ?\n\nElle quittera la file direction (prise d’acte) et partira directement au traitement administratif (secrétariat / compta), sans rattrapage.`,
       )
     ) {
       return;
@@ -662,6 +729,7 @@ export default function AbsencesPageClient({
           id: item.id,
           action: "RECLASSER_ARRET_MALADIE",
           treatment,
+          ...(treatment === "CONGE_EXCEPTIONNEL" ? { congeExceptionnelCode: congeCode } : {}),
           managerNote: managerNotes[item.id] || "",
         }),
       });
@@ -1012,6 +1080,7 @@ export default function AbsencesPageClient({
                     setStaffPreferredTreatment("");
                     setStaffPreferredMakeupSlots([emptyMakeupSlotDraft()]);
                   }
+                  if (next !== "Congé exceptionnel") setCongeExceptionnelCode("");
                   if (next !== "__other__") setReasonOther("");
                 }}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"
@@ -1033,10 +1102,51 @@ export default function AbsencesPageClient({
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 mt-2"
                 />
               ) : null}
+              {isCongeExceptionnelDeclaration ? (
+                <div className="mt-2 space-y-2">
+                  <label className="text-[11px] font-black uppercase tracking-wider text-slate-500 block">
+                    Type d&apos;événement <span className="text-rose-600">*</span>
+                  </label>
+                  <select
+                    value={congeExceptionnelCode}
+                    onChange={(e) => {
+                      const code = e.target.value;
+                      setCongeExceptionnelCode(code);
+                      const sub = getCongeExceptionnelSubmotif(code);
+                      if (
+                        sub?.joursOuvrables &&
+                        periodType === "multi_day" &&
+                        startDate &&
+                        !endDate
+                      ) {
+                        const suggested = addOuvrableDays(startDate, sub.joursOuvrables);
+                        if (suggested) setEndDate(suggested);
+                      }
+                    }}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 bg-white"
+                  >
+                    <option value="">— Choisir —</option>
+                    {CONGE_EXCEPTIONNEL_SUBMOTIFS.map((sub) => (
+                      <option key={sub.code} value={sub.code}>
+                        {sub.label}
+                        {sub.joursOuvrables != null ? ` (${sub.joursOuvrables} j. ouvrables)` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedCongeSub ? (
+                    <p className="text-xs text-slate-500">{congeExceptionnelJoursAide(selectedCongeSub.code)}</p>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Durées indicatives (CCN EPNL art. 5.6.1 — plancher Code du travail si plus
+                      favorable). Les dates restent libres.
+                    </p>
+                  )}
+                </div>
+              ) : null}
               {isMedicalDeclaration ? (
                 <p className="text-xs text-slate-500 mt-2">
-                  Maladie ou enfant malade : les heures seront traitées administrativement
-                  (déclaration
+                  Arrêt de travail, enfant malade ou congé exceptionnel : les heures seront traitées
+                  administrativement (déclaration
                   {effectiveScope === "ogec" ? " / comptabilité" : " secrétariat"}
                   ), sans possibilité de rattrapage. La direction valide uniquement (pas de
                   refus).
@@ -1221,6 +1331,18 @@ export default function AbsencesPageClient({
                     </button>
                   </div>
                 ) : null}
+                {canUseAbsenceThread(item) ? (
+                  <AbsenceInternalThreadPanel
+                    messages={item.messages || []}
+                    draft={threadDrafts[item.id] || ""}
+                    onDraftChange={(value) =>
+                      setThreadDrafts((prev) => ({ ...prev, [item.id]: value }))
+                    }
+                    onSend={() => void postThreadMessage(item)}
+                    sending={sendingThreadId === item.id}
+                    disabled={itemDecision(item) === "REFUSEE"}
+                  />
+                ) : null}
                 {item.justification?.fileUrl && canViewJustificatif(item) ? (
                   <p className="text-sm text-slate-700 mt-2">
                     <span className="font-bold">Justificatif :</span>{" "}
@@ -1239,7 +1361,7 @@ export default function AbsencesPageClient({
                       {item.justificatifRelanceAt
                         ? "Une pièce justificative vous est demandée (sans nouvelle validation direction)."
                         : isWaitingAdminTreatment(item)
-                          ? "Vous pouvez déposer une pièce (arrêt maladie, justificatif…) pour le traitement administratif."
+                          ? "Vous pouvez déposer une pièce (arrêt de travail, justificatif…) pour le traitement administratif."
                           : "Vous pouvez déposer un justificatif."}
                     </p>
                     <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold cursor-pointer hover:bg-slate-50">
@@ -1415,27 +1537,58 @@ export default function AbsencesPageClient({
                     {!isNonDiscretionaryAbsence(asRecord(item)) ? (
                       <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                         <p className="text-[11px] font-black uppercase tracking-wide text-slate-600">
-                          Ancienne absence maladie ?
+                          Reclasser en motif sans rattrapage ?
                         </p>
                         <p className="mt-1 text-xs text-slate-600">
-                          Si c’était un arrêt maladie (déclaré avant le nouveau circuit), reclassez-la
-                          ici : elle quitte cette liste et part au traitement (secrétariat / compta),
-                          sans choix rattrapage / déduction.
+                          Arrêt de travail, enfant malade ou congé exceptionnel : la demande quitte
+                          cette liste et part au traitement (secrétariat / compta), sans choix
+                          rattrapage / déduction.
                         </p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
                             type="button"
-                            onClick={() => reclasserArretMaladie(item, "MALADIE")}
+                            onClick={() => reclasserNonDiscretionnaire(item, "MALADIE")}
                             className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs"
                           >
-                            Déclarer en arrêt maladie
+                            Déclarer en arrêt de travail
                           </button>
                           <button
                             type="button"
-                            onClick={() => reclasserArretMaladie(item, "ENFANT_MALADE")}
+                            onClick={() => reclasserNonDiscretionnaire(item, "ENFANT_MALADE")}
                             className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs"
                           >
                             Déclarer en enfant malade
+                          </button>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-end gap-2">
+                          <div className="min-w-[14rem] flex-1">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">
+                              Congé exceptionnel
+                            </label>
+                            <select
+                              value={reclassCongeCode[item.id] || ""}
+                              onChange={(e) =>
+                                setReclassCongeCode((p) => ({ ...p, [item.id]: e.target.value }))
+                              }
+                              className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs bg-white"
+                            >
+                              <option value="">— Type d&apos;événement —</option>
+                              {CONGE_EXCEPTIONNEL_SUBMOTIFS.map((sub) => (
+                                <option key={sub.code} value={sub.code}>
+                                  {sub.label}
+                                  {sub.joursOuvrables != null
+                                    ? ` (${sub.joursOuvrables} j.)`
+                                    : ""}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => reclasserNonDiscretionnaire(item, "CONGE_EXCEPTIONNEL")}
+                            className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs"
+                          >
+                            Déclarer en congé exceptionnel
                           </button>
                         </div>
                       </div>
@@ -1443,9 +1596,12 @@ export default function AbsencesPageClient({
                     {isNonDiscretionaryAbsence(asRecord(item)) ? (
                       <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                         <p className="font-bold">
-                          {forcedHoursTreatmentForNonDiscretionaryAbsence(asRecord(item)) === "ENFANT_MALADE"
-                            ? "Enfant malade"
-                            : "Maladie"}{" "}
+                          {(() => {
+                            const kind = forcedHoursTreatmentForNonDiscretionaryAbsence(asRecord(item));
+                            if (kind === "ENFANT_MALADE") return "Enfant malade";
+                            if (kind === "CONGE_EXCEPTIONNEL") return "Congé exceptionnel";
+                            return "Arrêt de travail";
+                          })()}{" "}
                           — validation obligatoire
                         </p>
                         <p className="text-xs mt-1 text-amber-900/80">
@@ -1577,7 +1733,6 @@ export default function AbsencesPageClient({
                         {item.justification?.fileUrl ? "Demander un complément" : "Relancer pour justificatif"}
                       </button>
                       {!isNonDiscretionaryAbsence(asRecord(item)) &&
-                      !item.staffPreferredMakeupSlots &&
                       !item.directionConfirmedMakeupSlots &&
                       isRattrapageTreatment(
                         resolvedHoursTreatment(item, managerHoursTreatment) ||
@@ -1588,12 +1743,26 @@ export default function AbsencesPageClient({
                           onClick={() => updateWorkflow(item.id, "RELANCER_CRENEAUX_RATTRAPAGE", item)}
                           className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm"
                         >
-                          Relancer pour créneaux de rattrapage
+                          {item.staffPreferredMakeupSlots
+                            ? "Demander une précision sur les créneaux"
+                            : "Relancer pour créneaux de rattrapage"}
                         </button>
                       ) : null}
                     </div>
                   </div>
                 )}
+                {canUseAbsenceThread(item) ? (
+                  <AbsenceInternalThreadPanel
+                    messages={item.messages || []}
+                    draft={threadDrafts[item.id] || ""}
+                    onDraftChange={(value) =>
+                      setThreadDrafts((prev) => ({ ...prev, [item.id]: value }))
+                    }
+                    onSend={() => void postThreadMessage(item)}
+                    sending={sendingThreadId === item.id}
+                    disabled={itemDecision(item) === "REFUSEE"}
+                  />
+                ) : null}
               </div>
             ))
           )}
@@ -1605,10 +1774,10 @@ export default function AbsencesPageClient({
           <div className="bg-white border border-slate-200 rounded-3xl p-4">
             <h3 className="font-black text-slate-900">Dossiers à traiter</h3>
             <p className="text-xs text-slate-500">
-              Professeurs : déclarations rectorat / instance et absences maladie / enfant malade
-              (pas le rattrapage interne). OGEC : dossiers RH validés, y compris maladie / enfant
-              malade. Demandez une pièce si besoin, puis marquez traité une fois la déclaration
-              faite.
+              Professeurs : déclarations rectorat / instance et absences arrêt de travail / enfant malade /
+              congé exceptionnel (pas le rattrapage interne). OGEC : dossiers RH validés, y compris arrêt
+              de travail / enfant malade / congé exceptionnel. Demandez une pièce si besoin, puis marquez
+              traité une fois la déclaration faite.
             </p>
           </div>
           {loading ? (
@@ -1705,15 +1874,15 @@ export default function AbsencesPageClient({
                   >
                     {item.justification?.fileUrl ? "Demander un complément" : "Demander une pièce jointe"}
                   </button>
-                  {isRattrapageTreatment(item.hoursTreatment) &&
-                  !item.staffPreferredMakeupSlots &&
-                  !item.directionConfirmedMakeupSlots ? (
+                  {isRattrapageTreatment(item.hoursTreatment) && !item.directionConfirmedMakeupSlots ? (
                     <button
                       type="button"
                       onClick={() => updateWorkflow(item.id, "RELANCER_CRENEAUX_RATTRAPAGE", item)}
                       className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm"
                     >
-                      Relancer pour créneaux de rattrapage
+                      {item.staffPreferredMakeupSlots
+                        ? "Demander une précision sur les créneaux"
+                        : "Relancer pour créneaux de rattrapage"}
                     </button>
                   ) : null}
                   <button
@@ -1724,6 +1893,18 @@ export default function AbsencesPageClient({
                     Marquer comme traité
                   </button>
                 </div>
+                {canUseAbsenceThread(item) ? (
+                  <AbsenceInternalThreadPanel
+                    messages={item.messages || []}
+                    draft={threadDrafts[item.id] || ""}
+                    onDraftChange={(value) =>
+                      setThreadDrafts((prev) => ({ ...prev, [item.id]: value }))
+                    }
+                    onSend={() => void postThreadMessage(item)}
+                    sending={sendingThreadId === item.id}
+                    disabled={itemDecision(item) === "REFUSEE"}
+                  />
+                ) : null}
               </div>
             ))
           )}
