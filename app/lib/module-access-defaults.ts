@@ -60,6 +60,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
   "absences-accueil-consultation",
   "accueil-portes-ouvertes",
   "rdv-inscription",
+  "sante",
   // Compta & RH
   "rh",
   "absences",

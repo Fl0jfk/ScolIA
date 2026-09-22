@@ -819,15 +819,23 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "sante",
-    pathPrefixes: ["/sante"],
-    allowedRoles: ["infirmerie", "psychologue"],
+    pathPrefixes: ["/sante", "/api/sante"],
+    allowedRoles: [
+      ...DIRECTIONS,
+      "admin",
+      "administratif",
+      "cpe",
+      "surveillant",
+      "infirmerie",
+      "psychologue",
+    ],
     dashboard: {
       id: 52,
       name: "Espace santé",
       img: "",
-      link: "/sante/espace",
+      link: "/sante/passages",
       external: false,
-      description: "Infirmerie, PAP et suivi santé des élèves.",
+      description: "Passages infirmerie, PAP et suivi santé des élèves.",
     },
   },
   {
