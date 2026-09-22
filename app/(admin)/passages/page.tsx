@@ -40,10 +40,21 @@ export default function PassagesEspacePage() {
             Saisir au self
           </Link>
         </div>
+        <div className="rounded-3xl border border-sky-200 bg-sky-50/50 p-6 text-sm text-slate-700">
+          <p className="font-bold text-sky-950">Prévision des repas</p>
+          <p className="mt-1">
+            Droit (grille Lun–Ven, sinon régime) contre pris (self). Manquants et imprévus du jour.
+          </p>
+          <Link
+            href="/passages/prevision"
+            className="mt-4 inline-flex rounded-xl bg-sky-800 px-4 py-2 text-xs font-bold text-white"
+          >
+            Voir la prévision
+          </Link>
+        </div>
         <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600">
           <p className="font-semibold text-slate-800">Encore ouvert dans le bloc</p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
-            <li>Prévision des repas</li>
             <li>Facturation au forfait ou au réel (réglage)</li>
           </ul>
         </div>

@@ -7,6 +7,14 @@ import {
   listPassagesDuJour,
   searchElevesForPassage,
 } from "@/app/lib/passages-db";
+import { getPrevisionRepasDuJour } from "@/app/lib/passages-prevision-db";
+import { isPassageLieu } from "@/app/lib/passages-shared";
+import type { RepasService } from "@/app/lib/passages-prevision-shared";
+
+function parseService(raw: string | null): RepasService | undefined {
+  if (raw === "midi" || raw === "soir") return raw;
+  return undefined;
+}
 
 export async function GET(req: Request) {
   const gate = await requireModule("passages");
@@ -28,7 +36,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ alertes });
   }
 
-  const lieu = url.searchParams.get("lieu")?.trim() || undefined;
+  if (url.searchParams.get("prevision") === "1") {
+    const date = url.searchParams.get("date")?.trim() || undefined;
+    const service = parseService(url.searchParams.get("service"));
+    const payload = await getPrevisionRepasDuJour(etabId, { date, service });
+    return NextResponse.json(payload);
+  }
+
+  const lieuRaw = url.searchParams.get("lieu")?.trim();
+  const lieu = lieuRaw && isPassageLieu(lieuRaw) ? lieuRaw : undefined;
   const date = url.searchParams.get("date")?.trim() || undefined;
   const passages = await listPassagesDuJour(etabId, { lieu, date });
   return NextResponse.json({ passages });

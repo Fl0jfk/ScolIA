@@ -855,7 +855,7 @@ export const INTRANET_MODULES: IntranetModule[] = [
       img: "",
       link: "/passages",
       external: false,
-      description: "Portail entrée/sortie et repas pris au self.",
+      description: "Portail, self et prévision repas (droit / pris).",
     },
   },
   {
@@ -1206,6 +1206,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "vs-appels",
     "accueil-absences",
     "groupes-pedagogiques",
+    "passages",
   ],
   "pillar-compta-rh": ["rh", "mon-planning", "absences", "demandes-hse"],
 };

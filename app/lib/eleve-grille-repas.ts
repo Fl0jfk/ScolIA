@@ -119,3 +119,29 @@ export function grilleFromMealDays(
   }
   return g;
 }
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const WEEKDAY_SHORT_TO_MEAL: Record<string, MealDayKey> = {
+  Mon: "lun",
+  Tue: "mar",
+  Wed: "mer",
+  Thu: "jeu",
+  Fri: "ven",
+};
+
+/**
+ * Jour de grille (Lun–Ven) pour une date calendaire AAAA-MM-JJ (Europe/Paris).
+ * Week-end / invalide → null.
+ */
+export function mealDayKeyFromIsoDate(iso: string): MealDayKey | null {
+  const key = iso.trim().slice(0, 10);
+  if (!ISO_DATE_RE.test(key)) return null;
+  const [y, m, d] = key.split("-").map(Number) as [number, number, number];
+  const anchor = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  const wd = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Paris",
+    weekday: "short",
+  }).format(anchor);
+  return WEEKDAY_SHORT_TO_MEAL[wd] ?? null;
+}
