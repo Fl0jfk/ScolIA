@@ -11,6 +11,7 @@ import {
   internatChambre,
 } from "@/db/schema";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
+import { listEleveIdsEnSortieLeJour } from "@/app/lib/internat-sorties-db";
 import {
   isInternatAppelMarque,
   type InternatAppelLigneRow,
@@ -235,7 +236,9 @@ export async function getOrOpenAppelSoir(
     head = created;
   }
 
-  const roster = await rosterAffectationsDuJour(etablissementId, dateAppel, batimentId);
+  const rosterAll = await rosterAffectationsDuJour(etablissementId, dateAppel, batimentId);
+  const enSortie = await listEleveIdsEnSortieLeJour(etablissementId, dateAppel);
+  const roster = rosterAll.filter((r) => !enSortie.has(r.eleveId));
 
   if (head.statut === "ouverte") {
     for (const r of roster) {

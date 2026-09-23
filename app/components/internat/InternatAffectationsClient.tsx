@@ -162,7 +162,11 @@ export default function InternatAffectationsClient() {
       <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
         Postgres first : lits datés. Le hub JSON existant n’est ni lu ni effacé ici.{" "}
         <a href="/gestion-internat/appel-soir" className="font-bold text-indigo-700 hover:underline">
-          Appel du soir →
+          Appel du soir
+        </a>
+        {" · "}
+        <a href="/gestion-internat/sorties" className="font-bold text-indigo-700 hover:underline">
+          Sorties week-end →
         </a>
       </p>
 
