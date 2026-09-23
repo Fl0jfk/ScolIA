@@ -27,9 +27,44 @@ type Facture = {
   nature?: string;
 };
 
+type Echeance = {
+  id: string;
+  ordre: number;
+  dateEcheance: string;
+  montant: string;
+};
+
+type Impaye = {
+  factureId: string;
+  numero: string;
+  statut: string;
+  foyerLabel: string;
+  totalTtc: string;
+  paye: string;
+  reste: string;
+  dateEcheance: string | null;
+  enRetard: boolean;
+  echeances: Echeance[];
+};
+
+type EncaissementRow = {
+  id: string;
+  montant: string;
+  mode: string;
+  dateEncaissement: string;
+  reference: string | null;
+};
+
 export default function FacturationClient() {
   const [tarifs, setTarifs] = useState<Tarif[]>([]);
   const [factures, setFactures] = useState<Facture[]>([]);
+  const [impayes, setImpayes] = useState<Impaye[]>([]);
+  const [echeancesByFactureId, setEcheancesByFactureId] = useState<Record<string, Echeance[]>>(
+    {},
+  );
+  const [encaissementsByFactureId, setEncaissementsByFactureId] = useState<
+    Record<string, EncaissementRow[]>
+  >({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -54,6 +89,9 @@ export default function FacturationClient() {
       if (!res.ok) throw new Error(data?.error || "Chargement impossible");
       setTarifs(data.tarifs || []);
       setFactures(data.factures || []);
+      setImpayes(data.impayes || []);
+      setEcheancesByFactureId(data.echeancesByFactureId || {});
+      setEncaissementsByFactureId(data.encaissementsByFactureId || {});
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur");
     }
@@ -132,7 +170,11 @@ export default function FacturationClient() {
     );
   };
 
-  const factureAction = async (action: string, factureId: string) => {
+  const factureAction = async (
+    action: string,
+    factureId: string,
+    extra?: Record<string, unknown>,
+  ) => {
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -140,7 +182,7 @@ export default function FacturationClient() {
       const res = await fetch("/api/facturation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, factureId }),
+        body: JSON.stringify({ action, factureId, ...extra }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Échec");
@@ -151,6 +193,8 @@ export default function FacturationClient() {
         noterRelance: "Relance notée.",
         annulerFacture: "Facture annulée.",
         createAvoir: "Avoir créé et émis.",
+        setEcheancier: "Échéancier enregistré.",
+        enregistrerEncaissement: "Encaissement partiel enregistré.",
       };
       setMessage(labels[action] || "OK.");
       await load();
@@ -161,19 +205,14 @@ export default function FacturationClient() {
     }
   };
 
-  const enRetardCount = factures.filter(
-    (f) =>
-      (f.statut === "emise" || f.statut === "partiellement_payee") &&
-      f.dateEcheance &&
-      f.dateEcheance < today,
-  ).length;
+  const enRetardCount = impayes.filter((i) => i.enRetard).length;
 
   return (
     <ModulePageShell maxWidthClass="max-w-5xl">
       <ModulePageHeader
         eyebrow="Compta & RH · Phase 1b"
         title="Facturation familles"
-        description="Catalogue tarifs, factures foyers, PDF, SEPA et export comptable CSV."
+        description="Catalogue tarifs, factures foyers, échéances, impayés, quittances, SEPA."
         actions={
           <Link href="/compta-rh" className="text-sm font-bold text-indigo-600 hover:underline">
             ← Comptabilité & RH
@@ -209,10 +248,100 @@ export default function FacturationClient() {
         </button>
         {enRetardCount > 0 ? (
           <span className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs font-bold text-amber-900">
-            {enRetardCount} facture(s) en retard
+            {enRetardCount} impayé(s) en retard
           </span>
         ) : null}
       </div>
+
+      <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5 space-y-3 mb-6">
+        <h2 className="font-black text-slate-900">
+          Board impayés ({impayes.length})
+        </h2>
+        <p className="text-xs text-slate-600">
+          Factures émises ou partielles avec reste à payer. La quittance est l’encaissement.
+        </p>
+        {!impayes.length ? (
+          <p className="text-sm text-slate-500">Aucun impayé — tout est soldé.</p>
+        ) : (
+          <ul className="text-sm divide-y divide-amber-100/80">
+            {impayes.map((i) => (
+              <li key={i.factureId} className="py-3 space-y-2">
+                <div className="flex flex-wrap justify-between gap-2 items-center">
+                  <span>
+                    <strong>{i.numero}</strong>{" "}
+                    <span className="text-slate-500 text-xs">{i.foyerLabel}</span>{" "}
+                    <span className="text-slate-500 text-xs">{i.statut}</span>
+                    {i.enRetard ? (
+                      <span className="ml-2 rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-950">
+                        Retard
+                      </span>
+                    ) : null}
+                    {i.dateEcheance ? (
+                      <span className="ml-2 text-xs text-slate-500">proch. éch. {i.dateEcheance}</span>
+                    ) : null}
+                  </span>
+                  <span className="font-bold text-amber-950">
+                    reste {i.reste} €{" "}
+                    <span className="font-normal text-slate-500 text-xs">
+                      / {i.totalTtc} € (payé {i.paye} €)
+                    </span>
+                  </span>
+                </div>
+                {i.echeances.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 text-[11px] text-slate-700">
+                    {i.echeances.map((e) => (
+                      <span
+                        key={e.id}
+                        className="rounded-lg border border-amber-200 bg-white px-2 py-1"
+                      >
+                        #{e.ordre} · {e.dateEcheance} · {e.montant} €
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-indigo-700"
+                    disabled={busy}
+                    onClick={() =>
+                      void factureAction("setEcheancier", i.factureId, { nbMensualites: 3 })
+                    }
+                  >
+                    Échéancier 3×
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-emerald-700"
+                    disabled={busy}
+                    onClick={() => void factureAction("solderFacture", i.factureId)}
+                  >
+                    Solder
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-slate-700"
+                    disabled={busy}
+                    onClick={() => {
+                      const first = i.echeances[0];
+                      const montant = first?.montant || i.reste;
+                      void factureAction("enregistrerEncaissement", i.factureId, {
+                        montant,
+                        mode: "virement",
+                        reference: first
+                          ? `Échéance #${first.ordre} ${i.numero}`
+                          : `Partiel ${i.numero}`,
+                      });
+                    }}
+                  >
+                    Encaisser 1ʳᵉ éch.
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4 mb-6">
         <h2 className="font-black text-slate-900">Catalogue tarifs</h2>
@@ -294,7 +423,7 @@ export default function FacturationClient() {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 space-y-3">
         <h2 className="font-black text-slate-900">Factures ({factures.length})</h2>
         <p className="text-xs text-slate-500">
-          Émission depuis le dossier foyer (API prête). Liste des pièces déjà créées :
+          Émission depuis le dossier foyer. Échéancier multi et quittances sur les pièces ci-dessous.
         </p>
         <ul className="text-sm divide-y">
           {factures.map((f) => {
@@ -302,96 +431,139 @@ export default function FacturationClient() {
               (f.statut === "emise" || f.statut === "partiellement_payee") &&
               Boolean(f.dateEcheance) &&
               (f.dateEcheance as string) < today;
+            const echs = echeancesByFactureId[f.id] || [];
+            const encs = encaissementsByFactureId[f.id] || [];
             return (
-              <li key={f.id} className="py-2 flex justify-between gap-3 items-center flex-wrap">
-                <span>
-                  <strong>{f.numero}</strong>{" "}
-                  <span className="text-slate-500 text-xs">{f.statut}</span>
-                  {f.nature === "avoir" ? (
-                    <span className="ml-2 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-violet-900">
-                      Avoir
-                    </span>
-                  ) : null}
-                  {f.dateEcheance ? (
-                    <span className="ml-2 text-xs text-slate-500">éch. {f.dateEcheance}</span>
-                  ) : null}
-                  {retard ? (
-                    <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-900">
-                      Retard
-                    </span>
-                  ) : null}
-                </span>
-                <span className="flex items-center gap-2">
-                  <span>{f.totalTtc} €</span>
-                  {f.statut === "brouillon" && (
+              <li key={f.id} className="py-3 space-y-2">
+                <div className="flex justify-between gap-3 items-center flex-wrap">
+                  <span>
+                    <strong>{f.numero}</strong>{" "}
+                    <span className="text-slate-500 text-xs">{f.statut}</span>
+                    {f.nature === "avoir" ? (
+                      <span className="ml-2 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-violet-900">
+                        Avoir
+                      </span>
+                    ) : null}
+                    {f.dateEcheance ? (
+                      <span className="ml-2 text-xs text-slate-500">éch. {f.dateEcheance}</span>
+                    ) : null}
+                    {retard ? (
+                      <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-900">
+                        Retard
+                      </span>
+                    ) : null}
+                    {echs.length > 1 ? (
+                      <span className="ml-2 text-xs text-indigo-700 font-semibold">
+                        {echs.length} échéances
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="flex items-center gap-2 flex-wrap">
+                    <span>{f.totalTtc} €</span>
+                    {f.statut === "brouillon" && (
+                      <button
+                        type="button"
+                        className="text-xs font-bold text-indigo-600"
+                        onClick={() => void factureAction("emitFacture", f.id)}
+                      >
+                        Émettre
+                      </button>
+                    )}
+                    {(f.statut === "emise" || f.statut === "partiellement_payee") &&
+                      f.nature !== "avoir" && (
+                        <>
+                          <button
+                            type="button"
+                            className="text-xs font-bold text-indigo-700"
+                            disabled={busy}
+                            onClick={() =>
+                              void factureAction("setEcheancier", f.id, { nbMensualites: 3 })
+                            }
+                          >
+                            Échéancier 3×
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs font-bold text-emerald-700"
+                            disabled={busy}
+                            onClick={() => void factureAction("solderFacture", f.id)}
+                          >
+                            Solder
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs font-bold text-amber-800"
+                            disabled={busy}
+                            onClick={() => void factureAction("noterRelance", f.id)}
+                          >
+                            Relance
+                          </button>
+                        </>
+                      )}
+                    {(f.statut === "emise" ||
+                      f.statut === "partiellement_payee" ||
+                      f.statut === "soldee") &&
+                      f.nature !== "avoir" && (
+                        <button
+                          type="button"
+                          className="text-xs font-bold text-violet-700"
+                          disabled={busy}
+                          onClick={() => void factureAction("createAvoir", f.id)}
+                        >
+                          Avoir
+                        </button>
+                      )}
+                    {f.statut === "emise" && f.nature !== "avoir" && (
+                      <button
+                        type="button"
+                        className="text-xs font-bold text-slate-500"
+                        disabled={busy}
+                        onClick={() => void factureAction("annulerFacture", f.id)}
+                      >
+                        Annuler
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="text-xs font-bold text-indigo-600"
-                      onClick={() => void factureAction("emitFacture", f.id)}
+                      onClick={() => void factureAction("generatePdf", f.id)}
                     >
-                      Émettre
+                      PDF
                     </button>
-                  )}
-                  {(f.statut === "emise" || f.statut === "partiellement_payee") &&
-                    f.nature !== "avoir" && (
-                    <>
-                      <button
-                        type="button"
-                        className="text-xs font-bold text-emerald-700"
-                        disabled={busy}
-                        onClick={() => void factureAction("solderFacture", f.id)}
-                      >
-                        Solder
-                      </button>
-                      <button
-                        type="button"
-                        className="text-xs font-bold text-amber-800"
-                        disabled={busy}
-                        onClick={() => void factureAction("noterRelance", f.id)}
-                      >
-                        Relance
-                      </button>
-                    </>
-                  )}
-                  {(f.statut === "emise" ||
-                    f.statut === "partiellement_payee" ||
-                    f.statut === "soldee") &&
-                    f.nature !== "avoir" && (
-                      <button
-                        type="button"
-                        className="text-xs font-bold text-violet-700"
-                        disabled={busy}
-                        onClick={() => void factureAction("createAvoir", f.id)}
-                      >
-                        Avoir
-                      </button>
-                    )}
-                  {f.statut === "emise" && f.nature !== "avoir" && (
-                    <button
-                      type="button"
-                      className="text-xs font-bold text-slate-500"
-                      disabled={busy}
-                      onClick={() => void factureAction("annulerFacture", f.id)}
+                    <a
+                      href={`/api/facturation/${f.id}/pdf`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-bold underline text-slate-700"
                     >
-                      Annuler
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="text-xs font-bold text-indigo-600"
-                    onClick={() => void factureAction("generatePdf", f.id)}
-                  >
-                    PDF
-                  </button>
-                  <a
-                    href={`/api/facturation/${f.id}/pdf`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs font-bold underline text-slate-700"
-                  >
-                    Ouvrir
-                  </a>
-                </span>
+                      Ouvrir
+                    </a>
+                  </span>
+                </div>
+                {echs.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pl-1 text-[11px] text-slate-600">
+                    {echs.map((e) => (
+                      <span key={e.id} className="rounded bg-slate-50 border border-slate-200 px-2 py-0.5">
+                        éch. #{e.ordre} {e.dateEcheance} — {e.montant} €
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                {encs.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pl-1 text-[11px]">
+                    {encs.map((e) => (
+                      <a
+                        key={e.id}
+                        href={`/api/facturation/encaissement/${e.id}/quittance`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded bg-emerald-50 border border-emerald-200 px-2 py-0.5 font-bold text-emerald-900 hover:underline"
+                      >
+                        Quittance {e.montant} € ({e.dateEncaissement})
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
               </li>
             );
           })}

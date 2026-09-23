@@ -582,6 +582,13 @@ export async function GET() {
       if (etabId) {
         anneeScolaireLabel = (await resolveAnneeCouranteMeta(etabId)).label;
         try {
+          const { countFacturesEnRetard } = await import("@/app/lib/facturation-db");
+          const { parisDateKey } = await import("@/app/lib/paris-time");
+          facturesEnRetard = await countFacturesEnRetard(etabId, parisDateKey(new Date()));
+        } catch {
+          facturesEnRetard = 0;
+        }
+        try {
           const { loadCreneauVideSignalsForDashboard } = await import("@/app/lib/impact-engine");
           const { parisDateKey } = await import("@/app/lib/paris-time");
           const signals = await loadCreneauVideSignalsForDashboard({

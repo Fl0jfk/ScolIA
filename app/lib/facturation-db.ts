@@ -7,6 +7,7 @@ import {
   eleveFoyerLink,
   encaissement,
   facture,
+  factureEcheance,
   factureEncaissement,
   factureLigne,
   foyer,
@@ -433,6 +434,18 @@ export async function emitFacture(etablissementId: string, factureId: string) {
     .returning();
   if (!row) throw new Error("Facture introuvable.");
 
+  /** Échéance unique par défaut si aucun échéancier multi. */
+  const existingEch = await listEcheancesFacture(etablissementId, factureId);
+  if (!existingEch.length) {
+    await db.insert(factureEcheance).values({
+      etablissementId,
+      factureId,
+      dateEcheance,
+      montant: String(row.totalTtc),
+      ordre: 1,
+    });
+  }
+
   /** PDF prêt pour le portail famille (téléchargement). */
   try {
     await generateFacturePdf(etablissementId, factureId);
@@ -446,6 +459,261 @@ export async function emitFacture(etablissementId: string, factureId: string) {
     .where(and(eq(facture.etablissementId, etablissementId), eq(facture.id, factureId)))
     .limit(1);
   return fresh ?? row;
+}
+
+export async function listEcheancesFacture(etablissementId: string, factureId: string) {
+  const db = getDb();
+  return db
+    .select()
+    .from(factureEcheance)
+    .where(
+      and(
+        eq(factureEcheance.etablissementId, etablissementId),
+        eq(factureEcheance.factureId, factureId),
+      ),
+    )
+    .orderBy(asc(factureEcheance.ordre));
+}
+
+/**
+ * Remplace l’échéancier d’une facture (mensualités égales ou liste libre).
+ * Met à jour `facture.date_echeance` = première échéance (prochaine due).
+ */
+export async function setEcheancierFacture(
+  etablissementId: string,
+  factureId: string,
+  opts: {
+    nbMensualites?: number;
+    premiereDate?: string;
+    echeances?: Array<{ dateEcheance: string; montant: string | number }>;
+  },
+) {
+  const db = getDb();
+  const [fac] = await db
+    .select()
+    .from(facture)
+    .where(and(eq(facture.etablissementId, etablissementId), eq(facture.id, factureId)))
+    .limit(1);
+  if (!fac) throw new Error("Facture introuvable.");
+  if (fac.nature === "avoir") throw new Error("Pas d’échéancier sur un avoir.");
+  if (fac.statut === "annulee") throw new Error("Facture annulée.");
+  if (fac.statut === "soldee") throw new Error("Facture déjà soldée.");
+
+  let plan: Array<{ dateEcheance: string; montant: string; ordre: number }> = [];
+
+  if (opts.echeances?.length) {
+    plan = opts.echeances.map((e, i) => ({
+      dateEcheance: String(e.dateEcheance).slice(0, 10),
+      montant: Number(e.montant).toFixed(2),
+      ordre: i + 1,
+    }));
+  } else {
+    const n = Math.floor(Number(opts.nbMensualites ?? 0));
+    if (!Number.isFinite(n) || n < 2 || n > 24) {
+      throw new Error("Nombre de mensualités invalide (2–24).");
+    }
+    const total = Number(fac.totalTtc);
+    if (!Number.isFinite(total) || total <= 0) throw new Error("Total facture invalide.");
+    const base = Math.floor((total / n) * 100) / 100;
+    let remaining = Math.round(total * 100);
+    const start =
+      opts.premiereDate?.trim().slice(0, 10) ||
+      fac.dateEcheance ||
+      new Date().toISOString().slice(0, 10);
+    const startDate = new Date(`${start}T12:00:00Z`);
+    for (let i = 0; i < n; i++) {
+      const cents = i === n - 1 ? remaining : Math.round(base * 100);
+      remaining -= cents;
+      const d = new Date(startDate);
+      d.setUTCMonth(d.getUTCMonth() + i);
+      plan.push({
+        dateEcheance: d.toISOString().slice(0, 10),
+        montant: (cents / 100).toFixed(2),
+        ordre: i + 1,
+      });
+    }
+  }
+
+  if (!plan.length) throw new Error("Échéancier vide.");
+  const sum = plan.reduce((acc, p) => acc + Number(p.montant), 0);
+  if (Math.abs(sum - Number(fac.totalTtc)) > 0.02) {
+    throw new Error(
+      `Somme des échéances (${sum.toFixed(2)}) ≠ total facture (${Number(fac.totalTtc).toFixed(2)}).`,
+    );
+  }
+
+  await db
+    .delete(factureEcheance)
+    .where(
+      and(
+        eq(factureEcheance.etablissementId, etablissementId),
+        eq(factureEcheance.factureId, factureId),
+      ),
+    );
+
+  await db.insert(factureEcheance).values(
+    plan.map((p) => ({
+      etablissementId,
+      factureId,
+      dateEcheance: p.dateEcheance,
+      montant: p.montant,
+      ordre: p.ordre,
+    })),
+  );
+
+  const firstDate = plan[0]!.dateEcheance;
+  await db
+    .update(facture)
+    .set({ dateEcheance: firstDate, updatedAt: new Date() })
+    .where(and(eq(facture.etablissementId, etablissementId), eq(facture.id, factureId)));
+
+  return listEcheancesFacture(etablissementId, factureId);
+}
+
+export type ImpayeRow = {
+  factureId: string;
+  numero: string;
+  statut: string;
+  foyerId: string;
+  foyerLabel: string;
+  totalTtc: string;
+  paye: string;
+  reste: string;
+  dateEcheance: string | null;
+  enRetard: boolean;
+  echeances: Array<{
+    id: string;
+    ordre: number;
+    dateEcheance: string;
+    montant: string;
+  }>;
+};
+
+/** Board impayés : factures émises / partielles avec reste à payer. */
+export async function listImpayesFacturation(
+  etablissementId: string,
+  todayIso?: string,
+): Promise<ImpayeRow[]> {
+  const today = todayIso || new Date().toISOString().slice(0, 10);
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: facture.id,
+      numero: facture.numero,
+      statut: facture.statut,
+      nature: facture.nature,
+      foyerId: facture.foyerId,
+      totalTtc: facture.totalTtc,
+      dateEcheance: facture.dateEcheance,
+      foyerLabel: foyer.label,
+    })
+    .from(facture)
+    .innerJoin(foyer, and(eq(foyer.id, facture.foyerId), eq(foyer.etablissementId, etablissementId)))
+    .where(
+      and(
+        eq(facture.etablissementId, etablissementId),
+        inArray(facture.statut, ["emise", "partiellement_payee"]),
+      ),
+    )
+    .orderBy(asc(facture.dateEcheance), desc(facture.createdAt));
+
+  const out: ImpayeRow[] = [];
+  for (const r of rows) {
+    if (r.nature === "avoir") continue;
+    const paye = await sumEncaissementsFacture(etablissementId, r.id);
+    const total = Number(r.totalTtc);
+    const reste = Math.max(0, total - paye);
+    if (reste <= 0.009) continue;
+    const echeances = await listEcheancesFacture(etablissementId, r.id);
+    let nextDue: string | null = r.dateEcheance ? String(r.dateEcheance) : null;
+    if (echeances.length) {
+      let covered = 0;
+      nextDue = String(echeances[echeances.length - 1]!.dateEcheance);
+      for (const e of echeances) {
+        covered += Number(e.montant);
+        if (covered > paye + 0.009) {
+          nextDue = String(e.dateEcheance);
+          break;
+        }
+      }
+    }
+    out.push({
+      factureId: r.id,
+      numero: r.numero,
+      statut: r.statut,
+      foyerId: r.foyerId,
+      foyerLabel: r.foyerLabel,
+      totalTtc: Number(r.totalTtc).toFixed(2),
+      paye: paye.toFixed(2),
+      reste: reste.toFixed(2),
+      dateEcheance: nextDue,
+      enRetard: Boolean(nextDue && nextDue < today),
+      echeances: echeances.map((e) => ({
+        id: e.id,
+        ordre: e.ordre,
+        dateEcheance: String(e.dateEcheance),
+        montant: String(e.montant),
+      })),
+    });
+  }
+  return out;
+}
+
+export async function listEncaissementsFacture(etablissementId: string, factureId: string) {
+  const db = getDb();
+  return db
+    .select({
+      id: encaissement.id,
+      montant: factureEncaissement.montant,
+      mode: encaissement.mode,
+      dateEncaissement: encaissement.dateEncaissement,
+      reference: encaissement.reference,
+      createdAt: encaissement.createdAt,
+    })
+    .from(factureEncaissement)
+    .innerJoin(encaissement, eq(encaissement.id, factureEncaissement.encaissementId))
+    .where(
+      and(
+        eq(factureEncaissement.etablissementId, etablissementId),
+        eq(factureEncaissement.factureId, factureId),
+      ),
+    )
+    .orderBy(desc(encaissement.dateEncaissement), desc(encaissement.createdAt));
+}
+
+/** Données quittance (l’encaissement = quittance, pas de table dédiée). */
+export async function getQuittanceBundle(etablissementId: string, encaissementId: string) {
+  const db = getDb();
+  const [enc] = await db
+    .select()
+    .from(encaissement)
+    .where(and(eq(encaissement.etablissementId, etablissementId), eq(encaissement.id, encaissementId)))
+    .limit(1);
+  if (!enc) return null;
+
+  const links = await db
+    .select({
+      factureId: factureEncaissement.factureId,
+      montant: factureEncaissement.montant,
+      numero: facture.numero,
+      totalTtc: facture.totalTtc,
+    })
+    .from(factureEncaissement)
+    .innerJoin(facture, eq(facture.id, factureEncaissement.factureId))
+    .where(
+      and(
+        eq(factureEncaissement.etablissementId, etablissementId),
+        eq(factureEncaissement.encaissementId, encaissementId),
+      ),
+    );
+
+  const [f] = await db
+    .select()
+    .from(foyer)
+    .where(and(eq(foyer.etablissementId, etablissementId), eq(foyer.id, enc.foyerId)))
+    .limit(1);
+
+  return { encaissement: enc, lignes: links, foyer: f };
 }
 
 async function sumEncaissementsFacture(
