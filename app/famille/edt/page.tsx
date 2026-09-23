@@ -1,9 +1,14 @@
-import FamilleEdtClient from "@/app/components/famille/FamilleEdtClient";
+import { permanentRedirect } from "next/navigation";
 
-export const metadata = {
-  title: "Emploi du temps — Espace famille",
-};
+type Props = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
-export default function FamilleEdtPage() {
-  return <FamilleEdtClient />;
+export default async function FamilleLegacyedtRedirect({ searchParams }: Props) {
+  const sp = (await searchParams) || {};
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (typeof v === "string") qs.set(k, v);
+    else if (Array.isArray(v) && v[0]) qs.set(k, v[0]);
+  }
+  const q = qs.toString();
+  permanentRedirect(q ? `/quotidien/edt?${q}` : `/quotidien/edt`);
 }

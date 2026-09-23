@@ -84,14 +84,14 @@ export default function FamillePortailChrome({ title, description, children }: P
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white">
-      <header className="border-b border-indigo-100 bg-white/90 backdrop-blur px-4 py-4">
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_#ecfdf5_0%,_#f8fafc_45%,_#fff_100%)]">
+      <header className="border-b border-teal-100/80 bg-white/85 backdrop-blur px-4 py-4">
         <div className="max-w-2xl mx-auto">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">
-              Espace famille
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-teal-800">
+              Portail quotidien
               {data?.anneeCouranteLabel ? (
-                <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 normal-case">
+                <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 normal-case tracking-normal">
                   {data.anneeCouranteLabel}
                 </span>
               ) : null}
@@ -117,11 +117,11 @@ export default function FamillePortailChrome({ title, description, children }: P
           <h1 className="text-2xl font-black text-slate-900 mt-0.5">{title}</h1>
           {description ? <p className="text-sm text-slate-600 mt-1">{description}</p> : null}
           {activeFoyers.length > 0 ? (
-            <p className="mt-2 text-xs text-indigo-900/80 rounded-xl bg-indigo-50 border border-indigo-100 px-3 py-2">
+            <p className="mt-2 text-xs text-teal-950/80 rounded-xl bg-teal-50 border border-teal-100 px-3 py-2">
               Vous agissez pour{" "}
               <strong>{activeFoyers.map((f) => f.label).join(", ")}</strong>
               {data?.email ? (
-                <span className="text-indigo-700/70"> — connecté·e en tant que {data.email}</span>
+                <span className="text-teal-800/70"> — connecté·e en tant que {data.email}</span>
               ) : null}
               . Chaque responsable du foyer peut utiliser son propre compte.
             </p>

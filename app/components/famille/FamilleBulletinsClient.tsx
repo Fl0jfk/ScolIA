@@ -60,7 +60,7 @@ export default function FamilleBulletinsClient() {
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white">
       <header className="border-b border-indigo-100 bg-white/90 backdrop-blur px-4 py-4">
         <div className="max-w-2xl mx-auto">
-          <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">Espace famille</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-800">Portail quotidien</p>
           <h1 className="text-2xl font-black text-slate-900 mt-0.5">Bulletins scolaires</h1>
           <p className="text-sm text-slate-600 mt-1">
             Bulletins publiés après clôture des périodes par l&apos;établissement.

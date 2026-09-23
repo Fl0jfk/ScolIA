@@ -1,9 +1,14 @@
-import FamilleCarnetClient from "@/app/components/famille/FamilleCarnetClient";
+import { permanentRedirect } from "next/navigation";
 
-export const metadata = {
-  title: "Carnet — Espace famille",
-};
+type Props = { searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
-export default function FamilleCarnetPage() {
-  return <FamilleCarnetClient />;
+export default async function FamilleLegacycarnetRedirect({ searchParams }: Props) {
+  const sp = (await searchParams) || {};
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (typeof v === "string") qs.set(k, v);
+    else if (Array.isArray(v) && v[0]) qs.set(k, v[0]);
+  }
+  const q = qs.toString();
+  permanentRedirect(q ? `/quotidien/carnet?${q}` : `/quotidien/carnet`);
 }

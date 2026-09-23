@@ -104,7 +104,7 @@ export default function FamilleEdtClient() {
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white">
       <header className="border-b border-indigo-100 bg-white/90 backdrop-blur px-4 py-4">
         <div className="max-w-3xl mx-auto">
-          <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">Espace famille</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-800">Portail quotidien</p>
           <h1 className="text-2xl font-black text-slate-900 mt-0.5">Emploi du temps</h1>
           <p className="text-sm text-slate-600 mt-1">
             Grille de la classe — semaine en cours (emploi du temps établissement).
@@ -167,7 +167,7 @@ export default function FamilleEdtClient() {
                       key={j.n}
                       className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm min-h-[8rem]"
                     >
-                      <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">
+                      <p className="text-xs font-bold uppercase tracking-wide text-teal-800">
                         {j.label}
                       </p>
                       <ul className="mt-2 space-y-2">

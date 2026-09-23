@@ -78,7 +78,7 @@ export default function FamilleNotesClient() {
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white">
       <header className="border-b border-indigo-100 bg-white/90 backdrop-blur px-4 py-4">
         <div className="max-w-2xl mx-auto">
-          <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">Espace famille</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-800">Portail quotidien</p>
           <h1 className="text-2xl font-black text-slate-900 mt-0.5">Notes</h1>
           <p className="text-sm text-slate-600 mt-1">
             Notes saisies par les professeurs — visibles dès publication.
@@ -138,7 +138,7 @@ export default function FamilleNotesClient() {
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">
+                  <p className="text-xs font-bold uppercase tracking-wide text-teal-800">
                     {n.matiereLibelle}
                     <span className="ml-2 font-medium text-slate-400">{n.periodeLibelle}</span>
                   </p>

@@ -51,11 +51,11 @@ export default function FamilleSanctionsClient() {
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-3xl px-4 py-8">
         <header className="mb-6">
-          <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">Portail familles</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-800">Portail quotidien</p>
           <h1 className="text-2xl font-black">Sanctions</h1>
           <p className="text-sm text-slate-600 mt-1">
             Sanctions actives de votre enfant. L’accusé de lecture se fait aussi via le{" "}
-            <Link href="/famille/carnet" className="font-bold text-indigo-700 underline">
+            <Link href="/quotidien/carnet" className="font-bold text-teal-800 underline">
               carnet de liaison
             </Link>
             .

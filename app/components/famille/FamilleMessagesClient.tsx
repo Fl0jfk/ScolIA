@@ -157,7 +157,7 @@ export default function FamilleMessagesClient() {
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="mx-auto max-w-3xl px-4 py-8">
         <header className="mb-6">
-          <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">Portail familles</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-800">Portail quotidien</p>
           <h1 className="text-2xl font-black">
             Messages
             {unreadCount > 0 ? (

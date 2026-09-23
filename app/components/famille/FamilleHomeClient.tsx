@@ -2,12 +2,25 @@
 
 import Link from "next/link";
 import FamillePortailChrome from "@/app/components/famille/FamillePortailChrome";
+import { quotidienHref } from "@/app/lib/quotidien-portal";
+
+const TILES: Array<{ path: string; title: string; blurb: string }> = [
+  { path: "/edt", title: "Emploi du temps", blurb: "Grille de la classe" },
+  { path: "/notes", title: "Notes", blurb: "Notes en cours" },
+  { path: "/cahier-texte", title: "Cahier de textes", blurb: "Leçons et travail à faire" },
+  { path: "/bulletins", title: "Bulletins", blurb: "Moyennes et PDF publiés" },
+  { path: "/absences", title: "Absences", blurb: "Absences et retards" },
+  { path: "/carnet", title: "Carnet", blurb: "Messages avec accusé de lecture" },
+  { path: "/sanctions", title: "Sanctions", blurb: "Sanctions actives" },
+  { path: "/messages", title: "Messages", blurb: "Échanges avec l’établissement" },
+  { path: "/finances", title: "Finances", blurb: "Factures et prélèvement SEPA" },
+];
 
 export default function FamilleHomeClient() {
   return (
     <FamillePortailChrome
       title="Bienvenue"
-      description="Emploi du temps, notes, absences, carnet et factures de vos enfants."
+      description="Le quotidien de vos enfants : EDT, notes, absences, carnet, messages et factures."
     >
       {({ selectedEnfant, enfants }) => (
         <>
@@ -26,7 +39,7 @@ export default function FamilleHomeClient() {
                       <span className="text-slate-500">{e.classe || "—"}</span>
                     </div>
                     {e.foyers.length > 0 ? (
-                      <p className="text-xs text-indigo-800 mt-1">
+                      <p className="text-xs text-teal-900 mt-1">
                         Foyer : {e.foyers.map((f) => f.label).join(", ")}
                       </p>
                     ) : null}
@@ -38,48 +51,16 @@ export default function FamilleHomeClient() {
 
           {selectedEnfant ? (
             <div className="grid gap-3 sm:grid-cols-2">
-              <Link
-                href={`/famille/edt?enfant=${encodeURIComponent(selectedEnfant.id)}`}
-                className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 hover:bg-indigo-100"
-              >
-                <p className="font-bold text-indigo-900">Emploi du temps</p>
-                <p className="text-xs text-indigo-800 mt-1">Grille de la classe</p>
-              </Link>
-              <Link
-                href={`/famille/notes?enfant=${encodeURIComponent(selectedEnfant.id)}`}
-                className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 hover:bg-indigo-100"
-              >
-                <p className="font-bold text-indigo-900">Notes</p>
-                <p className="text-xs text-indigo-800 mt-1">Notes en cours</p>
-              </Link>
-              <Link
-                href={`/famille/bulletins?enfant=${encodeURIComponent(selectedEnfant.id)}`}
-                className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 hover:bg-indigo-100"
-              >
-                <p className="font-bold text-indigo-900">Bulletins</p>
-                <p className="text-xs text-indigo-800 mt-1">Moyennes et PDF publiés</p>
-              </Link>
-              <Link
-                href={`/famille/absences?enfant=${encodeURIComponent(selectedEnfant.id)}`}
-                className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 hover:bg-indigo-100"
-              >
-                <p className="font-bold text-indigo-900">Absences</p>
-                <p className="text-xs text-indigo-800 mt-1">Absences et retards</p>
-              </Link>
-              <Link
-                href={`/famille/carnet?enfant=${encodeURIComponent(selectedEnfant.id)}`}
-                className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 hover:bg-indigo-100"
-              >
-                <p className="font-bold text-indigo-900">Carnet</p>
-                <p className="text-xs text-indigo-800 mt-1">Messages avec accusé de lecture</p>
-              </Link>
-              <Link
-                href={`/famille/finances?enfant=${encodeURIComponent(selectedEnfant.id)}`}
-                className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 hover:bg-indigo-100"
-              >
-                <p className="font-bold text-indigo-900">Finances</p>
-                <p className="text-xs text-indigo-800 mt-1">Factures et prélèvement SEPA</p>
-              </Link>
+              {TILES.map((t) => (
+                <Link
+                  key={t.path}
+                  href={quotidienHref(t.path, selectedEnfant.id)}
+                  className="rounded-2xl border border-teal-200 bg-teal-50/80 p-4 hover:bg-teal-100/80 transition-colors"
+                >
+                  <p className="font-bold text-teal-950">{t.title}</p>
+                  <p className="text-xs text-teal-900 mt-1">{t.blurb}</p>
+                </Link>
+              ))}
             </div>
           ) : null}
         </>

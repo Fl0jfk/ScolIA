@@ -468,7 +468,7 @@ async function handleProxyRequest(request: NextRequest): Promise<NextResponse> {
       );
     }
     return withOptionalDevTenantCookie(
-      withTenantHeaders(NextResponse.redirect(new URL("/app-mobile", request.url)), tenant),
+      withTenantHeaders(NextResponse.redirect(new URL("/quotidien", request.url)), tenant),
       request,
       host,
     );

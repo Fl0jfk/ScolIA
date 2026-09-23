@@ -101,9 +101,10 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/abonnement-suspendu",
   "/api/onboarding/status",
   "/api/billing/tenant/status",
-  /** Portail famille / app mobile parents — hors modules intranet staff. */
+  /** Portail quotidien familles — hors modules intranet staff. */
   "/api/famille",
   "/famille",
+  "/quotidien",
   "/api/eleve",
   "/api/mobile",
   "/app-mobile",
