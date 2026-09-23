@@ -111,7 +111,8 @@ export default function ComptaEtablissementClient() {
     }
   };
 
-  const defaultCompteId = comptes[0]?.id || "";
+  const defaultCompteId = comptes.find((c) => c.nature === "caisse")?.id || comptes[0]?.id || "";
+  const caisseId = comptes.find((c) => c.nature === "caisse")?.id || defaultCompteId;
 
   return (
     <ModulePageShell maxWidthClass="max-w-5xl">
@@ -252,7 +253,7 @@ export default function ComptaEtablissementClient() {
                     onClick={() =>
                       void post("payerDepense", {
                         depenseId: d.id,
-                        compteId: defaultCompteId,
+                        compteId: caisseId,
                       })
                     }
                   >

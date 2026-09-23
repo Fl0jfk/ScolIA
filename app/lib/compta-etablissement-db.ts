@@ -28,7 +28,10 @@ export async function listComptesTresorerie(etablissementId: string) {
     .select()
     .from(tresorerieCompte)
     .where(eq(tresorerieCompte.etablissementId, etablissementId))
-    .orderBy(asc(tresorerieCompte.nature), asc(tresorerieCompte.libelle));
+    .orderBy(
+      sql`case when ${tresorerieCompte.nature} = 'caisse' then 0 else 1 end`,
+      asc(tresorerieCompte.libelle),
+    );
 
   const withSoldes = [];
   for (const c of rows) {
