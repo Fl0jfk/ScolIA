@@ -2,6 +2,7 @@ import './globals.css';
 import { headers } from "next/headers";
 import ChatbotBubbleClient from "./components/ChatbotBubbleClient";
 import InteractiveCursor from "./components/InteractiveCursor";
+import LaboEnvBanner from "./components/LaboEnvBanner";
 import PortalMemoryOnSignOut from "./components/PortalMemoryOnSignOut";
 import MessagingOverlayClient from "./components/messaging/MessagingOverlayClient";
 import { AppUserProvider } from "./hooks/useAppUser";
@@ -13,6 +14,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="fr">
       <body>
         <AppUserProvider>
+          <LaboEnvBanner />
           <InteractiveCursor />
           <PortalMemoryOnSignOut />
           {children}

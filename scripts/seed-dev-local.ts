@@ -54,11 +54,17 @@ function loadEnvFile(path: string) {
 loadEnvFile(".env.local");
 loadEnvFile(".env");
 
-/** Identifiants publics de démo locale — jamais en production. */
+const isLabSeed =
+  (process.env.SCOLA_ENV || process.env.NEXT_PUBLIC_SCOLA_ENV || "")
+    .trim()
+    .toLowerCase() === "lab" ||
+  (process.env.SCOLA_ENV || "").trim().toLowerCase() === "labo";
+
+/** Identifiants publics de démo locale / labo — jamais en production réelle. */
 export const DEV_SEED = {
   slug: "default",
-  etabName: "Instance de développement",
-  dataBucket: "scola-dev",
+  etabName: isLabSeed ? "Labo ScolIA (hors prod)" : "Instance de développement",
+  dataBucket: isLabSeed ? "scola-lab" : "scola-dev",
   email: "admin@localhost.dev",
   password: "DevLocalPass1!",
   /** Secret TOTP en clair (32 car.) — chiffré avec BETTER_AUTH_SECRET avant insertion. */
@@ -115,7 +121,17 @@ async function main() {
       etab = created;
       console.log(`[seed] établissement créé: ${etab.slug} (${etab.id})`);
     } else {
-      console.log(`[seed] établissement existant: ${etab.slug} (${etab.id})`);
+      if (etab.name !== DEV_SEED.etabName || etab.dataBucket !== DEV_SEED.dataBucket) {
+        const [updated] = await db
+          .update(etablissement)
+          .set({ name: DEV_SEED.etabName, dataBucket: DEV_SEED.dataBucket })
+          .where(eq(etablissement.id, etab.id))
+          .returning();
+        etab = updated;
+        console.log(`[seed] établissement aligné: ${etab.name} (${etab.slug})`);
+      } else {
+        console.log(`[seed] établissement existant: ${etab.slug} (${etab.id})`);
+      }
     }
 
     let [u] = await db.select().from(user).where(eq(user.id, DEV_SEED.userId)).limit(1);

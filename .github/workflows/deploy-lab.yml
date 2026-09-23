@@ -1,0 +1,185 @@
+# LABO — hors production. Déclenché uniquement sur `dev`.
+# Ne jamais pointer SCW_CONTAINER_ID (prod). Image taguée :lab (pas :latest).
+#
+# Secrets GitHub (Actions) :
+#   SECRET_ACCESS_KEY           (déjà prod — API + registry)
+#   NEXT_PUBLIC_LAB_APP_URL     URL publique du labo (ex. https://lab.scolia.fr
+#                               ou URL *.functions.fnc.fr-par.scw.cloud)
+#   SCW_LAB_CONTAINER_ID        UUID du conteneur labo (≠ SCW_CONTAINER_ID)
+# Optionnels : REGISTRY, IMAGE_NAME, REGION (mêmes défauts que la prod)
+#
+# Runtime conteneur (console Scaleway, une fois) :
+#   DATABASE_URL                Postgres LABO (host ou db name contenant « lab »)
+#   SCOLA_ENV=lab
+#   NEXT_PUBLIC_SCOLA_ENV=lab
+#   BETTER_AUTH_SECRET, BETTER_AUTH_URL (= NEXT_PUBLIC_LAB_APP_URL)
+#   AUTH_PROVIDER=better-auth, ENT_CORE_DB=1
+#
+# Après 1er déploiement : CI job « seed » ou manuellement
+#   SCOLA_ENV=lab ALLOW_LAB_MIGRATION=1 DATABASE_URL=… npm run seed:labo
+#
+# Runbook humain : docs/labo-florian.md
+
+name: Deploy lab
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-lab-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ${{ secrets.REGISTRY || 'rg.fr-par.scw.cloud' }}
+  IMAGE_NAME: ${{ secrets.IMAGE_NAME || 'scolia/docslapro' }}
+  REGION: ${{ secrets.REGION || 'fr-par' }}
+
+jobs:
+  build-and-deploy-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Vérifier secrets labo (jamais le conteneur prod)
+        id: lab_secrets
+        env:
+          SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
+          NEXT_PUBLIC_LAB_APP_URL: ${{ secrets.NEXT_PUBLIC_LAB_APP_URL }}
+          SCW_LAB_CONTAINER_ID: ${{ secrets.SCW_LAB_CONTAINER_ID }}
+          SCW_CONTAINER_ID: ${{ secrets.SCW_CONTAINER_ID }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in SECRET_ACCESS_KEY NEXT_PUBLIC_LAB_APP_URL SCW_LAB_CONTAINER_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::warning::Secret labo manquant : $name — voir docs/labo-florian.md"
+              missing=1
+            else
+              eval "len=\${#${name}}"
+              echo "$name : présent (${len} caractères)"
+            fi
+          done
+          if [ -n "${SCW_LAB_CONTAINER_ID:-}" ] && [ -n "${SCW_CONTAINER_ID:-}" ] \
+            && [ "${SCW_LAB_CONTAINER_ID}" = "${SCW_CONTAINER_ID}" ]; then
+            echo "::error::SCW_LAB_CONTAINER_ID = SCW_CONTAINER_ID — refus (ce serait la prod)."
+            exit 1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Secrets labo incomplets — skip déploiement (workflow vert). Compléter puis workflow_dispatch."
+            exit 0
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        if: steps.lab_secrets.outputs.ready == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login container registry
+        if: steps.lab_secrets.outputs.ready == 'true'
+        env:
+          SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          NS="${IMAGE_NAME%%/*}"
+          echo "${SECRET_ACCESS_KEY}" | docker login "${REGISTRY}/${NS}" -u nologin --password-stdin
+
+      - name: Build image lab (tags :lab + :lab-sha — pas :latest)
+        if: steps.lab_secrets.outputs.ready == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:lab
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:lab-${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_APP_URL=${{ secrets.NEXT_PUBLIC_LAB_APP_URL }}
+            NEXT_PUBLIC_PLATFORM_APP_URL=${{ secrets.NEXT_PUBLIC_LAB_APP_URL }}
+            NEXT_PUBLIC_AFTER_SIGN_IN_URL=/dashboard
+            NEXT_PUBLIC_AFTER_SIGN_UP_URL=/dashboard
+            NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST=${{ secrets.NEXT_PUBLIC_SCOLA_IMAGE_CDN_HOST || 'scolia-images.s3.fr-par.scw.cloud' }}
+            PLATFORM_APP_URL=${{ secrets.NEXT_PUBLIC_LAB_APP_URL }}
+            PLATFORM_HOSTNAMES=${{ secrets.PLATFORM_HOSTNAMES }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
+      - name: Push image lab
+        if: steps.lab_secrets.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          push_with_retry() {
+            local ref="$1" attempt=1 max=4
+            while true; do
+              echo "Push ${ref} (essai ${attempt}/${max})"
+              if docker push "${ref}"; then return 0; fi
+              if [ "${attempt}" -ge "${max}" ]; then
+                echo "::error::Échec push : ${ref}"
+                return 1
+              fi
+              sleep $((attempt * 8))
+              attempt=$((attempt + 1))
+            done
+          }
+          push_with_retry "${IMAGE}:lab-${GITHUB_SHA}"
+          push_with_retry "${IMAGE}:lab"
+
+      - name: Redeploy conteneur LABO
+        if: steps.lab_secrets.outputs.ready == 'true'
+        env:
+          SECRET_ACCESS_KEY: ${{ secrets.SECRET_ACCESS_KEY }}
+          SCW_LAB_CONTAINER_ID: ${{ secrets.SCW_LAB_CONTAINER_ID }}
+          REGION: ${{ env.REGION }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          IMAGE_TAG: lab-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE_REF="${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+          BASE="https://api.scaleway.com/containers/v1/regions/${REGION}/containers/${SCW_LAB_CONTAINER_ID}"
+
+          echo "Labo ${SCW_LAB_CONTAINER_ID} → ${IMAGE_REF}"
+          code=$(curl -sS -o /tmp/container.json -w "%{http_code}" \
+            -H "X-Auth-Token: ${SECRET_ACCESS_KEY}" \
+            "${BASE}") || true
+          if [ "$code" != "200" ]; then
+            echo "::error::Conteneur labo introuvable (HTTP $code) : $(cat /tmp/container.json)"
+            exit 1
+          fi
+          name=$(python3 -c "import json;print(json.load(open('/tmp/container.json')).get('name','?'))")
+          echo "Conteneur labo : $name"
+
+          upd=$(curl -sS -o /tmp/container-upd.json -w "%{http_code}" -X PATCH \
+            -H "X-Auth-Token: ${SECRET_ACCESS_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"registry_image\":\"${IMAGE_REF}\"}" \
+            "${BASE}")
+          if [ "$upd" != "200" ]; then
+            echo "::error::PATCH labo échoué (HTTP $upd) : $(cat /tmp/container-upd.json)"
+            exit 1
+          fi
+
+          redeploy=$(curl -sS -o /tmp/container-redeploy.json -w "%{http_code}" -X POST \
+            -H "X-Auth-Token: ${SECRET_ACCESS_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "${BASE}/redeploy") || true
+          if [ "$redeploy" = "200" ] || [ "$redeploy" = "201" ] || [ "$redeploy" = "409" ]; then
+            echo "OK — labo redéployé (HTTP $redeploy)."
+            exit 0
+          fi
+          echo "::error::Redeploy labo échoué (HTTP $redeploy) : $(cat /tmp/container-redeploy.json)"
+          exit 1

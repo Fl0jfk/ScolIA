@@ -42,6 +42,17 @@ VALUE GATE
 
 Tests = Postgres **local** `127.0.0.1` (`install.sh`). Pas de migration / seed / wipe sur la RDB Scaleway. `scripts/apply-migrations-direct.mjs` refuse une URL non locale sauf `ALLOW_PROD_MIGRATION=1` (validation humaine obligatoire).
 
+## Labo Florian (hors prod)
+
+Voir `docs/labo-florian.md`. Conteneur Scaleway **séparé** + Postgres labo + seed Leo. Workflow `.github/workflows/deploy-lab.yml` sur push `dev` (tags `:lab`, jamais `:latest`).
+
+| Action | Commande |
+|--------|----------|
+| Bootstrap labo (schéma + seed) | `SCOLA_ENV=lab ALLOW_LAB_MIGRATION=1 DATABASE_URL=… npm run seed:labo` |
+| TOTP admin seed | `npm run seed:dev:totp` |
+
+Runtime labo : `SCOLA_ENV=lab` / `NEXT_PUBLIC_SCOLA_ENV=lab` → bandeau ambre. **Interdit** : pointer le labo sur la RDB prod ou `SCW_CONTAINER_ID` prod.
+
 ## Commandes essentielles
 
 | Action | Commande |
