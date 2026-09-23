@@ -153,6 +153,8 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "rh",
     "absences",
     "mon-planning",
+    "facturation-familles",
+    "compta-etablissement",
   ],
   maintenance: [
     "organigramme",

@@ -177,6 +177,7 @@ export const MODULE_EMOJI: Record<string, string> = {
   "notes-bulletins": "📄",
   "notes-competences": "🎯",
   "facturation-familles": "💶",
+  "compta-etablissement": "📒",
   sante: "🩺",
   "bien-etre-referent": "💚",
   travels: "🚌",

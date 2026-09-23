@@ -842,6 +842,18 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     });
   }
 
+  if (has("compta-etablissement")) {
+    shortcuts.push({
+      id: "compta-etablissement",
+      pillarId: "compta_rh",
+      moduleId: "compta-etablissement",
+      href: moduleHref("compta-etablissement") || "/compta",
+      label: "Compta établissement",
+      detail: "Caisse, banque, dépenses",
+      tone: "neutral",
+    });
+  }
+
   // —— RH : Absences ——
   if (has("rh") || has("mon-planning")) {
     if (has("mon-planning")) {
