@@ -829,6 +829,19 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     });
   }
 
+  // —— Facturation familles ——
+  if (has("facturation-familles")) {
+    shortcuts.push({
+      id: "facturation-familles",
+      pillarId: "compta_rh",
+      moduleId: "facturation-familles",
+      href: moduleHref("facturation-familles") || "/facturation",
+      label: "Facturation familles",
+      detail: "Tarifs, factures, encaissements",
+      tone: "neutral",
+    });
+  }
+
   // —— RH : Absences ——
   if (has("rh") || has("mon-planning")) {
     if (has("mon-planning")) {
