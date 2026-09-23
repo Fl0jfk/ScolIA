@@ -97,13 +97,22 @@ export function resumeFromLignes(
   let pris = 0;
   let manquants = 0;
   let imprevus = 0;
-  let enSortie = 0;
+  const enSortieEleves = new Set<string>();
   for (const l of lignes) {
-    if (l.statut === "en_sortie") enSortie += 1;
+    if (l.statut === "en_sortie") enSortieEleves.add(l.eleveId);
     if (l.droit) attendus += 1;
     if (l.pris) pris += 1;
     if (l.statut === "attendu_manquant") manquants += 1;
     if (l.statut === "imprevu") imprevus += 1;
   }
-  return { date, jourCle, jourLabel, attendus, pris, manquants, imprevus, enSortie };
+  return {
+    date,
+    jourCle,
+    jourLabel,
+    attendus,
+    pris,
+    manquants,
+    imprevus,
+    enSortie: enSortieEleves.size,
+  };
 }
