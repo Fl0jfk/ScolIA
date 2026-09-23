@@ -11,7 +11,7 @@ import {
   internatChambre,
 } from "@/db/schema";
 import { calendarDateKeyParis } from "@/app/lib/domain-planning-dates";
-import { listEleveIdsEnSortieLeJour } from "@/app/lib/internat-sorties-db";
+import { listEleveIdsHorsInternatLeJour } from "@/app/lib/internat-sorties-db";
 import {
   isInternatAppelMarque,
   type InternatAppelLigneRow,
@@ -237,8 +237,8 @@ export async function getOrOpenAppelSoir(
   }
 
   const rosterAll = await rosterAffectationsDuJour(etablissementId, dateAppel, batimentId);
-  const enSortie = await listEleveIdsEnSortieLeJour(etablissementId, dateAppel);
-  const roster = rosterAll.filter((r) => !enSortie.has(r.eleveId));
+  const horsInternat = await listEleveIdsHorsInternatLeJour(etablissementId, dateAppel);
+  const roster = rosterAll.filter((r) => !horsInternat.has(r.eleveId));
 
   if (head.statut === "ouverte") {
     for (const r of roster) {
@@ -260,7 +260,9 @@ export async function getOrOpenAppelSoir(
     }
   }
 
-  const lignes = await loadLignes(etablissementId, head.id);
+  const lignesAll = await loadLignes(etablissementId, head.id);
+  /** Masque les lignes d’élèves partis (week-end ou voyage) — pas de DELETE. */
+  const lignes = lignesAll.filter((l) => !horsInternat.has(l.eleveId));
   return { appel: resumeFrom(head, lignes), lignes };
 }
 

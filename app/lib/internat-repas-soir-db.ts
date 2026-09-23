@@ -17,7 +17,7 @@ import {
 } from "@/app/lib/eleve-grille-repas";
 import { droitRepasFromRegime } from "@/app/lib/passages-prevision-shared";
 import { repasServiceFromHorodatage } from "@/app/lib/passages-prevision-shared";
-import { listEleveIdsEnSortieLeJour } from "@/app/lib/internat-sorties-db";
+import { listEleveIdsHorsInternatLeJour } from "@/app/lib/internat-sorties-db";
 
 export type InternatRepasSoirLigne = {
   eleveId: string;
@@ -52,7 +52,7 @@ export async function getInternatRepasSoirDuJour(
 ): Promise<InternatRepasSoirPayload> {
   const date = (opts?.date ?? calendarDateKeyParis()).slice(0, 10);
   const jourCle = mealDayKeyFromIsoDate(date);
-  const enSortie = await listEleveIdsEnSortieLeJour(etablissementId, date);
+  const enSortie = await listEleveIdsHorsInternatLeJour(etablissementId, date);
 
   const db = getDb();
   const affectes = await db

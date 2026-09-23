@@ -3,6 +3,7 @@ import "server-only";
 import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, internatSortie } from "@/db/schema";
+import { listEleveIdsEnSortieOnDate } from "@/app/lib/occupancy/travels-read";
 import type { InternatSortieRow } from "@/app/lib/internat-sorties-shared";
 
 function mapRow(r: {
@@ -182,11 +183,28 @@ export async function closeInternatSortie(
     );
 }
 
+/**
+ * Élèves absents de l’internat ce jour-là :
+ * sorties week-end (`internat_sortie`) ∪ voyages scolaires (`en_sortie`).
+ */
+export async function listEleveIdsHorsInternatLeJour(
+  etablissementId: string,
+  date: string,
+): Promise<Set<string>> {
+  const [weekend, travels] = await Promise.all([
+    listEleveIdsEnSortieLeJour(etablissementId, date),
+    listEleveIdsEnSortieOnDate({ etablissementId, date }),
+  ]);
+  const out = new Set(weekend);
+  for (const id of travels) out.add(id);
+  return out;
+}
+
 /** Compte sorties actives croisant une date (debug / synthèse). */
 export async function countSortiesActivesLeJour(
   etablissementId: string,
   date: string,
 ): Promise<number> {
-  const set = await listEleveIdsEnSortieLeJour(etablissementId, date);
+  const set = await listEleveIdsHorsInternatLeJour(etablissementId, date);
   return set.size;
 }
