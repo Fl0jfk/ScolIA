@@ -9,6 +9,7 @@ import {
   mealDayKeyFromIsoDate,
   parseEleveGrilleRepas,
 } from "@/app/lib/eleve-grille-repas";
+import { listEleveIdsEnSortieOnDate } from "@/app/lib/occupancy/travels-read";
 import {
   droitRepasFromRegime,
   repasServiceFromHorodatage,
@@ -28,6 +29,7 @@ function jourLabel(jourCle: ReturnType<typeof mealDayKeyFromIsoDate>): string | 
 
 /**
  * Prévision du jour : droit (grille → sinon régime) vs pris (passage self).
+ * Élèves en sortie scolaire (`en_sortie`) : signalés, hors attendus cantine.
  * Week-end : résumé vide (grille Lun–Ven).
  * Insert/lecture uniquement — aucun DELETE.
  */
@@ -47,27 +49,30 @@ export async function getPrevisionRepasDuJour(
   }
 
   const db = getDb();
-  const eleves = await db
-    .select({
-      id: eleve.id,
-      nom: eleve.nom,
-      prenom: eleve.prenom,
-      classe: eleve.classe,
-      regime: eleve.regime,
-      grilleRepas: eleveScolarite.grilleRepas,
-      demiPension: eleveScolarite.demiPension,
-      scolariteClasse: eleveScolarite.classe,
-    })
-    .from(eleve)
-    .leftJoin(
-      eleveScolarite,
-      and(
-        eq(eleveScolarite.eleveId, eleve.id),
-        eq(eleveScolarite.etablissementId, etablissementId),
-        eq(eleveScolarite.statut, "en_cours"),
-      ),
-    )
-    .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.status, "inscrit")));
+  const [eleves, enSortie] = await Promise.all([
+    db
+      .select({
+        id: eleve.id,
+        nom: eleve.nom,
+        prenom: eleve.prenom,
+        classe: eleve.classe,
+        regime: eleve.regime,
+        grilleRepas: eleveScolarite.grilleRepas,
+        demiPension: eleveScolarite.demiPension,
+        scolariteClasse: eleveScolarite.classe,
+      })
+      .from(eleve)
+      .leftJoin(
+        eleveScolarite,
+        and(
+          eq(eleveScolarite.eleveId, eleve.id),
+          eq(eleveScolarite.etablissementId, etablissementId),
+          eq(eleveScolarite.statut, "en_cours"),
+        ),
+      )
+      .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.status, "inscrit"))),
+    listEleveIdsEnSortieOnDate({ etablissementId, date }),
+  ]);
 
   const dayStart = `${date}T00:00:00.000Z`;
   const dayEnd = `${date}T23:59:59.999Z`;
@@ -100,6 +105,26 @@ export async function getPrevisionRepasDuJour(
   const lignes: PrevisionLigne[] = [];
 
   for (const e of eleves) {
+    const classe = e.scolariteClasse ?? e.classe;
+    const services = serviceFilter ? ([serviceFilter] as RepasService[]) : [...REPAS_SERVICES];
+
+    if (enSortie.has(e.id)) {
+      for (const service of services) {
+        lignes.push({
+          eleveId: e.id,
+          nom: e.nom,
+          prenom: e.prenom,
+          classe,
+          service,
+          droit: false,
+          pris: false,
+          statut: "en_sortie",
+          sourceDroit: null,
+        });
+      }
+      continue;
+    }
+
     const grille = parseEleveGrilleRepas(e.grilleRepas, { allowEmpty: true });
     let droitMidi = false;
     let droitSoir = false;
@@ -117,7 +142,6 @@ export async function getPrevisionRepasDuJour(
     }
 
     const prisSet = prisByEleve.get(e.id) ?? new Set<RepasService>();
-    const classe = e.scolariteClasse ?? e.classe;
 
     for (const service of REPAS_SERVICES) {
       if (serviceFilter && service !== serviceFilter) continue;

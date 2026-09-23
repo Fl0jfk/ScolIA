@@ -54,11 +54,23 @@ test("statutPrevision + résumé", () => {
       statut: "imprevu",
       sourceDroit: null,
     },
+    {
+      eleveId: "c",
+      nom: "C",
+      prenom: "C",
+      classe: null,
+      service: "midi",
+      droit: false,
+      pris: false,
+      statut: "en_sortie",
+      sourceDroit: null,
+    },
   ]);
   assert.equal(resume.attendus, 1);
   assert.equal(resume.pris, 1);
   assert.equal(resume.manquants, 1);
   assert.equal(resume.imprevus, 1);
+  assert.equal(resume.enSortie, 1);
 });
 
 test("repasServiceFromHorodatage — coupure 16 h Paris", () => {

@@ -13,9 +13,16 @@ function todayParis(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
 }
 
+function normalizeIsoDate(raw: string | null): string | null {
+  if (!raw) return null;
+  const m = /^(\d{4}-\d{2}-\d{2})$/.exec(raw.trim());
+  return m ? m[1]! : null;
+}
+
 function statutClass(statut: PrevisionLigne["statut"]): string {
   if (statut === "attendu_pris") return "border-emerald-200 bg-emerald-50 text-emerald-950";
   if (statut === "attendu_manquant") return "border-amber-200 bg-amber-50 text-amber-950";
+  if (statut === "en_sortie") return "border-sky-200 bg-sky-50 text-sky-950";
   return "border-rose-200 bg-rose-50 text-rose-950";
 }
 
@@ -59,7 +66,8 @@ export default function PrevisionRepasClient() {
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">Jour</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Droit = grille repas (sinon régime). Pris = passage self. Week-end : pas de grille Lun–Ven.
+          Droit = grille repas (sinon régime). Pris = passage self. Sortie scolaire = hors attendus
+          cantine. Week-end : pas de grille Lun–Ven.
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <label className="text-sm font-semibold text-slate-800">
@@ -67,7 +75,11 @@ export default function PrevisionRepasClient() {
             <input
               type="date"
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              lang="fr-CA"
+              onChange={(e) => {
+                const v = normalizeIsoDate(e.target.value);
+                if (v) setDate(v);
+              }}
               className="mt-1 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal"
             />
           </label>
@@ -110,7 +122,7 @@ export default function PrevisionRepasClient() {
               Pas de prévision grille le week-end. Choisissez un jour ouvré.
             </p>
           ) : (
-            <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
               <div className="rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3">
                 <dt className="text-xs font-medium text-slate-500">Attendus</dt>
                 <dd className="mt-1 text-2xl font-bold text-slate-950">{resume.attendus}</dd>
@@ -126,6 +138,10 @@ export default function PrevisionRepasClient() {
               <div className="rounded-2xl border border-rose-100 bg-rose-50/60 px-3 py-3">
                 <dt className="text-xs font-medium text-rose-800">Imprévus</dt>
                 <dd className="mt-1 text-2xl font-bold text-rose-950">{resume.imprevus}</dd>
+              </div>
+              <div className="rounded-2xl border border-sky-100 bg-sky-50/60 px-3 py-3">
+                <dt className="text-xs font-medium text-sky-800">En sortie</dt>
+                <dd className="mt-1 text-2xl font-bold text-sky-950">{resume.enSortie}</dd>
               </div>
             </dl>
           )}

@@ -13,12 +13,17 @@ export const REPAS_SERVICE_LABELS: Record<RepasService, string> = {
 
 export type PrevisionSourceDroit = "grille" | "regime";
 
-export type PrevisionStatut = "attendu_pris" | "attendu_manquant" | "imprevu";
+export type PrevisionStatut =
+  | "attendu_pris"
+  | "attendu_manquant"
+  | "imprevu"
+  | "en_sortie";
 
 export const PREVISION_STATUT_LABELS: Record<PrevisionStatut, string> = {
   attendu_pris: "Attendu · pris",
   attendu_manquant: "Attendu · manquant",
   imprevu: "Imprévu (pris sans droit)",
+  en_sortie: "En sortie scolaire",
 };
 
 export type PrevisionLigne = {
@@ -41,6 +46,7 @@ export type PrevisionResume = {
   pris: number;
   manquants: number;
   imprevus: number;
+  enSortie: number;
 };
 
 export type PrevisionRepasPayload = {
@@ -91,11 +97,13 @@ export function resumeFromLignes(
   let pris = 0;
   let manquants = 0;
   let imprevus = 0;
+  let enSortie = 0;
   for (const l of lignes) {
+    if (l.statut === "en_sortie") enSortie += 1;
     if (l.droit) attendus += 1;
     if (l.pris) pris += 1;
     if (l.statut === "attendu_manquant") manquants += 1;
     if (l.statut === "imprevu") imprevus += 1;
   }
-  return { date, jourCle, jourLabel, attendus, pris, manquants, imprevus };
+  return { date, jourCle, jourLabel, attendus, pris, manquants, imprevus, enSortie };
 }
