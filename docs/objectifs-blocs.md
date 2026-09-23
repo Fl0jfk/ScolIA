@@ -84,17 +84,17 @@ Tarifs, factures, avoirs, échéances, encaissements, prélèvement, impayés, q
 
 Gestes : tuile + hub ; facture auto ; émettre → parent ; encaissement ; avoirs ; SEPA ; échéancier multi ; board impayés ; quittance (= encaissement). **Bloc coché** pour ces volets (23 sept 2026). Limite : PDF facture S3 parfois absent en local.
 
-## Comptabilité d’établissement — ouvert
+## Comptabilité d’établissement — coché
 
 Dans l’ENT, partie simple : recettes familles, dépenses (cantine, voyage, internat), caisse et banque. Pas un logiciel de cabinet (pas de bilan, pas de plan comptable).
 
-Gestes déjà là : tables ; **écrans `/compta`** (comptes, dépenses, livre, payer caisse). Pas coché : lien encaissements familles → entrées livre ; synthèse période ; export cabinet.
+Gestes : **écrans `/compta`** ; **encaissements familles → entrées livre** ; **synthèse période** ; **export cabinet CSV**. **Bloc coché** pour ces volets (23 sept 2026).
 
 ## Paie établissement — ouvert
 
 Période et éléments liés aux absences du personnel. Pas un bulletin de salaire, pas la DSN. Isolée des factures familles.
 
-Tables là. Pas coché.
+Gestes déjà là : tables ; **écrans `/paie`** (période, éléments, figer). Pas coché : lien absences RH → élément ; trou EDT.
 
 ## Communication — ouvert
 
