@@ -98,7 +98,9 @@ Gestes : tables ; **écrans `/paie`** ; **VALIDER absence RH → `paie_element` 
 
 ## Communication — ouvert
 
-Messagerie familles ↔ établissement, informations, notifications. Le carnet est un canal, pas toute la messagerie. Staff : déjà là. Familles : pas coché.
+Messagerie familles ↔ établissement, informations, notifications. Le carnet est un canal, pas toute la messagerie. Staff Messenger : déjà là.
+
+Geste : **canal dédié foyer** (`famille_thread` / `famille_thread_message`) — staff `/vie-scolaire/messages-foyer` → parent `/famille/messages` (texte, réponse). **Pas coché** : pas de pièces, push, broadcast, matrice complète, apps natives.
 
 ## RH personnels — coché
 

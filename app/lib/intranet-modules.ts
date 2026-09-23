@@ -690,8 +690,14 @@ export const INTRANET_MODULES: IntranetModule[] = [
   },
   {
     id: "vs-carnet",
-    pathPrefixes: ["/vie-scolaire/carnet", "/api/vie-scolaire/carnet"],
+    pathPrefixes: [
+      "/vie-scolaire/carnet",
+      "/api/vie-scolaire/carnet",
+      "/vie-scolaire/messages-foyer",
+      "/api/vie-scolaire/messages-foyer",
+    ],
     // Réactivé : carnet de liaison unidirectionnel établissement → famille + accusé.
+    // Messages-foyer = canal texte bi-directionnel (Value Gate communication familles).
     allowedRoles: [...DIRECTIONS, "cpe", "administratif", "professeur", "surveillant", "admin"],
     dashboard: {
       id: 63,
@@ -700,6 +706,19 @@ export const INTRANET_MODULES: IntranetModule[] = [
       link: "/vie-scolaire/carnet",
       external: false,
       description: "Messages aux familles et accusés de lecture.",
+    },
+  },
+  {
+    id: "messages-foyer",
+    pathPrefixes: ["/vie-scolaire/messages-foyer", "/api/vie-scolaire/messages-foyer"],
+    allowedRoles: [...DIRECTIONS, "cpe", "administratif", "admin"],
+    dashboard: {
+      id: 64,
+      name: "Messages familles",
+      img: "",
+      link: "/vie-scolaire/messages-foyer",
+      external: false,
+      description: "Échanges texte établissement ↔ foyer (hors Messenger staff).",
     },
   },
   {

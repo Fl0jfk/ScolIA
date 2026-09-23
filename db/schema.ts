@@ -24,6 +24,7 @@ import { fichesDialogueSchema } from "./schema-fiches-dialogue";
 import { messagingSchema } from "./schema-messaging";
 import { rdvInscriptionSchema } from "./schema-rdv-inscription";
 import { socleFaitsSchema } from "./schema-socle-faits";
+import { familleMessagingSchema } from "./schema-famille-messaging";
 
 export { etablissement };
 export * from "./schema-ent-relational";
@@ -38,6 +39,7 @@ export * from "./schema-messaging";
 export * from "./schema-portes-ouvertes";
 export * from "./schema-rdv-inscription";
 export * from "./schema-socle-faits";
+export * from "./schema-famille-messaging";
 
 /** Utilisateur Better-Auth (multi-tenant via etablissement_id). */
 export const user = pgTable(
@@ -949,6 +951,7 @@ export const appSchema = {
   ...messagingSchema,
   ...rdvInscriptionSchema,
   ...socleFaitsSchema,
+  ...familleMessagingSchema,
 };
 
 export const schema = {

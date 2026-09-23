@@ -61,6 +61,8 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
   "accueil-portes-ouvertes",
   "rdv-inscription",
   "sante",
+  "vs-carnet",
+  "messages-foyer",
   // Compta & RH
   "rh",
   "absences",
@@ -87,6 +89,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "vs-appels",
     "notes",
     "vs-carnet",
+    "messages-foyer",
     "rh",
     "absences",
     "demandes-hse",
