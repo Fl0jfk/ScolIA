@@ -838,6 +838,19 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "paie-etablissement",
+    pathPrefixes: ["/paie", "/api/paie"],
+    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin"],
+    dashboard: {
+      id: 72,
+      name: "Paie établissement",
+      img: "",
+      link: "/paie",
+      external: false,
+      description: "Périodes et éléments — pas de DSN.",
+    },
+  },
+  {
     id: "sante",
     pathPrefixes: ["/sante", "/api/sante"],
     allowedRoles: [
@@ -1228,7 +1241,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "groupes-pedagogiques",
     "passages",
   ],
-  "pillar-compta-rh": ["rh", "mon-planning", "absences", "demandes-hse", "facturation-familles", "compta-etablissement"],
+  "pillar-compta-rh": ["rh", "mon-planning", "absences", "demandes-hse", "facturation-familles", "compta-etablissement", "paie-etablissement"],
 };
 
 export function canAccessIntranetPath(

@@ -155,6 +155,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "mon-planning",
     "facturation-familles",
     "compta-etablissement",
+    "paie-etablissement",
   ],
   maintenance: [
     "organigramme",

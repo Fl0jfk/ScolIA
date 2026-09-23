@@ -854,6 +854,18 @@ export function getDashboardSignals(input: DashboardSignalsInput): DashboardSign
     });
   }
 
+  if (has("paie-etablissement")) {
+    shortcuts.push({
+      id: "paie-etablissement",
+      pillarId: "compta_rh",
+      moduleId: "paie-etablissement",
+      href: moduleHref("paie-etablissement") || "/paie",
+      label: "Paie établissement",
+      detail: "Périodes et éléments",
+      tone: "neutral",
+    });
+  }
+
   // —— RH : Absences ——
   if (has("rh") || has("mon-planning")) {
     if (has("mon-planning")) {

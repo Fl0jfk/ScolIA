@@ -160,7 +160,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "surveillant",
       "cpe",
     ],
-    moduleIds: ["rh", "mon-planning", "facturation-familles", "compta-etablissement"],
+    moduleIds: ["rh", "mon-planning", "facturation-familles", "compta-etablissement", "paie-etablissement"],
   },
   {
     id: "sante",
@@ -179,6 +179,7 @@ const PRIMARY_PILLAR_BY_MODULE: Record<string, DashboardPillarId> = {
   "groupes-pedagogiques": "administratif",
   "facturation-familles": "compta_rh",
   "compta-etablissement": "compta_rh",
+  "paie-etablissement": "compta_rh",
   stages: "administratif",
   "fiches-dialogue": "administratif",
   "agent-ia-ocr": "administratif",

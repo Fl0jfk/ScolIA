@@ -10,6 +10,7 @@ const PILLAR_MODULE_HREF: Record<string, string> = {
   "groupes-pedagogiques": "/groupes-pedagogiques",
   "facturation-familles": "/facturation",
   "compta-etablissement": "/compta",
+  "paie-etablissement": "/paie",
   sante: "/sante/espace",
   "bien-etre-referent": "/bien-etre/referent",
   travels: "/travels",
@@ -119,6 +120,7 @@ const PILLAR_TAB_TO_MODULE: Record<DashboardPillarId, Record<string, string>> = 
     planning: "mon-planning",
     facturation: "facturation-familles",
     compta: "compta-etablissement",
+    paie: "paie-etablissement",
   },
   sante: {
     sante: "sante",
@@ -178,6 +180,7 @@ export const MODULE_EMOJI: Record<string, string> = {
   "notes-competences": "🎯",
   "facturation-familles": "💶",
   "compta-etablissement": "📒",
+  "paie-etablissement": "🧾",
   sante: "🩺",
   "bien-etre-referent": "💚",
   travels: "🚌",
