@@ -5,11 +5,9 @@
 
 import "server-only";
 
-import {
-  isRattrapageTreatment,
-  type AbsenceHoursTreatment,
-} from "@/app/lib/absence-hours-treatment";
+import type { AbsenceHoursTreatment } from "@/app/lib/absence-hours-treatment";
 import type { AbsenceRecord } from "@/app/lib/absences-types";
+import { absenceShouldCreatePaieElement } from "@/app/lib/absences-paie-sync-rules";
 import {
   ensurePaieElementFromAbsence,
   findOpenPaiePeriodeForDate,
@@ -19,6 +17,8 @@ import {
   findPersonnelByEmail,
   findPersonnelByExternalId,
 } from "@/app/lib/personnel-storage";
+
+export { absenceShouldCreatePaieElement } from "@/app/lib/absences-paie-sync-rules";
 
 export type AbsencePaieSyncResult =
   | { ok: true; status: "created"; element: PaieElementRow; personnelId: string }
@@ -35,15 +35,6 @@ export type AbsencePaieSyncResult =
       personnelId?: string | null;
     }
   | { ok: false; error: string };
-
-/** Traitements qui doivent remonter en paie light (pas le rattrapage interne). */
-export function absenceShouldCreatePaieElement(
-  hoursTreatment?: string | null,
-): boolean {
-  if (!hoursTreatment) return true;
-  if (isRattrapageTreatment(hoursTreatment)) return false;
-  return true;
-}
 
 export async function resolveAbsencePersonnelId(
   record: AbsenceRecord,
@@ -84,7 +75,6 @@ function estimateAbsenceQuantiteHours(record: AbsenceRecord): number | null {
   const ms = end.getTime() - start.getTime();
   if (ms <= 0) return null;
   const hours = ms / 3_600_000;
-  // Journée calendaire multi-jours : plafond 7 h / jour ouvrable approximatif.
   const days =
     Math.floor(
       (Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) -
