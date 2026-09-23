@@ -826,7 +826,20 @@ export async function enregistrerEncaissementFacture(
   });
 
   const updated = await refreshFactureStatutApresEncaissement(etablissementId, fac.id);
-  return { encaissement: enc, facture: updated, resteApres: Math.max(0, Number(fac.totalTtc) - already - montant) };
+
+  /** Entrée livre caisse/banque (best-effort — ne bloque pas l’encaissement). */
+  try {
+    const { ensureMouvementPourEncaissement } = await import("@/app/lib/compta-etablissement-db");
+    await ensureMouvementPourEncaissement(etablissementId, enc);
+  } catch (e) {
+    console.warn("[facturation] sync trésorerie encaissement:", e);
+  }
+
+  return {
+    encaissement: enc,
+    facture: updated,
+    resteApres: Math.max(0, Number(fac.totalTtc) - already - montant),
+  };
 }
 
 /** Raccourci : solde intégral du reste à payer. */

@@ -5,18 +5,22 @@ import {
   createDepense,
   createMouvement,
   ensureComptesDefaut,
+  importerEncaissementsVersLivre,
   loadComptaHub,
   payerDepense,
   upsertCompteTresorerie,
 } from "@/app/lib/compta-etablissement-db";
 
-export async function GET() {
+export async function GET(req: Request) {
   const gate = await requireModule("compta-etablissement");
   if (!gate.ok) return gate.response;
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
 
-  const data = await loadComptaHub(etabId);
+  const url = new URL(req.url);
+  const from = url.searchParams.get("from") || undefined;
+  const to = url.searchParams.get("to") || undefined;
+  const data = await loadComptaHub(etabId, { from, to });
   return NextResponse.json(data);
 }
 
@@ -69,6 +73,12 @@ export async function POST(req: Request) {
         montant: body.montant,
         libelle: String(body.libelle || ""),
         depenseId: body.depenseId ? String(body.depenseId) : null,
+      });
+      return NextResponse.json({ ok: true, ...result });
+    }
+    if (action === "importerEncaissements") {
+      const result = await importerEncaissementsVersLivre(etabId, {
+        compteId: body.compteId ? String(body.compteId) : undefined,
       });
       return NextResponse.json({ ok: true, ...result });
     }
