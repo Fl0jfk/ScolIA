@@ -88,7 +88,7 @@ Gestes : tuile + hub ; facture auto ; émettre → parent ; encaissement ; avoir
 
 Dans l’ENT, partie simple : recettes familles, dépenses (cantine, voyage, internat), caisse et banque. Pas un logiciel de cabinet (pas de bilan, pas de plan comptable).
 
-Tables là. Pas coché : pas d’écran.
+Gestes déjà là : tables ; **écrans `/compta`** (comptes, dépenses, livre, payer caisse). Pas coché : lien encaissements familles → entrées livre ; synthèse période ; export cabinet.
 
 ## Paie établissement — ouvert
 
