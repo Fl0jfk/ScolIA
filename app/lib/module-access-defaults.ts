@@ -34,6 +34,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
   "stages",
   "certificates",
   "notes",
+  "cahier-texte",
   "groupes-pedagogiques",
   // Établissement
   "admin-settings",
@@ -88,6 +89,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "vs-calendrier",
     "vs-appels",
     "notes",
+    "cahier-texte",
     "vs-carnet",
     "messages-foyer",
     "rh",
@@ -100,6 +102,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "stages",
     "certificates",
     "notes",
+    "cahier-texte",
     "groupes-pedagogiques",
     "organigramme",
     "evenements",

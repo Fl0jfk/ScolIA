@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/famille", label: "Accueil" },
   { href: "/famille/edt", label: "EDT" },
   { href: "/famille/notes", label: "Notes" },
+  { href: "/famille/cahier-texte", label: "Cahier" },
   { href: "/famille/bulletins", label: "Bulletins" },
   { href: "/famille/absences", label: "Absences" },
   { href: "/famille/carnet", label: "Carnet" },

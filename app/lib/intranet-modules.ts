@@ -818,6 +818,19 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "cahier-texte",
+    pathPrefixes: ["/cahier-texte", "/api/cahier-texte"],
+    allowedRoles: [...DIRECTIONS, "administratif", "admin", "cpe", "professeur"],
+    dashboard: {
+      id: 53,
+      name: "Cahier de textes",
+      img: "",
+      link: "/cahier-texte",
+      external: false,
+      description: "Leçon et travail à faire — visible familles.",
+    },
+  },
+  {
     id: "groupes-pedagogiques",
     pathPrefixes: ["/groupes-pedagogiques", "/api/groupes-pedagogiques"],
     allowedRoles: [...DIRECTIONS, "professeur", "administratif", "cpe", "surveillant", "admin"],
