@@ -90,19 +90,19 @@ Dans l’ENT, partie simple : recettes familles, dépenses (cantine, voyage, int
 
 Gestes : **écrans `/compta`** ; **encaissements familles → entrées livre** ; **synthèse période** ; **export cabinet CSV**. **Bloc coché** pour ces volets (23 sept 2026).
 
-## Paie établissement — ouvert
+## Paie établissement — coché
 
 Période et éléments liés aux absences du personnel. Pas un bulletin de salaire, pas la DSN. Isolée des factures familles.
 
-Gestes déjà là : tables ; **écrans `/paie`** (période, éléments, figer). Pas coché : lien absences RH → élément ; trou EDT.
+Gestes : tables ; **écrans `/paie`** ; **VALIDER absence RH → `paie_element` auto** (période brouillon) ; **trou EDT** via LeaveSpan sur mon-planning. **Bloc coché** (23 sept 2026). Limite : pas de bulletin / DSN (hors scope).
 
 ## Communication — ouvert
 
 Messagerie familles ↔ établissement, informations, notifications. Le carnet est un canal, pas toute la messagerie. Staff : déjà là. Familles : pas coché.
 
-## RH personnels — ouvert
+## RH personnels — coché
 
-Dossier, absences, validation direction, remplacement, lien EDT. Déjà un intranet RH utilisable. Le bloc est coché quand l’absence prof tient le trou de cours et la paie légère. Pas coché.
+Dossier, absences, validation direction, remplacement, lien EDT. Déjà un intranet RH utilisable. L’absence validée tient le trou de cours (LeaveSpan) et la paie légère (`paie_element`). **Bloc coché** (23 sept 2026).
 
 ## Échanges académiques — ouvert
 
