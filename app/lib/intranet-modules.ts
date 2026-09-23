@@ -1237,6 +1237,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
   "pillar-administratif": [
     "eleve-dossier",
     "notes",
+    "cahier-texte",
     "groupes-pedagogiques",
     "stages",
     "fiches-dialogue",

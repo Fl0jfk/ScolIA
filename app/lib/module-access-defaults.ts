@@ -222,6 +222,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "stages",
     "certificates",
     "notes",
+    "cahier-texte",
     "groupes-pedagogiques",
     "organigramme",
     "documents",
