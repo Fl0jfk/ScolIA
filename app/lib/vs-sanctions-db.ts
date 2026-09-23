@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { eleve, vsSanction, vsSanctionType } from "@/db/schema";
 import { sqlPersonNameMatches } from "@/app/lib/person-name-search";
+import { createCarnetEntree } from "@/app/lib/vs-carnet-db";
 
 const DEFAULT_TYPES: Array<{ code: string; libelle: string; gravite: number; ordre: number }> = [
   { code: "MOT_CARNET", libelle: "Observation / mot carnet", gravite: 1, ordre: 1 },
@@ -159,13 +160,16 @@ export async function createSanction(
   if (!row) throw new Error("Création sanction impossible.");
 
   const lightCodes = new Set(["MOT_CARNET", "AVERT", "AVERT_CD"]);
+  // notifyCarnet: true → toujours ; false → jamais ; undefined → types légers.
   const shouldNotifyCarnet =
-    input.notifyCarnet === true ||
-    (input.notifyCarnet !== false && lightCodes.has(typeRow.code));
+    input.notifyCarnet === true
+      ? true
+      : input.notifyCarnet === false
+        ? false
+        : lightCodes.has(typeRow.code);
 
   let carnetId: string | null = null;
   if (shouldNotifyCarnet) {
-    const { createCarnetEntree } = await import("@/app/lib/vs-carnet-db");
     const corps =
       input.motif?.trim() ||
       `Sanction enregistrée : ${typeRow.libelle} (${dateSanction}).`;
