@@ -160,7 +160,10 @@ export default function InternatAffectationsClient() {
   return (
     <div className="space-y-6">
       <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-        Postgres first : lits datés. Le hub JSON existant n’est ni lu ni effacé ici.
+        Postgres first : lits datés. Le hub JSON existant n’est ni lu ni effacé ici.{" "}
+        <a href="/gestion-internat/appel-soir" className="font-bold text-indigo-700 hover:underline">
+          Appel du soir →
+        </a>
       </p>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
