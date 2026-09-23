@@ -4,12 +4,41 @@ import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getAppSession } from "@/app/lib/intranet-session";
 import { canManageElevePreinscriptions } from "@/app/lib/eleve-dossier-scope";
 import { recordEleveAccessAudit } from "@/app/lib/eleve-dossier-access";
-import { createElevePreinscrit } from "@/app/lib/eleve-create-preinscrit";
+import {
+  createElevePreinscrit,
+  MAX_PREINSCRIT_PARENTS,
+  type PreinscritParentContact,
+} from "@/app/lib/eleve-create-preinscrit";
 import { listUserRolesFromDb } from "@/app/lib/auth-roles-db";
+
+function parseParents(body: Record<string, unknown>): PreinscritParentContact[] {
+  const raw = body.parents;
+  if (Array.isArray(raw)) {
+    return raw
+      .slice(0, MAX_PREINSCRIT_PARENTS)
+      .map((item) => {
+        const o = (item && typeof item === "object" ? item : {}) as Record<string, unknown>;
+        return {
+          firstName: o.firstName != null ? String(o.firstName) : null,
+          lastName: o.lastName != null ? String(o.lastName) : null,
+          email: o.email != null ? String(o.email) : null,
+          phone: o.phone != null ? String(o.phone) : null,
+        };
+      });
+  }
+  return [
+    {
+      firstName: body.parentFirstName ? String(body.parentFirstName) : null,
+      lastName: body.parentLastName ? String(body.parentLastName) : null,
+      email: body.parentEmail ? String(body.parentEmail) : null,
+      phone: body.parentPhone ? String(body.parentPhone) : null,
+    },
+  ];
+}
 
 /**
  * Création manuelle d’un dossier élève `preinscrit`
- * (nom, prénom, e-mail parent — pour matching RDV inscription).
+ * (identité élève + jusqu’à 4 contacts foyer pour matching RDV inscription).
  */
 export async function POST(req: Request) {
   const gate = await requireAuth();
@@ -45,14 +74,12 @@ export async function POST(req: Request) {
 
   const body = (await req.json()) as Record<string, unknown>;
   try {
+    const parents = parseParents(body);
     const created = await createElevePreinscrit({
       etablissementId: etabId,
       nom: String(body.nom || ""),
       prenom: String(body.prenom || ""),
-      parentEmail: String(body.parentEmail || ""),
-      parentPhone: String(body.parentPhone || ""),
-      parentFirstName: body.parentFirstName ? String(body.parentFirstName) : null,
-      parentLastName: body.parentLastName ? String(body.parentLastName) : null,
+      parents,
       classe: body.classe ? String(body.classe) : null,
       siteId: body.siteId ? String(body.siteId) : null,
       sourcePrefix: "manuel",
@@ -65,7 +92,17 @@ export async function POST(req: Request) {
       resourceId: created.id,
       eleveId: created.id,
       action: "create",
-      metadata: { source: "manuel", status: "preinscrit" },
+      metadata: {
+        source: "manuel",
+        status: "preinscrit",
+        parentCount: parents.filter(
+          (p) =>
+            String(p.email || "").trim() ||
+            String(p.phone || "").trim() ||
+            String(p.firstName || "").trim() ||
+            String(p.lastName || "").trim(),
+        ).length,
+      },
     });
 
     return NextResponse.json({

@@ -125,13 +125,22 @@ export default function ElevesDossiersListClient() {
   const [createBusy, setCreateBusy] = useState(false);
   const [createPendingFiles, setCreatePendingFiles] = useState<File[]>([]);
   const [createUploadProgress, setCreateUploadProgress] = useState<string | null>(null);
+  type CreateParentSlot = {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+  };
+  const emptyParentSlot = (): CreateParentSlot => ({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+  });
   const [createForm, setCreateForm] = useState({
     prenom: "",
     nom: "",
-    parentFirstName: "",
-    parentLastName: "",
-    parentEmail: "",
-    parentPhone: "",
+    parents: [emptyParentSlot(), emptyParentSlot()] as CreateParentSlot[],
     classe: "",
     siteId: "",
   });
@@ -386,22 +395,49 @@ export default function ElevesDossiersListClient() {
     }
   }
 
+  function updateParentSlot(index: number, patch: Partial<CreateParentSlot>) {
+    setCreateForm((f) => ({
+      ...f,
+      parents: f.parents.map((p, i) => (i === index ? { ...p, ...patch } : p)),
+    }));
+  }
+
+  function addParentSlot() {
+    setCreateForm((f) => {
+      if (f.parents.length >= 4) return f;
+      return { ...f, parents: [...f.parents, emptyParentSlot()] };
+    });
+  }
+
+  function removeParentSlot(index: number) {
+    setCreateForm((f) => {
+      if (f.parents.length <= 1 || index === 0) return f;
+      return { ...f, parents: f.parents.filter((_, i) => i !== index) };
+    });
+  }
+
   async function createDossier(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setCreateBusy(true);
     setCreateUploadProgress(null);
     try {
+      const parents = createForm.parents
+        .map((p) => ({
+          firstName: p.firstName.trim() || null,
+          lastName: p.lastName.trim() || null,
+          email: p.email.trim() || null,
+          phone: p.phone.trim() || null,
+        }))
+        .filter((p) => p.firstName || p.lastName || p.email || p.phone);
+
       const res = await fetch("/api/eleves/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prenom: createForm.prenom,
           nom: createForm.nom,
-          parentFirstName: createForm.parentFirstName || null,
-          parentLastName: createForm.parentLastName || null,
-          parentEmail: createForm.parentEmail,
-          parentPhone: createForm.parentPhone,
+          parents,
           classe: createForm.classe || null,
           siteId: createForm.siteId || null,
         }),
@@ -446,10 +482,7 @@ export default function ElevesDossiersListClient() {
       setCreateForm({
         prenom: "",
         nom: "",
-        parentFirstName: "",
-        parentLastName: "",
-        parentEmail: "",
-        parentPhone: "",
+        parents: [emptyParentSlot(), emptyParentSlot()],
         classe: "",
         siteId: "",
       });
@@ -542,12 +575,13 @@ export default function ElevesDossiersListClient() {
             Nouveau dossier préinscrit
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            L’e-mail parent sert au matching des RDV d’inscription. Vous pouvez déjà déposer les
-            pièces ici : l’IA reconnaît le type et ajoute le nom de l’élève au titre.
+            Saisissez toutes les personnes du foyer (jusqu’à 4) : chaque e-mail est reconnu pour
+            prendre un RDV d’inscription. Vous pouvez déjà déposer les pièces ici : l’IA reconnaît
+            le type et ajoute le nom de l’élève au titre.
           </p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
-              <span className="font-semibold text-slate-800">Prénom</span>
+              <span className="font-semibold text-slate-800">Prénom élève</span>
               <input
                 required
                 className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
@@ -556,49 +590,12 @@ export default function ElevesDossiersListClient() {
               />
             </label>
             <label className="block text-sm">
-              <span className="font-semibold text-slate-800">Nom</span>
+              <span className="font-semibold text-slate-800">Nom élève</span>
               <input
                 required
                 className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
                 value={createForm.nom}
                 onChange={(e) => setCreateForm((f) => ({ ...f, nom: e.target.value }))}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="font-semibold text-slate-800">Prénom du parent</span>
-              <input
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
-                value={createForm.parentFirstName}
-                onChange={(e) => setCreateForm((f) => ({ ...f, parentFirstName: e.target.value }))}
-                placeholder="Optionnel"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="font-semibold text-slate-800">Nom du parent</span>
-              <input
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
-                value={createForm.parentLastName}
-                onChange={(e) => setCreateForm((f) => ({ ...f, parentLastName: e.target.value }))}
-                placeholder="Si différent de l’élève"
-              />
-            </label>
-            <label className="block text-sm sm:col-span-2">
-              <span className="font-semibold text-slate-800">E-mail parent</span>
-              <input
-                required
-                type="email"
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
-                value={createForm.parentEmail}
-                onChange={(e) => setCreateForm((f) => ({ ...f, parentEmail: e.target.value }))}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="font-semibold text-slate-800">Téléphone parent</span>
-              <input
-                type="tel"
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
-                value={createForm.parentPhone}
-                onChange={(e) => setCreateForm((f) => ({ ...f, parentPhone: e.target.value }))}
               />
             </label>
             <label className="block text-sm">
@@ -611,7 +608,7 @@ export default function ElevesDossiersListClient() {
               />
             </label>
             {sites.length > 0 ? (
-              <label className="block text-sm sm:col-span-2">
+              <label className="block text-sm">
                 <span className="font-semibold text-slate-800">Site</span>
                 <select
                   className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
@@ -626,6 +623,83 @@ export default function ElevesDossiersListClient() {
                   ))}
                 </select>
               </label>
+            ) : null}
+          </div>
+
+          <div className="mt-5 space-y-4">
+            <p className="text-sm font-semibold text-slate-800">Personnes du foyer</p>
+            {createForm.parents.map((parent, index) => (
+              <div
+                key={index}
+                className="rounded-2xl border border-sky-100 bg-white/80 p-4"
+              >
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-sky-900">
+                    Parent / responsable {index + 1}
+                    {index === 0 ? (
+                      <span className="ml-2 font-normal text-slate-500">(e-mail requis)</span>
+                    ) : null}
+                  </p>
+                  {index > 0 && createForm.parents.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => removeParentSlot(index)}
+                      className="text-xs font-semibold text-slate-500 hover:text-red-600"
+                    >
+                      Retirer
+                    </button>
+                  ) : null}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-800">Prénom</span>
+                    <input
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                      value={parent.firstName}
+                      onChange={(e) => updateParentSlot(index, { firstName: e.target.value })}
+                      placeholder="Optionnel"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-800">Nom</span>
+                    <input
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                      value={parent.lastName}
+                      onChange={(e) => updateParentSlot(index, { lastName: e.target.value })}
+                      placeholder="Si différent de l’élève"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-800">E-mail</span>
+                    <input
+                      required={index === 0}
+                      type="email"
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                      value={parent.email}
+                      onChange={(e) => updateParentSlot(index, { email: e.target.value })}
+                      placeholder={index === 0 ? "requis" : "si connu"}
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="font-semibold text-slate-800">Téléphone</span>
+                    <input
+                      type="tel"
+                      className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2"
+                      value={parent.phone}
+                      onChange={(e) => updateParentSlot(index, { phone: e.target.value })}
+                    />
+                  </label>
+                </div>
+              </div>
+            ))}
+            {createForm.parents.length < 4 ? (
+              <button
+                type="button"
+                onClick={addParentSlot}
+                className="rounded-xl border border-dashed border-sky-300 bg-white px-4 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-50"
+              >
+                + Ajouter une personne du foyer
+              </button>
             ) : null}
           </div>
 

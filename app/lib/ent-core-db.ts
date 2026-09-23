@@ -536,6 +536,14 @@ export async function syncEleveScolariteFromEleveRow(
   );
 }
 
+/** Contact foyer à matérialiser en `foyer_responsable` (max 4 à la création). */
+export type ParentContactPerson = {
+  prenom?: string | null;
+  nom?: string | null;
+  email?: string | null;
+  telephone?: string | null;
+};
+
 type ParentContactSeed = {
   nom: string;
   prenom: string;
@@ -548,7 +556,14 @@ type ParentContactSeed = {
   /** Identité du parent / responsable (si connue, sinon repli élève / e-mail). */
   parentFirstName?: string | null;
   parentLastName?: string | null;
+  /**
+   * Liste explicite de responsables (jusqu’à 4). Prioritaire sur parent1/parent2
+   * — chaque e-mail est reconnu pour le matching RDV inscription.
+   */
+  responsables?: ParentContactPerson[];
 };
+
+const MAX_FOYER_RESPONSABLES_FROM_CONTACTS = 4;
 
 /**
  * Crée un foyer + responsables à partir des coordonnées parents déjà sur la fiche élève.
@@ -570,40 +585,83 @@ export async function ensureEleveFoyerFromParentContacts(
     .limit(1);
   if (existingLink) return false;
 
-  type SeedResp = { email: string | null; telephone: string | null; label: string };
+  type SeedResp = {
+    email: string | null;
+    telephone: string | null;
+    prenom: string | null;
+    nom: string | null;
+    label: string;
+  };
   const seeds: SeedResp[] = [];
   const seenEmails = new Set<string>();
 
-  const pushEmail = (emailRaw: string | null | undefined, phoneRaw: string | null | undefined, label: string) => {
-    const email = String(emailRaw || "").trim() || null;
-    const telephone = String(phoneRaw || "").trim() || null;
-    if (!email && !telephone) return;
+  const pushPerson = (person: {
+    email?: string | null;
+    telephone?: string | null;
+    prenom?: string | null;
+    nom?: string | null;
+    label: string;
+  }) => {
+    const email = String(person.email || "").trim() || null;
+    const telephone = String(person.telephone || "").trim() || null;
+    const prenom = String(person.prenom || "").trim() || null;
+    const nom = String(person.nom || "").trim() || null;
+    if (!email && !telephone && !prenom && !nom) return;
     if (email) {
       const key = email.toLowerCase();
       if (seenEmails.has(key)) return;
       seenEmails.add(key);
     }
-    seeds.push({ email, telephone, label });
+    seeds.push({ email, telephone, prenom, nom, label: person.label });
   };
 
-  pushEmail(
-    contacts.parent1Email || contacts.parentEmail,
-    contacts.parent1Phone || contacts.parentPhone,
-    "Responsable 1",
-  );
-  pushEmail(contacts.parent2Email, contacts.parent2Phone, "Responsable 2");
+  const explicit = (contacts.responsables || []).slice(0, MAX_FOYER_RESPONSABLES_FROM_CONTACTS);
+  if (explicit.length > 0) {
+    for (let i = 0; i < explicit.length; i++) {
+      const r = explicit[i]!;
+      pushPerson({
+        email: r.email,
+        telephone: r.telephone,
+        prenom: r.prenom,
+        nom: r.nom,
+        label: `Responsable ${i + 1}`,
+      });
+    }
+  } else {
+    pushPerson({
+      email: contacts.parent1Email || contacts.parentEmail,
+      telephone: contacts.parent1Phone || contacts.parentPhone,
+      prenom: contacts.parentFirstName,
+      nom: contacts.parentLastName,
+      label: "Responsable 1",
+    });
+    pushPerson({
+      email: contacts.parent2Email,
+      telephone: contacts.parent2Phone,
+      label: "Responsable 2",
+    });
+  }
 
   if (seeds.length === 0) {
     const phoneOnly = String(contacts.parentPhone || contacts.parent1Phone || "").trim();
     if (phoneOnly) {
-      seeds.push({ email: null, telephone: phoneOnly, label: "Responsable 1" });
+      seeds.push({
+        email: null,
+        telephone: phoneOnly,
+        prenom: contacts.parentFirstName?.trim() || null,
+        nom: contacts.parentLastName?.trim() || null,
+        label: "Responsable 1",
+      });
     }
   }
 
   if (seeds.length === 0) return false;
 
   const familyName =
-    contacts.parentLastName?.trim() || contacts.nom.trim() || "Famille";
+    contacts.parentLastName?.trim() ||
+    seeds.find((s) => s.nom)?.nom ||
+    contacts.nom.trim() ||
+    "Famille";
   const [createdFoyer] = await db
     .insert(foyer)
     .values({
@@ -618,14 +676,8 @@ export async function ensureEleveFoyerFromParentContacts(
   for (let i = 0; i < seeds.length; i++) {
     const seed = seeds[i]!;
     const localPart = seed.email?.split("@")[0]?.trim() || seed.label;
-    const responsablePrenom =
-      i === 0
-        ? contacts.parentFirstName?.trim() || localPart
-        : localPart;
-    const responsableNom =
-      i === 0
-        ? contacts.parentLastName?.trim() || familyName
-        : familyName;
+    const responsablePrenom = seed.prenom || localPart;
+    const responsableNom = seed.nom || familyName;
     await db.insert(foyerResponsable).values({
       etablissementId,
       foyerId: createdFoyer.id,
