@@ -3,6 +3,7 @@ import { requireModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   annulerFacture,
+  createAvoirFromFacture,
   createFactureBrouillon,
   emitFacture,
   enregistrerEncaissementFacture,
@@ -87,6 +88,13 @@ export async function POST(req: Request) {
     if (action === "annulerFacture") {
       const row = await annulerFacture(etabId, String(body.factureId || ""));
       return NextResponse.json({ ok: true, facture: row });
+    }
+    if (action === "createAvoir") {
+      const avoir = await createAvoirFromFacture(etabId, String(body.factureId || ""), {
+        montant: body.montant,
+        motif: body.motif ? String(body.motif) : undefined,
+      });
+      return NextResponse.json({ ok: true, facture: avoir });
     }
     if (action === "noterRelance") {
       const result = await noterRelanceFacture(

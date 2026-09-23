@@ -432,7 +432,20 @@ export async function emitFacture(etablissementId: string, factureId: string) {
     .where(and(eq(facture.etablissementId, etablissementId), eq(facture.id, factureId)))
     .returning();
   if (!row) throw new Error("Facture introuvable.");
-  return row;
+
+  /** PDF prêt pour le portail famille (téléchargement). */
+  try {
+    await generateFacturePdf(etablissementId, factureId);
+  } catch (e) {
+    console.warn("[facturation] PDF à l’émission impossible:", e);
+  }
+
+  const [fresh] = await db
+    .select()
+    .from(facture)
+    .where(and(eq(facture.etablissementId, etablissementId), eq(facture.id, factureId)))
+    .limit(1);
+  return fresh ?? row;
 }
 
 async function sumEncaissementsFacture(
@@ -574,6 +587,89 @@ export async function annulerFacture(etablissementId: string, factureId: string)
     .returning();
   if (!row) throw new Error("Facture introuvable.");
   return row;
+}
+
+/**
+ * Avoir (avoir) sur une facture émise / soldée / partielle.
+ * Crée une pièce `nature=avoir` liée, émise immédiatement, montants positifs (crédit).
+ */
+export async function createAvoirFromFacture(
+  etablissementId: string,
+  factureId: string,
+  opts?: { montant?: string | number; motif?: string },
+) {
+  const bundle = await getFactureWithLignes(etablissementId, factureId);
+  if (!bundle) throw new Error("Facture d’origine introuvable.");
+  const fac = bundle.facture;
+  if (fac.nature === "avoir") throw new Error("Impossible de créer un avoir sur un avoir.");
+  if (fac.statut === "brouillon" || fac.statut === "annulee") {
+    throw new Error("Avoir réservé aux factures émises (ou soldées).");
+  }
+
+  const totalOrigine = Number(fac.totalTtc);
+  const montant =
+    opts?.montant != null && String(opts.montant).trim() !== ""
+      ? Number(opts.montant)
+      : totalOrigine;
+  if (!Number.isFinite(montant) || montant <= 0) {
+    throw new Error("Montant d’avoir invalide.");
+  }
+  if (montant > totalOrigine + 0.009) {
+    throw new Error(`Avoir supérieur au total de la facture (${totalOrigine.toFixed(2)} €).`);
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const numero = `AV-${fac.numero}`.slice(0, 80);
+  const motif = (opts?.motif?.trim() || `Avoir sur ${fac.numero}`).slice(0, 200);
+  const db = getDb();
+
+  const [existing] = await db
+    .select({ id: facture.id })
+    .from(facture)
+    .where(and(eq(facture.etablissementId, etablissementId), eq(facture.numero, numero)))
+    .limit(1);
+  const numeroFinal = existing ? `AV-${Date.now()}` : numero;
+
+  const [head] = await db
+    .insert(facture)
+    .values({
+      etablissementId,
+      foyerId: fac.foyerId,
+      anneeScolaireId: fac.anneeScolaireId,
+      numero: numeroFinal,
+      statut: "emise",
+      nature: "avoir",
+      factureOrigineId: fac.id,
+      dateEmission: today,
+      dateEcheance: today,
+      totalHt: String(montant),
+      totalTtc: String(montant),
+    })
+    .returning();
+  if (!head) throw new Error("Création avoir impossible.");
+
+  await db.insert(factureLigne).values({
+    etablissementId,
+    factureId: head.id,
+    libelle: motif,
+    quantite: "1",
+    prixUnitaire: String(montant),
+    remise: "0",
+    totalHt: String(montant),
+    totalTtc: String(montant),
+    eleveId: bundle.lignes[0]?.eleveId ?? null,
+    tarifId: null,
+    periode: null,
+    ordre: 1,
+  });
+
+  try {
+    await generateFacturePdf(etablissementId, head.id);
+  } catch (e) {
+    console.warn("[facturation] PDF avoir impossible:", e);
+  }
+
+  return getFactureWithLignes(etablissementId, head.id);
 }
 
 /** Note une relance manuelle (référence audit, sans mail pour l’instant). */

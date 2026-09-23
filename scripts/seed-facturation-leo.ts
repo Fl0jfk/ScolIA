@@ -143,8 +143,24 @@ async function main() {
       etablissementId: etab.id,
       foyerId,
       codeAuxiliaire: "JUSTIF-LEO",
-      acceptePrelevement: false,
+      acceptePrelevement: true,
+      iban: "FR7630006000011234567890189",
+      bic: "AGRIFRPP",
+      rum: "RUM-JUSTIF-LEO-001",
+      mandatDate: new Date().toISOString().slice(0, 10),
     });
+  } else {
+    await db
+      .update(foyerFacturation)
+      .set({
+        acceptePrelevement: true,
+        iban: "FR7630006000011234567890189",
+        bic: "AGRIFRPP",
+        rum: "RUM-JUSTIF-LEO-001",
+        mandatDate: new Date().toISOString().slice(0, 10),
+        updatedAt: new Date(),
+      })
+      .where(eq(foyerFacturation.id, ff.id));
   }
 
   const existingTarifs = await db

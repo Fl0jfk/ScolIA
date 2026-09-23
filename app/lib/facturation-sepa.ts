@@ -104,9 +104,18 @@ export function resolveSepaCreditorConfig(): {
   creditorId: string;
 } {
   const name = process.env.SEPA_CREDITOR_NAME?.trim() || "Établissement scolaire";
-  const iban = process.env.SEPA_CREDITOR_IBAN?.trim() || "";
-  const bic = process.env.SEPA_CREDITOR_BIC?.trim() || "";
-  const creditorId = process.env.SEPA_CREDITOR_ID?.trim() || "";
+  /** Dev local : créancier de démo si env absente (jamais pour prod). */
+  const localFallback =
+    process.env.NODE_ENV !== "production" &&
+    !process.env.SEPA_CREDITOR_IBAN?.trim();
+  const iban =
+    process.env.SEPA_CREDITOR_IBAN?.trim() ||
+    (localFallback ? "FR7610096000501234567890161" : "");
+  const bic =
+    process.env.SEPA_CREDITOR_BIC?.trim() || (localFallback ? "SOGEFRPP" : "");
+  const creditorId =
+    process.env.SEPA_CREDITOR_ID?.trim() ||
+    (localFallback ? "FR00ZZZ123456" : "");
   if (!iban || !bic || !creditorId) {
     throw new Error(
       "Configuration SEPA incomplète — renseignez SEPA_CREDITOR_IBAN, SEPA_CREDITOR_BIC et SEPA_CREDITOR_ID.",

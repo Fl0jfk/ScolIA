@@ -24,6 +24,7 @@ type Facture = {
   foyerId: string;
   dateEmission: string | null;
   dateEcheance: string | null;
+  nature?: string;
 };
 
 export default function FacturationClient() {
@@ -144,11 +145,12 @@ export default function FacturationClient() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Échec");
       const labels: Record<string, string> = {
-        emitFacture: "Facture émise.",
+        emitFacture: "Facture émise (PDF prêt pour la famille).",
         generatePdf: "PDF généré.",
         solderFacture: "Facture soldée (encaissement enregistré).",
         noterRelance: "Relance notée.",
         annulerFacture: "Facture annulée.",
+        createAvoir: "Avoir créé et émis.",
       };
       setMessage(labels[action] || "OK.");
       await load();
@@ -305,6 +307,11 @@ export default function FacturationClient() {
                 <span>
                   <strong>{f.numero}</strong>{" "}
                   <span className="text-slate-500 text-xs">{f.statut}</span>
+                  {f.nature === "avoir" ? (
+                    <span className="ml-2 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-violet-900">
+                      Avoir
+                    </span>
+                  ) : null}
                   {f.dateEcheance ? (
                     <span className="ml-2 text-xs text-slate-500">éch. {f.dateEcheance}</span>
                   ) : null}
@@ -325,7 +332,8 @@ export default function FacturationClient() {
                       Émettre
                     </button>
                   )}
-                  {(f.statut === "emise" || f.statut === "partiellement_payee") && (
+                  {(f.statut === "emise" || f.statut === "partiellement_payee") &&
+                    f.nature !== "avoir" && (
                     <>
                       <button
                         type="button"
@@ -345,7 +353,20 @@ export default function FacturationClient() {
                       </button>
                     </>
                   )}
-                  {f.statut === "emise" && (
+                  {(f.statut === "emise" ||
+                    f.statut === "partiellement_payee" ||
+                    f.statut === "soldee") &&
+                    f.nature !== "avoir" && (
+                      <button
+                        type="button"
+                        className="text-xs font-bold text-violet-700"
+                        disabled={busy}
+                        onClick={() => void factureAction("createAvoir", f.id)}
+                      >
+                        Avoir
+                      </button>
+                    )}
+                  {f.statut === "emise" && f.nature !== "avoir" && (
                     <button
                       type="button"
                       className="text-xs font-bold text-slate-500"
