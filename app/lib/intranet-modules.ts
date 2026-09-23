@@ -825,6 +825,19 @@ export const INTRANET_MODULES: IntranetModule[] = [
     },
   },
   {
+    id: "compta-etablissement",
+    pathPrefixes: ["/compta", "/api/compta"],
+    allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin"],
+    dashboard: {
+      id: 71,
+      name: "Compta établissement",
+      img: "",
+      link: "/compta",
+      external: false,
+      description: "Caisse, banque, dépenses — partie simple.",
+    },
+  },
+  {
     id: "sante",
     pathPrefixes: ["/sante", "/api/sante"],
     allowedRoles: [
@@ -1215,7 +1228,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "groupes-pedagogiques",
     "passages",
   ],
-  "pillar-compta-rh": ["rh", "mon-planning", "absences", "demandes-hse", "facturation-familles"],
+  "pillar-compta-rh": ["rh", "mon-planning", "absences", "demandes-hse", "facturation-familles", "compta-etablissement"],
 };
 
 export function canAccessIntranetPath(

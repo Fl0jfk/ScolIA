@@ -9,6 +9,7 @@ const PILLAR_MODULE_HREF: Record<string, string> = {
   "notes-competences": "/notes/competences",
   "groupes-pedagogiques": "/groupes-pedagogiques",
   "facturation-familles": "/facturation",
+  "compta-etablissement": "/compta",
   sante: "/sante/espace",
   "bien-etre-referent": "/bien-etre/referent",
   travels: "/travels",
@@ -117,6 +118,7 @@ const PILLAR_TAB_TO_MODULE: Record<DashboardPillarId, Record<string, string>> = 
     rh: "rh",
     planning: "mon-planning",
     facturation: "facturation-familles",
+    compta: "compta-etablissement",
   },
   sante: {
     sante: "sante",
