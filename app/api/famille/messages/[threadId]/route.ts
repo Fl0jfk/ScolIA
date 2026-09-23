@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireFamilleAccess } from "@/app/lib/famille-auth";
 import {
   getFamilleThread,
+  listAttachmentsForMessages,
   listFamilleThreadMessages,
   markFamilleThreadRead,
 } from "@/app/lib/famille-messaging-db";
@@ -23,5 +24,9 @@ export async function GET(
   }
   await markFamilleThreadRead(gate.ctx.etablissementId, threadId, "parent");
   const messages = await listFamilleThreadMessages(gate.ctx.etablissementId, threadId);
-  return NextResponse.json({ thread, messages });
+  const attachments = await listAttachmentsForMessages(
+    gate.ctx.etablissementId,
+    messages.map((m) => m.id),
+  );
+  return NextResponse.json({ thread, messages, attachments });
 }

@@ -3,11 +3,14 @@ import { requireAuth } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   getFamilleThread,
+  listAttachmentsForMessages,
   listFamilleThreadMessages,
   markFamilleThreadRead,
 } from "@/app/lib/famille-messaging-db";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { getFamilleMessagingSettings } from "@/app/lib/famille-messaging-db";
+import { canInitiateFromMatrix } from "@/app/lib/famille-messaging-matrix";
 
 export async function GET(
   _req: Request,
@@ -17,26 +20,15 @@ export async function GET(
   if (!gate.ok) return gate.response;
   const user = await safeCurrentUser();
   const roles = rolesFromUserLike(user);
-  const isStaff = roles.some((r) => {
-    const x = r.toLowerCase();
-    return (
-      x.includes("admin") ||
-      x.includes("cpe") ||
-      x.includes("direction") ||
-      x.includes("directeur") ||
-      x.includes("administratif") ||
-      x.includes("viescolaire") ||
-      x.includes("vie_scolaire")
-    );
-  });
-  if (!isStaff) {
-    return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
-  }
-
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) {
     return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
   }
+  const settings = await getFamilleMessagingSettings(etabId);
+  if (!canInitiateFromMatrix(roles, settings, { orgAdmin: user?.orgAdmin })) {
+    return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
+  }
+
   const { threadId } = await ctx.params;
   const thread = await getFamilleThread(etabId, threadId);
   if (!thread) {
@@ -44,5 +36,9 @@ export async function GET(
   }
   await markFamilleThreadRead(etabId, threadId, "staff");
   const messages = await listFamilleThreadMessages(etabId, threadId);
-  return NextResponse.json({ thread, messages });
+  const attachments = await listAttachmentsForMessages(
+    etabId,
+    messages.map((m) => m.id),
+  );
+  return NextResponse.json({ thread, messages, attachments });
 }
