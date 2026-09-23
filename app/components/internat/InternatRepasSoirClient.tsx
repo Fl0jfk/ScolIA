@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type Ligne = {
   eleveId: string;
@@ -29,6 +30,12 @@ function todayParis(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
 }
 
+function normalizeIsoDate(raw: string | null): string | null {
+  if (!raw) return null;
+  const m = /^(\d{4}-\d{2}-\d{2})$/.exec(raw.trim());
+  return m ? m[1]! : null;
+}
+
 const STATUT_LABEL: Record<Ligne["statut"], string> = {
   attendu_pris: "Attendu · pris",
   attendu_manquant: "Attendu · manquant",
@@ -44,10 +51,16 @@ function statutClass(s: Ligne["statut"]): string {
 }
 
 export default function InternatRepasSoirClient() {
-  const [date, setDate] = useState(todayParis);
+  const searchParams = useSearchParams();
+  const dateFromUrl = normalizeIsoDate(searchParams.get("date"));
+  const [date, setDate] = useState(dateFromUrl ?? todayParis);
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (dateFromUrl && dateFromUrl !== date) setDate(dateFromUrl);
+  }, [dateFromUrl, date]);
 
   const load = useCallback(async () => {
     setLoading(true);

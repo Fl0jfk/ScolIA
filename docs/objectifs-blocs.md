@@ -64,11 +64,11 @@ Droit (régime daté) et pris (passage au self). Porte de l’établissement (en
 
 Gestes déjà là : régime, grille repas, occupancy lit une sortie portail ; **saisie portail** (`/passages/portail`) ; **self repas pris** (`/passages/self`, alerte extrait cantine) ; **prévision** (`/passages/prevision`, droit vs pris) ; **facturation** (`/passages/facturation`, forfait / réel). **Bloc coché** pour ces volets (22 sept 2026).
 
-## Internat — ouvert
+## Internat — coché
 
-Chambres, lits datés, appel du soir, sorties week-end, infirmerie de nuit, repas du soir. L’écran JSON `/gestion-internat` reste tant qu’on n’a pas recopié sans rien effacer.
+Chambres, lits datés, appel du soir, sorties week-end, infirmerie de nuit, repas du soir. L’écran JSON `/gestion-internat` reste en parallèle (pas d’effacement).
 
-Gestes déjà là : **chambres + lit daté** ; **appel du soir Postgres** ; **sorties week-end** (`/gestion-internat/sorties`, exclus de l’appel). Infirmerie de nuit = geste santé déjà coché. Pas coché : repas du soir dédié (la prévision cantine couvre le service soir). JSON hub intact.
+Gestes : **chambres + lit daté** ; **appel du soir Postgres** ; **sorties week-end** (exclus de l’appel) ; **repas du soir** (`/gestion-internat/repas-soir`) ; nuit = geste santé. **Bloc coché** pour ces volets (23 sept 2026).
 
 ## Stages — ouvert
 

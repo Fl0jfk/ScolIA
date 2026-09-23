@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   INTERNAT_APPEL_MARQUE_LABELS,
   INTERNAT_APPEL_MARQUES,
@@ -13,6 +14,12 @@ function todayParis(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Paris" });
 }
 
+function normalizeIsoDate(raw: string | null): string | null {
+  if (!raw) return null;
+  const m = /^(\d{4}-\d{2}-\d{2})$/.exec(raw.trim());
+  return m ? m[1]! : null;
+}
+
 function marqueClass(m: InternatAppelMarque): string {
   if (m === "present") return "border-emerald-200 bg-emerald-50 text-emerald-950";
   if (m === "absent") return "border-rose-200 bg-rose-50 text-rose-950";
@@ -21,13 +28,19 @@ function marqueClass(m: InternatAppelMarque): string {
 }
 
 export default function InternatAppelSoirClient() {
-  const [date, setDate] = useState(todayParis);
+  const searchParams = useSearchParams();
+  const dateFromUrl = normalizeIsoDate(searchParams.get("date"));
+  const [date, setDate] = useState(dateFromUrl ?? todayParis);
   const [appel, setAppel] = useState<InternatAppelResume | null>(null);
   const [lignes, setLignes] = useState<InternatAppelLigneRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (dateFromUrl && dateFromUrl !== date) setDate(dateFromUrl);
+  }, [dateFromUrl, date]);
 
   const load = useCallback(async () => {
     setLoading(true);
