@@ -10,6 +10,82 @@ function isNature(v: string): v is (typeof NATURES)[number] {
   return (NATURES as readonly string[]).includes(v);
 }
 
+function asIsoDate(value: unknown): string {
+  if (typeof value === "string") return value.slice(0, 10);
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  return String(value ?? "").slice(0, 10);
+}
+
+export type PaieElementRow = typeof paieElement.$inferSelect;
+
+/** Première période `brouillon` dont la plage couvre `isoDate` (YYYY-MM-DD). */
+export async function findOpenPaiePeriodeForDate(
+  etablissementId: string,
+  isoDate: string,
+) {
+  const d = isoDate.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  const periodes = await listPaiePeriodes(etablissementId);
+  return (
+    periodes.find((p) => {
+      if (p.statut !== "brouillon") return false;
+      const debut = asIsoDate(p.dateDebut);
+      const fin = asIsoDate(p.dateFin);
+      return debut <= d && fin >= d;
+    }) ?? null
+  );
+}
+
+export async function findPaieElementByAbsenceId(
+  etablissementId: string,
+  absenceId: string,
+): Promise<PaieElementRow | null> {
+  const id = absenceId.trim();
+  if (!id) return null;
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(paieElement)
+    .where(and(eq(paieElement.etablissementId, etablissementId), eq(paieElement.absenceId, id)))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Crée un élément `nature=absence` lié à l’absence, ou renvoie l’existant (idempotent).
+ * Refuse si période figée (via createPaieElement).
+ */
+export async function ensurePaieElementFromAbsence(
+  etablissementId: string,
+  input: {
+    absenceId: string;
+    periodeId: string;
+    personnelId: string;
+    libelle: string;
+    quantite?: string | number | null;
+    hoursTreatment?: string | null;
+  },
+): Promise<{ created: boolean; element: PaieElementRow }> {
+  const existing = await findPaieElementByAbsenceId(etablissementId, input.absenceId);
+  if (existing) return { created: false, element: existing };
+
+  const element = await createPaieElement(etablissementId, {
+    periodeId: input.periodeId,
+    personnelId: input.personnelId,
+    nature: "absence",
+    libelle: input.libelle,
+    quantite: input.quantite,
+    montant: null,
+    absenceId: input.absenceId,
+  });
+  return { created: true, element };
+}
+
 export async function listPaiePeriodes(etablissementId: string) {
   const db = getDb();
   return db

@@ -64,6 +64,7 @@ import {
   isDocumentKeyReferencedInLegacy,
   mergeLegacyConvocationsForCalendar,
 } from "@/app/lib/absences-legacy-convocations";
+import { syncPaieElementAfterAbsenceValidation } from "@/app/lib/absences-paie-sync";
 
 function isTodayOverlap(record: AbsenceRecord) {
   const today = new Date();
@@ -923,6 +924,10 @@ export async function PATCH(req: Request) {
 
     await saveAbsenceRecord(updated);
 
+    let paieSync:
+      | { status: string; personnelId?: string | null; elementId?: string; reason?: string }
+      | undefined;
+
     if (action === "VALIDER") {
       if (updated.workflowStatus === "CLOTUREE" && updated.adminTreatedAt) {
         try {
@@ -932,6 +937,53 @@ export async function PATCH(req: Request) {
           console.error("Absences post-validation privacy error:", privErr);
         }
       }
+
+      // Lien RH → paie light + backfill personnelId (EDT LeaveSpan lit personnel / createdBy).
+      try {
+        const etabId = await absencesDbReady();
+        if (etabId) {
+          const sync = await syncPaieElementAfterAbsenceValidation(etabId, updated);
+          if (sync.ok) {
+            paieSync = {
+              status: sync.status,
+              personnelId: sync.personnelId ?? null,
+              ...(sync.status === "created" || sync.status === "exists"
+                ? { elementId: sync.element.id }
+                : {}),
+              ...(sync.status === "skipped" ? { reason: sync.reason } : {}),
+            };
+            const resolvedPid = sync.personnelId?.trim();
+            if (resolvedPid && !updated.personnelId) {
+              updated = {
+                ...updated,
+                personnelId: resolvedPid,
+                history: [
+                  ...(updated.history || []),
+                  {
+                    at: new Date().toISOString(),
+                    by: actor,
+                    action: "PERSONNEL_LIE_PAIE",
+                    note: `Personnel ${resolvedPid} lié pour paie / EDT.`,
+                  },
+                ],
+              };
+              await saveAbsenceRecord(updated);
+            }
+          } else {
+            paieSync = { status: "error", reason: sync.error };
+            console.error("Absences → paie sync error:", sync.error);
+          }
+        } else {
+          paieSync = { status: "skipped", reason: "no_etablissement" };
+        }
+      } catch (paieErr) {
+        console.error("Absences → paie sync unexpected:", paieErr);
+        paieSync = {
+          status: "error",
+          reason: paieErr instanceof Error ? paieErr.message : "sync failed",
+        };
+      }
+
       try {
         const { recipients } = await notifyAbsenceValidated(updated);
         validationRecipients = recipients;
@@ -966,6 +1018,7 @@ export async function PATCH(req: Request) {
         ? {
             calendarVisible: updated.calendarVisible === true,
             validationRecipients: validationRecipients ?? [],
+            ...(paieSync ? { paieSync } : {}),
           }
         : {}),
     });

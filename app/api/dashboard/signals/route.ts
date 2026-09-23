@@ -46,6 +46,10 @@ import { getPersonnelIndex } from "@/app/lib/personnel-storage";
 import { getPersonnelLeaveRequests } from "@/app/lib/personnel-leave-storage";
 import { PERSONNEL_LEAVE_TYPE_LABELS } from "@/app/lib/personnel-types";
 import {
+  absencesToLeaveSpans,
+  mergeLeaveSpans,
+} from "@/app/lib/absences-leave-spans";
+import {
   findCurrentActivity,
   schoolWeekParity,
   type LeaveSpan,
@@ -517,6 +521,16 @@ export async function GET() {
                 type: r.type,
                 label: PERSONNEL_LEAVE_TYPE_LABELS[r.type] || r.type,
               }));
+          }
+          try {
+            const absIndex = await getAbsenceIndex();
+            const absenceSpans = absencesToLeaveSpans(absIndex, {
+              personnelId: leavePersonnelId || null,
+              userId,
+            });
+            leaves = mergeLeaveSpans(leaves, absenceSpans);
+          } catch {
+            // Absences RH optionnelles pour le signal « maintenant ».
           }
           let zone: "A" | "B" | "C" | null = null;
           try {
