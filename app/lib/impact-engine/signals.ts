@@ -5,7 +5,7 @@ import type { CreneauVideSignal } from "./types";
 /**
  * File interne direction / CPE — signaux créneaux vidés.
  * Calcul à la volée + cache process (pas de table `vs_signal` en lot 1).
- * ENABLE_VS_* reste off : pas d’UI appels.
+ * ENABLE_VS_* activé : signaux dashboard + UI appels / absences / sanctions.
  */
 
 const signalsByEtab = new Map<string, CreneauVideSignal[]>();
