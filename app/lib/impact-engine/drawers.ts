@@ -157,9 +157,9 @@ export function buildTiroirD(opts?: { edtCoverage?: "complete" | "partial" | "un
     {
       domaine: "messagerie_familles",
       constat:
-        "Canal dédié foyer (famille_thread) — Value Gate light ; Messenger staff reste cloisonné.",
-      tiroir: "D",
-      coverage: "partial",
+        "Canal dédié foyer (threads, pièces, notifs soft, matrice) — Messenger staff cloisonné.",
+      tiroir: "B",
+      coverage: "complete",
     },
     {
       domaine: "edt",
