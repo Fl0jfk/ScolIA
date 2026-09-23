@@ -68,7 +68,7 @@ Gestes déjà là : régime, grille repas, occupancy lit une sortie portail ; **
 
 Chambres, lits datés, appel du soir, sorties week-end, infirmerie de nuit, repas du soir. L’écran JSON `/gestion-internat` reste tant qu’on n’a pas recopié sans rien effacer.
 
-Gestes déjà là : **chambres + affectation lit datée** (`/gestion-internat/affectations`) ; **appel du soir Postgres** (`/gestion-internat/appel-soir`, roster = lits datés). Pas coché : sorties week-end Postgres, nuit. JSON hub intact.
+Gestes déjà là : **chambres + lit daté** ; **appel du soir Postgres** ; **sorties week-end** (`/gestion-internat/sorties`, exclus de l’appel). Infirmerie de nuit = geste santé déjà coché. Pas coché : repas du soir dédié (la prévision cantine couvre le service soir). JSON hub intact.
 
 ## Stages — ouvert
 
