@@ -78,11 +78,11 @@ Convention, période, élève hors cours, compétences, lien présence. Déjà u
 
 Le workflow voyages existe (direction, compta, listes, blog). Le bloc est coché quand une sortie vide les cours, la cantine et l’internat, emporte l’extrait PAI, et ne crée pas une absence bulletin. Le moteur a commencé. Pas coché.
 
-## Facturation familles — ouvert
+## Facturation familles — coché
 
 Tarifs, factures, avoirs, échéances, encaissements, prélèvement, impayés, quittances. Lié au régime et au foyer payeur.
 
-Tables là. Pas coché : aucun écran de facturation allumé.
+Gestes : tuile + hub ; facture auto ; émettre → parent ; encaissement ; avoirs ; SEPA ; échéancier multi ; board impayés ; quittance (= encaissement). **Bloc coché** pour ces volets (23 sept 2026). Limite : PDF facture S3 parfois absent en local.
 
 ## Comptabilité d’établissement — ouvert
 

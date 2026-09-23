@@ -131,9 +131,9 @@ Le branchement de l’écran sur ces tables vient après. Le JSON n’est pas la
 
 ## Factures familles et paie
 
-Déjà là : tarif, foyer de facturation, facture, lignes, encaissement, avoir (`facture.nature`).
+Déjà là : tarif, foyer de facturation, facture, lignes, encaissement, avoir (`facture.nature`), échéances (`facture_echeance`), board impayés, quittance (= encaissement).
 
-Dans l’ENT : échéances, dépenses, compte de caisse ou de banque, mouvements. L’impayé se calcule. La quittance est l’encaissement, pas une table de plus.
+Dans l’ENT : dépenses, compte de caisse ou de banque, mouvements. L’impayé se calcule. La quittance est l’encaissement, pas une table de plus.
 
 Paie : `paie_periode`, `paie_element` lié au personnel et, si besoin, à une absence RH. Pas de bulletin de salaire, pas de cotisations.
 
