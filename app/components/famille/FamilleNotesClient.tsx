@@ -81,7 +81,7 @@ export default function FamilleNotesClient() {
           <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">Espace famille</p>
           <h1 className="text-2xl font-black text-slate-900 mt-0.5">Notes</h1>
           <p className="text-sm text-slate-600 mt-1">
-            Notes saisies par les professeurs (coque labo — l&apos;app native prendra le relais).
+            Notes saisies par les professeurs — visibles dès publication.
           </p>
           <FamilleNav />
         </div>

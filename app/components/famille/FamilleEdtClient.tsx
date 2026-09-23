@@ -107,7 +107,7 @@ export default function FamilleEdtClient() {
           <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">Espace famille</p>
           <h1 className="text-2xl font-black text-slate-900 mt-0.5">Emploi du temps</h1>
           <p className="text-sm text-slate-600 mt-1">
-            Grille de la classe (coque labo — l&apos;app native prendra le relais).
+            Grille de la classe — semaine en cours (emploi du temps établissement).
           </p>
           <FamilleNav enfantId={selectedId} />
         </div>

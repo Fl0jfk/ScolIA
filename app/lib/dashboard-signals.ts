@@ -40,17 +40,15 @@ export type DashboardShortcutTone = "neutral" | "info" | "action" | "warn";
 
 /**
  * Notifs dashboard vie scolaire (absences / justificatifs / appels manquants).
- * Désactivé temporairement — remettre à `true` pour les réafficher.
+ * Activé : matin ENT — signaux ops sur le dashboard.
  */
-export const ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS = false;
-export const ENABLE_VS_APPELS_MANQUANTS_DASHBOARD_NOTIFS = false;
+export const ENABLE_VS_ABSENCE_DASHBOARD_NOTIFS = true;
+export const ENABLE_VS_APPELS_MANQUANTS_DASHBOARD_NOTIFS = true;
 /**
  * Raccourcis dashboard pour vs-appels / vs-absences / sanctions / carnet.
- * Laisser `false` tant que ces modules ont `allowedRoles: []` (WIP).
- * Quand on réactive les rôles, repasser à `true` — les vues seront fusionnées
- * dans la tuile « Absences » (slides).
+ * Activé : modules VS matin utilisables (sanctions + carnet démasqués).
  */
-export const ENABLE_VS_WIP_DASHBOARD_SHORTCUTS = false;
+export const ENABLE_VS_WIP_DASHBOARD_SHORTCUTS = true;
 
 /** Slide d’un carrousel (salles en cours, sorties du jour, multi-signaux…). */
 export type DashboardShortcutSlide = {

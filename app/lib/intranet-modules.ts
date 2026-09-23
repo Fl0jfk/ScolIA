@@ -678,8 +678,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-absences",
     pathPrefixes: ["/api/vie-scolaire/absences"],
-    // Réactivé : suivi CPE des absents + justificatifs familles (onglet Présence).
-    // Charlemagne reste l’outil officiel VS tant que le pont n’est pas branché.
+    // Suivi CPE des absents + justificatifs familles (onglet Présence).
+    // Registre VS = ScolIA (`vs_absence_eleve`) ; Charlemagne = immigration only.
     allowedRoles: [...DIRECTIONS, "cpe", "administratif", "surveillant", "admin"],
   },
   {

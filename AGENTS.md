@@ -130,9 +130,9 @@ node .cursor/tools/browser.mjs http://localhost:3000
 - Auth cible : **Better-Auth uniquement** (pas NextAuth / Clerk).
 - Secrets : uniquement `process.env` / dashboard Secrets — jamais committer `.env.local`.
 
-## Absences accueil & Charlemagne
+## Absences accueil & registre VS
 
-La page **Absence accueil** (`/accueil/absences`, module `accueil-absences`) enregistre le signal jour J (élèves → `vs_absence_eleve`, profs / OGEC → table `absence` RH). Charlemagne reste l’outil officiel de vie scolaire tant que le pont n’est pas branché. Point d’accroche : `app/lib/absences-sync/port.ts` (`noop` aujourd’hui). Les absences profs saisies à l’accueil passent par la validation direction, puis calendrier + mail secrétariat (déclaration rectorat), comme le circuit RH classique.
+La page **Absence accueil** (`/accueil/absences`, module `accueil-absences`) enregistre le signal jour J (élèves → `vs_absence_eleve`, profs / OGEC → table `absence` RH). **Registre VS cible = ScolIA** (`vs_absence_eleve`, appels, sanctions, carnet). Charlemagne = **immigration only** (import / migration) — le pont runtime `app/lib/absences-sync/port.ts` reste `noop` volontairement. Les absences profs saisies à l’accueil passent par la validation direction, puis calendrier + mail secrétariat (déclaration rectorat), comme le circuit RH classique.
 
 ## RDV inscriptions (Google Agenda)
 
