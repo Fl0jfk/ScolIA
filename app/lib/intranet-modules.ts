@@ -1215,7 +1215,7 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "groupes-pedagogiques",
     "passages",
   ],
-  "pillar-compta-rh": ["rh", "mon-planning", "absences", "demandes-hse"],
+  "pillar-compta-rh": ["rh", "mon-planning", "absences", "demandes-hse", "facturation-familles"],
 };
 
 export function canAccessIntranetPath(

@@ -160,7 +160,7 @@ export const DASHBOARD_PILLARS: DashboardPillarDef[] = [
       "surveillant",
       "cpe",
     ],
-    moduleIds: ["rh", "mon-planning"],
+    moduleIds: ["rh", "mon-planning", "facturation-familles"],
   },
   {
     id: "sante",
