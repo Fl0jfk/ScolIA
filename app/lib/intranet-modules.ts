@@ -815,7 +815,14 @@ export const INTRANET_MODULES: IntranetModule[] = [
     id: "facturation-familles",
     pathPrefixes: ["/facturation", "/api/facturation"],
     allowedRoles: [...DIRECTIONS, "comptabilite", "administratif", "admin"],
-    // Tuile dashboard masquée : module pas encore prêt.
+    dashboard: {
+      id: 70,
+      name: "Facturation familles",
+      img: "",
+      link: "/facturation",
+      external: false,
+      description: "Tarifs, factures, encaissements — foyer payeur.",
+    },
   },
   {
     id: "sante",
