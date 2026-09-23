@@ -7,6 +7,7 @@ import { listAbsenceSignalsOnDate } from "./absences-read";
 import { listInfirmerieSignalsOnDate } from "./infirmerie-read";
 import { factsByEleveId, mergeCoverage, mergeOccupancySignals } from "./merge";
 import { listPassagePortailSignalsOnDate } from "./passage-read";
+import { listStagePresenceOnDate, stageRowsToSignals } from "./stages-read";
 import { listTravelPresenceOnDate, travelRowsToSignals } from "./travels-read";
 import type { OccupancyFact, OccupancyResult, OccupancySignal } from "./types";
 
@@ -154,9 +155,14 @@ export async function occupancy(opts: OccupancyQuery): Promise<OccupancyResult> 
 
   const filterIds = eleveIds.length > 0 ? eleveIds : undefined;
 
-  const [travelPresence, absenceSignals, infirmerieSignals, passageSignals] =
+  const [travelPresence, stagePresence, absenceSignals, infirmerieSignals, passageSignals] =
     await Promise.all([
       listTravelPresenceOnDate({
+        etablissementId: opts.etablissementId,
+        date: opts.date,
+        eleveIds: filterIds,
+      }),
+      listStagePresenceOnDate({
         etablissementId: opts.etablissementId,
         date: opts.date,
         eleveIds: filterIds,
@@ -179,8 +185,10 @@ export async function occupancy(opts: OccupancyQuery): Promise<OccupancyResult> 
     ]);
 
   const travelSignals = travelRowsToSignals(travelPresence.rows, liveClasseByEleve);
+  const stageSignals = stageRowsToSignals(stagePresence.rows);
   const allSignals: OccupancySignal[] = [
     ...travelSignals,
+    ...stageSignals,
     ...absenceSignals,
     ...infirmerieSignals,
     ...passageSignals,
@@ -203,6 +211,7 @@ export async function occupancy(opts: OccupancyQuery): Promise<OccupancyResult> 
   const coverages = [
     coverageNote,
     travelPresence.unmatched.length > 0 ? ("partial" as const) : ("complete" as const),
+    stagePresence.unmatched > 0 ? ("partial" as const) : ("complete" as const),
   ];
 
   return {

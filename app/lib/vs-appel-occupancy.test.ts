@@ -52,6 +52,19 @@ test("appel occupancy — hors_etablissement = absent bulletin possible", () => 
   assert.match(b.labelFr, /hors/i);
 });
 
+test("appel occupancy — en_stage exclut bulletin + dispense (comme sortie)", () => {
+  const b = occupancyTagToAppelBadge({
+    eleveId: "e5",
+    tag: "en_stage",
+    source: "stage:c1",
+    detail: { motif: "Stage — Acme" },
+  });
+  assert.equal(b.excludeFromBulletin, true);
+  assert.equal(b.suggestedStatut, "dispense");
+  assert.equal(b.labelFr, "En stage");
+  assert.match(b.detailFr || "", /Stage — Acme/i);
+});
+
 test("appel occupancy — en_cours masqué de la map UI", () => {
   const map = badgesByEleveId([
     { eleveId: "a", tag: "en_cours", source: "scolarite" },

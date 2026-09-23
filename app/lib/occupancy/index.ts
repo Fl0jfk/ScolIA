@@ -31,3 +31,8 @@ export {
   listTravelPresenceOnDate,
   OCCUPANCY_TRAVEL_STATUSES,
 } from "./travels-read";
+export {
+  listStagePresenceOnDate,
+  listEleveIdsEnStageOnDate,
+  OCCUPANCY_STAGE_STATUSES,
+} from "./stages-read";

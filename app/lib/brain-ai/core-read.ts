@@ -181,7 +181,7 @@ export function explainOccupancyTag(tag: OccupancyTag): string {
     case "en_sortie":
       return "En sortie scolaire (participation voyage) — ce n’est pas une absence bulletin.";
     case "en_stage":
-      return "En période de stage / PFMP.";
+      return "En période de stage / PFMP — ce n’est pas une absence bulletin.";
     case "a_infirmerie":
       return "À l’infirmerie — ce n’est pas une absence bulletin.";
     case "absent_vs":

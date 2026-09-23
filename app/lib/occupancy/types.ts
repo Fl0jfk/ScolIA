@@ -20,7 +20,7 @@ export type OccupancyCoverage = "complete" | "partial" | "unavailable";
 
 export type OccupancyConfidence = "defined" | "deduced" | "unknown";
 
-/** Priorité décroissante : la première gagne. Sortie ≠ bulletin. Infirmerie ≠ absence. */
+/** Priorité décroissante : la première gagne. Sortie / stage ≠ bulletin. Infirmerie ≠ absence. */
 export const OCCUPANCY_TAG_PRIORITY: readonly OccupancyTag[] = [
   "en_sortie",
   "en_stage",
@@ -82,7 +82,7 @@ export type OccupancyResult = {
 };
 
 export function isExcludedFromBulletinAbsence(tag: OccupancyTag): boolean {
-  return tag === "en_sortie" || tag === "a_infirmerie";
+  return tag === "en_sortie" || tag === "en_stage" || tag === "a_infirmerie";
 }
 
 export function isStageAbsenceMotif(motif: string | null | undefined): boolean {

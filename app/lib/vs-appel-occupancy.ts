@@ -40,9 +40,11 @@ export function occupancyTagToAppelBadge(
         eleveId: fact.eleveId,
         tag,
         labelFr: "En stage",
-        excludeFromBulletin: false,
-        suggestedStatut: "absent",
-        detailFr: fact.detail?.motif ? String(fact.detail.motif) : "Période de stage / PFMP.",
+        excludeFromBulletin: true,
+        suggestedStatut: "dispense",
+        detailFr: fact.detail?.motif
+          ? String(fact.detail.motif)
+          : "Période de stage / PFMP — pas une absence bulletin.",
         source: fact.source,
       };
     case "a_infirmerie":

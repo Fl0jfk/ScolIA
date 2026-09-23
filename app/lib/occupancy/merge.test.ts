@@ -40,11 +40,11 @@ test("merge — stage bat absent_vs générique", () => {
     date: "2026-03-10",
     signals: [
       { eleveId: "e1", tag: "absent_vs", source: "vs_absence:a1" },
-      { eleveId: "e1", tag: "en_stage", source: "vs_absence:a2" },
+      { eleveId: "e1", tag: "en_stage", source: "stage:c1" },
     ],
   });
   assert.equal(fact.tag, "en_stage");
-  assert.equal(isExcludedFromBulletinAbsence(fact.tag), false);
+  assert.equal(isExcludedFromBulletinAbsence(fact.tag), true);
 });
 
 test("merge — infirmerie bat absent_vs et hors établissement", () => {

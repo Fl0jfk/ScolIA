@@ -57,6 +57,24 @@ test("feuille du jour — a_infirmerie ≠ bulletin", () => {
   assert.ok(assertSortieNotBulletin("a_infirmerie"));
 });
 
+test("feuille du jour — en_stage ≠ bulletin", () => {
+  const row = buildFeuilleDuJourRow({
+    eleveId: "e4",
+    nom: "JUSTIF",
+    prenom: "Leo",
+    fact: {
+      eleveId: "e4",
+      tag: "en_stage",
+      source: "stage:c1",
+      detail: { motif: "Stage — Acme" },
+    },
+  });
+  assert.equal(row.tag, "en_stage");
+  assert.equal(row.excludeFromBulletin, true);
+  assert.match(row.explanationFr, /pas une absence bulletin/i);
+  assert.ok(assertSortieNotBulletin("en_stage"));
+});
+
 test("feuille du jour — résumé + tri", () => {
   const rows = sortFeuilleDuJourRows([
     buildFeuilleDuJourRow({

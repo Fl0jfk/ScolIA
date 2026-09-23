@@ -549,6 +549,14 @@ function StagesContent() {
       <ModulePageHeader
         title="Stages & conventions"
         description="Les élèves remplissent leur préconvention en ligne (entreprise, horaires, contacts). Après validation, chaque signataire reçoit un code sécurisé par e-mail."
+        actions={
+          <a
+            href="/stages/presence"
+            className="text-sm font-bold text-indigo-600 hover:underline"
+          >
+            Présence du jour →
+          </a>
+        }
       />
 
       {error && (

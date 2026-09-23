@@ -117,5 +117,8 @@ export function sortFeuilleDuJourRows(rows: FeuilleDuJourRow[]): FeuilleDuJourRo
 }
 
 export function assertSortieNotBulletin(tag: OccupancyTag): boolean {
-  return isExcludedFromBulletinAbsence(tag) === (tag === "en_sortie" || tag === "a_infirmerie");
+  return (
+    isExcludedFromBulletinAbsence(tag) ===
+    (tag === "en_sortie" || tag === "en_stage" || tag === "a_infirmerie")
+  );
 }

@@ -148,7 +148,11 @@ export default function InternatAppelSoirClient() {
             <input
               type="date"
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={(e) => {
+                const v = normalizeIsoDate(e.target.value);
+                if (v) setDate(v);
+              }}
+              lang="fr-CA"
               className="mt-1 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal"
             />
           </label>
