@@ -481,6 +481,7 @@ export async function synthesePeriode(
   const [sortiesRow] = await db
     .select({
       n: sql<number>`coalesce(sum(${mouvementTresorerie.montant}::numeric), 0)::float`,
+      c: sql<number>`count(*)::int`,
     })
     .from(mouvementTresorerie)
     .where(
@@ -531,7 +532,7 @@ export async function synthesePeriode(
     depensesPayees: Number(depRow?.n ?? 0).toFixed(2),
     soldePeriode: (recettes - sorties).toFixed(2),
     encaissementsFamille: Number(encRow?.n ?? 0).toFixed(2),
-    nbMouvements: Number(recettesRow?.c ?? 0),
+    nbMouvements: Number(recettesRow?.c ?? 0) + Number(sortiesRow?.c ?? 0),
     nbDepensesPayees: Number(depRow?.c ?? 0),
     soldesComptes: comptes.map((c) => ({
       id: c.id,
