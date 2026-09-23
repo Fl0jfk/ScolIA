@@ -62,6 +62,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
   "accueil-portes-ouvertes",
   "rdv-inscription",
   "sante",
+  "vs-sanctions",
   "vs-carnet",
   "messages-foyer",
   // Compta & RH
@@ -73,7 +74,7 @@ export const DIRECTION_DEFAULT_MODULES: readonly string[] = [
 
 export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
   professeur: [
-    // Appels + notes saisie (occupancy / Rejoindre) ; pas de sanctions / carnet par défaut.
+    // Appels + notes saisie (occupancy / Rejoindre) ; carnet oui, sanctions non (CPE).
     "eleve-dossier",
     "certificates",
     "organigramme",
@@ -120,6 +121,8 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "vs-calendrier",
     "vs-appels",
     "vs-absences",
+    "vs-sanctions",
+    "vs-carnet",
     "accueil-absences",
     "accueil-portes-ouvertes",
     "rdv-inscription",
@@ -237,6 +240,7 @@ export const ROLE_DEFAULT_MODULES: Record<string, readonly string[]> = {
     "vs-calendrier",
     "vs-appels",
     "vs-absences",
+    "vs-sanctions",
     "vs-carnet",
     "accueil-absences",
     "absences-accueil-consultation",

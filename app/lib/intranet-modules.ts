@@ -685,8 +685,16 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "vs-sanctions",
     pathPrefixes: ["/vie-scolaire/sanctions", "/api/vie-scolaire/sanctions"],
-    // Module masqué (UI + signaux) — en cours de développement ; API conservée.
-    allowedRoles: [],
+    // Réactivé : saisie CPE + lecture familles (matin ENT). Catalogue court, pas Charlemagne-parité.
+    allowedRoles: [...DIRECTIONS, "cpe", "administratif", "surveillant", "admin"],
+    dashboard: {
+      id: 62,
+      name: "Sanctions",
+      img: "",
+      link: "/vie-scolaire/sanctions",
+      external: false,
+      description: "Avertissements, colles, exclusions de cours — visibles familles.",
+    },
   },
   {
     id: "vs-carnet",
@@ -1142,10 +1150,6 @@ export function rolesAllowModule(
 
     // Pilotage élèves : masqué (pas d’accès rôle métier, hors orgAdmin).
     if (module.id === "pilotage-eleves") return false;
-    // Sanctions encore masquées. Carnet de liaison = réactivé (famille lit + signe).
-    if (module.id === "vs-sanctions") {
-      return false;
-    }
 
     // Dossiers élèves : masqué pour les profs si le flag d’accès est désactivé.
     if (
@@ -1270,6 +1274,8 @@ const PILLAR_HUB_CHILD_MODULES: Record<string, string[]> = {
     "internat",
     "vs-calendrier",
     "vs-appels",
+    "vs-sanctions",
+    "vs-carnet",
     "accueil-absences",
     "groupes-pedagogiques",
     "passages",
