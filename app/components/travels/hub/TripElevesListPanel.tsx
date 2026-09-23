@@ -68,6 +68,36 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
   /** Activer la page de suivi parents (blog) à la confirmation. */
   const [activateParentBlog, setActivateParentBlog] = useState(false);
   const [impactBanner, setImpactBanner] = useState<string[] | null>(null);
+  const [voyageExtraits, setVoyageExtraits] = useState<
+    Array<{ eleveId: string; eleveNom: string; elevePrenom: string; libelle: string }>
+  >([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/travels/sante-extraits?tripId=${encodeURIComponent(trip.id)}`,
+          { cache: "no-store", credentials: "include" },
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          extraits?: Array<{
+            eleveId: string;
+            eleveNom: string;
+            elevePrenom: string;
+            libelle: string;
+          }>;
+        };
+        if (cancelled || !res.ok) return;
+        setVoyageExtraits(data.extraits ?? []);
+      } catch {
+        if (!cancelled) setVoyageExtraits([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [trip.id, trip.data.participantEleves, trip.data.listeElevesStatus]);
 
   const needsBus = complexNeedsBus(trip);
   const horairesRequired = parentHorairesRequiredForTrip(trip);
@@ -606,6 +636,25 @@ export function TripElevesListPanel({ trip, canEdit, onTripUpdated }: Props) {
             <ul className="mt-1 list-disc space-y-1 pl-4 text-sm">
               {impactBanner.map((line) => (
                 <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </TripAlert>
+        ) : null}
+
+        {voyageExtraits.length > 0 ? (
+          <TripAlert tone="warning" icon="🩺" title="Extraits santé voyage (PAI / protocole)">
+            <p className="mt-1 text-sm">
+              À emporter pour ce voyage — signal diffusé uniquement (pas le dossier médical).
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-4 text-sm">
+              {voyageExtraits.map((ex) => (
+                <li key={`${ex.eleveId}-${ex.libelle}`}>
+                  <strong>
+                    {ex.elevePrenom} {ex.eleveNom}
+                  </strong>
+                  {" — "}
+                  {ex.libelle}
+                </li>
               ))}
             </ul>
           </TripAlert>
