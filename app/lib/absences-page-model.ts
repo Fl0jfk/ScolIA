@@ -32,6 +32,12 @@ export type AbsenceItem = {
   data: {
     scope: AbsenceScope;
     etablissement: Etablissement | null;
+    /** Validateur nominatif OGEC (rattachement fiche RH). */
+    ogecValidator?: {
+      email: string;
+      userId?: string;
+      label?: string;
+    } | null;
     periodType?: AbsencePeriodType | null;
     startDate: string;
     endDate: string;
