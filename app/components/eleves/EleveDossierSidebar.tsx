@@ -57,12 +57,10 @@ export default function EleveDossierSidebar({
     const needle = q.trim().toLowerCase();
     if (needle.length < 2) return [];
     const pool = searchPool ?? [];
-    return pool
-      .filter((e) => {
-        if (e.id === currentEleveId) return false;
-        return `${e.prenom} ${e.nom} ${e.classe || ""}`.toLowerCase().includes(needle);
-      })
-      .slice(0, 8);
+    return pool.filter((e) => {
+      if (e.id === currentEleveId) return false;
+      return `${e.prenom} ${e.nom} ${e.classe || ""}`.toLowerCase().includes(needle);
+    });
   }, [q, searchPool, currentEleveId]);
 
   const sortedClassmates = useMemo(
