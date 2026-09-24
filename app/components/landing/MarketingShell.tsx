@@ -114,6 +114,12 @@ export default function MarketingShell({ children }: { children: ReactNode }) {
             <Link href="/tarifs" className="text-stone-600 hover:text-[#2F6B4A]">
               Tarifs
             </Link>
+            <Link href="/confidentialite" className="text-stone-600 hover:text-[#2F6B4A]">
+              Confidentialité
+            </Link>
+            <Link href="/cgu" className="text-stone-600 hover:text-[#2F6B4A]">
+              CGU
+            </Link>
             <Link href="/mentions-legales" className="text-stone-600 hover:text-[#2F6B4A]">
               Mentions légales
             </Link>
