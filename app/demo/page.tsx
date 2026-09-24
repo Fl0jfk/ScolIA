@@ -46,13 +46,13 @@ export default async function DemoPage({ searchParams }: Props) {
 
         <div className="flex flex-col gap-3">
           <a
-            href="/api/demo/enter?as=parent"
+            href="/api/demo/enter?as=parent&dev_tenant=default"
             className="rounded-xl bg-teal-400 px-5 py-4 text-center text-base font-semibold text-teal-950 shadow-lg shadow-teal-950/40 transition hover:bg-teal-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-200"
           >
             Entrer comme parent → Portail quotidien
           </a>
           <a
-            href="/api/demo/enter?as=staff"
+            href="/api/demo/enter?as=staff&dev_tenant=default"
             className="rounded-xl border border-slate-500/60 bg-slate-800/80 px-5 py-4 text-center text-base font-semibold text-slate-50 transition hover:border-teal-400/50 hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-200"
           >
             Entrer comme staff → Intranet

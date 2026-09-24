@@ -44,6 +44,34 @@ function cookieHeaderFromResponse(res: Response): string {
   return single.split(",").map((p) => p.split(";")[0]?.trim()).filter(Boolean).join("; ");
 }
 
+/** Origine publique (tunnel Cloudflare) — pas localhost derrière le proxy. */
+function publicOrigin(req: Request): string {
+  const xfHost = (
+    req.headers.get("x-forwarded-host") ||
+    req.headers.get("host") ||
+    ""
+  )
+    .split(",")[0]
+    ?.trim();
+  const xfProto = (
+    req.headers.get("x-forwarded-proto") ||
+    ""
+  )
+    .split(",")[0]
+    ?.trim();
+  if (xfHost && !/^127\.0\.0\.1(?::|$)/.test(xfHost) && !/^localhost(?::|$)/i.test(xfHost)) {
+    const proto = xfProto || "https";
+    return `${proto}://${xfHost}`;
+  }
+  const env = (
+    process.env.BETTER_AUTH_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    ""
+  ).replace(/\/$/, "");
+  if (env && !/localhost|127\.0\.0\.1/i.test(env)) return env;
+  return new URL(req.url).origin;
+}
+
 /**
  * GET /api/demo/enter?as=parent|staff
  * Connexion seed + redirect. Refusé si runtime = prod.
@@ -65,9 +93,20 @@ export async function GET(req: Request) {
     );
   }
 
+  const origin = publicOrigin(req);
   const auth = getBetterAuth();
   const creds = role === "staff" ? DEMO_STAFF : DEMO_PARENT;
-  const dest = new URL(creds.redirect, url.origin);
+  const dest = new URL(creds.redirect, origin);
+
+  const finish = (out: NextResponse) => {
+    out.cookies.set("scola_dev_tenant", "default", {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30,
+      sameSite: "lax",
+      httpOnly: false,
+    });
+    return out;
+  };
 
   try {
     const signInRes = await auth.api.signInEmail({
@@ -91,20 +130,24 @@ export async function GET(req: Request) {
         signInBody?.error?.message ||
         signInBody?.message ||
         `Connexion échouée (${signInRes.status})`;
-      return NextResponse.redirect(
-        new URL(`/demo?error=${encodeURIComponent(msg)}`, url.origin),
-        { status: 303 },
+      return finish(
+        NextResponse.redirect(
+          new URL(`/demo?error=${encodeURIComponent(msg)}&dev_tenant=default`, origin),
+          { status: 303 },
+        ),
       );
     }
 
     if (signInBody?.twoFactorRedirect) {
       if (role !== "staff") {
-        return NextResponse.redirect(
-          new URL(
-            `/demo?error=${encodeURIComponent("2FA inattendu pour le parent")}`,
-            url.origin,
+        return finish(
+          NextResponse.redirect(
+            new URL(
+              `/demo?error=${encodeURIComponent("2FA inattendu pour le parent")}&dev_tenant=default`,
+              origin,
+            ),
+            { status: 303 },
           ),
-          { status: 303 },
         );
       }
 
@@ -129,26 +172,30 @@ export async function GET(req: Request) {
           vBody?.error?.message ||
           vBody?.message ||
           `TOTP échoué (${verifyRes.status})`;
-        return NextResponse.redirect(
-          new URL(`/demo?error=${encodeURIComponent(msg)}`, url.origin),
-          { status: 303 },
+        return finish(
+          NextResponse.redirect(
+            new URL(`/demo?error=${encodeURIComponent(msg)}&dev_tenant=default`, origin),
+            { status: 303 },
+          ),
         );
       }
 
       const out = NextResponse.redirect(dest, { status: 303 });
       forwardSetCookies(signInRes, out);
       forwardSetCookies(verifyRes, out);
-      return out;
+      return finish(out);
     }
 
     const out = NextResponse.redirect(dest, { status: 303 });
     forwardSetCookies(signInRes, out);
-    return out;
+    return finish(out);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Erreur démo";
-    return NextResponse.redirect(
-      new URL(`/demo?error=${encodeURIComponent(msg)}`, url.origin),
-      { status: 303 },
+    return finish(
+      NextResponse.redirect(
+        new URL(`/demo?error=${encodeURIComponent(msg)}&dev_tenant=default`, origin),
+        { status: 303 },
+      ),
     );
   }
 }
