@@ -457,15 +457,27 @@ export default function StageConventionDetail({
         <div>
           <h3 className="text-xs font-bold uppercase tracking-wide text-stone-600">Signataires</h3>
           <ul className="mt-2 space-y-2">
-            {c.signatures.map((sig) => {
+            {(() => {
+              const summary = buildSignatureSummary(c);
+              const nonBlockingById = new Map(
+                summary.items.map((item) => [item.id, Boolean(item.nonBlocking)]),
+              );
+              return c.signatures.map((sig) => {
               const pending = sig.status === "en_attente" && Boolean(sig.signToken);
               const signed = sig.status === "signe";
+              const nonBlocking = nonBlockingById.get(sig.id) === true;
               return (
                 <li
                   key={sig.id}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm"
+                  className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                    nonBlocking
+                      ? "border-stone-200 bg-stone-50 text-stone-600"
+                      : "border-stone-200 bg-white"
+                  }`}
                 >
-                  <span className="font-medium">{sig.label}</span>
+                  <span className={`font-medium ${nonBlocking ? "line-through decoration-stone-400" : ""}`}>
+                    {sig.label}
+                  </span>
                   {sig.signEmail ? (
                     <span className="text-xs text-stone-500">({sig.signEmail})</span>
                   ) : null}
@@ -473,12 +485,19 @@ export default function StageConventionDetail({
                     <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800">
                       {sig.signMethod === "paper_upload" ? "Signé (papier)" : "Signé"}
                     </span>
+                  ) : nonBlocking ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-stone-300 bg-stone-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-stone-600">
+                      <span aria-hidden className="text-sm font-black leading-none">
+                        ×
+                      </span>
+                      Non requis
+                    </span>
                   ) : (
                     <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">
                       En attente
                     </span>
                   )}
-                  {permissions?.canReviewPreconvention && pending && (
+                  {permissions?.canReviewPreconvention && pending && !nonBlocking && (
                     <>
                       <button
                         type="button"
@@ -518,7 +537,8 @@ export default function StageConventionDetail({
                   )}
                 </li>
               );
-            })}
+            });
+            })()}
           </ul>
         </div>
       )}

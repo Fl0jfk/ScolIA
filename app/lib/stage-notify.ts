@@ -669,7 +669,10 @@ export async function notifyStageFullySigned(convention: StageConvention) {
     recipients = uniqueEmails(
       convention.student.email,
       convention.student.parentEmail,
+      convention.student.parent1Email,
+      convention.student.parent2Email,
       convention.parentSignerEmail,
+      convention.parent2SignerEmail,
       convention.company.tutorEmail,
       convention.company.rhEmail,
       directionEmail,

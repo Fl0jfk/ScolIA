@@ -99,14 +99,22 @@ export default function StageSignatureProgress({
                   : item.status === "refuse"
                     ? "Refusé"
                     : item.nonBlocking
-                      ? "Autre parent déjà signé"
+                      ? "Non requis — l'autre responsable a déjà signé"
                       : "En attente"
               }`}
-              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${STATUS_STYLES[item.status]} ${
-                item.nonBlocking ? "opacity-70" : ""
+              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                item.nonBlocking
+                  ? "border-stone-300 bg-stone-100 text-stone-600 line-through decoration-stone-500"
+                  : STATUS_STYLES[item.status]
               }`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${DOT_STYLES[item.status]}`} />
+              {item.nonBlocking ? (
+                <span aria-hidden className="font-black text-stone-500">
+                  ×
+                </span>
+              ) : (
+                <span className={`h-1.5 w-1.5 rounded-full ${DOT_STYLES[item.status]}`} />
+              )}
               {shortRoleLabel(item.label)}
             </span>
           ))}
@@ -116,16 +124,29 @@ export default function StageSignatureProgress({
           {summary.items.map((item) => (
             <li
               key={item.id}
-              className={`flex items-center justify-between gap-2 rounded-md border px-2 py-1 text-xs ${STATUS_STYLES[item.status]}`}
+              className={`flex items-center justify-between gap-2 rounded-md border px-2 py-1 text-xs ${
+                item.nonBlocking
+                  ? "border-stone-300 bg-stone-50 text-stone-600"
+                  : STATUS_STYLES[item.status]
+              }`}
             >
-              <span>{item.label}</span>
+              <span className={item.nonBlocking ? "line-through decoration-stone-400" : ""}>
+                {item.label}
+              </span>
               <span className="max-w-[58%] text-right font-medium leading-snug">
                 {item.status === "signe"
                   ? signedLabel(item)
                   : item.status === "refuse"
                     ? "Refusé"
                     : item.nonBlocking
-                      ? "Autre parent déjà signé"
+                      ? (
+                          <span className="inline-flex items-center gap-1 text-stone-600">
+                            <span aria-hidden className="text-sm font-black leading-none">
+                              ×
+                            </span>
+                            Non requis
+                          </span>
+                        )
                       : "En attente"}
               </span>
             </li>
