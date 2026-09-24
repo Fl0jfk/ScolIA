@@ -5,9 +5,7 @@ alwaysApply: true
 
 # Validation Autonome (Self-Healing)
 
-Après **toute** feature, module ou correctif majeur, ne pas rendre la main avant :
-
-Ceci est la **technical validation**. Elle **ne remplace pas** le Value Gate (règle `scola-value-gate.mdc`) : tests verts ≠ valeur métier.
+Après **toute** feature, module ou correctif majeur, ne pas rendre la main avant la validation technique ci-dessous.
 
 ## 1. BDD (MCP PostgreSQL ou `psql`)
 
@@ -24,4 +22,4 @@ Si mutation (create / update / delete) :
 ## 3. Boucle d’auto-correction
 
 Si échec → analyser → corriger → **relancer** les étapes 1–2.
-Rendre la main **uniquement** quand le flux bout-en-bout est validé **et**, pour un lot important, quand le **Value Gate** est rempli (y compris « INFRA SEULE » si c’est la vérité).
+Rendre la main **uniquement** quand le flux bout-en-bout est validé.

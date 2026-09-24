@@ -2,33 +2,10 @@
 
 Repo **docslapro / ScolIA** : ENT / intranet scolaire (Next.js App Router, Drizzle, PostgreSQL, Better-Auth).
 
-## Value Gate — valeur fonctionnelle (obligatoire)
+## Contraintes utilisateur (déjà décidées)
 
-Deux validations **distinctes** après chaque lot **important**. Aucune ne remplace l’autre.
-
-| | |
-|--|--|
-| **Technical validation** | Code, tests, sécurité, multi-tenant, self-healing UI/BDD (`scola-validation-autonome`). |
-| **Functional value validation** | Un **scénario métier réel** fonctionne de bout en bout, **observable** (pas un rapport de tests). |
-
-**N’est pas** une preuve de valeur : test vert, architecture, table, API, event store, tool Brain.
-
-Développer en **vertical slice** : UI/API → métier → persistance → événements si besoin → conséquences inter-domaines → permissions → tenant → tests → **résultat observable**.
-
-Si beaucoup d’infra et peu de geste utilisateur : le dire clairement (« fondation OK, pas encore démontrable ») — ne pas cocher le lot comme terminé produit.
-
-Jalon à remplir (détail : `.cursor/rules/scola-value-gate.mdc`) :
-
-```
-VALUE GATE
-→ scénario métier démontrable
-→ résultat attendu
-→ résultat réellement obtenu
-→ domaines traversés
-→ éléments encore manquants
-→ limites connues
-→ verdict : VALEUR | PARTIEL | INFRA SEULE
-```
+- **`main` = production.** Ne jamais y pousser un lot métier. Travail sur **`dev`**.
+- **Deux faces, un cerveau.** Intranet web pour le personnel. Familles, élèves et professeurs : applications natives **SwiftUI** et **Kotlin / Jetpack Compose** (pas Expo) plus un client web dédié. Pas de second logiciel.
 
 ## Git — production protégée
 
