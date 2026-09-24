@@ -70,6 +70,12 @@ function formatDateNaissanceFr(value: string | null | undefined): string {
   return raw;
 }
 
+/** Valeur pour `<input type="date">` (AAAA-MM-JJ). */
+function toDateInputValue(value: string | null | undefined): string {
+  const raw = String(value || "").trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : "";
+}
+
 function IconUpload({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -361,6 +367,8 @@ export default function EleveDossierClient() {
     durationDays: number;
     note: string;
   } | null>(null);
+  const [dobDraft, setDobDraft] = useState("");
+  const [lieuDraft, setLieuDraft] = useState("");
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const cacheKey = `scola:eleve-dossier:${id}`;
@@ -494,6 +502,12 @@ export default function EleveDossierClient() {
     ];
     return list.filter((t) => t.show);
   }, [data]);
+
+  useEffect(() => {
+    if (!data?.eleve) return;
+    setDobDraft(toDateInputValue(data.eleve.dateNaissance));
+    setLieuDraft(data.eleve.lieuNaissance || "");
+  }, [data?.eleve?.id, data?.eleve?.dateNaissance, data?.eleve?.lieuNaissance]);
 
   const allowedDocCategories = useMemo((): EleveDocCategorie[] => {
     if (!data?.meta.docCategories?.length) {
@@ -1003,16 +1017,93 @@ export default function EleveDossierClient() {
                   <p className="mt-2 text-lg font-bold text-slate-500">Classe non renseignée</p>
                 )}
                 <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
-                  <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
-                    <dt className="text-slate-500">Né(e) le</dt>
-                    <dd className="font-semibold text-slate-900">
-                      {formatDateNaissanceFr(e.dateNaissance)}
-                    </dd>
+                  <div
+                    className={`rounded-xl px-3 py-2 ${
+                      !toDateInputValue(e.dateNaissance)
+                        ? "bg-amber-50 ring-1 ring-amber-200"
+                        : "bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <dt className="text-slate-500">Né(e) le</dt>
+                      {!canEdit ? (
+                        <dd className="font-semibold text-slate-900">
+                          {formatDateNaissanceFr(e.dateNaissance)}
+                        </dd>
+                      ) : null}
+                    </div>
+                    {canEdit ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input
+                          type="date"
+                          value={dobDraft}
+                          disabled={busy}
+                          onChange={(ev) => setDobDraft(ev.target.value)}
+                          className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900 disabled:opacity-50"
+                          aria-label="Date de naissance"
+                        />
+                        <button
+                          type="button"
+                          disabled={
+                            busy ||
+                            dobDraft === toDateInputValue(e.dateNaissance)
+                          }
+                          onClick={() =>
+                            void postAction({
+                              action: "update_identite",
+                              dateNaissance: dobDraft || null,
+                            })
+                          }
+                          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+                        >
+                          Enregistrer
+                        </button>
+                      </div>
+                    ) : null}
+                    {canEdit && !toDateInputValue(e.dateNaissance) ? (
+                      <p className="mt-1.5 text-[11px] font-medium text-amber-800">
+                        Requise pour le matching des rendez-vous d’inscription (lien parent).
+                      </p>
+                    ) : null}
                   </div>
                   {!data.meta.profRestrictedView ? (
-                    <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">
-                      <dt className="text-slate-500">Lieu</dt>
-                      <dd className="font-semibold text-slate-900">{e.lieuNaissance || "—"}</dd>
+                    <div className="rounded-xl bg-slate-50 px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <dt className="text-slate-500">Lieu</dt>
+                        {!canEdit ? (
+                          <dd className="font-semibold text-slate-900">
+                            {e.lieuNaissance || "—"}
+                          </dd>
+                        ) : null}
+                      </div>
+                      {canEdit ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <input
+                            type="text"
+                            value={lieuDraft}
+                            disabled={busy}
+                            placeholder="Ville de naissance"
+                            onChange={(ev) => setLieuDraft(ev.target.value)}
+                            className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900 disabled:opacity-50"
+                            aria-label="Lieu de naissance"
+                          />
+                          <button
+                            type="button"
+                            disabled={
+                              busy || lieuDraft.trim() === (e.lieuNaissance || "").trim()
+                            }
+                            onClick={() =>
+                              void postAction({
+                                action: "update_identite",
+                                lieuNaissance: lieuDraft.trim() || null,
+                              })
+                            }
+                            className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+                          >
+                            Enregistrer
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   <div className="flex justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2">

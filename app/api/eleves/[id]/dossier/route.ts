@@ -702,6 +702,9 @@ type DossierBody = {
   fileUrl?: string | null;
   mimeType?: string | null;
   source?: string;
+  /** Identité élève (date / lieu de naissance). */
+  dateNaissance?: string | null;
+  lieuNaissance?: string | null;
 };
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -1395,6 +1398,77 @@ export async function POST(req: Request, ctx: Ctx) {
       },
     });
     return NextResponse.json({ success: true, deletedId: documentId });
+  }
+
+  if (action === "update_identite") {
+    if (!canEditStructure(roles, { orgAdmin, platformAdmin })) {
+      return NextResponse.json({ error: "Non autorisé." }, { status: 403 });
+    }
+    const { normalizeEleveDateNaissance } = await import("@/app/lib/eleves-config");
+    const patch: {
+      dateNaissance?: string | null;
+      lieuNaissance?: string | null;
+      updatedAt: Date;
+    } = { updatedAt: new Date() };
+
+    if ("dateNaissance" in body) {
+      const raw = body.dateNaissance;
+      if (raw == null || String(raw).trim() === "") {
+        patch.dateNaissance = null;
+      } else {
+        const dob = normalizeEleveDateNaissance(raw);
+        if (!dob) {
+          return NextResponse.json(
+            { error: "Date de naissance invalide (JJ/MM/AAAA ou AAAA-MM-JJ)." },
+            { status: 400 },
+          );
+        }
+        patch.dateNaissance = dob;
+      }
+    }
+
+    if ("lieuNaissance" in body) {
+      const lieu = String(body.lieuNaissance ?? "").trim();
+      patch.lieuNaissance = lieu || null;
+    }
+
+    if (!("dateNaissance" in body) && !("lieuNaissance" in body)) {
+      return NextResponse.json(
+        { error: "Aucune donnée d’identité à mettre à jour." },
+        { status: 400 },
+      );
+    }
+
+    const [updated] = await db
+      .update(eleve)
+      .set(patch)
+      .where(and(eq(eleve.etablissementId, etabId), eq(eleve.id, id)))
+      .returning({
+        id: eleve.id,
+        dateNaissance: eleve.dateNaissance,
+        lieuNaissance: eleve.lieuNaissance,
+      });
+
+    await recordEleveAccessAudit({
+      etablissementId: etabId,
+      actorUserId: authUserId,
+      resourceType: "fiche_eleve",
+      resourceId: id,
+      eleveId: id,
+      action: "update_identite",
+      metadata: {
+        dateNaissance: updated?.dateNaissance ?? null,
+        lieuNaissance: updated?.lieuNaissance ?? null,
+      },
+    });
+    return NextResponse.json({
+      success: true,
+      eleve: {
+        id,
+        dateNaissance: updated?.dateNaissance ?? null,
+        lieuNaissance: updated?.lieuNaissance ?? null,
+      },
+    });
   }
 
   return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
