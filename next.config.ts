@@ -1,9 +1,30 @@
 import type { NextConfig } from "next";
 
+/** Hosts autorisés pour assets /_next en `next dev` (tunnels démo inclus). */
+function allowedDevOriginsFromEnv(): string[] {
+  const hosts = new Set<string>(["127.0.0.1", "localhost"]);
+  for (const raw of [
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.BETTER_AUTH_URL,
+    process.env.DEMO_TUNNEL_HOST,
+  ]) {
+    const value = raw?.trim();
+    if (!value) continue;
+    try {
+      const withScheme = value.startsWith("http") ? value : `https://${value}`;
+      const hostname = new URL(withScheme).hostname;
+      if (hostname) hosts.add(hostname);
+    } catch {
+      if (/^[a-z0-9.-]+$/i.test(value)) hosts.add(value);
+    }
+  }
+  return [...hosts];
+}
+
 const nextConfig: NextConfig = {
   output: "standalone",
-  // Dev : Playwright / curl via 127.0.0.1 (HMR + assets)
-  allowedDevOrigins: ["127.0.0.1", "localhost"],
+  // Dev : Playwright / curl / tunnel Cloudflare démo (HMR + assets /_next)
+  allowedDevOrigins: allowedDevOriginsFromEnv(),
   serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist"],
   typescript: { ignoreBuildErrors: false },
   /**
