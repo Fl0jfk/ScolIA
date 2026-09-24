@@ -53,6 +53,8 @@ Voir `docs/labo-florian.md`. Conteneur Scaleway **séparé** + Postgres labo + s
 
 Runtime labo : `SCOLA_ENV=lab` / `NEXT_PUBLIC_SCOLA_ENV=lab` → bandeau ambre. **Interdit** : pointer le labo sur la RDB prod ou `SCW_CONTAINER_ID` prod.
 
+**Démo Florian (Cloud Agent)** : Forwarded Ports → 3000 → `/demo` (boutons parent / staff). Voir `docs/demo-one-click.md`.
+
 ## Commandes essentielles
 
 | Action | Commande |
