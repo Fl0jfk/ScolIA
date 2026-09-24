@@ -115,7 +115,7 @@ export default function MarketingShell({ children }: { children: ReactNode }) {
               Tarifs
             </Link>
             <Link href="/confidentialite" className="text-stone-600 hover:text-[#2F6B4A]">
-              Confidentialité
+              Politique de confidentialité
             </Link>
             <Link href="/cgu" className="text-stone-600 hover:text-[#2F6B4A]">
               CGU

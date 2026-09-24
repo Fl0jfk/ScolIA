@@ -252,11 +252,12 @@ export const SOVEREIGNTY = {
 export const RGPD_COMPACT = {
   title: "Données & confiance",
   summary:
-    "ScolIA orchestre les workflows de l'établissement. Hébergement Scaleway en France, IA française Mistral, paiements EasyTransac, messagerie OVH, licences Microsoft Éducation dans l'abonnement.",
+    "ScolIA orchestre les workflows de l'établissement. Hébergement Scaleway en France, IA française Mistral, paiements EasyTransac, messagerie OVH, licences Microsoft Éducation dans l'abonnement. Le module rendez-vous d'inscription peut se connecter à Google Agenda (compte technique) pour lire et mettre à jour les créneaux partagés.",
   bullets: [
     "Les dossiers élèves sensibles sont orientés vers vos espaces Microsoft : l'établissement reste maître de ses données.",
     "Hébergement France (Scaleway) · IA française (Mistral) · paiement français (EasyTransac) · mail OVH.",
     "Licences Microsoft A1 / A3 Éducation selon effectif · authentification Better-Auth.",
+    "Google Agenda : accès limité aux événements des agendas partagés pour les RDV d'inscription — voir la politique de confidentialité.",
   ],
 } as const;
 
@@ -303,7 +304,7 @@ export const RGPD_HIGHLIGHTS = {
 } as const;
 
 const TRUST_ITEMS = RGPD_COMPACT.bullets.map((detail, i) => ({
-  label: ["Vos données", "Stack française", "Microsoft & auth"][i] ?? "Confiance",
+  label: ["Vos données", "Stack française", "Microsoft & auth", "Google Agenda"][i] ?? "Confiance",
   detail,
 }));
 
