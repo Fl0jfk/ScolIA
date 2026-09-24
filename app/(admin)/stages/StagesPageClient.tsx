@@ -68,6 +68,7 @@ function StagesContent() {
     convention: StageConvention;
     studentLink: string | null;
     signLinks: Array<{ role: string; label: string; link: string; email?: string }>;
+    periodAlignment?: import("@/app/lib/stage-period-alignment").StagePeriodAlignment | null;
     eleveMatch?: {
       matchedEleve: {
         ine?: string;
@@ -188,6 +189,15 @@ function StagesContent() {
 
   async function adminReview(approved: boolean) {
     if (!detail) return;
+    if (
+      approved &&
+      detail.periodAlignment?.outside &&
+      !window.confirm(
+        `ATTENTION — ce stage est HORS PÉRIODE OFFICIELLE.\n\n${detail.periodAlignment.message}\n\nVoulez-vous vraiment valider et lancer les signatures malgré tout ?`,
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
@@ -322,7 +332,7 @@ function StagesContent() {
     if (
       approved &&
       !window.confirm(
-        "Valider cette modification ? Toutes les signatures (déjà déposées ou en attente) seront annulées et chaque signataire devra re-signer.",
+        "Appliquer cet avenant ? Si des signatures sont en cours ou déjà déposées, elles seront annulées et chaque signataire devra re-signer.",
       )
     ) {
       return;
@@ -342,14 +352,62 @@ function StagesContent() {
           ...detail,
           convention: data.convention,
           signLinks: data.signLinks ?? detail.signLinks,
+          periodAlignment: data.periodAlignment ?? detail.periodAlignment,
         });
       }
       setMsg(
         data.message ||
           (approved
-            ? "Horaires mis à jour — signatures réinitialisées."
-            : "Demande de modification refusée."),
+            ? "Avenant appliqué — signatures réinitialisées si nécessaire."
+            : "Demande d'avenant refusée."),
       );
+      await loadDetail(detail.convention.id);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function proposeAmendment(payload: {
+    schedule: import("@/app/lib/stage-types").StageSchedule;
+    note: string;
+    stagePeriodId?: string;
+    stageLabel?: string;
+  }) {
+    if (!detail) return;
+    if (
+      !window.confirm(
+        "Envoyer cette demande d'avenant aux parties (responsable légal, tuteur, direction, professeur référent) ?",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "propose_amendment",
+          schedule: payload.schedule,
+          note: payload.note,
+          stagePeriodId: payload.stagePeriodId,
+          stageLabel: payload.stageLabel,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      if (data.convention) {
+        setDetail({
+          ...detail,
+          convention: data.convention,
+          periodAlignment: data.periodAlignment ?? detail.periodAlignment,
+        });
+      }
+      setMsg(data.message || "Demande d'avenant envoyée.");
       await loadDetail(detail.convention.id);
       await load();
     } catch (e: unknown) {
@@ -668,6 +726,7 @@ function StagesContent() {
                 onFileToOneDrive={() => void fileToOneDrive()}
                 onReviewTutorEmailChange={(approved) => void reviewTutorEmailChange(approved)}
                 onReviewScheduleChange={(approved) => void reviewScheduleChange(approved)}
+                onProposeAmendment={(payload) => void proposeAmendment(payload)}
               />
             ) : null
           }

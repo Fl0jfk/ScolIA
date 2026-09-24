@@ -52,6 +52,7 @@ function kindBadgeClass(kind: string | null | undefined): string {
     case "Convention":
       return "bg-violet-100 text-violet-900 border-violet-200";
     case "Horaires":
+    case "Avenant":
       return "bg-amber-100 text-amber-950 border-amber-200";
     case "E-mail tuteur":
       return "bg-sky-100 text-sky-950 border-sky-200";
@@ -134,7 +135,7 @@ function BoardList({
             const kind = showDepositKind
               ? c.depositKind ||
                 (c.scheduleChangePending
-                  ? "Horaires"
+                  ? "Avenant"
                   : c.tutorEmailChangePending
                     ? "E-mail tuteur"
                     : "Stage")
@@ -357,7 +358,7 @@ export default function StagesBoardPanel({
             showDepositKind
             statusOverride={(c) =>
               c.scheduleChangePending
-                ? "Horaires à valider"
+                ? "Avenant à valider"
                 : c.tutorEmailChangePending
                   ? "E-mail tuteur à valider"
                   : null

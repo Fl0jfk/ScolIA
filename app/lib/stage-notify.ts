@@ -70,7 +70,7 @@ export async function notifyStagePreconventionSubmitted(convention: StageConvent
   return { sent: true, recipients };
 }
 
-/** Demande tuteur : modification période / jours / horaires à valider par l'administratif. */
+/** Alerte secrétariat : une demande d'avenant (dates / horaires) est en attente. */
 export async function notifyStageScheduleChangeRequested(convention: StageConvention) {
   const m = await mailer();
   if (!m) return { sent: false, reason: "smtp" as const };
@@ -86,14 +86,17 @@ export async function notifyStageScheduleChangeRequested(convention: StageConven
   const school = bundle.identity.shortName || bundle.identity.name;
   const prev = req?.previousSchedule;
   const next = req?.requestedSchedule;
+  const fromStaff = req?.source === "staff" || req?.requestedByRole === "secretariat";
   const text = [
     "Bonjour,",
     "",
-    `Le tuteur en entreprise demande une modification des dates / horaires de stage.`,
+    fromStaff
+      ? `Une demande d'avenant a été ouverte par l'établissement (dates / horaires de stage).`
+      : `Une demande d'avenant a été déposée via le lien de signature (dates / horaires de stage).`,
     "",
     `Élève : ${studentLabel(convention)} (${convention.student.className})`,
     `Entreprise : ${convention.company.name}`,
-    `Demandé par : ${req?.requestedByLabel || "Tuteur"}`,
+    `Demandé par : ${req?.requestedByLabel || "Signataire"}`,
     prev
       ? `Période actuelle : ${prev.periodStart} → ${prev.periodEnd}`
       : null,
@@ -102,7 +105,7 @@ export async function notifyStageScheduleChangeRequested(convention: StageConven
       : null,
     req?.note ? `Motif : ${req.note}` : null,
     "",
-    `Si vous validez, toutes les signatures en cours seront annulées et chaque signataire devra re-signer.`,
+    `Si vous appliquez l'avenant, le PDF est régénéré et — si des signatures étaient en cours — chaque signataire devra re-signer.`,
     `Connectez-vous à l'intranet → module Stages & conventions pour traiter la demande.`,
     "",
     "Cordialement,",
@@ -115,11 +118,124 @@ export async function notifyStageScheduleChangeRequested(convention: StageConven
     await m.transporter.sendMail({
       from: `"Stages ${school}" <${m.smtp.user}>`,
       to,
-      subject: `[Stages] Modification horaires demandée — ${studentLabel(convention)}`,
+      subject: `[Stages] Avenant dates/horaires — ${studentLabel(convention)}`,
       text,
     });
   }
   return { sent: true, recipients };
+}
+
+/**
+ * Informe les parties (via leurs liens de signature) qu'un avenant est proposé
+ * et qu'elles peuvent discuter / répondre sur le lien.
+ */
+export async function notifyStageAmendmentProposed(convention: StageConvention) {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" as const };
+
+  const req = convention.scheduleChangeRequest;
+  if (!req) return { sent: false, reason: "no_request" as const };
+
+  const bundle = await loadAppConfig();
+  const school = bundle.identity.shortName || bundle.identity.name;
+  const prev = req.previousSchedule;
+  const next = req.requestedSchedule;
+  let sentCount = 0;
+
+  for (const signature of convention.signatures) {
+    const to = signature.signEmail?.trim();
+    if (!to || !signature.signToken) continue;
+    if (signature.status === "refuse") continue;
+    const link = await signLink(signature.signToken);
+    const roleLabel = STAGE_SIGNER_ROLE_LABELS[signature.role];
+    const text = [
+      `Bonjour ${signature.label?.trim() || roleLabel},`,
+      "",
+      `Concernant la convention de stage de ${studentLabel(convention)} (${convention.student.className}) chez ${convention.company.name} :`,
+      "",
+      `Une demande d'avenant a été ouverte par ${req.requestedByLabel}.`,
+      `Période actuelle : ${prev.periodStart} → ${prev.periodEnd}`,
+      `Période proposée : ${next.periodStart} → ${next.periodEnd}`,
+      req.note ? `Motif : ${req.note}` : null,
+      "",
+      "Ouvrez votre lien sécurisé pour consulter la proposition, échanger dans le fil de discussion,",
+      "ou proposer d'autres dates si besoin :",
+      link,
+      "",
+      "Cordialement,",
+      school,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    try {
+      await m.transporter.sendMail({
+        from: `"Stages ${school}" <${m.smtp.user}>`,
+        to,
+        subject: `[Stages] Demande d'avenant — ${studentLabel(convention)}`,
+        text,
+      });
+      sentCount += 1;
+    } catch (err) {
+      console.error("[stages] amendment mail failed:", to, err);
+    }
+  }
+
+  return { sent: sentCount > 0, sentCount };
+}
+
+/** Notifie les autres participants du fil (via e-mail + lien) qu'un message a été posté. */
+export async function notifyStageDiscussionMessage(
+  convention: StageConvention,
+  message: { authorLabel: string; body: string; authorRole: string },
+) {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" as const };
+
+  const bundle = await loadAppConfig();
+  const school = bundle.identity.shortName || bundle.identity.name;
+  const snippet = message.body.length > 280 ? `${message.body.slice(0, 277)}…` : message.body;
+  let sentCount = 0;
+
+  for (const signature of convention.signatures) {
+    const to = signature.signEmail?.trim();
+    if (!to || !signature.signToken) continue;
+    if (signature.status === "refuse") continue;
+    // Ne pas renvoyer à l'auteur du message.
+    if (
+      signature.label?.trim().toLowerCase() === message.authorLabel.trim().toLowerCase() &&
+      signature.role === message.authorRole
+    ) {
+      continue;
+    }
+    const link = await signLink(signature.signToken);
+    const text = [
+      `Bonjour ${signature.label?.trim() || STAGE_SIGNER_ROLE_LABELS[signature.role]},`,
+      "",
+      `Nouveau message sur la convention de ${studentLabel(convention)} :`,
+      `${message.authorLabel} : ${snippet}`,
+      "",
+      "Répondre via le lien sécurisé :",
+      link,
+      "",
+      "Cordialement,",
+      school,
+    ].join("\n");
+
+    try {
+      await m.transporter.sendMail({
+        from: `"Stages ${school}" <${m.smtp.user}>`,
+        to,
+        subject: `[Stages] Message — ${studentLabel(convention)}`,
+        text,
+      });
+      sentCount += 1;
+    } catch (err) {
+      console.error("[stages] discussion mail failed:", to, err);
+    }
+  }
+
+  return { sent: sentCount > 0, sentCount };
 }
 
 export async function notifyStageConventionDeposited(convention: StageConvention) {
@@ -323,6 +439,9 @@ async function notifyStageSignatureRequest(
     "",
     "Pour signer la convention, ouvrez le lien sécurisé ci-dessous :",
     link,
+    "",
+    "Sur ce même lien, vous pouvez aussi demander un avenant (changement de dates ou d'horaires)",
+    "et échanger avec la direction, le responsable légal, le tuteur et le professeur référent.",
     "",
     "Cordialement,",
     school,

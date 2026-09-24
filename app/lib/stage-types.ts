@@ -142,6 +142,37 @@ export type StageSignatureStatus = "en_attente" | "signe" | "refuse";
 /** Mode de signature choisi par le signataire externe (parent, entreprise). */
 export type StageSignMethod = "code_confirm" | "touch" | "paper_upload";
 
+/** Message du mini-chat convention (lien signature / intranet). */
+export type StageDiscussionMessage = {
+  id: string;
+  at: string;
+  authorRole: StageSignerRole | "secretariat";
+  authorLabel: string;
+  body: string;
+};
+
+/** Rôles autorisés à participer au fil via le lien de signature. */
+export const STAGE_DISCUSSION_LINK_ROLES: StageSignerRole[] = [
+  "direction",
+  "parent",
+  "parent_2",
+  "tuteur_entreprise",
+  "rh_entreprise",
+  "professeur_referent",
+  "professeur_principal",
+];
+
+/** Rôles autorisés à demander un avenant via le lien de signature. */
+export const STAGE_AMENDMENT_LINK_ROLES: StageSignerRole[] = [
+  "direction",
+  "parent",
+  "parent_2",
+  "tuteur_entreprise",
+  "rh_entreprise",
+  "professeur_referent",
+  "professeur_principal",
+];
+
 /** Validation administrative d'une signature soumise. */
 export type StageSignatureReviewStatus = "pending" | "accepted" | "rejected";
 
@@ -293,16 +324,25 @@ export type StageConvention = {
     note?: string;
   };
   /**
-   * Demande tuteur (lien signature) de modification période / jours / horaires.
+   * Demande d'avenant (dates / jours / horaires) via lien signature ou secrétariat.
    * Appliquée seulement après validation administrative — invalide alors toutes les signatures.
    */
   scheduleChangeRequest?: {
     requestedSchedule: StageSchedule;
     previousSchedule: StageSchedule;
     requestedAt: string;
-    requestedByRole: StageSignerRole;
+    requestedByRole: StageSignerRole | "secretariat";
     requestedByLabel: string;
     note?: string;
+    /** Origine de la demande (école vs partie via lien). */
+    source?: "sign_link" | "staff";
+  };
+  /**
+   * Mini-fil de discussion (direction, RL, tuteur, prof référent, RH, secrétariat).
+   * Accessible uniquement via le lien de signature (ou intranet stages).
+   */
+  discussion?: {
+    messages: StageDiscussionMessage[];
   };
   adminReview?: {
     at: string;

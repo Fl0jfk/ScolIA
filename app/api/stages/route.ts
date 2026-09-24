@@ -49,7 +49,7 @@ function depositKindForConvention(c: {
   tutorEmailChangeRequest?: unknown;
   scheduleChangeRequest?: unknown;
 }): string {
-  if (c.scheduleChangeRequest) return "Horaires";
+  if (c.scheduleChangeRequest) return "Avenant";
   if (c.tutorEmailChangeRequest) return "E-mail tuteur";
   if (c.status === "convention_deposited") return "Convention";
   return "Stage";

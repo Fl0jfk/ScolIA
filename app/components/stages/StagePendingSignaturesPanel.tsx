@@ -1,6 +1,7 @@
 "use client";
 
 import type { PendingStageSignature } from "@/app/lib/stage-pending-signatures";
+import StageOutOfPeriodAlert from "@/app/components/stages/StageOutOfPeriodAlert";
 
 export default function StagePendingSignaturesPanel({
   items,
@@ -10,6 +11,8 @@ export default function StagePendingSignaturesPanel({
   hasStoredSignature?: boolean;
 }) {
   if (!items.length) return null;
+
+  const hasOutside = items.some((i) => i.outsideOfficialPeriod);
 
   return (
     <section className="mb-6 rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 shadow-sm">
@@ -34,11 +37,37 @@ export default function StagePendingSignaturesPanel({
         </span>
       </div>
 
+      {hasOutside ? (
+        <div className="mt-4">
+          <StageOutOfPeriodAlert
+            alignment={{
+              status: "outside",
+              outside: true,
+              className: "",
+              scheduleStart: "",
+              scheduleEnd: "",
+              scheduleLabel: "voir détail ci-dessous",
+              officialPeriods: [],
+              referencePeriod: null,
+              daysFullyOutside: 0,
+              daysOutsideReference: 0,
+              message:
+                "Au moins une convention à signer est hors des périodes officielles de stage. Vérifiez les dates avant de parapher.",
+              shortMessage: "HORS PÉRIODE OFFICIELLE",
+            }}
+          />
+        </div>
+      ) : null}
+
       <ul className="mt-4 space-y-3">
         {items.map((item) => (
           <li
             key={`${item.conventionId}-${item.signatureId}`}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white px-4 py-3"
+            className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 ${
+              item.outsideOfficialPeriod
+                ? "border-4 border-rose-600 bg-rose-50"
+                : "border-amber-200 bg-white"
+            }`}
           >
             <div className="text-sm">
               <p className="font-bold text-[#1F3D2B]">
@@ -49,12 +78,33 @@ export default function StagePendingSignaturesPanel({
                 {item.companyName} · {item.periodStart} → {item.periodEnd}
               </p>
               <p className="text-xs text-stone-500 mt-0.5">En tant que {item.roleLabel}</p>
+              {item.outsideOfficialPeriod ? (
+                <StageOutOfPeriodAlert
+                  compact
+                  alignment={{
+                    status: "outside",
+                    outside: true,
+                    className: item.className,
+                    scheduleStart: item.periodStart,
+                    scheduleEnd: item.periodEnd,
+                    scheduleLabel: `${item.periodStart} → ${item.periodEnd}`,
+                    officialPeriods: [],
+                    referencePeriod: null,
+                    daysFullyOutside: 0,
+                    daysOutsideReference: 0,
+                    message: item.outsideOfficialPeriodMessage || "Hors période officielle",
+                    shortMessage: item.outsideOfficialPeriodMessage || "HORS PÉRIODE OFFICIELLE",
+                  }}
+                />
+              ) : null}
             </div>
             <a
               href={item.signLink}
-              className="shrink-0 rounded-lg bg-[#2F6B4A] px-4 py-2 text-sm font-bold text-white hover:bg-[#255a3d]"
+              className={`shrink-0 rounded-lg px-4 py-2 text-sm font-bold text-white hover:opacity-90 ${
+                item.outsideOfficialPeriod ? "bg-rose-700" : "bg-[#2F6B4A] hover:bg-[#255a3d]"
+              }`}
             >
-              Signer maintenant
+              {item.outsideOfficialPeriod ? "Vérifier puis signer" : "Signer maintenant"}
             </a>
           </li>
         ))}
