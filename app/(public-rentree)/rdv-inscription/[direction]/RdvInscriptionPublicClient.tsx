@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
 import { parisDateKey, parseParisDateTime } from "@/app/lib/paris-time";
 import { RDV_BOOK_CONFIRM_PHRASE } from "@/app/lib/rdv-inscription-types";
+import {
+  RDV_INSCRIPTION_REGIME_OPTIONS,
+  type RdvInscriptionRegime,
+} from "@/app/lib/rdv-inscription-gcal-format";
 
 export type PublicRdvSlot = {
   eventId: string;
@@ -149,6 +153,7 @@ export default function RdvInscriptionPublicClient({
   const [parentLastName, setParentLastName] = useState("");
   const [rdvAttendee, setRdvAttendee] = useState<"madame" | "monsieur" | "les_deux" | "">("");
   const [niveauId, setNiveauId] = useState(levels[0]?.id || "");
+  const [regime, setRegime] = useState<RdvInscriptionRegime | "">("");
   const [emailChildren, setEmailChildren] = useState<MatchCandidate[]>([]);
   const [candidates, setCandidates] = useState<MatchCandidate[] | null>(null);
   const [emailLinked, setEmailLinked] = useState(false);
@@ -188,6 +193,7 @@ export default function RdvInscriptionPublicClient({
       startAt: string;
       endAt: string;
       niveauLabel: string | null;
+      regime?: string | null;
     }>
   >([]);
   const [existingBusy, setExistingBusy] = useState(false);
@@ -506,6 +512,7 @@ export default function RdvInscriptionPublicClient({
           startAt: string;
           endAt: string;
           niveauLabel: string | null;
+          regime?: string | null;
         }>;
         booking?: {
           id: string;
@@ -513,6 +520,7 @@ export default function RdvInscriptionPublicClient({
           startAt: string;
           endAt: string;
           niveauLabel: string | null;
+          regime?: string | null;
         } | null;
         error?: string;
       };
@@ -712,6 +720,10 @@ export default function RdvInscriptionPublicClient({
       setFormError("Choisissez le niveau demandé.");
       return;
     }
+    if (regime !== "DP" && regime !== "EXT" && regime !== "INT") {
+      setFormError("Indiquez le régime demandé (externe, demi-pension ou interne).");
+      return;
+    }
     if (!eventId) {
       setFormError("Choisissez un créneau.");
       return;
@@ -739,6 +751,7 @@ export default function RdvInscriptionPublicClient({
           parentLastName,
           rdvAttendee: showAttendeeChoice ? rdvAttendee || null : null,
           niveauId,
+          regime,
           eleveId: matchChoice.id,
           createNew: false,
           studentDateNaissance: studentDateNaissance.trim() || null,
@@ -1411,7 +1424,7 @@ export default function RdvInscriptionPublicClient({
 
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
               <h2 className="text-sm font-bold uppercase tracking-wide text-slate-500">
-                5 · Niveau demandé
+                5 · Niveau et régime
               </h2>
               <label className="mt-4 block text-sm">
                 <span className="font-semibold text-slate-800">Classe / formation</span>
@@ -1429,6 +1442,28 @@ export default function RdvInscriptionPublicClient({
                   ))}
                 </select>
               </label>
+              <fieldset className="mt-4" disabled={!matchReady}>
+                <legend className="text-sm font-semibold text-slate-800">Régime demandé</legend>
+                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                  {RDV_INSCRIPTION_REGIME_OPTIONS.map((opt) => {
+                    const selected = regime === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setRegime(opt.value)}
+                        className={
+                          selected
+                            ? "rounded-xl border-2 border-sky-600 bg-sky-50 px-3 py-2.5 text-left text-sm font-bold text-sky-900"
+                            : "rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-sm font-semibold text-slate-700 hover:border-slate-300"
+                        }
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
             </section>
 
             <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/80 sm:p-6">
@@ -1465,6 +1500,7 @@ export default function RdvInscriptionPublicClient({
                       <li key={b.id}>
                         {formatSlotRange(b.startAt, b.endAt)}
                         {b.niveauLabel ? ` · ${b.niveauLabel}` : ""}
+                        {b.regime ? ` · ${b.regime}` : ""}
                         {b.status === "pending" ? " (en attente de validation)" : ""}
                       </li>
                     ))}
@@ -1674,6 +1710,7 @@ export default function RdvInscriptionPublicClient({
                   !eventId ||
                   !origineSelected ||
                   !hasPap ||
+                  !regime ||
                   !parentFirstName.trim() ||
                   !parentLastName.trim() ||
                   (showAttendeeChoice && !rdvAttendee) ||

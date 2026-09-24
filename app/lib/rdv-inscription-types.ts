@@ -55,6 +55,9 @@ export type RdvInscriptionMatchStatus = "confirmed" | "created";
 
 export type RdvInscriptionReconfirmStatus = "pending" | "ok" | "cancelled";
 
+/** Codes régime demandés par le parent (titre Google Agenda). */
+export type RdvInscriptionRegime = "DP" | "EXT" | "INT";
+
 export type RdvInscriptionBookingRow = {
   id: string;
   directionId: string;
@@ -76,6 +79,8 @@ export type RdvInscriptionBookingRow = {
   rdvAttendee: "madame" | "monsieur" | "les_deux" | null;
   niveauId: string | null;
   niveauLabel: string | null;
+  /** DP | EXT | INT — null sur les anciens bookings. */
+  regime: RdvInscriptionRegime | null;
   eleveId: string | null;
   matchStatus: RdvInscriptionMatchStatus | null;
   createNew: boolean;
@@ -113,6 +118,8 @@ export type RdvInscriptionBookInput = {
   /** madame | monsieur | les_deux */
   rdvAttendee?: "madame" | "monsieur" | "les_deux";
   niveauId: string;
+  /** DP | EXT | INT */
+  regime?: RdvInscriptionRegime;
   /** Élève confirmé par le parent (matching interactif). */
   eleveId?: string | null;
   /** Création d’un nouveau préinscrit à la validation e-mail. */

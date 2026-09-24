@@ -684,6 +684,17 @@ export async function bookPublicRdvInscription(
   if (!niveauMeta) {
     return { ok: false, status: 400, error: "Niveau inconnu." };
   }
+  const regimeRaw = String(input.regime || "")
+    .trim()
+    .toUpperCase();
+  if (regimeRaw !== "DP" && regimeRaw !== "EXT" && regimeRaw !== "INT") {
+    return {
+      ok: false,
+      status: 400,
+      error: "Indiquez le régime demandé (externe, demi-pension ou interne).",
+    };
+  }
+  const regime = regimeRaw;
   if (createNew) {
     return {
       ok: false,
@@ -816,6 +827,7 @@ export async function bookPublicRdvInscription(
       rdvAttendee,
       niveauId: niveauMeta.id,
       niveauLabel: niveauMeta.label,
+      regime,
       eleveId,
       createNew,
       hasPap,
@@ -981,6 +993,7 @@ async function finalizeRdvInscriptionBookingConfirmation(
     parentLastName: found.parentLastName,
     rdvAttendee: found.rdvAttendee,
     niveauLabel: found.niveauLabel,
+    regime: found.regime,
     dossierInscriptionUrl,
     hasPap: found.hasPap,
     papBringToRdv: found.papBringToRdv,

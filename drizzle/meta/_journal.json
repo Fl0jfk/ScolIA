@@ -365,6 +365,13 @@
       "when": 1787690000000,
       "tag": "0051_absence_message",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1787695000000,
+      "tag": "0052_rdv_inscription_regime",
+      "breakpoints": true
     }
   ]
 }

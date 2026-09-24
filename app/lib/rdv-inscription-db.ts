@@ -109,6 +109,8 @@ function mapBooking(row: typeof rdvInscriptionBooking.$inferSelect): RdvInscript
         : null,
     niveauId: row.niveauId,
     niveauLabel: row.niveauLabel,
+    regime:
+      row.regime === "DP" || row.regime === "EXT" || row.regime === "INT" ? row.regime : null,
     eleveId: row.eleveId,
     matchStatus,
     createNew: row.createNew === 1,
@@ -517,6 +519,7 @@ export async function insertRdvInscriptionBooking(input: {
   rdvAttendee?: "madame" | "monsieur" | "les_deux" | null;
   niveauId?: string | null;
   niveauLabel?: string | null;
+  regime?: "DP" | "EXT" | "INT" | null;
   eleveId?: string | null;
   createNew?: boolean;
   hasPap?: "yes" | "no" | null;
@@ -562,6 +565,10 @@ export async function insertRdvInscriptionBooking(input: {
         : null,
     niveauId: input.niveauId?.trim() || null,
     niveauLabel: input.niveauLabel?.trim() || null,
+    regime:
+      input.regime === "DP" || input.regime === "EXT" || input.regime === "INT"
+        ? input.regime
+        : null,
     eleveId: input.eleveId?.trim() || null,
     createNew: input.createNew ? 1 : 0,
     hasPap: input.hasPap === "yes" || input.hasPap === "no" ? input.hasPap : null,

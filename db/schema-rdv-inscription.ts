@@ -133,6 +133,8 @@ export const rdvInscriptionBooking = pgTable(
     /** Niveau demandé (InscriptionLevelId). */
     niveauId: text("niveau_id"),
     niveauLabel: text("niveau_label"),
+    /** Régime demandé : DP | EXT | INT. */
+    regime: text("regime"),
     /** Élève rattaché (confirmé ou créé à la validation e-mail). */
     eleveId: uuid("eleve_id"),
     /** confirmed = élève existant choisi | created = préinscrit créé */

@@ -3,7 +3,7 @@ import "server-only";
 import { buildCalendarEventIcs } from "@/app/lib/calendar-ics";
 import { escapeHtml } from "@/app/lib/escape-html";
 import { buildRdvInscriptionIcsLocation } from "@/app/lib/rdv-inscription-contact";
-import { formatRdvAttendeeLabel } from "@/app/lib/rdv-inscription-gcal-format";
+import { buildRdvInscriptionGcalSummary, formatRdvAttendeeLabel } from "@/app/lib/rdv-inscription-gcal-format";
 import type {
   RdvInscriptionBookingRow,
   RdvInscriptionDirectionPageSettings,
@@ -121,9 +121,12 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
   const parentName = parentDisplayName(opts.booking);
   const presentLabel = formatRdvAttendeeLabel(opts.booking.rdvAttendee);
   const mailTitle = `${opts.page.title} — ${opts.directionLabel}`;
-  const gcalTitle = `RDV inscription — ${opts.booking.studentLastName.trim().toUpperCase()} ${opts.booking.studentFirstName.trim()}${
-    opts.booking.niveauLabel?.trim() ? ` — ${opts.booking.niveauLabel.trim()}` : ""
-  }`;
+  const gcalTitle = buildRdvInscriptionGcalSummary({
+    studentLastName: opts.booking.studentLastName,
+    studentFirstName: opts.booking.studentFirstName,
+    niveauLabel: opts.booking.niveauLabel,
+    regime: opts.booking.regime,
+  });
 
   const ics = buildCalendarEventIcs({
     title: gcalTitle,
@@ -132,6 +135,7 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
       opts.directriceName ? `Avec : ${opts.directriceName}` : "",
       `Élève : ${student}`,
       opts.booking.niveauLabel ? `Niveau demandé : ${opts.booking.niveauLabel}` : "",
+      opts.booking.regime ? `Régime : ${opts.booking.regime}` : "",
       parentName ? `Parent : ${parentName}` : "",
       presentLabel ? `Présent au RDV : ${presentLabel}` : "",
       // Téléphone : uniquement dans LOCATION (icsLocation), pas dans la description.
@@ -217,6 +221,11 @@ export async function sendRdvInscriptionConfirmationMails(opts: {
             ${
               opts.booking.niveauLabel
                 ? `<li><strong>Niveau demandé :</strong> ${escapeHtml(opts.booking.niveauLabel)}</li>`
+                : ""
+            }
+            ${
+              opts.booking.regime
+                ? `<li><strong>Régime :</strong> ${escapeHtml(opts.booking.regime)}</li>`
                 : ""
             }
             ${

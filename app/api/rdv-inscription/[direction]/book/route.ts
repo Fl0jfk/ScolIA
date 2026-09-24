@@ -63,6 +63,12 @@ export async function POST(req: Request, ctx: Ctx) {
         ? attendeeRaw
         : undefined;
 
+    const regimeRaw = String(body.regime || "")
+      .trim()
+      .toUpperCase();
+    const regime =
+      regimeRaw === "DP" || regimeRaw === "EXT" || regimeRaw === "INT" ? regimeRaw : undefined;
+
     const result = await bookPublicRdvInscription(slug, {
       eventId: String(body.eventId || "").trim(),
       studentFirstName: String(body.studentFirstName || "").trim(),
@@ -73,6 +79,7 @@ export async function POST(req: Request, ctx: Ctx) {
       parentLastName: String(body.parentLastName || "").trim() || undefined,
       rdvAttendee,
       niveauId: String(body.niveauId || "").trim(),
+      regime,
       eleveId: body.eleveId ? String(body.eleveId).trim() : null,
       createNew: body.createNew === true || body.createNew === "true" || body.createNew === 1,
       studentDateNaissance: body.studentDateNaissance

@@ -778,7 +778,13 @@ export default function RdvInscriptionAdminClient() {
                               <br />
                               <span className="text-xs text-slate-500">
                                 Niveau demandé : {b.niveauLabel}
+                                {b.regime ? ` · ${b.regime}` : ""}
                               </span>
+                            </>
+                          ) : b.regime ? (
+                            <>
+                              <br />
+                              <span className="text-xs text-slate-500">Régime : {b.regime}</span>
                             </>
                           ) : null}
                         </td>

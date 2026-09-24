@@ -19,6 +19,7 @@ function mapPublicBooking(b: {
   studentFirstName: string;
   studentLastName: string;
   niveauLabel: string | null;
+  regime: string | null;
   createdAt: string;
   confirmedAt: string | null;
 }) {
@@ -30,6 +31,7 @@ function mapPublicBooking(b: {
     studentFirstName: b.studentFirstName,
     studentLastName: b.studentLastName,
     niveauLabel: b.niveauLabel,
+    regime: b.regime,
     createdAt: b.createdAt,
     confirmedAt: b.confirmedAt,
   };

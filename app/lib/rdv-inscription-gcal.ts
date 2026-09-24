@@ -354,6 +354,7 @@ export async function confirmInscriptionCalendarEvent(opts: {
   parentLastName?: string | null;
   rdvAttendee?: "madame" | "monsieur" | "les_deux" | null;
   niveauLabel?: string | null;
+  regime?: "DP" | "EXT" | "INT" | string | null;
   dossierInscriptionUrl?: string | null;
   hasPap?: "yes" | "no" | null;
   papBringToRdv?: boolean;
@@ -407,14 +408,21 @@ export async function confirmInscriptionCalendarEvent(opts: {
     studentLastName: opts.studentLastName,
     studentFirstName: opts.studentFirstName,
     niveauLabel: opts.niveauLabel,
+    regime: opts.regime,
   });
   const parentName = [opts.parentFirstName?.trim(), opts.parentLastName?.trim()]
     .filter(Boolean)
     .join(" ");
   const presentLabel = formatRdvAttendeeLabel(opts.rdvAttendee);
+  const regimeCode = String(opts.regime || "")
+    .trim()
+    .toUpperCase();
   const descriptionLines = [
     `Élève : ${opts.studentFirstName.trim()} ${opts.studentLastName.trim()}`,
     opts.niveauLabel?.trim() ? `Niveau demandé : ${opts.niveauLabel.trim()}` : "",
+    regimeCode === "DP" || regimeCode === "EXT" || regimeCode === "INT"
+      ? `Régime : ${regimeCode}`
+      : "",
     opts.etablissementOrigineLabel?.trim()
       ? `Établissement d’origine : ${opts.etablissementOrigineLabel.trim()}`
       : "",
